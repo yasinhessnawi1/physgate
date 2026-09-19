@@ -1,0 +1,8 @@
+{
+  "impl": "openpersona",
+  "seed": 3,
+  "consistent": false,
+  "error": "2026-09-20 01:22:09.791 | INFO     | persona.stores.chroma:__init__:66 - ChromaBackend ready path=/Users/yasinhessnawi/dev/physgate/experiments/R-OP-01/runs/openpersona/crash3/chroma\n2026-09-20 01:22:09.791 | INFO     | stores.chroma | ChromaBackend ready path=/Users/yasinhessnawi/dev/physgate/experiments/R-OP-01/runs/openpersona/crash3/chroma | path=/Users/yasinhessnawi/dev/physgate/experiments/R-OP-01/runs/openpersona/crash3/chroma\nTraceback (most recent call last):\n  File \"/Users/yasinhessnawi/dev/physgate/experiments/R-OP-01/src/crash_verify.py\", line 117, in <module>\n    main()\n  File \"/Users/yasinhessnawi/dev/physgate/experiments/R-OP-01/src/crash_verify.py\", line 83, in main\n    got = set(store.history(node_id))\n              ^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/yasinhessnawi/dev/physgate/experiments/R-OP-01/src/openpersona_store.py\", line 220, in history\n    chain = self._store.history(PERSONA_ID, node_id)\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/yasinhessnawi/dev/Open-Persona/packages/core/src/persona/stores/base.py\", line 308, in history\n    validate_chain(chain)\n  File \"/Users/yasinhessnawi/dev/Open-Persona/packages/core/src/persona/stores/versioning.py\", line 161, in validate_chain\n    raise BrokenVersionChainError(\npersona.errors.BrokenVersionChainError: tail version must have superseded_by=None [logical_id=firmware.node013 tail_id=firmware.node013::v0002 got=firmware.node013::v0003]\n",
+  "killed_mid_write": true,
+  "kill_delay_s": 0.356
+}

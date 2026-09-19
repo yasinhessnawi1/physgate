@@ -1,0 +1,58 @@
+{
+  "seed": 3,
+  "wall_s": 5.188,
+  "deepest_node": "electrical.node106",
+  "closure_size": 173,
+  "workload_counts": {
+    "nodes": 200,
+    "interface_nodes": 50,
+    "creates": 200,
+    "writes": 1000,
+    "cross_role_writes": 150,
+    "missing_unit_writes": 50,
+    "interface_writes": 20,
+    "legal_writes": 780,
+    "writes_on_high_degree_nodes": 647,
+    "rollbacks": 30,
+    "deepest_closure_size": 173
+  },
+  "c1": {
+    "cross_role_attempted": 150,
+    "cross_role_rejected": 150,
+    "interface_attempted": 20,
+    "interface_rejected": 20,
+    "missing_unit_attempted": 50,
+    "missing_unit_rejected": 50,
+    "legal_attempted": 780,
+    "legal_accepted": 780,
+    "creates_attempted": 200,
+    "creates_accepted": 200,
+    "rollbacks_attempted": 30,
+    "rollbacks_completed": 30,
+    "rejected_writes_that_mutated_the_graph": 0,
+    "wrong_rejection_reason": 0
+  },
+  "c2_diff_ms": {
+    "p50": 0.07570799789391458,
+    "p95": 0.4935830074828118,
+    "n": 1000
+  },
+  "c3_traverse_ms": {
+    "p50": 19.10058299836237,
+    "p95": 48.93566599639598,
+    "n": 100
+  },
+  "write_ms": {
+    "p50": 0.7997500069905072,
+    "p95": 7.872875008615665,
+    "n": 1200
+  },
+  "rollback_ms": {
+    "p50": 1.6449170070700347,
+    "p95": 7.275999989360571,
+    "n": 30
+  },
+  "failures": [],
+  "failure_count": 0,
+  "impl": "baseline"
+}

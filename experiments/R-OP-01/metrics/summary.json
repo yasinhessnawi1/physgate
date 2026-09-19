@@ -1,0 +1,399 @@
+{
+  "impls": {
+    "baseline": {
+      "c1_totals_over_5_seeds": {
+        "cross_role_attempted": 750,
+        "cross_role_rejected": 750,
+        "interface_attempted": 100,
+        "interface_rejected": 100,
+        "missing_unit_attempted": 250,
+        "missing_unit_rejected": 250,
+        "legal_attempted": 3900,
+        "legal_accepted": 3900,
+        "creates_attempted": 1000,
+        "creates_accepted": 1000,
+        "rollbacks_attempted": 150,
+        "rollbacks_completed": 150,
+        "rejected_writes_that_mutated_the_graph": 0,
+        "wrong_rejection_reason": 0
+      },
+      "c1_failure_count": 0,
+      "c1_perfect": true,
+      "c2_diff_p50_ms": {
+        "mean": 0.0704,
+        "sd": 0.0138,
+        "per_seed": [
+          0.0894,
+          0.0722,
+          0.0757,
+          0.0603,
+          0.0542
+        ]
+      },
+      "c2_diff_p95_ms": {
+        "mean": 0.4268,
+        "sd": 0.1566,
+        "per_seed": [
+          0.5997,
+          0.515,
+          0.4936,
+          0.2967,
+          0.2291
+        ]
+      },
+      "c3_traverse_p50_ms": {
+        "mean": 17.8453,
+        "sd": 6.2104,
+        "per_seed": [
+          27.2166,
+          18.1791,
+          19.1006,
+          13.8989,
+          10.8314
+        ]
+      },
+      "c3_traverse_p95_ms": {
+        "mean": 45.606,
+        "sd": 18.1261,
+        "per_seed": [
+          65.4119,
+          58.5476,
+          48.9357,
+          34.3717,
+          20.7632
+        ]
+      },
+      "write_p50_ms": {
+        "mean": 0.8032,
+        "sd": 0.1417,
+        "per_seed": [
+          1.0394,
+          0.7725,
+          0.7998,
+          0.7421,
+          0.6624
+        ]
+      },
+      "write_p95_ms": {
+        "mean": 6.9956,
+        "sd": 1.843,
+        "per_seed": [
+          8.0499,
+          8.9807,
+          7.8729,
+          4.8187,
+          5.2559
+        ]
+      },
+      "rollback_p50_ms": {
+        "mean": 1.2044,
+        "sd": 0.4598,
+        "per_seed": [
+          1.7589,
+          0.8059,
+          1.6449,
+          0.9668,
+          0.8452
+        ]
+      },
+      "wall_s": {
+        "mean": 5.2446,
+        "sd": 1.1257,
+        "per_seed": [
+          6.338,
+          6.173,
+          5.188,
+          4.996,
+          3.528
+        ]
+      },
+      "c4_consistent_seeds": 5,
+      "c4_open_and_recover_ms": {
+        "mean": 122.3532,
+        "sd": 57.1396,
+        "per_seed": [
+          73.68,
+          163.592,
+          201.853,
+          92.365,
+          80.276
+        ]
+      },
+      "c4_verify_ms": {
+        "mean": 39.8958,
+        "sd": 10.2148,
+        "per_seed": [
+          33.088,
+          32.514,
+          56.777,
+          42.287,
+          34.813
+        ]
+      },
+      "c4_acknowledged_ops": {
+        "mean": 542.2,
+        "sd": 126.2921,
+        "per_seed": [
+          532.0,
+          491.0,
+          366.0,
+          691.0,
+          631.0
+        ]
+      },
+      "c4_aborted_seeds": [],
+      "c4_lost_after_last_ack": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "c4_unacknowledged_extra": [
+        0,
+        1,
+        1,
+        0,
+        1
+      ],
+      "c4_problems": []
+    },
+    "openpersona": {
+      "c1_totals_over_5_seeds": {
+        "cross_role_attempted": 750,
+        "cross_role_rejected": 750,
+        "interface_attempted": 100,
+        "interface_rejected": 100,
+        "missing_unit_attempted": 250,
+        "missing_unit_rejected": 250,
+        "legal_attempted": 3900,
+        "legal_accepted": 3900,
+        "creates_attempted": 1000,
+        "creates_accepted": 1000,
+        "rollbacks_attempted": 150,
+        "rollbacks_completed": 150,
+        "rejected_writes_that_mutated_the_graph": 0,
+        "wrong_rejection_reason": 0
+      },
+      "c1_failure_count": 0,
+      "c1_perfect": true,
+      "c2_diff_p50_ms": {
+        "mean": 111.6257,
+        "sd": 17.8733,
+        "per_seed": [
+          136.6966,
+          116.0588,
+          91.7435,
+          116.5107,
+          97.1189
+        ]
+      },
+      "c2_diff_p95_ms": {
+        "mean": 332.8937,
+        "sd": 55.1678,
+        "per_seed": [
+          417.0865,
+          356.1573,
+          314.3738,
+          299.5264,
+          277.3243
+        ]
+      },
+      "c3_traverse_p50_ms": {
+        "mean": 188.4239,
+        "sd": 51.6145,
+        "per_seed": [
+          273.1452,
+          194.4999,
+          151.0962,
+          179.2782,
+          144.0998
+        ]
+      },
+      "c3_traverse_p95_ms": {
+        "mean": 444.7378,
+        "sd": 186.1252,
+        "per_seed": [
+          758.8357,
+          437.2124,
+          392.1122,
+          366.9694,
+          268.5594
+        ]
+      },
+      "write_p50_ms": {
+        "mean": 200.5816,
+        "sd": 31.9045,
+        "per_seed": [
+          245.6713,
+          221.1686,
+          168.9843,
+          187.761,
+          179.323
+        ]
+      },
+      "write_p95_ms": {
+        "mean": 510.4372,
+        "sd": 141.8186,
+        "per_seed": [
+          761.0426,
+          482.2948,
+          429.5787,
+          451.6974,
+          427.5726
+        ]
+      },
+      "rollback_p50_ms": {
+        "mean": 454.9007,
+        "sd": 123.6536,
+        "per_seed": [
+          653.1135,
+          461.3921,
+          335.6565,
+          456.6652,
+          367.6764
+        ]
+      },
+      "wall_s": {
+        "mean": 563.0972,
+        "sd": 137.0392,
+        "per_seed": [
+          780.226,
+          582.572,
+          442.289,
+          561.306,
+          449.093
+        ]
+      },
+      "c4_consistent_seeds": 2,
+      "c4_open_and_recover_ms": {
+        "mean": 3665.0705,
+        "sd": 430.1677,
+        "per_seed": [
+          3360.896,
+          3969.245
+        ]
+      },
+      "c4_verify_ms": {
+        "mean": 15302.026,
+        "sd": 4592.0052,
+        "per_seed": [
+          12054.988,
+          18549.064
+        ]
+      },
+      "c4_acknowledged_ops": {
+        "mean": 251.0,
+        "sd": 0.0,
+        "per_seed": [
+          251.0,
+          251.0
+        ]
+      },
+      "c4_aborted_seeds": [
+        1,
+        2,
+        3
+      ],
+      "c4_lost_after_last_ack": [
+        null,
+        null,
+        null,
+        0,
+        0
+      ],
+      "c4_unacknowledged_extra": [
+        null,
+        null,
+        null,
+        0,
+        0
+      ],
+      "c4_problems": []
+    }
+  },
+  "ratios_openpersona_over_baseline": {
+    "c2_diff_p95": 779.98,
+    "c3_traverse_p95": 9.75,
+    "write_p50": 249.73
+  },
+  "c5": {
+    "C5a_baseline": {
+      "file": "baseline_store.py",
+      "counted_lines": 182,
+      "adapter_lines": 0,
+      "by_tag": {}
+    },
+    "C5b_openpersona": {
+      "file": "openpersona_store.py",
+      "counted_lines": 182,
+      "adapter_lines": 87,
+      "by_tag": {
+        "revision": 30,
+        "marshal": 5,
+        "rollback": 4,
+        "diff": 11,
+        "traverse": 19,
+        "point_read": 18
+      }
+    },
+    "shared": [
+      {
+        "file": "protocol.py",
+        "counted_lines": 61,
+        "adapter_lines": 0,
+        "by_tag": {}
+      },
+      {
+        "file": "generator.py",
+        "counted_lines": 218,
+        "adapter_lines": 0,
+        "by_tag": {}
+      },
+      {
+        "file": "harness.py",
+        "counted_lines": 158,
+        "adapter_lines": 0,
+        "by_tag": {}
+      },
+      {
+        "file": "stores.py",
+        "counted_lines": 15,
+        "adapter_lines": 0,
+        "by_tag": {}
+      },
+      {
+        "file": "crash_child.py",
+        "counted_lines": 37,
+        "adapter_lines": 0,
+        "by_tag": {}
+      },
+      {
+        "file": "crash_verify.py",
+        "counted_lines": 91,
+        "adapter_lines": 0,
+        "by_tag": {}
+      },
+      {
+        "file": "run.py",
+        "counted_lines": 98,
+        "adapter_lines": 0,
+        "by_tag": {}
+      },
+      {
+        "file": "loc.py",
+        "counted_lines": 44,
+        "adapter_lines": 0,
+        "by_tag": {}
+      },
+      {
+        "file": "aggregate.py",
+        "counted_lines": 73,
+        "adapter_lines": 0,
+        "by_tag": {}
+      }
+    ],
+    "C5c_adapter_lines": 87,
+    "shared_total": 795
+  }
+}

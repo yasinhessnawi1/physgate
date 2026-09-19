@@ -1,0 +1,58 @@
+{
+  "seed": 5,
+  "wall_s": 449.093,
+  "deepest_node": "mechanical.node035",
+  "closure_size": 166,
+  "workload_counts": {
+    "nodes": 200,
+    "interface_nodes": 50,
+    "creates": 200,
+    "writes": 1000,
+    "cross_role_writes": 150,
+    "missing_unit_writes": 50,
+    "interface_writes": 20,
+    "legal_writes": 780,
+    "writes_on_high_degree_nodes": 635,
+    "rollbacks": 30,
+    "deepest_closure_size": 166
+  },
+  "c1": {
+    "cross_role_attempted": 150,
+    "cross_role_rejected": 150,
+    "interface_attempted": 20,
+    "interface_rejected": 20,
+    "missing_unit_attempted": 50,
+    "missing_unit_rejected": 50,
+    "legal_attempted": 780,
+    "legal_accepted": 780,
+    "creates_attempted": 200,
+    "creates_accepted": 200,
+    "rollbacks_attempted": 30,
+    "rollbacks_completed": 30,
+    "rejected_writes_that_mutated_the_graph": 0,
+    "wrong_rejection_reason": 0
+  },
+  "c2_diff_ms": {
+    "p50": 97.11891700862907,
+    "p95": 277.324333001161,
+    "n": 1000
+  },
+  "c3_traverse_ms": {
+    "p50": 144.09983399673365,
+    "p95": 268.5593749920372,
+    "n": 100
+  },
+  "write_ms": {
+    "p50": 179.3229579925537,
+    "p95": 427.5725840125233,
+    "n": 1200
+  },
+  "rollback_ms": {
+    "p50": 367.6764169940725,
+    "p95": 539.1542089928407,
+    "n": 30
+  },
+  "failures": [],
+  "failure_count": 0,
+  "impl": "openpersona"
+}

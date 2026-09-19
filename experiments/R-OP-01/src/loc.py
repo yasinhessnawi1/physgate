@@ -42,7 +42,7 @@ if __name__ == "__main__":
         "shared": [
             counts(HERE / n)
             for n in ("protocol.py", "generator.py", "harness.py", "stores.py",
-                      "crash_child.py", "crash_verify.py", "run.py", "loc.py")
+                      "crash_child.py", "crash_verify.py", "run.py", "loc.py", "aggregate.py")
         ],
     }
     report["C5c_adapter_lines"] = report["C5b_openpersona"]["adapter_lines"]
