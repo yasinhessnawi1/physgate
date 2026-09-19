@@ -1,0 +1,6 @@
+# Private working docs, same sensitivity tier as .env.
+.docs/
+
+.venv/
+__pycache__/
+*.pyc
