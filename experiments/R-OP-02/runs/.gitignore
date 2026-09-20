@@ -1,0 +1,3 @@
+# Store working directories are rebuilt by run.py; only metrics are committed.
+*
+!.gitignore

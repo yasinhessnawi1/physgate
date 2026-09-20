@@ -1,0 +1,18 @@
+{
+  "impl": "openpersona-hash",
+  "seed": 3,
+  "acknowledged_ops": 260,
+  "consistent": true,
+  "opened": true,
+  "open_and_recover_ms": 1917.035,
+  "verify_ms": 585.737,
+  "head_revision": 242,
+  "last_acknowledged_revision": 241,
+  "lost_after_last_ack": 0,
+  "unacknowledged_extra": 1,
+  "nodes_checked": 200,
+  "problems": [],
+  "problem_count": 0,
+  "killed_mid_write": true,
+  "kill_delay_s": 0.356
+}

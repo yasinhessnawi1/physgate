@@ -1,0 +1,18 @@
+{
+  "impl": "openpersona-st",
+  "seed": 5,
+  "acknowledged_ops": 254,
+  "consistent": true,
+  "opened": true,
+  "open_and_recover_ms": 1428.243,
+  "verify_ms": 429.448,
+  "head_revision": 248,
+  "last_acknowledged_revision": 248,
+  "lost_after_last_ack": 0,
+  "unacknowledged_extra": 0,
+  "nodes_checked": 200,
+  "problems": [],
+  "problem_count": 0,
+  "killed_mid_write": true,
+  "kill_delay_s": 0.33
+}

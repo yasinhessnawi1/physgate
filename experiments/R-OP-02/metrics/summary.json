@@ -1,0 +1,569 @@
+{
+  "impls": {
+    "baseline": {
+      "c1_totals_over_5_seeds": {
+        "cross_role_attempted": 750,
+        "cross_role_rejected": 750,
+        "interface_attempted": 100,
+        "interface_rejected": 100,
+        "missing_unit_attempted": 250,
+        "missing_unit_rejected": 250,
+        "legal_attempted": 3900,
+        "legal_accepted": 3900,
+        "creates_attempted": 1000,
+        "creates_accepted": 1000,
+        "rollbacks_attempted": 150,
+        "rollbacks_completed": 150,
+        "rejected_writes_that_mutated_the_graph": 0,
+        "wrong_rejection_reason": 0
+      },
+      "c1_failure_count": 0,
+      "c1_perfect": true,
+      "c2_diff_p50_ms": {
+        "mean": 0.0698,
+        "sd": 0.0139,
+        "per_seed": [
+          0.0681,
+          0.0729,
+          0.0763,
+          0.0844,
+          0.0473
+        ]
+      },
+      "c2_diff_p95_ms": {
+        "mean": 0.2865,
+        "sd": 0.1102,
+        "per_seed": [
+          0.293,
+          0.3537,
+          0.3476,
+          0.3439,
+          0.0942
+        ]
+      },
+      "c3_traverse_p50_ms": {
+        "mean": 20.1686,
+        "sd": 5.8308,
+        "per_seed": [
+          22.4721,
+          21.5401,
+          22.9512,
+          24.0186,
+          9.8613
+        ]
+      },
+      "c3_traverse_p95_ms": {
+        "mean": 40.4216,
+        "sd": 15.6793,
+        "per_seed": [
+          59.6161,
+          43.8603,
+          40.2263,
+          42.4566,
+          15.9485
+        ]
+      },
+      "write_p50_ms": {
+        "mean": 0.7347,
+        "sd": 0.1539,
+        "per_seed": [
+          0.6754,
+          0.7819,
+          0.8679,
+          0.8529,
+          0.4954
+        ]
+      },
+      "write_p95_ms": {
+        "mean": 3.0585,
+        "sd": 1.1272,
+        "per_seed": [
+          2.7145,
+          3.0639,
+          4.7311,
+          3.1903,
+          1.5926
+        ]
+      },
+      "rollback_p50_ms": {
+        "mean": 0.7935,
+        "sd": 0.1979,
+        "per_seed": [
+          0.8917,
+          0.7995,
+          0.7732,
+          1.019,
+          0.484
+        ]
+      },
+      "wall_s": {
+        "mean": 3.7332,
+        "sd": 0.9815,
+        "per_seed": [
+          3.872,
+          4.054,
+          4.459,
+          4.259,
+          2.022
+        ]
+      },
+      "c4_consistent_seeds": 5,
+      "c4_open_and_recover_ms": {
+        "mean": 124.2844,
+        "sd": 58.5314,
+        "per_seed": [
+          108.548,
+          195.293,
+          175.995,
+          67.861,
+          73.725
+        ]
+      },
+      "c4_verify_ms": {
+        "mean": 53.4364,
+        "sd": 24.4115,
+        "per_seed": [
+          65.376,
+          84.777,
+          59.518,
+          27.412,
+          30.099
+        ]
+      },
+      "c4_acknowledged_ops": {
+        "mean": 589.8,
+        "sd": 226.174,
+        "per_seed": [
+          506.0,
+          357.0,
+          597.0,
+          526.0,
+          963.0
+        ]
+      },
+      "c4_aborted_seeds": [],
+      "c4_lost_after_last_ack": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "c4_unacknowledged_extra": [
+        0,
+        0,
+        1,
+        0,
+        1
+      ],
+      "c4_problems": []
+    },
+    "openpersona-st": {
+      "c1_totals_over_5_seeds": {
+        "cross_role_attempted": 750,
+        "cross_role_rejected": 750,
+        "interface_attempted": 100,
+        "interface_rejected": 100,
+        "missing_unit_attempted": 250,
+        "missing_unit_rejected": 250,
+        "legal_attempted": 3900,
+        "legal_accepted": 3900,
+        "creates_attempted": 1000,
+        "creates_accepted": 1000,
+        "rollbacks_attempted": 150,
+        "rollbacks_completed": 150,
+        "rejected_writes_that_mutated_the_graph": 0,
+        "wrong_rejection_reason": 0
+      },
+      "c1_failure_count": 0,
+      "c1_perfect": true,
+      "c2_diff_p50_ms": {
+        "mean": 96.5561,
+        "sd": 6.7967,
+        "per_seed": [
+          91.3809,
+          92.2488,
+          100.9363,
+          106.4299,
+          91.7848
+        ]
+      },
+      "c2_diff_p95_ms": {
+        "mean": 369.3479,
+        "sd": 85.9966,
+        "per_seed": [
+          382.7262,
+          293.0151,
+          332.0973,
+          512.0999,
+          326.801
+        ]
+      },
+      "c3_traverse_p50_ms": {
+        "mean": 167.4899,
+        "sd": 24.149,
+        "per_seed": [
+          141.5144,
+          159.8921,
+          168.7613,
+          206.8455,
+          160.4362
+        ]
+      },
+      "c3_traverse_p95_ms": {
+        "mean": 630.9095,
+        "sd": 263.3218,
+        "per_seed": [
+          955.8807,
+          364.676,
+          364.7283,
+          799.8165,
+          669.4457
+        ]
+      },
+      "write_p50_ms": {
+        "mean": 140.1548,
+        "sd": 14.5985,
+        "per_seed": [
+          125.2841,
+          131.6881,
+          135.665,
+          162.795,
+          145.3418
+        ]
+      },
+      "write_p95_ms": {
+        "mean": 507.7714,
+        "sd": 200.6547,
+        "per_seed": [
+          433.6214,
+          330.0633,
+          353.4333,
+          804.8184,
+          616.9209
+        ]
+      },
+      "rollback_p50_ms": {
+        "mean": 175.8863,
+        "sd": 21.5307,
+        "per_seed": [
+          152.8,
+          181.1662,
+          157.9709,
+          180.8157,
+          206.6787
+        ]
+      },
+      "wall_s": {
+        "mean": 461.9276,
+        "sd": 95.3715,
+        "per_seed": [
+          463.067,
+          345.865,
+          389.22,
+          559.063,
+          552.423
+        ]
+      },
+      "c4_consistent_seeds": 5,
+      "c4_open_and_recover_ms": {
+        "mean": 2667.6864,
+        "sd": 1551.27,
+        "per_seed": [
+          1418.476,
+          4387.363,
+          1772.32,
+          4332.03,
+          1428.243
+        ]
+      },
+      "c4_verify_ms": {
+        "mean": 791.1978,
+        "sd": 324.2345,
+        "per_seed": [
+          841.355,
+          945.1,
+          515.773,
+          1224.313,
+          429.448
+        ]
+      },
+      "c4_acknowledged_ops": {
+        "mean": 254.4,
+        "sd": 2.7019,
+        "per_seed": [
+          252.0,
+          253.0,
+          254.0,
+          259.0,
+          254.0
+        ]
+      },
+      "c4_aborted_seeds": [],
+      "c4_lost_after_last_ack": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "c4_unacknowledged_extra": [
+        0,
+        0,
+        1,
+        1,
+        0
+      ],
+      "c4_problems": []
+    },
+    "openpersona-hash": {
+      "c1_totals_over_5_seeds": {
+        "cross_role_attempted": 750,
+        "cross_role_rejected": 750,
+        "interface_attempted": 100,
+        "interface_rejected": 100,
+        "missing_unit_attempted": 250,
+        "missing_unit_rejected": 250,
+        "legal_attempted": 3900,
+        "legal_accepted": 3900,
+        "creates_attempted": 1000,
+        "creates_accepted": 1000,
+        "rollbacks_attempted": 150,
+        "rollbacks_completed": 150,
+        "rejected_writes_that_mutated_the_graph": 0,
+        "wrong_rejection_reason": 0
+      },
+      "c1_failure_count": 0,
+      "c1_perfect": true,
+      "c2_diff_p50_ms": {
+        "mean": 71.4904,
+        "sd": 10.0782,
+        "per_seed": [
+          73.7098,
+          56.8021,
+          66.7815,
+          77.2598,
+          82.8987
+        ]
+      },
+      "c2_diff_p95_ms": {
+        "mean": 216.1581,
+        "sd": 53.5971,
+        "per_seed": [
+          215.5475,
+          162.7699,
+          163.7506,
+          280.137,
+          258.5857
+        ]
+      },
+      "c3_traverse_p50_ms": {
+        "mean": 104.6744,
+        "sd": 19.5028,
+        "per_seed": [
+          110.0252,
+          84.1572,
+          84.2705,
+          119.0758,
+          125.8436
+        ]
+      },
+      "c3_traverse_p95_ms": {
+        "mean": 248.5015,
+        "sd": 41.4529,
+        "per_seed": [
+          250.652,
+          249.3729,
+          179.8746,
+          283.0806,
+          279.5275
+        ]
+      },
+      "write_p50_ms": {
+        "mean": 55.1041,
+        "sd": 8.4797,
+        "per_seed": [
+          65.061,
+          43.6304,
+          52.731,
+          52.3779,
+          61.7202
+        ]
+      },
+      "write_p95_ms": {
+        "mean": 153.4749,
+        "sd": 33.2679,
+        "per_seed": [
+          153.2182,
+          121.7759,
+          120.5792,
+          196.7895,
+          175.0116
+        ]
+      },
+      "rollback_p50_ms": {
+        "mean": 63.3885,
+        "sd": 13.3014,
+        "per_seed": [
+          80.6271,
+          53.1276,
+          50.226,
+          58.968,
+          73.9936
+        ]
+      },
+      "wall_s": {
+        "mean": 175.0714,
+        "sd": 33.2641,
+        "per_seed": [
+          181.758,
+          135.125,
+          146.047,
+          207.537,
+          204.89
+        ]
+      },
+      "c4_consistent_seeds": 5,
+      "c4_open_and_recover_ms": {
+        "mean": 2824.0936,
+        "sd": 936.305,
+        "per_seed": [
+          2004.642,
+          3528.391,
+          1917.035,
+          2630.247,
+          4040.153
+        ]
+      },
+      "c4_verify_ms": {
+        "mean": 1126.388,
+        "sd": 534.9839,
+        "per_seed": [
+          924.599,
+          890.937,
+          585.737,
+          1242.348,
+          1988.319
+        ]
+      },
+      "c4_acknowledged_ops": {
+        "mean": 258.2,
+        "sd": 3.2711,
+        "per_seed": [
+          261.0,
+          257.0,
+          260.0,
+          260.0,
+          253.0
+        ]
+      },
+      "c4_aborted_seeds": [],
+      "c4_lost_after_last_ack": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "c4_unacknowledged_extra": [
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "c4_problems": []
+    }
+  },
+  "ratios_over_baseline": {
+    "openpersona-st": {
+      "c2_diff_p95": 1289.17,
+      "c3_traverse_p95": 15.61,
+      "write_p50": 190.76
+    },
+    "openpersona-hash": {
+      "c2_diff_p95": 754.48,
+      "c3_traverse_p95": 6.15,
+      "write_p50": 75.0
+    }
+  },
+  "c5": {
+    "C5a_baseline": {
+      "file": "baseline_store.py",
+      "counted_lines": 182,
+      "adapter_lines": 0,
+      "by_tag": {}
+    },
+    "C5b_openpersona": {
+      "file": "openpersona_store.py",
+      "counted_lines": 195,
+      "adapter_lines": 87,
+      "by_tag": {
+        "revision": 30,
+        "marshal": 5,
+        "rollback": 4,
+        "diff": 11,
+        "traverse": 19,
+        "point_read": 18
+      }
+    },
+    "shared": [
+      {
+        "file": "protocol.py",
+        "counted_lines": 61,
+        "adapter_lines": 0,
+        "by_tag": {}
+      },
+      {
+        "file": "generator.py",
+        "counted_lines": 218,
+        "adapter_lines": 0,
+        "by_tag": {}
+      },
+      {
+        "file": "harness.py",
+        "counted_lines": 158,
+        "adapter_lines": 0,
+        "by_tag": {}
+      },
+      {
+        "file": "stores.py",
+        "counted_lines": 15,
+        "adapter_lines": 0,
+        "by_tag": {}
+      },
+      {
+        "file": "crash_child.py",
+        "counted_lines": 37,
+        "adapter_lines": 0,
+        "by_tag": {}
+      },
+      {
+        "file": "crash_verify.py",
+        "counted_lines": 91,
+        "adapter_lines": 0,
+        "by_tag": {}
+      },
+      {
+        "file": "run.py",
+        "counted_lines": 98,
+        "adapter_lines": 0,
+        "by_tag": {}
+      },
+      {
+        "file": "loc.py",
+        "counted_lines": 44,
+        "adapter_lines": 0,
+        "by_tag": {}
+      },
+      {
+        "file": "aggregate.py",
+        "counted_lines": 80,
+        "adapter_lines": 0,
+        "by_tag": {}
+      }
+    ],
+    "C5c_adapter_lines": 87,
+    "shared_total": 802
+  }
+}

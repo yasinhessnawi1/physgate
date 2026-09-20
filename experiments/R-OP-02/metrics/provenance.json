@@ -1,0 +1,25 @@
+{
+  "persona_core_version": "1.2.1",
+  "persona_core_commit": "cb4abf63799befa6888f89f01772f5bc4285980c",
+  "r_op_01_persona_core_version": "1.1.0",
+  "r_op_01_persona_core_commit": "90cafe8b",
+  "held_constant": {
+    "protocol.py": {
+      "sha256": "77bf5eb06bd02770d21623a3edd024bfd0e694e271d4de399dd5876289704b0a",
+      "identical_to_r_op_01": true
+    },
+    "generator.py": {
+      "sha256": "675ba2c2587b7e5f152e847798ef86832b7ccdec79a76811985a2eb4f733ecb1",
+      "identical_to_r_op_01": true
+    },
+    "harness.py": {
+      "sha256": "cebdd9aeecd4fd4cf8c38bcaa2ad85b56b67f21e5eb7f01fe03134e133c951f2",
+      "identical_to_r_op_01": true
+    },
+    "baseline_store.py": {
+      "sha256": "f3457e5d99cc0a42b903f08cde06c86b3a154913a5c9707651868a7278b6bd15",
+      "identical_to_r_op_01": true
+    }
+  },
+  "all_held_constant_identical": true
+}

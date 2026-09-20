@@ -1,0 +1,79 @@
+{
+  "C5a_baseline": {
+    "file": "baseline_store.py",
+    "counted_lines": 182,
+    "adapter_lines": 0,
+    "by_tag": {}
+  },
+  "C5b_openpersona": {
+    "file": "openpersona_store.py",
+    "counted_lines": 195,
+    "adapter_lines": 87,
+    "by_tag": {
+      "revision": 30,
+      "marshal": 5,
+      "rollback": 4,
+      "diff": 11,
+      "traverse": 19,
+      "point_read": 18
+    }
+  },
+  "shared": [
+    {
+      "file": "protocol.py",
+      "counted_lines": 61,
+      "adapter_lines": 0,
+      "by_tag": {}
+    },
+    {
+      "file": "generator.py",
+      "counted_lines": 218,
+      "adapter_lines": 0,
+      "by_tag": {}
+    },
+    {
+      "file": "harness.py",
+      "counted_lines": 158,
+      "adapter_lines": 0,
+      "by_tag": {}
+    },
+    {
+      "file": "stores.py",
+      "counted_lines": 15,
+      "adapter_lines": 0,
+      "by_tag": {}
+    },
+    {
+      "file": "crash_child.py",
+      "counted_lines": 37,
+      "adapter_lines": 0,
+      "by_tag": {}
+    },
+    {
+      "file": "crash_verify.py",
+      "counted_lines": 91,
+      "adapter_lines": 0,
+      "by_tag": {}
+    },
+    {
+      "file": "run.py",
+      "counted_lines": 98,
+      "adapter_lines": 0,
+      "by_tag": {}
+    },
+    {
+      "file": "loc.py",
+      "counted_lines": 44,
+      "adapter_lines": 0,
+      "by_tag": {}
+    },
+    {
+      "file": "aggregate.py",
+      "counted_lines": 80,
+      "adapter_lines": 0,
+      "by_tag": {}
+    }
+  ],
+  "C5c_adapter_lines": 87,
+  "shared_total": 802
+}

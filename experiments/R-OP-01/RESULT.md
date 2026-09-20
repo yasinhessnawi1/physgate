@@ -1,3 +1,9 @@
+> **Added 2026-09-20, after the fact, changing no number below.** This is the
+> **persona-core 1.1.0** record. The package has since moved to 1.2.1, which
+> closed two of the thirteen C6 entries, including the crash bug in C4. See
+> `../R-OP-02/RESULT.md` for the 1.2.1 measurement. The verdict is the same in
+> both, for the same reason.
+
 # R-OP-01 result
 
 **Verdict: the baseline ships. Open Persona is recorded as tested and not
