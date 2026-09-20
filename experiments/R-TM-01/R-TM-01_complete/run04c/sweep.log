@@ -1,0 +1,57 @@
+2026-09-19 20:55:48,399 - tmu.util.cuda_profiler - WARNING - Could not import pycuda: No module named 'pycuda'
+2026-09-19 20:55:48,399 - tmu.clause_bank.clause_bank_cuda - ERROR - No module named 'pycuda'
+Traceback (most recent call last):
+  File "/tmp/tmenv/lib/python3.11/site-packages/tmu/clause_bank/clause_bank_cuda.py", line 41, in <module>
+    from pycuda._driver import Device, Context
+ModuleNotFoundError: No module named 'pycuda'
+2026-09-19 20:55:48,469 - tmu.clause_bank.clause_bank_cuda - WARNING - Could not import pycuda. This indicates that it is not installed! A possible fix is to run 'pip install pycuda'. Fallback to CPU ClauseBanks.
+c=200 T=20 s=2.0 acc=0.9607 ece=0.068 pA=+0.194 pB=+0.155 OK
+c=200 T=20 s=3.0 acc=0.9287 ece=0.071 pA=+0.153 pB=+0.165 OK
+c=200 T=20 s=5.0 acc=0.9073 ece=0.126 pA=+0.128 pB=+0.102 
+c=200 T=20 s=10.0 acc=0.9307 ece=0.212 pA=+0.091 pB=+0.124 
+c=200 T=40 s=2.0 acc=0.8940 ece=0.138 pA=+0.184 pB=+0.209 OK
+c=200 T=40 s=3.0 acc=0.8940 ece=0.143 pA=+0.199 pB=+0.176 OK
+c=200 T=40 s=5.0 acc=0.8967 ece=0.176 pA=+0.137 pB=+0.163 
+c=200 T=40 s=10.0 acc=0.9033 ece=0.278 pA=+0.094 pB=+0.095 
+c=200 T=80 s=2.0 acc=0.8940 ece=0.167 pA=+0.074 pB=+0.116 
+c=200 T=80 s=3.0 acc=0.8927 ece=0.201 pA=+0.133 pB=+0.141 
+c=200 T=80 s=5.0 acc=0.8940 ece=0.281 pA=+0.090 pB=+0.090 
+c=200 T=80 s=10.0 acc=0.9053 ece=0.328 pA=+0.049 pB=+0.048 
+c=200 T=160 s=2.0 acc=0.8933 ece=0.283 pA=+0.065 pB=+0.072 
+c=200 T=160 s=3.0 acc=0.8933 ece=0.299 pA=+0.069 pB=+0.060 
+c=200 T=160 s=5.0 acc=0.8947 ece=0.331 pA=+0.045 pB=+0.049 
+c=200 T=160 s=10.0 acc=0.8987 ece=0.359 pA=+0.024 pB=+0.027 
+c=300 T=20 s=2.0 acc=0.9620 ece=0.070 pA=+0.057 pB=+0.145 
+c=300 T=20 s=3.0 acc=0.9627 ece=0.103 pA=+0.126 pB=+0.128 
+c=300 T=20 s=5.0 acc=0.9493 ece=0.118 pA=+0.095 pB=+0.057 
+c=300 T=20 s=10.0 acc=0.9280 ece=0.130 pA=+0.123 pB=+0.002 
+c=300 T=40 s=2.0 acc=0.9420 ece=0.069 pA=+0.183 pB=+0.169 OK
+c=300 T=40 s=3.0 acc=0.9280 ece=0.109 pA=+0.162 pB=+0.183 OK
+c=300 T=40 s=5.0 acc=0.9100 ece=0.153 pA=+0.158 pB=+0.129 
+c=300 T=40 s=10.0 acc=0.9313 ece=0.204 pA=+0.117 pB=+0.114 
+c=300 T=80 s=2.0 acc=0.8940 ece=0.138 pA=+0.143 pB=+0.116 
+c=300 T=80 s=3.0 acc=0.8940 ece=0.173 pA=+0.180 pB=+0.170 OK
+c=300 T=80 s=5.0 acc=0.8940 ece=0.230 pA=+0.131 pB=+0.113 
+c=300 T=80 s=10.0 acc=0.8973 ece=0.292 pA=+0.068 pB=+0.071 
+c=300 T=160 s=2.0 acc=0.8940 ece=0.220 pA=+0.098 pB=+0.101 
+c=300 T=160 s=3.0 acc=0.8940 ece=0.254 pA=+0.094 pB=+0.099 
+c=300 T=160 s=5.0 acc=0.8940 ece=0.296 pA=+0.070 pB=+0.073 
+c=300 T=160 s=10.0 acc=0.8940 ece=0.341 pA=+0.036 pB=+0.039 
+c=500 T=20 s=2.0 acc=0.9567 ece=0.073 pA=-0.039 pB=+0.187 
+c=500 T=20 s=3.0 acc=0.9667 ece=0.081 pA=+0.145 pB=+0.143 
+c=500 T=20 s=5.0 acc=0.9693 ece=0.122 pA=+0.045 pB=+0.034 
+c=500 T=20 s=10.0 acc=0.9580 ece=0.108 pA=+0.102 pB=+0.059 
+c=500 T=40 s=2.0 acc=0.9560 ece=0.094 pA=+0.224 pB=+0.179 OK
+c=500 T=40 s=3.0 acc=0.9667 ece=0.107 pA=+0.200 pB=+0.211 OK
+c=500 T=40 s=5.0 acc=0.9407 ece=0.101 pA=+0.108 pB=+0.118 
+c=500 T=40 s=10.0 acc=0.9153 ece=0.151 pA=+0.113 pB=+0.108 
+c=500 T=80 s=2.0 acc=0.8940 ece=0.137 pA=+0.229 pB=+0.238 OK
+c=500 T=80 s=3.0 acc=0.8980 ece=0.163 pA=+0.211 pB=+0.199 OK
+c=500 T=80 s=5.0 acc=0.8940 ece=0.193 pA=+0.158 pB=+0.135 
+c=500 T=80 s=10.0 acc=0.8993 ece=0.252 pA=+0.105 pB=+0.094 
+c=500 T=160 s=2.0 acc=0.8940 ece=0.183 pA=+0.125 pB=+0.166 
+c=500 T=160 s=3.0 acc=0.8940 ece=0.209 pA=+0.165 pB=+0.171 OK
+c=500 T=160 s=5.0 acc=0.8940 ece=0.235 pA=+0.116 pB=+0.111 
+c=500 T=160 s=10.0 acc=0.9027 ece=0.309 pA=+0.056 pB=+0.057 
+BEST {'clauses': 500, 'T': 40, 's': 3.0, 'epochs': 60, 'val_acc': 0.9666666666666667, 'val_ece': 0.10695000000000002, 'pseudo_ood_a_drop': 0.2001282514605377, 'pseudo_ood_b_drop': 0.2110770089285715, 'qualifies': True}
+12 of 48 configurations met the 0.15 humility floor on both pseudo-OOD slices; highest validation accuracy among them selected

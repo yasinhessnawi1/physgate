@@ -1,0 +1,104 @@
+{
+  "experiment": "R-TM-01b",
+  "run_id": "run03b",
+  "date_utc": "2026-09-19T13:04:31Z",
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "pilot_seeds": [
+    900,
+    901,
+    902
+  ],
+  "tm_seed_offset": 1000,
+  "hyperparameters": {
+    "clauses": 500,
+    "T": 20,
+    "s": 5.0,
+    "epochs": 60,
+    "val_acc": 0.9693333333333334,
+    "val_ece": 0.12210000000000001
+  },
+  "sweep_objective": "validation accuracy on a 1500-row slice of TRAIN, tie-break ECE (inherited from R-TM-01, unchanged)",
+  "generator": {
+    "label_noise": 0.01,
+    "hidden_rule_terms": [
+      "R1: attempt == 3",
+      "R2: (any gate fails) XOR (reviewer_verdict == reject) - the automated checks and the reviewer disagree in either direction",
+      "R3: cross_domain_quantity_changed AND interface_node_touched AND reviewer_verdict == uncertain",
+      "R4: reviewer_verdict == reject AND reviewer_confidence == high AND prior_failures_module >= 2",
+      "R5: NOT gate_propagation_pass AND domain in {elec, ctrl} AND spec_coverage == low"
+    ],
+    "gate_pass": {
+      "gate_unit_pass": 0.9,
+      "gate_magnitude_pass": 0.9,
+      "gate_power_pass": 0.9,
+      "gate_propagation_pass": 0.83
+    },
+    "verdict": {
+      "accept": 0.6,
+      "reject": 0.25,
+      "uncertain": 0.15
+    },
+    "attempt": {
+      "1": 0.6,
+      "2": 0.25,
+      "3": 0.15
+    },
+    "reviewer_confidence": {
+      "low": 0.25,
+      "mid": 0.4,
+      "high": 0.35
+    },
+    "domain": {
+      "mech": 0.3,
+      "elec": 0.3,
+      "ctrl": 0.25,
+      "fw": 0.15
+    },
+    "cross_domain": 0.25,
+    "interface": 0.3,
+    "prior_failures": {
+      "0": 0.55,
+      "1": 0.25,
+      "2": 0.2
+    },
+    "spec_coverage": {
+      "low": 0.3,
+      "mid": 0.4,
+      "high": 0.3
+    },
+    "calibrated_on": "pilot seeds 900-902 with LR and GBT only; TM never run on pilot data"
+  },
+  "a4_mixed_stream": {
+    "weights": {
+      "test_id": 0.7,
+      "ood_a": 0.15,
+      "ood_b": 0.15
+    },
+    "n": 2000
+  },
+  "a5_recovery_rule": {
+    "extra_literals_max": 1,
+    "precision_min": 0.85,
+    "coverage_min": 0.25,
+    "note": "R2 requires clauses for both parity directions; R1 excluded (zero train support)"
+  },
+  "route_threshold": 0.8,
+  "environment": {
+    "python": "3.11.15",
+    "packages": {
+      "tmu": "0.8.3",
+      "numpy": "2.4.6",
+      "scikit-learn": "1.9.1",
+      "scipy": "1.17.1",
+      "matplotlib": "3.11.2"
+    },
+    "note": "tmu 0.8.3 patched for numpy>=2 (np.uint32(~0)); tmu hangs on internal seed 0"
+  },
+  "s4_thresholds_unchanged_after_first_tm_result": true
+}

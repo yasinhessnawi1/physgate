@@ -1,0 +1,149 @@
+{
+  "experiment": "R-TM-01d",
+  "run_id": "run05d",
+  "date_utc": "2026-09-19T21:36:25Z",
+  "verdict": "FAIL - replicate 1002 found no qualifying configuration (S5 kill criterion)",
+  "gates": "ARCH-132 tsetlin row: stays contingent",
+  "changes_from_r_tm_01c": [
+    "selection rule executed independently at sweep seeds 1000/1001/1002; every replicate must select a config passing all four criteria",
+    "A1's band moved inside the selection rule (>= GBT_fold - 0.03 and >= LR_fold + 0.05)",
+    "single decision rule everywhere: class-sum probability >= 0.5, including A1 and the sweep",
+    "paired reporting: split accuracy always quoted with routed fraction and retained accuracy"
+  ],
+  "rule": {
+    "humility_floor": 0.15,
+    "gbt_band": 0.03,
+    "lr_margin": 0.05,
+    "decision_rule": "p >= 0.5",
+    "test_data_used": "none"
+  },
+  "fold_baselines": {
+    "lr_val_acc": 0.8373333333333334,
+    "gbt_val_acc": 0.9886666666666667,
+    "accuracy_floor": 0.9586666666666667
+  },
+  "per_replicate": {
+    "1000": {
+      "selected": {
+        "clauses": 500,
+        "T": 40,
+        "s": 2.0
+      },
+      "n_qualifying": 1,
+      "passes": true
+    },
+    "1001": {
+      "selected": {
+        "clauses": 500,
+        "T": 40,
+        "s": 2.0
+      },
+      "n_qualifying": 1,
+      "passes": true
+    },
+    "1002": {
+      "selected": null,
+      "n_qualifying": 0,
+      "passes": null
+    }
+  },
+  "selected_config_evaluation": {
+    "hp": {
+      "clauses": 500,
+      "T": 40,
+      "s": 2.0,
+      "epochs": 60
+    },
+    "A1": {
+      "tm": 0.9705999999999999,
+      "gbt": 0.9890000000000001,
+      "lr": 0.8263,
+      "pass": true
+    },
+    "A2": {
+      "raw": 0.08150375000000001,
+      "scaled": 0.013053979321384437,
+      "pass": true
+    },
+    "A3": {
+      "ood_a": [
+        0.21592125,
+        0.05198271476534289
+      ],
+      "ood_b": [
+        0.18113128512273985,
+        0.05394807264710317
+      ],
+      "per_seed_a": [
+        0.19956875000000018,
+        0.254475,
+        0.28208124999999995,
+        0.13005,
+        0.21343124999999996
+      ],
+      "per_seed_b": [
+        0.23829238038984046,
+        0.14603908741878324,
+        0.17761997323022016,
+        0.10160792575132593,
+        0.2420970588235294
+      ],
+      "pass": true
+    },
+    "A4": {
+      "reduction": [
+        0.5692753366626913,
+        0.07043136736483462
+      ],
+      "pass": true
+    },
+    "A5_reported": 1.0,
+    "all_four_pass": true
+  },
+  "paired_accuracy": {
+    "test_id": {
+      "acc_split": 0.9705999999999999,
+      "routed_to_human": 0.1843999999999999,
+      "acc_retained": 0.9878649214318675
+    },
+    "ood_a": {
+      "acc_split": 0.6654,
+      "routed_to_human": 0.8128,
+      "acc_retained": 0.9889294847547276
+    },
+    "ood_b": {
+      "acc_split": 0.6468,
+      "routed_to_human": 0.7556,
+      "acc_retained": 0.9617966623648986
+    }
+  },
+  "constraint_counts_per_replicate": {
+    "1000": {
+      "humility": 12,
+      "accuracy_band": 6,
+      "both": 1
+    },
+    "1001": {
+      "humility": 11,
+      "accuracy_band": 3,
+      "both": 1
+    },
+    "1002": {
+      "humility": 9,
+      "accuracy_band": 1,
+      "both": 0
+    }
+  },
+  "provenance_caveat": "T~40 was first identified in R-TM-01b's post-hoc frontier, computed with the OOD sets in hand; this run is a stability check of a known answer, not an independent discovery",
+  "environment": {
+    "python": "3.11.15",
+    "packages": {
+      "tmu": "0.8.3",
+      "numpy": "2.4.6",
+      "scikit-learn": "1.9.1",
+      "scipy": "1.17.1",
+      "matplotlib": "3.11.2"
+    }
+  },
+  "s4_thresholds_unchanged_after_any_tm_result": true
+}

@@ -1,0 +1,74 @@
+{
+  "experiment": "R-TM-01c",
+  "run_id": "run04c",
+  "date_utc": "2026-09-19T21:19:35Z",
+  "gates": "ARCH-132 (amended): entry requires A1, A2, A3, A4; A5 reported only",
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "tm_seed_offset": 1000,
+  "hyperparameters": {
+    "clauses": 500,
+    "T": 40,
+    "s": 3.0,
+    "epochs": 60,
+    "val_acc": 0.9666666666666667,
+    "val_ece": 0.10695000000000002,
+    "pseudo_ood_a_drop": 0.2001282514605377,
+    "pseudo_ood_b_drop": 0.2110770089285715,
+    "qualifies": true
+  },
+  "sweep_objective": {
+    "rule": "12 of 48 configurations met the 0.15 humility floor on both pseudo-OOD slices; highest validation accuracy among them selected",
+    "humility_floor": 0.15,
+    "n_qualifying": 12,
+    "floor_met": true,
+    "pseudo_ood_a": "fit on the 6500-row fold with attempt==2 removed; drop measured on validation attempt-1 vs attempt-2 rows",
+    "pseudo_ood_b": "fit on the 6500-row fold with domain==mech removed; drop measured on validation non-mech vs mech rows",
+    "test_data_used": "none"
+  },
+  "single_variable_vs_run03b": [
+    "generator_b.py identical",
+    "run_b.py identical",
+    "experiment.py identical",
+    "same seeds and splits",
+    "changed: sweep objective (sweep_b.py -> sweep_c.py)",
+    "changed: A5 de-gated in score_c.py per the ARCH-132 amendment"
+  ],
+  "generator": {
+    "label_noise": 0.01,
+    "hidden_rule_terms": [
+      "R1: attempt == 3",
+      "R2: (any gate fails) XOR (reviewer_verdict == reject) - the automated checks and the reviewer disagree in either direction",
+      "R3: cross_domain_quantity_changed AND interface_node_touched AND reviewer_verdict == uncertain",
+      "R4: reviewer_verdict == reject AND reviewer_confidence == high AND prior_failures_module >= 2",
+      "R5: NOT gate_propagation_pass AND domain in {elec, ctrl} AND spec_coverage == low"
+    ],
+    "note": "unchanged from R-TM-01b; pilot.json carried over, not re-calibrated"
+  },
+  "post_hoc_diagnostics_not_used_for_selection": [
+    "sweep_replicated_diagnostic.json (3-seed median of the same rule)",
+    "alt_configs/ (500/40/2.0, 200/20/2.0, 500/20/3.0 evaluated on the test sets)",
+    "autonomy table (accuracy on non-routed decisions)"
+  ],
+  "known_caveats": [
+    "A1 grades argmax accuracy; A2-A4 use the class-sum-1 probability (gap to GBT 0.0291 on that rule)",
+    "the replicated sweep selects 200/20/2.0, which fails A1",
+    "T~40 was identified from R-TM-01b's post-hoc frontier, so this is a transferability check"
+  ],
+  "environment": {
+    "python": "3.11.15",
+    "packages": {
+      "tmu": "0.8.3",
+      "numpy": "2.4.6",
+      "scikit-learn": "1.9.1",
+      "scipy": "1.17.1",
+      "matplotlib": "3.11.2"
+    }
+  },
+  "s4_thresholds_unchanged_after_any_tm_result": true
+}

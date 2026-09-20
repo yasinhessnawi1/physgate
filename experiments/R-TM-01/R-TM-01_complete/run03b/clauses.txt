@@ -1,0 +1,40 @@
+=== seed 0 | recovered: none | 170 distinct clause bodies | 1 clauses cover 84% of escalate decisions
+  R2a  prec=1.00 cov=0.28 QUALIFIES
+       IF NOT gate_propagation_pass AND NOT attempt>=3 AND NOT verdict=reject
+  R2b  no clause matches this shape at all
+  R3   no clause matches this shape at all
+  R4   no clause matches this shape at all
+  R5   no clause matches this shape at all
+
+=== seed 1 | recovered: none | 165 distinct clause bodies | 2 clauses cover 100% of escalate decisions
+  R2a  prec=1.00 cov=0.29 QUALIFIES
+       IF NOT gate_propagation_pass AND NOT verdict=reject
+  R2b  prec=1.00 cov=0.16 below bar
+       IF gate_unit_pass AND gate_magnitude_pass AND gate_power_pass AND gate_propagation_pass AND verdict=reject AND prior_failures>=1
+  R3   no clause matches this shape at all
+  R4   no clause matches this shape at all
+  R5   no clause matches this shape at all
+
+=== seed 2 | recovered: none | 167 distinct clause bodies | 2 clauses cover 100% of escalate decisions
+  R2a  prec=1.00 cov=0.28 QUALIFIES
+       IF NOT gate_propagation_pass AND NOT verdict=reject
+  R2b  no clause matches this shape at all
+  R3   no clause matches this shape at all
+  R4   no clause matches this shape at all
+  R5   no clause matches this shape at all
+
+=== seed 3 | recovered: none | 147 distinct clause bodies | 2 clauses cover 100% of escalate decisions
+  R2a  prec=1.00 cov=0.29 QUALIFIES
+       IF NOT gate_propagation_pass AND NOT verdict=reject
+  R2b  no clause matches this shape at all
+  R3   no clause matches this shape at all
+  R4   no clause matches this shape at all
+  R5   no clause matches this shape at all
+
+=== seed 4 | recovered: none | 155 distinct clause bodies | 2 clauses cover 100% of escalate decisions
+  R2a  prec=1.00 cov=0.29 QUALIFIES
+       IF NOT gate_propagation_pass AND NOT verdict=reject
+  R2b  no clause matches this shape at all
+  R3   no clause matches this shape at all
+  R4   no clause matches this shape at all
+  R5   no clause matches this shape at all

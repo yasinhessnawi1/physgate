@@ -1,0 +1,131 @@
+{
+  "bayes_ceiling_test_id": [
+    0.9501999999999999,
+    0.0028035691537752383
+  ],
+  "lr_acc": [
+    0.9078000000000002,
+    0.0030594117081556736
+  ],
+  "a1_required_tm_acc": 0.9578000000000002,
+  "a1_feasible": false,
+  "tm_capacity_check_3seeds": {
+    "c500_T40_s5.0_e60": [
+      0.9358333333333334,
+      0.003399346342395193
+    ],
+    "c1000_T80_s5.0_e150": [
+      0.9359999999999999,
+      0.003894440481849297
+    ],
+    "c2000_T160_s5.0_e300": [
+      0.9354999999999999,
+      0.0018708286933869426
+    ]
+  },
+  "a5_unweighted_strict": [
+    1,
+    1,
+    1,
+    1,
+    1
+  ],
+  "a5_unweighted_lenient": [
+    2,
+    2,
+    2,
+    2,
+    2
+  ],
+  "a5_weighted_strict": [
+    2,
+    2,
+    0,
+    0,
+    1
+  ],
+  "a5_weighted_lenient": [
+    2,
+    2,
+    2,
+    1,
+    2
+  ],
+  "a5_weighted_top10_seed0": [
+    {
+      "weight": 21.0,
+      "literals": "NOT gate_propagation_pass AND NOT domain=mech AND NOT domain=fw",
+      "strict": [
+        5
+      ],
+      "lenient": [
+        5
+      ]
+    },
+    {
+      "weight": 21.0,
+      "literals": "NOT gate_magnitude_pass AND NOT verdict=uncertain",
+      "strict": [],
+      "lenient": []
+    },
+    {
+      "weight": 20.0,
+      "literals": "verdict=accept AND NOT gate_power_pass",
+      "strict": [
+        2
+      ],
+      "lenient": [
+        2
+      ]
+    },
+    {
+      "weight": 17.0,
+      "literals": "gate_magnitude_pass AND NOT attempt>=3 AND NOT reviewer_conf>=mid",
+      "strict": [],
+      "lenient": []
+    },
+    {
+      "weight": 17.0,
+      "literals": "gate_unit_pass AND NOT gate_propagation_pass",
+      "strict": [],
+      "lenient": [
+        5
+      ]
+    },
+    {
+      "weight": 17.0,
+      "literals": "NOT gate_power_pass AND NOT verdict=uncertain",
+      "strict": [],
+      "lenient": []
+    },
+    {
+      "weight": 14.0,
+      "literals": "NOT gate_power_pass AND NOT verdict=reject",
+      "strict": [],
+      "lenient": []
+    },
+    {
+      "weight": 13.0,
+      "literals": "gate_magnitude_pass AND NOT gate_power_pass AND NOT verdict=reject",
+      "strict": [],
+      "lenient": []
+    },
+    {
+      "weight": 12.0,
+      "literals": "gate_propagation_pass AND domain=fw AND NOT domain=mech",
+      "strict": [],
+      "lenient": []
+    },
+    {
+      "weight": 12.0,
+      "literals": "verdict=accept AND NOT gate_propagation_pass",
+      "strict": [
+        2
+      ],
+      "lenient": [
+        2,
+        5
+      ]
+    }
+  ]
+}

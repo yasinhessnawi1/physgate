@@ -1,0 +1,122 @@
+[
+  {
+    "gate_pass": 0.9,
+    "reject": 0.25,
+    "uncertain": 0.15,
+    "ceiling": 0.9908,
+    "base_rate": 0.464,
+    "lr": 0.8175,
+    "gbt": 0.9903,
+    "headroom_lr": 0.1733
+  },
+  {
+    "gate_pass": 0.9,
+    "reject": 0.35,
+    "uncertain": 0.15,
+    "ceiling": 0.9908,
+    "base_rate": 0.488,
+    "lr": 0.7888,
+    "gbt": 0.9903,
+    "headroom_lr": 0.202
+  },
+  {
+    "gate_pass": 0.9,
+    "reject": 0.45,
+    "uncertain": 0.15,
+    "ceiling": 0.9908,
+    "base_rate": 0.512,
+    "lr": 0.7205,
+    "gbt": 0.9903,
+    "headroom_lr": 0.2702
+  },
+  {
+    "gate_pass": 0.85,
+    "reject": 0.25,
+    "uncertain": 0.15,
+    "ceiling": 0.9908,
+    "base_rate": 0.53,
+    "lr": 0.7577,
+    "gbt": 0.9908,
+    "headroom_lr": 0.233
+  },
+  {
+    "gate_pass": 0.85,
+    "reject": 0.35,
+    "uncertain": 0.15,
+    "ceiling": 0.9908,
+    "base_rate": 0.534,
+    "lr": 0.6613,
+    "gbt": 0.9908,
+    "headroom_lr": 0.3295
+  },
+  {
+    "gate_pass": 0.85,
+    "reject": 0.45,
+    "uncertain": 0.15,
+    "ceiling": 0.9908,
+    "base_rate": 0.535,
+    "lr": 0.5742,
+    "gbt": 0.9905,
+    "headroom_lr": 0.4165
+  },
+  {
+    "gate_pass": 0.8,
+    "reject": 0.25,
+    "uncertain": 0.15,
+    "ceiling": 0.9908,
+    "base_rate": 0.584,
+    "lr": 0.8015,
+    "gbt": 0.9908,
+    "headroom_lr": 0.1893
+  },
+  {
+    "gate_pass": 0.8,
+    "reject": 0.35,
+    "uncertain": 0.15,
+    "ceiling": 0.9908,
+    "base_rate": 0.569,
+    "lr": 0.6693,
+    "gbt": 0.9908,
+    "headroom_lr": 0.3215
+  },
+  {
+    "gate_pass": 0.8,
+    "reject": 0.45,
+    "uncertain": 0.15,
+    "ceiling": 0.9908,
+    "base_rate": 0.551,
+    "lr": 0.563,
+    "gbt": 0.9905,
+    "headroom_lr": 0.4278
+  },
+  {
+    "gate_pass": 0.7,
+    "reject": 0.25,
+    "uncertain": 0.15,
+    "ceiling": 0.9908,
+    "base_rate": 0.664,
+    "lr": 0.7863,
+    "gbt": 0.9905,
+    "headroom_lr": 0.2045
+  },
+  {
+    "gate_pass": 0.7,
+    "reject": 0.35,
+    "uncertain": 0.15,
+    "ceiling": 0.9908,
+    "base_rate": 0.623,
+    "lr": 0.7245,
+    "gbt": 0.9905,
+    "headroom_lr": 0.2662
+  },
+  {
+    "gate_pass": 0.7,
+    "reject": 0.45,
+    "uncertain": 0.15,
+    "ceiling": 0.9908,
+    "base_rate": 0.581,
+    "lr": 0.7375,
+    "gbt": 0.9905,
+    "headroom_lr": 0.2532
+  }
+]

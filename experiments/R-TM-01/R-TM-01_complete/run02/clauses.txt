@@ -1,0 +1,109 @@
+=== seed 0 | 250 positive clauses, 176 distinct bodies | hidden-rule terms in top 10: [2]
+ 1. imp=0.364 prec=0.47 cov=0.77 copies=1 terms=-
+     IF NOT verdict=reject AND NOT verdict=uncertain AND NOT domain=fw
+ 2. imp=0.307 prec=0.47 cov=0.65 copies=1 terms=-
+     IF verdict=accept AND NOT attempt>=3 AND NOT verdict=reject AND NOT verdict=uncertain AND NOT domain=fw AND NOT prior_failures>=2
+ 3. imp=0.304 prec=0.87 cov=0.35 copies=10 terms=-
+     IF NOT gate_propagation_pass
+ 4. imp=0.295 prec=0.95 cov=0.31 copies=3 terms=-
+     IF NOT gate_propagation_pass AND NOT verdict=reject
+ 5. imp=0.287 prec=1.00 cov=0.29 copies=1 terms=[2]
+     IF verdict=accept AND NOT gate_unit_pass AND NOT verdict=reject
+ 6. imp=0.287 prec=1.00 cov=0.29 copies=1 terms=-
+     IF NOT gate_unit_pass AND NOT verdict=reject AND NOT verdict=uncertain
+ 7. imp=0.287 prec=1.00 cov=0.29 copies=3 terms=[2]
+     IF verdict=accept AND NOT gate_propagation_pass
+ 8. imp=0.287 prec=1.00 cov=0.29 copies=6 terms=[2]
+     IF verdict=accept AND NOT gate_unit_pass
+ 9. imp=0.282 prec=1.00 cov=0.28 copies=1 terms=[2]
+     IF verdict=accept AND NOT gate_magnitude_pass AND NOT verdict=reject
+10. imp=0.282 prec=1.00 cov=0.28 copies=1 terms=-
+     IF NOT gate_power_pass AND NOT verdict=reject AND NOT verdict=uncertain
+
+=== seed 1 | 250 positive clauses, 158 distinct bodies | hidden-rule terms in top 10: [2]
+ 1. imp=0.429 prec=0.48 cov=0.90 copies=1 terms=-
+     IF verdict=accept AND NOT verdict=uncertain
+ 2. imp=0.429 prec=0.48 cov=0.90 copies=3 terms=-
+     IF verdict=accept AND NOT verdict=reject
+ 3. imp=0.429 prec=0.48 cov=0.90 copies=2 terms=-
+     IF verdict=accept AND NOT verdict=reject AND NOT verdict=uncertain
+ 4. imp=0.429 prec=0.48 cov=0.90 copies=4 terms=-
+     IF verdict=accept
+ 5. imp=0.321 prec=0.48 cov=0.67 copies=1 terms=-
+     IF verdict=accept AND NOT interface_node_touched
+ 6. imp=0.302 prec=0.85 cov=0.35 copies=7 terms=-
+     IF NOT gate_propagation_pass
+ 7. imp=0.297 prec=0.90 cov=0.33 copies=1 terms=-
+     IF NOT gate_propagation_pass AND NOT verdict=uncertain
+ 8. imp=0.292 prec=1.00 cov=0.29 copies=1 terms=[2]
+     IF verdict=accept AND NOT gate_unit_pass AND NOT verdict=reject
+ 9. imp=0.292 prec=1.00 cov=0.29 copies=1 terms=[2]
+     IF verdict=accept AND NOT gate_unit_pass AND NOT verdict=reject AND NOT verdict=uncertain
+10. imp=0.292 prec=1.00 cov=0.29 copies=2 terms=-
+     IF NOT gate_unit_pass AND NOT verdict=reject AND NOT verdict=uncertain
+
+=== seed 2 | 250 positive clauses, 182 distinct bodies | hidden-rule terms in top 10: [2]
+ 1. imp=0.435 prec=0.49 cov=0.90 copies=1 terms=-
+     IF verdict=accept
+ 2. imp=0.435 prec=0.49 cov=0.90 copies=1 terms=-
+     IF verdict=accept AND NOT verdict=uncertain
+ 3. imp=0.411 prec=0.44 cov=0.93 copies=1 terms=-
+     IF NOT verdict=reject
+ 4. imp=0.312 prec=0.90 cov=0.35 copies=1 terms=-
+     IF NOT gate_propagation_pass AND NOT attempt>=3
+ 5. imp=0.312 prec=0.90 cov=0.35 copies=5 terms=-
+     IF NOT gate_propagation_pass
+ 6. imp=0.305 prec=0.48 cov=0.63 copies=1 terms=-
+     IF verdict=accept AND NOT reviewer_conf>=high
+ 7. imp=0.300 prec=0.48 cov=0.62 copies=1 terms=-
+     IF verdict=accept AND NOT verdict=uncertain AND NOT spec_coverage>=high
+ 8. imp=0.295 prec=1.00 cov=0.30 copies=3 terms=[2]
+     IF verdict=accept AND NOT gate_unit_pass AND NOT verdict=reject
+ 9. imp=0.295 prec=1.00 cov=0.30 copies=1 terms=[2]
+     IF verdict=accept AND NOT gate_unit_pass AND NOT attempt>=3
+10. imp=0.295 prec=1.00 cov=0.30 copies=11 terms=[2]
+     IF verdict=accept AND NOT gate_unit_pass
+
+=== seed 3 | 250 positive clauses, 174 distinct bodies | hidden-rule terms in top 10: [2]
+ 1. imp=0.431 prec=0.48 cov=0.90 copies=5 terms=-
+     IF verdict=accept
+ 2. imp=0.325 prec=0.48 cov=0.68 copies=1 terms=-
+     IF verdict=accept AND NOT domain=ctrl
+ 3. imp=0.307 prec=0.87 cov=0.35 copies=12 terms=-
+     IF NOT gate_propagation_pass
+ 4. imp=0.299 prec=0.91 cov=0.33 copies=1 terms=-
+     IF NOT gate_propagation_pass AND NOT verdict=uncertain
+ 5. imp=0.291 prec=1.00 cov=0.29 copies=6 terms=[2]
+     IF verdict=accept AND NOT gate_power_pass AND NOT verdict=reject
+ 6. imp=0.291 prec=1.00 cov=0.29 copies=2 terms=[2]
+     IF verdict=accept AND NOT gate_power_pass AND NOT verdict=uncertain
+ 7. imp=0.291 prec=1.00 cov=0.29 copies=10 terms=[2]
+     IF verdict=accept AND NOT gate_power_pass
+ 8. imp=0.286 prec=1.00 cov=0.29 copies=1 terms=[2]
+     IF verdict=accept AND NOT gate_propagation_pass
+ 9. imp=0.277 prec=1.00 cov=0.28 copies=10 terms=[2]
+     IF verdict=accept AND NOT gate_magnitude_pass
+10. imp=0.276 prec=1.00 cov=0.28 copies=1 terms=[2]
+     IF verdict=accept AND NOT gate_unit_pass AND NOT verdict=reject
+
+=== seed 4 | 250 positive clauses, 173 distinct bodies | hidden-rule terms in top 10: [2]
+ 1. imp=0.441 prec=0.49 cov=0.90 copies=3 terms=-
+     IF verdict=accept
+ 2. imp=0.318 prec=0.88 cov=0.36 copies=10 terms=-
+     IF NOT gate_propagation_pass
+ 3. imp=0.311 prec=0.91 cov=0.34 copies=1 terms=-
+     IF NOT gate_propagation_pass AND NOT verdict=uncertain
+ 4. imp=0.305 prec=0.48 cov=0.63 copies=1 terms=-
+     IF verdict=accept AND NOT attempt>=2
+ 5. imp=0.296 prec=1.00 cov=0.30 copies=2 terms=[2]
+     IF verdict=accept AND NOT gate_propagation_pass
+ 6. imp=0.284 prec=1.00 cov=0.28 copies=2 terms=[2]
+     IF verdict=accept AND NOT gate_unit_pass AND NOT attempt>=3
+ 7. imp=0.284 prec=1.00 cov=0.28 copies=2 terms=[2]
+     IF verdict=accept AND NOT gate_unit_pass AND NOT verdict=uncertain
+ 8. imp=0.284 prec=1.00 cov=0.28 copies=2 terms=[2]
+     IF verdict=accept AND NOT gate_unit_pass AND NOT verdict=reject
+ 9. imp=0.284 prec=1.00 cov=0.28 copies=8 terms=[2]
+     IF verdict=accept AND NOT gate_unit_pass
+10. imp=0.283 prec=0.90 cov=0.31 copies=1 terms=-
+     IF NOT gate_propagation_pass AND NOT domain=fw

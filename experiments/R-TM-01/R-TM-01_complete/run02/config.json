@@ -1,0 +1,152 @@
+{
+  "experiment": "R-TM-01 - Tsetlin machine as escalation decision layer",
+  "run_id": "run02",
+  "date_utc": "2026-09-19T12:22:22Z",
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "tm_seed_offset": 1000,
+  "hyperparameters": {
+    "clauses": 500,
+    "T": 40,
+    "s": 5.0,
+    "epochs": 60,
+    "val_acc": 0.9366666666666666,
+    "val_ece": 0.08325833333333332
+  },
+  "sweep": {
+    "clauses": [
+      200,
+      300,
+      500
+    ],
+    "T": [
+      20,
+      40,
+      80,
+      160
+    ],
+    "s": [
+      2.0,
+      3.0,
+      5.0,
+      10.0
+    ],
+    "epochs": 60,
+    "selection": "val accuracy on a 1500-row slice of TRAIN, tie-break val ECE"
+  },
+  "generator": {
+    "bits": 21,
+    "bit_names": [
+      "gate_unit_pass",
+      "gate_magnitude_pass",
+      "gate_power_pass",
+      "gate_propagation_pass",
+      "attempt>=2",
+      "attempt>=3",
+      "verdict=accept",
+      "verdict=reject",
+      "verdict=uncertain",
+      "reviewer_conf>=mid",
+      "reviewer_conf>=high",
+      "domain=mech",
+      "domain=elec",
+      "domain=ctrl",
+      "domain=fw",
+      "cross_domain_quantity_changed",
+      "interface_node_touched",
+      "prior_failures>=1",
+      "prior_failures>=2",
+      "spec_coverage>=mid",
+      "spec_coverage>=high"
+    ],
+    "hidden_rule_terms": [
+      "R1: attempt == 3",
+      "R2: any gate fails AND reviewer_verdict == accept",
+      "R3: cross_domain_quantity_changed AND interface_node_touched AND reviewer_verdict == uncertain",
+      "R4: reviewer_verdict == reject AND reviewer_confidence == high AND prior_failures_module >= 2",
+      "R5: NOT gate_propagation_pass AND domain in {elec, ctrl}"
+    ],
+    "label_noise": 0.05,
+    "marginals": {
+      "gate_pass": 0.85,
+      "attempt": {
+        "1": 0.6,
+        "2": 0.25,
+        "3": 0.15
+      },
+      "verdict": {
+        "accept": 0.7,
+        "reject": 0.2,
+        "uncertain": 0.1
+      },
+      "reviewer_confidence": {
+        "low": 0.25,
+        "mid": 0.45,
+        "high": 0.3
+      },
+      "domain": {
+        "mech": 0.3,
+        "elec": 0.3,
+        "ctrl": 0.25,
+        "fw": 0.15
+      },
+      "cross_domain": 0.2,
+      "interface": 0.25,
+      "prior_failures": {
+        "0": 0.6,
+        "1": 0.25,
+        "2": 0.15
+      },
+      "spec_coverage": {
+        "low": 0.25,
+        "mid": 0.45,
+        "high": 0.3
+      }
+    },
+    "splits": {
+      "train": "8000, attempts {1,2}, all domains",
+      "test_id": "2000, same support, independent draw",
+      "ood_a": "1000, attempt==3 only",
+      "train_nofw": "train with fw rows removed (~6840)",
+      "test_id_nofw": "test_id with fw rows removed (~1700)",
+      "ood_b": "1000, domain==fw only, attempts {1,2}"
+    }
+  },
+  "arms": {
+    "TM": "tmu TMClassifier, CPU, weighted_clauses=False",
+    "LR": "sklearn LogisticRegression(max_iter=2000)",
+    "GBT": "sklearn HistGradientBoostingClassifier(default)",
+    "RULE": "ASSUMED current rule: escalate if attempt==3 OR any gate fails (the source spec does not print ARCH-030/040's rule)"
+  },
+  "confidence": {
+    "TM": "p = clip(0.5*(1+clip(v,-T,T)/T),0,1), v = class-1 clause sum",
+    "temperature_scaled": "p = sigmoid(v/(T*temp)), temp fitted by NLL on a 500-row slice of TRAIN",
+    "platt_secondary": "2-parameter logistic on v/T, same 500 rows"
+  },
+  "environment": {
+    "python": "3.11.15",
+    "platform": "Linux-6.18.44-fc-v37-x86_64-with-glibc2.39",
+    "packages": {
+      "tmu": "0.8.3",
+      "numpy": "2.4.6",
+      "scikit-learn": "1.9.1",
+      "scipy": "1.17.1",
+      "matplotlib": "3.11.2"
+    },
+    "note": "tmu 0.8.3 patched for numpy>=2: np.uint32(~0) -> np.uint32(0xFFFFFFFF) in clause_bank/clause_bank.py:136,145 and clause_bank_cuda.py:169; tmu hangs when its internal seed is 0, so TM seeds are 1000+seed"
+  },
+  "corrections_after_code_audit": [
+    "clause decoding restricted to the positive-polarity bank (indices 0..n/2-1)",
+    "clause ranking moved from Test-ID to TRAIN, using the noiseless rule label",
+    "distinct clause bodies only (tmu banks hold many duplicate clauses)",
+    "A1 accuracy read from the TM's argmax decision, not the 0.5 threshold on p",
+    "one-parameter temperature scaling as the S3 variant; 2-parameter Platt reported beside it",
+    "no-fw arm is the train/Test-ID draws with fw rows removed, per S2's wording"
+  ],
+  "s4_thresholds_unchanged": true
+}

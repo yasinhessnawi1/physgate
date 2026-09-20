@@ -1,0 +1,12 @@
+2026-09-19 21:12:05,240 - tmu.util.cuda_profiler - WARNING - Could not import pycuda: No module named 'pycuda'
+2026-09-19 21:12:05,240 - tmu.clause_bank.clause_bank_cuda - ERROR - No module named 'pycuda'
+Traceback (most recent call last):
+  File "/tmp/tmenv/lib/python3.11/site-packages/tmu/clause_bank/clause_bank_cuda.py", line 41, in <module>
+    from pycuda._driver import Device, Context
+ModuleNotFoundError: No module named 'pycuda'
+2026-09-19 21:12:05,241 - tmu.clause_bank.clause_bank_cuda - WARNING - Could not import pycuda. This indicates that it is not installed! A possible fix is to run 'pip install pycuda'. Fallback to CPU ClauseBanks.
+seed 0 2.5s acc 0.9595 ece 0.059 mixedred 0.448 A5 []
+seed 1 2.6s acc 0.9730 ece 0.060 mixedred 0.525 A5 ['R2']
+seed 2 2.7s acc 0.9740 ece 0.067 mixedred 0.348 A5 ['R2']
+seed 3 2.6s acc 0.9615 ece 0.073 mixedred 0.544 A5 ['R2']
+seed 4 2.6s acc 0.9760 ece 0.064 mixedred 0.015 A5 ['R3']

@@ -1,0 +1,56 @@
+2026-09-19 12:55:22,526 - tmu.util.cuda_profiler - WARNING - Could not import pycuda: No module named 'pycuda'
+2026-09-19 12:55:22,526 - tmu.clause_bank.clause_bank_cuda - ERROR - No module named 'pycuda'
+Traceback (most recent call last):
+  File "/tmp/tmenv/lib/python3.11/site-packages/tmu/clause_bank/clause_bank_cuda.py", line 41, in <module>
+    from pycuda._driver import Device, Context
+ModuleNotFoundError: No module named 'pycuda'
+2026-09-19 12:55:22,573 - tmu.clause_bank.clause_bank_cuda - WARNING - Could not import pycuda. This indicates that it is not installed! A possible fix is to run 'pip install pycuda'. Fallback to CPU ClauseBanks.
+c=200 T=20 s=2.0  acc=0.9607 ece=0.068
+c=200 T=20 s=3.0  acc=0.9287 ece=0.071
+c=200 T=20 s=5.0  acc=0.9073 ece=0.126
+c=200 T=20 s=10.0  acc=0.9307 ece=0.212
+c=200 T=40 s=2.0  acc=0.8940 ece=0.138
+c=200 T=40 s=3.0  acc=0.8940 ece=0.143
+c=200 T=40 s=5.0  acc=0.8967 ece=0.176
+c=200 T=40 s=10.0  acc=0.9033 ece=0.278
+c=200 T=80 s=2.0  acc=0.8940 ece=0.167
+c=200 T=80 s=3.0  acc=0.8927 ece=0.201
+c=200 T=80 s=5.0  acc=0.8940 ece=0.281
+c=200 T=80 s=10.0  acc=0.9053 ece=0.328
+c=200 T=160 s=2.0  acc=0.8933 ece=0.283
+c=200 T=160 s=3.0  acc=0.8933 ece=0.299
+c=200 T=160 s=5.0  acc=0.8947 ece=0.331
+c=200 T=160 s=10.0  acc=0.8987 ece=0.359
+c=300 T=20 s=2.0  acc=0.9620 ece=0.070
+c=300 T=20 s=3.0  acc=0.9627 ece=0.103
+c=300 T=20 s=5.0  acc=0.9493 ece=0.118
+c=300 T=20 s=10.0  acc=0.9280 ece=0.130
+c=300 T=40 s=2.0  acc=0.9420 ece=0.069
+c=300 T=40 s=3.0  acc=0.9280 ece=0.109
+c=300 T=40 s=5.0  acc=0.9100 ece=0.153
+c=300 T=40 s=10.0  acc=0.9313 ece=0.204
+c=300 T=80 s=2.0  acc=0.8940 ece=0.138
+c=300 T=80 s=3.0  acc=0.8940 ece=0.173
+c=300 T=80 s=5.0  acc=0.8940 ece=0.230
+c=300 T=80 s=10.0  acc=0.8973 ece=0.292
+c=300 T=160 s=2.0  acc=0.8940 ece=0.220
+c=300 T=160 s=3.0  acc=0.8940 ece=0.254
+c=300 T=160 s=5.0  acc=0.8940 ece=0.296
+c=300 T=160 s=10.0  acc=0.8940 ece=0.341
+c=500 T=20 s=2.0  acc=0.9567 ece=0.073
+c=500 T=20 s=3.0  acc=0.9667 ece=0.081
+c=500 T=20 s=5.0  acc=0.9693 ece=0.122
+c=500 T=20 s=10.0  acc=0.9580 ece=0.108
+c=500 T=40 s=2.0  acc=0.9560 ece=0.094
+c=500 T=40 s=3.0  acc=0.9667 ece=0.107
+c=500 T=40 s=5.0  acc=0.9407 ece=0.101
+c=500 T=40 s=10.0  acc=0.9153 ece=0.151
+c=500 T=80 s=2.0  acc=0.8940 ece=0.137
+c=500 T=80 s=3.0  acc=0.8980 ece=0.163
+c=500 T=80 s=5.0  acc=0.8940 ece=0.193
+c=500 T=80 s=10.0  acc=0.8993 ece=0.252
+c=500 T=160 s=2.0  acc=0.8940 ece=0.183
+c=500 T=160 s=3.0  acc=0.8940 ece=0.209
+c=500 T=160 s=5.0  acc=0.8940 ece=0.235
+c=500 T=160 s=10.0  acc=0.9027 ece=0.309
+BEST {'clauses': 500, 'T': 20, 's': 5.0, 'epochs': 60, 'val_acc': 0.9693333333333334, 'val_ece': 0.12210000000000001}

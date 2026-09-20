@@ -1,0 +1,102 @@
+{
+  "per_replicate": {
+    "1000": {
+      "selected": {
+        "clauses": 500,
+        "T": 40,
+        "s": 2.0
+      },
+      "n_qualifying": 1,
+      "passes": true
+    },
+    "1001": {
+      "selected": {
+        "clauses": 500,
+        "T": 40,
+        "s": 2.0
+      },
+      "n_qualifying": 1,
+      "passes": true
+    },
+    "1002": {
+      "selected": null,
+      "n_qualifying": 0,
+      "passes": null
+    }
+  },
+  "configurations": {
+    "c500_T40_s2.0": {
+      "hp": {
+        "clauses": 500,
+        "T": 40,
+        "s": 2.0,
+        "epochs": 60
+      },
+      "A1": {
+        "tm": 0.9705999999999999,
+        "gbt": 0.9890000000000001,
+        "lr": 0.8263,
+        "pass": true
+      },
+      "A2": {
+        "raw": 0.08150375000000001,
+        "scaled": 0.013053979321384437,
+        "pass": true
+      },
+      "A3": {
+        "ood_a": [
+          0.21592125,
+          0.05198271476534289
+        ],
+        "ood_b": [
+          0.18113128512273985,
+          0.05394807264710317
+        ],
+        "per_seed_a": [
+          0.19956875000000018,
+          0.254475,
+          0.28208124999999995,
+          0.13005,
+          0.21343124999999996
+        ],
+        "per_seed_b": [
+          0.23829238038984046,
+          0.14603908741878324,
+          0.17761997323022016,
+          0.10160792575132593,
+          0.2420970588235294
+        ],
+        "pass": true
+      },
+      "A4": {
+        "reduction": [
+          0.5692753366626913,
+          0.07043136736483462
+        ],
+        "pass": true
+      },
+      "A5_reported": 1.0,
+      "all_four_pass": true,
+      "paired_accuracy": {
+        "test_id": {
+          "acc_split": 0.9705999999999999,
+          "routed_to_human": 0.1843999999999999,
+          "acc_retained": 0.9878649214318675
+        },
+        "ood_a": {
+          "acc_split": 0.6654,
+          "routed_to_human": 0.8128,
+          "acc_retained": 0.9889294847547276
+        },
+        "ood_b": {
+          "acc_split": 0.6468,
+          "routed_to_human": 0.7556,
+          "acc_retained": 0.9617966623648986
+        }
+      }
+    }
+  },
+  "every_replicate_selected_a_config": false,
+  "every_selected_config_passes_all_four": false,
+  "RUN_PASSES": false
+}
