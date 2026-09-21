@@ -403,6 +403,33 @@ Each item carries: decision required, artefact diff, triggering finding, the thr
 **Cadence.** as raised
 **Acceptance.** Median review time under one minute. **Items that cannot be compressed to that indicate the decomposition is too coarse and are logged as such.**
 
+### ARCH-131 — Escalation decision interface
+**Decision.** The question "does this subtask go to the approval queue" is asked through one interface, `decide(question, state) -> (answer, confidence, backend_id, latency_ms)`. Question kinds are `yes_no`, `choice` and `score`; only `yes_no` is exercised in the first slice. `state` is the structured subtask record at the end of an attempt — the ledger line, the gate result, the reviewer verdict, the changed-node summary. No free text in the first slice.
+
+A confidence **below 0.8 routes to ARCH-130 whatever the answer**. The threshold is a property of the interface, not of a backend, so every backend is judged on the same routing rule.
+
+The default binding is `rules`: exactly the deterministic conditions ARCH-030 and ARCH-040 already specify, emitted at confidence 1.0. Every other binding is an ablation arm and enters only through ARCH-132.
+
+**Relationship to ARCH-001.** A binding is admissible only if it spends **zero tokens on the decision** and its weights or rules are frozen at a recorded version. This is a deliberate and bounded carve-out from the invariant: ARCH-001 forbids a model deciding *what runs next and whether to merge*, because such a model can be argued out of routing and there is no downstream check on it. Escalation is a different decision with an asymmetric failure mode — over-escalating costs a minute of human attention, under-escalating is still caught by the physics gate and the reviewer, both of which run regardless. The carve-out does not extend to scheduling, dispatch, merge or reconciliation, and no backend may read or write the design-state graph.
+
+**Depends on.** ARCH-030, ARCH-040, ARCH-130
+**Cadence.** per subtask, at the end of an attempt
+**Acceptance.** With the `rules` binding the approval queue receives exactly the items it receives with no interface at all, proven by a test that runs both. Every call records answer, confidence, backend id and latency in the ledger, so a backend's behaviour is auditable after the fact rather than at the time.
+
+### ARCH-132 — Escalation backend register
+**Decision.** Bindings enter by name, with a status and an entry condition. A backend enters only on a pre-registered experiment's pass, and its row cites that run.
+
+| Backend | Status | Entry condition and evidence |
+|---|---|---|
+| `rules` | **ships**, the default | none; it is ARCH-030 and ARCH-040 expressed through the interface |
+| `llm` | ships as an **ablation arm, off by default** | costs a model call per decision, so it is priced and logged and can never be the default |
+| `tsetlin` | **contingent, parked** | R-TM-01, four runs. Calibrated humility off-distribution held in every run and no baseline reproduced it; accuracy parity did not, and clause legibility failed twice. Carries a provenance caveat: the selected region was first seen in an earlier run's post-hoc frontier |
+| `laya` | **contingent, under test** | R-LAYA-01 |
+
+**Depends on.** ARCH-131, ARCH-140
+**Cadence.** on change
+**Acceptance.** Only `rules` is enabled by default. Every other binding is an independent flag under ARCH-140 and every flag combination runs to completion. A row whose experiment has not passed reads *contingent*, and the system refuses to enable it outside an ablation run.
+
 ---
 
 ## S14. Evaluation
