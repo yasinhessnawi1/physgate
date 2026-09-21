@@ -1,0 +1,32 @@
+name: check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        # Pinned to an exact version rather than a major. This action publishes
+        # no floating major ref above v7 — v8, v9 and v10 do not resolve as
+        # refs at all — so a major pin here would simply fail to check out.
+        # Verified against the provider on the day this was written; the cost
+        # is that the bump is manual and deliberate.
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+
+      - name: Create the environment from the lockfile
+        # --frozen fails when the lockfile has drifted from the project file,
+        # instead of quietly resolving something no one has checked. The Python
+        # version comes from the pin file in the repository root.
+        run: uv sync --frozen
+
+      - name: Tests, types, lint
+        # This is the whole job on purpose. The same script is what runs
+        # locally, so "green on my machine" and "green here" cannot come apart.
+        run: ./scripts/check.sh
