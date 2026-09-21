@@ -224,6 +224,21 @@ def main():
     _, _, _, raw0, _ = workload.train_only(0)
     rec["train_example_seed0_item0"] = json.loads(fixture.serialise(raw0, 0))
     rec["train_example_seed0_item0_json"] = fixture.serialise(raw0, 0)
+
+    # Step 1 timed a PROVISIONAL serialisation and said the estimate must be
+    # re-checked if the real fixture moved the lengths. Rather than compare
+    # summary statistics, compare the strings.
+    sys.path.insert(0, os.path.join(os.path.dirname(HERE), "step1_feasibility"))
+    import serialisation_provisional as PROV  # noqa: E402
+    n_diff = sum(1 for i in range(len(raw0["attempt"]))
+                 if PROV.serialise(raw0, i) != fixture.serialise(raw0, i))
+    rec["provisional_vs_fixture_seed0_train"] = {
+        "n_items": int(len(raw0["attempt"])),
+        "n_differing_strings": n_diff,
+        "identical": n_diff == 0,
+        "meaning": ("if identical, step 1's wall-clock estimate stands unchanged, "
+                    "because it was computed on exactly these strings"),
+    }
     if not args.skip_l0:
         from rlaya import laya_backend as LB
         agent_tl, _ = LB.load_agent(args.model_dir, args.device)

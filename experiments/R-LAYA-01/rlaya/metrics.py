@@ -189,9 +189,20 @@ def routing_report(probs: np.ndarray, y: np.ndarray,
                    threshold: float = 0.8) -> Dict[str, float]:
     """Everything C2 and C3 need, at the ARCH-131 threshold.
 
-    ``escalation_rate`` is the fraction routed to ARCH-130, i.e. confidence below
-    the threshold, *"whatever the answer"*. ``selective_accuracy`` is C3: accuracy
-    on the decisions the backend does **not** escalate.
+    ``escalation_rate`` is the fraction routed to ARCH-130 by **confidence below
+    the threshold**, which is R-TM-01's convention and the one C2 and C3 are
+    written in: the numbers C3's framing cites (*"routes 18 % of in-distribution
+    decisions to a human and 76–81 % of novel-state ones, and is right on 96–99 %
+    of what it still answers"*) are confidence-routing numbers.
+
+    ``answer_rate`` is a different quantity and is reported beside it so the two
+    are never confused. The question under test is *"Should this subtask be
+    escalated to a human reviewer?"*, so an arm can also send work to the queue
+    by **answering** yes. Arm R makes the distinction unavoidable: it emits
+    confidence 1.0 by construction, so its ``escalation_rate`` is 0 — it never
+    abstains — while its ``answer_rate`` is the fraction its conditions escalate.
+    Reporting only the first would read as "the hand rule never escalates", which
+    is the opposite of what it does.
     """
     conf = confidence(probs)
     pred = (probs >= 0.5).astype(int)
@@ -204,6 +215,8 @@ def routing_report(probs: np.ndarray, y: np.ndarray,
         "mean_confidence": float(conf.mean()),
         "mean_confidence_laya_entropy": float(laya_entropy_confidence(probs).mean()),
         "escalation_rate": float(escalate.mean()),
+        "answer_rate": float(pred.mean()),
+        "queue_rate_answer_or_low_confidence": float((escalate | (pred == 1)).mean()),
         "escalation_rate_laya_entropy": float(
             (laya_entropy_confidence(probs) < threshold).mean()),
         "accuracy_split": float(correct.mean()),
