@@ -73,6 +73,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("out_dir")
     ap.add_argument("--laptop", default=None, help="laptop latency json")
+    ap.add_argument("--step2", default=None, help="step-2 dir, for arm T's fit times")
+    ap.add_argument("--step3", default=None,
+                    help="step-3 dir, for the training budget across all ten fits")
     args = ap.parse_args()
 
     raw = json.load(open(os.path.join(args.out_dir, "step4_raw.json")))
@@ -179,10 +182,31 @@ def main():
           "laptop": None, "pass": None}
     lp = lat.get("laptop", {})
     if lp and "L1" in lp.get("per_seed_test_id", {}):
-        p50s = [v["p50_ms"] for v in lp["per_seed_test_id"]["L1"].values()]
-        c4["laptop"] = {"p50_ms_per_seed": p50s, "p50_ms_mean": float(np.mean(p50s)),
-                        "pooled": lp.get("pooled_test_id", {}).get("L1")}
-        c4["pass"] = bool(np.mean(p50s) <= C4_P50_MS)
+        cells = lp["per_seed_test_id"]["L1"]
+        # A seed that could not be loaded on an 8 GB machine is a finding, not
+        # something to route around: it is named here and the mean is taken over
+        # the seeds that did load, with how many that was stated beside it.
+        ok = {k: v for k, v in cells.items() if "p50_ms" in v}
+        failed = {k: v.get("error") for k, v in cells.items() if "p50_ms" not in v}
+        p50s = [v["p50_ms"] for v in ok.values()]
+        c4["laptop"] = {
+            "p50_ms_per_seed": {k: v["p50_ms"] for k, v in ok.items()},
+            "p50_ms_mean": float(np.mean(p50s)) if p50s else None,
+            "n_seeds_measured": len(p50s), "n_seeds_expected": len(workload.SEEDS),
+            "seeds_that_would_not_load": failed,
+            "pooled": lp.get("pooled_test_id", {}).get("L1"),
+            "train_same_session": lp.get("pooled_train", {}).get("L1"),
+            "machine": lp.get("machine"), "device_selected": lp.get("device_selected"),
+            "load_at_start": lp.get("load_at_start"),
+            "load_at_end": lp.get("load_at_end"),
+            "peak_rss_bytes": lp.get("peak_rss_bytes"),
+        }
+        c4["pass"] = bool(p50s) and bool(np.mean(p50s) <= C4_P50_MS)
+        if len(p50s) < len(workload.SEEDS):
+            c4["deviation"] = (
+                "C4 is on the mean over five seeds (§6). %d of %d checkpoints were "
+                "measured; the rest are recorded above with the error that stopped "
+                "them." % (len(p50s), len(workload.SEEDS)))
 
     # --------------------------------------------- single-configuration view -
     single = {}
@@ -211,8 +235,43 @@ def main():
         "C2_fails_on_both_ood_s3": bool(c2["L1"]["s3"]["fails_on_both"]),
         "C3_fails_on_test_id_raw": bool(not c3["L1"]["raw"]["test_id"]["pass"]),
         "C3_fails_on_test_id_s3": bool(not c3["L1"]["s3"]["test_id"]["pass"]),
-        "L1_not_trainable_within_12h": False,
     }
+
+    # ------------------------------ the fourth kill criterion ---------------
+    # "L1 cannot be trained on the available accelerator within 12 hours."
+    # **The arm is ten trainings, not five.** Every arm has a main fit and a
+    # no-firmware fit, because OOD-B is measured against a retrained arm as
+    # R-TM-01 defined it, and the twelve hours is the whole arm on the
+    # orchestrator's ruling of 21.09.2026. Step 3's 0.8971 h is the main five
+    # only; it was partial because the no-fw requirement surfaced after it was
+    # written.
+    budget = None
+    if args.step3:
+        m = json.load(open(os.path.join(args.step3, "step3_l1_main.json")))
+        n = json.load(open(os.path.join(args.step3, "step3_l1_nofw.json")))
+        main_h = {r["seed"]: r["train_hours"] for r in m["runs"]}
+        nofw_h = {r["seed"]: r["train_hours"] for r in n["runs"]}
+        tot = sum(main_h.values()) + sum(nofw_h.values())
+        budget = {
+            "criterion": "L1 cannot be trained on the available accelerator within 12 hours",
+            "reading": "the twelve hours is the whole arm (orchestrator, 21.09.2026)",
+            "arm_is_n_trainings": len(main_h) + len(nofw_h),
+            "why_ten": ("OOD-B is measured against a retrained arm as R-TM-01 defined "
+                        "it, so every seed has a main fit and a no-firmware fit"),
+            "main_hours_per_seed": main_h, "nofw_hours_per_seed": nofw_h,
+            "main_five_hours": float(sum(main_h.values())),
+            "nofw_five_hours": float(sum(nofw_h.values())),
+            "total_hours_all_ten": float(tot),
+            "budget_hours": 12.0,
+            "fraction_of_budget": float(tot / 12.0),
+            "fires": bool(tot > 12.0),
+            "step3_reported_main_five_only": m["total"]["train_hours_all_seeds"],
+            "step3_figure_was_partial": (
+                "step 3 reported %.4f h for the main five; the no-fw requirement "
+                "surfaced afterwards, so that figure is a part of the arm, not the arm"
+                % m["total"]["train_hours_all_seeds"]),
+        }
+    kill["L1_not_trainable_within_12h"] = bool(budget["fires"]) if budget else None
     out = {
         "experiment": "R-LAYA-01", "step": "4-verdict",
         "criteria_commit": "e12d153", "criteria_original": "7b85d29",
@@ -225,7 +284,7 @@ def main():
         "C2_literal_test_id_baseline_for_ood_b": c2_literal,
         "C3": c3, "C4": c4, "latency": lat,
         "single_configuration_view": single,
-        "L1_acceptance": l1, "kill_criteria": kill,
+        "L1_acceptance": l1, "kill_criteria": kill, "training_budget": budget,
         "arm_t_provenance": armt["provenance_caveat"],
         "examples": raw["examples"],
     }
@@ -241,7 +300,7 @@ def main():
         json.dump(out, f, indent=2)
 
     print(json.dumps({"C1": c1, "C2_L1": c2["L1"], "C3_L1": c3["L1"], "C4": c4,
-                      "L1_acceptance": l1, "kill": kill,
+                      "L1_acceptance": l1, "kill": kill, "budget": budget,
                       "single": single}, indent=2))
 
 

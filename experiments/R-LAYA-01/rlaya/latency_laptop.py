@@ -114,6 +114,8 @@ def main():
     ap.add_argument("out")
     ap.add_argument("--states", required=True, help="dir with states_*.json from measure.py")
     ap.add_argument("--checkpoints", required=True)
+    ap.add_argument("--step2", default=None,
+                    help="dir with G_main_seed*.pkl, to time G and R here as context")
     ap.add_argument("--n", type=int, default=100)
     ap.add_argument("--warmup", type=int, default=3)
     ap.add_argument("--seeds", type=int, nargs="*", default=[0, 1, 2, 3, 4])
@@ -137,12 +139,23 @@ def main():
         "server_agreement": {}, "context_device": {},
     }
 
-    states_id = json.load(open(os.path.join(args.states, "states_test_id_seed0.json")))
-    states_tr = json.load(open(os.path.join(args.states, "states_train_seed0.json")))
-    server_p = json.load(open(os.path.join(args.states, "server_probs_test_id_seed0.json")))
+    server_p = json.load(open(os.path.join(args.states, "server_probs_test_id.json")))
+
+    def states_for(kind, s):
+        """Seed s's own states.
+
+        ``L1_seed{s}`` was fitted on seed s's Train and is scored on seed s's
+        Test-ID, so it is timed on those. That is also what makes the
+        cross-machine agreement check below a comparison of machines rather than
+        of inputs.
+        """
+        with open(os.path.join(args.states, f"states_{kind}_seed{s}.json")) as f:
+            return json.load(f)
 
     for s in args.seeds:
         ck = os.path.join(args.checkpoints, f"L1_seed{s}")
+        states_id = states_for("test_id", s)
+        states_tr = states_for("train", s)
         rec["load_samples"].append({"seed": s, "before": loadavg()})
         try:
             # device=None: laya.Agent selects. Recorded before anything is timed.
@@ -187,6 +200,44 @@ def main():
                 rec["context_device"] = {"error": repr(e)}
         del agent
 
+    # ------------------- G and R on the gated machine, as context ------------
+    # C4 gates L1 and nothing else (CRITERIA §7), and the other arms' latencies
+    # are context. G and R are cheap enough to time here as well as on the
+    # server, so the laptop's own scale is visible rather than inferred from a
+    # different machine. **Arm T cannot be timed here**: the amended §3 pins it
+    # to Python 3.11.15 with `tmu` and two source patches, an environment this
+    # machine does not have, so its only timing is the server's. Arm L0 is not
+    # timed here either: it is the same encoder, head and sequence length as L1,
+    # and the server pass times both so the claim can be checked rather than
+    # asserted.
+    if args.step2:
+        import pickle  # noqa: S403 - this experiment's own step-2 artefacts
+        from rlaya import metrics  # noqa: E402
+        s0 = args.seeds[0]
+        try:
+            X = np.load(os.path.join(args.states, f"splits_seed{s0}.npz"))["X_test_id"]
+            with open(os.path.join(args.step2, f"G_main_seed{s0}.pkl"), "rb") as f:
+                g = pickle.load(f)
+            ts = []
+            for i in range(args.n):
+                t0 = time.perf_counter()
+                g.predict_proba(X[i:i + 1])
+                ts.append((time.perf_counter() - t0) * 1000.0)
+            rec["context_arms"] = {"G": pct(ts), "seed": s0}
+        except Exception as e:
+            rec["context_arms"] = {"G_error": repr(e), "seed": s0}
+        try:
+            raw = dict(np.load(os.path.join(args.states, f"raw_test_id_seed{s0}.npz")))
+            ts = []
+            for i in range(args.n):
+                one = {k: v[i:i + 1] for k, v in raw.items()}
+                t0 = time.perf_counter()
+                metrics.rule_arm(one)
+                ts.append((time.perf_counter() - t0) * 1000.0)
+            rec.setdefault("context_arms", {})["R"] = pct(ts)
+        except Exception as e:
+            rec.setdefault("context_arms", {})["R_error"] = repr(e)
+
     for split in ("test_id", "train"):
         allt = []
         for v in rec[f"per_seed_{split}"]["L1"].values():
@@ -206,7 +257,7 @@ def main():
     print(json.dumps({k: rec[k] for k in
                       ("machine", "device_selected", "load_at_start", "load_at_end",
                        "pooled_test_id", "pooled_train", "peak_rss_bytes",
-                       "server_agreement", "context_device")
+                       "server_agreement", "context_device", "context_arms")
                       if k in rec}, indent=2))
 
 

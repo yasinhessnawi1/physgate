@@ -176,6 +176,26 @@ def main():
         "seeds": workload.SEEDS, "per_seed": [], "examples": {}, "latency": {},
     }
 
+    # R6 — "frozen weights at a recorded version". Every checkpoint this run
+    # scores is hashed and sized before it is loaded, so the result names the
+    # bytes it measured rather than a directory that happened to be there.
+    rec["checkpoints"] = {}
+    for name, ck in ([("zero_shot", args.zero_shot)]
+                     + [(f"L1_seed{s}", os.path.join(args.step3, f"L1_seed{s}"))
+                        for s in workload.SEEDS]
+                     + [(f"L1nofw_seed{s}", os.path.join(args.step3, f"L1nofw_seed{s}"))
+                        for s in workload.SEEDS]):
+        w = os.path.join(ck, "model.safetensors")
+        rec["checkpoints"][name] = {
+            "dir": os.path.abspath(ck), "weights": w,
+            "exists": os.path.exists(w),
+            "size_bytes": os.path.getsize(w) if os.path.exists(w) else None,
+            "sha256": sha256_file(w) if os.path.exists(w) else None}
+        print("  hashed", name, rec["checkpoints"][name]["sha256"], flush=True)
+    missing = [k for k, v in rec["checkpoints"].items() if not v["exists"]]
+    if missing:
+        raise SystemExit("checkpoints missing, refusing to measure: %s" % missing)
+
     # Agents are loaded once and reused across seeds where the model does not
     # change (L0), and per seed where it does (L1).
     l0_agent, l0_info = LB.load_agent(args.zero_shot, args.device)
@@ -250,7 +270,14 @@ def main():
         # Exported for the laptop's C4 run, so the laptop constructs no split.
         # The probabilities go with them so the two machines can be compared on
         # identical states — the cross-machine half of C5 M10.
-        srv = os.path.join(args.out_dir, "server_probs_test_id_seed0.json")
+        #
+        # **Per seed, not seed 0 only.** Checkpoint ``L1_seed{s}`` is fitted on
+        # seed s's Train and scored here on seed s's Test-ID. Timing it on seed
+        # 0's states would compare the laptop's probabilities for one seed's
+        # states against the server's for another's, and the agreement check
+        # would then report a difference that is a mismatch of inputs rather than
+        # of machines. Each seed's states travel with that seed's probabilities.
+        srv = os.path.join(args.out_dir, "server_probs_test_id.json")
         prev = json.load(open(srv)) if os.path.exists(srv) else {}
         prev[str(s)] = [float(x) for x in
                         np.load(os.path.join(args.out_dir,
@@ -258,12 +285,24 @@ def main():
                         [:args.export_n]]
         with open(srv, "w") as f:
             json.dump(prev, f)
+        with open(os.path.join(args.out_dir, f"states_test_id_seed{s}.json"), "w") as f:
+            json.dump(states["test_id"][:args.export_n], f)
+        _, _, _, raw_tr, _ = workload.train_only(s)
+        train_states = [fixture.serialise(raw_tr, i) for i in range(args.export_n)]
+        with open(os.path.join(args.out_dir, f"states_train_seed{s}.json"), "w") as f:
+            json.dump(train_states, f)
+        # The raw generator fields of Test-ID, so arm R's latency can be timed on
+        # the laptop as context without the laptop constructing a split.
+        np.savez_compressed(
+            os.path.join(args.out_dir, f"raw_test_id_seed{s}.npz"),
+            **{k: np.asarray(v) for k, v in data["test_id"]["raw"].items()})
+
+        # The batched scoring path checked against Laya's public one on the very
+        # states the criteria are scored on, not only on Train as at step 2. Eight
+        # calls; the tolerance is system_one's own four decimals.
         if s == 0:
-            with open(os.path.join(args.out_dir, "states_test_id_seed0.json"), "w") as f:
-                json.dump(states["test_id"][:args.export_n], f)
-            _, _, _, raw_tr, _ = workload.train_only(0)
-            with open(os.path.join(args.out_dir, "states_train_seed0.json"), "w") as f:
-                json.dump([fixture.serialise(raw_tr, i) for i in range(args.export_n)], f)
+            rec["system_one_agreement_L1_seed0_test_id"] = LB.verify_matches_system_one(
+                l1_agents["main"][0], states["test_id"], n=8)
 
         # ------------------------------------ G -----------------------------
         seed_rec["arms"]["G"] = {}
@@ -309,19 +348,54 @@ def main():
             json.dump(rec, f, indent=2)
         print(f"seed {s} done in {seed_rec['seconds']:.1f}s", flush=True)
 
-        # ------------------------- server latency, seed 0 -------------------
+        # ----------------------------- server latency -----------------------
+        # L1 on **every** seed, because §6 says every number is the mean over
+        # seeds and the server figure should be read the same way the gated one
+        # is. L0, G and R once, at seed 0: L0 is one model for all five seeds by
+        # construction, and G and R are refitted per seed but their per-decision
+        # cost does not depend on the seed. Train is timed in the same session as
+        # Test-ID, for the same reason the laptop does it.
+        rec.setdefault("latency_per_seed", {})[str(s)] = {
+            "L1_test_id": pct(time_agent(l1_agents["main"][0],
+                                         states["test_id"], args.latency_n)),
+            "L1_train": pct(time_agent(l1_agents["main"][0],
+                                       train_states, min(args.latency_n,
+                                                         len(train_states)))),
+            "load_at_measurement": os.getloadavg(),
+        }
         if s == 0:
             rec["latency"] = latency_block(
                 {"L0": l0_agent, "L1": l1_agents["main"][0]},
                 states, data, args.step2, s, args.latency_n)
-            with open(os.path.join(args.out_dir, "step4_raw.json"), "w") as f:
-                json.dump(rec, f, indent=2)
+        with open(os.path.join(args.out_dir, "step4_raw.json"), "w") as f:
+            json.dump(rec, f, indent=2)
 
         del l1_agents
 
+    # The server's own mean over seeds, so its figure is read the same way the
+    # gated one is. Reported, never gated (CRITERIA §6 C4).
+    for which in ("L1_test_id", "L1_train"):
+        vals = [v[which] for v in rec.get("latency_per_seed", {}).values()]
+        if vals:
+            rec.setdefault("latency_pooled_server", {})[which] = {
+                "p50_ms_mean_over_seeds": float(np.mean([v["p50_ms"] for v in vals])),
+                "p50_ms_max_over_seeds": float(np.max([v["p50_ms"] for v in vals])),
+                "p90_ms_mean_over_seeds": float(np.mean([v["p90_ms"] for v in vals])),
+                "p99_ms_mean_over_seeds": float(np.mean([v["p99_ms"] for v in vals])),
+                "n_seeds": len(vals)}
     with open(os.path.join(args.out_dir, "step4_raw.json"), "w") as f:
         json.dump(rec, f, indent=2)
     print("measurement written")
+
+
+def time_agent(agent, states, n):
+    """Milliseconds per decision through Laya's public one-state-per-call path."""
+    ts = []
+    for st in states[:n]:
+        t0 = time.perf_counter()
+        agent.system_one(st, LB.QUESTION)
+        ts.append((time.perf_counter() - t0) * 1000.0)
+    return ts
 
 
 def latency_block(agents, states, data, step2_dir, seed, n):
@@ -329,12 +403,7 @@ def latency_block(agents, states, data, step2_dir, seed, n):
     import torch
     out = {"n_per_arm": n, "note": "one decision per call, batch size 1"}
     for name, agent in agents.items():
-        ts = []
-        for st in states["test_id"][:n]:
-            t0 = time.perf_counter()
-            agent.system_one(st, LB.QUESTION)
-            ts.append((time.perf_counter() - t0) * 1000.0)
-        out[name] = pct(ts)
+        out[name] = pct(time_agent(agent, states["test_id"], n))
     # G and R, per decision
     with open(os.path.join(step2_dir, f"G_main_seed{seed}.pkl"), "rb") as f:
         g = pickle.load(f)
