@@ -3,8 +3,8 @@
 The pre-registered experiment fixed this surface before either implementation
 existed and scored both against it. If the promoted Protocol drifts, every
 number in that result file stops describing this code. So the comparison is a
-test rather than a paragraph in a close-out: it reads the frozen file, parses
-it, and fails if the call surface has moved.
+test rather than a claim in a report: it reads the frozen file, parses it, and
+fails if the call surface has moved.
 
 It parses rather than imports. The frozen tree is deliberately outside the
 linter's and the type checker's reach, and importing from it would need path
