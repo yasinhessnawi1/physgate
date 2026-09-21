@@ -151,9 +151,12 @@ def fit_l0(seed, outdir, model_dir, device, verify):
     sl = workload.calibration_slice()
     states = [fixture.serialise(raw, i) for i in range(sl.start, sl.stop)]
 
-    check = LB.verify_matches_system_one(agent, states) if verify else None
-    if check is not None and not check["agrees"]:
-        raise RuntimeError("batched path disagrees with laya.Agent.system_one: %r" % check)
+    check = sens = None
+    if verify:
+        check = LB.verify_matches_system_one(agent, states)
+        if not check["agrees"]:
+            raise RuntimeError("batched path disagrees with laya.Agent.system_one: %r" % check)
+        sens = LB.numeric_sensitivity(agent, states)
 
     t0 = time.perf_counter()
     lg = LB.logits(agent, states)
@@ -180,6 +183,7 @@ def fit_l0(seed, outdir, model_dir, device, verify):
         "score_summary": {"min": float(z.min()), "max": float(z.max()),
                           "mean": float(z.mean()), "sd": float(z.std())},
         "system_one_agreement": check,
+        "numeric_sensitivity": sens,
         "artefacts": [f"L0_calib_seed{seed}.npz"],
         "not_scored": "L0's metrics are produced at step 4 with every other arm.",
     }

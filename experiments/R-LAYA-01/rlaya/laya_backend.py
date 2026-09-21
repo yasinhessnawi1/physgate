@@ -84,13 +84,14 @@ def logits(agent, states: Sequence[str], batch_size: int = 32,
            progress: bool = False) -> np.ndarray:
     """Raw per-option logits, shape (n, 2), order [false, true]. No temperature.
 
-    Runs under exactly the dtype and device `laya.Agent` chose for itself, which
-    on a compute-capability-7.0 card is fp16 and on cpu/mps is fp32 — see
-    `laya/agent.py`, which downgrades bf16 itself.
+    Runs under `agent.dtype`. `load_agent(..., force_fp32=True)` — which is what
+    this experiment uses — makes that fp32 on every device. See C5 M10: under
+    fp16 the reported probability moves by ~1.6e-3 depending on which batch a
+    state happened to be scored in, and a criterion must not depend on that.
     """
     items = build_items(agent, states)
     out = np.empty((len(items), 2), dtype=np.float64)
-    use_amp = agent.device.type == "cuda"
+    use_amp = agent.device.type == "cuda" and agent.dtype != torch.float32
     for i in range(0, len(items), batch_size):
         chunk = items[i:i + batch_size]
         b = collate_items([chunk], agent.tok.pad_token_id)
@@ -105,6 +106,44 @@ def logits(agent, states: Sequence[str], batch_size: int = 32,
         out[i:i + len(chunk)] = lg.float().cpu().numpy()[:, :2]
         if progress and (i // batch_size) % 20 == 0:
             print("  logits %d/%d" % (i, len(items)), flush=True)
+    return out
+
+
+def numeric_sensitivity(agent, states: Sequence[str], n: int = 64) -> Dict[str, Any]:
+    """How much does the reported probability depend on dtype and batch shape?
+
+    Not a criterion. It is the evidence for pinning fp32, and it is the reason
+    the agreement check below holds dtype fixed: comparing a batched fp32 path to
+    a batch-of-one fp16 path measures fp16, not batching.
+    """
+    import torch as _t
+    s = list(states[:n])
+    keep = agent.dtype
+    out: Dict[str, Any] = {"n": len(s)}
+    per = {}
+    for name, dt in (("fp32", _t.float32), ("fp16", _t.float16)):
+        if dt == _t.float16 and agent.device.type != "cuda":
+            continue
+        agent.dtype = dt
+        p_b = probs_raw(logits(agent, s, batch_size=32))
+        p_1 = probs_raw(logits(agent, s, batch_size=1))
+        per[name] = {
+            "batch32_vs_batch1_max_abs_dp": float(np.abs(p_b - p_1).max()),
+            "batch32_vs_batch1_mean_abs_dp": float(np.abs(p_b - p_1).mean()),
+            "p_batch1_first4": [round(float(x), 6) for x in p_1[:4]],
+        }
+        per[name]["_p1"] = p_1
+    if "fp32" in per and "fp16" in per:
+        d = np.abs(per["fp32"]["_p1"] - per["fp16"]["_p1"])
+        out["fp32_vs_fp16_at_batch1"] = {
+            "max_abs_dp": float(d.max()), "mean_abs_dp": float(d.mean()),
+            "n_decisions_flipped_at_0.5": int(
+                ((per["fp32"]["_p1"] >= 0.5) != (per["fp16"]["_p1"] >= 0.5)).sum()),
+        }
+    for v in per.values():
+        v.pop("_p1", None)
+    out["per_dtype"] = per
+    agent.dtype = keep
     return out
 
 
@@ -127,10 +166,13 @@ def verify_matches_system_one(agent, states: Sequence[str],
                               n: int = 8) -> Dict[str, Any]:
     """Check the batched path against Laya's public one, to four decimals.
 
-    `system_one` rounds to 4 dp, so that is the tolerance. Any disagreement means
-    the batched path is not the path under test and the run stops.
+    `system_one` rounds to 4 dp, so that is the tolerance, and the comparison is
+    run at **batch size 1** so that what is being checked is the code path and
+    not the arithmetic of batching. `numeric_sensitivity` measures the batching
+    effect separately. Any disagreement here means the batched path is not the
+    path under test and the run stops.
     """
-    lg = logits(agent, states[:n])
+    lg = logits(agent, states[:n], batch_size=1)
     mine = probs_raw(lg)
     theirs, theirs_conf = [], []
     for s in states[:n]:
@@ -151,16 +193,37 @@ def verify_matches_system_one(agent, states: Sequence[str],
     }
 
 
-def load_agent(model_dir: str, device: str):
-    """`laya.Agent` on the pinned checkpoint, with its own calibration removed."""
+def load_agent(model_dir: str, device: str, force_fp32: bool = True):
+    """`laya.Agent` on the pinned checkpoint, calibration removed, dtype pinned.
+
+    `force_fp32` is the experiment's pinned inference precision, on every device.
+    `laya.Agent` would choose fp16 on a compute-capability-7.0 card and fp32 on
+    cpu and mps. Three reasons it is pinned to fp32 here, recorded as C5 M10:
+
+    * **C4 gates on the laptop**, which is cpu/mps and therefore fp32 already.
+      Scoring the server in fp16 and the laptop in fp32 would mean the two
+      machines disagree about what the backend answered.
+    * **fp16 makes the answer depend on the batch.** Measured, not assumed: the
+      reported probability moves by up to 1.6e-3 depending on which batch a
+      state was scored in. A criterion must not depend on that.
+    * There is no tf32 on this card, so fp32 here is true fp32.
+    """
     import laya
+    import torch as _t
     from laya.agent import _fix_tokenizer_config
     _fix_tokenizer_config(model_dir)
     agent = laya.Agent(model_dir, device=device)
+    dtype_chosen_by_laya = str(agent.dtype)
+    if force_fp32:
+        agent.dtype = _t.float32
+        agent.model.float()
     prior = neutralise_temperature(agent)
     info = {
         "device": str(agent.device),
         "dtype": str(agent.dtype),
+        "dtype_laya_would_have_chosen": dtype_chosen_by_laya,
+        "dtype_forced_fp32": bool(force_fp32),
+        "allow_tf32": bool(getattr(_t.backends.cuda.matmul, "allow_tf32", False)),
         "reference_compile": getattr(agent.model.encoder.config, "reference_compile", "absent"),
         "attn_implementation": getattr(agent.model.encoder.config,
                                        "_attn_implementation", None),
