@@ -29,6 +29,22 @@ jobs:
         # is that the bump is manual and deliberate.
         uses: astral-sh/setup-uv@v10.2.0
         with:
+          # Left unpinned, this installs whatever is newest on the day. The
+          # tools that decide pass or fail are pinned by the lockfile and so
+          # are identical either way, but the thing that builds the
+          # environment they run in was not pinned at all, which is an odd gap
+          # in a repository whose point is that a green run here and a green
+          # run elsewhere mean the same thing.
+          #
+          # This exact version is the one that has actually been observed
+          # green on these gates on this runner. The developer machine is
+          # still on an older one, so this records the difference rather than
+          # removing it; removing it means upgrading there and re-taking the
+          # environment measurements, which is deliberate work and not this
+          # change. When that happens the number belongs in the project file
+          # as a required version, where one entry constrains both sides and
+          # fails closed instead of being a note.
+          version: "0.12.17"
           enable-cache: true
 
       - name: Create the environment from the lockfile
