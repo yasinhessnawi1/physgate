@@ -8,3 +8,6 @@ __pycache__/
 *.pyc
 
 .DS_Store
+
+# Local Claude Code instructions; stays on this machine.
+CLAUDE.md
