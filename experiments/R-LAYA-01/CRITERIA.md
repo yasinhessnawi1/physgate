@@ -3,6 +3,16 @@
 **Status:** frozen before any model was run, any checkpoint downloaded or any
 metric produced.
 **Written:** 2026-09-21
+**Amended once, 2026-09-21, before any model ran and before any metric existed.**
+The original is commit `7b85d29` and stands in the history. One factual
+correction, no threshold touched: arm T was described as "rerun here", which
+assumed the Tsetlin runs had been produced in this project's environment. They
+were not. They ran under Python 3.11.15 with their own pinned packages and two
+source patches, on a Linux machine, and **their hardware was never recorded at
+all**. §3 and §6 now say what that means. Nothing about Laya, the criteria, the
+thresholds or the acceptance rule changed, and no number existed to steer the
+change.
+
 **Rule:** nothing in this file may change after the first metric is produced. If
 a measurement turns out to be impossible as specified, that fact is recorded in
 `RESULT.md` as a deviation, with its reason, and the criterion is scored as
@@ -59,7 +69,7 @@ Five seeds each wherever training is involved. `R` is deterministic and is run o
 |---|---|
 | **L0** | Laya zero-shot on the pinned checkpoint. **Expected to fail. Reported for completeness; the entry decision does not rest on it** |
 | **L1** | Laya fine-tuned on Train only, using the repository's own reinforcement-learning fine-tuning notebook adapted to the available accelerator (fp16; the card has no bfloat16). **The entry decision rests on this arm** |
-| **T** | Tsetlin machine, the configuration R-TM-01d selected, rerun here |
+| **T** | Tsetlin machine, the configuration R-TM-01d selected. **Rerun in its own environment, not this project's**: Python 3.11.15 with `tmu==0.8.3`, `numpy==2.4.6`, `scikit-learn==1.9.1`, `scipy==1.17.1`, `matplotlib==3.11.2` and the two `tmu` source patches recorded in R-TM-01's config, because that is the environment that produced the numbers being rerun. The machine it runs on is recorded in the resolved config |
 | **G** | HistGradientBoosting |
 | **R** | The hand rule, i.e. the deterministic conditions of ARCH-030 and ARCH-040 |
 
@@ -72,7 +82,11 @@ emits confidence 1.0 by construction.
 ## 4. Rules of fair play
 
 - **R1 Same draw.** Every arm sees the same samples, labels, seeds and splits,
-  from R-TM-01's generator, reused unmodified.
+  from R-TM-01's generator, reused unmodified. **Arms may run in different
+  environments and this is deliberate**: arm T needs the Python 3.11 environment
+  that produced it, the project runs Python 3.12, and Laya needs the
+  accelerator. What must be identical is the draw, not the interpreter. Every
+  arm's environment and machine are recorded.
 - **R2 Native representation, one source.** The generator already returns the
   raw field dictionary alongside the bit vector from the same sample. Arms that
   consume bits get the bit vector; Laya gets the same sample serialised as JSON.
@@ -131,6 +145,13 @@ Also measured and reported, not gated, on the server, whose two CPU cores make i
 the slower of the two for a single forward pass. Both machines' specifications are
 recorded in the resolved config. p90 and p99 are reported for both.
 
+**C4 gates L1 and nothing else**, per §7. The other arms' latencies are context,
+and one of them cannot be compared across runs at all: **R-TM-01 recorded its
+software environment in full and its hardware not at all**, so arm T's timings
+here are a fresh measurement on a named machine rather than a reproduction of
+anything. Any statement that arm T is faster or slower than it was says which
+machine, or is not made.
+
 ### C5 Assumption mismatches
 A written list, one entry per place Laya's model had to be worked around: what
 ARCH-131 needs, what Laya offers, what was done, and whether resolving it would
@@ -179,4 +200,6 @@ The Tsetlin arm carries R-TM-01's own provenance caveat: the configuration being
 rerun here was selected in a region first identified with the
 out-of-distribution sets in hand. Its numbers in this run are a transferability
 check of a known answer, not an independent result, and any summary that cites
-them says so.
+them says so. **And its original hardware is unrecorded**, so this run can
+compare arm T's decisions to its earlier decisions but not its speed to its
+earlier speed.
