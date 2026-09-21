@@ -13,7 +13,8 @@ are found; nothing already written here is rewritten once a metric exists, and
 The first six entries, M1 to M6, were written on 2026-09-21 during the L1
 feasibility check, which produced no metric that any criterion is scored on. M7 to
 M11, and the addendum to M4, were written the same day during step 2, which fits
-arms on Train and scores nothing.
+arms on Train and scores nothing. M12 was written the same day during step 3,
+which trains arm L1 on Train and scores nothing.
 
 ---
 
@@ -449,3 +450,66 @@ constructed after seeing L0 fail — which §3 says outright is expected.
 **Would resolving it require changing ARCH-131 or ARCH-010?** No. It is a note
 about a 500-sample calibration set, and a note that a temperature fitted on a
 near-uninformative score is not a meaningful quantity.
+
+---
+
+## M12 — the recipe fits a temperature the shipped checkpoint cannot reach
+
+**Dated** 2026-09-21, during step 3. **Verified by loading the fine-tuned
+checkpoint and asking the Agent which constant it would apply, not by reading
+the code.**
+
+**What ARCH-131 needs.** A confidence on a known scale, since a fixed 0.8
+threshold is applied to it, and a backend *"frozen at a recorded version"* whose
+behaviour is auditable. The calibration constant is part of what the version has
+to record.
+
+**What Laya offers.** Two places to put a temperature, and a lookup that prefers
+the one the recipe does not write. `laya/agent.py`:
+
+```
+t_scale = self.temperature_by_options.get(temp_bucket(qt, k), self.temperature[qt])
+```
+
+`temperature_by_options` wins; `temperature` is the fallback. The pinned
+fine-tuning notebook ends by fitting fresh temperatures with LBFGS and writing
+**`cfg["temperature"] = fitted_temps`** — and leaves `cfg["temperature_by_options"]`
+exactly as it came off the base checkpoint.
+
+**What that means, measured on `L1_seed0`:**
+
+| | |
+|---|---|
+| `temperature` (what the recipe just fitted) | `[1.2, 1.2, **5.29985237121582**]` |
+| `temperature_by_options["noul:2"]` (inherited from the zero-shot checkpoint) | **1.983399510383606** |
+| bucket for a `noul` question with two options | `noul:2` |
+| **temperature the Agent actually applies** | **1.983399510383606** |
+| **is the recipe's fit reachable?** | **No** |
+
+So the recipe's own post-training calibration is **dead on arrival** for this
+question kind: it fits a constant, writes it to the config, and ships a
+checkpoint in which a stale constant from a different training run on a different
+dataset takes precedence. This is the upstream notebook's behaviour, reproduced
+faithfully; it is not an artefact of the single-GPU adaptation.
+
+**What was done.** Nothing to the recipe — it is reproduced as written, and the
+fitted value is recorded per seed. The D2 ruling then neutralises **both** fields
+before anything is scored, so L1 is temperature-scaled exactly once, by the §3
+fit, like every other arm.
+
+Two consequences to carry into step 4:
+
+1. The non-gating "shipped temperature" pass must use **1.9834**, the constant
+   that would actually apply, not the 5.30 the config advertises. Reporting 5.30
+   as "Laya's own calibration" would report a number no user of the checkpoint
+   would ever get.
+2. The D2 ruling turns out to have been right for a reason nobody had named:
+   without it, L1 would have been scaled by a **zero-shot** constant, fitted by a
+   different run on a different corpus, while arm T was scaled by a fit on this
+   run's Train.
+
+**Would resolving it require changing ARCH-131 or ARCH-010?** No. It is a defect
+in the checkpoint-writing path of the thing under test. It is recorded here
+because it is exactly the class of thing ARCH-132's "frozen at a recorded
+version" is supposed to make visible, and it was invisible until the constant was
+asked for by name.
