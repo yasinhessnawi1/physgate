@@ -1,0 +1,84 @@
+[project]
+name = "physgate"
+version = "0.0.0"
+description = "A deterministic harness for agentic mechatronic design."
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[dependency-groups]
+dev = [
+  "pytest>=9,<10",
+  "mypy>=2.3,<3",
+  "ruff>=0.16,<0.17",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/physgate"]
+
+# ---------------------------------------------------------------------------
+# Lint and format
+# ---------------------------------------------------------------------------
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+# The experiment directories hold this repository's only measured results. The
+# code in them is frozen at the state that produced those numbers, it was run
+# under its own hand-built environments and in one case under an older Python,
+# and reformatting or "fixing" a single line would alter an artefact whose
+# entire value is that it has not changed since it was measured.
+#
+# This is `extend-exclude` and not `exclude` on purpose: `exclude` REPLACES the
+# tool's own built-in exclusions instead of adding to them, so it would quietly
+# widen what gets linted elsewhere in the tree. Measured, not assumed.
+extend-exclude = ["experiments"]
+
+# Without this, a path passed explicitly on the command line overrides the
+# exclusion above: `ruff format experiments/...` would reformat 49 frozen files
+# and report success. The fence has to hold against an argument, not only
+# against a bare `.`, because the argument is how it will actually be crossed.
+force-exclude = true
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "N", "D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+# Tests are named for the behaviour they prove, which is the documentation that
+# matters there; a docstring on every test function would restate the name.
+"tests/*" = ["D1"]
+
+# ---------------------------------------------------------------------------
+# Types
+# ---------------------------------------------------------------------------
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src", "tests"]
+# Same reason as the lint exclusion above: frozen measured artefacts.
+exclude = ["^experiments/"]
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# An unregistered marker must be a collection error, never a silent skip.
+addopts = "--strict-markers -m 'not integration'"
+markers = [
+  "integration: needs external state, a spawned session or a real tool server",
+  "injected: a deliberately wrong artefact, asserted to be refused at the right stage",
+]
+# Belt and braces. Nothing under the experiment directories matches a
+# collection pattern today; this is here for the fourth experiment, not the
+# three that exist.
+norecursedirs = ["experiments", ".venv", "build", "dist"]
