@@ -35,10 +35,12 @@ import json
 import os
 from collections import deque
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from physgate.state.exceptions import (
+    CorruptRecordError,
     DesignStateError,
+    MalformedNodeIdError,
     StoreStaleError,
 )
 from physgate.state.protocol import (
@@ -57,6 +59,9 @@ from physgate.state.schema import quantities_are_valid, validate_node, validate_
 # typing it as a model here would change the surface the comparison measured.
 Payload = dict[str, Any]
 
+#: What to do about a complete journal line that is not a valid record.
+OnCorrupt = Literal["raise", "truncate"]
+
 JOURNAL_NAME = "journal.jsonl"
 NODES_DIRNAME = "nodes"
 
@@ -73,9 +78,19 @@ class Store:
     holds the store at a time. See ``README.md`` beside this file.
     """
 
-    def __init__(self, root: Path) -> None:
-        """Open the store rooted at ``root``, recovering it first."""
+    def __init__(self, root: Path, *, on_corrupt: OnCorrupt = "raise") -> None:
+        """Open the store rooted at ``root``, recovering it first.
+
+        Args:
+            root: the directory holding the journal and the node files.
+            on_corrupt: what to do about a complete journal line that is not a
+                valid record. ``"raise"`` refuses to open and names the offset.
+                ``"truncate"`` drops that line and everything after it, and
+                reports the byte count. The default is to refuse, because
+                dropping silently would discard valid records too.
+        """
         self.root = Path(root)
+        self._on_corrupt = on_corrupt
         self.nodes_dir = self.root / NODES_DIRNAME
         self.journal_path = self.root / JOURNAL_NAME
         self.nodes_dir.mkdir(parents=True, exist_ok=True)
@@ -109,6 +124,7 @@ class Store:
         self._next_rev = 1
 
         good_end = 0
+        corrupt: tuple[int, str] | None = None
         with self.journal_path.open("rb") as handle:
             while True:
                 offset = handle.tell()
@@ -120,6 +136,12 @@ class Store:
                 try:
                     entry = json.loads(raw)
                 except json.JSONDecodeError:
+                    corrupt = (offset, "the line is complete but is not valid JSON")
+                    break
+                try:
+                    validate_node_id(entry.get("node_id"))
+                except MalformedNodeIdError as exc:
+                    corrupt = (offset, f"the line names an illegal node id: {exc}")
                     break
                 self._offsets[entry["rev"]] = offset
                 self._node_revs.setdefault(entry["node_id"], []).append(entry["rev"])
@@ -128,6 +150,12 @@ class Store:
                 good_end = handle.tell()
 
         size = self.journal_path.stat().st_size
+        if corrupt is not None and self._on_corrupt == "raise":
+            offset, reason = corrupt
+            msg = "the journal holds a record this package could not have written"
+            raise CorruptRecordError(
+                msg, journal=str(self.journal_path), offset=str(offset), reason=reason
+            )
         self._torn_tail_bytes = size - good_end
         if self._torn_tail_bytes:
             with self.journal_path.open("r+b") as handle:
@@ -245,9 +273,11 @@ class Store:
 
         Raises:
             StoreStaleError: the journal moved underneath this handle.
+            MalformedNodeIdError: the id is not a legal identifier.
             NodeNotFoundError: the store has never held this id.
         """
         self._assert_current()
+        validate_node_id(node_id)
         return self._read_node(node_id)
 
     def diff(self, since: Revision) -> list[NodeChange]:
@@ -284,9 +314,11 @@ class Store:
 
         Raises:
             StoreStaleError: the journal moved underneath this handle.
+            MalformedNodeIdError: the id is not a legal identifier.
             NodeNotFoundError: the store has never held ``node_id``.
         """
         self._assert_current()
+        validate_node_id(node_id)
         order: list[str] = []
         seen: set[str] = {node_id}
         queue = deque(self._read_node(node_id)["constrains"])
@@ -304,8 +336,10 @@ class Store:
 
         Raises:
             StoreStaleError: the journal moved underneath this handle.
+            MalformedNodeIdError: the id is not a legal identifier.
         """
         self._assert_current()
+        validate_node_id(node_id)
         return list(self._node_revs.get(node_id, []))
 
     def head_revision(self) -> Revision:
@@ -325,7 +359,26 @@ class Store:
     # ----- internals ----------------------------------------------------------
 
     def _node_path(self, node_id: str) -> Path:
-        return self.nodes_dir / f"{node_id}.json"
+        """The file holding ``node_id``, and the only place a node path is built.
+
+        Every read, write and repair goes through here, so this is where the
+        identifier rule is made unconditional rather than being remembered at
+        each call site. The resolved path is checked against the graph directory
+        as well: the pattern is the rule, and the containment check is what
+        catches a future change to the pattern that the pattern's own tests would
+        still pass.
+
+        Raises:
+            MalformedNodeIdError: the id is illegal, or the path it produces
+                would fall outside the graph directory.
+        """
+        validate_node_id(node_id)
+        path = self.nodes_dir / f"{node_id}.json"
+        resolved = path.resolve()
+        if not resolved.is_relative_to(self.nodes_dir.resolve()):
+            msg = "the node path would fall outside the graph directory"
+            raise MalformedNodeIdError(msg, node_id=node_id, resolved=str(resolved))
+        return path
 
     def _read_node(self, node_id: str) -> Payload:
         """Read a node's payload from its file, without the staleness check."""
@@ -356,6 +409,25 @@ class Store:
         self._next_rev = rev + 1
         self._durable_size = self.journal_path.stat().st_size
         return rev
+
+    def payload_at(self, revision: Revision) -> Payload:
+        """The payload as it stood at ``revision``, read from the journal.
+
+        The journal holds every revision's payload, so a question about the past
+        is answerable without a second record. This is not on the frozen
+        interface and is not meant to be: the interface is the one the store
+        comparison measured, and this is a read the divergence check needs.
+
+        Raises:
+            StoreStaleError: the journal moved underneath this handle.
+            RevisionNotFoundError: this store never minted ``revision``.
+        """
+        self._assert_current()
+        if revision not in self._offsets:
+            msg = "no such revision"
+            raise RevisionNotFoundError(msg, revision=str(revision))
+        payload: Payload = self._entry_at(revision)["payload"]
+        return payload
 
     def _entry_at(self, rev: Revision) -> dict[str, Any]:
         with self.journal_path.open("rb") as handle:

@@ -28,11 +28,21 @@ class MissingUnitError(DesignStateError):
 
 
 class CrossRoleWriteError(DesignStateError):
-    """A role attempted to write a node owned by a different role."""
+    """A role attempted to write a node owned by a different role.
+
+    Nothing in this package raises it. The store *returns* that refusal as a
+    reason on the write result, because those reason strings are the closed
+    vocabulary the store comparison counted its correctness in. This exists for
+    the hook layer, which refuses the same write before it is attempted and has
+    no write result to put a reason on.
+    """
 
 
 class InterfaceImmutableError(DesignStateError):
-    """An interface node was written after it was created."""
+    """An interface node was written after it was created.
+
+    Raised by nothing here, for the same reason as :class:`CrossRoleWriteError`.
+    """
 
 
 class MalformedNodeIdError(DesignStateError):
@@ -44,6 +54,19 @@ class MalformedNodeIdError(DesignStateError):
     input. This is a raise rather than a rejection: a rejection reason would join
     the set the frozen correctness score counts, and change what those counters
     mean.
+    """
+
+
+class CorruptRecordError(DesignStateError):
+    """A durable record holds a complete line that is not a valid record.
+
+    Distinct from a torn tail. A torn tail is the expected consequence of a
+    process dying mid-write and is dropped; a complete line that does not parse,
+    or that names an identifier no writer of this package could have produced,
+    means something wrote to the record that was not this package. Dropping it
+    silently would discard every valid record after it as well, so the default is
+    to refuse to open and to name the offset — and the way through is explicit,
+    recorded, and asked for by the caller.
     """
 
 

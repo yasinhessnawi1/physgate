@@ -37,6 +37,10 @@ NODE_ID_MAX_LENGTH = 128
 
 NodeKind = Literal["component", "module", "requirement", "interface"]
 
+#: The architecture enumerates the domain in exactly the notation it uses for
+#: the kind, and the physics gate routes on it, so it is closed the same way.
+DomainKind = Literal["mechanical", "electrical", "control", "firmware", "cross"]
+
 NonEmptyStr = Annotated[str, StringConstraints(min_length=1)]
 
 
@@ -61,7 +65,7 @@ class Node(BaseModel):
 
     id: Annotated[str, Field(max_length=NODE_ID_MAX_LENGTH)]
     kind: NodeKind
-    domain: NonEmptyStr
+    domain: DomainKind
     owner_role: NonEmptyStr
     quantities: dict[str, Quantity] = Field(default_factory=dict)
     requirements: list[str] = Field(default_factory=list)

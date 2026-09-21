@@ -18,12 +18,17 @@ import os
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
+
+from physgate.state.exceptions import CorruptRecordError
 
 NonEmptyStr = Annotated[str, StringConstraints(min_length=1)]
 
 #: A gate or review result is one of these, or absent because it has not run.
 Outcome = Literal["pass", "fail", "skipped"]
+
+#: What to do about a complete line that is not a valid record.
+OnCorrupt = Literal["raise", "truncate"]
 
 
 class TaskLine(BaseModel):
@@ -45,11 +50,32 @@ class TaskLedger:
 
     Opening reads the file once and reports a torn final line rather than
     silently counting it. There is no update and no delete.
+
+    **Reads answer from memory, and that is deliberate.** Unlike the graph store,
+    which re-reads its files and refuses to answer when they have moved, this
+    class holds every parsed line for the life of the handle and answers from
+    that list. The ledger has one writer by architecture — the orchestrator —
+    so a process-lifetime view is the right shape, and a second reader opens its
+    own handle and gets its own view as of its own open. What it is not is a
+    durable-record read in the sense the graph store means: a handle held open
+    while something else appends will not see those lines. The graph store gets
+    a staleness detector because concurrent writers there corrupt the record;
+    here there is one writer and nothing to corrupt.
     """
 
-    def __init__(self, path: Path) -> None:
-        """Open the ledger at ``path``, creating it if it does not exist."""
+    def __init__(self, path: Path, *, on_corrupt: OnCorrupt = "raise") -> None:
+        """Open the ledger at ``path``, creating it if it does not exist.
+
+        Args:
+            path: the ledger file.
+            on_corrupt: what to do about a complete line that is not a valid
+                record. ``"raise"`` refuses to open and names the offset;
+                ``"truncate"`` drops that line and everything after it. The
+                default refuses, because a complete line that does not validate
+                was written by something that is not this class.
+        """
         self.path = Path(path)
+        self._on_corrupt = on_corrupt
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.touch(exist_ok=True)
         self._torn_tail_bytes = 0
@@ -64,19 +90,37 @@ class TaskLedger:
         A process killed between writing a line and flushing it leaves a partial
         line. It is truncated away rather than parsed, because a half-written
         subtask record is not a subtask record.
+
+        A **complete** line that does not validate is a different thing and is
+        not treated as a tail: something wrote a record this class could not
+        have written, and dropping it silently would discard every valid line
+        after it too.
+
+        Raises:
+            CorruptRecordError: a complete line is not a valid record and the
+                handle was opened with the default policy.
         """
         self._lines = []
         self._by_id = {}
         good_end = 0
+        corrupt: tuple[int, str] | None = None
         with self.path.open("rb") as handle:
             for raw in handle:
                 if not raw.endswith(b"\n"):
                     break
-                line = TaskLine.model_validate_json(raw)
+                try:
+                    line = TaskLine.model_validate_json(raw)
+                except ValidationError as exc:
+                    corrupt = (good_end, str(exc).splitlines()[0])
+                    break
                 self._by_id[line.id] = len(self._lines)
                 self._lines.append(line)
                 good_end += len(raw)
         size = self.path.stat().st_size
+        if corrupt is not None and self._on_corrupt == "raise":
+            offset, reason = corrupt
+            msg = "the ledger holds a record this class could not have written"
+            raise CorruptRecordError(msg, ledger=str(self.path), offset=str(offset), reason=reason)
         self._torn_tail_bytes = size - good_end
         if self._torn_tail_bytes:
             with self.path.open("r+b") as handle:
@@ -97,7 +141,12 @@ class TaskLedger:
         self._lines.append(line)
 
     def read_all(self) -> list[TaskLine]:
-        """Every line, in the order it was appended."""
+        """Every line this handle has seen, in the order it was appended.
+
+        As of this handle's open, plus whatever it has appended since. See the
+        class docstring: this is a process-lifetime view by design, not a
+        durable-record read.
+        """
         return list(self._lines)
 
     def tail(self, count: int = 1) -> list[TaskLine]:

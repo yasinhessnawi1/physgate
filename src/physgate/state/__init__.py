@@ -12,6 +12,7 @@ and what else this package deliberately does not own.
 
 from physgate.state.divergence import Divergence, divergence
 from physgate.state.exceptions import (
+    CorruptRecordError,
     CrossRoleWriteError,
     DesignStateError,
     InterfaceImmutableError,
@@ -48,6 +49,7 @@ __all__ = [
     "REJECT_INTERFACE_IMMUTABLE",
     "REJECT_MISSING_UNIT",
     "REJECT_UNKNOWN_NODE",
+    "CorruptRecordError",
     "CrossRoleWriteError",
     "DesignStateError",
     "DesignStateStore",

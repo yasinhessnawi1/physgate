@@ -14,10 +14,26 @@ adopted.
 
 | | |
 |---|---|
+| `store.py` | The store itself: JSON per node over an append-only journal, the three guards, recovery at open, and the staleness detector |
+| `divergence.py` | The check that names a node changed during a step by a role that does not own it |
 | `protocol.py` | The store interface, exactly as the comparison froze it: eight methods, and the closed set of rejection reasons the correctness score is counted in |
 | `schema.py` | The node shape, the quantity, and the identifier rule. Every quantity carries a value, a unit, a source and the role that wrote it |
 | `exceptions.py` | The domain exceptions. All of them carry a context mapping |
 | `task_ledger.py` | One append-only line per dispatched subtask |
+
+### One of them reads differently from the others
+
+**The task ledger answers from a process-lifetime view, and that is a decision
+rather than an oversight.** It holds every parsed line from its open and answers
+from that list; it does not re-read the file and it has no staleness detector.
+The ledger has one writer by architecture — the orchestrator — so there is no
+second writer to disagree with, and a reader that wants current state opens its
+own handle.
+
+The graph store is the opposite and deliberately so: it re-reads its files, and
+it refuses to answer when the journal has moved underneath it, because there a
+second writer corrupts the record silently. The two files are not held to the
+same rule because they do not have the same risk.
 
 ## The two append-only files, which are not the same file
 
