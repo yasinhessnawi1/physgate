@@ -4,6 +4,26 @@
 > `../R-OP-02/RESULT.md` for the 1.2.1 measurement. The verdict is the same in
 > both, for the same reason.
 
+> **Added 2026-09-21, after the fact, changing no number below.** The line
+> "Closure sizes reached, by seed: 169, 155, 147, 131, 106 nodes" is wrong. The
+> workload's closures are **169, 177, 173, 172, 166**, recorded identically in
+> all twenty-five metric files across both arms of this experiment and all three
+> of R-OP-02, and reproduced by rebuilding the workload from the same seeds.
+> Only the first of the five published figures appears anywhere in the data.
+>
+> **Nothing scored changes, and that was checked rather than assumed.** C3's
+> per-seed traversal p95 values are 65.41, 58.55, 48.94, 34.37 and 20.76 ms,
+> whose mean is 45.61 ms — the 45.6 ms the acceptance rule was applied to. The
+> faulty line is descriptive prose about the workload and no criterion consumes
+> it. The published sequence is monotonically decreasing, as the latency values
+> are, which is the likely path: a column read off a table sorted by something
+> else.
+>
+> Found on 2026-09-21 by the spec promoting this store into the system, which
+> measured the closures itself and did not recognise the published ones. Left in
+> place rather than edited: a result is a record, and a record that is quietly
+> corrected cannot be checked against what it said.
+
 # R-OP-01 result
 
 **Verdict: the baseline ships. Open Persona is recorded as tested and not
