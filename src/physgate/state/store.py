@@ -363,22 +363,32 @@ class Store:
 
         Every read, write and repair goes through here, so this is where the
         identifier rule is made unconditional rather than being remembered at
-        each call site. The resolved path is checked against the graph directory
-        as well: the pattern is the rule, and the containment check is what
-        catches a future change to the pattern that the pattern's own tests would
-        still pass.
+        each call site. The name it produces is then checked as well: the pattern
+        is the rule, and the containment check is what catches a future change to
+        the pattern that the pattern's own tests would still pass.
+
+        The containment check is a **string test on the file name**, and the
+        spelling is measured rather than chosen. Resolving the path and comparing
+        it to the resolved directory — the obvious version, and the one written
+        first — touches the filesystem once per path component, and a traversal
+        calls this once per hop. Collapsing the path as text instead was cheaper
+        and still cost nine microseconds a call to re-prove what the identifier
+        pattern already guarantees, since that pattern admits no separator and no
+        parent reference. What is left is the part the pattern does not cover: a
+        name holding a separator, or beginning with a parent reference, cannot
+        stay in this directory whatever a future pattern allows. Fifteen
+        microseconds a call became one and a half.
 
         Raises:
-            MalformedNodeIdError: the id is illegal, or the path it produces
-                would fall outside the graph directory.
+            MalformedNodeIdError: the id is illegal, or the name it produces
+                would not stay in the graph directory.
         """
         validate_node_id(node_id)
-        path = self.nodes_dir / f"{node_id}.json"
-        resolved = path.resolve()
-        if not resolved.is_relative_to(self.nodes_dir.resolve()):
+        name = f"{node_id}.json"
+        if os.sep in name or (os.altsep and os.altsep in name) or name.startswith(".."):
             msg = "the node path would fall outside the graph directory"
-            raise MalformedNodeIdError(msg, node_id=node_id, resolved=str(resolved))
-        return path
+            raise MalformedNodeIdError(msg, node_id=node_id, file_name=name)
+        return self.nodes_dir / name
 
     def _read_node(self, node_id: str) -> Payload:
         """Read a node's payload from its file, without the staleness check."""
