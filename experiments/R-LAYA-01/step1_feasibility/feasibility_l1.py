@@ -113,12 +113,99 @@ def collate(items, pad_id):
     }
 
 
+def compute_loss(model, batch, dev, sigma, autocast_dtype):
+    """The pinned notebook's per-micro-batch loss, verbatim in behaviour.
+
+    ``autocast_dtype=None`` runs the whole thing in fp32, which is the reference
+    the fp16 path is checked against.
+    """
+    with torch.autocast("cuda", dtype=autocast_dtype or torch.float16,
+                        enabled=autocast_dtype is not None):
+        logits, act = model(
+            batch["input_ids"].to(dev), batch["attention_mask"].to(dev),
+            batch["marker_pos"].to(dev), batch["marker_mask"].to(dev),
+            batch["qtype"].to(dev))
+    logits = logits.float()
+    mask = batch["marker_mask"].to(dev)
+    k = mask.sum(-1, keepdim=True).float()
+    target = batch["target"].to(dev)
+
+    eps = torch.randn((GROUP_SIZE,) + logits.shape, device=dev) * sigma * mask
+    eps = (eps - eps.sum(-1, keepdim=True) / k) * mask
+    z = logits.detach().unsqueeze(0) + eps
+    qd = torch.softmax(z.masked_fill(~mask, -1e4), -1)
+    with torch.no_grad():
+        r = proper_reward(qd, target.unsqueeze(0), batch["qtype"].to(dev),
+                          mask, w_sph=W_SPH, w_rps=W_RPS)
+        adv = r - r.mean(0, keepdim=True)
+        adv = adv / (adv.std() + 1e-6)
+    logp = -(((z - logits.unsqueeze(0)) ** 2) * mask).sum(-1) / (2 * sigma ** 2)
+    loss_rl = -(adv * logp).mean()
+    loss_ce = -(target * torch.log_softmax(logits.masked_fill(~mask, -1e4), -1)).sum(-1).mean()
+    loss = (loss_rl + CE_WEIGHT * loss_ce) / GRAD_ACCUM + 0.0 * act.sum()
+    return loss, float(r.mean().item())
+
+
+def grad_report(params):
+    """Finiteness and magnitude of the gradients currently on ``params``."""
+    n_bad, n_with = 0, 0
+    mx = 0.0
+    with torch.no_grad():
+        for p in params:
+            if p.grad is None:
+                continue
+            n_with += 1
+            g = p.grad
+            if not torch.isfinite(g).all():
+                n_bad += 1
+            else:
+                mx = max(mx, float(g.abs().max().item()))
+    return {"tensors_with_grad": n_with, "nonfinite_tensors": n_bad,
+            "max_abs_grad_over_finite_tensors": mx}
+
+
+def scale_probe(model, batch, dev, params, sigma):
+    """Is the fp16 path non-finite because of the loss scaler, or by itself?
+
+    Runs the same backward at fp32, at fp16 unscaled, and at fp16 over a ladder
+    of static loss scales, and reports the largest scale whose gradients are
+    finite. This distinguishes "the scaler starts too high and has to back off",
+    which is ordinary and self-correcting, from "fp16 cannot represent these
+    gradients at any useful scale", which is a kill.
+    """
+    out = {}
+    model.zero_grad(set_to_none=True)
+    loss, _ = compute_loss(model, batch, dev, sigma, autocast_dtype=None)
+    loss.backward()
+    out["fp32_unscaled"] = grad_report(params)
+    out["fp32_unscaled"]["loss"] = float(loss.item()) * GRAD_ACCUM
+
+    ladder = []
+    for e in range(16, -1, -1):
+        scale = float(2 ** e)
+        model.zero_grad(set_to_none=True)
+        loss, _ = compute_loss(model, batch, dev, sigma, autocast_dtype=torch.float16)
+        (loss * scale).backward()
+        g = grad_report(params)
+        g["scale"] = scale
+        g["scale_exponent"] = e
+        g["loss"] = float(loss.item()) * GRAD_ACCUM
+        ladder.append(g)
+        if g["nonfinite_tensors"] == 0 and "largest_finite_scale" not in out:
+            out["largest_finite_scale"] = scale
+            out["largest_finite_scale_exponent"] = e
+    out["fp16_scale_ladder"] = ladder
+    model.zero_grad(set_to_none=True)
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("model_dir")
     ap.add_argument("out")
     ap.add_argument("--micro-batches", type=int, default=64)
     ap.add_argument("--warmup", type=int, default=8)
+    ap.add_argument("--ref-micro-batches", type=int, default=8)
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
 
@@ -128,6 +215,11 @@ def main():
     dev = torch.device("cuda")
     props = torch.cuda.get_device_properties(0)
     import transformers, laya, safetensors, huggingface_hub
+    try:
+        with open("/sys/fs/cgroup/cpu.max") as f:
+            cgroup_cpu_max = f.read().strip()
+    except OSError:
+        cgroup_cpu_max = None
     rec["env"] = {
         "python": platform.python_version(),
         "platform": platform.platform(),
@@ -146,7 +238,13 @@ def main():
         "gpu": props.name,
         "compute_capability": [props.major, props.minor],
         "gpu_memory_total_bytes": props.total_memory,
-        "cpu_count": os.cpu_count(),
+        # os.cpu_count() reports the host's cores; this container is cgroup-limited
+        # and `nproc` says 2. Both are recorded so neither can be mistaken for the other.
+        "cpu_count_host": os.cpu_count(),
+        "cpu_affinity": len(os.sched_getaffinity(0)),
+        "cpu_nproc": subprocess.run(["nproc"], capture_output=True, text=True).stdout.strip(),
+        "cgroup_cpu_max": cgroup_cpu_max,
+        "torch_num_threads": torch.get_num_threads(),
         "bf16_including_emulation": torch.cuda.is_bf16_supported(),
         "bf16_hardware": torch.cuda.is_bf16_supported(including_emulation=False),
     }
@@ -233,7 +331,12 @@ def main():
 
     random.seed(42 + args.seed)
     random.shuffle(items)
-    sigma = SIGMA_START  # epoch 0 value
+    sigma = SIGMA_START  # epoch 0 value, the largest of the schedule
+
+    # ---- is fp16 workable at all, before any timing is done with it? --------
+    probe_batch = collate(items[:MICRO_BATCH], tok.pad_token_id)
+    rec["fp16_scale_probe"] = scale_probe(model, probe_batch, dev, params, sigma)
+    opt.zero_grad(set_to_none=True)
 
     steps, updates = [], []
     n_total = args.warmup + args.micro_batches
@@ -250,29 +353,7 @@ def main():
 
         torch.cuda.synchronize()
         t0 = time.perf_counter()
-        with torch.autocast("cuda", dtype=torch.float16):
-            logits, act = model(
-                batch["input_ids"].to(dev), batch["attention_mask"].to(dev),
-                batch["marker_pos"].to(dev), batch["marker_mask"].to(dev),
-                batch["qtype"].to(dev))
-        logits = logits.float()
-        mask = batch["marker_mask"].to(dev)
-        k = mask.sum(-1, keepdim=True).float()
-        target = batch["target"].to(dev)
-
-        eps = torch.randn((GROUP_SIZE,) + logits.shape, device=dev) * sigma * mask
-        eps = (eps - eps.sum(-1, keepdim=True) / k) * mask
-        z = logits.detach().unsqueeze(0) + eps
-        qd = torch.softmax(z.masked_fill(~mask, -1e4), -1)
-        with torch.no_grad():
-            r = proper_reward(qd, target.unsqueeze(0), batch["qtype"].to(dev),
-                              mask, w_sph=W_SPH, w_rps=W_RPS)
-            adv = r - r.mean(0, keepdim=True)
-            adv = adv / (adv.std() + 1e-6)
-        logp = -(((z - logits.unsqueeze(0)) ** 2) * mask).sum(-1) / (2 * sigma ** 2)
-        loss_rl = -(adv * logp).mean()
-        loss_ce = -(target * torch.log_softmax(logits.masked_fill(~mask, -1e4), -1)).sum(-1).mean()
-        loss = (loss_rl + CE_WEIGHT * loss_ce) / GRAD_ACCUM + 0.0 * act.sum()
+        loss, reward = compute_loss(model, batch, dev, sigma, torch.float16)
         scaler.scale(loss).backward()
         torch.cuda.synchronize()
         step_secs = time.perf_counter() - t0
@@ -280,10 +361,8 @@ def main():
         # ---- finite check, every micro-batch, timed apart from the step ----
         t0 = time.perf_counter()
         with torch.no_grad():
-            bad = 0
-            for p in params:
-                if p.grad is not None and not torch.isfinite(p.grad).all():
-                    bad += 1
+            bad = sum(1 for p in params
+                      if p.grad is not None and not torch.isfinite(p.grad).all())
         check_secs = time.perf_counter() - t0
 
         rec_step = {
@@ -295,8 +374,9 @@ def main():
             "step_seconds": step_secs,
             "finite_check_seconds": check_secs,
             "loss": float(loss.item()) * GRAD_ACCUM,
+            "reward_mean": reward,
             "loss_finite": bool(np.isfinite(float(loss.item()))),
-            "nonfinite_grad_tensors": bad,
+            "nonfinite_scaled_grad_tensors": bad,
             "scaler_scale": float(scaler.get_scale()),
         }
         accum += 1
@@ -324,7 +404,7 @@ def main():
         steps.append(rec_step)
 
     wall = time.perf_counter() - wall0
-    rec["peak_memory_bytes"] = int(torch.cuda.max_memory_allocated())
+    rec["peak_memory_bytes_workload"] = int(torch.cuda.max_memory_allocated())
     rec["peak_memory_reserved_bytes"] = int(torch.cuda.max_memory_reserved())
     rec["steps"] = steps
     rec["updates"] = updates
@@ -354,10 +434,57 @@ def main():
         "update_seconds_mean": float(upd_t.mean()),
         "sequences_per_second": MICRO_BATCH / float(step_t.mean()),
         "seconds_per_optimiser_update_eff_batch_64": sec_per_update,
-        "nonfinite_grad_micro_batches": sum(1 for s in steps if s["nonfinite_grad_tensors"] > 0),
+        "nonfinite_scaled_grad_micro_batches": sum(
+            1 for s in steps if s["nonfinite_scaled_grad_tensors"] > 0),
         "nonfinite_loss_micro_batches": sum(1 for s in steps if not s["loss_finite"]),
+        "nonfinite_unscaled_grad_norm_updates": sum(
+            1 for u in updates if not u["grad_norm_finite"]),
         "scaler_skipped_updates": sum(1 for u in updates if u["step_skipped_by_scaler"]),
         "n_updates": len(updates),
+        "scaler_scale_first": float(steps[0]["scaler_scale"]),
+        "scaler_scale_last": float(steps[-1]["scaler_scale"]),
+    }
+
+    # -------- reference-length pass, for the upstream 1.96 h comparison ------
+    # The workload's sequences are ~147 tokens. Upstream's per-update sequence
+    # count and token length are not recorded anywhere in the checkpoint, so the
+    # only honest like-for-like is to also measure at the recipe's own ceiling,
+    # max_len = 1024, same batch shape. Reported alongside; it is not the number
+    # the extrapolation uses.
+    ref_steps = []
+    torch.cuda.reset_peak_memory_stats()
+    ref_batch = collate(items[:MICRO_BATCH], tok.pad_token_id)
+    L = cfg["max_len"]
+    pad_id = tok.pad_token_id
+    n = ref_batch["input_ids"].shape[0]
+    ids = torch.full((n, L), pad_id, dtype=torch.long)
+    att = torch.zeros((n, L), dtype=torch.long)
+    ids[:, : ref_batch["input_ids"].shape[1]] = ref_batch["input_ids"]
+    # fill the rest with real vocabulary so the attention mask is genuinely full
+    ids[:, ref_batch["input_ids"].shape[1]:] = ref_batch["input_ids"][
+        :, : L - ref_batch["input_ids"].shape[1]].repeat(
+        1, (L // ref_batch["input_ids"].shape[1]) + 1)[:, : L - ref_batch["input_ids"].shape[1]]
+    att[:] = 1
+    ref_batch["input_ids"], ref_batch["attention_mask"] = ids, att
+    opt.zero_grad(set_to_none=True)
+    for s in range(args.ref_micro_batches + 2):
+        torch.cuda.synchronize()
+        t0 = time.perf_counter()
+        loss, _ = compute_loss(model, ref_batch, dev, sigma, torch.float16)
+        scaler.scale(loss).backward()
+        torch.cuda.synchronize()
+        ref_steps.append({"i": s, "warmup": s < 2,
+                          "step_seconds": time.perf_counter() - t0,
+                          "loss_finite": bool(np.isfinite(float(loss.item())))})
+        opt.zero_grad(set_to_none=True)
+    rt = np.array([s["step_seconds"] for s in ref_steps if not s["warmup"]])
+    rec["reference_length_1024"] = {
+        "tokens_per_sequence": L,
+        "sequences_per_micro_batch": MICRO_BATCH,
+        "step_seconds_mean": float(rt.mean()), "step_seconds_sd": float(rt.std()),
+        "seconds_per_optimiser_update_eff_batch_64": float(rt.mean() * GRAD_ACCUM),
+        "peak_memory_bytes": int(torch.cuda.max_memory_allocated()),
+        "steps": ref_steps,
     }
     rec["extrapolation"] = {
         "recipe": {"epochs": EPOCHS, "micro_batch": MICRO_BATCH, "grad_accum": GRAD_ACCUM,
@@ -374,8 +501,14 @@ def main():
     }
     with open(args.out, "w") as f:
         json.dump(rec, f, indent=2)
-    print(json.dumps({k: rec[k] for k in
-                      ("env", "model", "tokenisation", "measured", "extrapolation")}, indent=2))
+    summary = {k: rec[k] for k in
+               ("env", "model", "tokenisation", "measured", "extrapolation")}
+    summary["peak_memory_bytes_workload"] = rec["peak_memory_bytes_workload"]
+    summary["fp16_scale_probe"] = {
+        k: v for k, v in rec["fp16_scale_probe"].items() if k != "fp16_scale_ladder"}
+    summary["reference_length_1024"] = {
+        k: v for k, v in rec["reference_length_1024"].items() if k != "steps"}
+    print(json.dumps(summary, indent=2))
 
 
 if __name__ == "__main__":
