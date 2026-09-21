@@ -10,7 +10,7 @@ criterion produced a number.** Each entry is dated. Entries are appended as they
 are found; nothing already written here is rewritten once a metric exists, and
 `RESULT.md` carries the list as it stands at measurement.
 
-The first four entries below were written on 2026-09-21 during the L1
+The six entries below, M1 to M6, were all written on 2026-09-21 during the L1
 feasibility check, which produced no metric that any criterion is scored on.
 
 ---
@@ -181,3 +181,37 @@ reported per micro-batch and per sequence as well as per update, so it can be
 compared to a run with a different accumulation factor.
 
 **Would resolving it require changing ARCH-131 or ARCH-010?** No.
+
+---
+
+## M6 — Laya fits its own calibration temperature, and CRITERIA §3 admits only one fit
+
+**Dated** 2026-09-21, during step 1. **Affects L0 and L1 at measurement, not the
+feasibility answer. Raised as prospective deviation D2 in
+`step1_feasibility/FEASIBILITY.md` for a ruling before step 3.**
+
+**What ARCH-131 needs.** A confidence on one scale, comparable across backends,
+because the 0.8 routing threshold is *"a property of the interface, not of a
+backend, so every backend is judged on the same routing rule."* A backend that
+quietly rescales its own confidence is being judged on a different rule.
+
+**What Laya offers.** Calibration is what Laya is optimised for, and it carries
+its own. The pinned recipe ends by fitting per-question-type temperatures with
+LBFGS on 400 held-out-from-shuffle training items and writing them into
+`rl_agent_config.json`; `laya.Agent` then applies `temperature_by_options` per
+bucket at inference. The pinned zero-shot checkpoint already carries
+`"noul:2": 1.983399510383606` — the exact bucket this experiment uses.
+
+**What was done at step 1.** Nothing, and nothing may be: CRITERIA §3 is frozen
+and says the temperature is fitted on a 500-sample slice of Train, identical for
+every arm. Left alone, L0 and L1 would be scaled twice — Laya's fit, then the
+experiment's — while arm T is scaled once. Recorded now so that step 3 makes the
+choice in the open.
+
+**Would resolving it require changing ARCH-131 or ARCH-010?** No, but it is the
+first entry on this list that touches what ARCH-131 actually cares about. It says
+something real about admitting a *calibrated* backend behind a fixed threshold:
+the register's entry condition should state whose calibration is in force, or two
+backends can pass the same 0.8 rule while meaning different things by it. Worth
+carrying into ARCH-132's row text if `laya` enters — as a note on the row, not a
+change to the interface.
