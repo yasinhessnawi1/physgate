@@ -3,7 +3,9 @@ name = "physgate"
 version = "0.0.0"
 description = "A deterministic harness for agentic mechatronic design."
 requires-python = ">=3.12,<3.13"
-dependencies = []
+dependencies = [
+  "pydantic>=2.7,<3",
+]
 
 [dependency-groups]
 dev = [
