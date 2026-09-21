@@ -40,10 +40,6 @@ class TaskLine(BaseModel):
     merge_commit: str | None = None
 
 
-class TornLineError(Exception):
-    """The ledger's final line was incomplete and was not counted."""
-
-
 class TaskLedger:
     """An append-only JSONL ledger of dispatched subtasks.
 

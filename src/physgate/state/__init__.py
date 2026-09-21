@@ -10,6 +10,7 @@ answering inconsistently. ``README.md`` in this directory says why that matters
 and what else this package deliberately does not own.
 """
 
+from physgate.state.divergence import Divergence, divergence
 from physgate.state.exceptions import (
     CrossRoleWriteError,
     DesignStateError,
@@ -31,8 +32,15 @@ from physgate.state.protocol import (
     WriteResult,
     canonical_json,
 )
-from physgate.state.schema import Node, Quantity, validate_node, validate_node_id
-from physgate.state.task_ledger import TaskLedger, TaskLine, TornLineError
+from physgate.state.schema import (
+    Node,
+    Quantity,
+    quantities_are_valid,
+    validate_node,
+    validate_node_id,
+)
+from physgate.state.store import RevisionNotFoundError, Store
+from physgate.state.task_ledger import TaskLedger, TaskLine
 
 __all__ = [
     "REJECT_CROSS_ROLE",
@@ -43,6 +51,7 @@ __all__ = [
     "CrossRoleWriteError",
     "DesignStateError",
     "DesignStateStore",
+    "Divergence",
     "InterfaceImmutableError",
     "MalformedNodeIdError",
     "MissingUnitError",
@@ -50,13 +59,16 @@ __all__ = [
     "NodeChange",
     "NodeNotFoundError",
     "Quantity",
+    "RevisionNotFoundError",
     "Revision",
+    "Store",
     "StoreStaleError",
     "TaskLedger",
     "TaskLine",
-    "TornLineError",
     "WriteResult",
     "canonical_json",
+    "divergence",
+    "quantities_are_valid",
     "validate_node",
     "validate_node_id",
 ]

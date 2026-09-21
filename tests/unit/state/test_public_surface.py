@@ -34,3 +34,32 @@ def test_the_readme_says_what_the_package_does_not_own() -> None:
     readme = (Path(state.__file__).resolve().parent / "README.md").read_text()
     assert "does not own" in readme
     assert "view as of open" in readme
+
+
+def test_every_public_symbol_in_the_package_is_exported() -> None:
+    """The no-dark-code rule, as a test rather than as a close-out paragraph.
+
+    A public class or function that the package does not export has no caller
+    outside its own module and no obvious way to acquire one. Writing this test
+    found two: the store class itself, and the divergence check, neither of which
+    was reachable through the package.
+    """
+    import importlib
+    import inspect
+    import pkgutil
+    from pathlib import Path
+
+    missing: list[str] = []
+    package_dir = Path(state.__file__).resolve().parent
+    for info in pkgutil.iter_modules([str(package_dir)]):
+        module = importlib.import_module(f"physgate.state.{info.name}")
+        for name, obj in vars(module).items():
+            if name.startswith("_") or name in state.__all__:
+                continue
+            if not (inspect.isclass(obj) or inspect.isfunction(obj)):
+                continue
+            if getattr(obj, "__module__", "") != module.__name__:
+                continue  # imported from elsewhere, not defined here
+            missing.append(f"{info.name}.{name}")
+
+    assert missing == [], f"public but not exported: {missing}"
