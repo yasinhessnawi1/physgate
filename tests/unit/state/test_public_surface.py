@@ -37,7 +37,7 @@ def test_the_readme_says_what_the_package_does_not_own() -> None:
 
 
 def test_every_public_symbol_in_the_package_is_exported() -> None:
-    """The no-dark-code rule, as a test rather than as a close-out paragraph.
+    """The no-dark-code rule, as a test rather than as a paragraph in a report.
 
     A public class or function that the package does not export has no caller
     outside its own module and no obvious way to acquire one. Writing this test
