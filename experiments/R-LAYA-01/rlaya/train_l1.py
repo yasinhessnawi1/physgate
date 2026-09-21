@@ -137,9 +137,16 @@ def fit_one_temp(sel):
     return float(torch.clamp(log_t.exp(), 0.1, 10.0).item())
 
 
-def build_train_items(tok, cfg, seed):
-    """Train only, through the R3 fixture. No test split is constructed."""
-    _, y, _, raw, _ = workload.train_only(seed)
+def build_train_items(tok, cfg, seed, variant="main"):
+    """Train only, through the R3 fixture. No test split is constructed.
+
+    ``variant="nofw"`` is Train with the firmware domain dropped - the split
+    R-TM-01 retrains on and measures OOD-B against (CRITERIA §5: *"Test-OOD-B
+    (unseen domain, with the retrained arm for OOD-B as R-TM-01 defined it)"*).
+    It is a filter of Train and contains no test sample.
+    """
+    src = workload.train_nofw_only if variant == "nofw" else workload.train_only
+    _, y, _, raw, _ = src(seed)
     items = []
     for i in range(len(y)):
         ids, markers = build_sequence(tok, fixture.serialise(raw, i), LB.Q_INTERNAL,
@@ -162,7 +169,7 @@ def clusters(indices):
     return [{"from": a, "to": b, "n": b - a + 1} for a, b in out]
 
 
-def train_seed(seed, model_dir, out_dir, device):
+def train_seed(seed, model_dir, out_dir, device, variant="main"):
     dev = torch.device(device)
     _fix_tokenizer_config(model_dir)
     tok = AutoTokenizer.from_pretrained(os.path.join(model_dir, "tokenizer"))
@@ -173,7 +180,7 @@ def train_seed(seed, model_dir, out_dir, device):
     cfg["max_len"] = 1024
     cfg["head_max_len"] = 256
 
-    items, y = build_train_items(tok, cfg, seed)
+    items, y = build_train_items(tok, cfg, seed, variant)
     all_items = list(items)            # save order, for the recipe's calib slice
 
     model = build_model(cfg, encoder_dir=os.path.join(model_dir, "encoder"))
@@ -301,7 +308,8 @@ def train_seed(seed, model_dir, out_dir, device):
             recipe_temps[qt] = fit_one_temp(sel)
 
     # ---- save, exactly as the recipe saves -------------------------------
-    ck = os.path.join(out_dir, f"L1_seed{seed}")
+    tag = "L1" if variant == "main" else "L1nofw"
+    ck = os.path.join(out_dir, f"{tag}_seed{seed}")
     os.makedirs(ck, exist_ok=True)
     sd = {kk: v.half().contiguous().cpu() for kk, v in model.state_dict().items()}
     save_file(sd, os.path.join(ck, "model.safetensors"))
@@ -314,7 +322,8 @@ def train_seed(seed, model_dir, out_dir, device):
     out_cfg["training"] = {"updates": len(updates), "epochs_completed": EPOCHS,
                            "hours": train_secs / 3600.0, "world_size": 1,
                            "fine_tuned_from_checkpoint": True,
-                           "experiment": "R-LAYA-01 arm L1", "data_seed": seed}
+                           "experiment": "R-LAYA-01 arm L1", "data_seed": seed,
+                           "variant": variant}
     with open(os.path.join(ck, "rl_agent_config.json"), "w") as f:
         json.dump(out_cfg, f, indent=2)
 
@@ -323,27 +332,28 @@ def train_seed(seed, model_dir, out_dir, device):
 
     # ---- D2: neutralise, then fit §3's temperature on Train[0:500] ---------
     agent, ainfo = LB.load_agent(ck, "cuda")   # forces fp32 scoring, neutralises
-    _, ytr, _, raw, _ = workload.train_only(seed)
+    src = workload.train_nofw_only if variant == "nofw" else workload.train_only
+    _, ytr, _, raw, _ = src(seed)
     sl = workload.calibration_slice()
     states = [fixture.serialise(raw, i) for i in range(sl.start, sl.stop)]
     lg_cal = LB.logits(agent, states)
     z_cal = LB.score(lg_cal)
     temp_s3 = metrics.fit_temperature(z_cal, ytr[sl])
-    np.savez_compressed(os.path.join(out_dir, f"L1_calib_seed{seed}.npz"),
+    np.savez_compressed(os.path.join(out_dir, f"{tag}_calib_seed{seed}.npz"),
                         logits=lg_cal, score=z_cal, y=ytr[sl])
 
     bad_idx = [i for i, b in enumerate(step_bad) if b > 0]
     skipped = [u for u in updates if u["skipped"]]
     scales = [u["scale_after"] for u in updates]
     np.savez_compressed(
-        os.path.join(out_dir, f"L1_steps_seed{seed}.npz"),
+        os.path.join(out_dir, f"{tag}_steps_seed{seed}.npz"),
         step_seconds=np.array(step_t), loss=np.array(step_loss),
         scale=np.array(step_scale), nonfinite=np.array(step_bad, dtype=np.int32),
         reward=np.array(step_reward), epoch=np.array(step_epoch, dtype=np.int8))
 
     st = np.array(step_t)
     return {
-        "arm": "L1", "seed": seed,
+        "arm": "L1", "variant": variant, "seed": seed,
         "recipe": {"epochs": EPOCHS, "micro_batch": MICRO_BATCH,
                    "grad_accum": GRAD_ACCUM,
                    "effective_batch_sequences": MICRO_BATCH * GRAD_ACCUM,
@@ -400,8 +410,8 @@ def train_seed(seed, model_dir, out_dir, device):
                        "model_safetensors_sha256": sha256_file(
                            os.path.join(ck, "model.safetensors")),
                        "saved_dtype": "float16, as the recipe saves it"},
-        "artefacts": [f"L1_seed{seed}/", f"L1_calib_seed{seed}.npz",
-                      f"L1_steps_seed{seed}.npz"],
+        "artefacts": [f"{tag}_seed{seed}/", f"{tag}_calib_seed{seed}.npz",
+                      f"{tag}_steps_seed{seed}.npz"],
         "not_scored": "L1's metrics are produced at step 4 with every other arm.",
     }
 
@@ -412,6 +422,7 @@ def main():
     ap.add_argument("out_dir")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--seeds", type=int, nargs="*", default=workload.SEEDS)
+    ap.add_argument("--variant", choices=("main", "nofw"), default="main")
     args = ap.parse_args()
     os.makedirs(args.out_dir, exist_ok=True)
 
@@ -420,6 +431,7 @@ def main():
     props = torch.cuda.get_device_properties(0)
     rec = {
         "experiment": "R-LAYA-01", "step": "3-train-L1", "arm": "L1",
+        "variant": args.variant,
         "criteria_commit": "e12d153", "criteria_original": "7b85d29",
         "env": {
             "python": platform.python_version(), "platform": platform.platform(),
@@ -460,14 +472,14 @@ def main():
     for s in args.seeds:
         rec["draw_fingerprint"][str(s)] = workload.draw_fingerprint(s)
         print(f"=== seed {s} ===", flush=True)
-        r = train_seed(s, args.model_dir, args.out_dir, args.device)
+        r = train_seed(s, args.model_dir, args.out_dir, args.device, args.variant)
         rec["runs"].append(r)
         print(" %.4f h  skips %d/%d  scale %s->%s  s3 temp %.4f  recipe noul temp %.4f"
               % (r["train_hours"], r["fp16"]["skipped_updates"], r["updates"],
                  r["fp16"]["scale_first"], r["fp16"]["scale_last"],
                  r["temperature_s3_fitted"],
                  r["recipe_fitted_temperature"]["noul"]), flush=True)
-        with open(os.path.join(args.out_dir, "step3_l1.json"), "w") as f:
+        with open(os.path.join(args.out_dir, f"step3_l1_{args.variant}.json"), "w") as f:
             json.dump(rec, f, indent=2)
 
     tot = sum(r["train_hours"] for r in rec["runs"])
@@ -480,7 +492,7 @@ def main():
         "step1_predicted_hours_all_seeds": rec["step1_extrapolation_hours_all_seeds"],
         "ratio_measured_to_predicted": tot / rec["step1_extrapolation_hours_all_seeds"],
     }
-    with open(os.path.join(args.out_dir, "step3_l1.json"), "w") as f:
+    with open(os.path.join(args.out_dir, f"step3_l1_{args.variant}.json"), "w") as f:
         json.dump(rec, f, indent=2)
     print(json.dumps(rec["total"], indent=2))
 
