@@ -1,5 +1,7 @@
-# Private working docs, same sensitivity tier as .env.
-.docs/
+# Private working docs, same sensitivity tier as .env — except the architecture
+# specification, which the experiments and the thesis cite by path and by ARCH-nnn.
+.docs/*
+!.docs/02-architecture-specification.md
 
 .venv/
 __pycache__/
