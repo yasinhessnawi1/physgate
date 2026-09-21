@@ -4,9 +4,20 @@ on:
   push:
   pull_request:
 
+# The job reads the repository and writes nothing. Naming that here replaces
+# whatever the repository default happens to be, which on a public repository
+# is the difference between a compromised action reading the code and one that
+# can also push to it.
+permissions:
+  contents: read
+
 jobs:
   check:
     runs-on: ubuntu-latest
+    # The whole job is three linters over a handful of files; it finishes in
+    # under a minute. A ceiling well above that still stops a hung runner from
+    # burning an hour before anyone looks.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
 

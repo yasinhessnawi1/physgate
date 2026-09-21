@@ -7,8 +7,11 @@
 __pycache__/
 *.pyc
 
-# Tool caches. The lockfile is deliberately NOT ignored — it is what makes a
-# fresh clone resolve to the same versions this tree was checked against.
+# Tool caches. The lockfile is deliberately NOT ignored: it pins every runtime
+# and development dependency a fresh clone installs. It does not cover the
+# build backend, which is resolved at build time and is not in the lockfile at
+# all — that one is pinned exactly in the project file instead, with the
+# measurement written beside it.
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/

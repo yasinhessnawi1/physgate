@@ -13,7 +13,14 @@ dev = [
 ]
 
 [build-system]
-requires = ["hatchling"]
+# Pinned exactly, and this is the one dependency the lockfile does not
+# cover. Measured with an empty cache: building this project downloads the
+# backend from the network every time, and the lockfile has no entry for
+# it. The alternative backend bundled with newer versions of the installer
+# is fetched too, and this version does not offer it, so there is no
+# mechanism here that avoids the fetch. An exact pin is what is left: the
+# input stops being whatever happens to be newest on the day.
+requires = ["hatchling==1.32.4"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
