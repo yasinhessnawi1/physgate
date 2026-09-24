@@ -22,7 +22,14 @@ from physgate.state.protocol import NodeChange
 from physgate.state.store import Store
 
 
-def append_to_the_journal_behind_the_stores_back(root: Path, payload: dict[str, Any]) -> int:
+def append_to_the_journal_behind_the_stores_back(
+    root: Path,
+    payload: dict[str, Any],
+    *,
+    node_id: str | None = None,
+    op: str | None = None,
+    version: int | None = None,
+) -> int:
     """Write a node the way something bypassing the store would.
 
     A journal line and a node file, with no guard between. This is what an agent
@@ -32,18 +39,27 @@ def append_to_the_journal_behind_the_stores_back(root: Path, payload: dict[str, 
     journal = root / "journal.jsonl"
     existing = [json.loads(line) for line in journal.read_bytes().splitlines() if line]
     rev = (max((e["rev"] for e in existing), default=0)) + 1
+    # The identifier is a parameter and does not default to the payload's. It
+    # used to be taken from the payload, which made a record whose name and
+    # content disagree unreachable from here -- so the guard against that case
+    # could not be tested, and was not there.
+    named = payload["id"] if node_id is None else node_id
+    # Coherent by default: a record the writing code could have produced, given
+    # what is already in the journal. A test that wants an incoherent one says
+    # so, which is the whole reason these are parameters.
+    seen = [e["version"] for e in existing if e["node_id"] == named]
     entry = {
         "rev": rev,
-        "op": "write",
-        "node_id": payload["id"],
-        "version": 1,
+        "op": ("write" if seen else "create") if op is None else op,
+        "node_id": named,
+        "version": (max(seen) + 1 if seen else 1) if version is None else version,
         "payload": payload,
     }
     with journal.open("ab") as handle:
         handle.write(json.dumps(entry, sort_keys=True, separators=(",", ":")).encode() + b"\n")
         handle.flush()
         os.fsync(handle.fileno())
-    (root / "nodes" / f"{payload['id']}.json").write_text(
+    (root / "nodes" / f"{named}.json").write_text(
         json.dumps(
             {"rev": rev, "version": 1, "payload": payload}, sort_keys=True, separators=(",", ":")
         )

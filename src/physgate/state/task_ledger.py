@@ -153,12 +153,27 @@ class TaskLedger:
 
     @property
     def torn_tail_bytes(self) -> int:
-        """Bytes dropped because the final line had no terminator. Zero if none."""
+        """Bytes dropped because the final line had no terminator. Zero if none.
+
+        Zero also when a corrupt record was found, because recovery stops there
+        and does not look past it. See :attr:`corrupt_tail_bytes`.
+        """
         return self._torn_tail_bytes
 
     @property
     def corrupt_tail_bytes(self) -> int:
-        """Bytes dropped from a corrupt record onwards. Zero if none."""
+        """Bytes dropped from a corrupt record onwards. Zero if none.
+
+        A **corrupt record hides whatever follows it**, including a torn final
+        line: recovery stops at the corrupt record and counts everything from
+        there to the end as corruption, rather than scanning past it to find out
+        what else is there. That is a choice and not an accident. Scanning past a
+        record this package could not have written means parsing bytes whose
+        provenance is exactly what is in doubt, to refine a number in a report;
+        the count is diagnostic and the refusal is the outcome. So when both
+        kinds of damage are present, the count says corruption and says nothing
+        about the tail.
+        """
         return self._corrupt_tail_bytes
 
     def append(self, line: TaskLine) -> None:

@@ -37,7 +37,14 @@ from collections import deque
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from physgate.state.exceptions import (
     CorruptRecordError,
@@ -68,6 +75,39 @@ JOURNAL_NAME = "journal.jsonl"
 NODES_DIRNAME = "nodes"
 
 
+def _op_agrees_with_what_came_before(line: JournalLine, version_of: dict[str, int]) -> str | None:
+    """Why ``line`` could not have been written, given the lines before it.
+
+    The writing path creates a node it has not seen, at version one, and writes
+    or rolls back a node it has seen, at one version more. A record that does
+    otherwise is a record this package did not write.
+
+    This is the per-node half of the rule the consecutive-revision check is the
+    global half of, and it closes the same shape of defect one level down: an
+    injected record rewinding a counter that the store then carries on from, so
+    that the store manufactures the damage itself on its next legitimate write.
+    A version chain of ``[1, 2, 3, 4, 5, 1, 2]`` is what that looked like.
+
+    Returns:
+        ``None`` when the record is coherent, otherwise the reason it is not.
+    """
+    previous = version_of.get(line.node_id)
+    if line.op == "create":
+        if previous is not None:
+            return f"a create for {line.node_id!r}, which the journal has already created"
+        if line.version != 1:
+            return f"a create at version {line.version}; a created node is at version 1"
+        return None
+    if previous is None:
+        return f"a {line.op} for {line.node_id!r}, which the journal has never created"
+    if line.version != previous + 1:
+        return (
+            f"version {line.version} does not follow {previous} for {line.node_id!r}; "
+            "this package only ever mints consecutive versions"
+        )
+    return None
+
+
 def _first_validation_problem(exc: ValidationError) -> str:
     """The first thing wrong with a record, as a sentence rather than a report.
 
@@ -96,6 +136,16 @@ class JournalLine(BaseModel):
 
     Strict, so a boolean is not an integer and a string is not a number. Frozen
     and closed, so an unknown field is a refusal rather than something ignored.
+
+    **One rule generates the rest of them, here and in recovery:** every replayed
+    line must be one the writing code could have produced, given everything
+    replayed before it. Within a single record that means the payload is a whole
+    node and its identifier is the one the record names — the writing path takes
+    the record's identifier *from* the payload, so the two can never disagree
+    there, and a record where they do disagree is a record this package did not
+    write. Across records it means a create is for a node not yet seen at version
+    one, and a write or a rollback is for a node already seen at one version
+    more; recovery checks those, because a single line cannot.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
@@ -120,6 +170,30 @@ class JournalLine(BaseModel):
             msg = "a boolean is not a revision or a version"
             raise ValueError(msg)
         return value
+
+    @model_validator(mode="after")
+    def _payload_is_the_node_this_record_names(self) -> JournalLine:
+        """The payload is a whole node, and it is the node the record names.
+
+        Typing the payload as an object and stopping there left two holes. A
+        payload that is not a node at all reaches every reader of the graph, and
+        the divergence check died on one with a bare key error — the failure this
+        model exists to convert into a refusal with an offset. And a payload
+        whose identifier differs from the record's leaves the file's name and its
+        contents disagreeing, with the revision history split across two
+        identifiers and nothing to notice.
+        """
+        try:
+            payload = validate_node(self.payload)
+        except DesignStateError as exc:
+            raise ValueError(f"payload: {exc}") from exc
+        if payload.id != self.node_id:
+            msg = (
+                f"the record names {self.node_id!r} and its payload is "
+                f"{payload.id!r}; a record names the node it carries"
+            )
+            raise ValueError(msg)
+        return self
 
     @field_validator("node_id")
     @classmethod
@@ -212,6 +286,7 @@ class Store:
         good_end = 0
         corrupt: tuple[int, str] | None = None
         expected_rev = 1
+        version_of: dict[str, int] = {}
         with self.journal_path.open("rb") as handle:
             while True:
                 offset = handle.tell()
@@ -232,6 +307,11 @@ class Store:
                         "this package only ever mints consecutive revisions",
                     )
                     break
+                coherent = _op_agrees_with_what_came_before(line, version_of)
+                if coherent is not None:
+                    corrupt = (offset, coherent)
+                    break
+                version_of[line.node_id] = line.version
                 self._offsets[line.rev] = offset
                 self._node_revs.setdefault(line.node_id, []).append(line.rev)
                 self._head[line.node_id] = (line.rev, line.version)
@@ -287,6 +367,17 @@ class Store:
     @property
     def corrupt_tail_bytes(self) -> int:
         """Bytes dropped from a corrupt record onwards. Zero if none.
+
+        A **corrupt record hides whatever follows it**, including a torn final
+        line: recovery stops at the corrupt record and counts everything from
+        there to the end as corruption, rather than scanning past it to find out
+        what else is there. That is a choice and not an accident. Scanning past a
+        record this package could not have written means parsing bytes whose
+        provenance is exactly what is in doubt, to refine a number in a report;
+        the count is diagnostic and the refusal is the outcome. So when both
+        kinds of damage are present, the count says corruption and says nothing
+        about the tail.
+
 
         Non-zero only when the handle was opened asking for that, since the
         default is to refuse.

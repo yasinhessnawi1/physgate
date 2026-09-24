@@ -29,6 +29,10 @@ from physgate.state.divergence import divergence
 from physgate.state.exceptions import CorruptRecordError
 from physgate.state.store import JournalLine, Store
 
+#: A payload that is a whole node, so a case about a revision is refused for the
+#: revision rather than for the payload that was standing in as a placeholder.
+NODE_AB = node("a.b")
+
 
 def append_raw(root: Path, line: dict[str, Any]) -> None:
     """Write a journal line the way something bypassing the store would."""
@@ -36,9 +40,23 @@ def append_raw(root: Path, line: dict[str, Any]) -> None:
         handle.write(json.dumps(line).encode() + b"\n")
 
 
-def legal_line(rev: int, node_id: str = "electrical.motor", version: int = 1) -> dict[str, Any]:
-    payload = node(node_id)
-    return {"rev": rev, "op": "write", "node_id": node_id, "version": version, "payload": payload}
+def legal_line(
+    rev: int,
+    node_id: str = "electrical.motor",
+    version: int = 1,
+    *,
+    op: str = "write",
+    payload_id: str | None = None,
+) -> dict[str, Any]:
+    """A journal line, with every field the record relates independently settable.
+
+    ``payload_id`` defaults to ``node_id`` because that is the coherent case, and
+    is a parameter because the incoherent one has to be reachable from here. A
+    helper that can only build coherent records cannot test the rule that records
+    must be coherent, which is how that rule came to be missing.
+    """
+    payload = node(node_id if payload_id is None else payload_id)
+    return {"rev": rev, "op": op, "node_id": node_id, "version": version, "payload": payload}
 
 
 @pytest.fixture
@@ -59,29 +77,29 @@ def one_node(tmp_path: Path) -> Path:
     [
         (
             "a revision of zero",
-            {"rev": 0, "op": "write", "node_id": "a.b", "version": 1, "payload": {}},
+            {"rev": 0, "op": "write", "node_id": "a.b", "version": 1, "payload": NODE_AB},
         ),
         (
             "a negative revision",
-            {"rev": -1, "op": "write", "node_id": "a.b", "version": 1, "payload": {}},
+            {"rev": -1, "op": "write", "node_id": "a.b", "version": 1, "payload": NODE_AB},
         ),
         (
             "a boolean revision",
-            {"rev": True, "op": "write", "node_id": "a.b", "version": 1, "payload": {}},
+            {"rev": True, "op": "write", "node_id": "a.b", "version": 1, "payload": NODE_AB},
         ),
         (
             "a boolean version",
-            {"rev": 1, "op": "write", "node_id": "a.b", "version": True, "payload": {}},
+            {"rev": 1, "op": "write", "node_id": "a.b", "version": True, "payload": NODE_AB},
         ),
-        ("a missing revision", {"op": "write", "node_id": "a.b", "version": 1, "payload": {}}),
+        ("a missing revision", {"op": "write", "node_id": "a.b", "version": 1, "payload": NODE_AB}),
         ("a missing payload", {"rev": 1, "op": "write", "node_id": "a.b", "version": 1}),
         (
             "a version of zero",
-            {"rev": 1, "op": "write", "node_id": "a.b", "version": 0, "payload": {}},
+            {"rev": 1, "op": "write", "node_id": "a.b", "version": 0, "payload": NODE_AB},
         ),
         (
             "an unknown operation",
-            {"rev": 1, "op": "delete", "node_id": "a.b", "version": 1, "payload": {}},
+            {"rev": 1, "op": "delete", "node_id": "a.b", "version": 1, "payload": NODE_AB},
         ),
         (
             "a payload that is not an object",
@@ -89,15 +107,22 @@ def one_node(tmp_path: Path) -> Path:
         ),
         (
             "an unknown field",
-            {"rev": 1, "op": "write", "node_id": "a.b", "version": 1, "payload": {}, "extra": 1},
+            {
+                "rev": 1,
+                "op": "write",
+                "node_id": "a.b",
+                "version": 1,
+                "payload": NODE_AB,
+                "extra": 1,
+            },
         ),
         (
             "an illegal identifier",
-            {"rev": 1, "op": "write", "node_id": "../../x", "version": 1, "payload": {}},
+            {"rev": 1, "op": "write", "node_id": "../../x", "version": 1, "payload": NODE_AB},
         ),
         (
             "a revision written as text",
-            {"rev": "1", "op": "write", "node_id": "a.b", "version": 1, "payload": {}},
+            {"rev": "1", "op": "write", "node_id": "a.b", "version": 1, "payload": NODE_AB},
         ),
     ],
 )
@@ -118,16 +143,16 @@ def test_a_line_that_is_not_a_record_is_refused(
     [
         (
             "a revision of zero",
-            {"rev": 0, "op": "write", "node_id": "a.b", "version": 1, "payload": {}},
+            {"rev": 0, "op": "write", "node_id": "a.b", "version": 1, "payload": NODE_AB},
         ),
         (
             "a boolean revision",
-            {"rev": True, "op": "write", "node_id": "a.b", "version": 1, "payload": {}},
+            {"rev": True, "op": "write", "node_id": "a.b", "version": 1, "payload": NODE_AB},
         ),
-        ("a missing revision", {"op": "write", "node_id": "a.b", "version": 1, "payload": {}}),
+        ("a missing revision", {"op": "write", "node_id": "a.b", "version": 1, "payload": NODE_AB}),
         (
             "an illegal identifier",
-            {"rev": 1, "op": "write", "node_id": "../../x", "version": 1, "payload": {}},
+            {"rev": 1, "op": "write", "node_id": "../../x", "version": 1, "payload": NODE_AB},
         ),
     ],
 )
@@ -155,7 +180,7 @@ def test_the_way_through_reaches_every_kind_of_damage(
 
 def test_a_revision_that_rewinds_the_head_is_refused(one_node: Path) -> None:
     """The defect: the last line set the head, so a low revision wound it back."""
-    append_raw(one_node, legal_line(2))
+    append_raw(one_node, legal_line(2, version=1, op="create"))
     append_raw(one_node, legal_line(0, version=2))
 
     with pytest.raises(CorruptRecordError):
@@ -185,7 +210,7 @@ def test_a_consecutive_foreign_write_is_kept_and_named(one_node: Path) -> None:
     stays in the record, it appears in the change list, and the divergence check
     names it — which is the whole point of keeping it rather than dropping it.
     """
-    append_raw(one_node, legal_line(2))
+    append_raw(one_node, legal_line(2, version=1, op="create"))
 
     store = Store(one_node)
     assert store.head_revision() == 2
@@ -204,7 +229,7 @@ def test_the_foreign_write_is_still_named_after_a_rewind_is_dropped(
     true: dropping the whole tail would have taken the foreign write with it and
     hidden the thing being looked for.
     """
-    append_raw(one_node, legal_line(2))
+    append_raw(one_node, legal_line(2, version=1, op="create"))
     append_raw(one_node, legal_line(0, version=2))
 
     store = Store(one_node, on_corrupt="truncate")
@@ -301,7 +326,7 @@ def test_the_record_refuses_it_on_its_own(label: str, field: str, value: object)
         "op": "write",
         "node_id": "electrical.motor",
         "version": 1,
-        "payload": {},
+        "payload": node("electrical.motor"),
     }
     fields[field] = value
     with pytest.raises(ValidationError):
@@ -310,7 +335,13 @@ def test_the_record_refuses_it_on_its_own(label: str, field: str, value: object)
 
 def test_a_well_formed_record_validates() -> None:
     line = JournalLine.model_validate(
-        {"rev": 1, "op": "create", "node_id": "electrical.motor", "version": 1, "payload": {}}
+        {
+            "rev": 1,
+            "op": "create",
+            "node_id": "electrical.motor",
+            "version": 1,
+            "payload": node("electrical.motor"),
+        }
     )
     assert line.rev == 1
     assert line.op == "create"
@@ -318,7 +349,13 @@ def test_a_well_formed_record_validates() -> None:
 
 def test_a_record_is_frozen() -> None:
     line = JournalLine.model_validate(
-        {"rev": 1, "op": "create", "node_id": "electrical.motor", "version": 1, "payload": {}}
+        {
+            "rev": 1,
+            "op": "create",
+            "node_id": "electrical.motor",
+            "version": 1,
+            "payload": node("electrical.motor"),
+        }
     )
     with pytest.raises(ValidationError):
         line.rev = 2
@@ -375,3 +412,145 @@ def test_a_refused_open_closes_the_handle_it_opened(one_node: Path) -> None:
 
     assert opened, "the appending handle was never opened"
     assert all(handle.closed for handle in opened), "a refused open leaked a handle"
+
+
+# --- a record must be one the writing code could have produced ----------------
+#
+# Every check below follows from that one sentence. The record's own fields have
+# to agree with each other; the record has to agree with the records before it.
+# The first round of this model closed each scalar field and left the payload
+# opaque and the fields unrelated, which left four ways through.
+
+
+def version_chain(root: Path, node_id: str) -> list[int]:
+    """Every version recorded for a node, in journal order, read off the disk."""
+    chain = []
+    for raw in (root / "journal.jsonl").read_bytes().splitlines():
+        if not raw:
+            continue
+        entry = json.loads(raw)
+        if entry["node_id"] == node_id:
+            chain.append(entry["version"])
+    return chain
+
+
+def assert_chain_is_intact(root: Path, node_id: str) -> None:
+    """Versions 1..k, no gaps, no duplicates — part four of the definition.
+
+    Asserted here as well as after the process-kill run, because a killed writer
+    cannot produce a broken chain: it only ever stops. The cases that can produce
+    one are injections, and until now nothing asserted it over those.
+    """
+    chain = version_chain(root, node_id)
+    assert chain == list(range(1, len(chain) + 1)), chain
+
+
+def test_a_record_whose_payload_names_a_different_node_is_refused(one_node: Path) -> None:
+    """The file's name and its contents would otherwise disagree.
+
+    Through the writing path they cannot: the record's identifier is taken from
+    the payload. A record where they differ is a record this package did not
+    write, and nothing downstream reads it expecting to have to check.
+    """
+    append_raw(one_node, legal_line(2, payload_id="electrical.elsewhere"))
+
+    with pytest.raises(CorruptRecordError) as caught:
+        Store(one_node)
+    assert "names the node it carries" in caught.value.context["reason"]
+
+
+def test_a_payload_that_is_not_a_node_is_refused(one_node: Path) -> None:
+    """The divergence check died on one of these with a bare key error."""
+    line = legal_line(2, "electrical.motor", version=1, op="create")
+    line["payload"] = {"anything": "goes"}
+    append_raw(one_node, line)
+
+    with pytest.raises(CorruptRecordError) as caught:
+        Store(one_node)
+    assert "payload" in caught.value.context["reason"]
+
+
+def test_a_create_for_a_node_already_created_is_refused(one_node: Path) -> None:
+    append_raw(one_node, legal_line(2, "control.loop", version=1, op="create"))
+
+    with pytest.raises(CorruptRecordError) as caught:
+        Store(one_node)
+    assert "already created" in caught.value.context["reason"]
+
+
+def test_a_create_at_a_version_other_than_one_is_refused(one_node: Path) -> None:
+    append_raw(one_node, legal_line(2, "electrical.motor", version=4, op="create"))
+
+    with pytest.raises(CorruptRecordError) as caught:
+        Store(one_node)
+    assert "version 1" in caught.value.context["reason"]
+
+
+def test_a_write_for_a_node_that_was_never_created_is_refused(one_node: Path) -> None:
+    """Otherwise a node is conjured from nothing at whatever version it claims."""
+    append_raw(one_node, legal_line(2, "electrical.never", version=7))
+
+    with pytest.raises(CorruptRecordError) as caught:
+        Store(one_node)
+    assert "never created" in caught.value.context["reason"]
+
+
+def test_a_version_that_skips_is_refused(one_node: Path) -> None:
+    append_raw(one_node, legal_line(2, "control.loop", version=4))
+
+    with pytest.raises(CorruptRecordError) as caught:
+        Store(one_node)
+    assert "does not follow" in caught.value.context["reason"]
+
+
+def test_the_store_does_not_manufacture_a_duplicate_after_an_injection(
+    tmp_path: Path,
+) -> None:
+    """The worst of the four, because the store did the damage itself.
+
+    A node at version five, one injected record claiming to create it at version
+    one, and then the store's **own next legitimate write** continuing from the
+    rewound counter. The chain on disk was ``[1, 2, 3, 4, 5, 1, 2]`` — the
+    duplicate produced by the writing path, from a counter an injection had
+    moved.
+    """
+    root = tmp_path / "graph"
+    store = Store(root)
+    for i in range(5):
+        assert store.write_node(
+            node("mechanical.a0", owner_role="mechanical", updated=f"t{i}"), "mechanical"
+        ).accepted
+    store.close()
+    assert version_chain(root, "mechanical.a0") == [1, 2, 3, 4, 5]
+
+    append_raw(root, legal_line(6, "mechanical.a0", version=1, op="create"))
+
+    with pytest.raises(CorruptRecordError):
+        Store(root)
+
+    recovered = Store(root, on_corrupt="truncate")
+    assert recovered.write_node(
+        node("mechanical.a0", owner_role="mechanical", updated="after"), "mechanical"
+    ).accepted
+    recovered.close()
+
+    assert_chain_is_intact(root, "mechanical.a0")
+    assert version_chain(root, "mechanical.a0") == [1, 2, 3, 4, 5, 6]
+
+
+def test_a_legitimate_foreign_write_still_passes_every_coherence_rule(
+    one_node: Path,
+) -> None:
+    """The rules refuse records this package could not have written, and no others.
+
+    A foreign write that a role could genuinely have made is coherent: it creates
+    a node nobody has created, at version one, with a payload that is that node.
+    It stays in the record and the divergence check names it.
+    """
+    append_raw(one_node, legal_line(2, "electrical.motor", version=1, op="create"))
+
+    store = Store(one_node)
+    assert store.head_revision() == 2
+    assert [d.node_id for d in divergence(store, store.diff(0), "control")] == ["electrical.motor"]
+    assert_chain_is_intact(one_node, "electrical.motor")
+    store.close()
