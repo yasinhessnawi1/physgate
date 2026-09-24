@@ -1,0 +1,1143 @@
+{
+  "experiment": "R-LAYA-01",
+  "step": "3-train-L1",
+  "arm": "L1",
+  "criteria_commit": "e12d153",
+  "criteria_original": "7b85d29",
+  "env": {
+    "python": "3.12.14",
+    "platform": "Linux-6.8.0-64-generic-x86_64-with-glibc2.39",
+    "node": "coder-yasinh-declassifai-55c6d799db-tsskx",
+    "torch": "2.9.1+cu126",
+    "torch_cuda": "12.6",
+    "torch_cuda_arch_list": [
+      "sm_50",
+      "sm_60",
+      "sm_70",
+      "sm_75",
+      "sm_80",
+      "sm_86",
+      "sm_90"
+    ],
+    "cudnn": 91002,
+    "transformers": "5.17.0",
+    "laya": "0.3.4",
+    "numpy": "2.5.3",
+    "gpu": "Tesla V100-SXM3-32GB",
+    "compute_capability": [
+      7,
+      0
+    ],
+    "gpu_memory_total_bytes": 34072559616,
+    "driver": "570.172.08",
+    "cpu_nproc": "2"
+  },
+  "checkpoint_pin": {
+    "repo": "convaiinnovations/laya-typed-decisions",
+    "revision": "f9ab0b228f0fc0f14d873dbc99038f135c2da1b2",
+    "model_safetensors_sha256": "4fa56de72383a9d3efa9cfa78955733c81b9fc8067a587ca4beb82c78107a24e"
+  },
+  "precision_note": "fp16 is the TRAINING path and it is the recipe's own; the notebook targets 2xT4 and uses torch.autocast(float16) with GradScaler. The fp32 pin recorded as C5 M10 is on SCORING, not on training. Nothing about the recipe changed.",
+  "step1_extrapolation_hours_per_seed": 0.15115224475092773,
+  "step1_extrapolation_hours_all_seeds": 0.7557612237546386,
+  "code_checksums": {
+    "fixture.py": "1b3dec1677a5b6291e3a54f4fea20367ad9dff96c96b760c95437007f37894f0",
+    "workload.py": "88f6819203aff6ae7ee075688095980b2b37823635df614c9bb38a2b468e3206",
+    "metrics.py": "adf7998652528d0b5f434005075f479e3fa3f27a75a66977d3bb7a4bd7982103",
+    "laya_backend.py": "7eb5b50ae629513d0efe1ae8e325add6b109ec961d8b5a946ec66bd2885169cd",
+    "train_l1.py": "075d9f5a2f941bed8ecd4535360f04144b3993d472a69ff7fcda9ea745af222b",
+    "vendor/generator.py": "6e913b3bfc55b43869638c23463c3deb417216ffaaf981c747b78a157c75c16e",
+    "vendor/generator_b.py": "ead13b9b8041851d7b03e72100d7da7ba98a784c1e73ffad0d9e935f614b038d"
+  },
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "draw_fingerprint": {
+    "0": {
+      "X": "7610607757079636a9c171ee729b9fa1a2e403f1711faa9a8774b9029c7772fe",
+      "y": "0b98d3990a5271fd06cb2544d4715afea0666e078d130b151705a7a2a1656f22",
+      "y_clean": "3ef5f7c5460d8cdf43ad520a7f5f71f66d273457ba3a1fc94680616ade8c7218",
+      "raw": "2eb8693fcb834b351b4afd13a71af8b9e15ced08e993e9066f53f62fac4d89a9",
+      "n": "8000",
+      "sum_y": "3692"
+    },
+    "1": {
+      "X": "413bfb99ca94ca4e0e3908317cd61e24b3fa846a87fedad39f8b8ca24cbfef42",
+      "y": "bb5bbce6e37cf65f770901461ded3322bd4b279f8d8aa7c509df9910a0f6fc08",
+      "y_clean": "7037205e688cffb61da87c9f1ba61518d20fe28a49a9d056a653e39249597bb6",
+      "raw": "b083415a1c28671028402ab94d8f464a4a652eaf374405b72ebb774af1d737f3",
+      "n": "8000",
+      "sum_y": "3767"
+    },
+    "2": {
+      "X": "f5a0991e892bb3c319c1b21d88ed1958c1cfb837bc81eca8d8edadd32ffcee99",
+      "y": "442564b793e9298667fe12aee4967b4d3f45bff11cfcb0630f6ddb0187ce129a",
+      "y_clean": "216841fd23030dff6ca2c18dbe6c9f957ed5136ac52e318dfa29028ea2a53d09",
+      "raw": "1180e7447402bc55146476db6d7bde23dbba27e898ac2bea1ec7e91f44add28b",
+      "n": "8000",
+      "sum_y": "3767"
+    },
+    "3": {
+      "X": "7e342ec89eea2345cf752edae0920d4b5cb48cf63914f98c93cc3832381bceef",
+      "y": "25be0bb5d508a4c10ca17b2f771016f35c87d5a53f592cbf08acc5d5eecb09f8",
+      "y_clean": "13627183837a58e8fe75a08d5f90c83d0124976b98ba595cd57bf7c5ca4ae5f2",
+      "raw": "abc187e7b4308a8138b2097f5ea67c012295140f174830382182bc1188f11b37",
+      "n": "8000",
+      "sum_y": "3694"
+    },
+    "4": {
+      "X": "25c130e53644b99ad1c16302496d12b3b7cd10e2ef35762bd157669b50341937",
+      "y": "b3c189bffae02394cb0711db24a5d332e1eb648f12628ceb737a6b7c6dc5876e",
+      "y_clean": "6b44ebb4b46a3f559c582e6e4975ebba3c9339ca60ca7bca32fa33a539d9d0ad",
+      "raw": "087a79e81bf2a25c6690f7e798a8e3719d91dd5eaebc438c1f7d99f76af5da96",
+      "n": "8000",
+      "sum_y": "3779"
+    }
+  },
+  "runs": [
+    {
+      "arm": "L1",
+      "seed": 0,
+      "recipe": {
+        "epochs": 4,
+        "micro_batch": 8,
+        "grad_accum": 8,
+        "effective_batch_sequences": 64,
+        "group_size": 4,
+        "lr_encoder": 2.5e-05,
+        "lr_head": 0.0001,
+        "sigma": [
+          0.4,
+          0.1
+        ],
+        "clip": 1.0,
+        "weight_decay": 0.01,
+        "eta_min": 1e-06,
+        "nothing_shortened": true,
+        "source": "notebooks/laya_finetune_typed_decisions_2xT4_kaggle.ipynb @ 42626c34"
+      },
+      "n_train": 8000,
+      "micro_batches": 4000,
+      "updates": 500,
+      "train_seconds": 678.1650037672371,
+      "train_hours": 0.1883791677131214,
+      "finite_check_seconds_total": 83.21860452368855,
+      "train_hours_excluding_instrumentation": 0.1652628886787635,
+      "step_seconds_mean": 0.1414313384834677,
+      "step_seconds_sd": 0.026431728690101908,
+      "peak_memory_bytes": 8350280192,
+      "fp16": {
+        "nonfinite_scaled_grad_micro_batches": 32,
+        "nonfinite_rate": 0.008,
+        "excursion_clusters": [
+          {
+            "from": 0,
+            "to": 7,
+            "n": 8
+          },
+          {
+            "from": 12,
+            "to": 15,
+            "n": 4
+          },
+          {
+            "from": 229,
+            "to": 231,
+            "n": 3
+          },
+          {
+            "from": 240,
+            "to": 247,
+            "n": 8
+          },
+          {
+            "from": 250,
+            "to": 255,
+            "n": 6
+          },
+          {
+            "from": 301,
+            "to": 303,
+            "n": 3
+          }
+        ],
+        "skipped_updates": 6,
+        "skip_rate": 0.012,
+        "skipped_at_update": [
+          0,
+          1,
+          28,
+          30,
+          31,
+          37
+        ],
+        "scale_first": 32768.0,
+        "scale_last": 1024.0,
+        "scale_min": 1024.0,
+        "scale_trajectory_changes": [
+          {
+            "update": 0,
+            "from": 65536.0,
+            "to": 32768.0
+          },
+          {
+            "update": 1,
+            "from": 32768.0,
+            "to": 16384.0
+          },
+          {
+            "update": 28,
+            "from": 16384.0,
+            "to": 8192.0
+          },
+          {
+            "update": 30,
+            "from": 8192.0,
+            "to": 4096.0
+          },
+          {
+            "update": 31,
+            "from": 4096.0,
+            "to": 2048.0
+          },
+          {
+            "update": 37,
+            "from": 2048.0,
+            "to": 1024.0
+          }
+        ],
+        "nonfinite_loss_micro_batches": 0,
+        "grad_norm_finite_updates": 494,
+        "grad_norm_min": 7.849163807804871e-07,
+        "grad_norm_median": 3.6625829935073853,
+        "grad_norm_max": 2002.6827392578125
+      },
+      "loss_first10": [
+        0.6812,
+        0.8615,
+        0.7844,
+        0.845,
+        0.7059,
+        0.7221,
+        0.5749,
+        0.6057,
+        0.5679,
+        0.3225
+      ],
+      "loss_last10": [
+        0.0,
+        -0.003,
+        1.9325,
+        0.0,
+        0.0,
+        1.8833,
+        -0.0086,
+        0.0128,
+        2.1325,
+        2.1863
+      ],
+      "reward_first_epoch_mean": 0.27721814569830894,
+      "reward_last_epoch_mean": 0.5009999878704547,
+      "recipe_fitted_temperature": {
+        "choice": 1.2,
+        "score": 1.2,
+        "noul": 5.29985237121582,
+        "note": "written into the saved checkpoint by the recipe, then neutralised per D2 before anything is scored"
+      },
+      "d2_neutralised": {
+        "temperature": [
+          1.2,
+          1.2,
+          5.29985237121582
+        ],
+        "temperature_by_options": {
+          "choice:3-5": 1.7601518630981445,
+          "choice:6-10": 1.0000158548355103,
+          "score:3-5": 1.2514300346374512,
+          "noul:2": 1.983399510383606,
+          "choice:11+": 0.10058280825614929,
+          "choice:2": 1.9063563346862793
+        },
+        "cfg_temperature": [
+          1.2,
+          1.2,
+          5.29985237121582
+        ],
+        "cfg_temperature_by_options": {
+          "choice:3-5": 1.7601518630981445,
+          "choice:6-10": 1.0000158548355103,
+          "score:3-5": 1.2514300346374512,
+          "noul:2": 1.983399510383606,
+          "choice:11+": 0.10058280825614929,
+          "choice:2": 1.9063563346862793
+        }
+      },
+      "scoring_agent": {
+        "device": "cuda",
+        "dtype": "torch.float32",
+        "dtype_laya_would_have_chosen": "torch.float16",
+        "dtype_forced_fp32": true,
+        "attn_implementation": "sdpa",
+        "allow_tf32": false
+      },
+      "temperature_s3_fitted": 4.85314360085921,
+      "s3_slice": {
+        "start": 0,
+        "stop": 500
+      },
+      "checkpoint": {
+        "path": "out/step3/L1_seed0",
+        "model_safetensors_sha256": "857fa9b6a84fe0d093180ad9310ec5cac1f751302e6311308e3211aded768578",
+        "saved_dtype": "float16, as the recipe saves it"
+      },
+      "artefacts": [
+        "L1_seed0/",
+        "L1_calib_seed0.npz",
+        "L1_steps_seed0.npz"
+      ],
+      "not_scored": "L1's metrics are produced at step 4 with every other arm."
+    },
+    {
+      "arm": "L1",
+      "seed": 1,
+      "recipe": {
+        "epochs": 4,
+        "micro_batch": 8,
+        "grad_accum": 8,
+        "effective_batch_sequences": 64,
+        "group_size": 4,
+        "lr_encoder": 2.5e-05,
+        "lr_head": 0.0001,
+        "sigma": [
+          0.4,
+          0.1
+        ],
+        "clip": 1.0,
+        "weight_decay": 0.01,
+        "eta_min": 1e-06,
+        "nothing_shortened": true,
+        "source": "notebooks/laya_finetune_typed_decisions_2xT4_kaggle.ipynb @ 42626c34"
+      },
+      "n_train": 8000,
+      "micro_batches": 4000,
+      "updates": 500,
+      "train_seconds": 656.5072947656736,
+      "train_hours": 0.18236313743490934,
+      "finite_check_seconds_total": 86.81629261188209,
+      "train_hours_excluding_instrumentation": 0.15824750059827541,
+      "step_seconds_mean": 0.13482294369395822,
+      "step_seconds_sd": 0.023310359149442184,
+      "peak_memory_bytes": 8348597760,
+      "fp16": {
+        "nonfinite_scaled_grad_micro_batches": 31,
+        "nonfinite_rate": 0.00775,
+        "excursion_clusters": [
+          {
+            "from": 0,
+            "to": 7,
+            "n": 8
+          },
+          {
+            "from": 10,
+            "to": 15,
+            "n": 6
+          },
+          {
+            "from": 230,
+            "to": 231,
+            "n": 2
+          },
+          {
+            "from": 444,
+            "to": 447,
+            "n": 4
+          },
+          {
+            "from": 459,
+            "to": 463,
+            "n": 5
+          },
+          {
+            "from": 581,
+            "to": 583,
+            "n": 3
+          },
+          {
+            "from": 3549,
+            "to": 3551,
+            "n": 3
+          }
+        ],
+        "skipped_updates": 7,
+        "skip_rate": 0.014,
+        "skipped_at_update": [
+          0,
+          1,
+          28,
+          55,
+          57,
+          72,
+          443
+        ],
+        "scale_first": 32768.0,
+        "scale_last": 512.0,
+        "scale_min": 512.0,
+        "scale_trajectory_changes": [
+          {
+            "update": 0,
+            "from": 65536.0,
+            "to": 32768.0
+          },
+          {
+            "update": 1,
+            "from": 32768.0,
+            "to": 16384.0
+          },
+          {
+            "update": 28,
+            "from": 16384.0,
+            "to": 8192.0
+          },
+          {
+            "update": 55,
+            "from": 8192.0,
+            "to": 4096.0
+          },
+          {
+            "update": 57,
+            "from": 4096.0,
+            "to": 2048.0
+          },
+          {
+            "update": 72,
+            "from": 2048.0,
+            "to": 1024.0
+          },
+          {
+            "update": 443,
+            "from": 1024.0,
+            "to": 512.0
+          }
+        ],
+        "nonfinite_loss_micro_batches": 0,
+        "grad_norm_finite_updates": 493,
+        "grad_norm_min": 2.5886367893690476e-07,
+        "grad_norm_median": 4.0640869140625,
+        "grad_norm_max": 2839.244384765625
+      },
+      "loss_first10": [
+        0.6854,
+        0.663,
+        0.4251,
+        0.5324,
+        0.5993,
+        -0.0448,
+        0.4445,
+        0.6313,
+        0.691,
+        0.2797
+      ],
+      "loss_last10": [
+        -0.0048,
+        0.0,
+        0.0,
+        1.9696,
+        0.0076,
+        0.0,
+        0.0,
+        -0.0001,
+        0.0013,
+        2.164
+      ],
+      "reward_first_epoch_mean": 0.3616951544508338,
+      "reward_last_epoch_mean": 0.5128892683088779,
+      "recipe_fitted_temperature": {
+        "choice": 1.2,
+        "score": 1.2,
+        "noul": 4.936808109283447,
+        "note": "written into the saved checkpoint by the recipe, then neutralised per D2 before anything is scored"
+      },
+      "d2_neutralised": {
+        "temperature": [
+          1.2,
+          1.2,
+          4.936808109283447
+        ],
+        "temperature_by_options": {
+          "choice:3-5": 1.7601518630981445,
+          "choice:6-10": 1.0000158548355103,
+          "score:3-5": 1.2514300346374512,
+          "noul:2": 1.983399510383606,
+          "choice:11+": 0.10058280825614929,
+          "choice:2": 1.9063563346862793
+        },
+        "cfg_temperature": [
+          1.2,
+          1.2,
+          4.936808109283447
+        ],
+        "cfg_temperature_by_options": {
+          "choice:3-5": 1.7601518630981445,
+          "choice:6-10": 1.0000158548355103,
+          "score:3-5": 1.2514300346374512,
+          "noul:2": 1.983399510383606,
+          "choice:11+": 0.10058280825614929,
+          "choice:2": 1.9063563346862793
+        }
+      },
+      "scoring_agent": {
+        "device": "cuda",
+        "dtype": "torch.float32",
+        "dtype_laya_would_have_chosen": "torch.float16",
+        "dtype_forced_fp32": true,
+        "attn_implementation": "sdpa",
+        "allow_tf32": false
+      },
+      "temperature_s3_fitted": 4.465132185110778,
+      "s3_slice": {
+        "start": 0,
+        "stop": 500
+      },
+      "checkpoint": {
+        "path": "out/step3/L1_seed1",
+        "model_safetensors_sha256": "a67ee9e81b99f666404298fb848b4e660956e8bf360118c5156947c292e38dae",
+        "saved_dtype": "float16, as the recipe saves it"
+      },
+      "artefacts": [
+        "L1_seed1/",
+        "L1_calib_seed1.npz",
+        "L1_steps_seed1.npz"
+      ],
+      "not_scored": "L1's metrics are produced at step 4 with every other arm."
+    },
+    {
+      "arm": "L1",
+      "seed": 2,
+      "recipe": {
+        "epochs": 4,
+        "micro_batch": 8,
+        "grad_accum": 8,
+        "effective_batch_sequences": 64,
+        "group_size": 4,
+        "lr_encoder": 2.5e-05,
+        "lr_head": 0.0001,
+        "sigma": [
+          0.4,
+          0.1
+        ],
+        "clip": 1.0,
+        "weight_decay": 0.01,
+        "eta_min": 1e-06,
+        "nothing_shortened": true,
+        "source": "notebooks/laya_finetune_typed_decisions_2xT4_kaggle.ipynb @ 42626c34"
+      },
+      "n_train": 8000,
+      "micro_batches": 4000,
+      "updates": 500,
+      "train_seconds": 633.5972998905927,
+      "train_hours": 0.17599924996960908,
+      "finite_check_seconds_total": 81.5164215285331,
+      "train_hours_excluding_instrumentation": 0.15335579954501655,
+      "step_seconds_mean": 0.13053590338188223,
+      "step_seconds_sd": 0.022179745264289688,
+      "peak_memory_bytes": 8351186432,
+      "fp16": {
+        "nonfinite_scaled_grad_micro_batches": 36,
+        "nonfinite_rate": 0.009,
+        "excursion_clusters": [
+          {
+            "from": 0,
+            "to": 7,
+            "n": 8
+          },
+          {
+            "from": 17,
+            "to": 23,
+            "n": 7
+          },
+          {
+            "from": 230,
+            "to": 231,
+            "n": 2
+          },
+          {
+            "from": 334,
+            "to": 335,
+            "n": 2
+          },
+          {
+            "from": 338,
+            "to": 343,
+            "n": 6
+          },
+          {
+            "from": 1978,
+            "to": 1983,
+            "n": 6
+          },
+          {
+            "from": 2403,
+            "to": 2407,
+            "n": 5
+          }
+        ],
+        "skipped_updates": 7,
+        "skip_rate": 0.014,
+        "skipped_at_update": [
+          0,
+          2,
+          28,
+          41,
+          42,
+          247,
+          300
+        ],
+        "scale_first": 32768.0,
+        "scale_last": 512.0,
+        "scale_min": 512.0,
+        "scale_trajectory_changes": [
+          {
+            "update": 0,
+            "from": 65536.0,
+            "to": 32768.0
+          },
+          {
+            "update": 2,
+            "from": 32768.0,
+            "to": 16384.0
+          },
+          {
+            "update": 28,
+            "from": 16384.0,
+            "to": 8192.0
+          },
+          {
+            "update": 41,
+            "from": 8192.0,
+            "to": 4096.0
+          },
+          {
+            "update": 42,
+            "from": 4096.0,
+            "to": 2048.0
+          },
+          {
+            "update": 247,
+            "from": 2048.0,
+            "to": 1024.0
+          },
+          {
+            "update": 300,
+            "from": 1024.0,
+            "to": 512.0
+          }
+        ],
+        "nonfinite_loss_micro_batches": 0,
+        "grad_norm_finite_updates": 493,
+        "grad_norm_min": 0.011769712902605534,
+        "grad_norm_median": 5.265958309173584,
+        "grad_norm_max": 2961.19189453125
+      },
+      "loss_first10": [
+        0.5782,
+        0.7507,
+        0.7936,
+        0.7936,
+        1.0123,
+        0.638,
+        0.6157,
+        0.7937,
+        0.315,
+        0.4283
+      ],
+      "loss_last10": [
+        0.0,
+        -0.0004,
+        0.0,
+        0.0,
+        0.0067,
+        0.0,
+        0.0,
+        0.0,
+        0.002,
+        0.0
+      ],
+      "reward_first_epoch_mean": 0.3056069219913334,
+      "reward_last_epoch_mean": 0.515939982175827,
+      "recipe_fitted_temperature": {
+        "choice": 1.2,
+        "score": 1.2,
+        "noul": 4.864605903625488,
+        "note": "written into the saved checkpoint by the recipe, then neutralised per D2 before anything is scored"
+      },
+      "d2_neutralised": {
+        "temperature": [
+          1.2,
+          1.2,
+          4.864605903625488
+        ],
+        "temperature_by_options": {
+          "choice:3-5": 1.7601518630981445,
+          "choice:6-10": 1.0000158548355103,
+          "score:3-5": 1.2514300346374512,
+          "noul:2": 1.983399510383606,
+          "choice:11+": 0.10058280825614929,
+          "choice:2": 1.9063563346862793
+        },
+        "cfg_temperature": [
+          1.2,
+          1.2,
+          4.864605903625488
+        ],
+        "cfg_temperature_by_options": {
+          "choice:3-5": 1.7601518630981445,
+          "choice:6-10": 1.0000158548355103,
+          "score:3-5": 1.2514300346374512,
+          "noul:2": 1.983399510383606,
+          "choice:11+": 0.10058280825614929,
+          "choice:2": 1.9063563346862793
+        }
+      },
+      "scoring_agent": {
+        "device": "cuda",
+        "dtype": "torch.float32",
+        "dtype_laya_would_have_chosen": "torch.float16",
+        "dtype_forced_fp32": true,
+        "attn_implementation": "sdpa",
+        "allow_tf32": false
+      },
+      "temperature_s3_fitted": 5.31396969709805,
+      "s3_slice": {
+        "start": 0,
+        "stop": 500
+      },
+      "checkpoint": {
+        "path": "out/step3/L1_seed2",
+        "model_safetensors_sha256": "4676a470421529767e9f9c4dbdc561397cfc7310511f8b796ffa91f76197fb1f",
+        "saved_dtype": "float16, as the recipe saves it"
+      },
+      "artefacts": [
+        "L1_seed2/",
+        "L1_calib_seed2.npz",
+        "L1_steps_seed2.npz"
+      ],
+      "not_scored": "L1's metrics are produced at step 4 with every other arm."
+    },
+    {
+      "arm": "L1",
+      "seed": 3,
+      "recipe": {
+        "epochs": 4,
+        "micro_batch": 8,
+        "grad_accum": 8,
+        "effective_batch_sequences": 64,
+        "group_size": 4,
+        "lr_encoder": 2.5e-05,
+        "lr_head": 0.0001,
+        "sigma": [
+          0.4,
+          0.1
+        ],
+        "clip": 1.0,
+        "weight_decay": 0.01,
+        "eta_min": 1e-06,
+        "nothing_shortened": true,
+        "source": "notebooks/laya_finetune_typed_decisions_2xT4_kaggle.ipynb @ 42626c34"
+      },
+      "n_train": 8000,
+      "micro_batches": 4000,
+      "updates": 500,
+      "train_seconds": 630.7281799260527,
+      "train_hours": 0.1752022722016813,
+      "finite_check_seconds_total": 81.65822760760784,
+      "train_hours_excluding_instrumentation": 0.152519431199568,
+      "step_seconds_mean": 0.12980279974173756,
+      "step_seconds_sd": 0.022339748902685495,
+      "peak_memory_bytes": 8350105088,
+      "fp16": {
+        "nonfinite_scaled_grad_micro_batches": 27,
+        "nonfinite_rate": 0.00675,
+        "excursion_clusters": [
+          {
+            "from": 0,
+            "to": 7,
+            "n": 8
+          },
+          {
+            "from": 20,
+            "to": 23,
+            "n": 4
+          },
+          {
+            "from": 28,
+            "to": 31,
+            "n": 4
+          },
+          {
+            "from": 566,
+            "to": 567,
+            "n": 2
+          },
+          {
+            "from": 1847,
+            "to": 1847,
+            "n": 1
+          },
+          {
+            "from": 2040,
+            "to": 2047,
+            "n": 8
+          }
+        ],
+        "skipped_updates": 6,
+        "skip_rate": 0.012,
+        "skipped_at_update": [
+          0,
+          2,
+          3,
+          70,
+          230,
+          255
+        ],
+        "scale_first": 32768.0,
+        "scale_last": 1024.0,
+        "scale_min": 1024.0,
+        "scale_trajectory_changes": [
+          {
+            "update": 0,
+            "from": 65536.0,
+            "to": 32768.0
+          },
+          {
+            "update": 2,
+            "from": 32768.0,
+            "to": 16384.0
+          },
+          {
+            "update": 3,
+            "from": 16384.0,
+            "to": 8192.0
+          },
+          {
+            "update": 70,
+            "from": 8192.0,
+            "to": 4096.0
+          },
+          {
+            "update": 230,
+            "from": 4096.0,
+            "to": 2048.0
+          },
+          {
+            "update": 255,
+            "from": 2048.0,
+            "to": 1024.0
+          }
+        ],
+        "nonfinite_loss_micro_batches": 0,
+        "grad_norm_finite_updates": 494,
+        "grad_norm_min": 1.1127830248369719e-06,
+        "grad_norm_median": 7.144584894180298,
+        "grad_norm_max": 1813.4329833984375
+      },
+      "loss_first10": [
+        0.5843,
+        0.0267,
+        0.2063,
+        0.6294,
+        0.263,
+        0.6458,
+        0.546,
+        0.4753,
+        0.4951,
+        0.7466
+      ],
+      "loss_last10": [
+        0.0,
+        0.0,
+        -0.027,
+        0.0,
+        4.3389,
+        0.0011,
+        0.0,
+        0.0,
+        0.0049,
+        0.0
+      ],
+      "reward_first_epoch_mean": 0.29207132452819495,
+      "reward_last_epoch_mean": 0.5308799975812435,
+      "recipe_fitted_temperature": {
+        "choice": 1.2,
+        "score": 1.2,
+        "noul": 4.668740749359131,
+        "note": "written into the saved checkpoint by the recipe, then neutralised per D2 before anything is scored"
+      },
+      "d2_neutralised": {
+        "temperature": [
+          1.2,
+          1.2,
+          4.668740749359131
+        ],
+        "temperature_by_options": {
+          "choice:3-5": 1.7601518630981445,
+          "choice:6-10": 1.0000158548355103,
+          "score:3-5": 1.2514300346374512,
+          "noul:2": 1.983399510383606,
+          "choice:11+": 0.10058280825614929,
+          "choice:2": 1.9063563346862793
+        },
+        "cfg_temperature": [
+          1.2,
+          1.2,
+          4.668740749359131
+        ],
+        "cfg_temperature_by_options": {
+          "choice:3-5": 1.7601518630981445,
+          "choice:6-10": 1.0000158548355103,
+          "score:3-5": 1.2514300346374512,
+          "noul:2": 1.983399510383606,
+          "choice:11+": 0.10058280825614929,
+          "choice:2": 1.9063563346862793
+        }
+      },
+      "scoring_agent": {
+        "device": "cuda",
+        "dtype": "torch.float32",
+        "dtype_laya_would_have_chosen": "torch.float16",
+        "dtype_forced_fp32": true,
+        "attn_implementation": "sdpa",
+        "allow_tf32": false
+      },
+      "temperature_s3_fitted": 4.890949093068331,
+      "s3_slice": {
+        "start": 0,
+        "stop": 500
+      },
+      "checkpoint": {
+        "path": "out/step3/L1_seed3",
+        "model_safetensors_sha256": "4f0e19119e419df13d4e8e5d74b69f8cf6ee2ec6379652215d11f66b8f2155ae",
+        "saved_dtype": "float16, as the recipe saves it"
+      },
+      "artefacts": [
+        "L1_seed3/",
+        "L1_calib_seed3.npz",
+        "L1_steps_seed3.npz"
+      ],
+      "not_scored": "L1's metrics are produced at step 4 with every other arm."
+    },
+    {
+      "arm": "L1",
+      "seed": 4,
+      "recipe": {
+        "epochs": 4,
+        "micro_batch": 8,
+        "grad_accum": 8,
+        "effective_batch_sequences": 64,
+        "group_size": 4,
+        "lr_encoder": 2.5e-05,
+        "lr_head": 0.0001,
+        "sigma": [
+          0.4,
+          0.1
+        ],
+        "clip": 1.0,
+        "weight_decay": 0.01,
+        "eta_min": 1e-06,
+        "nothing_shortened": true,
+        "source": "notebooks/laya_finetune_typed_decisions_2xT4_kaggle.ipynb @ 42626c34"
+      },
+      "n_train": 8000,
+      "micro_batches": 4000,
+      "updates": 500,
+      "train_seconds": 630.6810667952523,
+      "train_hours": 0.1751891852209034,
+      "finite_check_seconds_total": 81.46740508358926,
+      "train_hours_excluding_instrumentation": 0.15255935047546196,
+      "step_seconds_mean": 0.1298330840638373,
+      "step_seconds_sd": 0.02258726280235185,
+      "peak_memory_bytes": 8350105088,
+      "fp16": {
+        "nonfinite_scaled_grad_micro_batches": 27,
+        "nonfinite_rate": 0.00675,
+        "excursion_clusters": [
+          {
+            "from": 0,
+            "to": 7,
+            "n": 8
+          },
+          {
+            "from": 10,
+            "to": 15,
+            "n": 6
+          },
+          {
+            "from": 226,
+            "to": 231,
+            "n": 6
+          },
+          {
+            "from": 268,
+            "to": 271,
+            "n": 4
+          },
+          {
+            "from": 294,
+            "to": 295,
+            "n": 2
+          },
+          {
+            "from": 335,
+            "to": 335,
+            "n": 1
+          }
+        ],
+        "skipped_updates": 6,
+        "skip_rate": 0.012,
+        "skipped_at_update": [
+          0,
+          1,
+          28,
+          33,
+          36,
+          41
+        ],
+        "scale_first": 32768.0,
+        "scale_last": 1024.0,
+        "scale_min": 1024.0,
+        "scale_trajectory_changes": [
+          {
+            "update": 0,
+            "from": 65536.0,
+            "to": 32768.0
+          },
+          {
+            "update": 1,
+            "from": 32768.0,
+            "to": 16384.0
+          },
+          {
+            "update": 28,
+            "from": 16384.0,
+            "to": 8192.0
+          },
+          {
+            "update": 33,
+            "from": 8192.0,
+            "to": 4096.0
+          },
+          {
+            "update": 36,
+            "from": 4096.0,
+            "to": 2048.0
+          },
+          {
+            "update": 41,
+            "from": 2048.0,
+            "to": 1024.0
+          }
+        ],
+        "nonfinite_loss_micro_batches": 0,
+        "grad_norm_finite_updates": 494,
+        "grad_norm_min": 1.4237275536288507e-06,
+        "grad_norm_median": 8.526322841644287,
+        "grad_norm_max": 2375.074951171875
+      },
+      "loss_first10": [
+        0.7337,
+        0.3906,
+        0.505,
+        0.9615,
+        0.8581,
+        0.5863,
+        0.5081,
+        0.7976,
+        0.8193,
+        0.9105
+      ],
+      "loss_last10": [
+        2.0127,
+        0.0044,
+        1.875,
+        0.0,
+        -0.0094,
+        0.0032,
+        -0.0026,
+        1.946,
+        0.0,
+        0.0
+      ],
+      "reward_first_epoch_mean": 0.1765178074464202,
+      "reward_last_epoch_mean": 0.5059799787700177,
+      "recipe_fitted_temperature": {
+        "choice": 1.2,
+        "score": 1.2,
+        "noul": 4.792082786560059,
+        "note": "written into the saved checkpoint by the recipe, then neutralised per D2 before anything is scored"
+      },
+      "d2_neutralised": {
+        "temperature": [
+          1.2,
+          1.2,
+          4.792082786560059
+        ],
+        "temperature_by_options": {
+          "choice:3-5": 1.7601518630981445,
+          "choice:6-10": 1.0000158548355103,
+          "score:3-5": 1.2514300346374512,
+          "noul:2": 1.983399510383606,
+          "choice:11+": 0.10058280825614929,
+          "choice:2": 1.9063563346862793
+        },
+        "cfg_temperature": [
+          1.2,
+          1.2,
+          4.792082786560059
+        ],
+        "cfg_temperature_by_options": {
+          "choice:3-5": 1.7601518630981445,
+          "choice:6-10": 1.0000158548355103,
+          "score:3-5": 1.2514300346374512,
+          "noul:2": 1.983399510383606,
+          "choice:11+": 0.10058280825614929,
+          "choice:2": 1.9063563346862793
+        }
+      },
+      "scoring_agent": {
+        "device": "cuda",
+        "dtype": "torch.float32",
+        "dtype_laya_would_have_chosen": "torch.float16",
+        "dtype_forced_fp32": true,
+        "attn_implementation": "sdpa",
+        "allow_tf32": false
+      },
+      "temperature_s3_fitted": 4.4964692832403514,
+      "s3_slice": {
+        "start": 0,
+        "stop": 500
+      },
+      "checkpoint": {
+        "path": "out/step3/L1_seed4",
+        "model_safetensors_sha256": "24fd42c70c187ed4df68a124a9d45ee2b3b8fea899d8e926f7582b765b90308a",
+        "saved_dtype": "float16, as the recipe saves it"
+      },
+      "artefacts": [
+        "L1_seed4/",
+        "L1_calib_seed4.npz",
+        "L1_steps_seed4.npz"
+      ],
+      "not_scored": "L1's metrics are produced at step 4 with every other arm."
+    }
+  ],
+  "total": {
+    "train_hours_all_seeds": 0.8971330125402246,
+    "train_hours_all_seeds_excluding_instrumentation": 0.7819449704970854,
+    "budget_hours": 12.0,
+    "fraction_of_budget": 0.07476108437835205,
+    "step1_predicted_hours_all_seeds": 0.7557612237546386,
+    "ratio_measured_to_predicted": 1.1870588015659864
+  }
+}
