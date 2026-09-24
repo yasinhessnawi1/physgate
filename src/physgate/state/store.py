@@ -31,6 +31,7 @@ inert against the frozen workload:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from collections import deque
@@ -60,6 +61,7 @@ from physgate.state.protocol import (
     NodeNotFoundError,
     Revision,
     WriteResult,
+    canonical_json,
 )
 from physgate.state.schema import quantities_are_valid, validate_node, validate_node_id
 
@@ -75,7 +77,11 @@ JOURNAL_NAME = "journal.jsonl"
 NODES_DIRNAME = "nodes"
 
 
-def _op_agrees_with_what_came_before(line: JournalLine, version_of: dict[str, int]) -> str | None:
+def _op_agrees_with_what_came_before(
+    line: JournalLine,
+    version_of: dict[str, int],
+    payloads_of: dict[str, set[str]],
+) -> str | None:
     """Why ``line`` could not have been written, given the lines before it.
 
     The writing path creates a node it has not seen, at version one, and writes
@@ -87,6 +93,19 @@ def _op_agrees_with_what_came_before(line: JournalLine, version_of: dict[str, in
     injected record rewinding a counter that the store then carries on from, so
     that the store manufactures the damage itself on its next legitimate write.
     A version chain of ``[1, 2, 3, 4, 5, 1, 2]`` is what that looked like.
+
+    A rollback carries one more constraint than a write, because the writing path
+    imposes one: :meth:`Store.rollback` only ever appends a payload it has just
+    read out of an earlier revision of that same node. A rollback record carrying
+    a payload that was never any revision of that node is therefore a record this
+    package could not have written, however well-formed it looks.
+
+    Args:
+        line: the record being replayed.
+        version_of: the version each node was last seen at.
+        payloads_of: the canonical payloads each node has held, for the rollback
+            rule. Held as digests, so this grows with revisions rather than with
+            their size, and it is discarded when recovery returns.
 
     Returns:
         ``None`` when the record is coherent, otherwise the reason it is not.
@@ -105,7 +124,19 @@ def _op_agrees_with_what_came_before(line: JournalLine, version_of: dict[str, in
             f"version {line.version} does not follow {previous} for {line.node_id!r}; "
             "this package only ever mints consecutive versions"
         )
+    if line.op == "rollback" and payload_digest(line.payload) not in payloads_of.get(
+        line.node_id, set()
+    ):
+        return (
+            f"a rollback of {line.node_id!r} to a payload that was never any of its "
+            "revisions; a rollback only ever replays a payload this node has held"
+        )
     return None
+
+
+def payload_digest(payload: Payload) -> str:
+    """A short, stable identity for a payload, over its canonical serialisation."""
+    return hashlib.sha256(canonical_json(payload).encode()).hexdigest()
 
 
 def _first_validation_problem(exc: ValidationError) -> str:
@@ -187,6 +218,12 @@ class JournalLine(BaseModel):
             payload = validate_node(self.payload)
         except DesignStateError as exc:
             raise ValueError(f"payload: {exc}") from exc
+        except ValidationError as exc:
+            # The node model's own complaint, which names the offending field.
+            # Prefixed, so a reader of the refusal can tell a malformed payload
+            # from a malformed record without knowing which fields belong to
+            # which.
+            raise ValueError(f"payload: {_first_validation_problem(exc)}") from exc
         if payload.id != self.node_id:
             msg = (
                 f"the record names {self.node_id!r} and its payload is "
@@ -250,6 +287,8 @@ class Store:
         self._next_rev = 1
         self._torn_tail_bytes = 0
         self._corrupt_tail_bytes = 0
+        self._repaired_node_files = 0
+        self._quarantined: tuple[str, ...] = ()
 
         # Bound before recovery, not after. Recovery can refuse to open, and a
         # caller that closes in a finally block should see the error that
@@ -287,6 +326,7 @@ class Store:
         corrupt: tuple[int, str] | None = None
         expected_rev = 1
         version_of: dict[str, int] = {}
+        payloads_of: dict[str, set[str]] = {}
         with self.journal_path.open("rb") as handle:
             while True:
                 offset = handle.tell()
@@ -307,11 +347,12 @@ class Store:
                         "this package only ever mints consecutive revisions",
                     )
                     break
-                coherent = _op_agrees_with_what_came_before(line, version_of)
+                coherent = _op_agrees_with_what_came_before(line, version_of, payloads_of)
                 if coherent is not None:
                     corrupt = (offset, coherent)
                     break
                 version_of[line.node_id] = line.version
+                payloads_of.setdefault(line.node_id, set()).add(payload_digest(line.payload))
                 self._offsets[line.rev] = offset
                 self._node_revs.setdefault(line.node_id, []).append(line.rev)
                 self._head[line.node_id] = (line.rev, line.version)
@@ -342,17 +383,26 @@ class Store:
             with self.journal_path.open("r+b") as handle:
                 handle.truncate(good_end)
 
+        # The node files are derived from the journal, so recovery compares them
+        # against what the journal says they should contain -- all of it, not the
+        # revision number written inside them. That number is under the control
+        # of whatever edited the file: an in-place change to a quantity that
+        # leaves `rev` alone used to survive every open, and the graph then served
+        # a value the journal had never recorded, with nothing in any change list
+        # and nothing for the divergence check to see.
+        self._repaired_node_files = 0
         for node_id, (rev, version) in self._head.items():
+            expected = self._node_body(rev, version, self._entry_at(rev)["payload"])
             path = self._node_path(node_id)
-            if path.exists():
-                try:
-                    on_disk = json.loads(path.read_text())
-                except json.JSONDecodeError:
-                    on_disk = None
-                if isinstance(on_disk, dict) and on_disk.get("rev") == rev:
-                    continue
-            entry = self._entry_at(rev)
-            self._materialise(node_id, rev, version, entry["payload"])
+            try:
+                actual: str | None = path.read_text()
+            except OSError:
+                actual = None
+            if actual != expected:
+                self._materialise(node_id, rev, version, self._entry_at(rev)["payload"])
+                self._repaired_node_files += 1
+
+        self._quarantine_orphan_node_files()
 
     @property
     def torn_tail_bytes(self) -> int:
@@ -361,8 +411,71 @@ class Store:
         A process that died mid-write. Distinct from
         :attr:`corrupt_tail_bytes`, which is a complete record this package
         could not have written.
+
+        Zero also when a corrupt record was found, because recovery stops there
+        and does not look past it — so this being zero does not mean the tail
+        was intact, only that nothing reached it.
         """
         return self._torn_tail_bytes
+
+    @property
+    def repaired_node_files(self) -> int:
+        """How many node files the last :meth:`recover` rewrote from the journal.
+
+        Non-zero after a kill between the journal sync and the file replace,
+        after a file is lost or damaged, and after one is edited in place.
+        """
+        return self._repaired_node_files
+
+    @property
+    def quarantined_node_files(self) -> tuple[str, ...]:
+        """Node files the journal never named, moved aside by the last recovery.
+
+        Non-empty only when the handle was opened asking to be let past damage,
+        since refusing is the default.
+        """
+        return self._quarantined
+
+    def _quarantine_orphan_node_files(self) -> None:
+        """Deal with node files for ids the journal has never named.
+
+        The journal is the authority and the files are derived from it, so a file
+        the journal never mentions was not put there by this package. It used to
+        be neither examined nor mentioned: ``read_node`` served it, ``history``
+        was empty for it, and it appeared in no change list — a node in the graph
+        that the divergence check could not see.
+
+        It goes through the same policy as a corrupt journal record. Refusing is
+        the default. When the caller asks to be let past, the file is **moved
+        aside rather than deleted**, because dropping a journal's trailing bytes
+        loses bytes this package did not write, while deleting a node file would
+        destroy a whole file whose provenance is exactly what is unclear. The
+        suffix takes it out of the graph and out of any later scan.
+
+        Raises:
+            CorruptRecordError: a node file names an id the journal has not, and
+                the handle was opened with the default policy.
+        """
+        self._quarantined = ()
+        orphans = sorted(
+            path for path in self.nodes_dir.glob("*.json") if path.stem not in self._head
+        )
+        if not orphans:
+            return
+        if self._on_corrupt == "raise":
+            msg = "the graph holds a node file the journal has never named"
+            raise CorruptRecordError(
+                msg,
+                nodes_dir=str(self.nodes_dir),
+                node_id=orphans[0].stem,
+                count=str(len(orphans)),
+            )
+        moved = []
+        for path in orphans:
+            aside = path.with_suffix(".json.orphan")
+            os.replace(path, aside)
+            moved.append(path.stem)
+        self._quarantined = tuple(moved)
 
     @property
     def corrupt_tail_bytes(self) -> int:
@@ -468,9 +581,21 @@ class Store:
             raise RevisionNotFoundError(
                 msg, node_id=node_id, revision=str(to), belongs_to=entry["node_id"]
             )
+        # The payload comes out of an earlier revision of this node by
+        # construction. Checking it anyway states the rule in the place that
+        # makes it true, so that the replay-side check has a counterpart here
+        # rather than being the only statement of it.
+        payload: Payload = entry["payload"]
+        if payload_digest(payload) not in {
+            payload_digest(self._entry_at(each)["payload"])
+            for each in self._node_revs.get(node_id, [])
+        }:  # pragma: no cover - unreachable while `to` is a revision of this node
+            msg = "a rollback payload that was never a revision of this node"
+            raise RevisionNotFoundError(msg, node_id=node_id, revision=str(to))
+
         version = self._head[node_id][1] + 1
-        rev = self._append("rollback", node_id, version, entry["payload"])
-        self._materialise(node_id, rev, version, entry["payload"])
+        rev = self._append("rollback", node_id, version, payload)
+        self._materialise(node_id, rev, version, payload)
 
     # ----- reads --------------------------------------------------------------
 
@@ -651,15 +776,25 @@ class Store:
             entry: dict[str, Any] = json.loads(handle.readline())
             return entry
 
-    def _materialise(self, node_id: str, rev: int, version: int, payload: Payload) -> None:
-        """Replace the node file atomically. Derived from the journal, never authoritative."""
-        path = self._node_path(node_id)
-        tmp = path.with_suffix(".json.tmp")
-        body = json.dumps(
+    @staticmethod
+    def _node_body(rev: int, version: int, payload: Payload) -> str:
+        """Exactly what a node file holds for a revision, canonically serialised.
+
+        One definition, used to write the file and to check it, so that recovery
+        compares against what writing actually produces rather than against a
+        second opinion about it.
+        """
+        return json.dumps(
             {"rev": rev, "version": version, "payload": payload},
             sort_keys=True,
             separators=(",", ":"),
         )
+
+    def _materialise(self, node_id: str, rev: int, version: int, payload: Payload) -> None:
+        """Replace the node file atomically. Derived from the journal, never authoritative."""
+        path = self._node_path(node_id)
+        tmp = path.with_suffix(".json.tmp")
+        body = self._node_body(rev, version, payload)
         with tmp.open("w") as handle:
             handle.write(body)
             handle.flush()

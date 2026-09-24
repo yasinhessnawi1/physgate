@@ -554,3 +554,139 @@ def test_a_legitimate_foreign_write_still_passes_every_coherence_rule(
     assert [d.node_id for d in divergence(store, store.diff(0), "control")] == ["electrical.motor"]
     assert_chain_is_intact(one_node, "electrical.motor")
     store.close()
+
+
+# --- the payload is a whole node, and this is the test that says only that ----
+#
+# Every other test of this rule reaches it through a payload whose identifier
+# also disagrees with the record's, so the coherence half answers for both and a
+# stub in place of the node validation leaves the suite green. These payloads
+# carry the right identifier and are still not nodes, so only the node validation
+# can refuse them.
+
+
+def wrongly_shaped(label: str) -> dict[str, Any]:
+    """A payload named correctly and shaped incorrectly."""
+    payload = node("electrical.motor")
+    if label == "missing kind":
+        del payload["kind"]
+    elif label == "an extra field":
+        payload["surprise"] = 1
+    elif label == "an unknown domain":
+        payload["domain"] = "banana"
+    elif label == "a bare-number quantity":
+        payload["quantities"] = {"stall_current": 2.4}
+    else:  # pragma: no cover - a label with no case is a broken test
+        raise AssertionError(label)
+    return payload
+
+
+BADLY_SHAPED = ["missing kind", "an extra field", "an unknown domain", "a bare-number quantity"]
+
+
+@pytest.mark.parametrize("label", BADLY_SHAPED)
+def test_a_correctly_named_payload_that_is_not_a_node_is_refused_on_replay(
+    label: str, one_node: Path
+) -> None:
+    line = legal_line(2, "electrical.motor", version=1, op="create")
+    line["payload"] = wrongly_shaped(label)
+    assert line["payload"]["id"] == line["node_id"], "the name must be right, or this tests nothing"
+    append_raw(one_node, line)
+
+    with pytest.raises(CorruptRecordError) as caught:
+        Store(one_node)
+    assert "payload" in caught.value.context["reason"], label
+
+
+@pytest.mark.parametrize("label", BADLY_SHAPED)
+def test_a_correctly_named_payload_that_is_not_a_node_is_refused_on_write(
+    label: str, store: Store
+) -> None:
+    """The same four, through the door they would normally arrive by."""
+    payload = wrongly_shaped(label)
+    try:
+        result = store.write_node(payload, "electrical")
+    except Exception:  # noqa: BLE001 - either refusal is a refusal
+        pass
+    else:
+        assert not result.accepted, label
+    assert store.head_revision() == 0, label
+
+
+# --- rollback is held to the version rule, and to one more -------------------
+
+
+def test_a_rollback_that_skips_a_version_is_refused(one_node: Path) -> None:
+    """The version rule was tested for writes only."""
+    append_raw(one_node, legal_line(2, "control.loop", version=4, op="rollback"))
+
+    with pytest.raises(CorruptRecordError) as caught:
+        Store(one_node)
+    assert "does not follow" in caught.value.context["reason"]
+
+
+def test_a_rollback_for_a_node_that_was_never_created_is_refused(one_node: Path) -> None:
+    append_raw(one_node, legal_line(2, "electrical.never", version=1, op="rollback"))
+
+    with pytest.raises(CorruptRecordError) as caught:
+        Store(one_node)
+    assert "never created" in caught.value.context["reason"]
+
+
+def test_a_rollback_to_a_payload_this_node_never_held_is_refused(tmp_path: Path) -> None:
+    """The constraint the writing path imposes and the replay path did not check.
+
+    ``rollback`` only ever appends a payload it has just read out of an earlier
+    revision of that same node. A record carrying an invented payload is
+    therefore one this package could not have written, however well-formed.
+    """
+    root = tmp_path / "graph"
+    store = Store(root)
+    for i in range(2):
+        store.write_node(node("control.loop", owner_role="control", updated=f"t{i}"), "control")
+    store.close()
+
+    invented = node("control.loop", owner_role="control")
+    invented["geometry_hash"] = "sha256:" + "n" * 64
+    line = legal_line(3, "control.loop", version=3, op="rollback")
+    line["payload"] = invented
+    append_raw(root, line)
+
+    with pytest.raises(CorruptRecordError) as caught:
+        Store(root)
+    assert "never any of its revisions" in caught.value.context["reason"]
+
+
+def test_a_rollback_to_a_payload_the_node_did_hold_is_accepted(tmp_path: Path) -> None:
+    """The rule refuses invented payloads and no others."""
+    root = tmp_path / "graph"
+    store = Store(root)
+    store.write_node(node("control.loop", owner_role="control", updated="first"), "control")
+    first = dict(store.read_node("control.loop"))
+    store.write_node(node("control.loop", owner_role="control", updated="second"), "control")
+    store.close()
+
+    line = legal_line(3, "control.loop", version=3, op="rollback")
+    line["payload"] = first
+    append_raw(root, line)
+
+    reopened = Store(root)
+    assert reopened.head_revision() == 3
+    assert reopened.read_node("control.loop")["updated"] == "first"
+    reopened.close()
+
+
+def test_a_rollback_written_by_the_store_replays_clean(tmp_path: Path) -> None:
+    """Whatever the rule refuses, it must not refuse this package's own output."""
+    root = tmp_path / "graph"
+    store = Store(root)
+    for i in range(3):
+        store.write_node(node("control.loop", owner_role="control", updated=f"t{i}"), "control")
+    store.rollback("control.loop", store.history("control.loop")[0])
+    store.write_node(node("control.loop", owner_role="control", updated="after"), "control")
+    store.close()
+
+    reopened = Store(root)
+    assert reopened.head_revision() == 5
+    assert reopened.history("control.loop") == [1, 2, 3, 4, 5]
+    reopened.close()
