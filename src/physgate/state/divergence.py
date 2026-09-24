@@ -86,6 +86,21 @@ def divergence(
         One entry per offending change, in the order the changes arrived. A node
         changed more than once in the step appears once per change, because each
         one is a separate event in the record.
+
+    Raises:
+        MalformedNodeIdError: a change names an identifier no writer of this
+            package could have produced. It raises rather than skipping: a
+            foreign write must not pass unreported by being malformed as well as
+            foreign.
+        StoreStaleError: the journal moved underneath the handle mid-check.
+        RevisionNotFoundError: a change names a revision the store never minted.
+        NodeNotFoundError: a change names a node the store has never held.
+
+    Limitations:
+        It takes the concrete store rather than the frozen interface, because the
+        interface cannot answer a question about a past revision and widening it
+        was refused. A second store implementation would therefore need this
+        function reworked, or the interface reopened as a decision.
     """
     found: list[Divergence] = []
     for change in changes:

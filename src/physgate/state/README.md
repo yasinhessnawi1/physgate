@@ -85,7 +85,12 @@ not a convenience added at the call site.
   comparison is the record of why the store that offered it was not adopted.
 - **Enforcing the guards before a write is attempted.** The store refuses a
   write and says why. Making that refusal reach an agent *before* it writes is
-  the hook layer's job.
+  the hook layer's job. Two of the exceptions here — the cross-role one and the
+  interface one — exist for that layer and are raised by nothing in this package,
+  because the store returns those refusals as reasons instead.
+- **Reading the task ledger off disk.** Only the graph store does that. The
+  ledger answers from a view taken at open, which is a decision and is explained
+  in its own section above.
 - **The propagation check.** Traversal of the `constrains` edges ships here; the
   check that fails when a constrained node was not rewritten belongs to the
   physics gate.
