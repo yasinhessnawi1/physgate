@@ -418,10 +418,18 @@ are non-gating context; neither touches C4's verdict, which is about L1 alone.
 
 **The frozen criteria describe the server as having "two CPU cores"; that is not
 the machine.** The workspace exports `OMP_NUM_THREADS=2`, which is why `nproc`
-reported two, and threaded libraries ran on two threads. The workspace itself may
-use all 96 cores of its host under a quota worth six CPUs. The criteria's sentence
+reported two, and threaded libraries ran on two threads. The workspace itself runs under
+a CPU quota worth six, as its recorded cgroup quota shows, so two was never the
+machine. The criteria's sentence
 is frozen and stays as written; the server figures in this result are two-thread
 figures, which is the correct description, and they remain non-gating.
+
+> **Amended 25.09.2026 after the delta review.** The first version of this block
+> said the workspace may use "all 96 cores of its host". That figure was true but
+> recorded nowhere in the repository, and in a delta whose purpose was to stop
+> unrecorded claims reading as evidence it was the one fact given no treatment.
+> The sentence now rests on the six-CPU quota the step-2 report already records,
+> which is enough to show two was a thread cap and needs nothing unrecorded.
 
 ### The cross-machine check that the fp32 pin was for
 
