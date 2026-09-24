@@ -28,9 +28,9 @@ experiment serialises a state.
 ```
 
 The Test-ID, OOD-A and OOD-B examples are generated at step 4, at measurement,
-and committed with the run then — per the orchestrator's ruling of 2026-09-21
-that R3 says "committed with the run" without saying when, and that a deferred
-example costs nothing while an early read cannot be undone.
+and committed with the run then. Settled on 2026-09-21, before any test split
+existed: R3 says "committed with the run" without saying when, and a deferred
+example costs nothing while an early read of a test split cannot be undone.
 
 ### Token lengths under the real fixture, against step 1's provisional
 
@@ -49,7 +49,7 @@ documentation; it changed no output.
 seed, **0.756 h for the five-seed arm** — because it was computed on precisely
 these strings. Nothing needs restating.
 
-### The two things the ruling said the fixture must get right
+### The two things the fixture had to get right
 
 **Field names.** R3 asks for "the ARCH-010/ARCH-012 field names". The mapping was
 made deliberately and most of it does not exist: see §2. The fixture keeps the
@@ -229,7 +229,8 @@ Recorded as C5 M9 rather than patched, so arm R stays the rule R-TM-01 measured.
 
 ### L0 — Laya zero-shot, pipeline built and §3 temperature fitted. Not scored.
 
-The checkpoint's own calibration was set to identity first, per the D2 ruling.
+The checkpoint's own calibration was set to identity first, per the resolution
+of D2.
 **What was neutralised, and what it held:**
 
 | field | prior value |
@@ -340,14 +341,14 @@ file, and that edit would be in the diff.
 
 ---
 
-## 7. Prospective deviations, for a ruling before step 4
+## 7. Prospective deviations, and how each was resolved before step 4
 
 ### D4 — C1 says "10 bins" and does not say over what range
 
-§6 C1: *"Expected calibration error, 10 bins, on Test-ID."* The ruling of
-2026-09-21 settled equal-width over equal-mass and settled passing `n_bins`
-explicitly. It did not settle the **range**, and the two available conventions
-give different numbers:
+§6 C1: *"Expected calibration error, 10 bins, on Test-ID."* Equal-width bins over
+equal-mass, and passing `n_bins` explicitly rather than inheriting the library's
+default, were both settled on 2026-09-21 under D3. Neither settles the **range**,
+and the available conventions give different numbers:
 
 | | definition | equal-width? |
 |---|---|---|
@@ -366,8 +367,16 @@ the [0, 1] version are always empty and ten bins there behave like five.
 from that run, and because it is the only one of the three that actually uses ten
 bins. All three are computed for every arm and reported; the other two are
 context. **No threshold moves either way** — this is which of three numbers the
-frozen 0.10 / 0.06 is compared against, and it should be ruled before the numbers
-exist rather than after.
+frozen 0.10 / 0.06 is compared against, and it should be settled before the
+numbers exist rather than after.
+
+**Resolved before step 3 began; no test split had been read.** The gated
+calibration figure is computed by the function the threshold was set against:
+ten equal-width bins over confidence in [0.5, 1.0], as in the earlier Tsetlin
+run whose scored values this criterion's thresholds were taken from. A threshold
+compared against a different function would silently change what the threshold
+means. The other two calibration figures are computed and reported for every arm
+as context and decide nothing. This supersedes the range left open under D3.
 
 ### D5 — confirm the §3 calibration slice is the first 500 rows of Train
 
@@ -379,15 +388,29 @@ would be choosing a number the criteria do not name; reusing R-TM-01's conventio
 keeps arm T comparable to the run being rerun, and an index range is identical for
 every arm by construction. **Confirm or correct before step 4.**
 
+**Resolved before step 3 began.** The calibration slice is the first 500 rows of
+Train, as drawn by the data seed that drew Train. No second seed is introduced:
+the criteria name none, and an index range is identical for every arm by
+construction.
+
 ### D6 — ARCH-131 promises a `state` no ARCH decision defines
 
 Raised as C5 M7 and repeated here because it is the one finding this step
 produced that is about the architecture rather than about the experiment. It
-changes nothing in this run and needs no ruling for step 4. For the orchestrator:
+changes nothing in this run and needs no resolution for step 4. Carried forward
+as a note on the architecture rather than on the experiment:
 ARCH-132 admits bindings on measured evidence, and the thing being measured —
 "the structured subtask record at the end of an attempt" — is defined today only
 in R-TM-01's generator. A decision that writes the subtask-state schema down,
 with ARCH-131 depending on it, would close it.
+
+**Resolved before step 3 began; nothing in this run changes.** ARCH-131 now
+states that the state's schema is deliberately not defined yet: it is the
+composition of the task ledger line, the gate result and the reviewer verdict,
+and it is written as its own decision once all three exist in code. Until then,
+any ARCH-132 row whose evidence was gathered on a generated state says so. This
+run's evidence was gathered on a generated state, and its result says that next
+to its verdict.
 
 ### D7 — a reporting convention to confirm, not a deviation
 
@@ -396,6 +419,11 @@ convention and the one the numbers C3's framing cites were computed in. Under it
 arm R's escalation rate is 0 by construction. The **answer rate** is reported
 beside it for every arm so R is not misread. Confirm this reading before step 4;
 no threshold depends on it, but the scoreboard's legibility does.
+
+**Resolved before step 3 began.** Escalation rate is computed by confidence
+against the ARCH-131 threshold of 0.8, the convention in which the earlier
+Tsetlin run's cited numbers were computed. The answer rate is reported beside it.
+No threshold depends on the choice.
 
 ---
 

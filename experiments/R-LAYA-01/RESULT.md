@@ -416,6 +416,13 @@ failed with `ValueError: Object arrays cannot be loaded when allow_pickle=False`
 because by then the splits were open and the rule is report, do not repair. Both
 are non-gating context; neither touches C4's verdict, which is about L1 alone.
 
+**The frozen criteria describe the server as having "two CPU cores"; that is not
+the machine.** The workspace exports `OMP_NUM_THREADS=2`, which is why `nproc`
+reported two, and threaded libraries ran on two threads. The workspace itself may
+use all 96 cores of its host under a quota worth six CPUs. The criteria's sentence
+is frozen and stays as written; the server figures in this result are two-thread
+figures, which is the correct description, and they remain non-gating.
+
 ### The cross-machine check that the fp32 pin was for
 
 The same states scored on both machines, 100 per seed, all five seeds:
@@ -514,6 +521,16 @@ them enters a criterion.
 at steps 2 and 3 — during implementation, as §6 C5 requires. **Nothing was added
 to it that depends on a number in this document**, and nothing already in it was
 rewritten once a metric existed. It is final as it stands.
+
+**One correction of 2026-09-24, named so that sentence stays exact.** Four
+entries — M5, M6, M11 and M12 — said a question had been settled by a *ruling*
+and now state what was resolved and why, and the seven `D` questions the step
+reports define now carry their resolutions in those reports. **No entry was added
+or removed, no content or verdict changed, and no number anywhere moved**; the
+diff is prose and cross-references, in markdown only. Finality here is a claim
+about the list's content, and that content is exactly as it stood at measurement.
+What changed is that a reader who follows `D2` out of the code or out of an
+artefact now lands on the answer rather than on the open question.
 
 Three of its entries carry weight here. **M12** is why the shipped-temperature
 pass uses 1.9834 rather than the ~5.30 the fine-tuned configs advertise: the

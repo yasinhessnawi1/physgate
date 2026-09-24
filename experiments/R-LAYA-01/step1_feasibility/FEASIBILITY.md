@@ -34,10 +34,11 @@ than assumed:
 
 ## 1. The budget arithmetic
 
-The extrapolation is **the whole arm, five seeds**, on the orchestrator's ruling
-of 21.09.2026 that "L1 cannot be trained within 12 hours" is a statement about
-the arm and not about one seed. The per-seed number is given separately so a
-reader who prefers the other reading can use it. **Nothing is shortened to fit**:
+The extrapolation is **the whole arm, five seeds**, because "L1 cannot be trained
+within 12 hours" names L1, and **L1 is an arm of five seeds, not a seed** — so the
+twelve hours are the arm's budget rather than one seed's. Settled that way on
+21.09.2026. The per-seed number is given separately so a reader who prefers the
+other reading can use it. **Nothing is shortened to fit**:
 epochs stay at the recipe's 4 and the schedule is the recipe's schedule.
 
 | | |
@@ -288,12 +289,13 @@ it still holds at 0.756 h.**
 - **§6.1, commit before the run.** Harness at `3ef2c1a`, probe additions at
   `da57940`; the run that produced `step1_seed0.json` started from `da57940`.
 - **CRITERIA.md unchanged.** Two things that cannot be measured as written are
-  recorded as prospective deviations in §7 below, for the orchestrator to rule on
-  before step 2. Neither is edited into the frozen file.
+  recorded as prospective deviations in §7 below, each resolved before the step it
+  affects and each resolution recorded beside it. Neither is edited into the
+  frozen file.
 
 ---
 
-## 7. Prospective deviations — for the orchestrator, before step 2
+## 7. Prospective deviations, and how each was resolved
 
 Raised now, with no metric in hand, so that the decision is not made after seeing
 a number.
@@ -326,6 +328,16 @@ the correct ceiling, and every criterion is scored against the thresholds exactl
 as frozen. The irony is worth stating in the result: this is the same class of
 error — a ceiling asserted rather than checked — that §5 exists to prevent.
 
+**Resolved before step 2 began; no test split had been read.** Score at the
+frozen thresholds; nothing in the criteria changes. The result states the frozen
+sentence verbatim, the constant the named generator actually sets
+(`LABEL_NOISE = 0.01`), the accuracy ceiling quoted verbatim from the
+pre-registration that measured it, with its location, and that the
+selective-accuracy criterion is therefore **weaker** than the criteria present
+it as: a bar of 0.95 against a ceiling near 0.99 has about four points of
+headroom, not none. The error is conservative, which makes the criterion easier
+to pass rather than harder.
+
 ### D2 — L1 will carry two temperature fits, and CRITERIA §3 admits only one
 
 CRITERIA §3: temperature for L0, L1 and T is fitted on a 500-sample slice of
@@ -340,19 +352,38 @@ zero-shot checkpoint already carries `"noul:2": 1.983399510383606`. Left alone,
 the experiment's. That is exactly the confound §3 was written to remove, and it
 would apply to the Laya arms and not to T.
 
-**Recommendation, for a ruling before step 3.** At measurement, neutralise the
+**Recommendation, to be resolved before step 3.** At measurement, neutralise the
 checkpoint's own scaling — `temperature` and `temperature_by_options` set to
 identity — and apply only the §3 fit, identically for L0, L1 and T. This keeps
 §3's sentence exactly as written and changes no threshold. The alternative,
 leaving Laya's fit in and stacking the §3 fit on top, breaks §3's "identical for
-every arm" and should not be chosen silently. Whichever is ruled, `RESULT.md`
-states it and reports C1 both raw and scaled as §6 C1 requires.
+every arm" and should not be chosen silently. Either way, `RESULT.md` states
+which was done and reports C1 both raw and scaled as §6 C1 requires.
+
+**Resolved before step 2 began; no test split had been read.** The
+checkpoint's shipped `temperature` and its `temperature_by_options` table are
+set to identity, and the temperature fitted on the calibration slice is then
+applied identically to L0, L1 and T. That is the only reading under which the
+criteria's sentence "identical for every arm, so that temperature fitting is not
+itself a source of difference between arms" holds: otherwise the Laya arms would
+be scaled twice and T once. For the same reason, **"raw" in C1 means identity
+temperature for every arm** — native logits, no scaling from any source — so
+that raw means the same thing for all three. Temperature is a calibration
+constant in a configuration file, not a weight, so the weights stay frozen at
+the recorded revision. A **non-gating** pass is also reported at the constant a
+user of the fine-tuned checkpoint actually receives, cited by the code that
+resolves it, because that constant differs from the one the checkpoint's
+configuration advertises.
 
 ### D3 — a smaller one, flagged so it is not discovered late
 
 CRITERIA §6 C1 specifies ECE at **10 bins**. `laya.common.ece_score` defaults to
 15. The experiment's own scorer must pass `bins=10`; no deviation is needed, only
 care.
+
+**Resolved before step 2 began.** The bin count is passed explicitly rather than
+taken from the library's default of fifteen, and the bins are equal-width. The
+range the bins cover is settled separately under D4.
 
 ---
 

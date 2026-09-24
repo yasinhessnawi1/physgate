@@ -16,6 +16,13 @@ M11, and the addendum to M4, were written the same day during step 2, which fits
 arms on Train and scores nothing. M12 was written the same day during step 3,
 which trains arm L1 on Train and scores nothing.
 
+**Wording corrected 2026-09-24 in four entries — M5, M6, M11 and M12 — and in
+nothing else.** Each had named a *ruling* where the reason was what mattered;
+each now states what was resolved and why, and the `D` labels they cite point at
+the step report where the resolution is written out. **No entry was added or
+removed and no content, date, verdict, table or number changed.** The sentence
+above about nothing being rewritten is about content, and none was.
+
 ---
 
 ## M1 — The checkpoint's declared AMP dtype is bf16; the card has no bf16
@@ -172,10 +179,13 @@ V100.
 
 **What was done.** World size 1, DDP dropped, `MICRO_BATCH = 8` unchanged and
 `GRAD_ACCUM = 8`, which preserves the recipe's effective batch of 64 sequences
-per optimiser update. Gradient accumulation is explicitly within what the
-kickoff's ruling allows adaptation to cover. **Epochs stay at the recipe's 4 and
-no schedule is shortened** — the same ruling forbids trading training for
-clock, and the feasibility answer is reported against the full recipe.
+per optimiser update. Gradient accumulation is inside what CRITERIA §3 admits:
+it pins arm L1 to the repository's own notebook *"adapted to the available
+accelerator"* and nothing more, and holding the recipe's effective batch on one
+card is that adaptation and no other. **Epochs stay at the recipe's 4 and no
+schedule is shortened** — an adaptation that bought clock by training less would
+fall outside what was pre-registered, and the feasibility answer is reported
+against the full recipe.
 
 The consequence for reading the numbers: the optimiser-update count per seed
 halves relative to a two-GPU run of the same data, while the number of
@@ -191,7 +201,7 @@ compared to a run with a different accumulation factor.
 
 **Dated** 2026-09-21, during step 1. **Affects L0 and L1 at measurement, not the
 feasibility answer. Raised as prospective deviation D2 in
-`step1_feasibility/FEASIBILITY.md` for a ruling before step 3.**
+`step1_feasibility/FEASIBILITY.md`, and resolved there before step 2 began.**
 
 **What ARCH-131 needs.** A confidence on one scale, comparable across backends,
 because the 0.8 routing threshold is *"a property of the interface, not of a
@@ -425,7 +435,8 @@ L0 is not scored until step 4.**
 **What ARCH-131 needs.** A confidence that means the same thing from call to
 call, since a fixed 0.8 threshold is applied to it.
 
-**What Laya offers, and what was done.** Per the D2 ruling the checkpoint's own
+**What Laya offers, and what was done.** Per the resolution of D2 the
+checkpoint's own
 calibration was set to identity — `temperature` was
 `[1.0148, 1.0374, 1.0575]` and `temperature_by_options` carried
 `"noul:2": 1.983399510383606` among five others — and the §3 fit applied instead,
@@ -493,7 +504,8 @@ dataset takes precedence. This is the upstream notebook's behaviour, reproduced
 faithfully; it is not an artefact of the single-GPU adaptation.
 
 **What was done.** Nothing to the recipe — it is reproduced as written, and the
-fitted value is recorded per seed. The D2 ruling then neutralises **both** fields
+fitted value is recorded per seed. The resolution of D2 then neutralises **both**
+fields
 before anything is scored, so L1 is temperature-scaled exactly once, by the §3
 fit, like every other arm.
 
@@ -503,7 +515,8 @@ Two consequences to carry into step 4:
    that would actually apply, not the 5.30 the config advertises. Reporting 5.30
    as "Laya's own calibration" would report a number no user of the checkpoint
    would ever get.
-2. The D2 ruling turns out to have been right for a reason nobody had named:
+2. The resolution of D2 turns out to have been right for a reason nobody had
+   named:
    without it, L1 would have been scaled by a **zero-shot** constant, fitted by a
    different run on a different corpus, while arm T was scaled by a fit on this
    run's Train.

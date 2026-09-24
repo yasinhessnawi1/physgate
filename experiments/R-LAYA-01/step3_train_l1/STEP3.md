@@ -166,7 +166,7 @@ there, not explained.
 
 ---
 
-## 5. D2 applied to the newly produced checkpoints — and what that turned up
+## 5. The resolution of D2 applied to the newly produced checkpoints — and what that turned up
 
 The recipe ends by fitting temperatures with LBFGS on `items[::15][:400]` and
 writing them into the checkpoint it saves. Those values, per seed:
@@ -206,7 +206,8 @@ Two consequences for step 4, both stated now:
 1. The non-gating shipped-temperature pass must use **1.9834** — the constant a
    user of the checkpoint would actually get — not the 5.30 the config
    advertises.
-2. The D2 ruling turns out to have been right for a reason nobody had named:
+2. The resolution of D2 turns out to have been right for a reason nobody had
+   named:
    without it, L1 would have been scaled by a **zero-shot** constant while arm T
    was scaled by a fit on this run's Train.
 
