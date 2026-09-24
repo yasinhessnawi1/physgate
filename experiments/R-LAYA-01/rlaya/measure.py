@@ -48,7 +48,9 @@ a reader who prefers the literal reading can apply it. See the deviation note in
 --------------------------------------------------------------------------
 Temperature
 --------------------------------------------------------------------------
-Three passes, per the D2 and D4 rulings:
+Three passes. C1 is scored both raw and scaled, and the checkpoint ships a
+temperature of its own on top of the one §3 prescribes, so all three readings are
+computed and reported rather than one of them being chosen here:
 
 * **raw** — identity temperature, no scaling from any source. This is C1's "raw".
 * **s3** — the §3 fit on the first 500 rows of *the split the model was fitted

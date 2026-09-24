@@ -14,7 +14,9 @@ w_sph 0.75, the full 1.0 soft cross-entropy term, and the post-training LBFGS
 temperature fit on `items[::15][:400]`.
 
 **Three adaptations, all of them forced by the hardware, none of them shortening
-training** (the kickoff's ruling of 2026-09-21):
+training.** CRITERIA §3 admits the recipe "adapted to the available accelerator"
+and nothing beyond that, so an adaptation that bought clock rather than fitting
+the card would be outside what was pre-registered:
 
 * world size 2 → 1, so DDP is dropped;
 * gradient accumulation 4 → 8, which keeps the recipe's effective batch of 64
@@ -112,8 +114,8 @@ def fit_one_temp(sel):
     """VERBATIM from train_ddp.py:fit_one_temp — the recipe's own calibration.
 
     Its output is recorded per seed and then **neutralised** before anything is
-    scored, per the D2 ruling: L1 is temperature-scaled once, by the §3 fit, like
-    every other arm. The value is kept because it is interesting and because step
+    scored, because it is a second temperature fit where CRITERIA §3 admits one:
+    L1 is temperature-scaled once, by the §3 fit, like every other arm. The value is kept because it is interesting and because step
     4 reports a non-gating pass under the shipped temperature.
     """
     if len(sel) < 10:
@@ -330,7 +332,7 @@ def train_seed(seed, model_dir, out_dir, device, variant="main"):
     del model, opt, scaler, sched
     torch.cuda.empty_cache()
 
-    # ---- D2: neutralise, then fit §3's temperature on Train[0:500] ---------
+    # ---- Neutralise the recipe's own fit, then fit §3's on Train[0:500] ----
     agent, ainfo = LB.load_agent(ck, "cuda")   # forces fp32 scoring, neutralises
     src = workload.train_nofw_only if variant == "nofw" else workload.train_only
     _, ytr, _, raw, _ = src(seed)

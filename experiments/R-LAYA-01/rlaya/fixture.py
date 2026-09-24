@@ -44,8 +44,8 @@ rendered as JSON ``true``/``false``. This is a **rendering of the stored value,
 not a derived feature**: it is one-to-one, reversible, and carries exactly the
 information the raw field carries. R3's own examples show readable renderings
 (`"attempt": 2` as a number, `"reviewer_verdict": "accept"` as a word) rather
-than raw storage. Ruled by the orchestrator on 2026-09-21 and named in `RESULT.md`
-as a judgement call, so a reader can disagree with it.
+than raw storage. This is a judgement call rather than something R3 settles by
+itself, so it is named as one in `RESULT.md` and a reader can disagree with it.
 
 The rendering is applied **uniformly to every field of that kind** and to no
 others. ``attempt`` and ``prior_failures_module`` stay integers, because that is

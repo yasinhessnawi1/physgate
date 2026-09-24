@@ -19,8 +19,10 @@ configuration in which C1, C2 and C3 all hold, because "the backend" is one
 thing and a pass assembled from two different temperatures is not a
 configuration anybody could deploy. The headline verdict follows §7 literally —
 each criterion judged as written — and the single-configuration view is
-reported beside it. If the two disagree, `RESULT.md` says so and the
-orchestrator decides.
+reported beside it. If the two disagree, `RESULT.md` says so and neither reading
+is quietly preferred. Choosing between them is not this script's to make: a
+tie-break invented here would be a rule the frozen criteria do not contain, and
+it would be invented after the numbers existed.
 
 R-TM-01's own A3, which C2 is transplanted from, used the **raw** probabilities
 (`res["TM"]`, not `res["TM_temp"]`), and the paired accuracy that informed C3
@@ -241,10 +243,11 @@ def main():
     # "L1 cannot be trained on the available accelerator within 12 hours."
     # **The arm is ten trainings, not five.** Every arm has a main fit and a
     # no-firmware fit, because OOD-B is measured against a retrained arm as
-    # R-TM-01 defined it, and the twelve hours is the whole arm on the
-    # orchestrator's ruling of 21.09.2026. Step 3's 0.8971 h is the main five
-    # only; it was partial because the no-fw requirement surfaced after it was
-    # written.
+    # R-TM-01 defined it. The twelve hours is read against the whole arm rather
+    # than one seed, because the criterion says "L1 cannot be trained on the
+    # available accelerator within 12 hours" and L1 is an arm of five seeds, not
+    # a seed. Step 3's 0.8971 h is the main five only; it was partial because the
+    # no-fw requirement surfaced after it was written.
     budget = None
     if args.step3:
         m = json.load(open(os.path.join(args.step3, "step3_l1_main.json")))

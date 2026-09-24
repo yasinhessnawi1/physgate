@@ -42,8 +42,22 @@ Provenance of the copied functions
 ``095982966f0bb6dc80c182b044a72c0790fc71ecf75e35fd1beb553252055269``), renamed
 only where this module needed a clearer name. They are copied rather than
 imported because ``experiment.py`` imports ``tmu`` at module scope, which exists
-only in arm T's Python 3.11 environment. ``test_vendor_equivalence.py`` runs both
-against the same inputs in that environment and asserts they agree exactly.
+only in arm T's Python 3.11 environment.
+
+The copies are checked against the originals **in that environment**, where both
+sides can be imported at once, by ``fit_arm_t.vendor_equivalence()``. It runs
+each pair over the same inputs before any arm is fitted and records the two
+values side by side; all six agree exactly. The values are in
+``step2_fixture_and_arms/step2_arm_t.json`` under ``vendor_equivalence`` and are
+tabulated in ``STEP2.md`` §3.
+
+**There is deliberately no test file for this, and there should not be one.** A
+test committed under ``experiments/`` is outside the toolchain and would never be
+collected: ``pyproject.toml`` sets ``testpaths = ["tests"]`` and lists
+``experiments`` in ``norecursedirs``, and ``tests/test_frozen_tree_fence.py``
+holds that fence shut on purpose, because the code here is kept byte for byte as
+it was when it produced the numbers. A check that cannot fail is worse than no
+check, because it reads as evidence. The check that does run is the one above.
 """
 from __future__ import annotations
 
@@ -112,7 +126,11 @@ def ece_conf_full(probs: np.ndarray, y: np.ndarray, n_bins: int = N_BINS) -> flo
     is 15 bins, which is why the experiment passes ``n_bins`` explicitly). For a
     binary decision, confidence is at least 0.5 by construction, so the lower half
     of the bins is always empty and ten bins here behave like five. Reported for
-    comparison; see prospective deviation D4.
+    comparison only. C1 says "10 bins" without naming a range, so the range is an
+    interpretation of the frozen text rather than something it fixes, and the way
+    not to settle a criterion by an unstated choice is to report every reading of
+    it. The gated one is ``ece_conf_half``, because that is the function the
+    frozen 0.10 / 0.06 thresholds were set against.
     """
     conf = np.maximum(probs, 1 - probs)
     correct = ((probs >= 0.5).astype(int) == y).astype(float)

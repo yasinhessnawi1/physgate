@@ -142,7 +142,9 @@ def fit_l0(seed, outdir, model_dir, device, verify):
 
     §3: *"Temperature for L0, L1 and T is fitted on a 500-sample slice of Train
     only, drawn once with a fixed seed and identical for every arm."* The
-    checkpoint's own calibration is set to identity first, per the D2 ruling.
+    checkpoint's own calibration is set to identity first, so that the one fit
+    §3 prescribes is the only one in force and "identical for every arm" is true
+    of the whole scale and not just of the slice it was fitted on.
     """
     from rlaya import laya_backend as LB
 

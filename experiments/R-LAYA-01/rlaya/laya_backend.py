@@ -21,10 +21,15 @@ this one is checked against it.
 Temperature
 -----------
 `neutralise_temperature()` sets the checkpoint's own `temperature` and
-`temperature_by_options` to identity and returns what they held, per the
-orchestrator's D2 ruling of 2026-09-21. "Raw" in C1 means identity temperature —
-native logits, no scaling from any source — and the §3 fit is then applied on
-top of that, identically for L0, L1 and T. R6 is untouched: a temperature is a
+`temperature_by_options` to identity and returns what they held. The reason is
+that the checkpoint ships a temperature of its own and §3 prescribes a different
+one, so a checkpoint carries two fits where the criteria admit one. Left in
+place, the shipped constant would make "raw" mean "scaled by whatever this
+checkpoint happens to carry" — a different constant for L0 than for L1, and no
+counterpart at all in arm T, which would put the arms on three different scales
+under one word. So "raw" in C1 means identity temperature — native logits, no
+scaling from any source — and the §3 fit is then applied on top of that,
+identically for L0, L1 and T. R6 is untouched: a temperature is a
 calibration constant in a JSON config, not a weight, and the weights stay frozen
 at the recorded revision.
 """
