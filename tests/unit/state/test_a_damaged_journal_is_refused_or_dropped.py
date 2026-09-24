@@ -19,14 +19,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 import pytest
 from helpers import node
+from pydantic import ValidationError
 
 from physgate.state.divergence import divergence
 from physgate.state.exceptions import CorruptRecordError
-from physgate.state.store import Store
+from physgate.state.store import JournalLine, Store
 
 
 def append_raw(root: Path, line: dict[str, Any]) -> None:
@@ -273,3 +274,104 @@ def test_appends_after_a_dropped_tail_land_at_the_right_offset(one_node: Path) -
     assert [c.revision for c in reopened.diff(0)] == [1, 2]
     assert reopened.read_node("electrical.motor")["id"] == "electrical.motor"
     reopened.close()
+
+
+# --- the record's shape is the model's own contract ---------------------------
+#
+# The consecutiveness rule subsumes several of these when a line is read back
+# through recovery -- a revision of zero is refused for not following zero before
+# it is refused for not being positive. The model is exported and can be built
+# directly, so its own constraints are tested directly, or a mutation of one is
+# answered by the other and neither is ever really tested.
+
+
+@pytest.mark.parametrize(
+    ("label", "field", "value"),
+    [
+        ("a revision of zero", "rev", 0),
+        ("a negative revision", "rev", -1),
+        ("a revision that is a boolean", "rev", True),
+        ("a version of zero", "version", 0),
+        ("a version that is a boolean", "version", True),
+    ],
+)
+def test_the_record_refuses_it_on_its_own(label: str, field: str, value: object) -> None:
+    fields: dict[str, Any] = {
+        "rev": 1,
+        "op": "write",
+        "node_id": "electrical.motor",
+        "version": 1,
+        "payload": {},
+    }
+    fields[field] = value
+    with pytest.raises(ValidationError):
+        JournalLine.model_validate(fields)
+
+
+def test_a_well_formed_record_validates() -> None:
+    line = JournalLine.model_validate(
+        {"rev": 1, "op": "create", "node_id": "electrical.motor", "version": 1, "payload": {}}
+    )
+    assert line.rev == 1
+    assert line.op == "create"
+
+
+def test_a_record_is_frozen() -> None:
+    line = JournalLine.model_validate(
+        {"rev": 1, "op": "create", "node_id": "electrical.motor", "version": 1, "payload": {}}
+    )
+    with pytest.raises(ValidationError):
+        line.rev = 2
+
+
+# --- the offsets survive a truncation ----------------------------------------
+
+
+def test_the_change_list_still_seeks_correctly_after_a_torn_tail_was_dropped(
+    one_node: Path,
+) -> None:
+    """Recovery truncates through a second handle, which leaves the writing one stale.
+
+    The change list seeks to a recorded byte offset, so a stale one sends it into
+    the middle of a line. Asking for everything since revision one is what reads
+    that offset; asking for everything since the beginning reads from zero and
+    would not notice.
+    """
+    with (one_node / "journal.jsonl").open("ab") as handle:
+        handle.write(b'{"rev":2,"op":"wri')
+
+    store = Store(one_node)
+    assert store.write_node(node("electrical.motor"), "electrical").revision == 2
+
+    journal = (one_node / "journal.jsonl").read_bytes()
+    second_line_starts_at = journal.index(b"\n") + 1
+    assert store._offsets[2] == second_line_starts_at, "the recorded offset is stale"  # noqa: SLF001
+
+    assert [(c.revision, c.node_id) for c in store.diff(1)] == [(2, "electrical.motor")]
+    store.close()
+
+
+# --- a refused open leaves nothing behind -------------------------------------
+
+
+def test_a_refused_open_closes_the_handle_it_opened(one_node: Path) -> None:
+    """Bound before recovery so the error is the real one; closed so it does not leak."""
+    append_raw(one_node, legal_line(9))
+
+    opened: list[IO[bytes]] = []
+    real_open = Path.open
+
+    def note(self: Path, *args: Any, **kwargs: Any) -> Any:
+        handle = real_open(self, *args, **kwargs)
+        mode = str(args[0] if args else kwargs.get("mode", ""))
+        if self.name == "journal.jsonl" and "a" in mode:
+            opened.append(handle)
+        return handle
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(Path, "open", note)
+        with pytest.raises(CorruptRecordError):
+            Store(one_node)
+
+    assert opened, "the appending handle was never opened"
+    assert all(handle.closed for handle in opened), "a refused open leaked a handle"

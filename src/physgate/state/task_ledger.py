@@ -96,7 +96,11 @@ class TaskLedger:
         # refuse to open, and a caller closing in a finally block should see that
         # error rather than an attribute that was never assigned.
         self._handle = self.path.open("ab")
-        self.recover()
+        try:
+            self.recover()
+        except Exception:
+            self._handle.close()
+            raise
         self._handle.seek(0, os.SEEK_END)
 
     def recover(self) -> None:

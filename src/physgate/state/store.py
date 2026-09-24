@@ -181,7 +181,13 @@ class Store:
         # caller that closes in a finally block should see the error that
         # actually happened rather than an attribute that was never assigned.
         self._journal = self.journal_path.open("ab")
-        self.recover()
+        try:
+            self.recover()
+        except Exception:
+            # Bound first so it is always closeable, so it is always closed: an
+            # open that refuses must not leave a descriptor behind.
+            self._journal.close()
+            raise
         # Recovery may have truncated the file through another handle, which
         # leaves this one's idea of the end stale; the append offsets are read
         # from it, so it is re-seeked rather than trusted.
