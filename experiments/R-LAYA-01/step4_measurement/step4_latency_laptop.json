@@ -1,0 +1,330 @@
+{
+  "experiment": "R-LAYA-01",
+  "step": "4-latency-laptop",
+  "gates": "C4, arm L1",
+  "threshold_p50_ms": 500.0,
+  "n_per_split_per_seed": 100,
+  "warmup_discarded": 3,
+  "call_shape": "one state per call, batch size 1, as decide() is called",
+  "machine": {
+    "platform": "macOS-26.2-arm64-arm-64bit",
+    "machine": "arm64",
+    "python": "3.12.6",
+    "model": "MacBookPro17,1",
+    "cpu": "Apple M1",
+    "ncpu": "8",
+    "nperflevels0": "4",
+    "nperflevels1": "4",
+    "memsize_bytes": "8589934592",
+    "os_version": "26.2",
+    "os_build": "25C56"
+  },
+  "torch": "2.9.1",
+  "torch_threads": 4,
+  "mps_available": true,
+  "load_at_start": [
+    14.09423828125,
+    10.63623046875,
+    8.1083984375
+  ],
+  "processes_at_start": [
+    "%CPU COMM",
+    "86.2 /Library/Frameworks/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python",
+    "43.4 /Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper (Plugin).app/Contents/MacOS/Code Helper (Plugin)",
+    "29.4 /Library/Frameworks/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python",
+    "22.2 /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/FSEvents.framework/Versions/A/Support/fseventsd",
+    "15.4 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8010.52/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer)",
+    "12.0 /Users/yasinhessnawi/.vscode/extensions/anthropic.claude-code-2.1.278-darwin-arm64/resources/native-binary/claude",
+    "11.8 /Users/yasinhessnawi/.local/bin/claude",
+    "11.8 /Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper (Plugin).app/Contents/MacOS/Code Helper (Plugin)"
+  ],
+  "per_seed_test_id": {
+    "L1": {
+      "0": {
+        "n": 100,
+        "p50_ms": 273.3916249999311,
+        "p90_ms": 435.22501699972065,
+        "p99_ms": 712.6707593402446,
+        "mean_ms": 303.90522423998846,
+        "sd_ms": 103.85860538250066,
+        "min_ms": 196.1318339999707,
+        "max_ms": 766.1028749998877
+      },
+      "1": {
+        "n": 100,
+        "p50_ms": 240.96052049981154,
+        "p90_ms": 258.5421250001673,
+        "p99_ms": 284.4708949200052,
+        "mean_ms": 242.53141084001982,
+        "sd_ms": 17.04472669514135,
+        "min_ms": 208.67254199947638,
+        "max_ms": 352.9272089999722
+      },
+      "2": {
+        "n": 100,
+        "p50_ms": 236.04337500000838,
+        "p90_ms": 274.9158003003686,
+        "p99_ms": 421.7725040789092,
+        "mean_ms": 244.43924705999962,
+        "sd_ms": 50.24447687670642,
+        "min_ms": 203.0084590005572,
+        "max_ms": 611.291875000461
+      },
+      "3": {
+        "n": 100,
+        "p50_ms": 208.90975000020262,
+        "p90_ms": 228.84367919959914,
+        "p99_ms": 317.49240874982235,
+        "mean_ms": 213.090883309942,
+        "sd_ms": 25.249981593829656,
+        "min_ms": 184.4743749988993,
+        "max_ms": 367.6268750004965
+      },
+      "4": {
+        "n": 100,
+        "p50_ms": 221.9805005006492,
+        "p90_ms": 234.43617050106695,
+        "p99_ms": 286.29003000078234,
+        "mean_ms": 223.82387708006718,
+        "sd_ms": 13.058327179903635,
+        "min_ms": 206.1902919995191,
+        "max_ms": 302.5537499997881
+      }
+    }
+  },
+  "per_seed_train": {
+    "L1": {
+      "0": {
+        "n": 100,
+        "p50_ms": 233.56039600002987,
+        "p90_ms": 266.16869619947465,
+        "p99_ms": 351.52494083030433,
+        "mean_ms": 234.29182709997804,
+        "sd_ms": 28.88319658811865,
+        "min_ms": 183.1139579999217,
+        "max_ms": 355.4295829999319
+      },
+      "1": {
+        "n": 100,
+        "p50_ms": 235.01210450058352,
+        "p90_ms": 273.56425419993684,
+        "p99_ms": 306.01030698954685,
+        "mean_ms": 239.24390999000025,
+        "sd_ms": 24.422167585065367,
+        "min_ms": 201.10229199963214,
+        "max_ms": 324.4629159999022
+      },
+      "2": {
+        "n": 100,
+        "p50_ms": 236.9933954996668,
+        "p90_ms": 265.301262500725,
+        "p99_ms": 293.2906983398065,
+        "mean_ms": 238.9359791699826,
+        "sd_ms": 24.008932851688552,
+        "min_ms": 191.09025000034308,
+        "max_ms": 370.1714590006304
+      },
+      "3": {
+        "n": 100,
+        "p50_ms": 210.51175000047806,
+        "p90_ms": 227.54468689981877,
+        "p99_ms": 244.09123025048854,
+        "mean_ms": 213.13007580991325,
+        "sd_ms": 24.83736095757385,
+        "min_ms": 186.16404199929093,
+        "max_ms": 433.74020899864263
+      },
+      "4": {
+        "n": 100,
+        "p50_ms": 218.8633754994953,
+        "p90_ms": 233.73519549859338,
+        "p99_ms": 245.21421791921966,
+        "mean_ms": 220.645240820013,
+        "sd_ms": 10.445464401378107,
+        "min_ms": 199.9955419996695,
+        "max_ms": 245.6070419993921
+      }
+    }
+  },
+  "peak_rss_bytes": {
+    "0": 745472000,
+    "1": 1585201152,
+    "2": 1585201152,
+    "3": 1585201152,
+    "4": 1585201152
+  },
+  "device_selected": {
+    "device": "mps",
+    "dtype": "torch.float32",
+    "chosen_by": "laya.Agent, device=None",
+    "dtype_laya_would_have_chosen": "torch.float32",
+    "dtype_forced_fp32": true
+  },
+  "load_samples": [
+    {
+      "seed": 0,
+      "before": [
+        14.09423828125,
+        10.63623046875,
+        8.1083984375
+      ],
+      "after": [
+        8.34423828125,
+        8.93115234375,
+        7.82763671875
+      ]
+    },
+    {
+      "seed": 1,
+      "before": [
+        5.36767578125,
+        6.2265625,
+        6.51953125
+      ],
+      "after": [
+        6.2265625,
+        5.95556640625,
+        6.34619140625
+      ]
+    },
+    {
+      "seed": 2,
+      "before": [
+        6.2265625,
+        5.95556640625,
+        6.34619140625
+      ],
+      "after": [
+        9.685546875,
+        6.85205078125,
+        6.57470703125
+      ]
+    },
+    {
+      "seed": 3,
+      "before": [
+        9.685546875,
+        6.85205078125,
+        6.57470703125
+      ],
+      "after": [
+        9.43359375,
+        7.32763671875,
+        6.8056640625
+      ]
+    },
+    {
+      "seed": 4,
+      "before": [
+        9.078125,
+        7.28857421875,
+        6.794921875
+      ],
+      "after": [
+        6.4140625,
+        7.30810546875,
+        6.90673828125
+      ]
+    }
+  ],
+  "server_agreement": {
+    "0": {
+      "n": 100,
+      "max_abs_difference": 1.8933564367044749e-07,
+      "mean_abs_difference": 2.3496083303702248e-08,
+      "decisions_crossing_0.5": 0,
+      "note": "server fp32 cuda vs laptop fp32; system_one rounds to 4 dp"
+    },
+    "1": {
+      "n": 100,
+      "max_abs_difference": 4.415444659626894e-07,
+      "mean_abs_difference": 2.4175377602270645e-08,
+      "decisions_crossing_0.5": 0,
+      "note": "server fp32 cuda vs laptop fp32; system_one rounds to 4 dp"
+    },
+    "2": {
+      "n": 100,
+      "max_abs_difference": 1.2659602311780522e-07,
+      "mean_abs_difference": 1.5014310104802332e-08,
+      "decisions_crossing_0.5": 0,
+      "note": "server fp32 cuda vs laptop fp32; system_one rounds to 4 dp"
+    },
+    "3": {
+      "n": 100,
+      "max_abs_difference": 5.695186376724766e-07,
+      "mean_abs_difference": 2.3857062660166464e-08,
+      "decisions_crossing_0.5": 0,
+      "note": "server fp32 cuda vs laptop fp32; system_one rounds to 4 dp"
+    },
+    "4": {
+      "n": 100,
+      "max_abs_difference": 2.1734540541138633e-07,
+      "mean_abs_difference": 1.9762149941290347e-08,
+      "decisions_crossing_0.5": 0,
+      "note": "server fp32 cuda vs laptop fp32; system_one rounds to 4 dp"
+    }
+  },
+  "context_device": {
+    "device": "cpu",
+    "dtype": "torch.float32",
+    "test_id": {
+      "n": 100,
+      "p50_ms": 16393.26060450003,
+      "p90_ms": 30712.685284000603,
+      "p99_ms": 46742.067132169985,
+      "mean_ms": 15245.110520419956,
+      "sd_ms": 11837.729345570224,
+      "min_ms": 321.93945799917856,
+      "max_ms": 47868.90237499938
+    },
+    "note": "context only; never the gated number"
+  },
+  "context_arms": {
+    "G": {
+      "n": 100,
+      "p50_ms": 9.630875500988623,
+      "p90_ms": 15.21951249942504,
+      "p99_ms": 25.012270409462108,
+      "mean_ms": 12.561719140030618,
+      "sd_ms": 22.06298920506189,
+      "min_ms": 5.839542000103393,
+      "max_ms": 229.21416600001976
+    },
+    "seed": 0,
+    "R_error": "ValueError('Object arrays cannot be loaded when allow_pickle=False')"
+  },
+  "pooled_test_id": {
+    "L1": {
+      "p50_ms_mean_over_seeds": 236.25715420012057,
+      "p50_ms_max_over_seeds": 273.3916249999311,
+      "p90_ms_mean_over_seeds": 286.3925584001845,
+      "p99_ms_mean_over_seeds": 404.5393194179527,
+      "n_seeds": 5
+    }
+  },
+  "pooled_train": {
+    "L1": {
+      "p50_ms_mean_over_seeds": 226.9882043000507,
+      "p50_ms_max_over_seeds": 236.9933954996668,
+      "p90_ms_mean_over_seeds": 253.26281905970973,
+      "p99_ms_mean_over_seeds": 288.02627886587317,
+      "n_seeds": 5
+    }
+  },
+  "load_at_end": [
+    8.43408203125,
+    7.67626953125,
+    7.04296875
+  ],
+  "processes_at_end": [
+    "%CPU COMM",
+    "284.0 /Library/Frameworks/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python",
+    "95.2 /System/Library/PrivateFrameworks/WorkflowKit.framework/XPCServices/BackgroundShortcutRunner.xpc/Contents/MacOS/BackgroundShortcutRunner",
+    "45.9 /Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper (Plugin).app/Contents/MacOS/Code Helper (Plugin)",
+    "33.5 /usr/libexec/trustd",
+    "28.0 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8010.52/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer)",
+    "15.2 /Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper (Plugin).app/Contents/MacOS/Code Helper (Plugin)",
+    "13.7 /usr/libexec/mobileassetd",
+    "13.0 /usr/libexec/proactived"
+  ]
+}

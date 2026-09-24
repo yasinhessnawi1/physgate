@@ -1,0 +1,909 @@
+{
+  "experiment": "R-LAYA-01",
+  "step": "2-fixture-and-arms",
+  "criteria_commit": "e12d153",
+  "criteria_original": "7b85d29",
+  "env": {
+    "python": "3.12.14",
+    "platform": "Linux-6.8.0-64-generic-x86_64-with-glibc2.39",
+    "machine": "x86_64",
+    "node": "coder-yasinh-declassifai-55c6d799db-tsskx",
+    "numpy": "2.5.3",
+    "scikit_learn": "1.9.1",
+    "scipy": "1.17.1",
+    "torch": "2.9.1+cu126",
+    "torch_cuda": "12.6",
+    "transformers": "5.17.0",
+    "laya": "0.3.4",
+    "torch_cuda_arch_list": [
+      "sm_50",
+      "sm_60",
+      "sm_70",
+      "sm_75",
+      "sm_80",
+      "sm_86",
+      "sm_90"
+    ]
+  },
+  "code_checksums": {
+    "fixture.py": "1b3dec1677a5b6291e3a54f4fea20367ad9dff96c96b760c95437007f37894f0",
+    "workload.py": "88f6819203aff6ae7ee075688095980b2b37823635df614c9bb38a2b468e3206",
+    "metrics.py": "adf7998652528d0b5f434005075f479e3fa3f27a75a66977d3bb7a4bd7982103",
+    "laya_backend.py": "7eb5b50ae629513d0efe1ae8e325add6b109ec961d8b5a946ec66bd2885169cd",
+    "fit_arms.py": "6d0e2b30bf98e6e49559d4cea10baa713b659b8c754fa4b0a8074e5335e09dea",
+    "vendor/generator.py": "6e913b3bfc55b43869638c23463c3deb417216ffaaf981c747b78a157c75c16e",
+    "vendor/generator_b.py": "ead13b9b8041851d7b03e72100d7da7ba98a784c1e73ffad0d9e935f614b038d",
+    "vendor/experiment.py": "095982966f0bb6dc80c182b044a72c0790fc71ecf75e35fd1beb553252055269"
+  },
+  "route_threshold": 0.8,
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "fixture_arch_provenance": {
+    "gate_unit_pass": "ARCH-012 'gate result'; ARCH-031, ARCH-080. Not named individually.",
+    "gate_magnitude_pass": "ARCH-012 'gate result'; ARCH-031, ARCH-080. Not named individually.",
+    "gate_power_pass": "ARCH-012 'gate result'; ARCH-031, ARCH-080. Not named individually.",
+    "gate_propagation_pass": "ARCH-012 'gate result'; ARCH-031, ARCH-080. Not named individually.",
+    "attempt": "ARCH-012 'attempt count'; ARCH-030 repair budget of three attempts.",
+    "reviewer_verdict": "ARCH-012 'review result'; ARCH-131 'the reviewer verdict'.",
+    "reviewer_confidence": "\u2014  no ARCH-010 or ARCH-012 counterpart.",
+    "domain": "ARCH-010 'domain'. The only exact field-name match; values differ, see module docstring.",
+    "cross_domain_quantity_changed": "ARCH-010 quantities marked 'cross' and ARCH-051 sizing; ARCH-131 'the changed-node summary'. No field name.",
+    "interface_node_touched": "ARCH-010 kind 'interface' and ARCH-011; ARCH-131 'the changed-node summary'. No field name.",
+    "prior_failures_module": "\u2014  no ARCH-010 or ARCH-012 counterpart.",
+    "spec_coverage": "\u2014  no ARCH-010 or ARCH-012 counterpart (ARCH-022 is about spec contents, not a per-attempt state field)."
+  },
+  "arms": {
+    "G": [
+      {
+        "arm": "G",
+        "seed": 0,
+        "fit_seconds": 0.5336596872657537,
+        "temperature_scaled": false,
+        "temperature_note": "CRITERIA \u00a73: G is not temperature-scaled; native probabilities.",
+        "n_train": 8000,
+        "n_train_nofw": 6837,
+        "train_accuracy_in_sample": 0.989875,
+        "train_mean_confidence_in_sample": 0.9860319935321581,
+        "params": {
+          "categorical_features": "from_dtype",
+          "class_weight": "None",
+          "early_stopping": "auto",
+          "interaction_cst": "None",
+          "l2_regularization": "0.0",
+          "learning_rate": "0.1",
+          "loss": "log_loss",
+          "max_bins": "255",
+          "max_depth": "None",
+          "max_features": "1.0",
+          "max_iter": "100",
+          "max_leaf_nodes": "31",
+          "min_samples_leaf": "20",
+          "monotonic_cst": "None",
+          "n_iter_no_change": "10",
+          "random_state": "0",
+          "scoring": "loss",
+          "tol": "1e-07",
+          "validation_fraction": "0.1",
+          "verbose": "0",
+          "warm_start": "False"
+        },
+        "artefacts": [
+          "G_main_seed0.pkl",
+          "G_nofw_seed0.pkl"
+        ]
+      },
+      {
+        "arm": "G",
+        "seed": 1,
+        "fit_seconds": 0.5263242861256003,
+        "temperature_scaled": false,
+        "temperature_note": "CRITERIA \u00a73: G is not temperature-scaled; native probabilities.",
+        "n_train": 8000,
+        "n_train_nofw": 6757,
+        "train_accuracy_in_sample": 0.992,
+        "train_mean_confidence_in_sample": 0.9884785379584853,
+        "params": {
+          "categorical_features": "from_dtype",
+          "class_weight": "None",
+          "early_stopping": "auto",
+          "interaction_cst": "None",
+          "l2_regularization": "0.0",
+          "learning_rate": "0.1",
+          "loss": "log_loss",
+          "max_bins": "255",
+          "max_depth": "None",
+          "max_features": "1.0",
+          "max_iter": "100",
+          "max_leaf_nodes": "31",
+          "min_samples_leaf": "20",
+          "monotonic_cst": "None",
+          "n_iter_no_change": "10",
+          "random_state": "1",
+          "scoring": "loss",
+          "tol": "1e-07",
+          "validation_fraction": "0.1",
+          "verbose": "0",
+          "warm_start": "False"
+        },
+        "artefacts": [
+          "G_main_seed1.pkl",
+          "G_nofw_seed1.pkl"
+        ]
+      },
+      {
+        "arm": "G",
+        "seed": 2,
+        "fit_seconds": 0.525220463052392,
+        "temperature_scaled": false,
+        "temperature_note": "CRITERIA \u00a73: G is not temperature-scaled; native probabilities.",
+        "n_train": 8000,
+        "n_train_nofw": 6815,
+        "train_accuracy_in_sample": 0.9905,
+        "train_mean_confidence_in_sample": 0.9865691892803745,
+        "params": {
+          "categorical_features": "from_dtype",
+          "class_weight": "None",
+          "early_stopping": "auto",
+          "interaction_cst": "None",
+          "l2_regularization": "0.0",
+          "learning_rate": "0.1",
+          "loss": "log_loss",
+          "max_bins": "255",
+          "max_depth": "None",
+          "max_features": "1.0",
+          "max_iter": "100",
+          "max_leaf_nodes": "31",
+          "min_samples_leaf": "20",
+          "monotonic_cst": "None",
+          "n_iter_no_change": "10",
+          "random_state": "2",
+          "scoring": "loss",
+          "tol": "1e-07",
+          "validation_fraction": "0.1",
+          "verbose": "0",
+          "warm_start": "False"
+        },
+        "artefacts": [
+          "G_main_seed2.pkl",
+          "G_nofw_seed2.pkl"
+        ]
+      },
+      {
+        "arm": "G",
+        "seed": 3,
+        "fit_seconds": 0.5217139450833201,
+        "temperature_scaled": false,
+        "temperature_note": "CRITERIA \u00a73: G is not temperature-scaled; native probabilities.",
+        "n_train": 8000,
+        "n_train_nofw": 6791,
+        "train_accuracy_in_sample": 0.990875,
+        "train_mean_confidence_in_sample": 0.9871857601231251,
+        "params": {
+          "categorical_features": "from_dtype",
+          "class_weight": "None",
+          "early_stopping": "auto",
+          "interaction_cst": "None",
+          "l2_regularization": "0.0",
+          "learning_rate": "0.1",
+          "loss": "log_loss",
+          "max_bins": "255",
+          "max_depth": "None",
+          "max_features": "1.0",
+          "max_iter": "100",
+          "max_leaf_nodes": "31",
+          "min_samples_leaf": "20",
+          "monotonic_cst": "None",
+          "n_iter_no_change": "10",
+          "random_state": "3",
+          "scoring": "loss",
+          "tol": "1e-07",
+          "validation_fraction": "0.1",
+          "verbose": "0",
+          "warm_start": "False"
+        },
+        "artefacts": [
+          "G_main_seed3.pkl",
+          "G_nofw_seed3.pkl"
+        ]
+      },
+      {
+        "arm": "G",
+        "seed": 4,
+        "fit_seconds": 0.5566833531484008,
+        "temperature_scaled": false,
+        "temperature_note": "CRITERIA \u00a73: G is not temperature-scaled; native probabilities.",
+        "n_train": 8000,
+        "n_train_nofw": 6778,
+        "train_accuracy_in_sample": 0.98975,
+        "train_mean_confidence_in_sample": 0.9853034682183037,
+        "params": {
+          "categorical_features": "from_dtype",
+          "class_weight": "None",
+          "early_stopping": "auto",
+          "interaction_cst": "None",
+          "l2_regularization": "0.0",
+          "learning_rate": "0.1",
+          "loss": "log_loss",
+          "max_bins": "255",
+          "max_depth": "None",
+          "max_features": "1.0",
+          "max_iter": "100",
+          "max_leaf_nodes": "31",
+          "min_samples_leaf": "20",
+          "monotonic_cst": "None",
+          "n_iter_no_change": "10",
+          "random_state": "4",
+          "scoring": "loss",
+          "tol": "1e-07",
+          "validation_fraction": "0.1",
+          "verbose": "0",
+          "warm_start": "False"
+        },
+        "artefacts": [
+          "G_main_seed4.pkl",
+          "G_nofw_seed4.pkl"
+        ]
+      }
+    ],
+    "R": [
+      {
+        "arm": "R",
+        "seed": 0,
+        "fit_seconds": 0.0,
+        "deterministic": true,
+        "nothing_fitted": true,
+        "temperature_scaled": false,
+        "confidence_is_1_by_construction": true,
+        "rule_source": "metrics.rule_arm, verbatim from run05d/experiment.py",
+        "arch_conditions": {
+          "ARCH-030": "repair budget of three attempts; attempt 3 escalates -> attempt == 3",
+          "ARCH-130": "gate escalation -> any of the four gates fails",
+          "ARCH-040": "unresolved arbitration -> NO FIELD IN THE GENERATOR'S STATE (C5 M9)"
+        },
+        "train_answer_rate_in_sample": 0.385125,
+        "train_accuracy_in_sample": 0.752375,
+        "routing_at_0.8_in_sample": {
+          "n": 8000,
+          "threshold": 0.8,
+          "mean_confidence": 1.0,
+          "mean_confidence_laya_entropy": 1.0,
+          "escalation_rate": 0.0,
+          "answer_rate": 0.385125,
+          "queue_rate_answer_or_low_confidence": 0.385125,
+          "escalation_rate_laya_entropy": 0.0,
+          "accuracy_split": 0.752375,
+          "n_kept": 8000,
+          "selective_accuracy": 0.752375
+        }
+      },
+      {
+        "arm": "R",
+        "seed": 1,
+        "fit_seconds": 0.0,
+        "deterministic": true,
+        "nothing_fitted": true,
+        "temperature_scaled": false,
+        "confidence_is_1_by_construction": true,
+        "rule_source": "metrics.rule_arm, verbatim from run05d/experiment.py",
+        "arch_conditions": {
+          "ARCH-030": "repair budget of three attempts; attempt 3 escalates -> attempt == 3",
+          "ARCH-130": "gate escalation -> any of the four gates fails",
+          "ARCH-040": "unresolved arbitration -> NO FIELD IN THE GENERATOR'S STATE (C5 M9)"
+        },
+        "train_answer_rate_in_sample": 0.395125,
+        "train_accuracy_in_sample": 0.74825,
+        "routing_at_0.8_in_sample": {
+          "n": 8000,
+          "threshold": 0.8,
+          "mean_confidence": 1.0,
+          "mean_confidence_laya_entropy": 1.0,
+          "escalation_rate": 0.0,
+          "answer_rate": 0.395125,
+          "queue_rate_answer_or_low_confidence": 0.395125,
+          "escalation_rate_laya_entropy": 0.0,
+          "accuracy_split": 0.74825,
+          "n_kept": 8000,
+          "selective_accuracy": 0.74825
+        }
+      },
+      {
+        "arm": "R",
+        "seed": 2,
+        "fit_seconds": 0.0,
+        "deterministic": true,
+        "nothing_fitted": true,
+        "temperature_scaled": false,
+        "confidence_is_1_by_construction": true,
+        "rule_source": "metrics.rule_arm, verbatim from run05d/experiment.py",
+        "arch_conditions": {
+          "ARCH-030": "repair budget of three attempts; attempt 3 escalates -> attempt == 3",
+          "ARCH-130": "gate escalation -> any of the four gates fails",
+          "ARCH-040": "unresolved arbitration -> NO FIELD IN THE GENERATOR'S STATE (C5 M9)"
+        },
+        "train_answer_rate_in_sample": 0.39525,
+        "train_accuracy_in_sample": 0.752125,
+        "routing_at_0.8_in_sample": {
+          "n": 8000,
+          "threshold": 0.8,
+          "mean_confidence": 1.0,
+          "mean_confidence_laya_entropy": 1.0,
+          "escalation_rate": 0.0,
+          "answer_rate": 0.39525,
+          "queue_rate_answer_or_low_confidence": 0.39525,
+          "escalation_rate_laya_entropy": 0.0,
+          "accuracy_split": 0.752125,
+          "n_kept": 8000,
+          "selective_accuracy": 0.752125
+        }
+      },
+      {
+        "arm": "R",
+        "seed": 3,
+        "fit_seconds": 0.0,
+        "deterministic": true,
+        "nothing_fitted": true,
+        "temperature_scaled": false,
+        "confidence_is_1_by_construction": true,
+        "rule_source": "metrics.rule_arm, verbatim from run05d/experiment.py",
+        "arch_conditions": {
+          "ARCH-030": "repair budget of three attempts; attempt 3 escalates -> attempt == 3",
+          "ARCH-130": "gate escalation -> any of the four gates fails",
+          "ARCH-040": "unresolved arbitration -> NO FIELD IN THE GENERATOR'S STATE (C5 M9)"
+        },
+        "train_answer_rate_in_sample": 0.39725,
+        "train_accuracy_in_sample": 0.7595,
+        "routing_at_0.8_in_sample": {
+          "n": 8000,
+          "threshold": 0.8,
+          "mean_confidence": 1.0,
+          "mean_confidence_laya_entropy": 1.0,
+          "escalation_rate": 0.0,
+          "answer_rate": 0.39725,
+          "queue_rate_answer_or_low_confidence": 0.39725,
+          "escalation_rate_laya_entropy": 0.0,
+          "accuracy_split": 0.7595,
+          "n_kept": 8000,
+          "selective_accuracy": 0.7595
+        }
+      },
+      {
+        "arm": "R",
+        "seed": 4,
+        "fit_seconds": 0.0,
+        "deterministic": true,
+        "nothing_fitted": true,
+        "temperature_scaled": false,
+        "confidence_is_1_by_construction": true,
+        "rule_source": "metrics.rule_arm, verbatim from run05d/experiment.py",
+        "arch_conditions": {
+          "ARCH-030": "repair budget of three attempts; attempt 3 escalates -> attempt == 3",
+          "ARCH-130": "gate escalation -> any of the four gates fails",
+          "ARCH-040": "unresolved arbitration -> NO FIELD IN THE GENERATOR'S STATE (C5 M9)"
+        },
+        "train_answer_rate_in_sample": 0.39875,
+        "train_accuracy_in_sample": 0.751875,
+        "routing_at_0.8_in_sample": {
+          "n": 8000,
+          "threshold": 0.8,
+          "mean_confidence": 1.0,
+          "mean_confidence_laya_entropy": 1.0,
+          "escalation_rate": 0.0,
+          "answer_rate": 0.39875,
+          "queue_rate_answer_or_low_confidence": 0.39875,
+          "escalation_rate_laya_entropy": 0.0,
+          "accuracy_split": 0.751875,
+          "n_kept": 8000,
+          "selective_accuracy": 0.751875
+        }
+      }
+    ],
+    "L0": [
+      {
+        "arm": "L0",
+        "seed": 0,
+        "agent": {
+          "device": "cuda",
+          "dtype": "torch.float32",
+          "dtype_laya_would_have_chosen": "torch.float16",
+          "dtype_forced_fp32": true,
+          "allow_tf32": false,
+          "reference_compile": false,
+          "attn_implementation": "sdpa",
+          "neutralised_temperature_prior": {
+            "temperature": [
+              1.0148024559020996,
+              1.0374259948730469,
+              1.0575125217437744
+            ],
+            "temperature_by_options": {
+              "choice:3-5": 1.7601518630981445,
+              "choice:6-10": 1.0000158548355103,
+              "score:3-5": 1.2514300346374512,
+              "noul:2": 1.983399510383606,
+              "choice:11+": 0.10058280825614929,
+              "choice:2": 1.9063563346862793
+            },
+            "cfg_temperature": [
+              1.0148024559020996,
+              1.0374259948730469,
+              1.0575125217437744
+            ],
+            "cfg_temperature_by_options": {
+              "choice:3-5": 1.7601518630981445,
+              "choice:6-10": 1.0000158548355103,
+              "score:3-5": 1.2514300346374512,
+              "noul:2": 1.983399510383606,
+              "choice:11+": 0.10058280825614929,
+              "choice:2": 1.9063563346862793
+            }
+          },
+          "max_len": 1024,
+          "head_max_len": 256,
+          "model_dir": "/home/coder/.cache/huggingface/hub/models--convaiinnovations--laya-typed-decisions/snapshots/f9ab0b228f0fc0f14d873dbc99038f135c2da1b2"
+        },
+        "calibration_slice": {
+          "start": 0,
+          "stop": 500,
+          "n": 500,
+          "definition": "the first 500 rows of Train; see workload.calibration_slice"
+        },
+        "temperature_fitted": 8.562529005263366,
+        "temperature_fit_on": "\u00a73 slice, identity checkpoint temperature",
+        "inference_seconds_for_500": 4.760552327148616,
+        "seconds_per_state": 0.009521104654297233,
+        "serialised_char_len": {
+          "min": 322,
+          "max": 332,
+          "mean": 326.742
+        },
+        "score_summary": {
+          "min": -0.7977186590433121,
+          "max": 1.1356530636548996,
+          "mean": 0.09809604200720787,
+          "sd": 0.31680680638925063
+        },
+        "system_one_agreement": {
+          "n_checked": 8,
+          "max_abs_difference_at_4dp": 0.0,
+          "agrees": true,
+          "batched_noul": [
+            0.5503,
+            0.5671,
+            0.4389,
+            0.565,
+            0.5045,
+            0.5347,
+            0.5233,
+            0.5994
+          ],
+          "system_one_noul": [
+            0.5503,
+            0.5671,
+            0.4389,
+            0.565,
+            0.5045,
+            0.5347,
+            0.5233,
+            0.5994
+          ],
+          "system_one_confidence": [
+            0.5503,
+            0.5671,
+            0.5611,
+            0.565,
+            0.5045,
+            0.5347,
+            0.5233,
+            0.5994
+          ],
+          "note": "system_one rounds to 4 dp; that is the tolerance."
+        },
+        "numeric_sensitivity": {
+          "n": 64,
+          "fp32_vs_fp16_at_batch1": {
+            "max_abs_dp": 0.001814684260149746,
+            "mean_abs_dp": 0.0004588220069140026,
+            "n_decisions_flipped_at_0.5": 0
+          },
+          "per_dtype": {
+            "fp32": {
+              "batch32_vs_batch1_max_abs_dp": 3.4621970765869037e-06,
+              "batch32_vs_batch1_mean_abs_dp": 6.834556196544384e-07,
+              "p_batch1_first4": [
+                0.550301,
+                0.567061,
+                0.438886,
+                0.564988
+              ]
+            },
+            "fp16": {
+              "batch32_vs_batch1_max_abs_dp": 0.0026505815069212124,
+              "batch32_vs_batch1_mean_abs_dp": 0.0004625475924293588,
+              "p_batch1_first4": [
+                0.55106,
+                0.567712,
+                0.43862,
+                0.564654
+              ]
+            }
+          }
+        },
+        "artefacts": [
+          "L0_calib_seed0.npz"
+        ],
+        "not_scored": "L0's metrics are produced at step 4 with every other arm."
+      },
+      {
+        "arm": "L0",
+        "seed": 1,
+        "agent": {
+          "device": "cuda",
+          "dtype": "torch.float32",
+          "dtype_laya_would_have_chosen": "torch.float16",
+          "dtype_forced_fp32": true,
+          "allow_tf32": false,
+          "reference_compile": false,
+          "attn_implementation": "sdpa",
+          "neutralised_temperature_prior": {
+            "temperature": [
+              1.0148024559020996,
+              1.0374259948730469,
+              1.0575125217437744
+            ],
+            "temperature_by_options": {
+              "choice:3-5": 1.7601518630981445,
+              "choice:6-10": 1.0000158548355103,
+              "score:3-5": 1.2514300346374512,
+              "noul:2": 1.983399510383606,
+              "choice:11+": 0.10058280825614929,
+              "choice:2": 1.9063563346862793
+            },
+            "cfg_temperature": [
+              1.0148024559020996,
+              1.0374259948730469,
+              1.0575125217437744
+            ],
+            "cfg_temperature_by_options": {
+              "choice:3-5": 1.7601518630981445,
+              "choice:6-10": 1.0000158548355103,
+              "score:3-5": 1.2514300346374512,
+              "noul:2": 1.983399510383606,
+              "choice:11+": 0.10058280825614929,
+              "choice:2": 1.9063563346862793
+            }
+          },
+          "max_len": 1024,
+          "head_max_len": 256,
+          "model_dir": "/home/coder/.cache/huggingface/hub/models--convaiinnovations--laya-typed-decisions/snapshots/f9ab0b228f0fc0f14d873dbc99038f135c2da1b2"
+        },
+        "calibration_slice": {
+          "start": 0,
+          "stop": 500,
+          "n": 500,
+          "definition": "the first 500 rows of Train; see workload.calibration_slice"
+        },
+        "temperature_fitted": 1.1387656322007869,
+        "temperature_fit_on": "\u00a73 slice, identity checkpoint temperature",
+        "inference_seconds_for_500": 4.790681084617972,
+        "seconds_per_state": 0.009581362169235944,
+        "serialised_char_len": {
+          "min": 323,
+          "max": 332,
+          "mean": 326.632
+        },
+        "score_summary": {
+          "min": -0.8412604182958603,
+          "max": 1.1381937265396118,
+          "mean": 0.09257037913799286,
+          "sd": 0.3328624973228373
+        },
+        "system_one_agreement": null,
+        "numeric_sensitivity": null,
+        "artefacts": [
+          "L0_calib_seed1.npz"
+        ],
+        "not_scored": "L0's metrics are produced at step 4 with every other arm."
+      },
+      {
+        "arm": "L0",
+        "seed": 2,
+        "agent": {
+          "device": "cuda",
+          "dtype": "torch.float32",
+          "dtype_laya_would_have_chosen": "torch.float16",
+          "dtype_forced_fp32": true,
+          "allow_tf32": false,
+          "reference_compile": false,
+          "attn_implementation": "sdpa",
+          "neutralised_temperature_prior": {
+            "temperature": [
+              1.0148024559020996,
+              1.0374259948730469,
+              1.0575125217437744
+            ],
+            "temperature_by_options": {
+              "choice:3-5": 1.7601518630981445,
+              "choice:6-10": 1.0000158548355103,
+              "score:3-5": 1.2514300346374512,
+              "noul:2": 1.983399510383606,
+              "choice:11+": 0.10058280825614929,
+              "choice:2": 1.9063563346862793
+            },
+            "cfg_temperature": [
+              1.0148024559020996,
+              1.0374259948730469,
+              1.0575125217437744
+            ],
+            "cfg_temperature_by_options": {
+              "choice:3-5": 1.7601518630981445,
+              "choice:6-10": 1.0000158548355103,
+              "score:3-5": 1.2514300346374512,
+              "noul:2": 1.983399510383606,
+              "choice:11+": 0.10058280825614929,
+              "choice:2": 1.9063563346862793
+            }
+          },
+          "max_len": 1024,
+          "head_max_len": 256,
+          "model_dir": "/home/coder/.cache/huggingface/hub/models--convaiinnovations--laya-typed-decisions/snapshots/f9ab0b228f0fc0f14d873dbc99038f135c2da1b2"
+        },
+        "calibration_slice": {
+          "start": 0,
+          "stop": 500,
+          "n": 500,
+          "definition": "the first 500 rows of Train; see workload.calibration_slice"
+        },
+        "temperature_fitted": 6.790757865934112,
+        "temperature_fit_on": "\u00a73 slice, identity checkpoint temperature",
+        "inference_seconds_for_500": 4.791795889846981,
+        "seconds_per_state": 0.009583591779693961,
+        "serialised_char_len": {
+          "min": 322,
+          "max": 332,
+          "mean": 326.728
+        },
+        "score_summary": {
+          "min": -0.7577076852321625,
+          "max": 1.0197506546974182,
+          "mean": 0.08947576767206192,
+          "sd": 0.3326980464388688
+        },
+        "system_one_agreement": null,
+        "numeric_sensitivity": null,
+        "artefacts": [
+          "L0_calib_seed2.npz"
+        ],
+        "not_scored": "L0's metrics are produced at step 4 with every other arm."
+      },
+      {
+        "arm": "L0",
+        "seed": 3,
+        "agent": {
+          "device": "cuda",
+          "dtype": "torch.float32",
+          "dtype_laya_would_have_chosen": "torch.float16",
+          "dtype_forced_fp32": true,
+          "allow_tf32": false,
+          "reference_compile": false,
+          "attn_implementation": "sdpa",
+          "neutralised_temperature_prior": {
+            "temperature": [
+              1.0148024559020996,
+              1.0374259948730469,
+              1.0575125217437744
+            ],
+            "temperature_by_options": {
+              "choice:3-5": 1.7601518630981445,
+              "choice:6-10": 1.0000158548355103,
+              "score:3-5": 1.2514300346374512,
+              "noul:2": 1.983399510383606,
+              "choice:11+": 0.10058280825614929,
+              "choice:2": 1.9063563346862793
+            },
+            "cfg_temperature": [
+              1.0148024559020996,
+              1.0374259948730469,
+              1.0575125217437744
+            ],
+            "cfg_temperature_by_options": {
+              "choice:3-5": 1.7601518630981445,
+              "choice:6-10": 1.0000158548355103,
+              "score:3-5": 1.2514300346374512,
+              "noul:2": 1.983399510383606,
+              "choice:11+": 0.10058280825614929,
+              "choice:2": 1.9063563346862793
+            }
+          },
+          "max_len": 1024,
+          "head_max_len": 256,
+          "model_dir": "/home/coder/.cache/huggingface/hub/models--convaiinnovations--laya-typed-decisions/snapshots/f9ab0b228f0fc0f14d873dbc99038f135c2da1b2"
+        },
+        "calibration_slice": {
+          "start": 0,
+          "stop": 500,
+          "n": 500,
+          "definition": "the first 500 rows of Train; see workload.calibration_slice"
+        },
+        "temperature_fitted": 1.6380659932929449,
+        "temperature_fit_on": "\u00a73 slice, identity checkpoint temperature",
+        "inference_seconds_for_500": 4.870552585460246,
+        "seconds_per_state": 0.009741105170920491,
+        "serialised_char_len": {
+          "min": 323,
+          "max": 332,
+          "mean": 326.786
+        },
+        "score_summary": {
+          "min": -0.8412604182958603,
+          "max": 1.0197654366493225,
+          "mean": 0.09983774346113206,
+          "sd": 0.335622155641559
+        },
+        "system_one_agreement": null,
+        "numeric_sensitivity": null,
+        "artefacts": [
+          "L0_calib_seed3.npz"
+        ],
+        "not_scored": "L0's metrics are produced at step 4 with every other arm."
+      },
+      {
+        "arm": "L0",
+        "seed": 4,
+        "agent": {
+          "device": "cuda",
+          "dtype": "torch.float32",
+          "dtype_laya_would_have_chosen": "torch.float16",
+          "dtype_forced_fp32": true,
+          "allow_tf32": false,
+          "reference_compile": false,
+          "attn_implementation": "sdpa",
+          "neutralised_temperature_prior": {
+            "temperature": [
+              1.0148024559020996,
+              1.0374259948730469,
+              1.0575125217437744
+            ],
+            "temperature_by_options": {
+              "choice:3-5": 1.7601518630981445,
+              "choice:6-10": 1.0000158548355103,
+              "score:3-5": 1.2514300346374512,
+              "noul:2": 1.983399510383606,
+              "choice:11+": 0.10058280825614929,
+              "choice:2": 1.9063563346862793
+            },
+            "cfg_temperature": [
+              1.0148024559020996,
+              1.0374259948730469,
+              1.0575125217437744
+            ],
+            "cfg_temperature_by_options": {
+              "choice:3-5": 1.7601518630981445,
+              "choice:6-10": 1.0000158548355103,
+              "score:3-5": 1.2514300346374512,
+              "noul:2": 1.983399510383606,
+              "choice:11+": 0.10058280825614929,
+              "choice:2": 1.9063563346862793
+            }
+          },
+          "max_len": 1024,
+          "head_max_len": 256,
+          "model_dir": "/home/coder/.cache/huggingface/hub/models--convaiinnovations--laya-typed-decisions/snapshots/f9ab0b228f0fc0f14d873dbc99038f135c2da1b2"
+        },
+        "calibration_slice": {
+          "start": 0,
+          "stop": 500,
+          "n": 500,
+          "definition": "the first 500 rows of Train; see workload.calibration_slice"
+        },
+        "temperature_fitted": 1.954146532465569,
+        "temperature_fit_on": "\u00a73 slice, identity checkpoint temperature",
+        "inference_seconds_for_500": 4.879491835832596,
+        "seconds_per_state": 0.009758983671665191,
+        "serialised_char_len": {
+          "min": 322,
+          "max": 333,
+          "mean": 326.772
+        },
+        "score_summary": {
+          "min": -0.8890898823738098,
+          "max": 1.1546974033117294,
+          "mean": 0.08694163292646408,
+          "sd": 0.31315000512445507
+        },
+        "system_one_agreement": null,
+        "numeric_sensitivity": null,
+        "artefacts": [
+          "L0_calib_seed4.npz"
+        ],
+        "not_scored": "L0's metrics are produced at step 4 with every other arm."
+      }
+    ]
+  },
+  "draw_fingerprint": {
+    "0": {
+      "X": "7610607757079636a9c171ee729b9fa1a2e403f1711faa9a8774b9029c7772fe",
+      "y": "0b98d3990a5271fd06cb2544d4715afea0666e078d130b151705a7a2a1656f22",
+      "y_clean": "3ef5f7c5460d8cdf43ad520a7f5f71f66d273457ba3a1fc94680616ade8c7218",
+      "raw": "2eb8693fcb834b351b4afd13a71af8b9e15ced08e993e9066f53f62fac4d89a9",
+      "n": "8000",
+      "sum_y": "3692"
+    },
+    "1": {
+      "X": "413bfb99ca94ca4e0e3908317cd61e24b3fa846a87fedad39f8b8ca24cbfef42",
+      "y": "bb5bbce6e37cf65f770901461ded3322bd4b279f8d8aa7c509df9910a0f6fc08",
+      "y_clean": "7037205e688cffb61da87c9f1ba61518d20fe28a49a9d056a653e39249597bb6",
+      "raw": "b083415a1c28671028402ab94d8f464a4a652eaf374405b72ebb774af1d737f3",
+      "n": "8000",
+      "sum_y": "3767"
+    },
+    "2": {
+      "X": "f5a0991e892bb3c319c1b21d88ed1958c1cfb837bc81eca8d8edadd32ffcee99",
+      "y": "442564b793e9298667fe12aee4967b4d3f45bff11cfcb0630f6ddb0187ce129a",
+      "y_clean": "216841fd23030dff6ca2c18dbe6c9f957ed5136ac52e318dfa29028ea2a53d09",
+      "raw": "1180e7447402bc55146476db6d7bde23dbba27e898ac2bea1ec7e91f44add28b",
+      "n": "8000",
+      "sum_y": "3767"
+    },
+    "3": {
+      "X": "7e342ec89eea2345cf752edae0920d4b5cb48cf63914f98c93cc3832381bceef",
+      "y": "25be0bb5d508a4c10ca17b2f771016f35c87d5a53f592cbf08acc5d5eecb09f8",
+      "y_clean": "13627183837a58e8fe75a08d5f90c83d0124976b98ba595cd57bf7c5ca4ae5f2",
+      "raw": "abc187e7b4308a8138b2097f5ea67c012295140f174830382182bc1188f11b37",
+      "n": "8000",
+      "sum_y": "3694"
+    },
+    "4": {
+      "X": "25c130e53644b99ad1c16302496d12b3b7cd10e2ef35762bd157669b50341937",
+      "y": "b3c189bffae02394cb0711db24a5d332e1eb648f12628ceb737a6b7c6dc5876e",
+      "y_clean": "6b44ebb4b46a3f559c582e6e4975ebba3c9339ca60ca7bca32fa33a539d9d0ad",
+      "raw": "087a79e81bf2a25c6690f7e798a8e3719d91dd5eaebc438c1f7d99f76af5da96",
+      "n": "8000",
+      "sum_y": "3779"
+    }
+  },
+  "train_example_seed0_item0": {
+    "gate_unit_pass": true,
+    "gate_magnitude_pass": true,
+    "gate_power_pass": true,
+    "gate_propagation_pass": true,
+    "attempt": 2,
+    "reviewer_verdict": "accept",
+    "reviewer_confidence": "mid",
+    "domain": "mech",
+    "cross_domain_quantity_changed": false,
+    "interface_node_touched": false,
+    "prior_failures_module": 0,
+    "spec_coverage": "mid"
+  },
+  "train_example_seed0_item0_json": "{\"gate_unit_pass\": true, \"gate_magnitude_pass\": true, \"gate_power_pass\": true, \"gate_propagation_pass\": true, \"attempt\": 2, \"reviewer_verdict\": \"accept\", \"reviewer_confidence\": \"mid\", \"domain\": \"mech\", \"cross_domain_quantity_changed\": false, \"interface_node_touched\": false, \"prior_failures_module\": 0, \"spec_coverage\": \"mid\"}",
+  "provisional_vs_fixture_seed0_train": {
+    "n_items": 8000,
+    "n_differing_strings": 0,
+    "identical": true,
+    "meaning": "if identical, step 1's wall-clock estimate stands unchanged, because it was computed on exactly these strings"
+  },
+  "token_lengths_real_fixture_seed0_train": {
+    "n": 8000,
+    "min": 146,
+    "max": 148,
+    "mean": 146.752125,
+    "p50": 147.0,
+    "p90": 147.0,
+    "p99": 148.0,
+    "seconds": 3.2094007451087236,
+    "items_per_second": 2492.677180371561,
+    "step1_provisional": {
+      "min": 146,
+      "p50": 147.0,
+      "mean": 146.752125,
+      "p90": 147.0,
+      "p99": 148.0,
+      "max": 148
+    }
+  }
+}
