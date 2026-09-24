@@ -35,7 +35,9 @@ import json
 import os
 from collections import deque
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from physgate.state.exceptions import (
     CorruptRecordError,
@@ -64,6 +66,76 @@ OnCorrupt = Literal["raise", "truncate"]
 
 JOURNAL_NAME = "journal.jsonl"
 NODES_DIRNAME = "nodes"
+
+
+def _first_validation_problem(exc: ValidationError) -> str:
+    """The first thing wrong with a record, as a sentence rather than a report.
+
+    Pydantic's string form ends with a documentation link, so taking its last
+    line names the library instead of the defect. This names the field and what
+    was wrong with it, which is what an operator reading a refusal needs.
+    """
+    problems = exc.errors()
+    if not problems:
+        return "the line is not a valid record"
+    first = problems[0]
+    where = ".".join(str(part) for part in first["loc"]) or "the record"
+    return f"{where}: {first['msg']}"
+
+
+class JournalLine(BaseModel):
+    """One accepted mutation, as it is written to and read back from the journal.
+
+    **The journal is a boundary, because every open crosses it.** The store
+    replays this file to rebuild itself, so a line in it is untrusted input in
+    exactly the way a node payload is — and for a while it was not treated that
+    way. Only the identifier was checked and the rest was read raw, which let a
+    line carrying a revision of zero rewind the head on the next open: the change
+    list then reported nothing, and a foreign write sitting on disk became
+    invisible to the check whose whole job is to name it.
+
+    Strict, so a boolean is not an integer and a string is not a number. Frozen
+    and closed, so an unknown field is a refusal rather than something ignored.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    rev: Annotated[int, Field(gt=0)]
+    op: Literal["create", "write", "rollback"]
+    node_id: str
+    version: Annotated[int, Field(gt=0)]
+    payload: dict[str, Any]
+
+    @field_validator("rev", "version", mode="before")
+    @classmethod
+    def _not_a_boolean(cls, value: object) -> object:
+        """Refuse a boolean where a count belongs.
+
+        Strict mode already refuses it. This says so in the model rather than
+        leaving it to a configuration flag, so that dropping the flag is caught
+        by this model's own tests rather than only by whatever else happened to
+        depend on strictness.
+        """
+        if isinstance(value, bool):
+            msg = "a boolean is not a revision or a version"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("node_id")
+    @classmethod
+    def _legal_identifier(cls, value: str) -> str:
+        """The identifier rule, applied where the record is read rather than later.
+
+        The domain error is re-raised as the kind of error a validator is allowed
+        to raise, so that this failure arrives as a validation failure like every
+        other one. That matters for more than tidiness: a failure that escapes
+        validation escapes the corruption policy with it, and the caller who
+        asked to be allowed through cannot be.
+        """
+        try:
+            return validate_node_id(value)
+        except MalformedNodeIdError as exc:
+            raise ValueError(str(exc)) from exc
 
 
 class RevisionNotFoundError(DesignStateError):
@@ -103,10 +175,18 @@ class Store:
         self._head: dict[str, tuple[int, int]] = {}
         self._next_rev = 1
         self._torn_tail_bytes = 0
+        self._corrupt_tail_bytes = 0
 
-        self.recover()
-        self._durable_size = self.journal_path.stat().st_size
+        # Bound before recovery, not after. Recovery can refuse to open, and a
+        # caller that closes in a finally block should see the error that
+        # actually happened rather than an attribute that was never assigned.
         self._journal = self.journal_path.open("ab")
+        self.recover()
+        # Recovery may have truncated the file through another handle, which
+        # leaves this one's idea of the end stale; the append offsets are read
+        # from it, so it is re-seeked rather than trusted.
+        self._journal.seek(0, os.SEEK_END)
+        self._durable_size = self.journal_path.stat().st_size
 
     # ----- open and recovery ------------------------------------------------
 
@@ -125,6 +205,7 @@ class Store:
 
         good_end = 0
         corrupt: tuple[int, str] | None = None
+        expected_rev = 1
         with self.journal_path.open("rb") as handle:
             while True:
                 offset = handle.tell()
@@ -134,19 +215,22 @@ class Store:
                 if not raw.endswith(b"\n"):
                     break  # torn tail, drop it
                 try:
-                    entry = json.loads(raw)
-                except json.JSONDecodeError:
-                    corrupt = (offset, "the line is complete but is not valid JSON")
+                    line = JournalLine.model_validate_json(raw)
+                except ValidationError as exc:
+                    corrupt = (offset, _first_validation_problem(exc))
                     break
-                try:
-                    validate_node_id(entry.get("node_id"))
-                except MalformedNodeIdError as exc:
-                    corrupt = (offset, f"the line names an illegal node id: {exc}")
+                if line.rev != expected_rev:
+                    corrupt = (
+                        offset,
+                        f"revision {line.rev} does not follow {expected_rev - 1}; "
+                        "this package only ever mints consecutive revisions",
+                    )
                     break
-                self._offsets[entry["rev"]] = offset
-                self._node_revs.setdefault(entry["node_id"], []).append(entry["rev"])
-                self._head[entry["node_id"]] = (entry["rev"], entry["version"])
-                self._next_rev = entry["rev"] + 1
+                self._offsets[line.rev] = offset
+                self._node_revs.setdefault(line.node_id, []).append(line.rev)
+                self._head[line.node_id] = (line.rev, line.version)
+                self._next_rev = line.rev + 1
+                expected_rev = line.rev + 1
                 good_end = handle.tell()
 
         size = self.journal_path.stat().st_size
@@ -156,8 +240,19 @@ class Store:
             raise CorruptRecordError(
                 msg, journal=str(self.journal_path), offset=str(offset), reason=reason
             )
-        self._torn_tail_bytes = size - good_end
-        if self._torn_tail_bytes:
+        # A torn tail and a dropped corrupt line are both bytes removed from the
+        # end, and they mean different things: one is a process that died
+        # mid-write, the other is a record written by something that is not this
+        # package. A report that cannot tell them apart cannot say which
+        # happened, so they are counted separately.
+        dropped = size - good_end
+        if corrupt is not None:
+            self._corrupt_tail_bytes = dropped
+            self._torn_tail_bytes = 0
+        else:
+            self._torn_tail_bytes = dropped
+            self._corrupt_tail_bytes = 0
+        if dropped:
             with self.journal_path.open("r+b") as handle:
                 handle.truncate(good_end)
 
@@ -175,8 +270,22 @@ class Store:
 
     @property
     def torn_tail_bytes(self) -> int:
-        """How many bytes the last :meth:`recover` dropped. Zero if none."""
+        """Bytes dropped because the final line had no terminator. Zero if none.
+
+        A process that died mid-write. Distinct from
+        :attr:`corrupt_tail_bytes`, which is a complete record this package
+        could not have written.
+        """
         return self._torn_tail_bytes
+
+    @property
+    def corrupt_tail_bytes(self) -> int:
+        """Bytes dropped from a corrupt record onwards. Zero if none.
+
+        Non-zero only when the handle was opened asking for that, since the
+        default is to refuse.
+        """
+        return self._corrupt_tail_bytes
 
     # ----- the staleness guard ----------------------------------------------
 

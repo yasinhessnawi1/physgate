@@ -13,9 +13,12 @@ import os
 from pathlib import Path
 from typing import Any
 
+import pytest
 from helpers import node
 
 from physgate.state.divergence import Divergence, divergence
+from physgate.state.exceptions import MalformedNodeIdError
+from physgate.state.protocol import NodeChange
 from physgate.state.store import Store
 
 
@@ -155,3 +158,65 @@ def test_the_description_names_the_node_the_owner_and_the_acting_role() -> None:
 def test_an_empty_change_list_diverges_not_at_all(store: Store) -> None:
     store.write_node(node("control.loop", owner_role="control"), "control")
     assert divergence(store, store.diff(store.head_revision()), "control") == []
+
+
+# --- whose ownership, and as of when -----------------------------------------
+
+
+def test_a_legitimate_handover_is_not_reported_as_divergent(store: Store) -> None:
+    """Read as of now, a role's own writes look foreign the moment it hands over.
+
+    A role creates its own node and passes ownership on in the same step. Both of
+    its changes were legitimate when it made them, and the check must say so.
+    """
+    store.write_node(node("electrical.motor", owner_role="electrical"), "electrical")
+    handed_on = node("electrical.motor", owner_role="electrical")
+    handed_on["owner_role"] = "control"
+    store.write_node(handed_on, "electrical")
+
+    assert store.read_node("electrical.motor")["owner_role"] == "control"
+    assert divergence(store, store.diff(0), "electrical") == []
+
+
+def test_a_write_after_the_handover_by_the_old_owner_is_still_reported(
+    store: Store,
+) -> None:
+    """Reading as of the change must not become a way to hide a later write."""
+    store.write_node(node("control.loop", owner_role="control"), "control")
+    cursor = store.head_revision()
+    store.write_node(node("control.loop", owner_role="control", updated="t1"), "control")
+
+    found = divergence(store, store.diff(cursor), "electrical")
+    assert [d.owner_role for d in found] == ["control"]
+
+
+def test_divergence_does_not_silently_skip_an_illegal_identifier(store: Store) -> None:
+    """A foreign write must not pass unreported by being malformed as well."""
+    store.write_node(node("control.loop", owner_role="control"), "control")
+    tampered = [NodeChange(1, "../../elsewhere", 1, "write")]
+
+    with pytest.raises(MalformedNodeIdError):
+        divergence(store, tampered, "control")
+
+
+def test_divergence_validates_the_identifier_itself(store: Store) -> None:
+    """Its own check, with a store that will not answer for it.
+
+    The real store's reads validate, so removing this check changes nothing
+    while the call order happens to put a validating read first. A stub without
+    that behaviour is what makes the check its own.
+    """
+
+    class StoreThatValidatesNothing:
+        def history(self, node_id: str) -> list[int]:
+            return []
+
+        def payload_at(self, revision: int) -> dict[str, Any]:
+            return {"owner_role": "electrical"}
+
+    with pytest.raises(MalformedNodeIdError):
+        divergence(
+            StoreThatValidatesNothing(),  # type: ignore[arg-type]
+            [NodeChange(1, "../../elsewhere", 1, "write")],
+            "control",
+        )

@@ -7,12 +7,17 @@ Every refusal here is checked by reading the node back and comparing bytes.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 from helpers import node
 
-from physgate.state.exceptions import MalformedNodeIdError, StoreStaleError
+from physgate.state.exceptions import (
+    MalformedNodeIdError,
+    MissingUnitError,
+    StoreStaleError,
+)
 from physgate.state.protocol import (
     REJECT_CROSS_ROLE,
     REJECT_INTERFACE_IMMUTABLE,
@@ -390,3 +395,71 @@ def test_a_write_after_a_torn_tail_was_dropped_continues_from_the_right_revision
 def test_an_intact_journal_reports_no_torn_tail(store: Store) -> None:
     store.write_node(node(), "electrical")
     assert store.torn_tail_bytes == 0
+
+
+# --- the schema is enforced on the way in and on the way out ------------------
+#
+# Validation runs on both paths by decision. Neither path had a detector, which
+# made the decision a sentence: with the write-path call gone, a node with an
+# unknown kind was accepted, journalled and materialised, and only failed later
+# on read-back -- a corrupt node in the durable record.
+
+
+def test_a_structurally_invalid_node_is_refused_on_the_write_path(store: Store) -> None:
+    """Quantity-valid, node-invalid: only the write-path validation catches it."""
+    broken = node()
+    broken["kind"] = "banana"
+    with pytest.raises(Exception, match="kind"):
+        store.write_node(broken, "electrical")
+    assert store.head_revision() == 0
+
+
+def test_a_node_missing_a_mandatory_field_is_refused_on_the_write_path(
+    store: Store,
+) -> None:
+    broken = node()
+    del broken["geometry_hash"]
+    with pytest.raises(Exception, match="geometry_hash"):
+        store.write_node(broken, "electrical")
+    assert store.head_revision() == 0
+
+
+def test_an_unknown_domain_is_refused(store: Store) -> None:
+    """The architecture enumerates the domain as it enumerates the kind."""
+    broken = node()
+    broken["domain"] = "banana"
+    with pytest.raises(Exception, match="domain"):
+        store.write_node(broken, "electrical")
+
+
+def test_a_node_file_corrupted_in_a_non_quantity_field_is_refused_on_read(
+    tmp_path: Path,
+) -> None:
+    """The read path's own validation, with nothing else able to catch it."""
+    root = tmp_path / "graph"
+    store = Store(root)
+    store.write_node(node("electrical.motor_left"), "electrical")
+
+    path = root / "nodes" / "electrical.motor_left.json"
+    on_disk = json.loads(path.read_text())
+    on_disk["payload"]["kind"] = "banana"
+    path.write_text(json.dumps(on_disk))
+
+    with pytest.raises(Exception, match="kind"):
+        store.read_node("electrical.motor_left")
+    store.close()
+
+
+def test_a_node_file_corrupted_in_a_quantity_is_refused_on_read(tmp_path: Path) -> None:
+    root = tmp_path / "graph"
+    store = Store(root)
+    store.write_node(node("electrical.motor_left"), "electrical")
+
+    path = root / "nodes" / "electrical.motor_left.json"
+    on_disk = json.loads(path.read_text())
+    on_disk["payload"]["quantities"]["stall_current"] = 2.4
+    path.write_text(json.dumps(on_disk))
+
+    with pytest.raises(MissingUnitError):
+        store.read_node("electrical.motor_left")
+    store.close()

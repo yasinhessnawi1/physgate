@@ -40,7 +40,7 @@ from physgate.state.schema import (
     validate_node,
     validate_node_id,
 )
-from physgate.state.store import RevisionNotFoundError, Store
+from physgate.state.store import JournalLine, RevisionNotFoundError, Store
 from physgate.state.task_ledger import TaskLedger, TaskLine
 
 __all__ = [
@@ -55,6 +55,7 @@ __all__ = [
     "DesignStateStore",
     "Divergence",
     "InterfaceImmutableError",
+    "JournalLine",
     "MalformedNodeIdError",
     "MissingUnitError",
     "Node",

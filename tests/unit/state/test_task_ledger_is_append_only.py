@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
+from physgate.state.exceptions import CorruptRecordError
 from physgate.state.task_ledger import TaskLedger, TaskLine
 
 
@@ -222,3 +223,63 @@ def test_appending_after_a_torn_tail_was_dropped_continues_cleanly(
     reopened.close()
 
     assert [entry.id for entry in TaskLedger(path).read_all()] == ["t-000", "t-001"]
+
+
+# --- a damaged line, and the way past it --------------------------------------
+
+
+def test_a_corrupt_line_does_not_make_the_ledger_unopenable_for_ever(
+    tmp_path: Path,
+) -> None:
+    """Failing loudly is defensible; failing forever with no recourse is not.
+
+    A complete line that does not validate was written by something that is not
+    this class, so it is not a torn tail and is not dropped silently. The open
+    refuses and names the offset, and the caller can ask to be let past.
+    """
+    path = tmp_path / "ledger.jsonl"
+    first = TaskLedger(path)
+    first.append(line("t-000"))
+    first.close()
+    with path.open("ab") as handle:
+        handle.write(b'{"id":"t-001","attempt_count":"not a number"}\n')
+
+    with pytest.raises(CorruptRecordError) as caught:
+        TaskLedger(path)
+    assert caught.value.context["offset"]
+
+    through = TaskLedger(path, on_corrupt="truncate")
+    assert [entry.id for entry in through.read_all()] == ["t-000"]
+    assert through.corrupt_tail_bytes > 0
+    assert through.torn_tail_bytes == 0, "a complete line is not a torn tail"
+    through.close()
+
+    assert len(TaskLedger(path)) == 1, "the way through left a record that opens"
+
+
+def test_a_caller_closing_in_a_finally_block_sees_the_real_error(tmp_path: Path) -> None:
+    path = tmp_path / "ledger.jsonl"
+    first = TaskLedger(path)
+    first.append(line("t-000"))
+    first.close()
+    with path.open("ab") as handle:
+        handle.write(b'{"id":"t-001","attempt_count":"not a number"}\n')
+
+    ledger = None
+    with pytest.raises(CorruptRecordError):
+        try:
+            ledger = TaskLedger(path)
+        finally:
+            if ledger is not None:
+                ledger.close()
+
+
+def test_find_returns_the_most_recent_line_for_an_id(tmp_path: Path) -> None:
+    """The documented behaviour, which first-wins would also have satisfied."""
+    ledger = TaskLedger(tmp_path / "ledger.jsonl")
+    ledger.append(line("t-000", attempt_count=1))
+    ledger.append(line("t-000", attempt_count=2))
+    found = ledger.find("t-000")
+    assert found is not None
+    assert found.attempt_count == 2, "find returned the first line, not the most recent"
+    ledger.close()

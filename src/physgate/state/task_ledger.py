@@ -31,6 +31,16 @@ Outcome = Literal["pass", "fail", "skipped"]
 OnCorrupt = Literal["raise", "truncate"]
 
 
+def _first_validation_problem(exc: ValidationError) -> str:
+    """The first thing wrong with a record, as a sentence rather than a report."""
+    problems = exc.errors()
+    if not problems:
+        return "the line is not a valid record"
+    first = problems[0]
+    where = ".".join(str(part) for part in first["loc"]) or "the record"
+    return f"{where}: {first['msg']}"
+
+
 class TaskLine(BaseModel):
     """One dispatched subtask, as the architecture's task ledger records it."""
 
@@ -79,10 +89,15 @@ class TaskLedger:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.touch(exist_ok=True)
         self._torn_tail_bytes = 0
+        self._corrupt_tail_bytes = 0
         self._lines: list[TaskLine] = []
         self._by_id: dict[str, int] = {}
-        self.recover()
+        # Bound before recovery for the same reason the store's is: recovery can
+        # refuse to open, and a caller closing in a finally block should see that
+        # error rather than an attribute that was never assigned.
         self._handle = self.path.open("ab")
+        self.recover()
+        self._handle.seek(0, os.SEEK_END)
 
     def recover(self) -> None:
         """Read the file, dropping and reporting an incomplete final line.
@@ -111,7 +126,7 @@ class TaskLedger:
                 try:
                     line = TaskLine.model_validate_json(raw)
                 except ValidationError as exc:
-                    corrupt = (good_end, str(exc).splitlines()[0])
+                    corrupt = (good_end, _first_validation_problem(exc))
                     break
                 self._by_id[line.id] = len(self._lines)
                 self._lines.append(line)
@@ -121,15 +136,26 @@ class TaskLedger:
             offset, reason = corrupt
             msg = "the ledger holds a record this class could not have written"
             raise CorruptRecordError(msg, ledger=str(self.path), offset=str(offset), reason=reason)
-        self._torn_tail_bytes = size - good_end
-        if self._torn_tail_bytes:
+        dropped = size - good_end
+        if corrupt is not None:
+            self._corrupt_tail_bytes = dropped
+            self._torn_tail_bytes = 0
+        else:
+            self._torn_tail_bytes = dropped
+            self._corrupt_tail_bytes = 0
+        if dropped:
             with self.path.open("r+b") as handle:
                 handle.truncate(good_end)
 
     @property
     def torn_tail_bytes(self) -> int:
-        """How many bytes the last :meth:`recover` dropped. Zero if none."""
+        """Bytes dropped because the final line had no terminator. Zero if none."""
         return self._torn_tail_bytes
+
+    @property
+    def corrupt_tail_bytes(self) -> int:
+        """Bytes dropped from a corrupt record onwards. Zero if none."""
+        return self._corrupt_tail_bytes
 
     def append(self, line: TaskLine) -> None:
         """Append ``line`` and flush it to disk before returning."""
