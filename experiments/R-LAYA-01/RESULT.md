@@ -11,6 +11,14 @@ splits were constructed, per standards §6.1. The splits were built exactly once
 by `rlaya/measure.py`, which is the only caller that passes
 `workload.splits(..., allow_test=True)`.
 
+**What the outputs do not record: the commit that produced them.** No driver
+stamps one and none has been added now. The commit named above is supported by
+the surrounding record — content checksums that resolve to exactly one commit
+each, the commit order, a clean tree, and a file-time sequence that corroborates
+it — rather than recorded by the artefact. §12 sets out exactly which is which,
+what the timeline is and is not, and what the single read of the splits does and
+does not establish.
+
 ---
 
 ## Verdict
@@ -28,6 +36,36 @@ by `rlaya/measure.py`, which is the only caller that passes
 sets."* §7 admits `laya` only if L1 satisfies C1, C2, C3 **and** C4. It satisfies
 C1 and C4 and fails C2 and C3, so the backend is parked.
 
+### Which of these rests on which evidence
+
+The two statements above do not stand on the same records, and a reader should
+not have to work that out.
+
+**The non-entry verdict does not need the no-firmware models at all.** C2 and C3
+both fail on the **first** out-of-distribution set, OOD-A — confidence drop
++0.0000 and escalation rise +0.0000 for C2, selective accuracy 0.4522 for C3 —
+and OOD-A is scored by the *main* five checkpoints, as is Test-ID. §7 admits
+`laya` only if L1 satisfies all four criteria, so one unsatisfied criterion parks
+it, and two are unsatisfied on main-model splits alone. The conclusion that
+`laya` does not enter ARCH-132 therefore rests on
+the main models, whose per-seed metrics are in `step4_summary.json` and
+`step4_raw.json` and whose training record is `step3_l1.json` — all of them in
+this repository, checkable today.
+
+**What does depend on the no-firmware models is the narrower statement that the
+second kill criterion fired.** That criterion is *"C2 fails on **both**
+out-of-distribution sets"*, and OOD-B is scored by the no-firmware retrain, as
+R-TM-01 defined it. Its records are `step3_l1_main.json` and `step3_l1_nofw.json`
+— the two filenames `rlaya/verdict.py:250-251` reads — and **`step3_l1_nofw.json`
+is not in this repository.** `step3_l1.json`, which is, is byte-identical to
+`step3_l1_main.json` and contains the main five seeds and no `nofw` key at all.
+
+So: the verdict is checkable from the repository as it stands; the sentence
+naming the second kill criterion is not, until that record is committed. It is
+listed as an outstanding item in §12 with the name and hash it must match. This
+is stated rather than worked around, and the verdict is not restated to depend on
+less than it does.
+
 The one-line reason, and it is the same reason for both failures: **L1 answers
 every state at confidence 1.0000.** It is maximally confident on the
 distribution it was trained on and equally confident on the two it was not. At
@@ -43,8 +81,9 @@ measured on a shape the system does not yet emit has been measured on a proxy."*
 Every number in this document was gathered on R-TM-01's generated state. The gap
 is left open deliberately, not overlooked: ARCH-131's trigger is the ledger line
 (ARCH-012), the gate result (ARCH-080) and the reviewer verdict (ARCH-060), and
-**two of those three do not exist in code yet**. Recorded as C5 M7 and as
-prospective deviation D6.
+**two of those three do not exist in code yet**. Recorded as C5 M7, and raised at
+step 2 as the one gap here that only a change to ARCH-131 or ARCH-010 could
+close, rather than something this experiment could work around.
 
 ---
 
@@ -234,7 +273,7 @@ CRITERIA §3 says L0 is reported for completeness and the entry decision does no
 rest on it; per the frozen rule, a measurement impossible as written is recorded
 as a deviation and the criterion scored as **failed**, never rewritten.
 
-### D1 — the ceiling C3 is read against, stated plainly
+### The ceiling C3 is read against, stated plainly
 
 CRITERIA §5 says, verbatim:
 
@@ -302,11 +341,21 @@ session. It is reported, not smoothed.
 made by the library and recorded before anything was timed, and the alternative
 was timed afterwards purely as context — the choice was fixed in committed code
 at `201166f`, before any latency number existed, precisely so it could not be
-made by which device gave the better figure. It matters, because the two are not
-close: **cpu p50 is 16 393 ms**, sixty-nine times slower, with a p99 of 46 742 ms.
-Had the device been picked after the fact, C4 would have been the difference
-between a comfortable pass and a failure by a factor of thirty-three. `laya.Agent`
-would itself have chosen fp32 on mps, so the M10 pin changes nothing here.
+made by which device gave the better figure. **The gated figure is unaffected by
+anything in this paragraph**, and that is the point of fixing the device in code
+first: the selection was made by the library before a number existed to prefer,
+so no reading of the context run can put the gate in doubt.
+
+**The context run on cpu: p50 16 393 ms, p99 46 742 ms.** Those are the measured
+values and they stay. **No multiple is drawn from them, because the measurement
+cannot carry one.** It was taken in the same session with the model still resident
+on the other device, on 8 GB under the swap pressure described below, and the
+spread says so on its own — a minimum of 322 ms against a maximum of 47 869 ms
+across 100 calls. That is a machine paging, not a processor computing. The number
+is a record of what happened on this laptop in that session; it does not isolate
+cpu inference, so it cannot be divided by the mps figure to say how much slower
+cpu inference is, and no such ratio is claimed here. `laya.Agent` would itself
+have chosen fp32 on mps, so the M10 pin changes nothing here.
 
 ### The load, and what else was running
 
@@ -418,6 +467,47 @@ accelerator: *"weights frozen at a recorded version"* is not sufficient for
 reproducibility. The precision and the batching are part of the function too, and
 a ledger that records the answer without them cannot be replayed.
 
+### Two things this record does not establish, stated rather than closed
+
+**The exploration noise in L1's training is not seeded.** `train_l1.py:238` draws
+the GRPO exploration perturbations with `torch.randn(...)`, which uses torch's
+global default generator, and nothing in this experiment calls
+`torch.manual_seed`. The only seeding in the training loop is the recipe's own
+`random.seed(42 + epoch)` before the item shuffle, at `train_l1.py:214`.
+
+What that affects: **the ten checkpoints are not reproducible from the data seed
+and the code alone.** Re-running `train_l1.py` on the same seed would draw
+different exploration noise and land on different weights, so the sha256 in §8
+would not come back. What it does not affect: the data draw, which is seeded per
+seed and fingerprinted and checked across environments (`workload.draw_fingerprint`);
+the item order, which is seeded; the §3 calibration slice, which is an index
+range; scoring, which is a deterministic fp32 forward pass pinned by M10; and
+**every number in this document given those checkpoints**, because the
+checkpoints are fixed artefacts hashed before they were loaded. The reproducible
+object here is the measurement, not the training. This is recorded, not fixed:
+adding a seed now would change the code that produced the numbers.
+
+**Some of C4's machine facts are recorded in an artefact and some are assertions
+in this document.** `step4_latency_laptop.json` records the model, the CPU, the
+core count and its split into performance and efficiency cores, the memory size
+in bytes, the OS version and build, the Python and torch versions, the thread
+count, MPS availability, the selected device and dtype, peak RSS per seed, the
+load average before and after every seed, and the process lists at the start and
+the end. Those are the numbers in the machine table and the load paragraph, and
+they can be checked.
+
+Four claims in §5 and §8 have no artefact behind them and are this author's
+report of the session: the **swap figure of 11.3 GB of 12.3 GB**; that the
+process **spent long stretches in uninterruptible wait**; that the whole
+five-checkpoint pass took **about 50 minutes of wall clock**, which no field
+records; and that a **4.0 GB checkpoint transfer had just completed with
+Spotlight indexing it**. §8's statement that the five main checkpoints were
+**re-hashed on arrival on the laptop and matched** is the same kind of claim:
+`step4_latency_laptop.json` contains no hash of any kind. All five are left as
+written and are marked here as assertions rather than records, so that no reader
+takes them for measurements. They are context for the gated figure and none of
+them enters a criterion.
+
 ### The rest of C5
 
 `C5-assumption-mismatches.md` holds **M1–M12**, opened at step 1 and appended to
@@ -480,9 +570,11 @@ five arms, including the two baselines never proposed as backends.
 
 ## 7. The fourth kill criterion — the training budget
 
-*"L1 cannot be trained on the available accelerator within 12 hours."* On the
-orchestrator's ruling of 21.09.2026 the twelve hours is **the whole arm**, not
-one seed.
+*"L1 cannot be trained on the available accelerator within 12 hours."* The twelve
+hours is read against **the whole arm**, not one seed: the criterion names L1,
+and L1 is an arm of five seeds, so the budget is the arm's. Read per seed it
+would be a far weaker criterion than the frozen text says, and the weaker reading
+is the one that flatters the thing under test, so it is not taken.
 
 **The arm is ten trainings, not five.** Every seed has a main fit and a
 no-firmware fit, because OOD-B is measured against a retrained arm as R-TM-01
@@ -631,16 +723,16 @@ One fires, and one is enough: **the backend is parked.**
 
 ### No ARCH-132 row is proposed
 
-The kickoff and §7 authorise a draft replacement row **only if L1 passes**. It
+§7 authorises a draft replacement row **only if L1 passes**. It
 did not, so none is drafted here and the architecture specification is not
-edited. What this run hands the orchestrator is the evidence: the row for `laya`
+edited. What this run produces is the evidence: the row for `laya`
 currently reads *contingent, under test — R-LAYA-01*, and R-LAYA-01 now has a
 result. ARCH-132's own acceptance clause already says *"a row whose experiment has
 not passed reads contingent"*, so the status word does not change; the evidence
-column is the orchestrator's to update after review, and if it is updated it must
-carry the proxy sentence from the verdict above.
+column is updated when this result has been reviewed, not here, and if it is
+updated it must carry the proxy sentence from the verdict above.
 
-**A note the orchestrator may want for whatever row is eventually written.**
+**A note for whatever row is eventually written.**
 Arm T is the only arm in this run that satisfies C1, C2 and C3, and it does so in
 a single deployable configuration (raw) rather than by assembling a pass from two
 different temperatures — `single_configuration_view` in `step4_summary.json`
@@ -688,8 +780,8 @@ criterion, and they are drawn from the per-seed bin counts the single measuremen
 pass recorded — no split was re-read to produce them.
 
 **D-5 (for the record, not a deviation from the criteria).** C1's range, the §3
-slice, the escalation convention and the temperature treatment were all ruled
-before the splits were opened and are set out in §1. They are interpretations of
+slice, the escalation convention and the temperature treatment were all decided,
+and committed in code, before the splits were opened, and are set out in §1. They are interpretations of
 the frozen text, not changes to it, and a reader who prefers a different reading
 has the alternative numbers: all three ECE variants and all three temperature
 configurations are reported for every arm.
@@ -701,6 +793,124 @@ configurations are reported for every arm.
 Everything below was produced from commit `201166f`, which was committed before
 `workload.splits(..., allow_test=True)` was called for the first time.
 
+### What the artefacts record about their own provenance, and what they do not
+
+**No output file in this experiment records the commit that produced it.** The
+drivers do not stamp one: nothing under `rlaya/` calls `git rev-parse`, and none
+of `step1_seed0.json`, `step2_*.json`, `step3_l1*.json` or `step4_*.json` carries
+a commit, a branch or a run timestamp. **No stamp has been added now and no
+driver has been edited to add one.** A commit id written into an artefact after
+the fact would be an assertion dressed as a record, and it would be worse than
+the gap, because it would read as evidence.
+
+So the commit named above is **supported by the surrounding record rather than
+recorded by the artefact**, and the difference is worth being exact about. What
+the artefacts do carry is `criteria_commit` (`e12d153`) and `criteria_original`
+(`7b85d29`) — the commits of the frozen *criteria*, not of the code — and, at
+steps 2 and 3, `code_checksums`: the sha256 of each driver file as it stood when
+it ran. **For those two steps that is stronger than a stamp, because it can be
+checked against the history rather than believed.** Recomputing the files at each
+commit on this branch resolves them to exactly one commit each:
+
+| recorded in | file | sha256 (first 16) | the commit it matches |
+|---|---|---|---|
+| `step2_arms_gr_l0.json` | `fixture.py`, `workload.py`, `metrics.py`, `laya_backend.py`, `fit_arms.py` | all five | `d91ff88`, step 2 |
+| `step3_l1_main.json` | `train_l1.py` | `075d9f5a2f941bed` | `fb76a02`, *"the L1 training driver, before the run"*, and no later commit |
+| `step3_l1_nofw.json` | `train_l1.py` | `8b69d0181fd87796` | `6d48430`, *"arm L1 needs the no-fw retrain OOD-B is measured against"*, onward |
+
+The third row is the record named as outstanding below, so that one cannot be
+checked from this repository until it is committed; the first two can be, today.
+The two step-3 records deliberately disagree, and the disagreement is the point:
+the main five trainings were produced by the driver as it stood at `fb76a02`, and
+the no-firmware five by the driver after the retrain fix at `6d48430`. A content
+hash discriminates between those two commits; a stamp claiming one commit for the
+whole step would have been wrong.
+
+**Step 4 has no such field.** `step4_raw.json` records the environment and the
+pins but no `code_checksums`, so step 4's code is pinned by commit order alone —
+`a3a03a8` and `201166f` are in the history before `587be95`, with messages saying
+they were committed before the splits were opened, and the tree was clean at each.
+That is the weakest link in this chain and it is named rather than smoothed over.
+
+**A consequence of correcting these files.** The docstring corrections in
+`fa988b0` change the sha256 of `fixture.py`, `fit_arms.py`, `laya_backend.py`,
+`measure.py`, `metrics.py`, `train_l1.py` and `verdict.py`, so five of them no
+longer match the `code_checksums` above. That is stated rather than hidden. The
+recorded checksums are the hashes of the files **as they were when they produced
+the numbers**, which is what they are for; the later commit changed docstrings
+and comments only, proven by parsing each file before and after and comparing the
+syntax tree with docstrings stripped and source positions excluded — the trees
+are identical, and no statement, expression, name or default changed.
+
+| file | sha256 when it ran (first 16) | after the docstring correction |
+|---|---|---|
+| `fixture.py` | `1b3dec1677a5b629` | `d449208a46c41c59` |
+| `fit_arms.py` | `6d0e2b30bf98e6e4` | `7481fbab4ae63f1f` |
+| `laya_backend.py` | `7eb5b50ae629513d` | `081ce68710670d8d` |
+| `metrics.py` | `adf7998652528d0b` | `603c87b16b33f2c5` |
+| `train_l1.py` (no-fw) | `8b69d0181fd87796` | `beea65b731048c91` |
+| `workload.py` | `88f6819203aff6ae` | unchanged |
+
+`measure.py` and `verdict.py` were corrected too; no artefact records a checksum
+for either.
+
+### The timeline on the machine that ran it — corroboration, not a stamp
+
+File modification times on the training machine, read on 2026-09-24, set against
+this branch's commit times. **Commit times are converted to UTC here**; git
+records them at `+0200`, and the server's file times are UTC, so the two are not
+comparable as written.
+
+| what | UTC |
+|---|---|
+| `fb76a02`, the L1 training driver, committed | 17:27:46 |
+| first output it produced, `L1_seed0/model.safetensors` | 17:40:15 |
+| main seeds' arrays, first to last | 17:40:28 → 18:25:00 |
+| `step3_l1_main.json` written | 18:25:02 |
+| `e326e33`, step 3 committed | 18:32:18 |
+| `6d48430`, the no-firmware retrain, committed | 18:45:02 |
+| first output it produced, `L1nofw_seed0/model.safetensors` | 18:54:37 |
+| no-firmware seeds' arrays, first to last | 18:54:51 → 19:32:59 |
+| `step3_l1_nofw.json` written | 19:33:01 |
+| `201166f`, the measurement extended, committed | 19:40:12 |
+| `587be95`, step 4 committed | 21:05:40 |
+
+Each driver's first output lands after the commit of the driver that produced it,
+each summary lands about two seconds after its own last array, and the sequence
+is monotone throughout.
+
+**The durations already in the record reconcile with those times, and that part
+is checkable from the records themselves.** `step3_l1_main.json` puts seed 0 at
+0.1884 h — 11.30 min — against a 12.48 min gap from the driver's commit to the
+first checkpoint on disk, the difference being the model load. It puts all five
+at 53.83 min against a 57.23 min window. The no-firmware record puts seed 0 at
+0.1500 h — 9.00 min — against a 9.58 min gap, and all five at 45.14 min against a
+47.95 min window. Nothing in the timeline requires a training run that the
+recorded durations do not account for.
+
+**What this is not.** A modification time is mutable metadata. It is not a
+signature, it is not reproducible by a later reader, and it does not become one
+by being tabulated. The finding stands exactly as it was: the outputs do not
+record their own commit. This is agreement between two records kept separately,
+which is a reason to believe the named commit, not a proof of it. The load-bearing
+provenance is the `code_checksums` above, which anyone with this repository can
+recompute.
+
+### The single read of the splits is supported by the code, not independently checkable
+
+The claim at the head of this document — the splits were built exactly once — is
+what the code supports, and no more. `workload.splits()` raises unless it is
+called with `allow_test=True`; `rlaya/measure.py:207` is the only call site in
+the experiment that passes it, and the fence is a `RuntimeError`, not a comment;
+`measure_arm_t.py` loads the arrays `measure.py` exported rather than
+constructing anything, and `step4_arm_t.json` records `splits_source` as exactly
+that. **Nothing outside the code proves it.** No artefact carries a construction
+count, a run log or a stamp, and a script run twice would leave the same tree as
+a script run once. The claim is as strong as the fence and the call sites, and
+this paragraph is the whole of what backs it.
+
+### The artefacts
+
 | file | what |
 |---|---|
 | `step4_measurement/step4_raw.json` | every per-seed metric, the ten checkpoint hashes, the server latency, the three R3 examples |
@@ -709,6 +919,25 @@ Everything below was produced from commit `201166f`, which was committed before
 | `step4_measurement/step4_summary.json` | the scoreboard, the verdicts, the single-configuration view, the budget |
 | `step4_measurement/reliability_test_id.png`, `reliability_ood.png` | reliability diagrams, ten equal-width bins on [0.5, 1.0] |
 | `C5-assumption-mismatches.md` | M1–M12, final |
+
+**Outstanding: two step-3 records the verdict script reads are not yet in git.**
+`rlaya/verdict.py:250-251` opens `step3_l1_main.json` and `step3_l1_nofw.json`.
+Neither name is in this repository. `step3_l1.json`, which is, is byte-identical
+to `step3_l1_main.json` — the same record under a shorter name — and contains the
+main five seeds and no `nofw` key. Both records exist on the machine that wrote
+them, at `~/rlaya01/out/step3/`, and must be committed **unchanged, byte for
+byte**, under exactly those two names, into `step3_train_l1/`. They must match:
+
+```
+8cb25d78f5099713f3e13ed083707141a244dec1d79c38abc4248fd5f597dc25  step3_l1_main.json  (30 593 B)
+8b5cd7b65b3095470b29d41a2db98884d193ae2928d7168e08b2c80a030364c8  step3_l1_nofw.json  (30 957 B)
+```
+
+Until `step3_l1_nofw.json` is committed, the statement that the second kill
+criterion fired is not checkable from this repository; the non-entry verdict is,
+as the Verdict's *"Which of these rests on which evidence"* sets out. Nothing has
+been reconstructed, regenerated or renamed to stand in for either file, and
+`step3_l1.json` has not been renamed to fill one of the two names.
 
 Per-seed probability arrays (`probs_<arm>_<split>_seed<s>.npz`), the exported
 splits and the serialised states stay on the server at `~/rlaya01/out/step4/`;
