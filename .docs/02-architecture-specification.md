@@ -412,6 +412,8 @@ The default binding is `rules`: exactly the deterministic conditions ARCH-030 an
 
 **Relationship to ARCH-001.** A binding is admissible only if it spends **zero tokens on the decision** and its weights or rules are frozen at a recorded version. This is a deliberate and bounded carve-out from the invariant: ARCH-001 forbids a model deciding *what runs next and whether to merge*, because such a model can be argued out of routing and there is no downstream check on it. Escalation is a different decision with an asymmetric failure mode — over-escalating costs a minute of human attention, under-escalating is still caught by the physics gate and the reviewer, both of which run regardless. The carve-out does not extend to scheduling, dispatch, merge or reconciliation, and no backend may read or write the design-state graph.
 
+**The state's schema is deliberately not defined here yet.** `state` is the composition of three things this architecture already owns: the task ledger line (ARCH-012), the gate result (ARCH-080) and the reviewer verdict (ARCH-060). Two of the three do not exist in code yet. Writing the schema now would mean drafting it from the only structured state that does exist, which is a synthetic one built for a study, and the architecture would then inherit an experiment's field names instead of the system's. **Trigger:** the schema is written as its own decision once all three sources exist, and ARCH-131 gains a dependency on it. **Until then, any row in ARCH-132 whose evidence was gathered on a generated state says so**, because a backend measured on a shape the system does not yet emit has been measured on a proxy.
+
 **Depends on.** ARCH-030, ARCH-040, ARCH-130
 **Cadence.** per subtask, at the end of an attempt
 **Acceptance.** With the `rules` binding the approval queue receives exactly the items it receives with no interface at all, proven by a test that runs both. Every call records answer, confidence, backend id and latency in the ledger, so a backend's behaviour is auditable after the fact rather than at the time.
@@ -423,12 +425,12 @@ The default binding is `rules`: exactly the deterministic conditions ARCH-030 an
 |---|---|---|
 | `rules` | **ships**, the default | none; it is ARCH-030 and ARCH-040 expressed through the interface |
 | `llm` | ships as an **ablation arm, off by default** | costs a model call per decision, so it is priced and logged and can never be the default |
-| `tsetlin` | **contingent, parked** | R-TM-01, four runs. Calibrated humility off-distribution held in every run and no baseline reproduced it; accuracy parity did not, and clause legibility failed twice. Carries a provenance caveat: the selected region was first seen in an earlier run's post-hoc frontier |
-| `laya` | **contingent, under test** | R-LAYA-01 |
+| `tsetlin` | **contingent, parked** | R-TM-01, four runs. Calibrated humility off-distribution held in every run and no baseline reproduced it; accuracy parity did not, and clause legibility failed twice. Carries a provenance caveat: the selected region was first seen in an earlier run's post-hoc frontier. Rerun as a baseline arm in R-LAYA-01, where it was the only arm to satisfy calibration, humility and selective accuracy together; that run reused this generator and configuration, so it is a transferability check of a known answer rather than independent evidence, and its latency on the orchestrator's machine is unmeasured |
+| `laya` | **parked** | R-LAYA-01. Fine-tuned, it answers every state at confidence 1.0 and does not become less confident off distribution under any temperature configuration: the humility criterion fails on both off-distribution sets, which is a pre-registered kill criterion, and accuracy on the decisions it keeps falls to 0.45 on one of them. In-distribution calibration passed, and is uninformative for a model that reports no uncertainty. Measured on a generated state, not the system's own (ARCH-131) |
 
 **Depends on.** ARCH-131, ARCH-140
 **Cadence.** on change
-**Acceptance.** Only `rules` is enabled by default. Every other binding is an independent flag under ARCH-140 and every flag combination runs to completion. A row whose experiment has not passed reads *contingent*, and the system refuses to enable it outside an ablation run.
+**Acceptance.** Only `rules` is enabled by default. Every other binding is an independent flag under ARCH-140 and every flag combination runs to completion. A row whose experiment has not passed reads *contingent*, and the system refuses to enable it outside an ablation run. **No entry condition admits a backend on in-distribution calibration alone.** A model that reports no uncertainty passes a calibration criterion whenever it is accurate on familiar data, which R-LAYA-01 demonstrated, so calibration is always paired with humility measured off distribution.
 
 ---
 
