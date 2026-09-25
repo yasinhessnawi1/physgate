@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from physgate.hooks import git_ops
 from physgate.hooks.runtime import HookSpec
 
-REGISTRY: Mapping[str, HookSpec] = {}
+REGISTRY: Mapping[str, HookSpec] = {spec.name: spec for spec in (git_ops.HOOK,)}
