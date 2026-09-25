@@ -1,12 +1,14 @@
 """The halt record, taken at a session's first hook, covers the code the rare paths load.
 
 An ordinary hook no longer loads the validation library or the state package, so
-the halt class, which watches the files of loaded code, would never have seen
-them: the proposal hook and the node check load them only after the sentinel has
-run. The first hook therefore records their files without importing them. This
-test runs both rare paths as real processes, lists every file they loaded under
-the hook installation, and requires each one to be in the record the first hook
-took, so an import added upstream fails here instead of going unwatched.
+the halt class, which watches the files of loaded code, would see them only when
+a rare path first loaded them, recording whatever they held by then: a change
+made between the session's start and its first proposal would be the record. The
+first hook therefore records their files without importing them. This test runs
+both rare paths as real processes, lists every file they loaded under the hook
+installation, and requires each one to be in the record **as the first hook left
+it**, read before any rare path ran, so an import added upstream fails here
+instead of going unwatched.
 """
 
 from __future__ import annotations
@@ -53,6 +55,12 @@ def test_every_file_the_rare_paths_load_is_in_the_first_hooks_record(tmp_path: P
     session = InstalledSession(tmp_path / "session")
     first = session.run("SessionStart", session.event("SessionStart", source="startup"))
     assert first.returncode == 0, first.stderr
+    record_path = (
+        tmp_path / "session" / "outside" / "state" / "sessions" / SESSION / "sentinel"
+    ) / "baseline.json"
+    # The record as the first hook took it. Later hooks add code they load
+    # themselves, which is exactly what this test must not count.
+    first_record = set(json.loads(record_path.read_text())["halt"])
     session.read_everything()
     config = json.loads(
         next((tmp_path / "session" / "outside" / "session").glob("session-config.json")).read_text()
@@ -80,16 +88,4 @@ def test_every_file_the_rare_paths_load_is_in_the_first_hooks_record(tmp_path: P
     # Not vacuous: the rare paths do load code an ordinary hook does not.
     assert any("/pydantic/" in f for f in rare)
     assert any(f.endswith("physgate/state/schema.py") for f in rare)
-    record = json.loads(
-        (
-            tmp_path
-            / "session"
-            / "outside"
-            / "state"
-            / "sessions"
-            / SESSION
-            / "sentinel"
-            / "baseline.json"
-        ).read_text()
-    )["halt"]
-    assert sorted(rare - set(record)) == []
+    assert sorted(rare - first_record) == []

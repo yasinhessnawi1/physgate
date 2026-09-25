@@ -113,7 +113,7 @@ LAZY_MODULES = (
     "physgate.state",
     "_bisect", "_bz2", "_compression", "_contextvars", "_csv", "_datetime", "_decimal",
     "_lzma", "_opcode", "_osx_support", "_random", "_sha2", "_socket", "_struct", "_uuid",
-    "_zoneinfo", "array", "ast", "base64", "binascii", "bisect", "bz2", "calendar",
+    "_weakrefset", "_zoneinfo", "array", "ast", "base64", "binascii", "bisect", "bz2", "calendar",
     "contextvars", "copy", "csv", "dataclasses", "datetime", "decimal", "dis", "email",
     "fractions", "importlib", "inspect", "ipaddress", "linecache", "locale", "lzma", "math",
     "ntpath", "numbers", "opcode", "pathlib", "quopri", "random", "select", "selectors",
@@ -144,6 +144,12 @@ def _lazy_code() -> list[str]:
                     )
         elif spec.origin and os.path.isfile(spec.origin):
             files.append(spec.origin)
+        elif spec.origin == "frozen":
+            # A frozen standard-library module still names its source file, and
+            # that is the file a loaded module's record points at.
+            source = getattr(spec.loader_state, "filename", None)
+            if isinstance(source, str) and os.path.isfile(source):
+                files.append(source)
     stdlib = os.path.dirname(os.__file__)
     files.extend(
         os.path.join(stdlib, n)
