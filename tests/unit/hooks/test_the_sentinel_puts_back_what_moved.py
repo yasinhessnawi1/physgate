@@ -382,3 +382,57 @@ def test_the_record_holds_the_hook_code_actually_loaded(root: Path) -> None:
     assert any(p.endswith("physgate/hooks/sentinel.py") for p in loaded)
     assert any("/pydantic/" in p for p in loaded)
     assert os.path.realpath(sys.executable) in loaded
+
+
+def test_loaded_code_is_found_as_if_every_file_were_resolved_whole(
+    root: Path, tmp_path: Path
+) -> None:
+    # The sentinel resolves each directory once rather than each file. That must
+    # name the same files, including a module that is itself a link and one
+    # reached through a linked directory, both pointing into the watched code.
+    code = tmp_path / "hookcode"
+    (code / "real").mkdir(parents=True)
+    (code / "real" / "sentinel_probe_direct.py").write_text("VALUE = 1\n")
+    (code / "real" / "sentinel_probe_target.py").write_text("VALUE = 2\n")
+    (code / "real" / "sentinel_probe_through.py").write_text("VALUE = 3\n")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "sentinel_probe_link.py").symlink_to(code / "real" / "sentinel_probe_target.py")
+    (tmp_path / "linked-dir").symlink_to(code / "real")
+    names = ("sentinel_probe_direct", "sentinel_probe_link", "sentinel_probe_through")
+    for entry in (code / "real", elsewhere, tmp_path / "linked-dir"):
+        sys.path.insert(0, str(entry))
+    try:
+        importlib.import_module("sentinel_probe_direct")
+        importlib.import_module("sentinel_probe_link")
+        sys.path.remove(str(code / "real"))
+        importlib.invalidate_caches()
+        importlib.import_module("sentinel_probe_through")
+        assert "linked-dir" in str(sys.modules["sentinel_probe_through"].__file__)
+        config = _config(root)
+        config = config.model_copy(
+            update={
+                "protected_roots": (
+                    *config.protected_roots,
+                    ProtectedRoot(path=str(code), reason="hook code", watch="halt"),
+                )
+            }
+        )
+        found = set(sentinel._loaded_code(config))
+        halt_roots = [os.path.realpath(r.path) for r in config.protected_roots if r.watch == "halt"]
+        files = [getattr(m, "__file__", None) for m in list(sys.modules.values())]
+        whole = {os.path.realpath(sys.executable)} | {os.path.realpath(f) for f in files if f}
+        expected = {
+            f for f in whole if any(f == r or f.startswith(r.rstrip("/") + "/") for r in halt_roots)
+        }
+        assert expected <= found
+        assert found - expected == {f for f in found if f.endswith(".pth")}
+        real = os.path.realpath(code / "real")
+        for name in ("direct", "target", "through"):
+            assert os.path.join(real, f"sentinel_probe_{name}.py") in found
+    finally:
+        for entry in (code / "real", elsewhere, tmp_path / "linked-dir"):
+            if str(entry) in sys.path:
+                sys.path.remove(str(entry))
+        for name in names:
+            sys.modules.pop(name, None)

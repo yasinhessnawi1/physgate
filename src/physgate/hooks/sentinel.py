@@ -106,10 +106,21 @@ def _loaded_code(config: ConfigView) -> list[str]:
     """The files of the code this hook process has loaded, under the installation roots."""
     halt_roots = [os.path.realpath(r) for r in _roots(config, "halt")]
     files = {os.path.realpath(sys.executable)}
+    # The same answer as resolving every file, found by resolving each directory
+    # once: a hundred modules live in a dozen directories, and this runs at
+    # every hook. A file that is itself a link is still resolved whole.
+    directories: dict[str, str] = {}
     for module in list(sys.modules.values()):
         path = getattr(module, "__file__", None)
-        if path:
+        if not path:
+            continue
+        if os.path.islink(path):
             files.add(os.path.realpath(path))
+            continue
+        head, tail = os.path.split(os.path.abspath(path))
+        if head not in directories:
+            directories[head] = os.path.realpath(head)
+        files.add(os.path.join(directories[head], tail))
     for directory in {os.path.dirname(p) for p in files if p.endswith("site.py")} | set(sys.path):
         if os.path.isdir(directory):
             files.update(
@@ -134,19 +145,27 @@ class _State:
         self.blobs = BlobStore(os.path.join(directory, "blobs"))
         self.quarantine = os.path.join(directory, "quarantine")
         self.path = os.path.join(directory, "baseline.json")
+        self.loaded_text: str | None = None
 
     def load(self) -> dict[str, Any] | None:
         if not os.path.exists(self.path):
             return None
         with open(self.path) as handle:
-            loaded: dict[str, Any] = json.loads(handle.read())
+            self.loaded_text = handle.read()
+        loaded: dict[str, Any] = json.loads(self.loaded_text)
         return loaded
 
     def save(self, base: dict[str, Any]) -> None:
+        text = json.dumps(base, sort_keys=True)
+        if text == self.loaded_text:
+            # The record is byte for byte what was read under the same lock:
+            # rewriting it would change nothing, on the call that is most common.
+            return
         tmp = os.path.join(self.directory, ".baseline.json.tmp")
         with open(tmp, "w") as handle:
-            handle.write(json.dumps(base, sort_keys=True))
+            handle.write(text)
         os.replace(tmp, self.path)
+        self.loaded_text = text
 
 
 def _lock(directory: str) -> int:
@@ -204,8 +223,14 @@ def _restore_entry(path: str, entry: Entry, state: _State) -> None:
 
 def _revert(base: dict[str, Any], state: _State) -> tuple[list[str], list[str]]:
     """Put the revert roots back. Returns (paths put back, paths that could not be)."""
-    recorded = {p: _entry(raw) for p, raw in base["revert"].items()}
     current = take_signatures(base["revert_roots"])
+    if current == {p: tuple(raw[0]) for p, raw in base["revert"].items()}:
+        # Every path is where it was, with the signature it had: nothing moved,
+        # so there is nothing to put back and nothing to verify. That is every
+        # call but the rare one where something changed, and it spares the two
+        # further walks the path below takes.
+        return [], []
+    recorded = {p: _entry(raw) for p, raw in base["revert"].items()}
     touched: list[str] = []
     moved: list[str] = []
     for path in sorted(set(current) - set(recorded), key=_depth):

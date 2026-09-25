@@ -75,14 +75,27 @@ def walk(root: str) -> Iterator[tuple[str, os.stat_result]]:
     except FileNotFoundError:
         return
     yield root, st
-    if not stat.S_ISDIR(st.st_mode):
-        return
+    if stat.S_ISDIR(st.st_mode):
+        yield from _below(root)
+
+
+def _below(directory: str) -> Iterator[tuple[str, os.stat_result]]:
+    # One listing that hands back each entry's joined path, then the same
+    # ``lstat`` per entry as ever: the sentinel walks every protected tree at
+    # every hook, so the path building happens in C rather than here.
     try:
-        names = sorted(os.listdir(root))
+        with os.scandir(directory) as listing:
+            entries = sorted(listing, key=lambda entry: entry.name)
     except OSError:
         return
-    for name in names:
-        yield from walk(os.path.join(root, name))
+    for entry in entries:
+        try:
+            st = entry.stat(follow_symlinks=False)
+        except FileNotFoundError:
+            continue
+        yield entry.path, st
+        if stat.S_ISDIR(st.st_mode):
+            yield from _below(entry.path)
 
 
 def signatures(roots: list[str]) -> dict[str, Signature]:
