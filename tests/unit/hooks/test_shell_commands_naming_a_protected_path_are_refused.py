@@ -226,3 +226,24 @@ def test_a_commit_message_naming_a_protected_path_is_refused_with_the_route_arou
     assert "git commit -F" not in _decide(root, "cp /tmp/x src/physgate/gate/check.py")
     (root / "worktree" / "msg.txt").write_text("explain src/physgate/gate/check.py\n")
     assert _decide(root, "git commit -F msg.txt") == "allow"
+
+
+def test_a_plain_word_is_still_checked_when_it_could_name_a_protected_path(root: Path) -> None:
+    # Most words in a command are flags and program names, so a word with no
+    # separator is skipped without the full check, unless it could still name
+    # a protected path. Each case here is one of those exceptions and reaches
+    # the gate only by the rule that keeps it checked.
+    worktree = root / "worktree"
+    (worktree / "handle").symlink_to(worktree / "src" / "physgate" / "gate" / "check.py")
+    # the name of a protected root, one directory up from it
+    assert GATE_REASON in _decide(root, "cd src/physgate && rm -rf gate")
+    # a symlink in an unprotected directory that points into the gate
+    assert GATE_REASON in _decide(root, "cp /tmp/x handle")
+    # a word with a separator, or one that expands from the home directory
+    assert GATE_REASON in _decide(root, "cd src/physgate/electrical && rm -rf ../gate")
+    assert "settings" in _decide(root, "cp /tmp/x ~/.claude/settings.json")
+    # every relative word, when the call starts inside the gate
+    event = bash("touch new.py", cwd=str(worktree / "src" / "physgate" / "gate"))
+    assert GATE_REASON in sp.pre_tool_use(HookInput.model_validate(event), _config(root)).reason
+    # and the words that could not reach it pass without it
+    assert _decide(root, "cd src/physgate/electrical && touch notes.py") == "allow"
