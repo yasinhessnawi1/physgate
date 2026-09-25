@@ -16,7 +16,13 @@ from hook_helpers import event
 from physgate.hooks import paths, tools
 from physgate.hooks.config import SessionConfig
 from physgate.hooks.runtime import HookInput
-from physgate.hooks.settings import GATE_REASON, STORE_REASON, InstallRequest, build_config
+from physgate.hooks.settings import (
+    GATE_REASON,
+    HELD_OUT_REASON,
+    STORE_REASON,
+    InstallRequest,
+    build_config,
+)
 from physgate.hooks.settings import current_installation as installation
 
 FILES = {
@@ -89,8 +95,8 @@ REFUSED = [
     ("experiments/r-tm-01/r-tm-01_readme.md", paths.FROZEN_RESULT),
     ("experiments/R-NEW-01/CRITERIA.md", paths.FROZEN_CRITERIA),
     ("experiments/R-NEW-01/deeper/CRITERIA.md", paths.FROZEN_CRITERIA),
-    ("@/heldout/scenario_01.json", paths.HELD_OUT_REASON),
-    ("@/heldout/new.json", paths.HELD_OUT_REASON),
+    ("@/heldout/scenario_01.json", HELD_OUT_REASON),
+    ("@/heldout/new.json", HELD_OUT_REASON),
     (".claude/settings.local.json", "a settings write can switch the hooks off"),
     (".env", "secrets"),
     ("src/physgate/hooks/runtime.py", "hook layer's source"),
@@ -160,7 +166,7 @@ def test_a_hard_link_to_a_protected_file_is_refused(layout: Path) -> None:
 def test_the_held_out_tier_cannot_be_read_by_a_role_or_a_reviewer(layout: Path) -> None:
     target = str(layout / "heldout" / "scenario_01.json")
     for profile in ("role", "reviewer"):
-        assert paths.HELD_OUT_REASON in _call(layout, "Read", target, profile)
+        assert HELD_OUT_REASON in _call(layout, "Read", target, profile)
     assert _call(layout, "Read", target, "orchestrator") == "allow"
 
 

@@ -39,6 +39,7 @@ from physgate.hooks.config import (
     Profile,
     ProtectedRoot,
     SessionConfig,
+    Watch,
     digest,
 )
 from physgate.hooks.runtime import EVENTS, HookSpec
@@ -58,6 +59,10 @@ PROFILE_TOOLS: Mapping[Profile, tuple[str, ...]] = {
     "orchestrator": ("Bash", "Edit", "NotebookEdit", "Read", "Write", *_TASK_LIST),
 }
 
+HELD_OUT_REASON = (
+    "it is the held-out evaluation tier, which nothing reads or writes before "
+    "measurement (ARCH-141)"
+)
 GATE_REASON = "it holds the physics gate, which no agent session writes (ARCH-081)"
 STORE_REASON = (
     "it is the design-state graph's own store: its journal is the only authority, and a "
@@ -135,30 +140,42 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
     worktree = Path(request.worktree)
     home = Path(request.user_home)
     hook_code = "it is the code the hooks run from"
-    protected = {
-        str(worktree / "src" / "physgate" / "gate"): GATE_REASON,
+    protected: dict[str, tuple[str, Watch]] = {
+        str(worktree / "src" / "physgate" / "gate"): (GATE_REASON, "revert"),
         str(worktree / "src" / "physgate" / "hooks"): (
-            "it holds the hook layer's source, which no agent session edits"
+            "it holds the hook layer's source, which no agent session edits",
+            "revert",
         ),
-        str(worktree / ".env"): "it holds the environment's secrets",
+        str(worktree / ".env"): ("it holds the environment's secrets", "revert"),
         str(worktree / ".claude"): (
-            "it holds Claude Code settings, and a settings write can switch the hooks off"
+            "it holds Claude Code settings, and a settings write can switch the hooks off",
+            "revert",
         ),
-        request.state_dir: "it holds the hook layer's own records of this session",
-        request.target_dir: "it holds this session's settings and configuration",
-        request.claude_config_dir: "it is this session's Claude Code configuration",
-        installation.package_dir: hook_code,
-        installation.environment_root: hook_code,
-        installation.base_prefix: hook_code,
+        request.target_dir: ("it holds this session's settings and configuration", "revert"),
+        # Written by the hooks themselves, so only the layers that refuse a write
+        # before it happens protect it.
+        request.state_dir: ("it holds the hook layer's own records of this session", "none"),
+        # Written by Claude Code itself during the session.
+        request.claude_config_dir: ("it is this session's Claude Code configuration", "none"),
+        installation.package_dir: (hook_code, "halt"),
+        installation.environment_root: (hook_code, "halt"),
+        installation.base_prefix: (hook_code, "halt"),
+        # Other sessions on the machine write these legitimately.
         str(home / ".claude" / "settings.json"): (
-            "it is the user's Claude Code settings, which later sessions read"
+            "it is the user's Claude Code settings, which later sessions read",
+            "log",
         ),
-        str(home / ".claude.json"): "it is the user's Claude Code state, which later sessions read",
+        str(home / ".claude.json"): (
+            "it is the user's Claude Code state, which later sessions read",
+            "log",
+        ),
     }
     for path in request.extra_protected:
-        protected.setdefault(path, "the orchestrator protects it for this session")
+        protected.setdefault(path, ("the orchestrator protects it for this session", "revert"))
+    for path in request.held_out:
+        protected.setdefault(path, (HELD_OUT_REASON, "revert"))
     if request.store_root is not None:
-        protected[request.store_root] = STORE_REASON
+        protected[request.store_root] = (STORE_REASON, "journal")
     for path in protected:
         if _inside(request.worktree, path):
             msg = (
@@ -173,7 +190,8 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         store_root=request.store_root,
         state_dir=request.state_dir,
         protected_roots=tuple(
-            ProtectedRoot(path=path, reason=reason) for path, reason in sorted(protected.items())
+            ProtectedRoot(path=path, reason=reason, watch=watch)
+            for path, (reason, watch) in sorted(protected.items())
         ),
         experiments=(
             ExperimentRule(

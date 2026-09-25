@@ -24,6 +24,7 @@ import os
 import shutil
 import subprocess
 from collections import Counter
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,7 @@ from typing import Any
 from fake_messages_api import DUMMY_KEY, FakeMessagesApi, Script, serving
 
 from physgate.hooks.registry import REGISTRY
+from physgate.hooks.runtime import HookSpec
 from physgate.hooks.settings import Installed, InstallRequest, install
 
 #: The Claude Code version the hook contract was measured on.
@@ -117,6 +119,8 @@ def run_session(
     *,
     files: dict[str, str] | None = None,
     outside_files: dict[str, str] | None = None,
+    prepare: Callable[[Path], None] | None = None,
+    registry: Mapping[str, HookSpec] | None = None,
     api_url_override: str | None = None,
     **request_fields: Any,  # noqa: ANN401 - forwarded to the install request
 ) -> SessionRun:
@@ -128,6 +132,8 @@ def run_session(
         path = outside / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
+    if prepare is not None:
+        prepare(worktree)
     fields: dict[str, Any] = {
         "profile": "role",
         "role": "electrical",
@@ -141,7 +147,10 @@ def run_session(
         "token_ceiling": 100_000,
     }
     fields.update(request_fields)
-    installed = install(InstallRequest(**fields), REGISTRY)
+    # A test may wire a reduced set of hooks, to show one layer working alone.
+    # This is a parameter of the generator, reachable only by whoever writes the
+    # settings file; nothing inside a session can change which hooks it runs.
+    installed = install(InstallRequest(**fields), registry or REGISTRY)
     home = Path(fields["user_home"])
     home.mkdir(parents=True, exist_ok=True)
     with serving(script) as (api, base_url):

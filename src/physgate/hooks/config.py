@@ -55,13 +55,25 @@ class Installation(BaseModel):
     base_prefix: AbsolutePath
 
 
+#: How the sentinel treats a protected root after a call:
+#: ``revert`` puts back anything that changed; ``journal`` checks that the bytes
+#: already there are unchanged and leaves appends to the store's own guard,
+#: because the orchestrator appends legitimately while sessions run; ``halt``
+#: refuses every later call, because the code the hooks run from changed and
+#: nothing it decides can be trusted; ``log`` records a change that another
+#: process may make legitimately; ``none`` leaves the root to the layers that
+#: refuse writes before they happen, because the hooks or Claude Code write it.
+Watch = Literal["revert", "journal", "halt", "log", "none"]
+
+
 class ProtectedRoot(BaseModel):
-    """A path no agent tool may write, and the reason the agent is given."""
+    """A path no agent tool may write, the reason the agent is given, and how it is watched."""
 
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     path: AbsolutePath
     reason: Annotated[str, StringConstraints(min_length=1)]
+    watch: Watch
 
 
 class ExperimentRule(BaseModel):

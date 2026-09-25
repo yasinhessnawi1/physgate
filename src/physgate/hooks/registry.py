@@ -9,12 +9,21 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from physgate.hooks import git_ops, paths, reading, shell_paths, token_ceiling, tools
+from physgate.hooks import (
+    git_ops,
+    paths,
+    reading,
+    sentinel,
+    shell_paths,
+    token_ceiling,
+    tools,
+)
 from physgate.hooks.runtime import HookSpec
 
 REGISTRY: Mapping[str, HookSpec] = {
     spec.name: spec
     for spec in (
+        sentinel.HOOK,
         tools.HOOK,
         paths.HOOK,
         shell_paths.HOOK,

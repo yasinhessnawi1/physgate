@@ -42,11 +42,8 @@ from pathlib import Path
 
 from physgate.hooks.config import SessionConfig
 from physgate.hooks.runtime import ALLOW, Decision, HookInput, HookSpec, refuse
+from physgate.hooks.settings import HELD_OUT_REASON
 
-HELD_OUT_REASON = (
-    "it is the held-out evaluation tier, which nothing reads or writes before "
-    "measurement (ARCH-141)"
-)
 FROZEN_RESULT = (
     "it belongs to an experiment with a published result, which is frozen; an amendment "
     "is a new experiment"

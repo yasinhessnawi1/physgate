@@ -28,7 +28,11 @@ def config_dict(tmp: Path, **overrides: Any) -> dict[str, Any]:  # noqa: ANN401 
         "store_root": str(tmp / "store"),
         "state_dir": str(tmp / "state"),
         "protected_roots": [
-            {"path": str(worktree / "src" / "physgate" / "gate"), "reason": "it holds the gate"}
+            {
+                "path": str(worktree / "src" / "physgate" / "gate"),
+                "reason": "it holds the gate",
+                "watch": "revert",
+            }
         ],
         "experiments": [],
         "held_out": [],

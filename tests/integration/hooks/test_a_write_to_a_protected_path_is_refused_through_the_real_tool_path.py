@@ -22,7 +22,7 @@ from fake_messages_api import Script, text, tool
 from hook_session import SessionRun, run_session
 
 from physgate.hooks import paths
-from physgate.hooks.settings import GATE_REASON, STORE_REASON
+from physgate.hooks.settings import GATE_REASON, HELD_OUT_REASON, STORE_REASON
 
 pytestmark = pytest.mark.integration
 
@@ -128,7 +128,7 @@ def test_the_graph_journal_and_node_files_cannot_be_written(tmp_path: Path) -> N
 def test_the_held_out_tier_cannot_be_read(tmp_path: Path) -> None:
     run = _session(tmp_path, tool("Read", file_path="@O/heldout/scenario_01.json"))
     ((hook, reason),) = _refusals(run)
-    assert hook == "paths" and paths.HELD_OUT_REASON in reason
+    assert hook == "paths" and HELD_OUT_REASON in reason
     assert "the answer" not in run.told_after(1)
 
 
