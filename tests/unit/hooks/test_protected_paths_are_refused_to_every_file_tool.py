@@ -230,3 +230,39 @@ def test_each_profile_runs_on_its_closed_tool_list(
 def test_on_this_volume_the_case_variant_really_reaches_the_gate(layout: Path) -> None:
     variant = layout / "worktree" / "src" / "physgate" / "GATE" / "CHECK.PY"
     assert variant.read_text() == "CHECK = True\n"
+
+
+# Each of the matcher's three spellings has a case only it catches. Without these,
+# removing any one of them leaves the suite green, because the others overlap.
+
+
+def test_a_case_variant_of_a_gate_that_does_not_exist_yet_is_refused(layout: Path) -> None:
+    # Only the case-folded string test sees this: there is no gate directory to
+    # compare inodes with, and no symlink for realpath to resolve.
+    gate = layout / "worktree" / "src" / "physgate" / "gate"
+    for child in gate.iterdir():
+        child.unlink()
+    gate.rmdir()
+    assert GATE_REASON in _call(layout, "Write", "src/physgate/Gate/first_check.py")
+
+
+def test_a_symlinked_parent_of_a_gate_that_does_not_exist_yet_is_refused(layout: Path) -> None:
+    # Only realpath sees this: the string is spelt through the link, and the gate
+    # directory has no inode yet.
+    gate = layout / "worktree" / "src" / "physgate" / "gate"
+    for child in gate.iterdir():
+        child.unlink()
+    gate.rmdir()
+    (layout / "worktree" / "pkg").symlink_to(layout / "worktree" / "src" / "physgate")
+    assert GATE_REASON in _call(layout, "Write", "pkg/gate/first_check.py")
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="firmlinks are a macOS feature")
+def test_a_firmlink_spelling_of_the_gate_is_refused(layout: Path) -> None:
+    # Only the inode test sees this: macOS reaches the same directory through
+    # /System/Volumes/Data, and realpath does not resolve that spelling.
+    real = Path(os.path.realpath(layout / "worktree" / "src" / "physgate" / "gate"))
+    firm = Path("/System/Volumes/Data") / real.relative_to("/")
+    assert (firm / "check.py").read_text() == "CHECK = True\n"
+    assert os.path.realpath(firm) != str(real)
+    assert GATE_REASON in _call(layout, "Write", str(firm / "check.py"))
