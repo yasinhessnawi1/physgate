@@ -7,6 +7,11 @@ dependencies = [
   "pydantic>=2.7,<3",
 ]
 
+# The one command so far: `physgate hooks install`, which writes a session's
+# settings file and configuration outside its worktree.
+[project.scripts]
+physgate = "physgate.hooks.cli:main"
+
 [dependency-groups]
 dev = [
   "pytest>=9,<10",
