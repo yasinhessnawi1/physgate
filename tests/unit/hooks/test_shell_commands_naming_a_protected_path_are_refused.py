@@ -165,3 +165,13 @@ def test_what_this_layer_cannot_see_is_left_to_the_sentinel(root: Path, command:
     # compares the protected paths after the call, and the bypass suite proves
     # it catches exactly these forms.
     assert _decide(root, command) == "allow"
+
+
+def test_a_writing_command_is_refused_when_the_call_starts_inside_the_gate(root: Path) -> None:
+    # A later call can start in a directory an earlier call reached through a cd
+    # this layer could not follow. The command itself names no path.
+    event = bash("make", cwd=str(root / "worktree" / "src" / "physgate" / "gate"))
+    decision = sp.pre_tool_use(HookInput.model_validate(event), _config(root))
+    assert GATE_REASON in decision.reason
+    reader = bash("ls -la", cwd=str(root / "worktree" / "src" / "physgate" / "gate"))
+    assert sp.pre_tool_use(HookInput.model_validate(reader), _config(root)).allow
