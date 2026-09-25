@@ -11,6 +11,7 @@ from collections.abc import Mapping
 
 from physgate.hooks import (
     git_ops,
+    graph,
     paths,
     reading,
     sentinel,
@@ -28,6 +29,7 @@ REGISTRY: Mapping[str, HookSpec] = {
         paths.HOOK,
         shell_paths.HOOK,
         git_ops.HOOK,
+        graph.HOOK,
         reading.HOOK,
         token_ceiling.HOOK,
     )

@@ -51,6 +51,7 @@ from pathlib import Path
 from typing import Any
 
 from physgate.hooks.config import SessionConfig
+from physgate.hooks.journal_view import Head, heads
 from physgate.hooks.runtime import ALLOW, Decision, HookInput, HookSpec, refuse
 from physgate.hooks.snapshot import BlobStore, Entry, file_digest, quarantine, record, signature
 from physgate.hooks.snapshot import signatures as take_signatures
@@ -176,7 +177,7 @@ def _baseline(config: SessionConfig, state: _State) -> dict[str, Any]:
         "revert": {p: _entry_json(e) for p, e in entries.items()},
         "journal": {r: _journal_state(r, state.blobs) for r in _roots(config, "journal")},
         "halt": {p: _code_record(p) for p in _loaded_code(config)},
-        "nodes": {r: _nodes_record(r, _journal_heads(r)) for r in _roots(config, "journal")},
+        "nodes": {r: _nodes_record(r, heads(r)) for r in _roots(config, "journal")},
         "log": {p: list(sig) for p, sig in take_signatures(_roots(config, "log")).items()},
         "halted": None,
     }
@@ -296,43 +297,7 @@ def _check_halt(base: dict[str, Any], config: SessionConfig) -> list[str]:
     return changed
 
 
-def _journal_heads(root: str) -> dict[str, tuple[int, int, dict[str, Any]]]:
-    """The newest (revision, version, payload) the journal records for each node.
-
-    Read-only: the journal is opened for reading, and no store is constructed,
-    because constructing one runs recovery, which rewrites node files. A final
-    line without its terminator is a write still in progress and is not read. A
-    line that is not a record is skipped: a journal holding one is refused by
-    the store itself, which then serves nothing.
-    """
-    try:
-        fd = os.open(os.path.join(root, "journal.jsonl"), os.O_RDONLY)
-    except FileNotFoundError:
-        return {}
-    try:
-        chunks = []
-        while chunk := os.read(fd, 1 << 20):
-            chunks.append(chunk)
-    finally:
-        os.close(fd)
-    heads: dict[str, tuple[int, int, dict[str, Any]]] = {}
-    for line in b"".join(chunks).split(b"\n")[:-1]:
-        try:
-            record_ = json.loads(line)
-            node_id, rev = record_["node_id"], int(record_["rev"])
-            version, payload = int(record_["version"]), record_["payload"]
-        except (ValueError, KeyError, TypeError):
-            continue
-        if (
-            isinstance(node_id, str)
-            and isinstance(payload, dict)
-            and (node_id not in heads or rev > heads[node_id][0])
-        ):
-            heads[node_id] = (rev, version, payload)
-    return heads
-
-
-def _expected_body(head: tuple[int, int, dict[str, Any]]) -> bytes:
+def _expected_body(head: Head) -> bytes:
     # The store's own function for what a node file holds, so the comparison is
     # against what writing actually produces. It is a pure function; calling it
     # opens nothing.
@@ -351,11 +316,11 @@ def _node_files(root: str) -> dict[str, str]:
     }
 
 
-def _nodes_record(root: str, heads: dict[str, tuple[int, int, dict[str, Any]]]) -> dict[str, Any]:
+def _nodes_record(root: str, found: dict[str, Head]) -> dict[str, Any]:
     watched = [os.path.join(root, "journal.jsonl"), os.path.join(root, "nodes")]
     return {
         "sigs": {p: list(sig) for p, sig in take_signatures(watched).items()},
-        "revs": {node_id: head[0] for node_id, head in heads.items()},
+        "revs": {node_id: head[0] for node_id, head in found.items()},
     }
 
 
@@ -382,24 +347,24 @@ def _check_nodes(base: dict[str, Any]) -> list[str]:
         now = {p: list(sig) for p, sig in take_signatures(watched).items()}
         if now == was["sigs"]:
             continue
-        heads = _journal_heads(root)
+        found = heads(root)
         suspects = [
             (node_id, path)
             for node_id, path in _node_files(root).items()
-            if node_id not in heads
-            or _read_as_the_store_does(path) != _expected_body(heads[node_id])
+            if node_id not in found
+            or _read_as_the_store_does(path) != _expected_body(found[node_id])
         ]
         if suspects:
-            heads = _journal_heads(root)
+            found = heads(root)
             for node_id, path in suspects:
-                head = heads.get(node_id)
+                head = found.get(node_id)
                 if head is not None and (
                     _read_as_the_store_does(path) == _expected_body(head)
                     or head[0] > was["revs"].get(node_id, 0)
                 ):
                     continue
                 findings.append(path)
-        base["nodes"][root] = _nodes_record(root, heads)
+        base["nodes"][root] = _nodes_record(root, found)
     return findings
 
 
