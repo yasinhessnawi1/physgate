@@ -110,6 +110,14 @@ def test_what_the_shell_layer_leaves_alone_the_sentinel_puts_back(
     _assert_put_back_by_the_sentinel(_run(tmp_path, command))
 
 
+def test_a_write_by_a_command_that_then_fails_is_put_back(tmp_path: Path) -> None:
+    # A failing command fires only the failure event, so this is the case a
+    # sentinel wired to the ordinary after-call event alone would miss.
+    run = _run(tmp_path, "tar -xf payload.tar; echo ran > ran.txt; false")
+    _assert_put_back_by_the_sentinel(run)
+    assert run.hook_commands_started()["PostToolUseFailure:Bash"] == 1
+
+
 def test_the_sentinel_reason_is_the_one_the_agent_reads(tmp_path: Path) -> None:
     run = _run(tmp_path, "tar -xf payload.tar; echo ran > ran.txt")
     assert sentinel.PUT_BACK.split("{paths}")[0] in run.told_after(1)

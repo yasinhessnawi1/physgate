@@ -7,6 +7,7 @@ checked byte for byte afterwards.
 
 from __future__ import annotations
 
+import fcntl
 import importlib
 import json
 import os
@@ -247,6 +248,47 @@ def test_node_files_and_user_settings_are_logged_not_reverted(root: Path) -> Non
     assert node.read_text() == '{"changed": true}\n'
     (logged,) = [e for e in _log(root) if e["decision"] == "changed"]
     assert str(node) in logged["paths"] and str(user) in logged["paths"]  # type: ignore[operator]
+    # The record advances, so the same change is not reported on every later call.
+    assert _check(root) == "allow"
+    assert len([e for e in _log(root) if e["decision"] == "changed"]) == 1
+
+
+def test_the_sentinel_runs_on_every_event_including_a_failed_call() -> None:
+    # A command that exits non-zero fires the failure event and not the ordinary
+    # one (measured), so a sentinel wired only to the ordinary one would never
+    # see the write a failing command made.
+    assert set(sentinel.HOOK.handlers) == {
+        "SessionStart",
+        "PreToolUse",
+        "PostToolUse",
+        "PostToolUseFailure",
+        "Stop",
+        "SessionEnd",
+    }
+
+
+def test_the_record_is_read_and_written_under_an_exclusive_lock(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Tool calls can run in parallel, and so can their hooks. The property is
+    # asserted by the call rather than by racing two threads, because a race
+    # that happens not to collide proves nothing about the lock.
+    order: list[str] = []
+    real_flock = fcntl.flock
+    real_load = sentinel._State.load
+
+    def flock(fd: int, op: int) -> None:
+        order.append("lock" if op == fcntl.LOCK_EX else "unlock")
+        real_flock(fd, op)
+
+    def load(self: sentinel._State) -> dict[str, object] | None:
+        order.append("load")
+        return real_load(self)
+
+    monkeypatch.setattr(fcntl, "flock", flock)
+    monkeypatch.setattr(sentinel._State, "load", load)
+    _started(root)
+    assert order == ["lock", "load", "unlock"]
 
 
 def test_changed_hook_code_halts_the_session_for_good(root: Path, tmp_path: Path) -> None:
