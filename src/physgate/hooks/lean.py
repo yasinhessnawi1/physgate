@@ -42,6 +42,8 @@ PROFILES = ("role", "reviewer", "orchestrator")
 WATCHES = ("revert", "journal", "halt", "log", "none")
 WATCHDOG_MARGIN_SECONDS = 10
 _SESSION_ID = re.compile(r"[A-Za-z0-9_-]{1,128}")
+_SURROGATE = re.compile("[\ud800-\udfff]")
+_SURROGATE_ESCAPE = re.compile(r"\\u[dD][89a-fA-F]")
 
 
 class LeanValidationError(HookError):
@@ -241,10 +243,42 @@ class LeanInput:
 
 
 def _json(data: bytes | str) -> object:
+    """Parse a JSON document the way the schema's parser does, or refuse it.
+
+    Two differences from :func:`json.loads` had to be closed, both found by
+    the equivalence test's generated inputs: bytes are read as UTF-8 and
+    nothing else (the standard library guesses UTF-16 and UTF-32, and skips a
+    byte-order mark), and a lone surrogate anywhere in the document, raw or
+    escaped, in a key or a value, is refused rather than kept as text.
+    """
     try:
-        return json.loads(data)
+        text = data.decode("utf-8") if isinstance(data, bytes) else data
+        if _SURROGATE.search(text):
+            raise _fail("json", "the document holds a lone surrogate, which is not text")
+        parsed = json.loads(text)
     except ValueError as exc:
         raise _fail("json", str(exc)) from None
+    # An escaped surrogate survives parsing only when it is unpaired; a pair
+    # becomes one character. The walk runs only when an escape that could be
+    # one is present at all, which a tool input almost never holds.
+    if _SURROGATE_ESCAPE.search(text) and _holds_a_surrogate(parsed):
+        raise _fail("json", "the document holds a lone surrogate, which is not text")
+    return parsed
+
+
+def _holds_a_surrogate(value: object) -> bool:
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, str):
+            if _SURROGATE.search(item):
+                return True
+        elif isinstance(item, dict):
+            stack.extend(item)
+            stack.extend(item.values())
+        elif isinstance(item, list):
+            stack.extend(item)
+    return False
 
 
 def parse_config(data: bytes) -> LeanConfig:
