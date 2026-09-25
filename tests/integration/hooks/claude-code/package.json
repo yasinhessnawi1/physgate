@@ -1,0 +1,7 @@
+{
+  "name": "physgate-hook-tests-claude-code",
+  "private": true,
+  "dependencies": {
+    "@anthropic-ai/claude-code": "2.1.272"
+  }
+}

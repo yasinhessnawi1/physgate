@@ -95,4 +95,4 @@ markers = [
 # Belt and braces. Nothing under the experiment directories matches a
 # collection pattern today; this is here for the fourth experiment, not the
 # three that exist.
-norecursedirs = ["experiments", ".venv", "build", "dist"]
+norecursedirs = ["experiments", ".venv", "build", "dist", "node_modules"]

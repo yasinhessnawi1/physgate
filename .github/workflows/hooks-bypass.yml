@@ -1,0 +1,63 @@
+name: hooks-bypass
+
+# The hook layer, tested through the real Claude Code binary: every hook
+# through the real tool path, and the bypass suite, whose tolerance is zero.
+# A separate job from the check job, which stays exactly as it was.
+
+on:
+  push:
+  pull_request:
+
+# Reads the repository and writes nothing. There is no secret in this job and
+# no API key: the tests drive the binary with a scripted local stand-in for the
+# model API, and a fallback to the real API would fail loudly for want of a
+# credential rather than spend anything.
+permissions:
+  contents: read
+
+jobs:
+  bypass:
+    runs-on: ubuntu-latest
+    # Each attempt is a short session; the whole suite is a few minutes. The
+    # ceiling stops a hung session from holding a runner for an hour.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        # The same exact pin as the check job, for the same reason: a version
+        # observed green here, not whatever is newest on the day.
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: "0.12.17"
+          enable-cache: true
+
+      - name: Install Node
+        # Only npm is needed, to fetch the pinned binary. Exact tag, not a
+        # floating major, like every other action pin in this repository.
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "22"
+
+      - name: Create the environment from the lockfile
+        run: uv sync --frozen
+
+      - name: Install the pinned Claude Code binary from its lockfile
+        # The lockfile pins the package and every platform binary by version
+        # and sha512. Install scripts are not run: the platform package already
+        # holds the native binary, and the tests point at it directly, so no
+        # third-party install step executes on the runner.
+        working-directory: tests/integration/hooks/claude-code
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: The hook layer through the real binary, bypass suite included
+        # The harness refuses to run unless the binary reports the pinned
+        # version, because the hook contract was measured on that version.
+        env:
+          PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/claude-code/node_modules/@anthropic-ai/claude-code-linux-x64/claude
+          PHYSGATE_BYPASS_LOG: ${{ github.workspace }}/bypass.jsonl
+        run: uv run pytest -q -m integration tests/integration/hooks
+
+      - name: Every attempt, one line each
+        if: always()
+        run: cat bypass.jsonl || echo "no attempts were recorded"
