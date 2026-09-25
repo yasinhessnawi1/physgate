@@ -17,13 +17,9 @@ set.
 from __future__ import annotations
 
 import hashlib
-import hmac
-import os
 from typing import Annotated, Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
-
-from physgate.hooks.exceptions import SessionConfigMismatchError
 
 #: A session is spawned as one of these. ``role`` is a domain agent writing one
 #: module; ``reviewer`` judges and does not write; ``orchestrator`` is a harness
@@ -132,30 +128,6 @@ class SessionConfig(BaseModel):
 def digest(data: bytes) -> str:
     """The sha256 of ``data``, as the hook command line carries it."""
     return hashlib.sha256(data).hexdigest()
-
-
-def load_config(path: str, expected_sha256: str) -> SessionConfig:
-    """Read the session configuration, refusing a file that was changed.
-
-    The file is opened read-only and read once, so the bytes that are checked
-    are the bytes that are parsed.
-
-    Raises:
-        SessionConfigMismatchError: the file's digest is not the expected one.
-        pydantic.ValidationError: the file is not a valid configuration.
-    """
-    fd = os.open(path, os.O_RDONLY)
-    try:
-        chunks = []
-        while chunk := os.read(fd, 1 << 16):
-            chunks.append(chunk)
-    finally:
-        os.close(fd)
-    data = b"".join(chunks)
-    if not hmac.compare_digest(digest(data), expected_sha256):
-        msg = "the session configuration was changed after the session started"
-        raise SessionConfigMismatchError(msg, path=path)
-    return SessionConfig.model_validate_json(data)
 
 
 Event = Literal[

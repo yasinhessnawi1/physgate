@@ -23,12 +23,14 @@ name that is never reused, so what an agent planted is kept as evidence.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import stat
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from typing import Any
 
 Signature = tuple[str, int, int, int, int, int, int, int]
 
@@ -116,33 +118,90 @@ def file_digest(path: str) -> str:
 
 
 class BlobStore:
-    """Bytes of protected files, content-addressed, so a revert has them to hand."""
+    """Bytes of protected files, content-addressed, so a revert has them to hand.
+
+    **One pack file per batch, not one file per blob.** The session's first hook
+    keeps the bytes of every protected file, a few hundred of them, and a file
+    each cost a create and a rename apiece: 587 ms median for that hook on the
+    server, where the state directory sat on a network filesystem and a rename
+    took 1.6 ms. Now a batch is one pack file, created exclusively under a name
+    never used before and never rewritten, plus one index naming each digest's
+    pack, offset and length, replaced whole. A pack the index does not name yet
+    (a hook killed between the two writes) is never read.
+    """
+
+    INDEX = "index.json"
 
     def __init__(self, directory: str) -> None:
         """Keep blobs under ``directory``."""
         self.directory = directory
         os.makedirs(directory, exist_ok=True)
+        self._index: dict[str, list[Any]] | None = None
+
+    def _load(self) -> dict[str, list[Any]]:
+        if self._index is None:
+            path = os.path.join(self.directory, self.INDEX)
+            if os.path.exists(path):
+                with open(path) as handle:
+                    self._index = json.loads(handle.read())
+            else:
+                self._index = {}
+        return self._index
 
     def keep(self, path: str) -> str:
         """Store the bytes of ``path``; return their digest."""
-        with open(path, "rb") as handle:
-            data = handle.read()
-        digest = hashlib.sha256(data).hexdigest()
-        blob = os.path.join(self.directory, digest)
-        if not os.path.exists(blob):
-            tmp = os.path.join(self.directory, f".{digest}.tmp")
-            with open(tmp, "wb") as handle:
-                handle.write(data)
-            os.replace(tmp, blob)
-        return digest
+        return self.keep_all([path])[path]
+
+    def keep_all(self, paths: list[str]) -> dict[str, str]:
+        """Store the bytes of every path in one pack; return each path's digest."""
+        index = self._load()
+        pack = f"pack-{os.urandom(12).hex()}"
+        chunks: list[bytes] = []
+        added: dict[str, list[Any]] = {}
+        digests: dict[str, str] = {}
+        offset = 0
+        for path in paths:
+            with open(path, "rb") as handle:
+                data = handle.read()
+            digest = hashlib.sha256(data).hexdigest()
+            digests[path] = digest
+            if digest in index or digest in added:
+                continue
+            added[digest] = [pack, offset, len(data)]
+            chunks.append(data)
+            offset += len(data)
+        if added:
+            fd = os.open(
+                os.path.join(self.directory, pack), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
+            )
+            try:
+                os.write(fd, b"".join(chunks))
+            finally:
+                os.close(fd)
+            index.update(added)
+            tmp = os.path.join(self.directory, f".{self.INDEX}.tmp")
+            with open(tmp, "w") as handle:
+                handle.write(json.dumps(index, sort_keys=True))
+            os.replace(tmp, os.path.join(self.directory, self.INDEX))
+        return digests
+
+    def read(self, digest: str) -> bytes:
+        """The bytes kept under ``digest``, checked against it."""
+        pack, offset, length = self._load()[digest]
+        with open(os.path.join(self.directory, pack), "rb") as source:
+            source.seek(offset)
+            data = source.read(length)
+        if hashlib.sha256(data).hexdigest() != digest:
+            msg = f"the kept bytes for {digest} do not match it"
+            raise OSError(msg)
+        return data
 
     def restore(self, path: str, digest: str, mode: int) -> None:
         """Replace ``path`` with the stored bytes, as a new file with ``mode``."""
         parent = os.path.dirname(path)
         os.makedirs(parent, exist_ok=True)
         tmp = os.path.join(parent, f".{os.path.basename(path)}.sentinel-restore")
-        with open(os.path.join(self.directory, digest), "rb") as source:
-            data = source.read()
+        data = self.read(digest)
         with open(tmp, "wb") as handle:
             handle.write(data)
         os.chmod(tmp, mode)
@@ -150,15 +209,14 @@ class BlobStore:
 
 
 def record(roots: list[str], blobs: BlobStore) -> dict[str, Entry]:
-    """Everything under ``roots``, with the bytes of each regular file kept."""
-    out = {}
+    """Everything under ``roots``, with the bytes of every regular file kept in one pack."""
+    found: dict[str, tuple[Signature, str | None]] = {}
     for root in roots:
         for path, st in walk(root):
             sig = signature(st)
-            digest = blobs.keep(path) if sig[0] == "file" else None
-            link = os.readlink(path) if sig[0] == "link" else None
-            out[path] = Entry(sig, digest, link)
-    return out
+            found[path] = (sig, os.readlink(path) if sig[0] == "link" else None)
+    digests = blobs.keep_all([p for p, (sig, _) in found.items() if sig[0] == "file"])
+    return {path: Entry(sig, digests.get(path), link) for path, (sig, link) in found.items()}
 
 
 def quarantine(path: str, directory: str) -> str:

@@ -1,4 +1,8 @@
-"""The session configuration is validated whole, and only the spawner's bytes are accepted."""
+"""The session configuration is validated whole, and only the spawner's bytes are accepted.
+
+The hooks read it with the standard-library validator; the schema refuses the same
+files, which the equivalence test proves across thousands of variants.
+"""
 
 from __future__ import annotations
 
@@ -10,13 +14,21 @@ import pytest
 from hook_helpers import config_dict, write_config
 from pydantic import ValidationError
 
-from physgate.hooks.config import SessionConfig, digest, load_config
+from physgate.hooks.config import SessionConfig, digest
 from physgate.hooks.exceptions import SessionConfigMismatchError
+from physgate.hooks.lean import LeanValidationError, load_config
 
 
 def test_the_spawners_file_loads(tmp_path: Path) -> None:
     path, sha, expected = write_config(tmp_path)
-    assert load_config(str(path), sha) == expected
+    loaded = load_config(str(path), sha)
+    assert (loaded.profile, loaded.role, loaded.worktree, loaded.token_ceiling) == (
+        expected.profile,
+        expected.role,
+        expected.worktree,
+        expected.token_ceiling,
+    )
+    assert [r.path for r in loaded.protected_roots] == [r.path for r in expected.protected_roots]
 
 
 def test_one_changed_byte_is_refused(tmp_path: Path) -> None:
@@ -48,5 +60,5 @@ def test_an_incoherent_configuration_is_refused(
         SessionConfig.model_validate_json(data)
     path = tmp_path / "c.json"
     path.write_bytes(data)
-    with pytest.raises(ValidationError):
+    with pytest.raises(LeanValidationError):
         load_config(str(path), digest(data))

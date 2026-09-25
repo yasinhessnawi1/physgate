@@ -15,7 +15,8 @@ from typing import Any
 
 import pytest
 
-from physgate.hooks.config import digest, load_config
+from physgate.hooks.config import digest
+from physgate.hooks.lean import load_config
 from physgate.hooks.runtime import ALLOW, Decision, HookSpec
 from physgate.hooks.settings import (
     PROFILE_TOOLS,
@@ -249,3 +250,24 @@ def test_an_interpreter_installed_inside_the_worktree_is_refused(tmp_path: Path)
     inside = here.model_copy(update={"base_prefix": str(tmp_path / "worktree" / "python")})
     with pytest.raises(ValueError, match="own installation"):
         build_config(_request(tmp_path), inside)
+
+
+def test_a_configuration_that_does_not_read_back_through_the_schema_is_never_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The generator validates the shape where it writes it, on the bytes
+    # themselves, through the schema. Bytes that would read back as another
+    # configuration are refused before any file exists.
+    from physgate.hooks import settings
+
+    real = settings._dump
+
+    def drifted(value: object) -> bytes:
+        if isinstance(value, dict) and "token_ceiling" in value:
+            value = {**value, "token_ceiling": value["token_ceiling"] + 1}
+        return real(value)
+
+    monkeypatch.setattr(settings, "_dump", drifted)
+    with pytest.raises(ValueError, match="read back"):
+        install(_request(tmp_path), REGISTRY)
+    assert not (tmp_path / "session" / "session-config.json").exists()

@@ -259,6 +259,12 @@ def install(
     target.mkdir(parents=True, exist_ok=True)
     config_path = target / CONFIG_NAME
     config_bytes = _dump(config.model_dump(mode="json"))
+    # The shape is validated where it is written, through the schema, on the very
+    # bytes the hooks will read and whose digest they carry: the hooks validate
+    # them again with the standard-library validator a test holds to this one.
+    if SessionConfig.model_validate_json(config_bytes) != config:
+        msg = "the configuration does not read back as the one that was built"
+        raise ValueError(msg)
     config_path.write_bytes(config_bytes)
     settings = render_settings(config, str(config_path), digest(config_bytes), registry)
     settings_path = target / SETTINGS_NAME

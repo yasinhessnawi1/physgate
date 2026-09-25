@@ -436,3 +436,61 @@ def test_loaded_code_is_found_as_if_every_file_were_resolved_whole(
                 sys.path.remove(str(entry))
         for name in names:
             sys.modules.pop(name, None)
+
+
+def _sentinel_dir(root: Path) -> Path:
+    return root / "outside" / "state" / "sessions" / SESSION / "sentinel"
+
+
+def test_the_first_record_keeps_every_byte_in_one_pack_and_an_index(root: Path) -> None:
+    # One file per protected file cost the first hook a create and a rename
+    # apiece; on a network filesystem that alone was over the hook's budget.
+    _started(root)
+    blobs = _sentinel_dir(root) / "blobs"
+    packs = sorted(p.name for p in blobs.iterdir() if p.name.startswith("pack-"))
+    index = json.loads((blobs / "index.json").read_text())
+    assert len(index) >= 5
+    # The protected trees in one pack, the graph journal in a second.
+    assert len(packs) == 2
+    assert {entry[0] for entry in index.values()} == set(packs)
+    assert sorted(p.name for p in blobs.iterdir()) == sorted([*packs, "index.json"])
+
+
+def test_kept_bytes_that_no_longer_match_their_digest_are_never_put_back(root: Path) -> None:
+    _started(root)
+    blobs = _sentinel_dir(root) / "blobs"
+    for pack in blobs.glob("pack-*"):
+        data = bytearray(pack.read_bytes())
+        data[:] = bytes(len(data))
+        pack.write_bytes(bytes(data))
+    (root / GATE / "check.py").write_text("CHECK = False\n")
+    with pytest.raises(OSError, match="do not match"):
+        _check(root)
+    assert (root / GATE / "check.py").read_text() == "CHECK = False\n"
+
+
+def test_the_interpreter_is_recorded_by_signature_and_any_move_of_it_halts(
+    root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    code = tmp_path / "interp"
+    code.mkdir()
+    binary = code / "python3.12"
+    binary.write_bytes(b"\x7fELF not really an interpreter\n")
+    monkeypatch.setattr(sys, "executable", str(binary))
+    config = _config(root)
+    config = config.model_copy(
+        update={
+            "protected_roots": (
+                *config.protected_roots,
+                ProtectedRoot(path=str(code), reason="hook code", watch="halt"),
+            )
+        }
+    )
+    assert _check(root, config, "SessionStart") == "allow"
+    base = json.loads((_sentinel_dir(root) / "baseline.json").read_text())
+    sig, digest = base["halt"][os.path.realpath(binary)]
+    assert digest is None
+    assert _check(root, config) == "allow"
+    # The same bytes, touched: there is no digest to excuse it, so it is a change.
+    os.utime(binary, ns=(1, 1))
+    assert "every call is refused" in _check(root, config)

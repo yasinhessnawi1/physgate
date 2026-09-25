@@ -102,16 +102,67 @@ def _frozen_experiment_paths(config: ConfigView) -> list[str]:
     return out
 
 
-def _loaded_code(config: ConfigView) -> list[str]:
-    """The files of the code this hook process has loaded, under the installation roots."""
+#: What the two rare paths import beyond an ordinary hook: the validation library
+#: and the state package, and the standard library they bring with them. An
+#: ordinary hook no longer loads any of it, so the halt record would never see it;
+#: the first hook finds these files without importing them instead. A test runs
+#: both rare paths and fails if either loads a file under the installation that
+#: this list leaves out, so a new import upstream cannot slip past it.
+LAZY_MODULES = (
+    "pydantic", "pydantic_core", "annotated_types", "typing_extensions", "typing_inspection",
+    "physgate.state",
+    "_bisect", "_bz2", "_compression", "_contextvars", "_csv", "_datetime", "_decimal",
+    "_lzma", "_opcode", "_osx_support", "_random", "_sha2", "_socket", "_struct", "_uuid",
+    "_zoneinfo", "array", "ast", "base64", "binascii", "bisect", "bz2", "calendar",
+    "contextvars", "copy", "csv", "dataclasses", "datetime", "decimal", "dis", "email",
+    "fractions", "importlib", "inspect", "ipaddress", "linecache", "locale", "lzma", "math",
+    "ntpath", "numbers", "opcode", "pathlib", "quopri", "random", "select", "selectors",
+    "shutil", "socket", "string", "struct", "sysconfig", "tempfile", "textwrap", "threading",
+    "token", "tokenize", "urllib", "uuid", "weakref", "zipfile", "zlib", "zoneinfo",
+)  # fmt: skip
+_CODE_SUFFIXES = (".py", ".so", ".pyd")
+
+
+def _lazy_code() -> list[str]:
+    """The files of :data:`LAZY_MODULES`, found without importing any of them."""
+    # Imported here: only the first hook of a session needs it.
+    import importlib.util
+
+    files: list[str] = []
+    for name in LAZY_MODULES:
+        try:
+            spec = importlib.util.find_spec(name)
+        except (ImportError, ValueError):
+            continue
+        if spec is None:
+            continue
+        if spec.submodule_search_locations:
+            for location in spec.submodule_search_locations:
+                for directory, _, names in os.walk(location):
+                    files.extend(
+                        os.path.join(directory, n) for n in names if n.endswith(_CODE_SUFFIXES)
+                    )
+        elif spec.origin and os.path.isfile(spec.origin):
+            files.append(spec.origin)
+    stdlib = os.path.dirname(os.__file__)
+    files.extend(
+        os.path.join(stdlib, n)
+        for n in os.listdir(stdlib)
+        if n.startswith("_sysconfigdata_") and n.endswith(".py")
+    )
+    return files
+
+
+def _loaded_code(config: ConfigView, also: list[str] | None = None) -> list[str]:
+    """The files of the code this hook process has loaded, and ``also``, under the halt roots."""
     halt_roots = [os.path.realpath(r) for r in _roots(config, "halt")]
     files = {os.path.realpath(sys.executable)}
     # The same answer as resolving every file, found by resolving each directory
     # once: a hundred modules live in a dozen directories, and this runs at
     # every hook. A file that is itself a link is still resolved whole.
     directories: dict[str, str] = {}
-    for module in list(sys.modules.values()):
-        path = getattr(module, "__file__", None)
+    paths = [getattr(module, "__file__", None) for module in list(sys.modules.values())]
+    for path in [*paths, *(also or [])]:
         if not path:
             continue
         if os.path.islink(path):
@@ -198,7 +249,7 @@ def _baseline(config: ConfigView, state: _State) -> dict[str, Any]:
         "revert_roots": revert_roots,
         "revert": {p: _entry_json(e) for p, e in entries.items()},
         "journal": {r: _journal_state(r, state.blobs) for r in _roots(config, "journal")},
-        "halt": {p: _code_record(p) for p in _loaded_code(config)},
+        "halt": _halt_record(config),
         "nodes": {r: _nodes_record(r, heads(r)) for r in _roots(config, "journal")},
         "log": {p: list(sig) for p, sig in take_signatures(_roots(config, "log")).items()},
         "halted": None,
@@ -305,8 +356,28 @@ def _check_journals(base: dict[str, Any], state: _State) -> list[str]:
     return restored
 
 
-def _code_record(path: str) -> list[Any]:
-    return [list(signature(os.lstat(path))), file_digest(path)]
+def _code_record(path: str, *, hashed: bool = True) -> list[Any]:
+    return [list(signature(os.lstat(path))), file_digest(path) if hashed else None]
+
+
+def _halt_record(config: ConfigView) -> dict[str, list[Any]]:
+    """The halt class's record: loaded code and the rare paths' code, taken at the first hook.
+
+    The code this process loaded is hashed, as before, so a touch that changes no
+    byte is not a change. Two kinds of file are recorded by signature alone: the
+    interpreter binary (31 MB on the server) and the rare paths' code (about 250
+    files, 13 MB), which together cost the first hook more than every check it
+    runs. Nothing touches either legitimately, and the signature caught every
+    attack measured against it, so with no digest to excuse a touch, any move of
+    their signature is a change.
+    """
+    loaded = set(_loaded_code(config))
+    unhashed = {os.path.realpath(sys.executable)}
+    record = {p: _code_record(p, hashed=p not in unhashed) for p in loaded}
+    for path in _loaded_code(config, _lazy_code()):
+        if path not in record:
+            record[path] = _code_record(path, hashed=False)
+    return record
 
 
 def _check_halt(base: dict[str, Any], config: ConfigView) -> list[str]:
@@ -316,7 +387,7 @@ def _check_halt(base: dict[str, Any], config: ConfigView) -> list[str]:
         try:
             if list(signature(os.lstat(path))) == sig:
                 continue
-            if file_digest(path) != digest:
+            if digest is None or file_digest(path) != digest:
                 changed.append(path)
         except OSError:
             changed.append(path)
