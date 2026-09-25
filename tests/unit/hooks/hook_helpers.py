@@ -27,7 +27,9 @@ def config_dict(tmp: Path, **overrides: Any) -> dict[str, Any]:  # noqa: ANN401 
         "own_branch": "subtask/electrical-1",
         "store_root": str(tmp / "store"),
         "state_dir": str(tmp / "state"),
-        "protected_roots": [str(worktree / "src" / "physgate" / "gate")],
+        "protected_roots": [
+            {"path": str(worktree / "src" / "physgate" / "gate"), "reason": "it holds the gate"}
+        ],
         "experiments": [],
         "held_out": [],
         "required_reading": [],

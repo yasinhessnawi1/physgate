@@ -55,6 +55,15 @@ class Installation(BaseModel):
     base_prefix: AbsolutePath
 
 
+class ProtectedRoot(BaseModel):
+    """A path no agent tool may write, and the reason the agent is given."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    path: AbsolutePath
+    reason: Annotated[str, StringConstraints(min_length=1)]
+
+
 class ExperimentRule(BaseModel):
     """Which files under an experiments directory are frozen.
 
@@ -82,7 +91,7 @@ class SessionConfig(BaseModel):
     own_branch: str | None
     store_root: AbsolutePath | None
     state_dir: AbsolutePath
-    protected_roots: tuple[AbsolutePath, ...]
+    protected_roots: tuple[ProtectedRoot, ...]
     experiments: tuple[ExperimentRule, ...]
     held_out: tuple[AbsolutePath, ...]
     required_reading: tuple[AbsolutePath, ...]

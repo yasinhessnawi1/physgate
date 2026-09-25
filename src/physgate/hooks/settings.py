@@ -37,6 +37,7 @@ from physgate.hooks.config import (
     ExperimentRule,
     Installation,
     Profile,
+    ProtectedRoot,
     SessionConfig,
     digest,
 )
@@ -56,6 +57,12 @@ PROFILE_TOOLS: Mapping[Profile, tuple[str, ...]] = {
     "reviewer": ("Read", *_TASK_LIST),
     "orchestrator": ("Bash", "Edit", "NotebookEdit", "Read", "Write", *_TASK_LIST),
 }
+
+GATE_REASON = "it holds the physics gate, which no agent session writes (ARCH-081)"
+STORE_REASON = (
+    "it is the design-state graph's own store: its journal is the only authority, and a "
+    "line appended to it is replayed as genuine, so no agent tool writes any file in it"
+)
 
 #: The events on which Claude Code applies a tool matcher.
 _TOOL_EVENTS = {"PreToolUse", "PostToolUse", "PostToolUseFailure"}
@@ -127,23 +134,37 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
             raise ValueError(msg)
     worktree = Path(request.worktree)
     home = Path(request.user_home)
+    hook_code = "it is the code the hooks run from"
     protected = {
-        str(worktree / "src" / "physgate" / "gate"),
-        str(worktree / "src" / "physgate" / "hooks"),
-        str(worktree / ".env"),
-        str(worktree / ".claude"),
-        request.state_dir,
-        request.target_dir,
-        request.claude_config_dir,
-        installation.package_dir,
-        installation.environment_root,
-        installation.base_prefix,
-        str(home / ".claude" / "settings.json"),
-        str(home / ".claude.json"),
-        *request.extra_protected,
+        str(worktree / "src" / "physgate" / "gate"): GATE_REASON,
+        str(worktree / "src" / "physgate" / "hooks"): (
+            "it holds the hook layer's source, which no agent session edits"
+        ),
+        str(worktree / ".env"): "it holds the environment's secrets",
+        str(worktree / ".claude"): (
+            "it holds Claude Code settings, and a settings write can switch the hooks off"
+        ),
+        request.state_dir: "it holds the hook layer's own records of this session",
+        request.target_dir: "it holds this session's settings and configuration",
+        request.claude_config_dir: "it is this session's Claude Code configuration",
+        installation.package_dir: hook_code,
+        installation.environment_root: hook_code,
+        installation.base_prefix: hook_code,
+        str(home / ".claude" / "settings.json"): (
+            "it is the user's Claude Code settings, which later sessions read"
+        ),
+        str(home / ".claude.json"): "it is the user's Claude Code state, which later sessions read",
     }
+    for path in request.extra_protected:
+        protected.setdefault(path, "the orchestrator protects it for this session")
     if request.store_root is not None:
-        protected.add(request.store_root)
+        protected[request.store_root] = STORE_REASON
+    for path in protected:
+        if _inside(request.worktree, path):
+            msg = (
+                f"the protected path {path} contains the worktree, so every write would be refused"
+            )
+            raise ValueError(msg)
     return SessionConfig(
         profile=request.profile,
         role=request.role,
@@ -151,7 +172,9 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         own_branch=request.own_branch,
         store_root=request.store_root,
         state_dir=request.state_dir,
-        protected_roots=tuple(sorted(protected)),
+        protected_roots=tuple(
+            ProtectedRoot(path=path, reason=reason) for path, reason in sorted(protected.items())
+        ),
         experiments=(
             ExperimentRule(
                 root=str(worktree / "experiments"),

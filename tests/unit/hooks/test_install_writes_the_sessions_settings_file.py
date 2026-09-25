@@ -145,7 +145,8 @@ def test_everything_that_decides_a_refusal_is_a_protected_path(tmp_path: Path) -
         str(tmp_path / "worktree" / "src" / "physgate" / "hooks"),
         str(tmp_path / "worktree" / ".env"),
     }
-    assert must <= set(config.protected_roots)
+    assert must <= {root.path for root in config.protected_roots}
+    assert all(root.reason for root in config.protected_roots)
 
 
 @pytest.mark.parametrize("profile", ["role", "reviewer", "orchestrator"])

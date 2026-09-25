@@ -116,6 +116,7 @@ def run_session(
     script: Script,
     *,
     files: dict[str, str] | None = None,
+    outside_files: dict[str, str] | None = None,
     api_url_override: str | None = None,
     **request_fields: Any,  # noqa: ANN401 - forwarded to the install request
 ) -> SessionRun:
@@ -123,6 +124,10 @@ def run_session(
     binary = claude_binary()
     worktree = make_worktree(root, files)
     outside = root / "outside"
+    for rel, content in (outside_files or {}).items():
+        path = outside / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
     fields: dict[str, Any] = {
         "profile": "role",
         "role": "electrical",
