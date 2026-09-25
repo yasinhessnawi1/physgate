@@ -169,7 +169,8 @@ def test_what_this_layer_cannot_see_is_left_to_the_sentinel(root: Path, command:
 
 def test_a_writing_command_is_refused_when_the_call_starts_inside_the_gate(root: Path) -> None:
     # A later call can start in a directory an earlier call reached through a cd
-    # this layer could not follow. The command itself names no path.
+    # this layer could not follow. The command names no path, but its own name
+    # resolves inside the gate, as every word does against the working directory.
     event = bash("make", cwd=str(root / "worktree" / "src" / "physgate" / "gate"))
     decision = sp.pre_tool_use(HookInput.model_validate(event), _config(root))
     assert GATE_REASON in decision.reason

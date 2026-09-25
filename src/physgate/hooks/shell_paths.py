@@ -13,7 +13,6 @@ What this layer refuses, for every profile that has a shell:
   only reads (``cat``, ``grep``, ``ls``, ``diff``, ``git diff`` and the like),
   and a command of any kind that names the held-out tier, which nothing reads;
 - any output redirection into a protected path, whatever the command;
-- any command run from inside a protected directory, unless it only reads;
 - running anything in the background: a write that lands after the call has
   returned lands after every check that could see it;
 - starting Claude Code itself, however it is invoked: a nested session can be
@@ -45,10 +44,6 @@ NAMES_PROTECTED = (
     "protected files (cat, grep, head, ls, diff and the like) but may not otherwise name them."
 )
 REDIRECT_INTO = "This command redirects output into {path}, which is protected: {reason}."
-INSIDE_PROTECTED = (
-    "This command runs inside {path}, which is protected: {reason}. Only commands that read "
-    "may run there."
-)
 BACKGROUND = (
     "Running a command in the background is refused: a write that lands after the call "
     "returns lands after every check that could see it. Run it in the foreground."
@@ -179,11 +174,10 @@ def check(cmd: SimpleCommand, cwd: str, config: SessionConfig) -> str | None:
         if found is not None:
             template = REDIRECT_INTO if writing else NAMES_PROTECTED
             return template.format(path=found[0], reason=found[1])
+    # Every word is resolved against the working directory, the command's own
+    # name included, so a writing command run from inside a protected directory
+    # is refused here without a separate rule for it.
     reads_only = bool(argv) and _only_reads(argv)
-    if argv and not reads_only:
-        inside = protection(cwd, cwd, config, writing=True)
-        if inside is not None:
-            return INSIDE_PROTECTED.format(path=cwd, reason=inside)
     found = _first_protected(_command_words(cmd), cwd, config, reading=reads_only)
     if found is not None:
         return NAMES_PROTECTED.format(path=found[0], reason=found[1])
