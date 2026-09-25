@@ -176,3 +176,52 @@ def test_a_writing_command_is_refused_when_the_call_starts_inside_the_gate(root:
     assert GATE_REASON in decision.reason
     reader = bash("ls -la", cwd=str(root / "worktree" / "src" / "physgate" / "gate"))
     assert sp.pre_tool_use(HookInput.model_validate(reader), _config(root)).allow
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git diff --output=src/physgate/gate/check.py",
+        "git log --output src/physgate/gate/log.txt -- README.md",
+        "git show HEAD --output=.env",
+        "git grep -O vim CHECK -- src/physgate/gate",
+        "find src/physgate/gate -name '*.py' -fprint src/physgate/gate/list.txt",
+        "find src/physgate/gate -fprint0 /tmp/x",
+        "find src/physgate/gate -fprintf /tmp/x '%p'",
+        "find src/physgate/gate -fls /tmp/x",
+        "tree -o src/physgate/gate/tree.txt src/physgate",
+        "less -o src/physgate/gate/log.txt README.md",
+        "less --log-file=src/physgate/gate/log.txt README.md",
+        "rg --pre ./payload.sh CHECK src/physgate/gate",
+        "file -C -m src/physgate/gate/magic",
+    ],
+)
+def test_a_reader_carrying_a_flag_that_writes_is_a_writer(root: Path, command: str) -> None:
+    told = _decide(root, command)
+    assert GATE_REASON in told or "secrets" in told
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git diff --stat -- src/physgate/gate",
+        "find src/physgate/gate -name '*.py' -print",
+        "tree src/physgate/gate",
+        "rg CHECK src/physgate/gate",
+        "less src/physgate/gate/check.py",
+        "file src/physgate/gate/check.py",
+    ],
+)
+def test_the_same_readers_without_those_flags_still_only_read(root: Path, command: str) -> None:
+    assert _decide(root, command) == "allow"
+
+
+def test_a_commit_message_naming_a_protected_path_is_refused_with_the_route_around_it(
+    root: Path,
+) -> None:
+    told = _decide(root, "git commit -m 'explain why src/physgate/gate/check.py is protected'")
+    assert GATE_REASON in told
+    assert "git commit -F <file>" in told
+    assert "git commit -F" not in _decide(root, "cp /tmp/x src/physgate/gate/check.py")
+    (root / "worktree" / "msg.txt").write_text("explain src/physgate/gate/check.py\n")
+    assert _decide(root, "git commit -F msg.txt") == "allow"

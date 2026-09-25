@@ -52,6 +52,10 @@ NESTED_SESSION = (
     "Starting Claude Code from a session is refused: a nested session can be started "
     "without any of these hooks."
 )
+COMMIT_MESSAGE_ROUTE = (
+    " To mention a protected path in a commit message, write the message to a file and "
+    "commit with git commit -F <file>: the file's content is not read as part of the command."
+)
 UNPARSEABLE = (
     "This command could not be split into the commands it would run ({detail}), so it is "
     "refused. Simplify the quoting and try again."
@@ -63,7 +67,20 @@ _READERS = {
     "realpath", "readlink", "basename", "dirname", "test", "[", "true", "pwd", "echo",
 }  # fmt: skip
 _GIT_READERS = {"diff", "log", "show", "status", "blame", "ls-files", "grep", "rev-parse"}
-_FIND_WRITERS = {"-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprintf", "-fls"}
+#: Flags that turn a reader into a writer, or into something that runs a
+#: program: with one of these, a command on the reader list names its output
+#: file or its program as freely as any writer would, so it is checked as one.
+_WRITING_FLAGS: dict[str, tuple[str, ...]] = {
+    "find": (
+        "-delete", "-exec", "-execdir", "-ok", "-okdir",
+        "-fprint", "-fprint0", "-fprintf", "-fls",
+    ),
+    "git": ("--output", "-O", "--open-files-in-pager"),
+    "tree": ("-o",),
+    "less": ("-o", "-O", "--log-file", "--LOG-FILE"),
+    "rg": ("--pre",),
+    "file": ("-C",),
+}  # fmt: skip
 _BACKGROUNDERS = {"nohup", "setsid", "disown", "at", "batch", "crontab", "launchctl", "daemonize"}
 _BACKGROUNDERS |= {"systemd-run", "screen", "tmux"}
 _PACKAGE_RUNNERS = {"npx", "bunx", "pnpx"}
@@ -76,16 +93,36 @@ def _name(word: str) -> str:
     return word.rsplit("/", 1)[-1]
 
 
+def _carries(word: str, flag: str) -> bool:
+    """True if ``word`` is ``flag``, ``flag=value``, or a short flag with its value attached."""
+    if word == flag or word.startswith(flag + "="):
+        return True
+    return len(flag) == 2 and not flag.startswith("--") and word.startswith(flag)
+
+
 def _only_reads(argv: tuple[str, ...]) -> bool:
     head = _name(argv[0])
-    if head in _READERS:
+    flags = _WRITING_FLAGS.get(head, ())
+    if any(_carries(word, flag) for word in argv[1:] for flag in flags):
+        return False
+    if head in _READERS or head == "find":
         return True
-    if head == "find":
-        return not any(word in _FIND_WRITERS for word in argv[1:])
     if head == "git":
         subs = [w for w in argv[1:] if not w.startswith("-")]
         return bool(subs) and subs[0] in _GIT_READERS
     return False
+
+
+def _commits_with_inline_message(argv: tuple[str, ...]) -> bool:
+    if not argv or _name(argv[0]) != "git":
+        return False
+    subs = [w for w in argv[1:] if not w.startswith("-")]
+    if not subs or subs[0] != "commit":
+        return False
+    return any(
+        w in ("-m", "--message") or w.startswith("--message=") or (w.startswith("-m") and w != "-m")
+        for w in argv[1:]
+    )
 
 
 def _starts_claude(argv: tuple[str, ...]) -> bool:
@@ -180,7 +217,10 @@ def check(cmd: SimpleCommand, cwd: str, config: SessionConfig) -> str | None:
     reads_only = bool(argv) and _only_reads(argv)
     found = _first_protected(_command_words(cmd), cwd, config, reading=reads_only)
     if found is not None:
-        return NAMES_PROTECTED.format(path=found[0], reason=found[1])
+        reason = NAMES_PROTECTED.format(path=found[0], reason=found[1])
+        if _commits_with_inline_message(argv):
+            reason += COMMIT_MESSAGE_ROUTE
+        return reason
     return None
 
 
