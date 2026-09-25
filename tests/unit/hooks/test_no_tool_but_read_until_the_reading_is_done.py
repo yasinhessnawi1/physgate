@@ -9,8 +9,7 @@ import pytest
 from hook_helpers import SESSION, bash, event, write_config
 
 from physgate.hooks import reading
-from physgate.hooks.config import SessionConfig
-from physgate.hooks.runtime import HookInput
+from physgate.hooks.config import HookInput, SessionConfig
 
 
 @pytest.fixture

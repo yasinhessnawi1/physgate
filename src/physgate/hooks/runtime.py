@@ -14,74 +14,65 @@ is shown the hook's whole command line as well (measured).
 
 One process serves every hook module for one event. Claude Code runs matching
 hook commands in parallel, so one process per module would start an interpreter
-and import the validation library once per module on every tool call; the module
-names are on the command line instead, which is also how the settings file shows
-that every module is wired.
+once per module on every tool call; the module names are on the command line
+instead, which is also how the settings file shows that every module is wired.
+
+This module is on every hook's hot path, and a hook has 200 ms, so it imports
+the standard library only: the configuration and the event are validated by
+:mod:`physgate.hooks.lean`, which a test holds to the pydantic schema.
 """
 
 from __future__ import annotations
 
-import contextlib
 import json
 import sys
 import time
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, ConfigDict, StringConstraints
-
-from physgate.hooks.config import SessionConfig, load_config
+from physgate.hooks.lean import EVENTS, load_config, parse_input
 from physgate.hooks.state import append_log
 
-Event = Literal[
-    "SessionStart", "PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop", "SessionEnd"
-]
-EVENTS: tuple[Event, ...] = (
-    "SessionStart",
-    "PreToolUse",
-    "PostToolUse",
-    "PostToolUseFailure",
-    "Stop",
-    "SessionEnd",
-)
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping, Sequence
+    from typing import Any
+
+    from physgate.hooks.views import ConfigView, InputView
+
+    Handler = Callable[[InputView, ConfigView], "Decision"]
+
+__all__ = ["ALLOW", "EVENTS", "Decision", "HookSpec", "dispatch", "emit", "main", "refuse"]
 
 #: The events on which a refusal stops something. On the others a refusal is
 #: still reported and logged, and the later hooks act on the record it leaves.
 _BLOCKING_EVENTS = {"PreToolUse"}
 
 
-class HookInput(BaseModel):
-    """The part of Claude Code's event description the hooks rely on.
-
-    Unknown fields are ignored rather than refused. This is the one boundary in
-    the package that does not forbid extras, deliberately: the description is a
-    vendor contract that gains fields between versions, and refusing an unknown
-    field would turn a routine upgrade into a refusal of every tool call. The
-    fields that are relied on are typed and required where the decision needs
-    them.
-    """
-
-    model_config = ConfigDict(frozen=True, extra="ignore")
-
-    session_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
-    cwd: str
-    hook_event_name: Event
-    tool_name: str | None = None
-    # Any: the shape of a tool's input and response is the tool's, and each
-    # hook validates the part it reads.
-    tool_input: dict[str, Any] | None = None
-    tool_response: Any = None
-    agent_id: str | None = None
-
-
-@dataclass(frozen=True)
 class Decision:
     """What a hook concluded. ``context`` is text handed to the session at start."""
 
-    allow: bool
-    reason: str = ""
-    context: str = ""
+    __slots__ = ("allow", "context", "reason")
+
+    def __init__(self, allow: bool, reason: str = "", context: str = "") -> None:
+        """A decision; see :func:`refuse` for the usual way to make a refusal."""
+        self.allow = allow
+        self.reason = reason
+        self.context = context
+
+    def __eq__(self, other: object) -> bool:
+        """Equal when every field is."""
+        return isinstance(other, Decision) and (self.allow, self.reason, self.context) == (
+            other.allow,
+            other.reason,
+            other.context,
+        )
+
+    def __hash__(self) -> int:
+        """Hash on every field."""
+        return hash((self.allow, self.reason, self.context))
+
+    def __repr__(self) -> str:
+        """For test output."""
+        return f"Decision(allow={self.allow!r}, reason={self.reason!r}, context={self.context!r})"
 
 
 ALLOW = Decision(allow=True)
@@ -92,18 +83,18 @@ def refuse(reason: str) -> Decision:
     return Decision(allow=False, reason=reason)
 
 
-Handler = Callable[[HookInput, SessionConfig], Decision]
-
-
-@dataclass(frozen=True)
 class HookSpec:
     """One hook module: its name and what it does on each event."""
 
-    name: str
-    handlers: Mapping[Event, Handler] = field(default_factory=dict)
+    __slots__ = ("handlers", "name")
+
+    def __init__(self, name: str, handlers: Mapping[str, Handler]) -> None:
+        """Name the hook and give its handler for each event it handles."""
+        self.name = name
+        self.handlers = handlers
 
 
-def dispatch(specs: Sequence[HookSpec], hook_input: HookInput, config: SessionConfig) -> Decision:
+def dispatch(specs: Sequence[HookSpec], hook_input: InputView, config: ConfigView) -> Decision:
     """Run every named hook that handles this event; the first refusal wins.
 
     Every refusal is logged, not only the first, so the record says which layers
@@ -128,7 +119,7 @@ def dispatch(specs: Sequence[HookSpec], hook_input: HookInput, config: SessionCo
     return Decision(allow=True, context="\n\n".join(contexts))
 
 
-def _log_refusal(config: SessionConfig, hook_input: HookInput, hook: str, reason: str) -> None:
+def _log_refusal(config: ConfigView, hook_input: InputView, hook: str, reason: str) -> None:
     append_log(
         config,
         {
@@ -181,13 +172,13 @@ def main(argv: Sequence[str], stdin_text: str, registry: Mapping[str, HookSpec])
     ``argv`` is ``<event> --hooks a,b,c --config <path> --config-sha256 <hex>``.
     """
     event = argv[0] if argv else "PreToolUse"
-    config: SessionConfig | None = None
+    config: ConfigView | None = None
     try:
         args = _parse_argv(argv)
         event = args["event"]
         config = load_config(args["config"], args["sha256"])
         specs = [registry[name] for name in args["hooks"]]
-        hook_input = HookInput.model_validate_json(stdin_text)
+        hook_input = parse_input(stdin_text)
         if hook_input.hook_event_name != event:
             msg = f"the hook was wired for {event} but received {hook_input.hook_event_name}"
             raise ValueError(msg)
@@ -202,11 +193,15 @@ def main(argv: Sequence[str], stdin_text: str, registry: Mapping[str, HookSpec])
         decision = refuse(reason)
         # The refusal stands whether or not the log line can be written.
         if config is not None:
-            with contextlib.suppress(BaseException):
+            # A plain try rather than contextlib.suppress: that module is not free
+            # to import on every hook's hot path.
+            try:  # noqa: SIM105
                 append_log(
                     config,
                     {"t": time.time(), "event": event, "decision": "error", "reason": reason},
                 )
+            except BaseException:  # noqa: BLE001, S110
+                pass
     return emit(event, decision)
 
 

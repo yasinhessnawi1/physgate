@@ -15,8 +15,8 @@ from typing import Any
 
 import pytest
 
-from physgate.hooks.config import SessionConfig, digest, load_config
-from physgate.hooks.runtime import ALLOW, Decision, HookInput, HookSpec
+from physgate.hooks.config import digest, load_config
+from physgate.hooks.runtime import ALLOW, Decision, HookSpec
 from physgate.hooks.settings import (
     PROFILE_TOOLS,
     InstallRequest,
@@ -24,9 +24,10 @@ from physgate.hooks.settings import (
     current_installation,
     install,
 )
+from physgate.hooks.views import ConfigView, InputView
 
 
-def _allow(_: HookInput, __: SessionConfig) -> Decision:
+def _allow(_: InputView, __: ConfigView) -> Decision:
     return ALLOW
 
 

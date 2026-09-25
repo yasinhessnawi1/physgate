@@ -20,11 +20,13 @@ commit message that names a forbidden flag is text and passes.
 from __future__ import annotations
 
 import os
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-from physgate.hooks.config import SessionConfig
-from physgate.hooks.runtime import ALLOW, Decision, HookInput, HookSpec, refuse
+from physgate.hooks.runtime import ALLOW, Decision, HookSpec, refuse
 from physgate.hooks.shell import ShellSyntaxError, SimpleCommand, parse, unwrap
+
+if TYPE_CHECKING:
+    from physgate.hooks.views import ConfigView, InputView
 
 FORCE_PUSH = (
     "Force-pushing is refused: it rewrites history other sessions have built on. "
@@ -119,22 +121,27 @@ def _short_cluster_has(flag: str, letter: str) -> bool:
 
 def _current_branch(cwd: str) -> str | None:
     """The branch HEAD names in the repository containing ``cwd``, read without git."""
-    here = Path(cwd)
-    for directory in (here, *here.parents):
-        dot_git = directory / ".git"
-        if dot_git.is_file():
-            pointer = dot_git.read_text().strip()
+    directory = os.path.abspath(cwd)
+    while True:
+        dot_git = os.path.join(directory, ".git")
+        if os.path.isfile(dot_git):
+            with open(dot_git) as handle:
+                pointer = handle.read().strip()
             if not pointer.startswith("gitdir:"):
                 return None
-            git_dir = Path(pointer.removeprefix("gitdir:").strip())
-            git_dir = git_dir if git_dir.is_absolute() else directory / git_dir
-        elif dot_git.is_dir():
+            git_dir = pointer.removeprefix("gitdir:").strip()
+            git_dir = git_dir if os.path.isabs(git_dir) else os.path.join(directory, git_dir)
+        elif os.path.isdir(dot_git):
             git_dir = dot_git
         else:
+            parent = os.path.dirname(directory)
+            if parent == directory:
+                return None
+            directory = parent
             continue
-        head = (git_dir / "HEAD").read_text().strip()
+        with open(os.path.join(git_dir, "HEAD")) as handle:
+            head = handle.read().strip()
         return head.removeprefix("ref: refs/heads/") if head.startswith("ref: ") else None
-    return None
 
 
 def _head_relative(ref: str) -> bool:
@@ -145,7 +152,7 @@ def _head_relative(ref: str) -> bool:
 
 
 def check_command(
-    cmd: SimpleCommand, config: SessionConfig, cwd: str, head_moved_earlier: bool
+    cmd: SimpleCommand, config: ConfigView, cwd: str, head_moved_earlier: bool
 ) -> str | None:
     """The reason ``cmd`` is refused, or ``None``."""
     if any(_mentions_hooks_path(a) for a in cmd.assignments):
@@ -207,7 +214,7 @@ def check_command(
     return None
 
 
-def pre_tool_use(hook_input: HookInput, config: SessionConfig) -> Decision:
+def pre_tool_use(hook_input: InputView, config: ConfigView) -> Decision:
     """Refuse a Bash call that runs a forbidden git operation anywhere in it."""
     if hook_input.tool_name != "Bash":
         return ALLOW

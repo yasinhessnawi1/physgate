@@ -11,25 +11,26 @@ import pytest
 from hook_helpers import SESSION, bash, event, write_config
 
 from physgate.hooks import __main__ as entry
-from physgate.hooks.config import SessionConfig
-from physgate.hooks.runtime import ALLOW, Decision, HookInput, HookSpec, dispatch, main, refuse
+from physgate.hooks.config import HookInput
+from physgate.hooks.runtime import ALLOW, Decision, HookSpec, dispatch, main, refuse
 from physgate.hooks.state import LOG_NAME
+from physgate.hooks.views import ConfigView, InputView
 
 
-def _raises(_: HookInput, __: SessionConfig) -> Decision:
+def _raises(_: InputView, __: ConfigView) -> Decision:
     msg = "boom"
     raise RuntimeError(msg)
 
 
-def _allows(_: HookInput, __: SessionConfig) -> Decision:
+def _allows(_: InputView, __: ConfigView) -> Decision:
     return ALLOW
 
 
-def _refuses_a(_: HookInput, __: SessionConfig) -> Decision:
+def _refuses_a(_: InputView, __: ConfigView) -> Decision:
     return refuse("reason a")
 
 
-def _refuses_b(_: HookInput, __: SessionConfig) -> Decision:
+def _refuses_b(_: InputView, __: ConfigView) -> Decision:
     return refuse("reason b")
 
 

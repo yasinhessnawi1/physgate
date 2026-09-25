@@ -42,6 +42,9 @@ from physgate.hooks.config import (
     Watch,
     digest,
 )
+from physgate.hooks.reasons import GATE_REASON as GATE_REASON
+from physgate.hooks.reasons import HELD_OUT_REASON as HELD_OUT_REASON
+from physgate.hooks.reasons import STORE_REASON as STORE_REASON
 from physgate.hooks.runtime import EVENTS, HookSpec
 
 WATCHDOG_SECONDS = 5
@@ -59,15 +62,6 @@ PROFILE_TOOLS: Mapping[Profile, tuple[str, ...]] = {
     "orchestrator": ("Bash", "Edit", "NotebookEdit", "Read", "Write", *_TASK_LIST),
 }
 
-HELD_OUT_REASON = (
-    "it is the held-out evaluation tier, which nothing reads or writes before "
-    "measurement (ARCH-141)"
-)
-GATE_REASON = "it holds the physics gate, which no agent session writes (ARCH-081)"
-STORE_REASON = (
-    "it is the design-state graph's own store: its journal is the only authority, and a "
-    "line appended to it is replayed as genuine, so no agent tool writes any file in it"
-)
 
 #: The events on which Claude Code applies a tool matcher.
 _TOOL_EVENTS = {"PreToolUse", "PostToolUse", "PostToolUseFailure"}

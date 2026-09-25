@@ -14,7 +14,7 @@ import pytest
 from hook_helpers import bash, event, write_config
 
 from physgate.hooks import git_ops
-from physgate.hooks.runtime import HookInput
+from physgate.hooks.config import HookInput
 
 G = git_ops
 

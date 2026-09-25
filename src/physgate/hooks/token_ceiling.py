@@ -24,9 +24,12 @@ It costs one ``stat`` per file, since the bound is the file's size.
 from __future__ import annotations
 
 import os
+from typing import TYPE_CHECKING
 
-from physgate.hooks.config import SessionConfig
-from physgate.hooks.runtime import ALLOW, Decision, HookInput, HookSpec, refuse
+from physgate.hooks.runtime import ALLOW, Decision, HookSpec, refuse
+
+if TYPE_CHECKING:
+    from physgate.hooks.views import ConfigView, InputView
 
 OVER = (
     "The always-loaded set is over its token ceiling, so every tool is refused. It "
@@ -40,7 +43,7 @@ UNMEASURABLE = (
 )
 
 
-def measure(config: SessionConfig) -> Decision:
+def measure(config: ConfigView) -> Decision:
     """Refuse when the always-loaded set's upper bound is over the ceiling."""
     sizes: list[tuple[int, str]] = []
     for path in config.always_loaded:
@@ -58,12 +61,12 @@ def measure(config: SessionConfig) -> Decision:
     )
 
 
-def session_start(hook_input: HookInput, config: SessionConfig) -> Decision:
+def session_start(hook_input: InputView, config: ConfigView) -> Decision:
     """Report a breach at the start of the session."""
     return measure(config)
 
 
-def pre_tool_use(hook_input: HookInput, config: SessionConfig) -> Decision:
+def pre_tool_use(hook_input: InputView, config: ConfigView) -> Decision:
     """Refuse every tool while the always-loaded set is over the ceiling."""
     return measure(config)
 

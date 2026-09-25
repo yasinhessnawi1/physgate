@@ -12,8 +12,7 @@ import pytest
 from hook_helpers import bash, config_dict, event, write_config
 
 from physgate.hooks import token_ceiling
-from physgate.hooks.config import SessionConfig
-from physgate.hooks.runtime import HookInput
+from physgate.hooks.config import HookInput, SessionConfig
 
 START = HookInput.model_validate(event("SessionStart"))
 BASH = HookInput.model_validate(bash("ls"))

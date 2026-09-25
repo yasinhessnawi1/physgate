@@ -10,13 +10,17 @@ test, never a default.
 
 from __future__ import annotations
 
-from physgate.hooks.config import SessionConfig
-from physgate.hooks.runtime import ALLOW, Decision, HookInput, HookSpec, refuse
+from typing import TYPE_CHECKING
+
+from physgate.hooks.runtime import ALLOW, Decision, HookSpec, refuse
+
+if TYPE_CHECKING:
+    from physgate.hooks.views import ConfigView, InputView
 
 NOT_AVAILABLE = "The {tool} tool is not available to a {profile} session. Available: {allowed}."
 
 
-def pre_tool_use(hook_input: HookInput, config: SessionConfig) -> Decision:
+def pre_tool_use(hook_input: InputView, config: ConfigView) -> Decision:
     """Refuse a tool that is not on the profile's list."""
     tool = hook_input.tool_name or ""
     if tool in config.tools_allowed:

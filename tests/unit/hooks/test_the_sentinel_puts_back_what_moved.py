@@ -18,8 +18,7 @@ import pytest
 from hook_helpers import SESSION, bash, make_store, node
 
 from physgate.hooks import sentinel
-from physgate.hooks.config import ProtectedRoot, SessionConfig
-from physgate.hooks.runtime import HookInput
+from physgate.hooks.config import HookInput, ProtectedRoot, SessionConfig
 from physgate.hooks.settings import InstallRequest, build_config
 from physgate.hooks.settings import current_installation as installation
 from physgate.hooks.state import LOG_NAME

@@ -18,8 +18,7 @@ import pytest
 from hook_helpers import bash, event, make_store, node, write_config
 
 from physgate.hooks import graph
-from physgate.hooks.config import SessionConfig
-from physgate.hooks.runtime import HookInput
+from physgate.hooks.config import HookInput, SessionConfig
 from physgate.hooks.snapshot import signatures
 from physgate.state.protocol import (
     REJECT_CROSS_ROLE,

@@ -19,12 +19,15 @@ from __future__ import annotations
 
 import hashlib
 import os
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
-from physgate.hooks.config import SessionConfig
-from physgate.hooks.runtime import ALLOW, Decision, HookInput, HookSpec, refuse
+from physgate.hooks.runtime import ALLOW, Decision, HookSpec, refuse
 from physgate.hooks.state import add_record, read_records, session_dir
+
+if TYPE_CHECKING:
+    from typing import Any
+
+    from physgate.hooks.views import ConfigView, InputView
 
 NOT_DONE = (
     "Required reading is not complete. Read each of these files in full with the Read "
@@ -37,14 +40,15 @@ def _identity(path: str) -> tuple[int, int, str] | None:
     """(device, inode, sha256 of the bytes) of ``path``, or ``None`` if unreadable."""
     try:
         st = os.stat(path)
-        data = Path(path).read_bytes()
+        with open(path, "rb") as handle:
+            data = handle.read()
     except OSError:
         return None
     return st.st_dev, st.st_ino, hashlib.sha256(data).hexdigest()
 
 
-def _reads_dir(config: SessionConfig, hook_input: HookInput) -> Path:
-    return session_dir(config, hook_input.session_id) / "reads"
+def _reads_dir(config: ConfigView, hook_input: InputView) -> str:
+    return os.path.join(session_dir(config, hook_input.session_id), "reads")
 
 
 def _covered(records: list[dict[str, Any]]) -> list[tuple[int, int]]:
@@ -69,7 +73,7 @@ def _is_complete(records: list[dict[str, Any]]) -> bool:
     return bool(merged) and merged[0][0] <= 1 and merged[0][1] >= total
 
 
-def outstanding(config: SessionConfig, hook_input: HookInput) -> list[str]:
+def outstanding(config: ConfigView, hook_input: InputView) -> list[str]:
     """The required files not yet read in full at their current content."""
     records = read_records(_reads_dir(config, hook_input))
     missing = []
@@ -85,7 +89,7 @@ def outstanding(config: SessionConfig, hook_input: HookInput) -> list[str]:
     return missing
 
 
-def session_start(hook_input: HookInput, config: SessionConfig) -> Decision:
+def session_start(hook_input: InputView, config: ConfigView) -> Decision:
     """Tell the session what it must read before anything else."""
     if not config.required_reading:
         return ALLOW
@@ -99,7 +103,7 @@ def session_start(hook_input: HookInput, config: SessionConfig) -> Decision:
     )
 
 
-def post_tool_use(hook_input: HookInput, config: SessionConfig) -> Decision:
+def post_tool_use(hook_input: InputView, config: ConfigView) -> Decision:
     """Record which lines of a required file a Read returned."""
     if hook_input.tool_name != "Read" or not config.required_reading:
         return ALLOW
@@ -129,7 +133,7 @@ def post_tool_use(hook_input: HookInput, config: SessionConfig) -> Decision:
     return ALLOW
 
 
-def pre_tool_use(hook_input: HookInput, config: SessionConfig) -> Decision:
+def pre_tool_use(hook_input: InputView, config: ConfigView) -> Decision:
     """Refuse every tool except Read until the required reading is complete."""
     if hook_input.tool_name == "Read" or not config.required_reading:
         return ALLOW

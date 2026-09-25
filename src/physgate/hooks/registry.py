@@ -7,7 +7,7 @@ exists but is never wired cannot pass unnoticed.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
 from physgate.hooks import (
     git_ops,
@@ -19,7 +19,11 @@ from physgate.hooks import (
     token_ceiling,
     tools,
 )
-from physgate.hooks.runtime import HookSpec
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from physgate.hooks.runtime import HookSpec
 
 REGISTRY: Mapping[str, HookSpec] = {
     spec.name: spec

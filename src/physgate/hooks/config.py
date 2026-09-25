@@ -19,7 +19,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
-from typing import Annotated, Literal, Self
+from typing import Annotated, Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
@@ -156,3 +156,35 @@ def load_config(path: str, expected_sha256: str) -> SessionConfig:
         msg = "the session configuration was changed after the session started"
         raise SessionConfigMismatchError(msg, path=path)
     return SessionConfig.model_validate_json(data)
+
+
+Event = Literal[
+    "SessionStart", "PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop", "SessionEnd"
+]
+
+
+class HookInput(BaseModel):
+    """The part of Claude Code's event description the hooks rely on: the schema.
+
+    Unknown fields are ignored rather than refused. This is the one boundary in
+    the package that does not forbid extras, deliberately: the description is a
+    vendor contract that gains fields between versions, and refusing an unknown
+    field would turn a routine upgrade into a refusal of every tool call. The
+    fields that are relied on are typed and required where the decision needs
+    them.
+
+    The hot path validates with :mod:`physgate.hooks.lean` instead, which a test
+    holds to exactly this model.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    session_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
+    cwd: str
+    hook_event_name: Event
+    tool_name: str | None = None
+    # Any: the shape of a tool's input and response is the tool's, and each
+    # hook validates the part it reads.
+    tool_input: dict[str, Any] | None = None
+    tool_response: Any = None
+    agent_id: str | None = None

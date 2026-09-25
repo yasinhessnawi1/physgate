@@ -45,18 +45,18 @@ import json
 import os
 import sys
 import time
-from collections.abc import Iterator
-from contextlib import contextmanager
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
-from physgate.hooks.config import SessionConfig
 from physgate.hooks.journal_view import Head, heads
-from physgate.hooks.runtime import ALLOW, Decision, HookInput, HookSpec, refuse
+from physgate.hooks.runtime import ALLOW, Decision, HookSpec, refuse
 from physgate.hooks.snapshot import BlobStore, Entry, file_digest, quarantine, record, signature
 from physgate.hooks.snapshot import signatures as take_signatures
 from physgate.hooks.state import append_log, session_dir
-from physgate.state import node_file_body
+
+if TYPE_CHECKING:
+    from typing import Any
+
+    from physgate.hooks.views import ConfigView, InputView
 
 PUT_BACK = (
     "Protected paths changed during this session and were put back: {paths}. Protected "
@@ -76,11 +76,11 @@ UNRESTORABLE = (
 )
 
 
-def _roots(config: SessionConfig, watch: str) -> list[str]:
+def _roots(config: ConfigView, watch: str) -> list[str]:
     return [root.path for root in config.protected_roots if root.watch == watch]
 
 
-def _frozen_experiment_paths(config: SessionConfig) -> list[str]:
+def _frozen_experiment_paths(config: ConfigView) -> list[str]:
     """Every frozen experiment directory and every criteria file, as revert roots."""
     out: list[str] = []
     for rule in config.experiments:
@@ -102,7 +102,7 @@ def _frozen_experiment_paths(config: SessionConfig) -> list[str]:
     return out
 
 
-def _loaded_code(config: SessionConfig) -> list[str]:
+def _loaded_code(config: ConfigView) -> list[str]:
     """The files of the code this hook process has loaded, under the installation roots."""
     halt_roots = [os.path.realpath(r) for r in _roots(config, "halt")]
     files = {os.path.realpath(sys.executable)}
@@ -129,47 +129,50 @@ def _entry(raw: list[Any]) -> Entry:
 
 
 class _State:
-    def __init__(self, directory: Path) -> None:
+    def __init__(self, directory: str) -> None:
         self.directory = directory
-        self.blobs = BlobStore(directory / "blobs")
-        self.quarantine = directory / "quarantine"
-        self.path = directory / "baseline.json"
+        self.blobs = BlobStore(os.path.join(directory, "blobs"))
+        self.quarantine = os.path.join(directory, "quarantine")
+        self.path = os.path.join(directory, "baseline.json")
 
     def load(self) -> dict[str, Any] | None:
-        if not self.path.exists():
+        if not os.path.exists(self.path):
             return None
-        loaded: dict[str, Any] = json.loads(self.path.read_text())
+        with open(self.path) as handle:
+            loaded: dict[str, Any] = json.loads(handle.read())
         return loaded
 
     def save(self, base: dict[str, Any]) -> None:
-        tmp = self.directory / ".baseline.json.tmp"
-        tmp.write_text(json.dumps(base, sort_keys=True))
+        tmp = os.path.join(self.directory, ".baseline.json.tmp")
+        with open(tmp, "w") as handle:
+            handle.write(json.dumps(base, sort_keys=True))
         os.replace(tmp, self.path)
 
 
-@contextmanager
-def _locked(directory: Path) -> Iterator[None]:
+def _lock(directory: str) -> int:
     """One sentinel at a time per session: tool calls can run in parallel."""
-    directory.mkdir(parents=True, exist_ok=True)
-    fd = os.open(directory / "lock", os.O_RDWR | os.O_CREAT, 0o600)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        yield
-    finally:
-        fcntl.flock(fd, fcntl.LOCK_UN)
-        os.close(fd)
+    os.makedirs(directory, exist_ok=True)
+    fd = os.open(os.path.join(directory, "lock"), os.O_RDWR | os.O_CREAT, 0o600)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    return fd
+
+
+def _unlock(fd: int) -> None:
+    fcntl.flock(fd, fcntl.LOCK_UN)
+    os.close(fd)
 
 
 def _journal_state(root: str, blobs: BlobStore) -> dict[str, Any] | None:
     journal = os.path.join(root, "journal.jsonl")
     if not os.path.isfile(journal):
         return None
-    data = Path(journal).read_bytes()
+    with open(journal, "rb") as handle:
+        data = handle.read()
     digest = blobs.keep(journal)
     return {"size": len(data), "digest": digest, "blob": digest}
 
 
-def _baseline(config: SessionConfig, state: _State) -> dict[str, Any]:
+def _baseline(config: ConfigView, state: _State) -> dict[str, Any]:
     revert_roots = sorted(set(_roots(config, "revert") + _frozen_experiment_paths(config)))
     entries = record(revert_roots, state.blobs)
     return {
@@ -261,7 +264,8 @@ def _check_journals(base: dict[str, Any], state: _State) -> list[str]:
             base["journal"][root] = _journal_state(root, state.blobs)
             continue
         try:
-            data = Path(journal).read_bytes()
+            with open(journal, "rb") as handle:
+                data = handle.read()
         except FileNotFoundError:
             data = b""
         head = data[: was["size"]]
@@ -280,7 +284,7 @@ def _code_record(path: str) -> list[Any]:
     return [list(signature(os.lstat(path))), file_digest(path)]
 
 
-def _check_halt(base: dict[str, Any], config: SessionConfig) -> list[str]:
+def _check_halt(base: dict[str, Any], config: ConfigView) -> list[str]:
     """Loaded code whose bytes changed. Hashed only where the signature moved."""
     changed = []
     for path, (sig, digest) in base["halt"].items():
@@ -300,7 +304,10 @@ def _check_halt(base: dict[str, Any], config: SessionConfig) -> list[str]:
 def _expected_body(head: Head) -> bytes:
     # The store's own function for what a node file holds, so the comparison is
     # against what writing actually produces. It is a pure function; calling it
-    # opens nothing.
+    # opens nothing. Imported here, because importing the state package loads
+    # the validation library, and this runs only when the store has changed.
+    from physgate.state import node_file_body
+
     return node_file_body(*head).encode()
 
 
@@ -326,7 +333,8 @@ def _nodes_record(root: str, found: dict[str, Head]) -> dict[str, Any]:
 
 def _read_as_the_store_does(path: str) -> bytes | None:
     try:
-        return Path(path).read_bytes()
+        with open(path, "rb") as handle:
+            return handle.read()
     except OSError:
         return None
 
@@ -368,7 +376,7 @@ def _check_nodes(base: dict[str, Any]) -> list[str]:
     return findings
 
 
-def _check_logged(base: dict[str, Any], config: SessionConfig) -> list[str]:
+def _check_logged(base: dict[str, Any], config: ConfigView) -> list[str]:
     roots = _roots(config, "log")
     now = {p: list(s) for p, s in take_signatures(roots).items()}
     changed = sorted(p for p in set(now) | set(base["log"]) if now.get(p) != base["log"].get(p))
@@ -376,7 +384,7 @@ def _check_logged(base: dict[str, Any], config: SessionConfig) -> list[str]:
     return changed
 
 
-def _event(config: SessionConfig, hook_input: HookInput, action: str, paths: list[str]) -> None:
+def _event(config: ConfigView, hook_input: InputView, action: str, paths: list[str]) -> None:
     append_log(
         config,
         {
@@ -395,10 +403,11 @@ def _event(config: SessionConfig, hook_input: HookInput, action: str, paths: lis
     )
 
 
-def check(hook_input: HookInput, config: SessionConfig) -> Decision:
+def check(hook_input: InputView, config: ConfigView) -> Decision:
     """Compare the protected paths with the session's record, and act on any change."""
-    directory = session_dir(config, hook_input.session_id) / "sentinel"
-    with _locked(directory):
+    directory = os.path.join(session_dir(config, hook_input.session_id), "sentinel")
+    fd = _lock(directory)
+    try:
         state = _State(directory)
         base = state.load()
         if base is None:
@@ -421,6 +430,8 @@ def check(hook_input: HookInput, config: SessionConfig) -> Decision:
         elif mismatched:
             base["halted"] = NODE_MISMATCH.format(paths=", ".join(mismatched))
         state.save(base)
+    finally:
+        _unlock(fd)
     if logged:
         _event(config, hook_input, "changed", logged)
     if failed:

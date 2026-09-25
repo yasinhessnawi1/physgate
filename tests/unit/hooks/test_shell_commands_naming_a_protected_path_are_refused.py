@@ -13,8 +13,7 @@ import pytest
 from hook_helpers import bash
 
 from physgate.hooks import shell_paths as sp
-from physgate.hooks.config import SessionConfig
-from physgate.hooks.runtime import HookInput
+from physgate.hooks.config import HookInput, SessionConfig
 from physgate.hooks.settings import GATE_REASON, STORE_REASON, InstallRequest, build_config
 from physgate.hooks.settings import current_installation as installation
 

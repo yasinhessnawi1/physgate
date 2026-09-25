@@ -37,12 +37,15 @@ being written says so.
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-from physgate.hooks.config import SessionConfig
-from physgate.hooks.runtime import ALLOW, Decision, HookInput, HookSpec, refuse
-from physgate.hooks.settings import HELD_OUT_REASON
+from physgate.hooks.reasons import HELD_OUT_REASON
+from physgate.hooks.runtime import ALLOW, Decision, HookSpec, refuse
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from physgate.hooks.views import ConfigView, InputView
 
 FROZEN_RESULT = (
     "it belongs to an experiment with a published result, which is frozen; an amendment "
@@ -77,18 +80,18 @@ def _spellings(path: str) -> set[str]:
 
 def _existing_chain(path: str) -> Iterator[os.stat_result]:
     """Stat results for the path's nearest existing ancestor and every directory above it."""
-    current = Path(path)
-    while not current.exists() and current != current.parent:
-        current = current.parent
-    current = Path(os.path.realpath(current))
+    current = path
+    while not os.path.exists(current) and current != os.path.dirname(current):
+        current = os.path.dirname(current)
+    current = os.path.realpath(current)
     while True:
         try:
             yield os.stat(current)
         except OSError:
             return
-        if current == current.parent:
+        if current == os.path.dirname(current):
             return
-        current = current.parent
+        current = os.path.dirname(current)
 
 
 def _chain_ids(path: str) -> frozenset[tuple[int, int]]:
@@ -136,10 +139,10 @@ def _experiment_reason(
             except OSError:
                 continue
             for entry in entries:
-                experiment = Path(base) / entry
+                experiment = os.path.join(base, entry)
                 if (
                     entry.casefold() == first
-                    and experiment.is_dir()
+                    and os.path.isdir(experiment)
                     and any(
                         name.casefold() == marker.casefold()
                         for _, _, files in os.walk(experiment)
@@ -150,7 +153,7 @@ def _experiment_reason(
     return None
 
 
-def protection(path: str, cwd: str, config: SessionConfig, *, writing: bool) -> str | None:
+def protection(path: str, cwd: str, config: ConfigView, *, writing: bool) -> str | None:
     """Why ``path`` may not be touched this way, or ``None`` if it may."""
     absolute = _absolute(path, cwd)
     chain = _chain_ids(absolute)
@@ -177,7 +180,7 @@ def protection(path: str, cwd: str, config: SessionConfig, *, writing: bool) -> 
     return None
 
 
-def pre_tool_use(hook_input: HookInput, config: SessionConfig) -> Decision:
+def pre_tool_use(hook_input: InputView, config: ConfigView) -> Decision:
     """Refuse a file tool whose target is protected."""
     tool = hook_input.tool_name or ""
     key = _PATH_KEYS.get(tool) or _READERS.get(tool)

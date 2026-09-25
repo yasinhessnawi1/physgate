@@ -33,29 +33,26 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Callable
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
-from pydantic import ValidationError
-
-from physgate.hooks.config import SessionConfig
-from physgate.hooks.journal_view import Head, heads
-from physgate.hooks.runtime import ALLOW, Decision, HookInput, HookSpec, refuse
+from physgate.hooks.journal_view import heads
+from physgate.hooks.runtime import ALLOW, Decision, HookSpec, refuse
 from physgate.hooks.shell import ShellSyntaxError, parse, unwrap
 from physgate.hooks.shell_paths import _WRITE_REDIRECTS, _candidates, _expand, _only_reads
-from physgate.state.exceptions import (
-    CrossRoleWriteError,
-    DesignStateError,
-    InterfaceImmutableError,
-    MissingUnitError,
-)
-from physgate.state.protocol import (
-    REJECT_CROSS_ROLE,
-    REJECT_INTERFACE_IMMUTABLE,
-    REJECT_MISSING_UNIT,
-)
-from physgate.state.schema import quantities_are_valid, validate_node, validate_node_id
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from typing import Any
+
+    from physgate.hooks.journal_view import Head
+    from physgate.hooks.views import ConfigView, InputView
+
+    #: A rule returns (reason, detail) for a proposal it refuses, or None.
+    OwnershipRule = Callable[[dict[str, Any], Head | None, ConfigView], tuple[str, str] | None]
+
+# The graph's schema and the store's reasons are imported inside the functions
+# that need them: they load the validation library, and this module is on every
+# hook's hot path while a proposal is written rarely.
 
 #: Where proposals live, relative to the worktree. The orchestrator reads them from here.
 PROPOSALS_DIR = os.path.join(".physgate", "proposals")
@@ -73,16 +70,13 @@ UNCHECKABLE = (
     "writes a node proposal cannot be checked, and it is refused."
 )
 
-#: A rule returns (reason, detail) for a proposal it refuses, or None.
-OwnershipRule = Callable[[dict[str, Any], Head | None, SessionConfig], tuple[str, str] | None]
-
 #: Not one of the store's reasons: the store accepts this write, and the hook
 #: is stricter on purpose (see ``_owner_does_not_change``).
 OWNER_CHANGE = "owner_change"
 
 
 def _owner_is_the_session(
-    proposal: dict[str, Any], current: Head | None, config: SessionConfig
+    proposal: dict[str, Any], current: Head | None, config: ConfigView
 ) -> tuple[str, str] | None:
     """The store's rule: a new node names the writer as owner; an existing one is owned by it."""
     owner = current[2].get("owner_role") if current is not None else proposal.get("owner_role")
@@ -95,12 +89,15 @@ def _owner_is_the_session(
         detail = (
             f"{node_id} is owned by the {owner} role, and this session is the {config.role} role"
         )
+    from physgate.state.exceptions import CrossRoleWriteError
+    from physgate.state.protocol import REJECT_CROSS_ROLE
+
     refusal = CrossRoleWriteError(detail, node_id=node_id, owner=str(owner), role=str(config.role))
     return REJECT_CROSS_ROLE, str(refusal)
 
 
 def _owner_does_not_change(
-    proposal: dict[str, Any], current: Head | None, config: SessionConfig
+    proposal: dict[str, Any], current: Head | None, config: ConfigView
 ) -> tuple[str, str] | None:
     """A role does not hand its node to another role.
 
@@ -124,8 +121,18 @@ def _owner_does_not_change(
 OWNERSHIP_RULES: tuple[OwnershipRule, ...] = (_owner_is_the_session, _owner_does_not_change)
 
 
-def _check(proposal: object, file_stem: str, config: SessionConfig) -> tuple[str, str] | None:
+def _check(proposal: object, file_stem: str, config: ConfigView) -> tuple[str, str] | None:
     """(the store's reason, the detail) for a proposal that is refused, or None."""
+    from pydantic import ValidationError
+
+    from physgate.state.exceptions import (
+        DesignStateError,
+        InterfaceImmutableError,
+        MissingUnitError,
+    )
+    from physgate.state.protocol import REJECT_INTERFACE_IMMUTABLE, REJECT_MISSING_UNIT
+    from physgate.state.schema import quantities_are_valid, validate_node, validate_node_id
+
     if not isinstance(proposal, dict):
         return "invalid", NOT_JSON
     try:
@@ -160,6 +167,8 @@ def _check(proposal: object, file_stem: str, config: SessionConfig) -> tuple[str
 
 def _quantity_problems(proposal: dict[str, Any]) -> str:
     """Which quantities are malformed, and how, in the schema's own words."""
+    from pydantic import ValidationError
+
     from physgate.state.schema import Quantity
 
     problems = []
@@ -172,6 +181,8 @@ def _quantity_problems(proposal: dict[str, Any]) -> str:
 
 
 def _first_problem(exc: Exception) -> str:
+    from pydantic import ValidationError
+
     if isinstance(exc, ValidationError):
         first = exc.errors()[0]
         where = ".".join(str(p) for p in first["loc"]) or "the node"
@@ -184,18 +195,18 @@ def _spellings(path: str, cwd: str) -> set[str]:
     return {target, os.path.realpath(target)}
 
 
-def _proposal_target(path: str, cwd: str, config: SessionConfig) -> Path | None:
+def _proposal_target(path: str, cwd: str, config: ConfigView) -> str | None:
     """The proposal file ``path`` names, if it is inside the proposals directory."""
-    root = str(Path(config.worktree) / PROPOSALS_DIR).casefold()
+    root = os.path.join(config.worktree, PROPOSALS_DIR).casefold()
     for spelling in _spellings(path, cwd):
         if spelling.casefold().startswith(root + "/"):
-            return Path(spelling)
+            return spelling
     return None
 
 
-def _reaches_proposals(path: str, cwd: str, config: SessionConfig) -> bool:
+def _reaches_proposals(path: str, cwd: str, config: ConfigView) -> bool:
     """True if ``path`` is the proposals directory, anything in it, or a parent of it."""
-    root = str(Path(config.worktree) / PROPOSALS_DIR).casefold()
+    root = os.path.join(config.worktree, PROPOSALS_DIR).casefold()
     for spelling in _spellings(path, cwd):
         folded = spelling.casefold().rstrip("/")
         if folded == root or folded.startswith(root + "/") or root.startswith(folded + "/"):
@@ -203,18 +214,21 @@ def _reaches_proposals(path: str, cwd: str, config: SessionConfig) -> bool:
     return False
 
 
-def _content_after(hook_input: HookInput, target: Path) -> str:
+def _content_after(hook_input: InputView, target: str) -> str:
     tool_input = hook_input.tool_input or {}
     if hook_input.tool_name == "Write":
         return str(tool_input.get("content", ""))
-    current = target.read_text() if target.exists() else ""
+    current = ""
+    if os.path.exists(target):
+        with open(target) as handle:
+            current = handle.read()
     old, new = str(tool_input.get("old_string", "")), str(tool_input.get("new_string", ""))
     if tool_input.get("replace_all"):
         return current.replace(old, new)
     return current.replace(old, new, 1)
 
 
-def _file_tool(hook_input: HookInput, config: SessionConfig) -> Decision:
+def _file_tool(hook_input: InputView, config: ConfigView) -> Decision:
     tool_input = hook_input.tool_input or {}
     key = "notebook_path" if hook_input.tool_name == "NotebookEdit" else "file_path"
     target = _proposal_target(str(tool_input.get(key, "")), hook_input.cwd, config)
@@ -222,19 +236,20 @@ def _file_tool(hook_input: HookInput, config: SessionConfig) -> Decision:
         return ALLOW
     if hook_input.tool_name == "NotebookEdit":
         return refuse(REFUSED.format(reason="invalid", detail=NOTEBOOK))
-    if target.suffix != ".json":
+    stem, suffix = os.path.splitext(os.path.basename(target))
+    if suffix != ".json":
         return refuse(REFUSED.format(reason="invalid", detail=NOT_JSON))
     try:
         proposal = json.loads(_content_after(hook_input, target))
     except ValueError:
         return refuse(REFUSED.format(reason="invalid", detail=NOT_JSON))
-    found = _check(proposal, target.stem, config)
+    found = _check(proposal, stem, config)
     if found is None:
         return ALLOW
     return refuse(REFUSED.format(reason=found[0], detail=found[1]))
 
 
-def _shell(hook_input: HookInput, config: SessionConfig) -> Decision:
+def _shell(hook_input: InputView, config: ConfigView) -> Decision:
     command = (hook_input.tool_input or {}).get("command")
     if not isinstance(command, str):
         return ALLOW  # the shell layer refuses a call without a command
@@ -261,7 +276,7 @@ def _shell(hook_input: HookInput, config: SessionConfig) -> Decision:
     return ALLOW
 
 
-def _is_the_worktree(path: str, cwd: str, config: SessionConfig) -> bool:
+def _is_the_worktree(path: str, cwd: str, config: ConfigView) -> bool:
     # A parent of the proposals directory is refused (``rm -rf .physgate``), but
     # the worktree itself and anything above it is every command's home, and
     # naming it is not naming the proposals.
@@ -272,7 +287,7 @@ def _is_the_worktree(path: str, cwd: str, config: SessionConfig) -> bool:
     )
 
 
-def pre_tool_use(hook_input: HookInput, config: SessionConfig) -> Decision:
+def pre_tool_use(hook_input: InputView, config: ConfigView) -> Decision:
     """Check a proposal before it is written; refuse one written by any other route."""
     if hook_input.tool_name in ("Write", "Edit", "NotebookEdit"):
         return _file_tool(hook_input, config)

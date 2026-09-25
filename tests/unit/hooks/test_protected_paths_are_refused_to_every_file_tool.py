@@ -14,8 +14,7 @@ import pytest
 from hook_helpers import event, volume_is_case_insensitive
 
 from physgate.hooks import paths, tools
-from physgate.hooks.config import SessionConfig
-from physgate.hooks.runtime import HookInput
+from physgate.hooks.config import HookInput, SessionConfig
 from physgate.hooks.settings import (
     GATE_REASON,
     HELD_OUT_REASON,

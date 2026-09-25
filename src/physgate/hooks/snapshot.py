@@ -24,22 +24,25 @@ from __future__ import annotations
 
 import hashlib
 import os
-import shutil
 import stat
-from collections.abc import Iterator
-from dataclasses import dataclass
-from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 Signature = tuple[str, int, int, int, int, int, int, int]
 
 
-@dataclass(frozen=True)
 class Entry:
     """One path in a protected tree as it stood."""
 
-    signature: Signature
-    digest: str | None  # sha256 of a regular file's bytes
-    link: str | None  # a symlink's target
+    __slots__ = ("digest", "link", "signature")
+
+    def __init__(self, signature: Signature, digest: str | None, link: str | None) -> None:
+        """The signature, a regular file's sha256, and a symlink's target."""
+        self.signature = signature
+        self.digest = digest
+        self.link = link
 
 
 def signature(st: os.stat_result) -> Signature:
@@ -102,30 +105,35 @@ def file_digest(path: str) -> str:
 class BlobStore:
     """Bytes of protected files, content-addressed, so a revert has them to hand."""
 
-    def __init__(self, directory: Path) -> None:
+    def __init__(self, directory: str) -> None:
         """Keep blobs under ``directory``."""
         self.directory = directory
-        directory.mkdir(parents=True, exist_ok=True)
+        os.makedirs(directory, exist_ok=True)
 
     def keep(self, path: str) -> str:
         """Store the bytes of ``path``; return their digest."""
-        data = Path(path).read_bytes()
+        with open(path, "rb") as handle:
+            data = handle.read()
         digest = hashlib.sha256(data).hexdigest()
-        blob = self.directory / digest
-        if not blob.exists():
-            tmp = self.directory / f".{digest}.tmp"
-            tmp.write_bytes(data)
+        blob = os.path.join(self.directory, digest)
+        if not os.path.exists(blob):
+            tmp = os.path.join(self.directory, f".{digest}.tmp")
+            with open(tmp, "wb") as handle:
+                handle.write(data)
             os.replace(tmp, blob)
         return digest
 
     def restore(self, path: str, digest: str, mode: int) -> None:
         """Replace ``path`` with the stored bytes, as a new file with ``mode``."""
-        target = Path(path)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        tmp = target.parent / f".{target.name}.sentinel-restore"
-        tmp.write_bytes((self.directory / digest).read_bytes())
+        parent = os.path.dirname(path)
+        os.makedirs(parent, exist_ok=True)
+        tmp = os.path.join(parent, f".{os.path.basename(path)}.sentinel-restore")
+        with open(os.path.join(self.directory, digest), "rb") as source:
+            data = source.read()
+        with open(tmp, "wb") as handle:
+            handle.write(data)
         os.chmod(tmp, mode)
-        os.replace(tmp, target)
+        os.replace(tmp, path)
 
 
 def record(roots: list[str], blobs: BlobStore) -> dict[str, Entry]:
@@ -140,15 +148,19 @@ def record(roots: list[str], blobs: BlobStore) -> dict[str, Entry]:
     return out
 
 
-def quarantine(path: str, directory: Path) -> str:
+def quarantine(path: str, directory: str) -> str:
     """Move ``path`` into ``directory`` under a name never used before; return it."""
-    directory.mkdir(parents=True, exist_ok=True)
+    # Imported here: a quarantine is rare, and the module is not free to load on
+    # every hook's hot path.
+    import shutil
+
+    os.makedirs(directory, exist_ok=True)
     n = 1
     while True:
-        target = directory / f"{n:04d}-{os.path.basename(path)}"
+        target = os.path.join(directory, f"{n:04d}-{os.path.basename(path)}")
         if not os.path.lexists(target):
             # A move, which copies and then removes when the quarantine is on
             # another volume from the protected tree.
             shutil.move(path, target)
-            return str(target)
+            return target
         n += 1

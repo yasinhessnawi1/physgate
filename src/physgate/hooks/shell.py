@@ -18,8 +18,6 @@ the part that matters.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-
 from physgate.hooks.exceptions import UndecidableError
 
 _SEPARATORS = ("&&", "||", "|&", ";;", ";", "|", "&", "\n", "(", ")")
@@ -33,31 +31,62 @@ class ShellSyntaxError(UndecidableError):
     """The command could not be split with confidence."""
 
 
-@dataclass(frozen=True)
 class Redirect:
     """A redirection: the operator and its target word (a heredoc's delimiter)."""
 
-    op: str
-    target: str
+    __slots__ = ("op", "target")
+
+    def __init__(self, op: str, target: str) -> None:
+        """The operator and its target."""
+        self.op = op
+        self.target = target
+
+    def __eq__(self, other: object) -> bool:
+        """Equal when operator and target are."""
+        return isinstance(other, Redirect) and (self.op, self.target) == (other.op, other.target)
+
+    def __hash__(self) -> int:
+        """Hash on operator and target."""
+        return hash((self.op, self.target))
+
+    def __repr__(self) -> str:
+        """For test output."""
+        return f"Redirect(op={self.op!r}, target={self.target!r})"
 
 
-@dataclass(frozen=True)
 class SimpleCommand:
     """One command as the shell would run it."""
 
-    argv: tuple[str, ...]
-    assignments: tuple[str, ...] = ()
-    redirects: tuple[Redirect, ...] = ()
-    dynamic: frozenset[int] = field(default_factory=frozenset)
-    background: bool = False
+    __slots__ = ("argv", "assignments", "background", "dynamic", "redirects")
+
+    def __init__(
+        self,
+        argv: tuple[str, ...],
+        assignments: tuple[str, ...] = (),
+        redirects: tuple[Redirect, ...] = (),
+        dynamic: frozenset[int] = frozenset(),
+        background: bool = False,
+    ) -> None:
+        """The words, and what the shell does around them."""
+        self.argv = argv
+        self.assignments = assignments
+        self.redirects = redirects
+        self.dynamic = dynamic
+        self.background = background
+
+    def __repr__(self) -> str:
+        """For test output."""
+        return f"SimpleCommand(argv={self.argv!r}, background={self.background!r})"
 
 
-@dataclass
 class _Builder:
-    words: list[str] = field(default_factory=list)
-    dynamic: set[int] = field(default_factory=set)
-    redirects: list[Redirect] = field(default_factory=list)
-    pending_redirect: str | None = None
+    __slots__ = ("dynamic", "pending_redirect", "redirects", "words")
+
+    def __init__(self) -> None:
+        self.words: list[str] = []
+        self.dynamic: set[int] = set()
+        self.redirects: list[Redirect] = []
+        self.pending_redirect: str | None = None
 
     def add(self, word: str, is_dynamic: bool) -> None:
         if self.pending_redirect is not None:

@@ -32,12 +32,16 @@ from __future__ import annotations
 import glob
 import os
 import re
-from collections.abc import Iterator
+from typing import TYPE_CHECKING
 
-from physgate.hooks.config import SessionConfig
 from physgate.hooks.paths import protection
-from physgate.hooks.runtime import ALLOW, Decision, HookInput, HookSpec, refuse
+from physgate.hooks.runtime import ALLOW, Decision, HookSpec, refuse
 from physgate.hooks.shell import ShellSyntaxError, SimpleCommand, parse, unwrap
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from physgate.hooks.views import ConfigView, InputView
 
 NAMES_PROTECTED = (
     "This command names {path}, which is protected: {reason}. A shell command may read "
@@ -172,14 +176,49 @@ def _candidates(word: str, cwd: str) -> Iterator[str]:
         yield part
 
 
+def _protected_names(config: ConfigView) -> set[str]:
+    """The last component of every protected root and rule name, folded."""
+    names = {os.path.basename(r.path.rstrip("/")).casefold() for r in config.protected_roots}
+    names |= {os.path.basename(h.rstrip("/")).casefold() for h in config.held_out}
+    for rule in config.experiments:
+        names |= {
+            os.path.basename(rule.root.rstrip("/")).casefold(),
+            rule.frozen_marker.casefold(),
+            rule.always_frozen_name.casefold(),
+        }
+    return names
+
+
+def _cannot_reach(candidate: str, cwd: str, names: set[str], cwd_protected: bool) -> bool:
+    """True for a plain word that cannot name a protected path from ``cwd``.
+
+    The full check resolves a path against every protected root, which is the
+    cost of this layer, and most words in a command are flags and program names.
+    A word can reach a protected root only if it is absolute, carries a
+    separator, a home or a parent reference, names a symlink, or is itself the
+    name of a protected root or a rule's file; or if the working directory is
+    protected already, when every relative word lands inside it. Anything else
+    is a name inside an unprotected directory, and is skipped.
+    """
+    if cwd_protected or os.path.isabs(candidate) or "/" in candidate:
+        return False
+    if candidate.startswith("~") or ".." in candidate or candidate.casefold() in names:
+        return False
+    return not os.path.islink(os.path.join(cwd, candidate))
+
+
 def _first_protected(
-    words: Iterator[tuple[str, bool]], cwd: str, config: SessionConfig, *, reading: bool
+    words: Iterator[tuple[str, bool]], cwd: str, config: ConfigView, *, reading: bool
 ) -> tuple[str, str] | None:
+    names = _protected_names(config)
+    cwd_protected = protection(cwd, cwd, config, writing=not reading) is not None
     for word, dynamic in words:
         expanded = _expand(word, dynamic)
         if expanded is None:
             continue
         for candidate in _candidates(expanded, cwd):
+            if _cannot_reach(candidate, cwd, names, cwd_protected):
+                continue
             reason = protection(candidate, cwd, config, writing=not reading)
             if reason is not None:
                 return candidate, reason
@@ -193,7 +232,7 @@ def _command_words(cmd: SimpleCommand) -> Iterator[tuple[str, bool]]:
         yield assignment.partition("=")[2], "$" in assignment
 
 
-def check(cmd: SimpleCommand, cwd: str, config: SessionConfig) -> str | None:
+def check(cmd: SimpleCommand, cwd: str, config: ConfigView) -> str | None:
     """Why ``cmd``, run from ``cwd``, is refused, or ``None``."""
     if cmd.background:
         return BACKGROUND
@@ -242,7 +281,7 @@ def _next_cwd(cmd: SimpleCommand, cwd: str | None) -> str | None:
     return os.path.normpath(os.path.join(cwd, target))
 
 
-def pre_tool_use(hook_input: HookInput, config: SessionConfig) -> Decision:
+def pre_tool_use(hook_input: InputView, config: ConfigView) -> Decision:
     """Refuse a Bash call that names a protected path, backgrounds, or starts Claude Code."""
     if hook_input.tool_name != "Bash":
         return ALLOW
