@@ -334,7 +334,16 @@ def test_encodings_and_surrogates_are_decided_the_same(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     "fragment",
-    ['"\\ud800"', '"\\udc00x"', '"\\ude00\\ud83d"', '"\\ud83d\\ude00"', '"\\\\ud800"', '"é"'],
+    [
+        '"\\ud800"',
+        '"\\udc00x"',
+        '"\\ude00\\ud83d"',
+        '"\\ud83d\\ude00"',
+        '"\\\\ud800"',
+        '"é"',
+        # Raw, as a hook's standard input decodes undecodable bytes.
+        '"\udc80"',
+    ],
 )
 def test_a_surrogate_anywhere_in_an_event_is_decided_the_same(fragment: str) -> None:
     base = json.dumps(event("PreToolUse", tool_name="Bash", tool_input={"command": "ls"}))
