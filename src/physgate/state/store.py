@@ -159,6 +159,26 @@ def payload_digest(payload: Payload) -> str:
     return hashlib.sha256(canonical_json(payload).encode()).hexdigest()
 
 
+def node_file_body(rev: int, version: int, payload: Payload) -> str:
+    """Exactly what a node file holds for a revision, canonically serialised.
+
+    One definition, used to write the file and to check it, so that recovery
+    compares against what writing actually produces rather than against a
+    second opinion about it.
+
+    Public because a second reader needs the same answer without opening a
+    store: the hook layer re-derives every node file from the journal after each
+    agent tool call, to catch a file changed behind the store's back, and
+    constructing a store to ask would run recovery, which rewrites files. A pure
+    function of the journal record is the one way to ask without writing.
+    """
+    return json.dumps(
+        {"rev": rev, "version": version, "payload": payload},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
 def _first_validation_problem(exc: ValidationError) -> str:
     """The first thing wrong with a record, as a sentence rather than a report.
 
@@ -421,7 +441,7 @@ class Store:
             # refusal. There is no decode in a byte comparison, so a named file
             # holding any wrong bytes at all is repaired from the journal like
             # every other tamper.
-            expected = self._node_body(rev, version, payload).encode()
+            expected = node_file_body(rev, version, payload).encode()
             try:
                 actual: bytes | None = self._node_path(node_id).read_bytes()
             except OSError:
@@ -803,25 +823,11 @@ class Store:
             entry: dict[str, Any] = json.loads(handle.readline())
             return entry
 
-    @staticmethod
-    def _node_body(rev: int, version: int, payload: Payload) -> str:
-        """Exactly what a node file holds for a revision, canonically serialised.
-
-        One definition, used to write the file and to check it, so that recovery
-        compares against what writing actually produces rather than against a
-        second opinion about it.
-        """
-        return json.dumps(
-            {"rev": rev, "version": version, "payload": payload},
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-
     def _materialise(self, node_id: str, rev: int, version: int, payload: Payload) -> None:
         """Replace the node file atomically. Derived from the journal, never authoritative."""
         path = self._node_path(node_id)
         tmp = path.with_suffix(".json.tmp")
-        body = self._node_body(rev, version, payload)
+        body = node_file_body(rev, version, payload)
         with tmp.open("w") as handle:
             handle.write(body)
             handle.flush()

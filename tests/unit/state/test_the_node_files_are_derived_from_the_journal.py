@@ -396,3 +396,25 @@ def test_anything_not_named_like_a_node_file_is_left_alone(name: str, two_revisi
     assert opened.quarantined_node_files == ()
     assert path.exists(), name
     opened.close()
+
+
+def test_the_store_and_the_hook_layer_derive_the_same_node_file_bytes(tmp_path: Path) -> None:
+    # The hook layer re-derives node files from the journal without opening a
+    # store. It is only right if it uses the very function the store writes with.
+    from physgate.hooks import sentinel
+    from physgate.hooks.journal_view import heads
+    from physgate.state import node_file_body
+
+    root = tmp_path / "graph"
+    opened = Store(root)
+    try:
+        assert opened.write_node(node("electrical.motor_left"), "electrical").accepted
+        assert opened.write_node(
+            node("electrical.motor_left", quantities={}), "electrical"
+        ).accepted
+    finally:
+        opened.close()
+    on_disk = (root / "nodes" / "electrical.motor_left.json").read_bytes()
+    head = heads(str(root))["electrical.motor_left"]
+    assert node_file_body(*head).encode() == on_disk
+    assert sentinel._expected_body(head) == on_disk

@@ -56,7 +56,7 @@ from physgate.hooks.runtime import ALLOW, Decision, HookInput, HookSpec, refuse
 from physgate.hooks.snapshot import BlobStore, Entry, file_digest, quarantine, record, signature
 from physgate.hooks.snapshot import signatures as take_signatures
 from physgate.hooks.state import append_log, session_dir
-from physgate.state.store import Store
+from physgate.state import node_file_body
 
 PUT_BACK = (
     "Protected paths changed during this session and were put back: {paths}. Protected "
@@ -301,7 +301,7 @@ def _expected_body(head: Head) -> bytes:
     # The store's own function for what a node file holds, so the comparison is
     # against what writing actually produces. It is a pure function; calling it
     # opens nothing.
-    return Store._node_body(*head).encode()
+    return node_file_body(*head).encode()
 
 
 def _node_files(root: str) -> dict[str, str]:
