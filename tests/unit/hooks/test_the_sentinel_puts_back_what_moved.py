@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from hook_helpers import SESSION, bash
+from hook_helpers import SESSION, bash, make_store, node
 
 from physgate.hooks import sentinel
 from physgate.hooks.config import ProtectedRoot, SessionConfig
@@ -32,8 +32,6 @@ FILES = {
     "worktree/experiments/R-OP-01/src/store.py": "measured code\n",
     "worktree/experiments/R-NEW-01/CRITERIA.md": "criteria\n",
     "worktree/experiments/R-NEW-01/notes.md": "notes\n",
-    "store/journal.jsonl": '{"rev":1}\n',
-    "store/nodes/electrical.motor.json": "{}\n",
     "outside/home/.claude/settings.json": "{}\n",
 }
 GATE = "worktree/src/physgate/gate"
@@ -45,6 +43,7 @@ def root(tmp_path: Path) -> Path:
         path = tmp_path / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
+    make_store(tmp_path / "store")
     return tmp_path
 
 
@@ -228,29 +227,85 @@ def test_an_append_to_the_journal_is_left_to_the_store_and_a_rewrite_is_put_back
 ) -> None:
     _started(root)
     journal = root / "store" / "journal.jsonl"
-    journal.write_text('{"rev":1}\n{"rev":2}\n')
+    original = journal.read_bytes()
+    journal.write_bytes(original + b'{"not": "a record"}\n')
     assert _check(root) == "allow", "an append is the orchestrator's, or the store's guard's"
-    journal.write_text('{"rev":9}\n{"rev":2}\n')
+    appended = journal.read_bytes()
+    journal.write_bytes(b"x" + appended[1:])
     assert "journal.jsonl" in _check(root)
-    assert journal.read_text() == '{"rev":1}\n{"rev":2}\n'
-    journal.write_text("")
+    assert journal.read_bytes() == appended
+    journal.write_bytes(b"")
     assert "journal.jsonl" in _check(root)
-    assert journal.read_text() == '{"rev":1}\n{"rev":2}\n'
+    assert journal.read_bytes() == appended
 
 
-def test_node_files_and_user_settings_are_logged_not_reverted(root: Path) -> None:
+def test_user_settings_are_logged_not_reverted(root: Path) -> None:
     _started(root)
-    node = root / "store" / "nodes" / "electrical.motor.json"
-    node.write_text('{"changed": true}\n')
     user = root / "outside" / "home" / ".claude" / "settings.json"
     user.write_text('{"hooks": {}}\n')
     assert _check(root) == "allow"
-    assert node.read_text() == '{"changed": true}\n'
+    assert user.read_text() == '{"hooks": {}}\n'
     (logged,) = [e for e in _log(root) if e["decision"] == "changed"]
-    assert str(node) in logged["paths"] and str(user) in logged["paths"]  # type: ignore[operator]
+    assert logged["paths"] == [str(user)]
     # The record advances, so the same change is not reported on every later call.
     assert _check(root) == "allow"
     assert len([e for e in _log(root) if e["decision"] == "changed"]) == 1
+
+
+NODE = "store/nodes/electrical.motor.json"
+
+
+def test_a_node_file_that_differs_from_the_journal_halts_and_nothing_is_written(
+    root: Path,
+) -> None:
+    _started(root)
+    tampered = (root / NODE).read_bytes().replace(b"2.4", b"9.9")
+    (root / NODE).write_bytes(tampered)
+    told = _check(root)
+    assert "does not hold what the journal says" in told
+    assert (root / NODE).read_bytes() == tampered, "the sentinel must write nothing to the store"
+    assert "does not hold what the journal says" in _check(root, name="PreToolUse")
+    (logged,) = [e for e in _log(root) if e["decision"] == "node mismatch"]
+    assert logged["paths"] == [str(root / NODE)]
+
+
+def test_a_node_file_the_journal_never_named_halts(root: Path) -> None:
+    _started(root)
+    (root / "store" / "nodes" / "electrical.planted.json").write_text("{}\n")
+    assert "electrical.planted.json" in _check(root)
+
+
+def test_the_orchestrators_legitimate_write_is_not_a_finding(root: Path) -> None:
+    _started(root)
+    make_store(root / "store", node(quantities={}))
+    assert _check(root) == "allow"
+
+
+def test_a_check_inside_the_orchestrators_write_window_is_not_a_finding(root: Path) -> None:
+    # The store appends the journal line, then writes the node file. A check
+    # landing between the two sees a file that matches the previous revision
+    # and a journal that is newer than the last check saw.
+    _started(root)
+    before = (root / NODE).read_bytes()
+    make_store(root / "store", node(quantities={}))
+    after = (root / NODE).read_bytes()
+    assert after != before
+    (root / NODE).write_bytes(before)  # the file as it stood before the store wrote it
+    assert _check(root) == "allow", "the journal is newer than the record: a write in progress"
+    (root / NODE).write_bytes(after)  # the store finishes its write
+    assert _check(root) == "allow"
+
+
+def test_a_file_left_behind_after_the_window_closed_is_a_finding(root: Path) -> None:
+    # The window excuses a file only while its node's newest line is newer than
+    # the last check. Once the check has seen that line, a stale file is stale.
+    _started(root)
+    before = (root / NODE).read_bytes()
+    make_store(root / "store", node(quantities={}))
+    (root / NODE).write_bytes(before)
+    assert _check(root) == "allow"
+    os.utime(root / NODE)
+    assert "does not hold what the journal says" in _check(root)
 
 
 def test_the_sentinel_runs_on_every_event_including_a_failed_call() -> None:

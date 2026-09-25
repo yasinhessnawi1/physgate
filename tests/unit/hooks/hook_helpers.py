@@ -71,3 +71,40 @@ def event(name: str = "PreToolUse", **fields: Any) -> dict[str, Any]:  # noqa: A
 def bash(command: str, **fields: Any) -> dict[str, Any]:  # noqa: ANN401
     """A PreToolUse event for a Bash call."""
     return event(tool_name="Bash", tool_input={"command": command, "description": "x"}, **fields)
+
+
+def node(
+    node_id: str = "electrical.motor", owner: str = "electrical", **fields: Any
+) -> dict[str, Any]:  # noqa: ANN401
+    """A complete, legal graph node."""
+    base: dict[str, Any] = {
+        "id": node_id,
+        "kind": "component",
+        "domain": owner
+        if owner in ("mechanical", "electrical", "control", "firmware")
+        else "cross",
+        "owner_role": owner,
+        "quantities": {
+            "stall_current": {"value": 2.4, "unit": "A", "source": "datasheet", "written_by": owner}
+        },
+        "requirements": [],
+        "constrains": [],
+        "model": None,
+        "geometry_hash": "sha256:0",
+        "updated": "2026-09-25T00:00:00Z",
+    }
+    base.update(fields)
+    return base
+
+
+def make_store(root: Path, *nodes: dict[str, Any]) -> None:
+    """A real graph store at ``root``, written by the store itself."""
+    from physgate.state.store import Store
+
+    store = Store(root)
+    try:
+        for payload in nodes or (node(),):
+            result = store.write_node(payload, payload["owner_role"])
+            assert result.accepted, result.reason
+    finally:
+        store.close()
