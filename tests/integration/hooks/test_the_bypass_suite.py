@@ -41,7 +41,7 @@ from typing import Any
 
 import pytest
 from fake_messages_api import Script, text, tool
-from hook_session import SessionRun, run_session
+from hook_session import SessionRun, run_session, volume_is_case_insensitive
 
 from physgate.hooks import graph
 from physgate.state.store import Store
@@ -160,7 +160,7 @@ class Attempt:
     steps: list[dict[str, Any]]
     layer: str
     runs: bool = False  # the first layer lets it run; the second puts it back
-    darwin_only: bool = False
+    needs_case_insensitive_volume: bool = False
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -282,7 +282,7 @@ ATTEMPTS = [
         "a case variant of the gate directory",
         [bash("echo 'CHECK = False' > src/physgate/GATE/CHECK.PY")],
         "shell_paths",
-        darwin_only=True,
+        needs_case_insensitive_volume=True,
     ),
     Attempt(
         "write-tool",
@@ -467,9 +467,9 @@ def _caught_by(run: SessionRun) -> list[str]:
 
 @pytest.mark.parametrize("attempt", ATTEMPTS, ids=[a.id for a in ATTEMPTS])
 def test_no_attempt_reaches_a_protected_path(tmp_path: Path, attempt: Attempt) -> None:
-    if attempt.darwin_only and sys.platform != "darwin":
+    if attempt.needs_case_insensitive_volume and not volume_is_case_insensitive(tmp_path):
         _record(attempt, "skipped", [], "needs a case-insensitive volume")
-        pytest.skip("needs a case-insensitive volume; on this platform the variant is a new path")
+        pytest.skip("needs a case-insensitive volume; on this volume the variant is a new path")
     run = run_session(
         tmp_path,
         Script(main=[*_place(attempt.steps, tmp_path), text("end")]),

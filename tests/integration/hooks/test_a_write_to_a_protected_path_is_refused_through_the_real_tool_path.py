@@ -13,13 +13,12 @@ only the assertion on the decision log caught it.
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 from fake_messages_api import Script, text, tool
-from hook_session import SessionRun, run_session
+from hook_session import SessionRun, run_session, volume_is_case_insensitive
 
 from physgate.hooks import paths
 from physgate.hooks.settings import GATE_REASON, HELD_OUT_REASON, STORE_REASON
@@ -147,10 +146,11 @@ def test_an_ordinary_write_still_lands(tmp_path: Path) -> None:
     assert _refusals(run) == []
 
 
-@pytest.mark.skipif(sys.platform != "darwin", reason="needs a case-insensitive volume")
 def test_on_a_case_insensitive_volume_a_case_variant_of_the_gate_is_refused(
     tmp_path: Path,
 ) -> None:
+    if not volume_is_case_insensitive(tmp_path):
+        pytest.skip("this volume is case-sensitive: a case variant is a different path here")
     run = _session(
         tmp_path,
         tool("Read", file_path="@W/src/physgate/GATE/CHECK.PY"),

@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from hook_helpers import event
+from hook_helpers import event, volume_is_case_insensitive
 
 from physgate.hooks import paths, tools
 from physgate.hooks.config import SessionConfig
@@ -230,10 +230,9 @@ def test_each_profile_runs_on_its_closed_tool_list(
         assert f"The {tool} tool is not available to a {profile} session" in decision.reason
 
 
-@pytest.mark.skipif(
-    sys.platform != "darwin", reason="the case trick needs a case-insensitive volume"
-)
 def test_on_this_volume_the_case_variant_really_reaches_the_gate(layout: Path) -> None:
+    if not volume_is_case_insensitive(layout):
+        pytest.skip("this volume is case-sensitive: a case variant is a different path here")
     variant = layout / "worktree" / "src" / "physgate" / "GATE" / "CHECK.PY"
     assert variant.read_text() == "CHECK = True\n"
 

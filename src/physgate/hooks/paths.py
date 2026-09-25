@@ -124,14 +124,29 @@ def _experiment_reason(
             base = root_spelling.rstrip("/")
             if not _folded_under(spelling, base) or len(spelling) <= len(base) + 1:
                 continue
-            first = spelling[len(base) + 1 :].split("/", 1)[0]
-            experiment = Path(base) / first
-            if experiment.is_dir() and any(
-                name.casefold() == marker.casefold()
-                for _, _, files in os.walk(experiment)
-                for name in files
-            ):
-                return FROZEN_RESULT
+            first = spelling[len(base) + 1 :].split("/", 1)[0].casefold()
+            # The experiment is found by its folded name among the directory's
+            # real entries, not rebuilt from the target's spelling: on a
+            # case-sensitive volume a case variant names no directory, and the
+            # rule would then find no result and freeze nothing. Every entry
+            # that folds to the same name counts, so two spellings of one
+            # experiment on such a volume are both frozen if either is.
+            try:
+                entries = os.listdir(base)
+            except OSError:
+                continue
+            for entry in entries:
+                experiment = Path(base) / entry
+                if (
+                    entry.casefold() == first
+                    and experiment.is_dir()
+                    and any(
+                        name.casefold() == marker.casefold()
+                        for _, _, files in os.walk(experiment)
+                        for name in files
+                    )
+                ):
+                    return FROZEN_RESULT
     return None
 
 

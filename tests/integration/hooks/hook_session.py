@@ -236,3 +236,19 @@ def _expected_starts(run: SessionRun, name: str) -> int:
             if r.thread == "sub" and r.served and r.served.get("tool") == tool_name
         )
     return 1
+
+
+def volume_is_case_insensitive(directory: Path) -> bool:
+    """True if ``directory`` is on a volume where a case variant names the same file.
+
+    The case-variant attempts depend on the volume, not on the operating system:
+    macOS can mount a case-sensitive volume, and CI ran one on Linux. So the
+    condition is probed where the test actually runs.
+    """
+    probe = directory / "Case-Probe"
+    probe.parent.mkdir(parents=True, exist_ok=True)
+    probe.write_text("")
+    try:
+        return (directory / "case-probe").exists()
+    finally:
+        probe.unlink()
