@@ -149,6 +149,10 @@ def _candidates(word: str, cwd: str) -> Iterator[str]:
     """Every path ``word`` could name, relative to ``cwd``."""
     seen: set[str] = set()
     parts = {word}
+    if re.match(r"^-[A-Za-z].", word):
+        # A short option with its value attached (`-o<file>`): the value is a
+        # path on its own, and as one token with the flag it reaches nothing.
+        parts.add(word[2:])
     for part in list(parts):
         parts.update(_PATHLIKE.findall(part))
     for part in parts:
