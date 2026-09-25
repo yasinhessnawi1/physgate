@@ -98,6 +98,7 @@ def current_installation() -> Installation:
         interpreter=sys.executable,
         package_dir=str(Path(physgate.__file__).resolve().parent),
         environment_root=sys.prefix,
+        base_prefix=sys.base_prefix,
     )
 
 
@@ -118,6 +119,7 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         "the Claude configuration directory": request.claude_config_dir,
         "the hook package": installation.package_dir,
         "the hook interpreter's environment": installation.environment_root,
+        "the hook interpreter's own installation": installation.base_prefix,
     }
     for what, path in outside.items():
         if _inside(path, request.worktree):
@@ -135,6 +137,7 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         request.claude_config_dir,
         installation.package_dir,
         installation.environment_root,
+        installation.base_prefix,
         str(home / ".claude" / "settings.json"),
         str(home / ".claude.json"),
         *request.extra_protected,

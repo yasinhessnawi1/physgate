@@ -133,6 +133,7 @@ def test_everything_that_decides_a_refusal_is_a_protected_path(tmp_path: Path) -
     must = {
         installation.package_dir,
         installation.environment_root,
+        installation.base_prefix,
         str(tmp_path / "session"),
         str(tmp_path / "state"),
         str(tmp_path / "claude-config"),
@@ -224,3 +225,10 @@ def test_two_processes_with_different_hash_seeds_write_the_same_bytes(tmp_path: 
             ((target / "settings.json").read_bytes(), (target / "session-config.json").read_bytes())
         )
     assert outputs[0] == outputs[1]
+
+
+def test_an_interpreter_installed_inside_the_worktree_is_refused(tmp_path: Path) -> None:
+    here = current_installation()
+    inside = here.model_copy(update={"base_prefix": str(tmp_path / "worktree" / "python")})
+    with pytest.raises(ValueError, match="own installation"):
+        build_config(_request(tmp_path), inside)

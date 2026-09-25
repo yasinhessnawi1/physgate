@@ -38,6 +38,7 @@ def config_dict(tmp: Path, **overrides: Any) -> dict[str, Any]:  # noqa: ANN401 
             "interpreter": sys.executable,
             "package_dir": str(Path(__file__).resolve().parents[3] / "src" / "physgate"),
             "environment_root": sys.prefix,
+            "base_prefix": sys.base_prefix,
         },
         "watchdog_seconds": 5,
         "hook_timeout_seconds": 30,

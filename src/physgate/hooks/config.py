@@ -38,13 +38,21 @@ AbsolutePath = Annotated[str, StringConstraints(min_length=2, pattern=r"^/")]
 
 
 class Installation(BaseModel):
-    """Where the hook code runs from. Outside every worktree, and protected."""
+    """Where the hook code runs from. Outside every worktree, and protected.
+
+    ``base_prefix`` is the interpreter's own installation, standard library
+    included. A virtual environment's interpreter is a link to it, and every hook
+    imports from it, so a session that could edit it could run code inside every
+    hook. It is not a theoretical path: on the development machine that library
+    was measured to be writable by the user the sessions run as.
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     interpreter: AbsolutePath
     package_dir: AbsolutePath
     environment_root: AbsolutePath
+    base_prefix: AbsolutePath
 
 
 class ExperimentRule(BaseModel):
