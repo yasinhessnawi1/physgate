@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from physgate.hooks import git_ops, paths, reading, token_ceiling, tools
+from physgate.hooks import git_ops, paths, reading, shell_paths, token_ceiling, tools
 from physgate.hooks.runtime import HookSpec
 
 REGISTRY: Mapping[str, HookSpec] = {
@@ -17,6 +17,7 @@ REGISTRY: Mapping[str, HookSpec] = {
     for spec in (
         tools.HOOK,
         paths.HOOK,
+        shell_paths.HOOK,
         git_ops.HOOK,
         reading.HOOK,
         token_ceiling.HOOK,
