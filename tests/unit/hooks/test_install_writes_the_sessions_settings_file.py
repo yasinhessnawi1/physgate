@@ -105,6 +105,21 @@ def test_a_second_run_writes_the_same_bytes(tmp_path: Path) -> None:
     assert (second.settings_path.read_bytes(), second.config_path.read_bytes()) == before
 
 
+def test_the_order_a_request_lists_its_paths_in_does_not_change_the_bytes(tmp_path: Path) -> None:
+    # The spawner builds its lists from whatever it read them from; a session is
+    # the same session whichever order they arrive in, and its digest must be too.
+    paths = {
+        name: tuple(str(tmp_path / f"{name}-{n}") for n in range(3))
+        for name in ("extra_protected", "held_out", "required_reading", "always_loaded")
+    }
+    outputs = []
+    for reverse in (False, True):
+        listed = {name: tuple(reversed(v)) if reverse else v for name, v in paths.items()}
+        done = install(_request(tmp_path, **listed), REGISTRY)
+        outputs.append((done.settings_path.read_bytes(), done.config_path.read_bytes()))
+    assert outputs[0] == outputs[1]
+
+
 def test_the_session_is_spawned_with_no_worktree_settings_and_this_file_by_flag(
     tmp_path: Path,
 ) -> None:

@@ -61,3 +61,15 @@ jobs:
       - name: Every attempt, one line each
         if: always()
         run: cat bypass.jsonl || echo "no attempts were recorded"
+
+      - name: Hook latency on this runner, beside a same-day control
+        # A second machine for the latency figures, printed as log lines: every
+        # generated hook command timed on a realistic role session, interleaved
+        # with a bare interpreter start and the trampoline around one. Not a
+        # gate: a shared runner's timings are a reference, and the budget is
+        # scored on a quiet machine. The first lines also say how many files of
+        # the environment have more than one link, because on Linux the
+        # installer links them from its cache, and a linked file has a second
+        # name outside the protected installation.
+        if: always()
+        run: uv run python tests/integration/hooks/measure_latency.py latency.json
