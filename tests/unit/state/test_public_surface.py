@@ -36,6 +36,20 @@ def test_the_readme_says_what_the_package_does_not_own() -> None:
     assert "view as of open" in readme
 
 
+#: Public in their own module and deliberately not re-exported, each with the
+#: reason. The rule this test enforces is that a public symbol has a caller
+#: outside its own module; these have callers inside the package and none
+#: outside yet, and naming them here is how that is declared rather than
+#: discovered.
+DELIBERATELY_UNEXPORTED = {
+    "store.payload_digest": (
+        "the identity of a payload, used by the rollback rule on both paths. "
+        "Nothing outside the package calls it yet; whichever of the orchestrator "
+        "or the hook layer needs it will export it together with its caller."
+    ),
+}
+
+
 def test_every_public_symbol_in_the_package_is_exported() -> None:
     """The no-dark-code rule, as a test rather than as a paragraph in a report.
 
@@ -60,6 +74,26 @@ def test_every_public_symbol_in_the_package_is_exported() -> None:
                 continue
             if getattr(obj, "__module__", "") != module.__name__:
                 continue  # imported from elsewhere, not defined here
-            missing.append(f"{info.name}.{name}")
+            qualified = f"{info.name}.{name}"
+            if qualified in DELIBERATELY_UNEXPORTED:
+                continue
+            missing.append(qualified)
 
     assert missing == [], f"public but not exported: {missing}"
+
+
+def test_every_declared_exception_to_the_export_rule_still_exists() -> None:
+    """A declared exception for a symbol that has gone is a stale excuse."""
+    import importlib
+
+    for qualified, reason in DELIBERATELY_UNEXPORTED.items():
+        module_name, _, symbol = qualified.partition(".")
+        module = importlib.import_module(f"physgate.state.{module_name}")
+        assert hasattr(module, symbol), qualified
+        assert reason.strip(), qualified
+
+
+def test_nothing_declared_unexported_is_also_exported() -> None:
+    """Declaring an exception for something that is exported anyway is noise."""
+    for qualified in DELIBERATELY_UNEXPORTED:
+        assert qualified.split(".")[-1] not in state.__all__, qualified

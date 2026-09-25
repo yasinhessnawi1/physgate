@@ -166,7 +166,7 @@ def test_the_way_through_moves_it_aside_rather_than_serving_it(
 
     assert opened.quarantined_node_files == ("mechanical.planted",)
     assert not planted.exists()
-    assert planted.with_suffix(".json.orphan").exists(), "moved aside, not deleted"
+    assert planted.with_suffix(".json.orphan.1").exists(), "moved aside, not deleted"
     opened.close()
 
 
@@ -199,3 +199,99 @@ def test_a_temporary_file_left_by_a_killed_write_is_not_an_orphan(
     reopened = Store(two_revisions)
     assert reopened.quarantined_node_files == ()
     reopened.close()
+
+
+# --- a file whose bytes are not text ------------------------------------------
+
+
+@pytest.mark.parametrize("policy", ["raise", "truncate"])
+def test_a_node_file_that_is_not_valid_text_is_repaired(policy: str, two_revisions: Path) -> None:
+    """Reading the file as text let a decode error out of recovery itself.
+
+    It escaped the corruption policy in both directions: the caller who asked to
+    be let past damage was not let past, and the caller who asked to be told got
+    a decode error rather than a refusal. Comparing bytes leaves no decode to
+    fail, so a named file holding any wrong bytes is repaired like every other
+    tamper.
+    """
+    path = node_file(two_revisions, "mechanical.gearbox")
+    expected = path.read_bytes()
+    path.write_bytes(b'{"rev":2,"version":2,"payload":"\xff\xfe not utf-8"}')
+
+    reopened = Store(two_revisions, on_corrupt=policy)  # type: ignore[arg-type]
+
+    assert reopened.repaired_node_files == 1, policy
+    assert path.read_bytes() == expected, policy
+    assert reopened.read_node("mechanical.gearbox")["quantities"]["stall_current"]["value"] == 2.4
+    reopened.close()
+
+
+def test_a_node_file_of_pure_rubbish_is_repaired(two_revisions: Path) -> None:
+    path = node_file(two_revisions, "mechanical.gearbox")
+    expected = path.read_bytes()
+    path.write_bytes(bytes(range(256)))
+
+    reopened = Store(two_revisions)
+    assert reopened.repaired_node_files == 1
+    assert path.read_bytes() == expected
+    reopened.close()
+
+
+def test_an_empty_node_file_is_repaired(two_revisions: Path) -> None:
+    path = node_file(two_revisions, "mechanical.gearbox")
+    expected = path.read_bytes()
+    path.write_bytes(b"")
+
+    reopened = Store(two_revisions)
+    assert reopened.repaired_node_files == 1
+    assert path.read_bytes() == expected
+    reopened.close()
+
+
+# --- quarantining twice keeps both --------------------------------------------
+
+
+def test_quarantining_the_same_name_twice_keeps_both(two_revisions: Path) -> None:
+    """A single fixed name meant the second move destroyed the first file.
+
+    Refusing on a collision was the other option and is the wrong one: it would
+    leave a caller who asked to be let past damage unable to open the store,
+    which is the opposite of what asking for that means.
+    """
+    bodies = []
+    for marker in ("first", "second"):
+        planted = node_file(two_revisions, "mechanical.planted")
+        payload = node("mechanical.planted", owner_role="mechanical", updated=marker)
+        body = json.dumps(
+            {"rev": 9, "version": 1, "payload": payload}, sort_keys=True, separators=(",", ":")
+        ).encode()
+        planted.write_bytes(body)
+        bodies.append(body)
+        Store(two_revisions, on_corrupt="truncate").close()
+
+    aside = sorted((two_revisions / "nodes").glob("mechanical.planted.json.orphan.*"))
+    assert [p.name for p in aside] == [
+        "mechanical.planted.json.orphan.1",
+        "mechanical.planted.json.orphan.2",
+    ]
+    assert [p.read_bytes() for p in aside] == bodies, "a quarantined file was overwritten"
+
+
+def test_a_third_quarantine_takes_the_next_free_number(two_revisions: Path) -> None:
+    for _ in range(3):
+        plant(two_revisions, "mechanical.planted")
+        Store(two_revisions, on_corrupt="truncate").close()
+
+    aside = sorted((two_revisions / "nodes").glob("mechanical.planted.json.orphan.*"))
+    assert len(aside) == 3
+    assert [p.suffix for p in aside] == [".1", ".2", ".3"]
+
+
+def test_quarantining_still_reports_the_name_without_its_number(
+    two_revisions: Path,
+) -> None:
+    """The report names the node, not the file it was parked in."""
+    plant(two_revisions, "mechanical.planted")
+    opened = Store(two_revisions, on_corrupt="truncate")
+    assert opened.quarantined_node_files == ("mechanical.planted",)
+    opened.close()

@@ -134,6 +134,26 @@ def _op_agrees_with_what_came_before(
     return None
 
 
+def _first_free_name(path: Path) -> Path:
+    """The first unused ``<name>.json.orphan.<n>`` beside ``path``.
+
+    Quarantining used a single fixed name, so planting a file, being let past it,
+    and planting a file of the same name again left only the second one: the
+    first was overwritten by the move that was supposed to preserve it. The
+    number makes each one keep its own bytes.
+
+    Refusing on a collision was the other option and is the wrong one — it would
+    leave a caller who asked to be let past damage unable to open the store at
+    all, which is the opposite of what asking for that means.
+    """
+    n = 1
+    while True:
+        candidate = path.with_suffix(f".json.orphan.{n}")
+        if not candidate.exists():
+            return candidate
+        n += 1
+
+
 def payload_digest(payload: Payload) -> str:
     """A short, stable identity for a payload, over its canonical serialisation."""
     return hashlib.sha256(canonical_json(payload).encode()).hexdigest()
@@ -392,14 +412,22 @@ class Store:
         # and nothing for the divergence check to see.
         self._repaired_node_files = 0
         for node_id, (rev, version) in self._head.items():
-            expected = self._node_body(rev, version, self._entry_at(rev)["payload"])
-            path = self._node_path(node_id)
+            payload = self._entry_at(rev)["payload"]
+            # Compared as **bytes**. Reading the file as text meant a node file
+            # that is not valid UTF-8 raised a decode error out of recovery
+            # itself, which escaped the corruption policy entirely: the caller
+            # who had asked to be let past damage was not let past, and the
+            # caller who had asked to be told got a decode error instead of a
+            # refusal. There is no decode in a byte comparison, so a named file
+            # holding any wrong bytes at all is repaired from the journal like
+            # every other tamper.
+            expected = self._node_body(rev, version, payload).encode()
             try:
-                actual: str | None = path.read_text()
+                actual: bytes | None = self._node_path(node_id).read_bytes()
             except OSError:
                 actual = None
             if actual != expected:
-                self._materialise(node_id, rev, version, self._entry_at(rev)["payload"])
+                self._materialise(node_id, rev, version, payload)
                 self._repaired_node_files += 1
 
         self._quarantine_orphan_node_files()
@@ -472,8 +500,7 @@ class Store:
             )
         moved = []
         for path in orphans:
-            aside = path.with_suffix(".json.orphan")
-            os.replace(path, aside)
+            os.replace(path, _first_free_name(path))
             moved.append(path.stem)
         self._quarantined = tuple(moved)
 

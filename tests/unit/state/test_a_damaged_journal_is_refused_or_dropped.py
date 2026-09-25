@@ -27,7 +27,7 @@ from pydantic import ValidationError
 
 from physgate.state.divergence import divergence
 from physgate.state.exceptions import CorruptRecordError
-from physgate.state.store import JournalLine, Store
+from physgate.state.store import JournalLine, Store, payload_digest
 
 #: A payload that is a whole node, so a case about a revision is refused for the
 #: revision rather than for the payload that was standing in as a placeholder.
@@ -689,4 +689,66 @@ def test_a_rollback_written_by_the_store_replays_clean(tmp_path: Path) -> None:
     reopened = Store(root)
     assert reopened.head_revision() == 5
     assert reopened.history("control.loop") == [1, 2, 3, 4, 5]
+    reopened.close()
+
+
+# --- the digest the rollback rule depends on ---------------------------------
+#
+# The rollback rule compares payloads by digest, so the digest's promise -- equal
+# content means an equal digest, whatever order the keys arrived in -- is what
+# the rule rests on. JSON object order is not significant, and a payload read
+# back from the journal need not be keyed in the order it was written. Nothing
+# tested that promise; a digest over the plain string form would have satisfied
+# every other test and broken this one.
+
+
+def test_the_same_content_in_a_different_key_order_has_the_same_digest() -> None:
+    payload = node("electrical.motor")
+    reordered = dict(reversed(list(payload.items())))
+
+    assert list(reordered) != list(payload), "the fixture must actually reorder"
+    assert reordered == payload
+    assert payload_digest(reordered) == payload_digest(payload)
+
+
+def test_a_nested_reordering_also_has_the_same_digest() -> None:
+    """The quantities are a mapping too, and they are where the numbers live."""
+    payload = node("electrical.motor")
+    payload["quantities"] = {
+        "stall_current": {"value": 2.4, "unit": "A", "source": "datasheet", "written_by": "sizing"},
+        "mass": {"value": 1.5, "unit": "kg", "source": "datasheet", "written_by": "sizing"},
+    }
+    reordered = dict(payload)
+    reordered["quantities"] = {
+        "mass": {"written_by": "sizing", "source": "datasheet", "unit": "kg", "value": 1.5},
+        "stall_current": {"written_by": "sizing", "unit": "A", "value": 2.4, "source": "datasheet"},
+    }
+
+    assert reordered == payload
+    assert payload_digest(reordered) == payload_digest(payload)
+
+
+def test_different_content_has_a_different_digest() -> None:
+    payload = node("electrical.motor")
+    changed = {**payload, "updated": "different"}
+    assert payload_digest(changed) != payload_digest(payload)
+
+
+def test_a_changed_number_deep_in_the_payload_changes_the_digest() -> None:
+    payload = node("electrical.motor")
+    changed = json.loads(json.dumps(payload))
+    changed["quantities"]["stall_current"]["value"] = 2.5
+    assert payload_digest(changed) != payload_digest(payload)
+
+
+def test_a_round_trip_through_the_journal_keeps_the_digest(tmp_path: Path) -> None:
+    """The case the rollback rule actually meets: a payload read back off disk."""
+    root = tmp_path / "graph"
+    store = Store(root)
+    written = node("electrical.motor")
+    store.write_node(dict(written), "electrical")
+    store.close()
+
+    reopened = Store(root)
+    assert payload_digest(reopened.read_node("electrical.motor")) == payload_digest(written)
     reopened.close()
