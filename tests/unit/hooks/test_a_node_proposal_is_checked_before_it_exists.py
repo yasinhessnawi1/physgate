@@ -96,8 +96,16 @@ def test_an_update_to_another_roles_node_is_refused_even_if_it_names_the_session
     assert REJECT_CROSS_ROLE in told and "owned by the control role" in told
 
 
-def test_handing_over_ones_own_node_is_allowed(config: SessionConfig) -> None:
-    assert _write(config, "electrical.motor.json", node("electrical.motor", "sizing")) == "allow"
+def test_handing_ones_own_node_to_another_role_is_refused(config: SessionConfig) -> None:
+    # The store would accept this from the current owner. The hook does not:
+    # owners are assigned when the task is decomposed, not by the roles.
+    told = _write(config, "electrical.motor.json", node("electrical.motor", "sizing"))
+    assert graph.OWNER_CHANGE in told and "assigned when the task is decomposed" in told
+
+
+def test_keeping_the_owner_while_changing_the_node_is_allowed(config: SessionConfig) -> None:
+    changed = node("electrical.motor", "electrical", constrains=["power.budget"])
+    assert _write(config, "electrical.motor.json", changed) == "allow"
 
 
 def test_an_existing_interface_node_is_refused(config: SessionConfig) -> None:

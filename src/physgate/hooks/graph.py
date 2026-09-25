@@ -13,7 +13,9 @@ order, so a refused proposal is refused for the reason the store would give:
 
 1. the identifier is a legal one, and the file is named after it;
 2. the session's role may write the node: a new node must name the session's
-   role as its owner, and an existing node must already be owned by it;
+   role as its owner, and an existing node must already be owned by it and keep
+   that owner. The store would let the owner hand a node on; this hook does
+   not, because owners are assigned at decomposition, not by roles;
 3. an existing interface node is not written at all;
 4. every quantity is a value with a unit, a source and a writer — a bare number
    is refused here, with the schema's own message;
@@ -71,12 +73,17 @@ UNCHECKABLE = (
     "writes a node proposal cannot be checked, and it is refused."
 )
 
-OwnershipRule = Callable[[dict[str, Any], Head | None, SessionConfig], DesignStateError | None]
+#: A rule returns (reason, detail) for a proposal it refuses, or None.
+OwnershipRule = Callable[[dict[str, Any], Head | None, SessionConfig], tuple[str, str] | None]
+
+#: Not one of the store's reasons: the store accepts this write, and the hook
+#: is stricter on purpose (see ``_owner_does_not_change``).
+OWNER_CHANGE = "owner_change"
 
 
 def _owner_is_the_session(
     proposal: dict[str, Any], current: Head | None, config: SessionConfig
-) -> DesignStateError | None:
+) -> tuple[str, str] | None:
     """The store's rule: a new node names the writer as owner; an existing one is owned by it."""
     owner = current[2].get("owner_role") if current is not None else proposal.get("owner_role")
     if owner == config.role:
@@ -88,11 +95,33 @@ def _owner_is_the_session(
         detail = (
             f"{node_id} is owned by the {owner} role, and this session is the {config.role} role"
         )
-    return CrossRoleWriteError(detail, node_id=node_id, owner=str(owner), role=str(config.role))
+    refusal = CrossRoleWriteError(detail, node_id=node_id, owner=str(owner), role=str(config.role))
+    return REJECT_CROSS_ROLE, str(refusal)
+
+
+def _owner_does_not_change(
+    proposal: dict[str, Any], current: Head | None, config: SessionConfig
+) -> tuple[str, str] | None:
+    """A role does not hand its node to another role.
+
+    Stricter than the store, which lets the current owner name a new one. Owners
+    are assigned when the orchestrator decomposes the task, not by the roles
+    that own the nodes, so a proposal that changes an owner is refused here and
+    the orchestrator refuses it again when it applies proposals.
+    """
+    if current is None:
+        return None
+    was, now = current[2].get("owner_role"), proposal.get("owner_role")
+    if now == was:
+        return None
+    return OWNER_CHANGE, (
+        f"{proposal.get('id')} is owned by the {was} role, and this proposal would make it the "
+        f"{now} role's; owners are assigned when the task is decomposed, not by the roles"
+    )
 
 
 #: Checked in order; the first to object refuses the proposal.
-OWNERSHIP_RULES: tuple[OwnershipRule, ...] = (_owner_is_the_session,)
+OWNERSHIP_RULES: tuple[OwnershipRule, ...] = (_owner_is_the_session, _owner_does_not_change)
 
 
 def _check(proposal: object, file_stem: str, config: SessionConfig) -> tuple[str, str] | None:
@@ -109,7 +138,7 @@ def _check(proposal: object, file_stem: str, config: SessionConfig) -> tuple[str
     for rule in OWNERSHIP_RULES:
         objection = rule(proposal, current, config)
         if objection is not None:
-            return REJECT_CROSS_ROLE, str(objection)
+            return objection
     if current is not None and current[2].get("kind") == "interface":
         immutable = InterfaceImmutableError(
             f"{node_id} is an interface node, fixed at decomposition", node_id=node_id
