@@ -84,6 +84,7 @@ REFUSED = [
     ("find src/physgate/gate -name '*.py' -delete", GATE_REASON),
     ("cd src/physgate && echo x > gate/y.py", GATE_REASON),
     ("cd src/physgate/gate && touch new.py", GATE_REASON),
+    ("cd src/physgate/gate && make", GATE_REASON),
     ("echo x > src/physgate/g?te/new.py", GATE_REASON),
     ("echo x > src/physgate/GATE/new.py", GATE_REASON),
     ("echo '{}' > ~/.claude/settings.json", "later sessions read"),

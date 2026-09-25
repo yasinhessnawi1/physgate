@@ -20,9 +20,9 @@ What this layer refuses, for every profile that has a shell:
   started with no hooks at all (measured with the bare flag and with a
   settings source that leaves the project out).
 
-A path is found in a word, in each ``=``-separated part of it, and in every
-path-like token inside it, so the target of ``dd of=…`` and a path inside
-``python -c "open('…')"`` are both seen. Globs are expanded, ``~`` and plain
+A path is found in a word and in every path-like token inside it (a token
+ends at ``=``, a quote, a comma or a bracket), so the target of ``dd of=…`` and
+a path inside ``python -c "open('…')"`` are both seen. Globs are expanded, ``~`` and plain
 variables such as ``$HOME`` are expanded, and ``cd`` is followed. A word built
 from a command substitution cannot be known before it runs; that is left to
 the sentinel.
@@ -116,7 +116,7 @@ def _expand(word: str, dynamic: bool) -> str | None:
 def _candidates(word: str, cwd: str) -> Iterator[str]:
     """Every path ``word`` could name, relative to ``cwd``."""
     seen: set[str] = set()
-    parts = {word, *word.split("=")}
+    parts = {word}
     for part in list(parts):
         parts.update(_PATHLIKE.findall(part))
     for part in parts:
