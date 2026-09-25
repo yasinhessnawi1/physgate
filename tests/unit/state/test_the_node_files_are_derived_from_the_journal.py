@@ -295,3 +295,104 @@ def test_quarantining_still_reports_the_name_without_its_number(
     opened = Store(two_revisions, on_corrupt="truncate")
     assert opened.quarantined_node_files == ("mechanical.planted",)
     opened.close()
+
+
+def test_a_quarantined_file_deleted_by_hand_does_not_endanger_the_others(
+    two_revisions: Path,
+) -> None:
+    """The numbering searches for a free name; it does not count what is there.
+
+    Counting would be the obvious way to write it and is wrong the moment
+    somebody tidies up. Three files are parked, the middle one is deleted by
+    hand, and a fourth arrives: counting gives it the number the third already
+    holds, and the move destroys a file that was parked to preserve it.
+    """
+    parked: dict[str, bytes] = {}
+    for marker in ("first", "second", "third"):
+        planted = node_file(two_revisions, "mechanical.planted")
+        body = json.dumps(
+            {
+                "rev": 9,
+                "version": 1,
+                "payload": node("mechanical.planted", owner_role="mechanical", updated=marker),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+        planted.write_bytes(body)
+        Store(two_revisions, on_corrupt="truncate").close()
+        parked[marker] = body
+
+    nodes = two_revisions / "nodes"
+    assert sorted(p.name for p in nodes.glob("*.orphan.*")) == [
+        "mechanical.planted.json.orphan.1",
+        "mechanical.planted.json.orphan.2",
+        "mechanical.planted.json.orphan.3",
+    ]
+
+    (nodes / "mechanical.planted.json.orphan.2").unlink()
+    survivors = {
+        name: (nodes / f"mechanical.planted.json.orphan.{n}").read_bytes()
+        for name, n in (("first", 1), ("third", 3))
+    }
+
+    planted = node_file(two_revisions, "mechanical.planted")
+    fourth = json.dumps(
+        {
+            "rev": 9,
+            "version": 1,
+            "payload": node("mechanical.planted", owner_role="mechanical", updated="fourth"),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    planted.write_bytes(fourth)
+    Store(two_revisions, on_corrupt="truncate").close()
+
+    for name, n in (("first", 1), ("third", 3)):
+        assert (nodes / f"mechanical.planted.json.orphan.{n}").read_bytes() == survivors[name], (
+            f"the {name} quarantined file was overwritten"
+        )
+    assert (nodes / "mechanical.planted.json.orphan.2").read_bytes() == fourth, (
+        "the new arrival did not take the freed name"
+    )
+
+
+# --- what the orphan policy treats as a node file -----------------------------
+
+
+@pytest.mark.parametrize("kind", ["a directory", "a symbolic link"])
+def test_anything_named_like_a_node_file_goes_through_the_policy(
+    kind: str, two_revisions: Path
+) -> None:
+    """The rule is the name, not what is behind it."""
+    import os
+
+    path = two_revisions / "nodes" / "evil.json"
+    if kind == "a directory":
+        path.mkdir()
+    else:
+        os.symlink("/etc/hosts", path)
+
+    with pytest.raises(CorruptRecordError):
+        Store(two_revisions)
+
+    opened = Store(two_revisions, on_corrupt="truncate")
+    assert opened.quarantined_node_files == ("evil",), kind
+    assert not path.exists(), kind
+    opened.close()
+
+
+@pytest.mark.parametrize("name", ["notes.txt", "subdirectory", "noextension", "x.json.orphan.1"])
+def test_anything_not_named_like_a_node_file_is_left_alone(name: str, two_revisions: Path) -> None:
+    """Including the store's own parked files, or the open would never settle."""
+    path = two_revisions / "nodes" / name
+    if name == "subdirectory":
+        path.mkdir()
+    else:
+        path.write_text("x")
+
+    opened = Store(two_revisions)
+    assert opened.quarantined_node_files == ()
+    assert path.exists(), name
+    opened.close()
