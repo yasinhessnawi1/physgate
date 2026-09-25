@@ -179,5 +179,8 @@ uv run python tests/integration/hooks/measure_latency.py latency.json
   runs before any check inside it.
 - **Reads of the held-out tier have one layer.** A read moves no signature, so
   the sentinel cannot see one.
-- **The first hook of a session** takes the sentinel's record, which copies
-  the bytes of every protected file, and costs several times an ordinary hook.
+- **The first hook of a session** takes the sentinel's record: it keeps the
+  bytes of every protected file in one pack, and finds the files of the code
+  the rare paths load, without importing them, so a change to them is seen from
+  the start. It costs about twice an ordinary hook, and more where the hook
+  state directory sits on a network filesystem; keep it on a local disk.
