@@ -26,6 +26,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
@@ -41,7 +42,7 @@ from physgate.orchestrator.credentials import (
     write_login,
 )
 from physgate.orchestrator.decompose import binary_version, read_stream
-from physgate.orchestrator.exceptions import InvocationError
+from physgate.orchestrator.exceptions import AccountingError, InvocationError
 from physgate.orchestrator.git import common_dir
 from physgate.orchestrator.install import InstallFacts, install_facts
 from physgate.orchestrator.invocation import isolated_env, role_argv
@@ -49,9 +50,10 @@ from physgate.orchestrator.managed import drift
 from physgate.orchestrator.merge import RunGit, commit_attempt
 from physgate.orchestrator.ports import Leftover, SessionReport, SessionRequest
 from physgate.orchestrator.processes import is_session, started_at, stop_tree
+from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.queue import DECISIONS_NAME
 from physgate.orchestrator.run_config import RunConfig
-from physgate.orchestrator.trajectory import forged_tail, seal, through_first_result
+from physgate.orchestrator.trajectory import Seal, forged_tail, seal, through_first_result
 
 REDACTED = REDACTED_TEXT.encode()
 
@@ -82,6 +84,36 @@ def run_protected_roots(run: RunGit) -> tuple[tuple[Path, ...], tuple[Path, ...]
     ref = common_dir(run.repo) / "refs" / "heads" / run.run_branch
     reverted = (*(run.run_dir / name for name in RUN_RECORDS), run.integration, ref)
     return reverted, (run.run_dir / "sessions", run.run_dir / DECISIONS_NAME)
+
+
+@dataclass(frozen=True)
+class Captured:
+    """A session's captured stream, as read once: sealed, checked, parsed from the same bytes."""
+
+    seal: Seal
+    tampered: str | None
+    # The binary's result object: an untyped boundary.
+    result: dict[str, Any] | None
+    usage: tuple[MessageUsage, ...]
+    answered: frozenset[str]
+
+
+def read_captured(stream: Path) -> Captured:
+    """Read a session's stream once: seal it, find a forged tail, parse what the runtime wrote.
+
+    One read path for every reader, the session that ended under its orchestrator
+    and the leftover a resume finds. A stream with a tail after the runtime's
+    result is parsed only up to that result; the tail is reported, never read.
+    """
+    data = stream.read_bytes() if stream.exists() else b""
+    text = data.decode(errors="replace")
+    tampered = forged_tail(text)
+    if tampered is not None:
+        text = through_first_result(text)
+    result, usage, answered = read_stream(text)
+    return Captured(
+        seal=seal(data), tampered=tampered, result=result, usage=usage, answered=answered
+    )
 
 
 def role_prompt(request: SessionRequest) -> str:
@@ -270,15 +302,9 @@ class ClaudeDispatcher:
         # The credential is on disk only while its session runs.
         remove_secrets(sdir / "state", sdir / "config")
         redact(stdout, self._credential.secret)
-        # Sealed before anything reads it, and read from the same bytes.
-        data = stdout.read_bytes()
-        sealed = seal(data)
-        text = data.decode(errors="replace")
-        tampered = forged_tail(text)
-        if tampered is not None:
-            # What the runtime wrote ends at its first result; the rest is not read.
-            text = through_first_result(text)
-        result, usage, answered = read_stream(text)
+        captured = read_captured(stdout)
+        sealed, tampered = captured.seal, captured.tampered
+        result, usage, answered = captured.result, captured.usage, captured.answered
         require_matching_totals(result, usage)
         end = classify_session_end(result, exit_code=exit_code, stopped_at_wall_clock=timed_out)
         if end.outcome == "completed":
@@ -339,17 +365,26 @@ class ClaudeDispatcher:
             redact(sdir / "stdout.jsonl", self._credential.secret)
         leftovers = []
         for sdir, session_id, pid, killed, stopped in found:
-            stream = sdir / "stdout.jsonl"
-            text = stream.read_text(errors="replace") if stream.exists() else ""
-            result, usage, _ = read_stream(text)
+            # The same read as a session that ended under its orchestrator: sealed as
+            # read, a tail after the runtime's result not taken, and a stream with a
+            # result held to the runtime's own totals.
+            captured = read_captured(sdir / "stdout.jsonl")
+            tampered = captured.tampered
+            if tampered is None:
+                try:
+                    require_matching_totals(captured.result, captured.usage)
+                except AccountingError as exc:
+                    tampered = f"{exc}: {exc.context}"
             leftovers.append(
                 Leftover(
                     session_id=session_id,
                     pid=pid,
                     killed=killed,
                     stopped=stopped,
-                    usage=usage,
-                    complete=result is not None,
+                    usage=captured.usage,
+                    complete=captured.result is not None,
+                    seal=captured.seal,
+                    tampered=tampered,
                 )
             )
         return leftovers

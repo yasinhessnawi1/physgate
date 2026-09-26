@@ -129,7 +129,10 @@ def test_the_queue_is_listed_and_a_decision_recorded(
     assert main([*args, "--by", "yasin"]) == 0
     capsys.readouterr()
     assert main(["queue", "list", "--run-dir", str(tmp_path)]) == 0
-    assert json.loads(capsys.readouterr().out) == {"open": []}
+    listed = json.loads(capsys.readouterr().out)
+    assert listed["open"] == []
+    # No run recorded here, so no session window: the decision is not flagged.
+    assert [(d["item_id"], d["flag"]) for d in listed["decided"]] == [("q1", None)]
     assert main([*args, "--by", "yasin"]) == 2
     assert "not an open item" in capsys.readouterr().err
 

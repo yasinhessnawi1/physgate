@@ -40,6 +40,7 @@ from physgate.orchestrator.events import (
     Incident,
     IncidentCause,
     InfraRetryScheduled,
+    LeftoverRead,
     LeftoverStopped,
     Merged,
     NodeFilesRepaired,
@@ -264,10 +265,15 @@ class Loop:
         self._incident(subtask_id, "run_branch_moved", moved)
         return False
 
+    def _decisions_bytes(self) -> int:
+        path = self.queue.decisions_path
+        return path.stat().st_size if path.exists() else 0
+
     def _stop_leftovers(self) -> None:
         """Stop what a previous process left running, before anything reads or writes."""
         if not self.log.events:
             return
+        tampered: list[tuple[str, str]] = []
         for left in self._dispatcher.stop_leftovers():
             if left.stopped:
                 self._emit(
@@ -275,7 +281,20 @@ class Loop:
                         **self._env(), session_id=left.session_id, pid=left.pid, killed=left.killed
                     )
                 )
-            # Spent, and never recorded: its orchestrator died first.
+            self._emit(
+                LeftoverRead(
+                    **self._env(),
+                    session_id=left.session_id,
+                    stopped=left.stopped,
+                    complete=left.complete,
+                    trajectory_seal=left.seal,
+                    decisions_bytes=self._decisions_bytes(),
+                )
+            )
+            if left.tampered is not None:
+                tampered.append((left.session_id, left.tampered))
+            # Spent, and never recorded: its orchestrator died first. Up to the
+            # runtime's own result only, when something wrote after it.
             for message in left.usage:
                 self._emit(
                     TokensUsed(
@@ -286,6 +305,8 @@ class Loop:
                         partial=not left.complete,
                     )
                 )
+        for session_id, why in tampered:
+            self._incident(None, "trajectory_tampered", f"leftover session {session_id}: {why}")
 
     def _clean_up_worktrees(self) -> None:
         """Remove the worktrees the rules allow, recording each; never stall or fail the run.
@@ -370,7 +391,17 @@ class Loop:
     def _session(self, subtask_id: str, attempt: int) -> bool:
         sub = self.state.subtasks[subtask_id]
         self._stage(subtask_id, attempt, "resolve")
-        self._stage(subtask_id, attempt, "spawn")
+        # The decisions file's length now and when the session ends: the window a
+        # decision written meanwhile falls in, which the queue listing marks.
+        self._emit(
+            StageEntered(
+                **self._env(),
+                subtask_id=subtask_id,
+                attempt=attempt,
+                stage="spawn",
+                decisions_bytes=self._decisions_bytes(),
+            )
+        )
         before = sub.attempts[-2].rejected if attempt > 1 else None
         request = SessionRequest(
             subtask_id=subtask_id,
@@ -405,6 +436,7 @@ class Loop:
                 worktree=report.worktree,
                 reading_verified=report.reading_verified,
                 trajectory_seal=report.trajectory_seal,
+                decisions_bytes=self._decisions_bytes(),
             )
         )
         if report.trajectory_tampered is not None:

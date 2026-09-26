@@ -206,6 +206,16 @@ class ApprovalQueue:
         self._append(record)
         return record
 
+    def decisions_at(self) -> list[tuple[int, QueueResolution]]:
+        """Every decision with the byte offset its line starts at in the decisions file."""
+        found: list[tuple[int, QueueResolution]] = []
+        offset = 0
+        for line in self.decisions_path.read_bytes().splitlines(keepends=True):
+            if line.endswith(b"\n"):
+                found.append((offset, _DECISION.validate_json(line)))
+            offset += len(line)
+        return found
+
     def open_items(self) -> list[QueueItem]:
         """Items no decision has been recorded for, oldest first."""
         return [i for k, i in self._items.items() if k not in self._resolved]

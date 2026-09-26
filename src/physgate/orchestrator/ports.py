@@ -79,6 +79,11 @@ class Leftover(_Frozen):
     stopped: bool
     usage: tuple[MessageUsage, ...] = ()
     complete: bool = False
+    #: The stream's seal as the resume read it.
+    seal: Seal | None = None
+    #: Why the stream is not the runtime's alone (a tail, or an account the result
+    #: does not bear out), if it is not. Then its usage ends at the runtime's result.
+    tampered: NonEmptyStr | None = None
 
 
 class ChangeCheck(_Frozen):

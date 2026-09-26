@@ -35,6 +35,7 @@ from physgate.orchestrator.events import (
     Halted,
     Incident,
     InfraRetryScheduled,
+    LeftoverRead,
     LeftoverStopped,
     Merged,
     NodeFilesRepaired,
@@ -145,7 +146,7 @@ class RunState:
         if isinstance(event, Halted):
             self.halted = event
             return
-        if isinstance(event, LeftoverStopped):
+        if isinstance(event, LeftoverStopped | LeftoverRead | TokensUsed):
             return  # recorded at any time, a halted run's resume included
         if isinstance(event, WorktreeRemoved):
             if event.subtask_id not in self.subtasks or event.subtask_id in self.worktrees_handled:

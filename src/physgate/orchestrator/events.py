@@ -143,6 +143,8 @@ class StageEntered(_Event):
     subtask_id: NonEmptyStr
     attempt: Attempt
     stage: Stage
+    #: At the spawn stage: the queue decisions file's length as the session starts.
+    decisions_bytes: Annotated[int, Field(ge=0)] | None = None
 
 
 class Halted(_Event):
@@ -213,6 +215,9 @@ class SessionEnded(_Event):
     #: The trajectory's digest and length when the session ended; every later reader
     #: holds the file to it. None for a session with no captured stream.
     trajectory_seal: Seal | None = None
+    #: The queue decisions file's length as the session ended: with the spawn
+    #: stage's, the window a decision may have been written in while it ran.
+    decisions_bytes: Annotated[int, Field(ge=0)] | None = None
     worktree: NonEmptyStr | None
     reading_verified: bool
 
@@ -399,6 +404,22 @@ class LeftoverStopped(_Event):
     killed: Annotated[int, Field(ge=0)]
 
 
+class LeftoverRead(_Event):
+    """What a resume read of a session a previous orchestrator left without an end.
+
+    Its stream was sealed as read, and its usage recorded from the same bytes,
+    partial if the stream holds no result. The decisions file's length closes the
+    session's window.
+    """
+
+    kind: Literal["leftover_read"] = "leftover_read"
+    session_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
+    stopped: bool
+    complete: bool
+    trajectory_seal: Seal | None
+    decisions_bytes: Annotated[int, Field(ge=0)] | None = None
+
+
 class WorktreeRemoved(_Event):
     """A done subtask's worktree was removed, or git refused to, and how long it took.
 
@@ -450,6 +471,7 @@ Event = Annotated[
     | Decomposed
     | EnvironmentRecorded
     | LeftoverStopped
+    | LeftoverRead
     | WorktreeRemoved
     | WriteIntended
     | WriteDone
