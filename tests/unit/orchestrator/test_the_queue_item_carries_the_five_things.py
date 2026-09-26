@@ -155,7 +155,8 @@ def test_an_item_in_the_decisions_file_is_refused(tmp_path: Path) -> None:
     path = tmp_path / "queue.jsonl"
     queue = ApprovalQueue(path, clock=ticking_clock())
     queue.add(item("q2"))
-    queue.decisions_path.write_bytes(path.read_bytes())
+    # A well-formed item of its own, so only its being in the wrong file refuses it.
+    queue.decisions_path.write_bytes(item("q3").model_dump_json().encode() + b"\n")
     with pytest.raises(QueueError):
         ApprovalQueue(path)
 
