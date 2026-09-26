@@ -133,7 +133,7 @@ def build(root: Path) -> None:
         detail="",
         plan=plan,
         usage=(),
-        model="claude-opus-5",
+        model="claude-sonnet-5",
         num_turns=1,
     )
     start_run(outcome, config=cfg, run_dir=root / "run", target_repo=repo).close()

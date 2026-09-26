@@ -24,7 +24,7 @@ REVIEW = Finding.from_review(
     ReviewResult(
         verdict="fail",
         finding="the loop gain was changed without saying why",
-        reviewer_model="claude-opus-5",
+        reviewer_model="claude-opus-5-5",
         session_id="rev-1",
         usage=(),
     )

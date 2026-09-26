@@ -327,7 +327,7 @@ def test_the_record_refuses_a_merge_of_any_commit_but_the_checked_one(tmp_path: 
     _through_the_gate(log, verdict_fails=False)
     log.emit(StageEntered, subtask_id="s1", attempt=1, stage="review")
     review = ReviewResult(
-        verdict="pass", finding="ok", reviewer_model="claude-opus-5", session_id="r", usage=()
+        verdict="pass", finding="ok", reviewer_model="claude-opus-5-5", session_id="r", usage=()
     )
     log.emit(ReviewRan, subtask_id="s1", attempt=1, result=review)
     log.emit(StageEntered, subtask_id="s1", attempt=1, stage="decide")
@@ -351,7 +351,7 @@ def _to_decide(tmp_path: Path) -> EventLog:
     _through_the_gate(log, verdict_fails=False)
     log.emit(StageEntered, subtask_id="s1", attempt=1, stage="review")
     review = ReviewResult(
-        verdict="pass", finding="ok", reviewer_model="claude-opus-5", session_id="r", usage=()
+        verdict="pass", finding="ok", reviewer_model="claude-opus-5-5", session_id="r", usage=()
     )
     log.emit(ReviewRan, subtask_id="s1", attempt=1, result=review)
     log.emit(StageEntered, subtask_id="s1", attempt=1, stage="decide")

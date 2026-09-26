@@ -199,8 +199,8 @@ def test_the_decompose_command_twice_with_one_seed_gives_one_set_of_ids(
 
 def test_a_plan_from_a_model_other_than_the_pinned_one_fails_the_run(tmp_path: Path) -> None:
     api, outcome, run_dir = decompose_once(
-        tmp_path, 7, [tool("StructuredOutput", **PLAN)], answer_as="claude-haiku-4-5"
+        tmp_path, 7, [tool("StructuredOutput", **PLAN)], answer_as="claude-haiku-4-5-20251001"
     )
     assert not outcome.ok and outcome.cause == "model_mismatch"
-    assert "claude-haiku-4-5" in outcome.detail and len(api.requests) == 1
+    assert "claude-haiku-4-5-20251001" in outcome.detail and len(api.requests) == 1
     assert not (run_dir / "store").exists()

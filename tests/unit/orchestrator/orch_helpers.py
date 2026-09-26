@@ -25,9 +25,9 @@ def make_config(**overrides: Any) -> RunConfig:
         "brief_sha256": "a" * 64,
         "gate_mode": "on",
         "models": ModelStrings(
-            decomposition="claude-opus-5",
-            roles={"electrical": "claude-sonnet-4-5"},
-            reviewers={"electrical": "claude-opus-5"},
+            decomposition="claude-sonnet-5",
+            roles={"electrical": "claude-sonnet-5"},
+            reviewers={"electrical": "claude-opus-5-5"},
         ),
         "bounds": SCRIPTED_BOUNDS,
         "token_ceiling": 100_000,

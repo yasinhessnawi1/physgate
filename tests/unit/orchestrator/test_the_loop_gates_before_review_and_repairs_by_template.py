@@ -213,8 +213,8 @@ def test_a_reviewer_on_the_implementers_model_is_refused_before_anything_runs(
 ) -> None:
     rig = Rig(
         tmp_path,
-        reviewer=FakeReviewer(model="claude-sonnet-4-5"),
-        config_overrides={"models": _models(reviewer="claude-sonnet-4-5")},
+        reviewer=FakeReviewer(model="claude-sonnet-5"),
+        config_overrides={"models": _models(reviewer="claude-sonnet-5")},
     )
     with pytest.raises(ModelSeparationError):
         rig.open()
@@ -222,15 +222,15 @@ def test_a_reviewer_on_the_implementers_model_is_refused_before_anything_runs(
 
 
 def test_a_reviewer_not_on_its_pinned_model_is_refused(tmp_path: Path) -> None:
-    rig = Rig(tmp_path, reviewer=FakeReviewer(model="claude-haiku-4-5"))
+    rig = Rig(tmp_path, reviewer=FakeReviewer(model="claude-haiku-4-5-20251001"))
     with pytest.raises(ReviewerNotRegisteredError):
         rig.open()
 
 
 def _models(*, reviewer: str) -> ModelStrings:
     return ModelStrings(
-        decomposition="claude-opus-5",
-        roles={"electrical": "claude-sonnet-4-5"},
+        decomposition="claude-sonnet-5",
+        roles={"electrical": "claude-sonnet-5"},
         reviewers={"electrical": reviewer},
     )
 
@@ -286,7 +286,7 @@ def test_a_reviewer_whose_model_changes_after_start_is_refused_at_the_review(
     rig = Rig(tmp_path)
     loop = rig.open()
     loop.start(plan("s1"))
-    rig.reviewer.model = "claude-sonnet-4-5"
+    rig.reviewer.model = "claude-sonnet-5"
     with pytest.raises(ModelSeparationError):
         loop.run()
     loop.close()

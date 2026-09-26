@@ -80,7 +80,7 @@ def request(cfg: RunConfig) -> SessionRequest:
         assigned_role="electrical",
         spec_path=SPEC,
         module_dir="modules/power",
-        model="claude-sonnet-4-5",
+        model="claude-sonnet-5",
         repair_instruction=None,
         bounds=cfg.bounds,
     )
@@ -234,8 +234,11 @@ def test_a_session_answered_by_a_model_other_than_the_pinned_one_is_refused(
     worktree = tmp_path / "run" / "worktrees" / "s1"
     steps = [tool("Read", file_path=str(worktree / SPEC)), text("done")]
     with pytest.raises(InvocationError, match="other than the pinned one") as caught:
-        dispatch(tmp_path, install_bin, steps, answer_as="claude-haiku-4-5")
-    assert caught.value.context == {"asked": "claude-sonnet-4-5", "answered": "claude-haiku-4-5"}
+        dispatch(tmp_path, install_bin, steps, answer_as="claude-haiku-4-5-20251001")
+    assert caught.value.context == {
+        "asked": "claude-sonnet-5",
+        "answered": "claude-haiku-4-5-20251001",
+    }
 
 
 def _running(marker: str) -> list[str]:

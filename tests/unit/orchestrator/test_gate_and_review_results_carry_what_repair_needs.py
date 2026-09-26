@@ -85,12 +85,12 @@ def test_a_reviewer_on_an_alias_is_refused() -> None:
 
 def test_a_reviewer_on_the_implementers_model_is_refused() -> None:
     with pytest.raises(ModelSeparationError) as caught:
-        require_separate_models(implementer="claude-sonnet-4-5", reviewer="claude-sonnet-4-5")
+        require_separate_models(implementer="claude-sonnet-5", reviewer="claude-sonnet-5")
     assert caught.value.context == {
-        "implementer": "claude-sonnet-4-5",
-        "reviewer": "claude-sonnet-4-5",
+        "implementer": "claude-sonnet-5",
+        "reviewer": "claude-sonnet-5",
     }
-    require_separate_models(implementer="claude-sonnet-4-5", reviewer="claude-opus-5")
+    require_separate_models(implementer="claude-sonnet-5", reviewer="claude-opus-5-5")
 
 
 def test_a_gate_that_reports_another_mode_breaks_its_contract() -> None:
@@ -105,7 +105,7 @@ class _TestGate:
 
 
 class _TestReviewer:
-    model = "claude-opus-5"
+    model = "claude-opus-5-5"
 
     def review(self, artefact: Artefact) -> ReviewResult:
         return ReviewResult(

@@ -42,11 +42,18 @@ def test_a_model_alias_is_refused(alias: str) -> None:
     with pytest.raises(ValidationError, match="full model string|at least 1"):
         ModelStrings(decomposition=alias, roles={}, reviewers={})
     with pytest.raises(ValidationError):
-        ModelStrings(decomposition="claude-opus-5", roles={"control": alias}, reviewers={})
+        ModelStrings(decomposition="claude-sonnet-5", roles={"control": alias}, reviewers={})
 
 
 @pytest.mark.parametrize(
-    "full", ["claude-sonnet-4-5", "claude-sonnet-4-5-20250929", "claude-opus-5", "claude-haiku-4-5"]
+    "full",
+    [
+        "claude-sonnet-5",
+        "claude-sonnet-4-5-20250929",
+        "claude-opus-5-5",
+        "claude-haiku-4-5-20251001",
+        "claude-fable-5-1",
+    ],
 )
 def test_a_full_model_string_is_accepted(full: str) -> None:
     assert ModelStrings(decomposition=full, roles={}, reviewers={}).decomposition == full

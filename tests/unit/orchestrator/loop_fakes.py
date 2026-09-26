@@ -146,7 +146,7 @@ class FakeGate:
 
 @dataclass
 class FakeReviewer:
-    model: str = "claude-opus-5"
+    model: str = "claude-opus-5-5"
     verdicts: list[str] = field(default_factory=list)
     seen: list[Artefact] = field(default_factory=list)
     kill_on: int | None = None

@@ -177,7 +177,7 @@ class Gate:
 
 @dataclass
 class Reviewer:
-    model: str = "claude-opus-5"
+    model: str = "claude-opus-5-5"
     calls: int = 0
 
     def review(self, artefact: Artefact) -> ReviewResult:
@@ -223,9 +223,9 @@ def config(run_id: str = "run-1") -> RunConfig:
         brief_sha256="a" * 64,
         gate_mode="on",
         models=ModelStrings(
-            decomposition="claude-opus-5",
-            roles={"electrical": "claude-sonnet-4-5"},
-            reviewers={"electrical": "claude-opus-5"},
+            decomposition="claude-sonnet-5",
+            roles={"electrical": "claude-sonnet-5"},
+            reviewers={"electrical": "claude-opus-5-5"},
         ),
         bounds=RunBounds(
             binary_max_retries=0,

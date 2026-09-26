@@ -21,7 +21,7 @@ REQUEST = SessionRequest(
     assigned_role="electrical",
     spec_path=".physgate/specs/power-1a2b3c.md",
     module_dir="modules/power",
-    model="claude-sonnet-4-5",
+    model="claude-sonnet-5",
     repair_instruction="Attempt 1 of 3 was rejected by the physics gate.",
     bounds=SCRIPTED_BOUNDS,
 )
@@ -42,7 +42,7 @@ def test_a_role_session_is_never_the_binarys_own_resume() -> None:
         "/bin/claude",
         prompt="p",
         spawn_args=("--setting-sources", "", "--settings", "/s/settings.json"),
-        model="claude-sonnet-4-5",
+        model="claude-sonnet-5",
         session_id="abc",
         max_turns=20,
     )

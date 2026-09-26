@@ -85,6 +85,19 @@ def _text_of(content: Any) -> str:  # noqa: ANN401 - the Messages API's own cont
     return "\n".join(parts)
 
 
+def _last_user(messages: list[dict[str, Any]]) -> str:
+    """The text of the last user turn.
+
+    Not simply the last message: for some models the binary appends a message of
+    its own after it (measured on 2.1.272 with ``claude-sonnet-5``: a trailing
+    ``system`` message carrying a token count).
+    """
+    for message in reversed(messages):
+        if message.get("role") == "user":
+            return _text_of(message.get("content"))
+    return ""
+
+
 def _results(messages: list[dict[str, Any]]) -> int:
     return sum(
         1
@@ -211,7 +224,7 @@ class FakeMessagesApi:
                     thread=thread,
                     tool_results=done,
                     offered_tools=offered,
-                    last_user=_text_of(messages[-1]["content"]) if messages else "",
+                    last_user=_last_user(messages),
                     served=step,
                 )
             )

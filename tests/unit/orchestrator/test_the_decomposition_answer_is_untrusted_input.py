@@ -48,7 +48,7 @@ def result(**overrides: Any) -> dict[str, Any]:
         "is_error": False,
         "terminal_reason": "completed",
         "num_turns": 2,
-        "modelUsage": {"claude-opus-5": {}},
+        "modelUsage": {"claude-sonnet-5": {}},
         "structured_output": {
             "modules": [module("power", "modules/power")],
             "interface_nodes": [NODE],
@@ -58,7 +58,7 @@ def result(**overrides: Any) -> dict[str, Any]:
     return base
 
 
-OPUS = frozenset({"claude-opus-5"})
+PINNED = frozenset({"claude-sonnet-5"})
 
 
 def test_a_valid_answer_is_a_plan() -> None:
@@ -66,20 +66,24 @@ def test_a_valid_answer_is_a_plan() -> None:
         result(),
         exit_code=0,
         timed_out=False,
-        model="claude-opus-5",
+        model="claude-sonnet-5",
         roles=["electrical"],
-        answered=OPUS,
+        answered=PINNED,
     )
-    assert cause is None and got is not None and model == "claude-opus-5" and turns == 2
+    assert cause is None and got is not None and model == "claude-sonnet-5" and turns == 2
 
 
 @pytest.mark.parametrize(
     ("overrides", "exit_code", "cause"),
     [
         ({"structured_output": None}, 0, "no_structured_output"),
-        ({"answered": frozenset({"claude-sonnet-5"})}, 0, "model_mismatch"),
+        ({"answered": frozenset({"claude-haiku-4-5-20251001"})}, 0, "model_mismatch"),
         ({"answered": frozenset()}, 0, "model_mismatch"),
-        ({"answered": frozenset({"claude-opus-5", "claude-sonnet-5"})}, 0, "model_mismatch"),
+        (
+            {"answered": frozenset({"claude-sonnet-5", "claude-haiku-4-5-20251001"})},
+            0,
+            "model_mismatch",
+        ),
         ({"terminal_reason": "max_turns", "is_error": True}, 1, "turn_limit"),
         ({"terminal_reason": "api_error", "is_error": True}, 1, "api_error"),
         ({"structured_output": {"modules": []}}, 0, "invalid_plan"),
@@ -109,12 +113,12 @@ def test_an_answer_that_is_not_a_usable_plan_fails(
     overrides: dict[str, Any], exit_code: int, cause: str
 ) -> None:
     fields = dict(overrides)
-    answered = fields.pop("answered", OPUS)
+    answered = fields.pop("answered", PINNED)
     got = judge(
         result(**fields),
         exit_code=exit_code,
         timed_out=False,
-        model="claude-opus-5",
+        model="claude-sonnet-5",
         roles=["electrical"],
         answered=answered,
     )

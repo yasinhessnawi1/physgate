@@ -22,7 +22,7 @@ def test_the_decomposition_call_offers_no_tool_and_one_turn(tmp_path: Path) -> N
         "/bin/claude",
         prompt="p",
         schema="{}",
-        model="claude-opus-5",
+        model="claude-sonnet-5",
         session_id="abc",
         settings=tmp_path / "settings.json",
     )
@@ -31,7 +31,7 @@ def test_the_decomposition_call_offers_no_tool_and_one_turn(tmp_path: Path) -> N
     assert pairs["--settings"] == str(tmp_path / "settings.json")
     assert pairs["--tools"] == ""
     assert pairs["--max-turns"] == "1"
-    assert pairs["--model"] == "claude-opus-5"
+    assert pairs["--model"] == "claude-sonnet-5"
     assert pairs["--session-id"] == "abc"
     assert pairs["--json-schema"] == "{}"
     assert "--resume" not in argv

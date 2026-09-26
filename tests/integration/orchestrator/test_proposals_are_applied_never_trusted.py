@@ -91,7 +91,7 @@ class Rig:
             call=DecompositionCall(session_id="decomp", usage=()),
             decomposed=DecompositionSummary(
                 session_id="decomp",
-                model="claude-opus-5",
+                model="claude-sonnet-5",
                 num_turns=2,
                 subtasks=1,
                 interface_nodes=("iface.power_bus",),

@@ -14,9 +14,9 @@ from physgate.orchestrator.repair import Finding
 PARAMS = {
     "gate_mode": "on",
     "models": {
-        "decomposition": "claude-opus-5",
-        "roles": {"electrical": "claude-sonnet-4-5"},
-        "reviewers": {"electrical": "claude-opus-5"},
+        "decomposition": "claude-sonnet-5",
+        "roles": {"electrical": "claude-sonnet-5"},
+        "reviewers": {"electrical": "claude-opus-5-5"},
     },
     "bounds": {
         "binary_max_retries": 0,

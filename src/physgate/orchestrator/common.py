@@ -18,8 +18,8 @@ NonEmptyStr = Annotated[str, StringConstraints(min_length=1)]
 #: without blocking. Required for every run; there is no default.
 GateMode = Literal["on", "off", "observe"]
 
-# A full model string names a family and a version ("claude-sonnet-4-5",
-# "claude-sonnet-4-5-20250929"). An alias ("sonnet", "opus") is resolved inside the
+# A full model string names a family and a version ("claude-sonnet-5",
+# "claude-haiku-4-5-20251001"). An alias ("sonnet", "opus") is resolved inside the
 # Claude Code binary and was measured to move with it: on 2.1.272 "sonnet" reached
 # the endpoint as a different model than the same alias names on an older binary.
 # A run pinned to an alias is pinned to nothing.
