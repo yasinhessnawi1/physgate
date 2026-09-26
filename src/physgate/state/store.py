@@ -179,6 +179,62 @@ def node_file_body(rev: int, version: int, payload: Payload) -> str:
     )
 
 
+def journal_records_after(root: Path, revision: Revision) -> list[JournalLine]:
+    """Every journal record after ``revision``, read without opening a store.
+
+    Opening a store runs recovery, which rewrites node files and moves unknown
+    files aside, so it is a write. The orchestrator needs to read the journal's
+    newest lines exactly when it must not write: when its handle refuses because
+    the journal moved underneath it, and when it resumes. It compares those lines
+    against the writes it recorded intending to make, and any line it did not
+    intend is a foreign write. Reopening instead would replay that line as
+    genuine.
+
+    Read-only, from the journal alone: the file is opened for reading and nothing
+    else, no node file is read or trusted, and every complete line is held to the
+    same rules recovery applies (a valid record, consecutive revisions, versions
+    that follow). A line that breaks them is reported, not skipped, since a
+    foreign write must not pass by also being malformed. An unterminated final
+    line is a write in progress and is not returned.
+
+    Raises:
+        CorruptRecordError: a complete line is not one this package could have
+            written, given the lines before it.
+    """
+    try:
+        fd = os.open(Path(root) / JOURNAL_NAME, os.O_RDONLY)
+    except FileNotFoundError:
+        return []
+    with os.fdopen(fd, "rb") as handle:
+        raw_lines = handle.read().split(b"\n")[:-1]
+    found: list[JournalLine] = []
+    version_of: dict[str, int] = {}
+    payloads_of: dict[str, set[str]] = {}
+    offset = 0
+    for index, raw in enumerate(raw_lines, start=1):
+        reason: str | None = None
+        try:
+            line = JournalLine.model_validate_json(raw)
+        except ValidationError as exc:
+            reason = _first_validation_problem(exc)
+        else:
+            if line.rev != index:
+                reason = f"revision {line.rev} does not follow {index - 1}"
+            else:
+                reason = _op_agrees_with_what_came_before(line, version_of, payloads_of)
+        if reason is not None:
+            msg = "the journal holds a record this package could not have written"
+            raise CorruptRecordError(
+                msg, journal=str(Path(root) / JOURNAL_NAME), offset=str(offset), reason=reason
+            )
+        version_of[line.node_id] = line.version
+        payloads_of.setdefault(line.node_id, set()).add(payload_digest(line.payload))
+        if line.rev > revision:
+            found.append(line)
+        offset += len(raw) + 1
+    return found
+
+
 def _first_validation_problem(exc: ValidationError) -> str:
     """The first thing wrong with a record, as a sentence rather than a report.
 

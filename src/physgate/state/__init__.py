@@ -40,7 +40,13 @@ from physgate.state.schema import (
     validate_node,
     validate_node_id,
 )
-from physgate.state.store import JournalLine, RevisionNotFoundError, Store, node_file_body
+from physgate.state.store import (
+    JournalLine,
+    RevisionNotFoundError,
+    Store,
+    journal_records_after,
+    node_file_body,
+)
 from physgate.state.task_ledger import TaskLedger, TaskLine
 
 __all__ = [
@@ -71,6 +77,7 @@ __all__ = [
     "WriteResult",
     "canonical_json",
     "divergence",
+    "journal_records_after",
     "node_file_body",
     "quantities_are_valid",
     "validate_node",
