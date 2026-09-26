@@ -7,10 +7,11 @@ dependencies = [
   "pydantic>=2.7,<3",
 ]
 
-# The one command so far: `physgate hooks install`, which writes a session's
-# settings file and configuration outside its worktree.
+# One command with subcommands: `physgate hooks install` writes a session's
+# settings file outside its worktree; `physgate decompose` starts a run from its
+# one model call; `physgate queue` lists and resolves the approval queue.
 [project.scripts]
-physgate = "physgate.hooks.cli:main"
+physgate = "physgate.cli:main"
 
 [dependency-groups]
 dev = [

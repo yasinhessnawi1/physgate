@@ -147,3 +147,46 @@ def test_a_call_that_produced_no_usable_plan_fails_the_run_after_one_request(
     assert halt.reason == "decomposition_failed" and halt.detail.startswith(cause)
     assert TaskLedger(run_dir / "ledger.jsonl").read_all() == []
     assert not (run_dir / "store").exists()
+
+
+def test_the_decompose_command_twice_with_one_seed_gives_one_set_of_ids(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import json
+
+    from physgate.cli import main
+
+    params = config().model_dump(include={"gate_mode", "models", "bounds", "token_ceiling"})
+    (tmp_path / "params.json").write_text(json.dumps(params))
+    (tmp_path / "brief.md").write_text("Build a self-balancing robot.\n")
+    printed = []
+    with serving(Script(main=[tool("StructuredOutput", **PLAN)])) as (api, url):
+        monkeypatch.setenv("ANTHROPIC_BASE_URL", url)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", DUMMY_KEY)
+        for name in ("a", "b", "a"):
+            repo = tmp_path / name / "target"
+            if not repo.exists():
+                target_repo(tmp_path / name)
+            code = main(
+                [
+                    "decompose",
+                    str(tmp_path / "brief.md"),
+                    "--seed",
+                    "7",
+                    "--run-id",
+                    "run-1",
+                    "--params",
+                    str(tmp_path / "params.json"),
+                    "--target",
+                    str(repo),
+                    "--run-dir",
+                    str(tmp_path / name / "run"),
+                ]
+            )
+            out = capsys.readouterr()
+            printed.append((code, out.out, out.err))
+    assert printed[0][0] == 0 and printed[1][0] == 0
+    first, second = json.loads(printed[0][1]), json.loads(printed[1][1])
+    assert first["subtasks"] == second["subtasks"] and len(first["subtasks"]) == 2
+    assert printed[2][0] == 2 and "already holds a run" in printed[2][2]
+    assert len(api.requests) == 2

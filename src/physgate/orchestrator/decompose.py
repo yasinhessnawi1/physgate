@@ -278,6 +278,17 @@ def call(
     )
 
 
+def require_fresh(run_dir: Path) -> None:
+    """Refuse a run directory that already holds a run, before any token is spent.
+
+    Raises:
+        RunStateError: it holds a run's log, configuration or store.
+    """
+    if any((run_dir / name).exists() for name in ("events.jsonl", "run.json", "store")):
+        msg = "the run directory already holds a run; a rerun is a new run"
+        raise RunStateError(msg, run_dir=str(run_dir))
+
+
 def start_run(
     outcome: Outcome, *, config: RunConfig, run_dir: Path, target_repo: Path
 ) -> RunRecord:
@@ -287,10 +298,8 @@ def start_run(
         RunStateError: the run directory already holds a run.
         DecompositionError: the store refused an interface node the plan validated.
     """
+    require_fresh(run_dir)
     store_root = run_dir / "store"
-    if (run_dir / "events.jsonl").exists() or store_root.exists():
-        msg = "the run directory already holds a run; a rerun is a new run"
-        raise RunStateError(msg, run_dir=str(run_dir))
     record = RunRecord(config, run_dir)
     spent = DecompositionCall(session_id=outcome.session_id, usage=outcome.usage)
     if not outcome.ok or outcome.plan is None:
