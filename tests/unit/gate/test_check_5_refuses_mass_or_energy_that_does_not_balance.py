@@ -103,3 +103,20 @@ def test_the_real_gate_refuses_the_imbalance_at_module_scope(tmp_path: Path) -> 
     graph(tmp_path / "g", drive(0.9), part("motor_left", 0.2))
     result = PhysicsGate().run(GraphView.read(tmp_path / "g", 0), ["module"], "on")
     assert result.verdict == "fail" and result.failing_check == "conservation"
+
+
+def test_only_the_modules_the_attempt_touched_are_balanced(tmp_path: Path) -> None:
+    root = tmp_path / "g"
+    head = graph(
+        root,
+        drive(0.9),
+        part("motor_left", 0.2),  # an earlier imbalance, not this attempt's
+        node("electrical.control", kind="module", quantities={"mass": (0.1, "kg")}),
+    )
+    graph(
+        root,
+        node("electrical.mcu", quantities={"mass": (0.1, "kg")}, constrains=["electrical.control"]),
+    )
+    view = GraphView.read(root, base_revision=head)
+    ran = check_conservation.run(CheckContext(view=view, scope="module", bounds=load_bounds()))
+    assert ran.observations == () and ran.evaluated == 1

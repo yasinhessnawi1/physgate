@@ -307,3 +307,21 @@ def test_the_unchecked_count_is_on_the_gate_result_of_every_attempt(tmp_path: Pa
     names = [d.quantities for r in unchecked if isinstance(d := r.details, UncheckedDetails)]
     assert len(unchecked) == len(names) == 1 and names[0] == ("gizmo_rate",)
     assert result.verdict == "pass"
+
+
+def test_a_temperature_limit_written_in_degrees_celsius_is_not_refused(tmp_path: Path) -> None:
+    # 25 degC + 40 K/W * 2 W <= 125 degC: pint alone refuses the sum with an offset
+    # unit; the absolute temperature enters in kelvin, so the relation is readable.
+    ran = run_check(
+        tmp_path,
+        node(
+            "electrical.driver",
+            quantities={
+                "thermal_resistance": (40, "K/W"),
+                "heat_dissipation": (2, "W"),
+                "ambient_temperature": (25, "degC"),
+                "max_temperature": (125, "degC"),
+            },
+        ),
+    )
+    assert ran.observations == () and ran.evaluated == 5
