@@ -202,12 +202,14 @@ class ProposalsChecked(_Event):
     """The attempt's changes were checked before the gate.
 
     First its write scope, then its node proposals against the store's own
-    guards on a scratch copy of the graph.
+    guards on a scratch copy of the graph. The commit that was checked is
+    recorded, and only that commit may be merged.
     """
 
     kind: Literal["proposals_checked"] = "proposals_checked"
     subtask_id: NonEmptyStr
     attempt: Attempt
+    checked_commit: Sha
     refused_by: Literal["proposal", "write_scope"] | None
     reason: NonEmptyStr | None
     graph_root: NonEmptyStr
@@ -265,7 +267,13 @@ class Incident(_Event):
 
     kind: Literal["incident"] = "incident"
     subtask_id: NonEmptyStr
-    cause: Literal["cross_role_write", "merge_conflict", "foreign_journal_line", "store_refusal"]
+    cause: Literal[
+        "cross_role_write",
+        "merge_conflict",
+        "merge_refused",
+        "foreign_journal_line",
+        "store_refusal",
+    ]
     detail: NonEmptyStr
 
 

@@ -46,10 +46,13 @@ from physgate.orchestrator.events import (
 )
 from physgate.orchestrator.exceptions import (
     GateNotRegisteredError,
+    MergeConflictError,
+    MergeRefusedError,
     ReviewerNotRegisteredError,
     RunConfigError,
     RunStateError,
 )
+from physgate.orchestrator.merge import merge_message
 from physgate.orchestrator.ports import ChangeChecker, Dispatcher, GraphDiff, Merger, SessionRequest
 from physgate.orchestrator.protocols import (
     Artefact,
@@ -305,7 +308,13 @@ class Loop:
             return False
         self._stage(subtask_id, attempt, "implement")
         check = self._changes.check(subtask_id, session.attempt_commit, role)
-        self._emit(ProposalsChecked, subtask_id=subtask_id, attempt=attempt, **check.model_dump())
+        self._emit(
+            ProposalsChecked,
+            subtask_id=subtask_id,
+            attempt=attempt,
+            checked_commit=session.attempt_commit,
+            **check.model_dump(),
+        )
         if check.refused_by is not None and check.reason is not None:
             self._reject(subtask_id, attempt, Finding(source=check.refused_by, text=check.reason))
             return False
@@ -350,13 +359,27 @@ class Loop:
             self._reject(subtask_id, attempt, Finding.from_review(review))
             return False
         self._stage(subtask_id, attempt, "decide")
-        require_mergeable(self.ledger.path, subtask_id, mode)
-        merge_commit = self._merger.merge(subtask_id, attempt, session.attempt_commit)
+        line = require_mergeable(self.ledger.path, subtask_id, mode)
+        changes = sub.attempts[-1].changes
+        if changes is None:
+            msg = "a merge with no recorded change check"
+            raise RunStateError(msg, subtask=subtask_id)
+        checked = changes.checked_commit
+        merge_text = merge_message(
+            subtask_id, attempt, checked, str(line.gate_result), str(line.review_result)
+        )
+        try:
+            merge_commit = self._merger.merge(subtask_id, attempt, checked, merge_text)
+        except (MergeConflictError, MergeRefusedError) as exc:
+            cause = "merge_conflict" if isinstance(exc, MergeConflictError) else "merge_refused"
+            self._emit(Incident, subtask_id=subtask_id, cause=cause, detail=str(exc))
+            self._emit(Halted, reason="incident", detail=f"{cause} in {subtask_id}")
+            return False
         self._emit(
             Merged,
             subtask_id=subtask_id,
             attempt=attempt,
-            attempt_commit=session.attempt_commit,
+            attempt_commit=checked,
             merge_commit=merge_commit,
         )
         return True

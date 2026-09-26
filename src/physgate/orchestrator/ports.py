@@ -78,8 +78,12 @@ class ChangeChecker(Protocol):
 class Merger(Protocol):
     """Applies an accepted attempt and merges it into the run branch."""
 
-    def merge(self, subtask_id: str, attempt: int, attempt_commit: str) -> str:
-        """Return the merge commit. Idempotent: a merge already made is returned, not redone."""
+    def merge(self, subtask_id: str, attempt: int, attempt_commit: str, message: str) -> str:
+        """Merge exactly ``attempt_commit`` and return the merge commit.
+
+        Idempotent: a merge already made is returned, not redone. Refuses a commit
+        that is no longer what the subtask's branch points at.
+        """
         ...
 
     def artefact_diff(self, attempt_commit: str) -> str:

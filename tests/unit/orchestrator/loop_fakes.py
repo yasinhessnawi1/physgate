@@ -157,7 +157,10 @@ class FakeMerger:
     merges: list[tuple[str, int, str]] = field(default_factory=list)
     ledger_at_merge: list[Any] = field(default_factory=list)
 
-    def merge(self, subtask_id: str, attempt: int, attempt_commit: str) -> str:
+    messages: list[str] = field(default_factory=list)
+
+    def merge(self, subtask_id: str, attempt: int, attempt_commit: str, message: str) -> str:
+        self.messages.append(message)
         if self.ledger_path is not None:
             fresh = TaskLedger(self.ledger_path)
             self.ledger_at_merge.append(fresh.find(subtask_id))

@@ -175,7 +175,10 @@ class RunState:
             now.rejected = event
             sub.next_resolve = after_rejection(now.number)
         elif isinstance(event, Merged):
+            checked = now.changes.checked_commit if now.changes is not None else None
             self._expect(now.cursor == "decide" and self.mergeable(now), "a merge")
+            if event.attempt_commit != checked:
+                _refuse("a merge of a commit other than the one that was checked")
             now.merged = event
             self._ledger(sub.plan.subtask_id, merge_commit=event.merge_commit)
         elif isinstance(event, DiffChecked):

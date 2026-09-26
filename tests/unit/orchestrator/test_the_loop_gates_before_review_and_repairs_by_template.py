@@ -98,6 +98,10 @@ def test_a_merge_happens_only_once_the_ledger_on_disk_shows_both_results(tmp_pat
     loop.close()
     (line,) = rig.merger.ledger_at_merge
     assert line.gate_result == "pass" and line.review_result == "pass"
+    (message,) = rig.merger.messages
+    assert (
+        message.startswith("Merge subtask s1, attempt 1") and "Gate: pass. Review: pass." in message
+    )
     final = TaskLedger(tmp_path / "ledger.jsonl").find("s1")
     assert final is not None and final.merge_commit is not None
 

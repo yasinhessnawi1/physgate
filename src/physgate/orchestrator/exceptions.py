@@ -70,3 +70,19 @@ class ReviewerNotRegisteredError(OrchestratorError):
 
 class RunStateError(OrchestratorError):
     """The run is not in a state that allows what was asked: started twice, or interrupted."""
+
+
+class GitError(OrchestratorError):
+    """A git command failed. The step stops; nothing retries it."""
+
+
+class MergeConflictError(OrchestratorError):
+    """An accepted attempt did not merge cleanly.
+
+    Under serial dispatch this means an invariant broke, so the run halts rather
+    than charging the agent.
+    """
+
+
+class MergeRefusedError(OrchestratorError):
+    """The commit about to be merged is not the one that was checked."""

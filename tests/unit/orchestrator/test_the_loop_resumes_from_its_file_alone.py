@@ -274,7 +274,13 @@ def _through_the_gate(log: EventLog, verdict_fails: bool) -> None:
     for stage in ("verify_reading", "implement"):
         log.emit(StageEntered, subtask_id="s1", attempt=1, stage=stage)
     log.emit(
-        ProposalsChecked, subtask_id="s1", attempt=1, refused_by=None, reason=None, graph_root="g"
+        ProposalsChecked,
+        subtask_id="s1",
+        attempt=1,
+        checked_commit=sha("c"),
+        refused_by=None,
+        reason=None,
+        graph_root="g",
     )
     log.emit(StageEntered, subtask_id="s1", attempt=1, stage="gate")
     mode: RunningGateMode = "on"
@@ -306,4 +312,30 @@ def test_the_record_allows_a_review_after_a_passing_gate(tmp_path: Path) -> None
     log = _started(tmp_path)
     _through_the_gate(log, verdict_fails=False)
     log.emit(StageEntered, subtask_id="s1", attempt=1, stage="review")
+    log.close()
+
+
+def test_the_record_refuses_a_merge_of_any_commit_but_the_checked_one(tmp_path: Path) -> None:
+    from loop_fakes import sha
+
+    from physgate.orchestrator.events import Merged, ReviewRan
+    from physgate.orchestrator.protocols import ReviewResult
+
+    log = _started(tmp_path)
+    _through_the_gate(log, verdict_fails=False)
+    log.emit(StageEntered, subtask_id="s1", attempt=1, stage="review")
+    review = ReviewResult(
+        verdict="pass", finding="ok", reviewer_model="claude-opus-5", session_id="r", usage=()
+    )
+    log.emit(ReviewRan, subtask_id="s1", attempt=1, result=review)
+    log.emit(StageEntered, subtask_id="s1", attempt=1, stage="decide")
+    with pytest.raises(ValueError, match="other than the one that was checked"):
+        log.emit(
+            Merged,
+            subtask_id="s1",
+            attempt=1,
+            attempt_commit=sha("something else"),
+            merge_commit=sha("m"),
+        )
+    log.emit(Merged, subtask_id="s1", attempt=1, attempt_commit=sha("c"), merge_commit=sha("m"))
     log.close()
