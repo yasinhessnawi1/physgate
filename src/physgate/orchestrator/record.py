@@ -8,16 +8,17 @@ opens the same record and drives it.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
 from physgate.orchestrator.common import NonEmptyStr, utc_now
 from physgate.orchestrator.events import (
     Decomposed,
+    Envelope,
+    Event,
     EventLog,
     Halted,
     RunStarted,
@@ -40,6 +41,31 @@ class DecompositionCall(BaseModel):
 
     session_id: NonEmptyStr
     usage: tuple[MessageUsage, ...]
+
+
+class PlanEntry(BaseModel):
+    """One subtask of the plan, as the run records it."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    subtask_id: NonEmptyStr
+    spec_path: NonEmptyStr
+    assigned_role: NonEmptyStr
+    module_dir: NonEmptyStr
+
+
+class DecompositionSummary(BaseModel):
+    """What the decomposition wrote, as the run's record of it."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    session_id: NonEmptyStr
+    model: NonEmptyStr
+    num_turns: int
+    subtasks: int
+    interface_nodes: tuple[NonEmptyStr, ...]
+    spec_commit: NonEmptyStr
+    head_revision: int
 
 
 class RunRecord:
@@ -79,33 +105,38 @@ class RunRecord:
         self.log.close()
         self.ledger.close()
 
-    def emit(self, kind: Any, **fields: Any) -> Any:  # noqa: ANN401 - forwards to the log
-        """Append one event and bring the ledger up to it."""
-        event = self.log.emit(kind, **fields)
+    def emit(self, event: Event) -> None:
+        """Append one event, built by the caller, and bring the ledger up to it."""
+        self.log.append(event)
         project_ledger(self.state, self.ledger)
-        return event
+
+    def envelope(self) -> Envelope:
+        """The fields the next line carries, to spread into an event where it is built."""
+        return self.log.envelope()
 
     def _begin(self, call: DecompositionCall | None) -> None:
         if self.log.events:
             msg = "the run was already started"
             raise RunStateError(msg, run_dir=str(self.run_dir))
         write_run_config(self.config_path, self.config)
-        self.emit(RunStarted, config_sha256=self.config.sha256())
+        self.emit(RunStarted(**self.envelope(), config_sha256=self.config.sha256()))
         if call is not None:
             for message in call.usage:
                 self.emit(
-                    TokensUsed,
-                    attribution=f"decomposition:{call.session_id}",
-                    message_id=message.message_id,
-                    usage=message.usage,
+                    TokensUsed(
+                        **self.envelope(),
+                        attribution=f"decomposition:{call.session_id}",
+                        message_id=message.message_id,
+                        usage=message.usage,
+                    )
                 )
 
     def start(
         self,
-        plan: Sequence[Mapping[str, str]],
+        plan: Sequence[PlanEntry],
         *,
         call: DecompositionCall | None = None,
-        decomposed: Mapping[str, Any] | None = None,
+        decomposed: DecompositionSummary | None = None,
     ) -> None:
         """Record the configuration, the decomposition call and the plan, once.
 
@@ -114,20 +145,39 @@ class RunRecord:
             RunConfigError: a subtask's role has no pinned model.
         """
         for entry in plan:
-            if entry["assigned_role"] not in self.config.models.roles:
+            if entry.assigned_role not in self.config.models.roles:
                 msg = "a planned subtask's role has no pinned model"
-                raise RunConfigError(msg, role=entry["assigned_role"])
+                raise RunConfigError(msg, role=entry.assigned_role)
         self._begin(call)
         if decomposed is not None:
-            self.emit(Decomposed, **decomposed)
+            self.emit(
+                Decomposed(
+                    **self.envelope(),
+                    session_id=decomposed.session_id,
+                    model=decomposed.model,
+                    num_turns=decomposed.num_turns,
+                    subtasks=decomposed.subtasks,
+                    interface_nodes=decomposed.interface_nodes,
+                    spec_commit=decomposed.spec_commit,
+                    head_revision=decomposed.head_revision,
+                )
+            )
         for entry in plan:
-            self.emit(SubtaskPlanned, **entry)
+            self.emit(
+                SubtaskPlanned(
+                    **self.envelope(),
+                    subtask_id=entry.subtask_id,
+                    spec_path=entry.spec_path,
+                    assigned_role=entry.assigned_role,
+                    module_dir=entry.module_dir,
+                )
+            )
 
     def fail_decomposition(self, call: DecompositionCall | None, detail: str) -> None:
         """Record a run whose one model call produced no usable plan. It ends there."""
         self._begin(call)
-        self.emit(Halted, reason="decomposition_failed", detail=detail)
+        self.emit(Halted(**self.envelope(), reason="decomposition_failed", detail=detail))
 
     def remove(self, subtask_id: str, reason: str) -> None:
         """Take a subtask not yet dispatched out of the plan; its id stays visible."""
-        self.emit(SubtaskRemoved, subtask_id=subtask_id, reason=reason)
+        self.emit(SubtaskRemoved(**self.envelope(), subtask_id=subtask_id, reason=reason))

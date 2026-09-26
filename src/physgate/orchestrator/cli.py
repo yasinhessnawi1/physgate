@@ -19,7 +19,6 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any
 
 from pydantic import ValidationError
 
@@ -55,7 +54,7 @@ def add_parsers(subparsers: argparse._SubParsersAction[argparse.ArgumentParser])
     resolve.set_defaults(func=_queue_resolve)
 
 
-def _print(payload: dict[str, Any]) -> None:
+def _print(payload: dict[str, object]) -> None:
     print(json.dumps(payload, indent=1, sort_keys=True))
 
 

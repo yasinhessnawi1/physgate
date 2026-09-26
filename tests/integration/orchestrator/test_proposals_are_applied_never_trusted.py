@@ -31,7 +31,12 @@ from physgate.orchestrator.events import (
 from physgate.orchestrator.git import head_of
 from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.merge import GitMerger, RunGit
-from physgate.orchestrator.record import DecompositionCall, RunRecord
+from physgate.orchestrator.record import (
+    DecompositionCall,
+    DecompositionSummary,
+    PlanEntry,
+    RunRecord,
+)
 from physgate.state.store import JOURNAL_NAME, Store, journal_records_after, node_file_body
 
 pytestmark = pytest.mark.integration
@@ -76,23 +81,23 @@ class Rig:
         record = RunRecord(cfg, self.run.run_dir)
         record.start(
             [
-                {
-                    "subtask_id": "s1",
-                    "spec_path": ".physgate/specs/s1.md",
-                    "assigned_role": "electrical",
-                    "module_dir": MODULE,
-                }
+                PlanEntry(
+                    subtask_id="s1",
+                    spec_path=".physgate/specs/s1.md",
+                    assigned_role="electrical",
+                    module_dir=MODULE,
+                )
             ],
             call=DecompositionCall(session_id="decomp", usage=()),
-            decomposed={
-                "session_id": "decomp",
-                "model": "claude-opus-5",
-                "num_turns": 2,
-                "subtasks": 1,
-                "interface_nodes": ("iface.power_bus",),
-                "spec_commit": head_of(self.run.repo, self.run.run_branch),
-                "head_revision": head,
-            },
+            decomposed=DecompositionSummary(
+                session_id="decomp",
+                model="claude-opus-5",
+                num_turns=2,
+                subtasks=1,
+                interface_nodes=("iface.power_bus",),
+                spec_commit=head_of(self.run.repo, self.run.run_branch),
+                head_revision=head,
+            ),
         )
         record.close()
 

@@ -21,7 +21,7 @@ import hashlib
 import json
 import subprocess
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Any, Literal
 
@@ -40,7 +40,12 @@ from physgate.orchestrator.invocation import (
 )
 from physgate.orchestrator.merge import RunGit
 from physgate.orchestrator.protocols import MessageUsage, Usage
-from physgate.orchestrator.record import DecompositionCall, RunRecord
+from physgate.orchestrator.record import (
+    DecompositionCall,
+    DecompositionSummary,
+    PlanEntry,
+    RunRecord,
+)
 from physgate.orchestrator.run_config import RunConfig
 from physgate.state.schema import Node
 from physgate.state.store import Store
@@ -157,6 +162,8 @@ def read_stream(
     that was asked for, and only the messages named the one that answered. A
     line that is not JSON is skipped, not trusted.
     """
+    # The binary's JSON stream is an untyped boundary: its events are read as
+    # plain objects, and only the fields named here are taken from them.
     result: dict[str, Any] | None = None
     seen: dict[str, MessageUsage] = {}
     models: set[str] = set()
@@ -185,6 +192,7 @@ def read_stream(
 
 
 def judge(
+    # The result object from the binary's JSON stream: an untyped boundary.
     result: dict[str, Any] | None,
     *,
     exit_code: int | None,
@@ -338,7 +346,7 @@ def start_run(
         record.fail_decomposition(spent, f"{outcome.cause}: {outcome.detail}")
         return record
     plan = outcome.plan
-    entries: list[Mapping[str, str]] = []
+    entries: list[PlanEntry] = []
     run = RunGit(repo=target_repo, run_dir=run_dir, run_id=config.run_id)
     run.open_run_branch(config.target_head)
     for index, module in enumerate(plan.modules):
@@ -347,12 +355,12 @@ def start_run(
         (run.integration / ".physgate" / "specs").mkdir(parents=True, exist_ok=True)
         (run.integration / spec_path).write_text(module.spec.rstrip("\n") + "\n")
         entries.append(
-            {
-                "subtask_id": subtask_id,
-                "spec_path": spec_path,
-                "assigned_role": module.role,
-                "module_dir": module.module_dir,
-            }
+            PlanEntry(
+                subtask_id=subtask_id,
+                spec_path=spec_path,
+                assigned_role=module.role,
+                module_dir=module.module_dir,
+            )
         )
     spec_commit = commit_all(
         run.integration, f"Specifications for run {config.run_id}\n\nWritten at decomposition.\n"
@@ -373,14 +381,14 @@ def start_run(
     record.start(
         entries,
         call=spent,
-        decomposed={
-            "session_id": outcome.session_id,
-            "model": outcome.model or config.models.decomposition,
-            "num_turns": outcome.num_turns,
-            "subtasks": len(entries),
-            "interface_nodes": tuple(n.id for n in plan.interface_nodes),
-            "spec_commit": spec_commit,
-            "head_revision": head,
-        },
+        decomposed=DecompositionSummary(
+            session_id=outcome.session_id,
+            model=outcome.model or config.models.decomposition,
+            num_turns=outcome.num_turns,
+            subtasks=len(entries),
+            interface_nodes=tuple(n.id for n in plan.interface_nodes),
+            spec_commit=spec_commit,
+            head_revision=head,
+        ),
     )
     return record

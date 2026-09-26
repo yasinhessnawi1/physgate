@@ -20,7 +20,7 @@ import os
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Any, Literal, Protocol, TypeVar, cast
+from typing import Annotated, Any, Literal, Protocol, TypedDict, TypeVar, cast
 
 from pydantic import (
     BaseModel,
@@ -56,12 +56,37 @@ Stage = Literal[
 Attempt = Annotated[int, Field(ge=1, le=REPAIR_BUDGET)]
 Sha = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
 
+#: What an incident is about. Each halts the run; none spends from the repair budget.
+IncidentCause = Literal[
+    "cross_role_write",
+    "merge_conflict",
+    "merge_refused",
+    "foreign_journal_line",
+    "store_refusal",
+    "node_files_unrecoverable",
+]
+
 #: Why a run stopped short of the end of its plan.
 HaltReason = Literal["incident", "infrastructure_exhausted", "decomposition_failed"]
 
 #: Who spent a token: ``<what>:<invocation id>``. The invocation id is the Claude Code
 #: session id of the one call, so decomposition invocations can be counted.
 ATTRIBUTION = r"^(decomposition|session|reviewer|routing):[A-Za-z0-9_-]{1,128}$"
+
+
+class Envelope(TypedDict):
+    """What every line carries, filled in by the log: spread into an event at the call site.
+
+    Building each event where it is emitted, with this spread in, lets the type
+    checker see every field of every line the loop writes. A field name or a
+    type that does not match the event is a type error, not a line the log
+    refuses at run time.
+    """
+
+    seq: int
+    ts: str
+    run_id: str
+    gate_mode: GateMode
 
 
 class _Event(BaseModel):
@@ -274,14 +299,7 @@ class Incident(_Event):
     kind: Literal["incident"] = "incident"
     #: None when no subtask was active, as for a foreign line found when a run opens.
     subtask_id: NonEmptyStr | None
-    cause: Literal[
-        "cross_role_write",
-        "merge_conflict",
-        "merge_refused",
-        "foreign_journal_line",
-        "store_refusal",
-        "node_files_unrecoverable",
-    ]
+    cause: IncidentCause
     detail: NonEmptyStr
 
 
@@ -590,24 +608,32 @@ class EventLog:
         """Every event this handle has read or written, oldest first."""
         return tuple(self._events)
 
-    def emit(self, kind: type[E], **fields: Any) -> E:
-        """Append one event of ``kind``, synced to disk before returning.
+    def envelope(self) -> Envelope:
+        """The fields the next line carries: its sequence number, timestamp, run and mode."""
+        run_id, gate_mode = self._run
+        return Envelope(
+            seq=len(self._events), ts=utc_stamp(self._clock()), run_id=run_id, gate_mode=gate_mode
+        )
 
-        The sequence number, timestamp, run id and gate mode are filled in here.
+    def emit(self, kind: type[E], **fields: Any) -> E:  # noqa: ANN401 - a test's own fields
+        """Build and append one event from loose fields. For tests only.
+
+        Tests use it to write lines the log must refuse, which a typed constructor
+        would not let them build. The orchestrator's own code builds each event
+        with :meth:`envelope` spread in and calls :meth:`append`, so the type
+        checker sees every field; the routing fence refuses this method there.
+        """
+        return self.append(kind(**self.envelope(), **fields))
+
+    def append(self, event: E) -> E:
+        """Append ``event``, synced to disk before returning.
+
         A line the replay would refuse is refused before it is written.
 
         Raises:
-            ValueError: the event does not follow from the log (``ValidationError``
-                for a malformed field).
+            ValueError: the event does not follow from the log, including a
+                sequence number that is not the next one.
         """
-        run_id, gate_mode = self._run
-        event = kind(
-            seq=len(self._events),
-            ts=utc_stamp(self._clock()),
-            run_id=run_id,
-            gate_mode=gate_mode,
-            **fields,
-        )
         self._context.check(event)
         admitted = cast("Event", event)
         if self._state is not None:

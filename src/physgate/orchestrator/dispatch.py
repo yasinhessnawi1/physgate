@@ -24,7 +24,8 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+
+from pydantic import BaseModel, ConfigDict
 
 from physgate.hooks.config import SessionConfig
 from physgate.hooks.reading import outstanding
@@ -63,9 +64,20 @@ class _Input:
     cwd: str = "/"
     hook_event_name: str = "Stop"
     tool_name: str | None = None
-    tool_input: dict[str, Any] | None = None
-    tool_response: Any = None
+    tool_input: dict[str, object] | None = None
+    tool_response: object = None
     agent_id: str | None = None
+
+
+class _Installed(BaseModel):
+    """What the hook layer's installer prints: its files and how to spawn the session."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    settings: str
+    config: str
+    spawn_args: tuple[str, ...]
+    spawn_env: dict[str, str]
 
 
 def redact(path: Path, secret: str | None) -> None:
@@ -109,7 +121,7 @@ class ClaudeDispatcher:
             )
         return self._facts
 
-    def _install(self, request: SessionRequest, worktree: Path, sdir: Path) -> dict[str, Any]:
+    def _install(self, request: SessionRequest, worktree: Path, sdir: Path) -> _Installed:
         state = sdir / "state"
         state.mkdir(parents=True)
         helper = state / "key-helper.sh"
@@ -151,8 +163,7 @@ class ClaudeDispatcher:
         if done.returncode != 0:
             msg = "the hook layer's installer refused the session"
             raise InvocationError(msg, stderr=done.stderr[-600:])
-        installed: dict[str, Any] = json.loads(done.stdout)
-        return installed
+        return _Installed.model_validate_json(done.stdout)
 
     def run(self, request: SessionRequest) -> SessionReport:
         """Run one attempt in a fresh session and report what it left."""
@@ -173,11 +184,11 @@ class ClaudeDispatcher:
             base_url=self._base_url,
             api_key=None,
         )
-        env.update(installed["spawn_env"])
+        env.update(installed.spawn_env)
         argv = role_argv(
             self._binary,
             prompt=role_prompt(request),
-            spawn_args=tuple(installed["spawn_args"]),
+            spawn_args=installed.spawn_args,
             model=request.model,
             session_id=session_id,
             max_turns=request.bounds.session_max_turns,
@@ -230,7 +241,7 @@ class ClaudeDispatcher:
             attempt_commit=commit,
             trajectory=str(stdout) if end.outcome == "completed" else None,
             worktree=str(worktree) if end.outcome == "completed" else None,
-            reading_verified=self._read_in_full(Path(installed["config"]), session_id),
+            reading_verified=self._read_in_full(Path(installed.config), session_id),
             node_files_halted=halted,
             hook_journal_appends=appends,
             usage=usage,

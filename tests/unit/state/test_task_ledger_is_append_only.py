@@ -87,7 +87,7 @@ def test_a_negative_attempt_count_is_refused() -> None:
 def test_a_line_is_frozen() -> None:
     written = line("t-001")
     with pytest.raises(ValidationError):
-        written.attempt_count = 2
+        written.attempt_count = 2  # type: ignore[misc]  # the assignment the test proves is refused
 
 
 # --- the file ---------------------------------------------------------------

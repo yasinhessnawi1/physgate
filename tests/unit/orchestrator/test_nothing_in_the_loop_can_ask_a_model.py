@@ -11,7 +11,9 @@ failure rather than a review note, over the package's source:
 - a process can be spawned only from the modules whose job that is (dispatch,
   decomposition, the git helper, the installer);
 - the Claude Code binary is named only in the one module that builds a model
-  invocation.
+  invocation;
+- no event is emitted from loose keyword fields: each is built where it is
+  emitted, so the type checker sees every field of every line the loop writes.
 
 An import graph cannot see the route that matters most here, a subprocess
 running the ``claude`` binary, which is why this is a syntax-tree check and not
@@ -82,6 +84,16 @@ def violations_in(name: str, source: str) -> list[str]:
         if isinstance(node, ast.Name) and node.id in DYNAMIC_IMPORT:
             found.append(f"{name}: imports by a computed name ({node.id})")
         if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "emit"
+            and (
+                (isinstance(node.func.value, ast.Attribute) and node.func.value.attr == "log")
+                or (isinstance(node.func.value, ast.Name) and node.func.value.id == "log")
+            )
+        ):
+            found.append(f"{name}: emits an event from loose fields the type checker cannot see")
+        if (
             isinstance(node, ast.Constant)
             and isinstance(node.value, str)
             and (node.value == "claude" or node.value.endswith("/claude"))
@@ -122,6 +134,7 @@ PLANTED = {
     "__import__": ("loop.py", "__import__('anthropic')\n"),
     "the binary named outside the invocation module": ("dispatch.py", "BINARY = 'claude'\n"),
     "the binary by path": ("loop.py", "BINARY = '/usr/local/bin/claude'\n"),
+    "an event from loose fields": ("loop.py", "self.record.log.emit(Halted, reason='x')\n"),
 }
 
 

@@ -109,13 +109,13 @@ def test_a_node_with_no_quantities_at_all_is_legal() -> None:
 def test_a_quantity_model_is_frozen() -> None:
     q = Quantity.model_validate(WELL_FORMED_QUANTITY)
     with pytest.raises(ValidationError):
-        q.value = 9.9
+        q.value = 9.9  # type: ignore[misc]  # the assignment the test proves is refused
 
 
 def test_a_node_model_is_frozen_and_refuses_unknown_fields() -> None:
     n = validate_node(node(dict(WELL_FORMED_QUANTITY)))
     with pytest.raises(ValidationError):
-        n.owner_role = "control"
+        n.owner_role = "control"  # type: ignore[misc]  # the assignment the test proves is refused
     with pytest.raises(ValidationError):
         Node.model_validate({**node(dict(WELL_FORMED_QUANTITY)), "surprise": 1})
 

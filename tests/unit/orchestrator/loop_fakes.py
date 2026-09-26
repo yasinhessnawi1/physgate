@@ -24,6 +24,7 @@ from physgate.orchestrator.protocols import (
     RunningGateMode,
     Usage,
 )
+from physgate.orchestrator.record import PlanEntry
 from physgate.state.task_ledger import TaskLedger
 
 
@@ -251,13 +252,13 @@ class Rig:
         )
 
 
-def plan(*ids: str) -> list[dict[str, str]]:
+def plan(*ids: str) -> list[PlanEntry]:
     return [
-        {
-            "subtask_id": i,
-            "spec_path": f"specs/{i}.md",
-            "assigned_role": "electrical",
-            "module_dir": f"modules/{i}",
-        }
+        PlanEntry(
+            subtask_id=i,
+            spec_path=f"specs/{i}.md",
+            assigned_role="electrical",
+            module_dir=f"modules/{i}",
+        )
         for i in ids
     ]

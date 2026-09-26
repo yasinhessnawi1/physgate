@@ -77,9 +77,19 @@ convention = "google"
 [tool.mypy]
 python_version = "3.12"
 strict = true
+# The pydantic plugin types every model's constructor from its fields, so a
+# wrong field name or a wrong type where a record is built is a type error, not
+# a validation error at run time. Without it, a record built through keyword
+# arguments is checked by nothing until it runs.
+plugins = ["pydantic.mypy"]
 files = ["src", "tests"]
 # Same reason as the lint exclusion above: frozen measured artefacts.
 exclude = ["^experiments/"]
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
 
 # ---------------------------------------------------------------------------
 # Tests

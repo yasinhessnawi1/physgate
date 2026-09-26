@@ -11,7 +11,7 @@ changing. None of them decides anything the loop should decide.
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal, Protocol
+from typing import Annotated, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
@@ -20,7 +20,7 @@ from physgate.orchestrator.common import NonEmptyStr
 from physgate.orchestrator.install import InstallFacts
 from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.run_config import RunBounds
-from physgate.state.store import JournalLine
+from physgate.state.store import JournalLine, Payload
 
 SessionId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
 
@@ -132,11 +132,11 @@ class GraphPort(Protocol):
         """Commit the store's files, so the graph is committed (ARCH-010)."""
         ...
 
-    def proposals(self, subtask_id: str, attempt_commit: str) -> list[dict[str, Any]]:
+    def proposals(self, subtask_id: str, attempt_commit: str) -> list[Payload]:
         """The node proposals the attempt commit added or changed, validated."""
         ...
 
-    def write(self, payload: dict[str, Any], role: str) -> int:
+    def write(self, payload: Payload, role: str) -> int:
         """Write one node through the store's guards and return its revision.
 
         Raises ``StoreRefusalError`` for a refusal and ``StoreStaleError`` when the

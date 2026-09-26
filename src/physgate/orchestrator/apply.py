@@ -25,7 +25,6 @@ import json
 import re
 import shutil
 from pathlib import Path
-from typing import Any
 
 from physgate.orchestrator.exceptions import StoreRefusalError
 from physgate.orchestrator.git import changes_between, commit_all, git, init_repo, merge_base
@@ -34,7 +33,16 @@ from physgate.orchestrator.ports import ChangeCheck
 from physgate.state.divergence import divergence
 from physgate.state.exceptions import DesignStateError
 from physgate.state.schema import validate_node
-from physgate.state.store import JOURNAL_NAME, JournalLine, Store, journal_records_after
+
+# A node payload is typed as the store's frozen interface types it: a plain JSON
+# object, given its structure by the node schema, which validates it here.
+from physgate.state.store import (
+    JOURNAL_NAME,
+    JournalLine,
+    Payload,
+    Store,
+    journal_records_after,
+)
 
 _PROPOSAL = re.compile(r"^\.physgate/proposals/(?P<id>[a-z][a-z0-9_]*(\.[a-z0-9_]+)+)\.json$")
 
@@ -56,7 +64,7 @@ def _owners(store_root: Path) -> dict[str, str]:
     }
 
 
-def read_proposals(repo: Path, base: str, commit: str, store_root: Path) -> list[dict[str, Any]]:
+def read_proposals(repo: Path, base: str, commit: str, store_root: Path) -> list[Payload]:
     """The whole-node proposals ``commit`` added or changed since ``base``, validated.
 
     Raises:
@@ -64,7 +72,7 @@ def read_proposals(repo: Path, base: str, commit: str, store_root: Path) -> list
             node, named for another node, or changes a node's owner.
     """
     owners = _owners(store_root)
-    found: list[dict[str, Any]] = []
+    found: list[Payload] = []
     for change in changes_between(repo, base, commit):
         named = _PROPOSAL.match(change.path)
         if named is None or change.status == "D":
@@ -127,7 +135,7 @@ class GitChangeChecker:
             )
         return ChangeCheck(refused_by=None, reason=None, graph_root=str(scratch))
 
-    def _precheck(self, scratch: Path, proposals: list[dict[str, Any]], role: str) -> None:
+    def _precheck(self, scratch: Path, proposals: list[Payload], role: str) -> None:
         """Apply every proposal to a scratch copy of the graph; refuse on the first refusal."""
         if scratch.exists():
             shutil.rmtree(scratch)
@@ -174,13 +182,13 @@ class StoreKeeper:
         init_repo(self._root)
         commit_all(self._root, message)
 
-    def proposals(self, subtask_id: str, attempt_commit: str) -> list[dict[str, Any]]:
+    def proposals(self, subtask_id: str, attempt_commit: str) -> list[Payload]:
         """The attempt's validated proposals, read from its commit."""
         repo = self._run.repo
         base = merge_base(repo, self._run.run_branch, attempt_commit)
         return read_proposals(repo, base, attempt_commit, self._root)
 
-    def write(self, payload: dict[str, Any], role: str) -> int:
+    def write(self, payload: Payload, role: str) -> int:
         """Write one node; a refusal after a clean pre-check raises."""
         result = self._handle().write_node(payload, role)
         if not result.accepted or result.revision is None:

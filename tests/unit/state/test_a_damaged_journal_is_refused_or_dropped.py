@@ -358,7 +358,7 @@ def test_a_record_is_frozen() -> None:
         }
     )
     with pytest.raises(ValidationError):
-        line.rev = 2
+        line.rev = 2  # type: ignore[misc]  # the assignment the test proves is refused
 
 
 # --- the offsets survive a truncation ----------------------------------------

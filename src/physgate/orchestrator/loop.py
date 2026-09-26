@@ -19,7 +19,6 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 from physgate.orchestrator.apply import ProposalRefusedError
 from physgate.orchestrator.budget import infra_retry_delay
@@ -27,12 +26,15 @@ from physgate.orchestrator.common import utc_now
 from physgate.orchestrator.events import (
     AttemptRejected,
     DiffChecked,
+    Envelope,
     EnvironmentRecorded,
     Escalated,
+    Event,
     GateRan,
     GateSkipped,
     Halted,
     Incident,
+    IncidentCause,
     InfraRetryScheduled,
     LeftoverStopped,
     Merged,
@@ -41,6 +43,7 @@ from physgate.orchestrator.events import (
     Resumed,
     ReviewRan,
     SessionEnded,
+    Stage,
     StageEntered,
     TokensUsed,
     WriteDone,
@@ -70,7 +73,7 @@ from physgate.orchestrator.protocols import (
     require_separate_models,
 )
 from physgate.orchestrator.queue import escalation_item
-from physgate.orchestrator.record import RunRecord
+from physgate.orchestrator.record import PlanEntry, RunRecord
 from physgate.orchestrator.repair import Finding, repair_instruction
 from physgate.orchestrator.replay import AttemptState, Step, require_mergeable
 from physgate.orchestrator.run_config import RunConfig
@@ -155,12 +158,15 @@ class Loop:
         """Release every file handle."""
         self.record.close()
 
-    def _emit(self, kind: Any, **fields: Any) -> Any:  # noqa: ANN401 - forwards to the log
-        return self.record.emit(kind, **fields)
+    def _emit(self, event: Event) -> None:
+        self.record.emit(event)
+
+    def _env(self) -> Envelope:
+        return self.record.log.envelope()
 
     # -- the run's life -------------------------------------------------------------
 
-    def start(self, plan: Sequence[Mapping[str, str]]) -> None:
+    def start(self, plan: Sequence[PlanEntry]) -> None:
         """Record the configuration and the plan, with no decomposition call.
 
         What the decomposition step does is :meth:`RunRecord.start` with the call;
@@ -208,10 +214,12 @@ class Loop:
         if sub is not None:
             now = sub.attempts[-1]
             self._emit(
-                Resumed,
-                subtask_id=sub.plan.subtask_id,
-                attempt=now.number,
-                point=self.state.resume_point(now),
+                Resumed(
+                    **self._env(),
+                    subtask_id=sub.plan.subtask_id,
+                    attempt=now.number,
+                    point=self.state.resume_point(now),
+                )
             )
         return self._drive()
 
@@ -220,12 +228,14 @@ class Loop:
         if not self.log.events:
             return
         for session_id, pid, killed in self._dispatcher.stop_leftovers():
-            self._emit(LeftoverStopped, session_id=session_id, pid=pid, killed=killed)
+            self._emit(
+                LeftoverStopped(**self._env(), session_id=session_id, pid=pid, killed=killed)
+            )
 
     def _drive(self) -> Step:
         facts = self._dispatcher.environment()
         if facts is not None and self.state.next_step().kind not in ("done", "halted"):
-            self._emit(EnvironmentRecorded, facts=facts)
+            self._emit(EnvironmentRecorded(**self._env(), facts=facts))
         while True:
             step = self.state.next_step()
             if step.kind in ("done", "halted"):
@@ -242,20 +252,22 @@ class Loop:
 
     # -- one attempt ------------------------------------------------------------------
 
-    def _stage(self, subtask_id: str, attempt: int, stage: str) -> None:
-        self._emit(StageEntered, subtask_id=subtask_id, attempt=attempt, stage=stage)
+    def _stage(self, subtask_id: str, attempt: int, stage: Stage) -> None:
+        self._emit(StageEntered(**self._env(), subtask_id=subtask_id, attempt=attempt, stage=stage))
 
     def _reject(self, subtask_id: str, attempt: int, finding: Finding) -> None:
         self._stage(subtask_id, attempt, "decide")
         attempts = self.state.subtasks[subtask_id].attempts
         before = attempts[-2].rejected if len(attempts) > 1 else None
         self._emit(
-            AttemptRejected,
-            subtask_id=subtask_id,
-            attempt=attempt,
-            finding=finding,
-            finding_key=finding.key(),
-            repeats_previous=before is not None and before.finding_key == finding.key(),
+            AttemptRejected(
+                **self._env(),
+                subtask_id=subtask_id,
+                attempt=attempt,
+                finding=finding,
+                finding_key=finding.key(),
+                repeats_previous=before is not None and before.finding_key == finding.key(),
+            )
         )
 
     def _attempt(self, subtask_id: str, attempt: int, point: str) -> None:
@@ -283,22 +295,26 @@ class Loop:
         report = self._dispatcher.run(request)
         for message in report.usage:
             self._emit(
-                TokensUsed,
-                attribution=f"session:{report.session_id}",
-                message_id=message.message_id,
-                usage=message.usage,
+                TokensUsed(
+                    **self._env(),
+                    attribution=f"session:{report.session_id}",
+                    message_id=message.message_id,
+                    usage=message.usage,
+                )
             )
         self._emit(
-            SessionEnded,
-            subtask_id=subtask_id,
-            attempt=attempt,
-            session_id=report.session_id,
-            outcome=report.end.outcome,
-            cause=report.end.cause,
-            attempt_commit=report.attempt_commit,
-            trajectory=report.trajectory,
-            worktree=report.worktree,
-            reading_verified=report.reading_verified,
+            SessionEnded(
+                **self._env(),
+                subtask_id=subtask_id,
+                attempt=attempt,
+                session_id=report.session_id,
+                outcome=report.end.outcome,
+                cause=report.end.cause,
+                attempt_commit=report.attempt_commit,
+                trajectory=report.trajectory,
+                worktree=report.worktree,
+                reading_verified=report.reading_verified,
+            )
         )
         if report.end.outcome != "completed":
             return False
@@ -315,18 +331,20 @@ class Loop:
             self._incident(subtask_id, "node_files_unrecoverable", str(exc))
             return False
         self._emit(
-            NodeFilesRepaired,
-            subtask_id=subtask_id,
-            attempt=attempt,
-            repaired=repaired,
-            quarantined=quarantined,
+            NodeFilesRepaired(
+                **self._env(),
+                subtask_id=subtask_id,
+                attempt=attempt,
+                repaired=repaired,
+                quarantined=quarantined,
+            )
         )
         return True
 
-    def _incident(self, subtask_id: str | None, cause: str, detail: str) -> None:
-        self._emit(Incident, subtask_id=subtask_id, cause=cause, detail=detail)
+    def _incident(self, subtask_id: str | None, cause: IncidentCause, detail: str) -> None:
+        self._emit(Incident(**self._env(), subtask_id=subtask_id, cause=cause, detail=detail))
         where = f" in {subtask_id}" if subtask_id else ""
-        self._emit(Halted, reason="incident", detail=f"{cause}{where}")
+        self._emit(Halted(**self._env(), reason="incident", detail=f"{cause}{where}"))
 
     def _active(self) -> tuple[str | None, AttemptState | None]:
         for subtask_id in self.state.order:
@@ -359,11 +377,13 @@ class Loop:
             )
             if own and pending is not None and subtask_id is not None:
                 self._emit(
-                    WriteDone,
-                    subtask_id=subtask_id,
-                    attempt=pending.attempt,
-                    node_id=line.node_id,
-                    revision=line.rev,
+                    WriteDone(
+                        **self._env(),
+                        subtask_id=subtask_id,
+                        attempt=pending.attempt,
+                        node_id=line.node_id,
+                        revision=line.rev,
+                    )
                 )
                 continue
             detail = (
@@ -391,13 +411,15 @@ class Loop:
                 continue
             expected = self.state.journal_head + 1
             self._emit(
-                WriteIntended,
-                subtask_id=subtask_id,
-                attempt=attempt,
-                node_id=node_id,
-                payload_sha256=payload_digest(payload),
-                actor_role=role,
-                expected_revision=expected,
+                WriteIntended(
+                    **self._env(),
+                    subtask_id=subtask_id,
+                    attempt=attempt,
+                    node_id=node_id,
+                    payload_sha256=payload_digest(payload),
+                    actor_role=role,
+                    expected_revision=expected,
+                )
             )
             try:
                 revision = self._graph.write(payload, role)
@@ -418,11 +440,13 @@ class Loop:
                 )
                 return False
             self._emit(
-                WriteDone,
-                subtask_id=subtask_id,
-                attempt=attempt,
-                node_id=node_id,
-                revision=revision,
+                WriteDone(
+                    **self._env(),
+                    subtask_id=subtask_id,
+                    attempt=attempt,
+                    node_id=node_id,
+                    revision=revision,
+                )
             )
         if proposals:
             self._graph.commit(f"Nodes of subtask {subtask_id}, attempt {attempt}\n")
@@ -445,11 +469,13 @@ class Loop:
         self._stage(subtask_id, attempt, "implement")
         check = self._changes.check(subtask_id, session.attempt_commit, role)
         self._emit(
-            ProposalsChecked,
-            subtask_id=subtask_id,
-            attempt=attempt,
-            checked_commit=session.attempt_commit,
-            **check.model_dump(),
+            ProposalsChecked(
+                **self._env(),
+                subtask_id=subtask_id,
+                attempt=attempt,
+                checked_commit=session.attempt_commit,
+                **check.model_dump(),
+            )
         )
         if check.refused_by is not None and check.reason is not None:
             finding = Finding(source=check.refused_by, text=check.reason, subject=check.subject)
@@ -467,13 +493,19 @@ class Loop:
         self._stage(subtask_id, attempt, "gate")
         mode = self.config.gate_mode
         if mode == "off":
-            self._emit(GateSkipped, subtask_id=subtask_id, attempt=attempt, reason="gate_mode=off")
+            self._emit(
+                GateSkipped(
+                    **self._env(), subtask_id=subtask_id, attempt=attempt, reason="gate_mode=off"
+                )
+            )
         else:
             if self._gate is None:
                 msg = f"the gate stage cannot pass: gate mode is {mode!r} and no gate is registered"
                 raise GateNotRegisteredError(msg, gate_mode=mode)
             result = require_mode(self._gate.check(artefact, mode=mode), mode)
-            self._emit(GateRan, subtask_id=subtask_id, attempt=attempt, result=result)
+            self._emit(
+                GateRan(**self._env(), subtask_id=subtask_id, attempt=attempt, result=result)
+            )
             if result.verdict == "fail" and mode == "on":
                 self._reject(subtask_id, attempt, Finding.from_gate(result))
                 return False
@@ -486,12 +518,14 @@ class Loop:
             raise ReviewerNotRegisteredError(msg, role=role, reported=review.reviewer_model)
         for message in review.usage:
             self._emit(
-                TokensUsed,
-                attribution=f"reviewer:{review.session_id}",
-                message_id=message.message_id,
-                usage=message.usage,
+                TokensUsed(
+                    **self._env(),
+                    attribution=f"reviewer:{review.session_id}",
+                    message_id=message.message_id,
+                    usage=message.usage,
+                )
             )
-        self._emit(ReviewRan, subtask_id=subtask_id, attempt=attempt, result=review)
+        self._emit(ReviewRan(**self._env(), subtask_id=subtask_id, attempt=attempt, result=review))
         if review.verdict == "fail":
             self._reject(subtask_id, attempt, Finding.from_review(review))
             return False
@@ -510,15 +544,19 @@ class Loop:
         try:
             merge_commit = self._merger.merge(subtask_id, attempt, checked, merge_text)
         except (MergeConflictError, MergeRefusedError) as exc:
-            cause = "merge_conflict" if isinstance(exc, MergeConflictError) else "merge_refused"
+            cause: IncidentCause = (
+                "merge_conflict" if isinstance(exc, MergeConflictError) else "merge_refused"
+            )
             self._incident(subtask_id, cause, str(exc))
             return False
         self._emit(
-            Merged,
-            subtask_id=subtask_id,
-            attempt=attempt,
-            attempt_commit=checked,
-            merge_commit=merge_commit,
+            Merged(
+                **self._env(),
+                subtask_id=subtask_id,
+                attempt=attempt,
+                attempt_commit=checked,
+                merge_commit=merge_commit,
+            )
         )
         return True
 
@@ -528,7 +566,9 @@ class Loop:
         since = min(now.applied.values()) - 1 if now.applied else self.state.journal_head
         role = self.state.subtasks[subtask_id].plan.assigned_role
         found = self._graph.divergences(since, role)
-        self._emit(DiffChecked, subtask_id=subtask_id, attempt=attempt, divergences=found)
+        self._emit(
+            DiffChecked(**self._env(), subtask_id=subtask_id, attempt=attempt, divergences=found)
+        )
         if found:
             self._incident(subtask_id, "cross_role_write", "; ".join(found))
 
@@ -543,14 +583,16 @@ class Loop:
                 f"subtask {subtask_id} attempt {attempt}: {cause} after "
                 f"{now.retries_done} infrastructure retries"
             )
-            self._emit(Halted, reason="infrastructure_exhausted", detail=detail)
+            self._emit(Halted(**self._env(), reason="infrastructure_exhausted", detail=detail))
             return
         self._emit(
-            InfraRetryScheduled,
-            subtask_id=subtask_id,
-            attempt=attempt,
-            retries_done=now.retries_done,
-            delay_s=delay,
+            InfraRetryScheduled(
+                **self._env(),
+                subtask_id=subtask_id,
+                attempt=attempt,
+                retries_done=now.retries_done,
+                delay_s=delay,
+            )
         )
         self._sleep(delay)
 
@@ -573,4 +615,4 @@ class Loop:
                     ts=self.log.events[-1].ts,
                 )
             )
-        self._emit(Escalated, subtask_id=subtask_id, item_id=item_id)
+        self._emit(Escalated(**self._env(), subtask_id=subtask_id, item_id=item_id))

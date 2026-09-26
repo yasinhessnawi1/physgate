@@ -22,6 +22,7 @@ from physgate.orchestrator.protocols import (
     RunningGateMode,
     Usage,
 )
+from physgate.orchestrator.record import PlanEntry
 from physgate.orchestrator.run_config import ModelStrings, RunBounds, RunConfig
 
 GITENV = {
@@ -238,10 +239,10 @@ def config(run_id: str = "run-1") -> RunConfig:
     )
 
 
-def plan_entry(subtask_id: str, module_dir: str) -> dict[str, str]:
-    return {
-        "subtask_id": subtask_id,
-        "spec_path": f".physgate/specs/{subtask_id}.md",
-        "assigned_role": "electrical",
-        "module_dir": module_dir,
-    }
+def plan_entry(subtask_id: str, module_dir: str) -> PlanEntry:
+    return PlanEntry(
+        subtask_id=subtask_id,
+        spec_path=f".physgate/specs/{subtask_id}.md",
+        assigned_role="electrical",
+        module_dir=module_dir,
+    )

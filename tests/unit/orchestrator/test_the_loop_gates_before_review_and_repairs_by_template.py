@@ -323,19 +323,19 @@ def test_the_record_refuses_a_rejection_whose_key_or_repeat_flag_is_wrong(tmp_pa
     rig = Rig(tmp_path, gate=FakeGate(verdicts=["fail"]))
     loop = rig.open()
     loop.start(plan("s1"))
-    real_emit = loop.record.log.emit
+    real_append = loop.record.log.append
     calls: list[str] = []
 
-    def lying_emit(kind: Any, **fields: Any) -> Any:
-        if kind is AttemptRejected and not calls:
+    def lying_append(event: Any) -> Any:
+        if isinstance(event, AttemptRejected) and not calls:
             calls.append("lied")
             with pytest.raises(ValueError, match="key"):
-                real_emit(kind, **{**fields, "repeats_previous": True})
+                real_append(event.model_copy(update={"repeats_previous": True}))
             with pytest.raises(ValueError, match="key"):
-                real_emit(kind, **{**fields, "finding_key": "gate|-|-"})
-        return real_emit(kind, **fields)
+                real_append(event.model_copy(update={"finding_key": "gate|-|-"}))
+        return real_append(event)
 
-    loop.record.log.emit = lying_emit  # type: ignore[method-assign]
+    loop.record.log.append = lying_append  # type: ignore[method-assign]
     loop.run()
     loop.close()
     assert calls == ["lied"]
