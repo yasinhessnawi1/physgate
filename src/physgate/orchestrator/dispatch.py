@@ -209,6 +209,10 @@ class ClaudeDispatcher:
                 "started": started_at(process.pid),
                 "spawned_at": time.time(),
                 "session_id": session_id,
+                # Exactly what was spawned, so it can be held against what the hook
+                # layer's installer printed. It carries no key: the key is in a helper.
+                "argv": argv,
+                "installer_spawn_args": list(installed.spawn_args),
             }
             (sdir / "process.json").write_text(json.dumps(record))
             try:

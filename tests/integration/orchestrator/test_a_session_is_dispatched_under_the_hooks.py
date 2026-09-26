@@ -145,7 +145,14 @@ def test_a_session_reads_works_and_proposes_under_the_generated_settings(
     assert trajectory.exists() and DUMMY_KEY not in trajectory.read_text()
     sdir = trajectory.parent
     assert not (sdir / "state" / "key").exists() and not (sdir / "state" / "key-helper.sh").exists()
-    assert json.loads((sdir / "process.json").read_text())["session_id"] == report.session_id
+    record = json.loads((sdir / "process.json").read_text())
+    assert record["session_id"] == report.session_id
+    spawn_args = record["installer_spawn_args"]
+    at = record["argv"].index(spawn_args[0])
+    assert record["argv"][at : at + len(spawn_args)] == spawn_args  # exactly what it printed
+    assert spawn_args[:2] == ["--setting-sources", ""] and spawn_args[2] == "--settings"
+    assert not Path(spawn_args[3]).is_relative_to(worktree)
+    assert DUMMY_KEY not in json.dumps(record)
     assert len({u.message_id for u in report.usage}) == len(report.usage) == len(api.requests)
     assert facts.files_with_write_bits == 0 and facts.files_with_second_links == 0
     assert facts.owner_is_session_user  # the same user could make it writable again
