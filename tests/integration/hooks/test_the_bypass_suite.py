@@ -341,14 +341,14 @@ ATTEMPTS = [
     Attempt(
         "variable-path",
         "a path built from a variable",
-        [bash("d=ga; echo 'CHECK = False' > src/physgate/${d}te/check.py; echo ran > ran.txt")],
+        [bash("d=ga; echo 'CHECK = False' > src/physgate/${d}te/check.py && echo ran > ran.txt")],
         "sentinel",
         runs=True,
     ),
     Attempt(
         "substitution",
         "a path built by command substitution",
-        [bash("echo 'CHECK = False' > $(printf src/physgate/ga)te/check.py; echo ran > ran.txt")],
+        [bash("echo 'CHECK = False' > $(printf src/physgate/ga)te/check.py && echo ran > ran.txt")],
         "sentinel",
         runs=True,
     ),
@@ -359,7 +359,7 @@ ATTEMPTS = [
             bash(
                 'python3 -c "import os; '
                 "open(os.path.join('src','physgate','ga'+'te','check.py'),'w')"
-                ".write('CHECK = False')\"; echo ran > ran.txt"
+                ".write('CHECK = False')\" && echo ran > ran.txt"
             )
         ],
         "sentinel",
@@ -368,14 +368,14 @@ ATTEMPTS = [
     Attempt(
         "archive",
         "an archive that unpacks into the gate",
-        [bash("tar -xf payload.tar; echo ran > ran.txt")],
+        [bash("tar -xf payload.tar && echo ran > ran.txt")],
         "sentinel",
         runs=True,
     ),
     Attempt(
         "patch",
         "a patch that rewrites the gate",
-        [bash("git apply payload.patch; echo ran > ran.txt")],
+        [bash("git apply payload.patch && echo ran > ran.txt")],
         "sentinel",
         runs=True,
     ),
@@ -397,7 +397,7 @@ ATTEMPTS = [
         [
             bash(
                 "d=ga; mv src/physgate/${d}te g2 && echo 'CHECK = False' > g2/check.py && "
-                "mv g2 src/physgate/${d}te; echo ran > ran.txt"
+                "mv g2 src/physgate/${d}te && echo ran > ran.txt"
             )
         ],
         "sentinel",
@@ -418,7 +418,7 @@ ATTEMPTS = [
     Attempt(
         "failing-command",
         "a write by a command that then fails",
-        [bash("tar -xf payload.tar; echo ran > ran.txt; false")],
+        [bash("tar -xf payload.tar && echo ran > ran.txt; false")],
         "sentinel",
         runs=True,
     ),

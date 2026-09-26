@@ -23,6 +23,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from collections import Counter
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -156,7 +157,11 @@ def run_session(
     with serving(script) as (api, base_url):
         env = {
             "HOME": str(home),
-            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            # The system's own directories first, so where the machine has a
+            # python3 of its own the session uses it; then the test interpreter's,
+            # so a machine without one (the server) still runs the attempts that
+            # write through a script, instead of reporting them as never run.
+            "PATH": f"/usr/bin:/bin:/usr/sbin:/sbin:{os.path.dirname(sys.executable)}",
             "TERM": "dumb",
             "ANTHROPIC_BASE_URL": api_url_override or base_url,
             "ANTHROPIC_API_KEY": DUMMY_KEY,
