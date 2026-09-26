@@ -1,5 +1,42 @@
 # R-OR-01 — result
 
+> **Preface, 2026-09-26, added after an independent review. It changes no number;
+> everything below it is as first committed.**
+>
+> - **What was killed.** Each cycle killed the **orchestrator**, not the coding-agent
+>   session. In arms B and C the session survived the kill. The resume stopped it and
+>   replaced it with a fresh session at the attempt's checkpoint. The session's own
+>   progress is not carried over; it is redone. In arm A the stand-in session runs
+>   inside the orchestrator process and dies with it.
+> - **Why the verdict holds.** "No session wrapper is called for" holds because the
+>   orchestrator *is* the session wrapper, by design (`CRITERIA.md` §2). The 10/10 counts
+>   show that the orchestrator's **run** resumes with no project state lost. An
+>   interrupted session is replaced at its checkpoint, not resumed.
+> - **What was not measured.** A kill of the session process while its orchestrator
+>   lives.
+> - **Three points of scope the verdict does not state:**
+>   - In arm C the records carry the liveness just before and after the kill for the
+>     binary and the marker shell, but not for the third process in the tree (the
+>     shell's `sleep 0.1` child). `CRITERIA.md` §5 promised it for every process in
+>     the tree. No scored point depends on it, so "no deviation" below is slightly too
+>     strong on this one record.
+>   - C1 point 7 (nothing left running) cannot fail in arm A. The stand-in writes no
+>     session record and runs inside the orchestrator process, so there is no recorded
+>     session for the check to find.
+>   - Torn lines were untested by construction, not by chance. In arms B and C every
+>     kill lands while the orchestrator waits on a session, with nothing being written:
+>     the event count at the kill is 7 or 27 in all twenty cycles. In arm A the kill
+>     fires as soon as a newline count is reached (2 ms polling), so it lands just
+>     after a whole line.
+> - **The SIGKILL fallback, measured further by the reviewer.** A tool shell that
+>   ignores TERM, HUP and INT (`trap '' TERM HUP INT`, reviewer's seeds 41–42, outside
+>   the registered range) was still removed by the binary's own shutdown, with 0
+>   processes needing SIGKILL. The stop came about 2.0 s after the kill instead of
+>   about 0.56 s, and both cycles were clean. So on 2.1.272, under the hook layer, the
+>   resume's SIGKILL of surviving collected processes is exercised only by its unit test
+>   (`tests/unit/orchestrator/test_a_stop_leaves_nothing_running.py`), not by this
+>   experiment.
+
 **Pre-registration:** `CRITERIA.md` frozen at commit `c22c0b4` (2026-09-26),
 sha256 `9c509385296d71ddcc1c558abd7ab713baf43ea3796784bc9f050afb8a26806e`.
 The harness change the third arm needs is at `4dd5b1c`. The shakedown on seeds
