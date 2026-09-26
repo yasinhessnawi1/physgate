@@ -111,7 +111,13 @@ def test_the_order_a_request_lists_its_paths_in_does_not_change_the_bytes(tmp_pa
     # the same session whichever order they arrive in, and its digest must be too.
     paths = {
         name: tuple(str(tmp_path / f"{name}-{n}") for n in range(3))
-        for name in ("extra_protected", "held_out", "required_reading", "always_loaded")
+        for name in (
+            "extra_protected",
+            "extra_protected_refuse_only",
+            "held_out",
+            "required_reading",
+            "always_loaded",
+        )
     }
     outputs = []
     for reverse in (False, True):
@@ -271,3 +277,24 @@ def test_a_configuration_that_does_not_read_back_through_the_schema_is_never_wri
     with pytest.raises(ValueError, match="read back"):
         install(_request(tmp_path), REGISTRY)
     assert not (tmp_path / "session" / "session-config.json").exists()
+
+
+def test_a_refuse_only_root_is_protected_and_never_put_back(tmp_path: Path) -> None:
+    # The orchestrator's run records and the sessions' captured streams: no tool may
+    # write them, but the runtime writes a session's own stream while it runs, so the
+    # sentinel must not revert them.
+    written = str(tmp_path / "run" / "sessions")
+    reverted = str(tmp_path / "run" / "events.jsonl")
+    done = install(
+        _request(tmp_path, extra_protected=(reverted,), extra_protected_refuse_only=(written,)),
+        REGISTRY,
+    )
+    roots = {
+        r["path"]: r["watch"] for r in json.loads(done.config_path.read_text())["protected_roots"]
+    }
+    assert roots[written] == "none" and roots[reverted] == "revert"
+
+
+def test_a_refuse_only_root_that_contains_the_worktree_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="contains the worktree"):
+        install(_request(tmp_path, extra_protected_refuse_only=(str(tmp_path),)), REGISTRY)

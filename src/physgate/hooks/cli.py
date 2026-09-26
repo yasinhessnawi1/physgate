@@ -34,6 +34,12 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
     p.add_argument("--always-loaded", action="append", default=[])
     p.add_argument("--held-out", action="append", default=[])
     p.add_argument("--protect", action="append", default=[])
+    p.add_argument(
+        "--protect-refuse-only",
+        action="append",
+        default=[],
+        help="a path no tool may write that the runtime writes during the session (not reverted)",
+    )
     p.add_argument("--api-key-helper", help="a script printing the API key, named in the settings")
     p.set_defaults(func=_install)
 
@@ -58,6 +64,7 @@ def _install(args: argparse.Namespace) -> int:
         always_loaded=tuple(_abs(p) for p in args.always_loaded),
         held_out=tuple(_abs(p) for p in args.held_out),
         extra_protected=tuple(_abs(p) for p in args.protect),
+        extra_protected_refuse_only=tuple(_abs(p) for p in args.protect_refuse_only),
         api_key_helper=_abs(args.api_key_helper) if args.api_key_helper else None,
     )
     done = install(request, REGISTRY)

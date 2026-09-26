@@ -86,6 +86,11 @@ class InstallRequest(BaseModel):
     always_loaded: tuple[AbsolutePath, ...] = ()
     held_out: tuple[AbsolutePath, ...] = ()
     extra_protected: tuple[AbsolutePath, ...] = ()
+    #: Paths no session tool may write, but which the runtime or the spawner writes
+    #: while the session runs (its captured stream, its process record), so the
+    #: sentinel must not put them back. Only the layers that refuse a write before
+    #: it happens protect them.
+    extra_protected_refuse_only: tuple[AbsolutePath, ...] = ()
     #: A script that prints the API key, named in the settings file so the key is
     #: never in the session's environment, where every tool call could print it.
     #: It must live in the session's own files or its state directory, both
@@ -171,6 +176,15 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
     }
     for path in request.extra_protected:
         protected.setdefault(path, ("the orchestrator protects it for this session", "revert"))
+    for path in request.extra_protected_refuse_only:
+        protected.setdefault(
+            path,
+            (
+                "the orchestrator protects it for this session; it is written while the "
+                "session runs, by the runtime and not by any tool",
+                "none",
+            ),
+        )
     for path in request.held_out:
         protected.setdefault(path, (HELD_OUT_REASON, "revert"))
     if request.store_root is not None:
