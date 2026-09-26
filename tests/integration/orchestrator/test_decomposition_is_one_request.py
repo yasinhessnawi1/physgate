@@ -11,15 +11,12 @@ from __future__ import annotations
 
 import os
 import shutil
-import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 from git_rig import config, target_repo
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "hooks"))
-from fake_messages_api import DUMMY_KEY, Script, serving, text, tool  # noqa: E402
+from scripted_endpoint import DUMMY_KEY, Script, serving, text, tool  # noqa: E402
 
 from physgate.orchestrator.accounting import TokenAccount  # noqa: E402
 from physgate.orchestrator.decompose import call, start_run  # noqa: E402
@@ -69,10 +66,12 @@ PLAN: dict[str, Any] = {
 }
 
 
-def decompose_once(root: Path, seed: int, steps: list[dict[str, Any]]) -> tuple[Any, Any, Path]:
+def decompose_once(
+    root: Path, seed: int, steps: list[dict[str, Any]], answer_as: str | None = None
+) -> tuple[Any, Any, Path]:
     repo = target_repo(root)
     cfg = config().model_copy(update={"seed": seed, "target_head": head_of(repo, "master")})
-    with serving(Script(main=steps)) as (api, url):
+    with serving(Script(main=steps, answer_as=answer_as)) as (api, url):
         outcome = call(
             "Build a self-balancing robot.",
             config=cfg,
@@ -196,3 +195,12 @@ def test_the_decompose_command_twice_with_one_seed_gives_one_set_of_ids(
     recorded = json.loads((tmp_path / "a" / "run" / "run.json").read_text())
     assert recorded["claude_version"] == "2.1.272"
     assert len(api.requests) == 2
+
+
+def test_a_plan_from_a_model_other_than_the_pinned_one_fails_the_run(tmp_path: Path) -> None:
+    api, outcome, run_dir = decompose_once(
+        tmp_path, 7, [tool("StructuredOutput", **PLAN)], answer_as="claude-haiku-4-5"
+    )
+    assert not outcome.ok and outcome.cause == "model_mismatch"
+    assert "claude-haiku-4-5" in outcome.detail and len(api.requests) == 1
+    assert not (run_dir / "store").exists()

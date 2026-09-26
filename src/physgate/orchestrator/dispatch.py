@@ -217,10 +217,10 @@ class ClaudeDispatcher:
         for name in ("key", "key-helper.sh"):
             (sdir / "state" / name).unlink(missing_ok=True)
         redact(stdout, self._api_key)
-        result, usage = read_stream(stdout.read_text(errors="replace"))
+        result, usage, answered = read_stream(stdout.read_text(errors="replace"))
         end = classify_session_end(result, exit_code=exit_code, stopped_at_wall_clock=timed_out)
         if end.outcome == "completed":
-            echoed = sorted((result or {}).get("modelUsage") or {})
+            echoed = sorted(answered)
             if echoed != [request.model]:
                 msg = "the session was answered by a model other than the pinned one"
                 raise InvocationError(msg, asked=request.model, answered=",".join(echoed))

@@ -145,14 +145,21 @@ class Outcome(_Frozen):
     num_turns: int
 
 
-def read_stream(stdout: str) -> tuple[dict[str, Any] | None, tuple[MessageUsage, ...]]:
-    """The result object and the per-message usage from a ``stream-json`` stdout.
+def read_stream(
+    stdout: str,
+) -> tuple[dict[str, Any] | None, tuple[MessageUsage, ...], frozenset[str]]:
+    """The result object, the per-message usage and the answering models of a stream.
 
     Usage is taken once per message id: the stream repeats a message's usage once
-    per content block. A line that is not JSON is skipped, not trusted.
+    per content block. The answering model is each assistant message's own
+    ``model``, not the result's ``modelUsage``: measured on 2.1.272 with the
+    endpoint answering as another model, ``modelUsage`` still named the model
+    that was asked for, and only the messages named the one that answered. A
+    line that is not JSON is skipped, not trusted.
     """
     result: dict[str, Any] | None = None
     seen: dict[str, MessageUsage] = {}
+    models: set[str] = set()
     for line in stdout.splitlines():
         try:
             event = json.loads(line)
@@ -172,7 +179,9 @@ def read_stream(stdout: str) -> tuple[dict[str, Any] | None, tuple[MessageUsage,
                 cache_creation_input_tokens=int(raw.get("cache_creation_input_tokens") or 0),
             )
             seen.setdefault(message["id"], MessageUsage(message_id=message["id"], usage=usage))
-    return result, tuple(seen.values())
+            if isinstance(message.get("model"), str):
+                models.add(message["model"])
+    return result, tuple(seen.values()), frozenset(models)
 
 
 def judge(
@@ -182,11 +191,12 @@ def judge(
     timed_out: bool,
     model: str,
     roles: Sequence[str],
+    answered: frozenset[str],
 ) -> tuple[FailureCause | None, str, Plan | None, str | None, int]:
     """Decide from the result object whether the call produced a usable plan."""
     end = classify_session_end(result, exit_code=exit_code, stopped_at_wall_clock=timed_out)
     turns = int((result or {}).get("num_turns") or 0)
-    echoed = sorted((result or {}).get("modelUsage") or {})
+    echoed = sorted(answered)
     seen_model = echoed[0] if len(echoed) == 1 else None
     if end.cause is not None:
         return end.cause, f"the call ended with {end.cause}", None, seen_model, turns
@@ -275,13 +285,14 @@ def call(
         stdout = raw.decode(errors="replace") if isinstance(raw, bytes) else raw
         exit_code, timed_out = None, True
     (workdir / "stdout.jsonl").write_text(stdout)
-    result, usage = read_stream(stdout)
+    result, usage, answered = read_stream(stdout)
     cause, detail, plan, model, turns = judge(
         result,
         exit_code=exit_code,
         timed_out=timed_out,
         model=config.models.decomposition,
         roles=roles,
+        answered=answered,
     )
     return Outcome(
         session_id=session_id,

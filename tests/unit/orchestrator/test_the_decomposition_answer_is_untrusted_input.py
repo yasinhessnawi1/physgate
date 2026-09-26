@@ -58,9 +58,17 @@ def result(**overrides: Any) -> dict[str, Any]:
     return base
 
 
+OPUS = frozenset({"claude-opus-5"})
+
+
 def test_a_valid_answer_is_a_plan() -> None:
     cause, _, got, model, turns = judge(
-        result(), exit_code=0, timed_out=False, model="claude-opus-5", roles=["electrical"]
+        result(),
+        exit_code=0,
+        timed_out=False,
+        model="claude-opus-5",
+        roles=["electrical"],
+        answered=OPUS,
     )
     assert cause is None and got is not None and model == "claude-opus-5" and turns == 2
 
@@ -69,8 +77,9 @@ def test_a_valid_answer_is_a_plan() -> None:
     ("overrides", "exit_code", "cause"),
     [
         ({"structured_output": None}, 0, "no_structured_output"),
-        ({"modelUsage": {"claude-sonnet-5": {}}}, 0, "model_mismatch"),
-        ({"modelUsage": {}}, 0, "model_mismatch"),
+        ({"answered": frozenset({"claude-sonnet-5"})}, 0, "model_mismatch"),
+        ({"answered": frozenset()}, 0, "model_mismatch"),
+        ({"answered": frozenset({"claude-opus-5", "claude-sonnet-5"})}, 0, "model_mismatch"),
         ({"terminal_reason": "max_turns", "is_error": True}, 1, "turn_limit"),
         ({"terminal_reason": "api_error", "is_error": True}, 1, "api_error"),
         ({"structured_output": {"modules": []}}, 0, "invalid_plan"),
@@ -89,6 +98,7 @@ def test_a_valid_answer_is_a_plan() -> None:
         "success with no plan",
         "answered by another model",
         "no model named",
+        "answered partly by another model",
         "the turn limit",
         "an API error",
         "an empty plan",
@@ -98,19 +108,25 @@ def test_a_valid_answer_is_a_plan() -> None:
 def test_an_answer_that_is_not_a_usable_plan_fails(
     overrides: dict[str, Any], exit_code: int, cause: str
 ) -> None:
+    fields = dict(overrides)
+    answered = fields.pop("answered", OPUS)
     got = judge(
-        result(**overrides),
+        result(**fields),
         exit_code=exit_code,
         timed_out=False,
         model="claude-opus-5",
         roles=["electrical"],
+        answered=answered,
     )
     assert got[0] == cause and got[2] is None
 
 
 def test_no_result_and_the_wall_clock_are_failures_with_their_cause() -> None:
-    assert judge(None, exit_code=-9, timed_out=False, model="m-1", roles=[])[0] == "no_result"
-    assert judge(None, exit_code=None, timed_out=True, model="m-1", roles=[])[0] == "wall_clock"
+    none: frozenset[str] = frozenset()
+    got = judge(None, exit_code=-9, timed_out=False, model="m-1", roles=[], answered=none)
+    assert got[0] == "no_result"
+    got = judge(None, exit_code=None, timed_out=True, model="m-1", roles=[], answered=none)
+    assert got[0] == "wall_clock"
 
 
 @pytest.mark.parametrize(
@@ -144,13 +160,14 @@ def test_what_the_schema_cannot_say_is_checked_by_code(
 def test_usage_is_counted_once_per_message_and_garbage_lines_are_skipped() -> None:
     usage = {"input_tokens": 10, "output_tokens": 5}
     lines = [
-        json.dumps({"type": "assistant", "message": {"id": "m1", "usage": usage}}),
-        json.dumps({"type": "assistant", "message": {"id": "m1", "usage": usage}}),
+        json.dumps({"type": "assistant", "message": {"id": "m1", "usage": usage, "model": "m-1"}}),
+        json.dumps({"type": "assistant", "message": {"id": "m1", "usage": usage, "model": "m-1"}}),
         "not json at all",
         json.dumps(["a", "list"]),
         json.dumps({"type": "result", "num_turns": 2}),
     ]
-    got_result, got_usage = read_stream("\n".join(lines))
+    got_result, got_usage, got_models = read_stream("\n".join(lines))
+    assert got_models == frozenset({"m-1"})
     assert got_result == {"type": "result", "num_turns": 2}
     assert [(u.message_id, u.usage.input_tokens) for u in got_usage] == [("m1", 10)]
 

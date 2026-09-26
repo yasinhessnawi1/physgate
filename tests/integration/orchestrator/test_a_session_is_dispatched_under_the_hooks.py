@@ -13,15 +13,12 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 from git_rig import config, run_layout
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "hooks"))
-from fake_messages_api import DUMMY_KEY, Script, serving, text, tool  # noqa: E402
+from scripted_endpoint import DUMMY_KEY, Script, serving, text, tool  # noqa: E402
 
 from physgate.orchestrator.dispatch import ClaudeDispatcher  # noqa: E402
 from physgate.orchestrator.exceptions import InvocationError  # noqa: E402
@@ -89,11 +86,15 @@ def request(cfg: RunConfig) -> SessionRequest:
 
 
 def dispatch(
-    root: Path, install_bin: Path, steps: list[dict[str, Any]], cfg: RunConfig | None = None
+    root: Path,
+    install_bin: Path,
+    steps: list[dict[str, Any]],
+    cfg: RunConfig | None = None,
+    answer_as: str | None = None,
 ) -> tuple[Any, Any, RunGit]:
     run, store_root = layout(root)
     cfg = cfg or config()
-    with serving(Script(main=steps)) as (api, url):
+    with serving(Script(main=steps, answer_as=answer_as)) as (api, url):
         dispatcher = ClaudeDispatcher(
             config=cfg,
             run=run,
@@ -215,3 +216,13 @@ def test_a_key_that_reaches_the_stream_anyway_is_redacted_before_anything_reads_
     _, (report, _), _ = dispatch(tmp_path, install_bin, steps)
     captured = Path(str(report.trajectory)).read_text()
     assert DUMMY_KEY not in captured and "[redacted: the API key]" in captured
+
+
+def test_a_session_answered_by_a_model_other_than_the_pinned_one_is_refused(
+    tmp_path: Path, install_bin: Path
+) -> None:
+    worktree = tmp_path / "run" / "worktrees" / "s1"
+    steps = [tool("Read", file_path=str(worktree / SPEC)), text("done")]
+    with pytest.raises(InvocationError, match="other than the pinned one") as caught:
+        dispatch(tmp_path, install_bin, steps, answer_as="claude-haiku-4-5")
+    assert caught.value.context == {"asked": "claude-sonnet-4-5", "answered": "claude-haiku-4-5"}
