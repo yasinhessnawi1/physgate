@@ -245,11 +245,12 @@ class LeanInput:
 def _json(data: bytes | str) -> object:
     """Parse a JSON document the way the schema's parser does, or refuse it.
 
-    Two differences from :func:`json.loads` had to be closed, both found by
-    the equivalence test's generated inputs: bytes are read as UTF-8 and
-    nothing else (the standard library guesses UTF-16 and UTF-32, and skips a
-    byte-order mark), and a lone surrogate anywhere in the document, raw or
-    escaped, in a key or a value, is refused rather than kept as text.
+    Three differences from :func:`json.loads` had to be closed, all found by
+    generated inputs: bytes are read as UTF-8 and nothing else (the standard
+    library guesses UTF-16 and UTF-32, and skips a byte-order mark); a lone
+    surrogate anywhere in the document, raw or escaped, in a key or a value, is
+    refused rather than kept as text; and a document nested deeper than the
+    schema's parser goes is refused (:data:`MAX_DEPTH`).
     """
     try:
         text = data.decode("utf-8") if isinstance(data, bytes) else data
@@ -258,12 +259,41 @@ def _json(data: bytes | str) -> object:
         parsed = json.loads(text)
     except ValueError as exc:
         raise _fail("json", str(exc)) from None
+    except RecursionError:
+        # Far past the schema's own limit; the standard library gives up first.
+        raise _fail("json", "the document is nested too deeply") from None
+    # A value that deep needs that many brackets before it, so a document with
+    # fewer is not walked at all, which is every ordinary event.
+    if text.count("[") + text.count("{") >= MAX_DEPTH and _depth(parsed) > MAX_DEPTH:
+        raise _fail("json", f"the document is nested more than {MAX_DEPTH} values deep")
     # An escaped surrogate survives parsing only when it is unpaired; a pair
     # becomes one character. The walk runs only when an escape that could be
     # one is present at all, which a tool input almost never holds.
     if _SURROGATE_ESCAPE.search(text) and _holds_a_surrogate(parsed):
         raise _fail("json", "the document holds a lone surrogate, which is not text")
     return parsed
+
+
+#: The deepest value the schema's parser accepts, the document itself at depth 1:
+#: pydantic-core 2.46.5 refuses a document holding a value at depth 202, whether
+#: that value is a container, empty or not, or a scalar. Found by probing, not
+#: assumed: 3,000 random chains of arrays and objects, 190 to 215 deep, in every
+#: part of an event, were decided by this rule exactly as the schema decides them.
+MAX_DEPTH = 201
+
+
+def _depth(value: object) -> int:
+    """The depth of the deepest value in ``value``, which itself is at depth 1."""
+    deepest = 0
+    stack = [(value, 1)]
+    while stack:
+        item, depth = stack.pop()
+        deepest = max(deepest, depth)
+        if isinstance(item, dict):
+            stack.extend((inner, depth + 1) for inner in item.values())
+        elif isinstance(item, list):
+            stack.extend((inner, depth + 1) for inner in item)
+    return deepest
 
 
 def _holds_a_surrogate(value: object) -> bool:

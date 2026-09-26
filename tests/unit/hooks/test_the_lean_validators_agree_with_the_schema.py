@@ -355,3 +355,69 @@ def test_a_surrogate_anywhere_in_an_event_is_decided_the_same(fragment: str) -> 
         schema, lean_ = _schema_input_python(text), _lean_input_python(text)
         assert (schema is None) == (lean_ is None), text
         assert schema == lean_, text
+
+
+def _chain(depth: int, rng: random.Random) -> object:
+    """``depth`` nested arrays and objects around a random innermost value."""
+    value: object = rng.choice([1, "s", None, [], {}, True, 1.5])
+    for _ in range(depth):
+        if rng.random() < 0.5:
+            value = [value] if rng.random() < 0.7 else [1, value, "x"]
+        else:
+            value = {"k": value} if rng.random() < 0.7 else {"a": 1, "k": value}
+    return value
+
+
+@pytest.mark.parametrize("depth", [198, 199, 200, 201, 202])
+@pytest.mark.parametrize("where", ["tool_input", "tool_response", "extra"])
+@pytest.mark.parametrize("shape", ["arrays", "objects", "arrays around a value"])
+def test_nesting_at_the_schemas_limit_is_decided_the_same(
+    depth: int, where: str, shape: str
+) -> None:
+    # The schema's parser has a nesting limit and the standard library's does
+    # not, below its own recursion limit. The first disagreement found was 200
+    # arrays deep inside a tool's input.
+    inner = {
+        "arrays": "[" * depth + "]" * depth,
+        "objects": '{"a":' * depth + "1" + "}" * depth,
+        "arrays around a value": "[" * depth + "1" + "]" * depth,
+    }[shape]
+    base = json.dumps(event("PreToolUse", tool_name="Bash", tool_input={"command": "ls"}))
+    text = {
+        "tool_input": base.replace('{"command": "ls"}', '{"command": "ls", "x": ' + inner + "}"),
+        "tool_response": base[:-1] + ', "tool_response": ' + inner + "}",
+        "extra": base[:-1] + ', "zz": ' + inner + "}",
+    }[where]
+    schema, lean_ = _schema_input_python(text), _lean_input_python(text)
+    assert (schema is None) == (lean_ is None), (depth, where, shape)
+    assert schema == lean_
+
+
+def test_thousands_of_generated_deep_documents_are_decided_the_same(tmp_path: Path) -> None:
+    rng = random.Random(20260928)
+    outcomes = [0, 0]
+    config = config_dict(tmp_path)
+    for n in range(1500):
+        chain = _chain(rng.randint(190, 215), rng)
+        if n % 3 == 0:
+            data = json.dumps({**config, "surprise": chain}).encode()
+            schema, lean_ = _schema_config_python(data), _lean_config_python(data)
+            doc: object = data
+        else:
+            ev = event("PreToolUse", tool_name="Bash", tool_input={"command": "ls", "x": chain})
+            if n % 3 == 1:
+                ev = event("Stop", zz=chain)
+            text = json.dumps(ev)
+            schema, lean_ = _schema_input_python(text), _lean_input_python(text)
+            doc = text[:120]
+        assert (schema is None) == (lean_ is None), doc
+        assert schema == lean_
+        outcomes[schema is None] += 1
+    assert outcomes[0] > 100 and outcomes[1] > 100, outcomes
+
+
+def test_a_document_nested_past_the_standard_librarys_own_limit_is_refused_by_both() -> None:
+    deep = "[" * 5000 + "]" * 5000
+    text = json.dumps(event("Stop"))[:-1] + ', "zz": ' + deep + "}"
+    assert _schema_input_python(text) is None
+    assert _lean_input_python(text) is None
