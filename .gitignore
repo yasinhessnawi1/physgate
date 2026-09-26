@@ -3,6 +3,9 @@
 .docs/*
 !.docs/02-architecture-specification.md
 
+# Secrets. .env.example lists the names and is tracked.
+.env
+
 .venv/
 __pycache__/
 *.pyc
