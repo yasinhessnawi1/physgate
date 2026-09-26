@@ -1,0 +1,22 @@
+{
+  "apt": "apt-get",
+  "awk": "mawk",
+  "bundler": "bundle",
+  "c89": "gcc",
+  "c99": "gcc",
+  "cc": "gcc",
+  "g++": "gcc",
+  "hd": "hexdump",
+  "ksh": "bash",
+  "lastb": "last",
+  "nawk": "gawk",
+  "nvim": "vim",
+  "pico": "nano",
+  "red": "ed",
+  "rview": "view",
+  "rvim": "vim",
+  "view": "vim",
+  "vimdiff": "vim",
+  "xelatex": "latex",
+  "xetex": "tex"
+}
