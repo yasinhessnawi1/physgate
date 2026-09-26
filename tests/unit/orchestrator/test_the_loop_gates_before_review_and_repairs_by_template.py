@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from loop_fakes import FakeGate, FakeReviewer, Rig, plan
@@ -300,3 +301,41 @@ def test_a_ledger_holding_a_line_the_log_does_not_imply_refuses_the_run(tmp_path
     _forge(tmp_path / "ledger.jsonl", gate_result="pass", review_result="pass")
     with pytest.raises(MergePreconditionError, match="disagrees"):
         rig.open()
+
+
+def test_each_rejection_carries_its_finding_key_and_whether_it_repeats(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, gate=FakeGate(verdicts=["pass", "fail", "fail"]))
+    rig.reviewer.verdicts = ["fail"]
+    loop = rig.open()
+    loop.start(plan("s1"))
+    loop.run()
+    loop.close()
+    rejected = [e for e in read_events(tmp_path / "events.jsonl") if isinstance(e, AttemptRejected)]
+    assert [e.finding_key for e in rejected] == [
+        "review|-|-",
+        "gate|motor.left|bounds",
+        "gate|motor.left|bounds",
+    ]
+    assert [e.repeats_previous for e in rejected] == [False, False, True]
+
+
+def test_the_record_refuses_a_rejection_whose_key_or_repeat_flag_is_wrong(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, gate=FakeGate(verdicts=["fail"]))
+    loop = rig.open()
+    loop.start(plan("s1"))
+    real_emit = loop.record.log.emit
+    calls: list[str] = []
+
+    def lying_emit(kind: Any, **fields: Any) -> Any:
+        if kind is AttemptRejected and not calls:
+            calls.append("lied")
+            with pytest.raises(ValueError, match="key"):
+                real_emit(kind, **{**fields, "repeats_previous": True})
+            with pytest.raises(ValueError, match="key"):
+                real_emit(kind, **{**fields, "finding_key": "gate|-|-"})
+        return real_emit(kind, **fields)
+
+    loop.record.log.emit = lying_emit  # type: ignore[method-assign]
+    loop.run()
+    loop.close()
+    assert calls == ["lied"]

@@ -59,6 +59,8 @@ class ChangeCheck(_Frozen):
 
     refused_by: Literal["proposal", "write_scope"] | None
     reason: NonEmptyStr | None
+    #: The offending paths or node id, for the finding's key.
+    subject: NonEmptyStr | None = None
     graph_root: NonEmptyStr
 
 

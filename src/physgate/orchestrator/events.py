@@ -212,6 +212,7 @@ class ProposalsChecked(_Event):
     checked_commit: Sha
     refused_by: Literal["proposal", "write_scope"] | None
     reason: NonEmptyStr | None
+    subject: NonEmptyStr | None
     graph_root: NonEmptyStr
 
     @model_validator(mode="after")
@@ -229,6 +230,10 @@ class AttemptRejected(_Event):
     subtask_id: NonEmptyStr
     attempt: Attempt
     finding: Finding
+    #: The finding's stable key, and whether the previous attempt was rejected for
+    #: the same key: an agent that never fixes a finding spends its budget on it.
+    finding_key: NonEmptyStr
+    repeats_previous: bool
 
 
 class Merged(_Event):

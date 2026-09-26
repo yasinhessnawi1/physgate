@@ -306,3 +306,18 @@ def test_the_diff_names_a_write_by_a_role_that_does_not_own_the_node(tmp_path: P
     rig.keeper.close()
     assert len(found) == 1 and "control.loop" in found[0] and "'control'" in found[0]
     assert (rig.store_root / JOURNAL_NAME).exists()
+
+
+def test_an_unwithdrawn_proposal_is_the_same_finding_on_every_attempt(tmp_path: Path) -> None:
+    rig = Rig(tmp_path)
+    dispatcher = GitDispatcher(
+        rig.run, proposals={1: {"control.loop": node("control.loop", owner="control")}}
+    )
+    loop = rig.loop(dispatcher)
+    loop.run()
+    open_items = loop.queue.open_items()
+    loop.close()
+    rejected = [e for e in rig.events() if isinstance(e, AttemptRejected)]
+    assert [e.repeats_previous for e in rejected] == [False, True, True]
+    assert {e.finding_key for e in rejected} == {"proposal|control.loop|-"}
+    assert len(open_items) == 1 and rig.gate.calls == 0

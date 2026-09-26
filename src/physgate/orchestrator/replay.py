@@ -187,6 +187,10 @@ class RunState:
         elif isinstance(event, AttemptRejected):
             basis = self.rejection_basis(now)
             self._expect(now.cursor == "decide" and basis == event.finding.source, "a rejection")
+            before = sub.attempts[-2].rejected if len(sub.attempts) > 1 else None
+            repeats = before is not None and before.finding_key == event.finding_key
+            keyed = event.finding_key == event.finding.key()
+            self._expect(keyed and event.repeats_previous == repeats, "a rejection's key")
             now.rejected = event
             sub.next_resolve = after_rejection(now.number)
         elif isinstance(event, WriteIntended):

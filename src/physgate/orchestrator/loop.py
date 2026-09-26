@@ -232,7 +232,16 @@ class Loop:
 
     def _reject(self, subtask_id: str, attempt: int, finding: Finding) -> None:
         self._stage(subtask_id, attempt, "decide")
-        self._emit(AttemptRejected, subtask_id=subtask_id, attempt=attempt, finding=finding)
+        attempts = self.state.subtasks[subtask_id].attempts
+        before = attempts[-2].rejected if len(attempts) > 1 else None
+        self._emit(
+            AttemptRejected,
+            subtask_id=subtask_id,
+            attempt=attempt,
+            finding=finding,
+            finding_key=finding.key(),
+            repeats_previous=before is not None and before.finding_key == finding.key(),
+        )
 
     def _attempt(self, subtask_id: str, attempt: int, point: str) -> None:
         if point == "resolve" and not self._session(subtask_id, attempt):
@@ -425,7 +434,8 @@ class Loop:
             **check.model_dump(),
         )
         if check.refused_by is not None and check.reason is not None:
-            self._reject(subtask_id, attempt, Finding(source=check.refused_by, text=check.reason))
+            finding = Finding(source=check.refused_by, text=check.reason, subject=check.subject)
+            self._reject(subtask_id, attempt, finding)
             return False
         artefact = Artefact(
             subtask_id=subtask_id,

@@ -42,6 +42,11 @@ _PROPOSAL = re.compile(r"^\.physgate/proposals/(?P<id>[a-z][a-z0-9_]*(\.[a-z0-9_
 class ProposalRefusedError(Exception):
     """A proposal cannot be applied; the message is the reason an agent reads."""
 
+    def __init__(self, message: str, subject: str) -> None:
+        """Say why, and name the offending path or node."""
+        super().__init__(message)
+        self.subject = subject
+
 
 def _owners(store_root: Path) -> dict[str, str]:
     """The current owner of every node, from the canonical journal, read-only."""
@@ -65,23 +70,28 @@ def read_proposals(repo: Path, base: str, commit: str, store_root: Path) -> list
         if named is None or change.status == "D":
             continue
         if change.new_mode != "100644":
-            raise ProposalRefusedError(f"{change.path} is not a regular file")
+            raise ProposalRefusedError(f"{change.path} is not a regular file", change.path)
         raw = git(repo, "show", f"{commit}:{change.path}")
         try:
             payload = json.loads(raw)
         except json.JSONDecodeError:
-            raise ProposalRefusedError(f"{change.path} is not JSON") from None
+            raise ProposalRefusedError(f"{change.path} is not JSON", change.path) from None
         if not isinstance(payload, dict) or payload.get("id") != named["id"]:
-            raise ProposalRefusedError(f"{change.path} is not one whole node named for its file")
+            raise ProposalRefusedError(
+                f"{change.path} is not one whole node named for its file", change.path
+            )
         try:
             validate_node(payload)
         except (DesignStateError, ValueError) as exc:
-            raise ProposalRefusedError(f"{change.path} is not a valid node: {exc}") from None
+            raise ProposalRefusedError(
+                f"{change.path} is not a valid node: {exc}", change.path
+            ) from None
         owner = owners.get(named["id"])
         if owner is not None and payload["owner_role"] != owner:
             raise ProposalRefusedError(
                 f"{change.path} changes the owner of {named['id']} from {owner!r}; owners are "
-                "assigned at decomposition"
+                "assigned at decomposition",
+                named["id"],
             )
         found.append(payload)
     return sorted(found, key=lambda p: str(p["id"]))
@@ -104,12 +114,17 @@ class GitChangeChecker:
         scratch = self._run.run_dir / "scratch" / f"{subtask_id}-{attempt_commit[:12]}"
         if outside:
             reason = "the attempt changed paths outside its module: " + "; ".join(outside)
-            return ChangeCheck(refused_by="write_scope", reason=reason, graph_root=str(scratch))
+            subject = ",".join(sorted(v.split(" (", 1)[0] for v in outside))
+            return ChangeCheck(
+                refused_by="write_scope", reason=reason, subject=subject, graph_root=str(scratch)
+            )
         try:
             proposals = read_proposals(repo, base, attempt_commit, self._store_root)
             self._precheck(scratch, proposals, role)
         except ProposalRefusedError as exc:
-            return ChangeCheck(refused_by="proposal", reason=str(exc), graph_root=str(scratch))
+            return ChangeCheck(
+                refused_by="proposal", reason=str(exc), subject=exc.subject, graph_root=str(scratch)
+            )
         return ChangeCheck(refused_by=None, reason=None, graph_root=str(scratch))
 
     def _precheck(self, scratch: Path, proposals: list[dict[str, Any]], role: str) -> None:
@@ -127,7 +142,7 @@ class GitChangeChecker:
                 result = store.write_node(payload, role)
                 if not result.accepted:
                     msg = f"the store refused the proposal for {payload['id']}: {result.reason}"
-                    raise ProposalRefusedError(msg)
+                    raise ProposalRefusedError(msg, str(payload["id"]))
         finally:
             store.close()
 

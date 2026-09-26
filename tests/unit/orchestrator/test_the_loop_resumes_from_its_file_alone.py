@@ -280,6 +280,7 @@ def _through_the_gate(log: EventLog, verdict_fails: bool) -> None:
         checked_commit=sha("c"),
         refused_by=None,
         reason=None,
+        subject=None,
         graph_root="g",
     )
     log.emit(StageEntered, subtask_id="s1", attempt=1, stage="gate")

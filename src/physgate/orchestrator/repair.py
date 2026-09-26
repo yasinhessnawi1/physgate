@@ -40,6 +40,9 @@ class Finding(BaseModel):
 
     source: FindingSource
     text: NonEmptyStr
+    #: What the finding is about: the offending paths or node id, or for the gate
+    #: the nodes its quantities name. Part of the finding's key, never phrased.
+    subject: NonEmptyStr | None = None
     failing_check: NonEmptyStr | None = None
     numeric_output: NumericOutput | None = None
     quantities: Annotated[tuple[QuantityRef, ...], Field(max_length=3)] = ()
@@ -50,6 +53,7 @@ class Finding(BaseModel):
         return cls(
             source="gate",
             text=result.finding,
+            subject=",".join(sorted({q.node_id for q in result.quantities})) or None,
             failing_check=result.failing_check,
             numeric_output=result.numeric_output,
             quantities=result.quantities,
@@ -59,6 +63,15 @@ class Finding(BaseModel):
     def from_review(cls, result: ReviewResult) -> Finding:
         """The finding a rejecting reviewer carries."""
         return cls(source="review", text=result.finding)
+
+    def key(self) -> str:
+        """A stable key for what was found: who refused, about what, by which check.
+
+        Two attempts rejected for the same unfixed thing have the same key, so a
+        run can show an agent spending its budget on one finding without anyone
+        comparing prose.
+        """
+        return f"{self.source}|{self.subject or '-'}|{self.failing_check or '-'}"
 
 
 def _number(output: NumericOutput) -> str:
