@@ -188,6 +188,9 @@ class FakeMerger:
             self.merges.append((subtask_id, attempt, attempt_commit))
         return sha(f"merge-{attempt_commit}")
 
+    def run_branch_moved(self, expected: str, pending: str | None) -> str | None:
+        return None
+
     def artefact_diff(self, attempt_commit: str) -> str:
         return f"diff --git a/x b/x\n+ attempt {attempt_commit[:8]}\n"
 

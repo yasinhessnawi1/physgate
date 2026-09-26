@@ -179,6 +179,26 @@ class GitMerger:
             ) from None
         return head_of(run.integration, "HEAD")
 
+    def run_branch_moved(self, expected: str, pending: str | None) -> str | None:
+        """Why the run branch is not at ``expected``, or ``None``.
+
+        Read through git, so a ref moved in ``packed-refs`` is seen as well as a
+        loose one. A merge of exactly ``pending`` onto ``expected`` is accepted: it
+        is the merge a killed process made and did not record.
+        """
+        run = self._run
+        head = head_of(run.repo, run.run_branch)
+        if head == expected:
+            return None
+        if pending is not None:
+            parents = git(run.repo, "rev-list", "--parents", "-n", "1", head).split()[1:]
+            if parents == [expected, pending]:
+                return None
+        return (
+            f"the run branch {run.run_branch} is at {head}, not at {expected}, "
+            "where this run last left it"
+        )
+
     def remove_worktree(self, subtask_id: str) -> WorktreeRemoval:
         """Remove a subtask's worktree with ``git worktree remove``, never forced.
 

@@ -134,6 +134,16 @@ class Merger(Protocol):
         """The attempt's diff against where it started, for a person to read."""
         ...
 
+    def run_branch_moved(self, expected: str, pending: str | None) -> str | None:
+        """Why the run branch is not where the run left it, or ``None`` if it is.
+
+        ``expected`` is the last merge the run recorded (or where the run started).
+        ``pending`` is a checked commit whose merge may have landed without being
+        recorded, when a process died between the two; a merge of exactly it onto
+        ``expected`` is where the run left the branch, too.
+        """
+        ...
+
     def remove_worktree(self, subtask_id: str) -> WorktreeRemoval:
         """Remove a subtask's worktree without force; never its branch. Never raises."""
         ...

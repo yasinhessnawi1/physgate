@@ -352,3 +352,103 @@ def test_a_removal_past_its_bound_is_recorded_and_left(
     late = GitMerger(run, removal_timeout_s=2.5).remove_worktree("s1")
     assert (late.outcome, late.seconds, asked) == ("timed_out", 2.5, [2.5])
     assert late.detail == "no answer within 2.5 s"
+
+
+def _forge_run_ref(run: RunGit, packed: bool) -> str:
+    """Move the run branch to a commit nobody merged, as a session's shell could."""
+    head = head_of(run.repo, run.run_branch)
+    tree = sh(run.repo, "rev-parse", f"{head}^{{tree}}").strip()
+    forged = sh(run.repo, "commit-tree", "-p", head, "-m", "forged", tree).strip()
+    if packed:
+        # Only in packed-refs: no loose ref file to protect or to watch.
+        sh(run.repo, "pack-refs", "--all")
+        packed_refs = run.repo / ".git" / "packed-refs"
+        old = head_of(run.repo, run.run_branch)
+        packed_refs.write_text(packed_refs.read_text().replace(old, forged))
+    else:
+        sh(run.repo, "update-ref", f"refs/heads/{run.run_branch}", forged)
+    assert head_of(run.repo, run.run_branch) == forged
+    return forged
+
+
+@pytest.mark.parametrize("packed", [False, True], ids=["loose ref", "packed-refs"])
+def test_a_run_branch_moved_between_merges_is_an_incident_before_the_next_merge(
+    tmp_path: Path, packed: bool
+) -> None:
+    run = run_layout(tmp_path)
+    forged: list[str] = []
+    dispatcher = GitDispatcher(
+        run, during={2: lambda _: forged.append(_forge_run_ref(run, packed))}
+    )
+    loop = _loop(run, dispatcher, Gate(), GitMerger(run, removal_timeout_s=60.0))
+    loop.start([plan_entry("s1", "modules/power"), plan_entry("s2", "modules/control")])
+    assert loop.run().kind == "halted"
+    loop.close()
+    events = read_events(run.run_dir / "events.jsonl")
+    (incident,) = [e for e in events if isinstance(e, Incident)]
+    assert incident.cause == "run_branch_moved" and incident.subtask_id == "s2"
+    assert forged[0] in incident.detail
+    assert [e.subtask_id for e in events if isinstance(e, Merged)] == ["s1"]
+    assert head_of(run.repo, run.run_branch) == forged[0]  # nothing merged onto it
+
+
+class _ForgedError(Exception):
+    pass
+
+
+def test_a_run_branch_moved_while_the_orchestrator_was_down_is_an_incident_at_resume(
+    tmp_path: Path,
+) -> None:
+    run = run_layout(tmp_path)
+
+    def forge_and_die(_: Path) -> None:
+        _forge_run_ref(run, packed=False)
+        raise _ForgedError
+
+    dispatcher = GitDispatcher(run, during={2: forge_and_die})
+    loop = _loop(run, dispatcher, Gate(), GitMerger(run, removal_timeout_s=60.0))
+    loop.start([plan_entry("s1", "modules/power"), plan_entry("s2", "modules/control")])
+    with pytest.raises(_ForgedError):
+        loop.run()
+    loop.close()
+    killed_at = len(read_events(run.run_dir / "events.jsonl"))
+    fresh = GitDispatcher(run)
+    again = _loop(run, fresh, Gate(), GitMerger(run, removal_timeout_s=60.0))
+    assert again.resume().kind == "halted"
+    again.close()
+    events = read_events(run.run_dir / "events.jsonl")
+    (incident,) = [e for e in events if isinstance(e, Incident)]
+    assert incident.cause == "run_branch_moved"
+    assert [e.subtask_id for e in events if isinstance(e, Merged)] == ["s1"]
+    # Caught at the resume itself, before anything else of the run happens.
+    assert fresh.requests == []
+    assert [e.kind for e in events[killed_at:]] == ["incident", "halted"]
+
+
+def test_the_merge_a_killed_process_made_and_never_recorded_is_where_the_run_left_its_branch(
+    tmp_path: Path,
+) -> None:
+    # s1 merged and recorded; s2 merged, then the process died before recording it.
+    # At the resume the branch is one merge past the last recorded one, a merge of
+    # exactly s2's checked commit: that is not a moved branch.
+    run = run_layout(tmp_path)
+
+    class KilledAtSecondMerge(GitMerger):
+        def merge(self, subtask_id: str, attempt: int, attempt_commit: str, message: str) -> str:
+            done = super().merge(subtask_id, attempt, attempt_commit, message)
+            if subtask_id == "s2":
+                raise KeyboardInterrupt
+            return done
+
+    dispatcher = GitDispatcher(run)
+    loop = _loop(run, dispatcher, Gate(), KilledAtSecondMerge(run, removal_timeout_s=60.0))
+    loop.start([plan_entry("s1", "modules/power"), plan_entry("s2", "modules/control")])
+    with pytest.raises(KeyboardInterrupt):
+        loop.run()
+    loop.close()
+    again = _loop(run, dispatcher, Gate(), GitMerger(run, removal_timeout_s=60.0))
+    assert again.resume().kind == "done"
+    again.close()
+    events = read_events(run.run_dir / "events.jsonl")
+    assert not [e for e in events if isinstance(e, Incident)]
+    assert [e.subtask_id for e in events if isinstance(e, Merged)] == ["s1", "s2"]

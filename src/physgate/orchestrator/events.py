@@ -65,6 +65,7 @@ IncidentCause = Literal[
     "store_refusal",
     "node_files_unrecoverable",
     "managed_settings_changed",
+    "run_branch_moved",
 ]
 
 #: Why a run stopped short of the end of its plan.

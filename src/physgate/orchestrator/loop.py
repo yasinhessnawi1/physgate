@@ -28,6 +28,7 @@ from physgate.orchestrator.credentials import SECRET_VARIABLE
 from physgate.orchestrator.events import (
     RESUMABLE_HALTS,
     AttemptRejected,
+    Decomposed,
     DiffChecked,
     Envelope,
     EnvironmentRecorded,
@@ -215,6 +216,14 @@ class Loop:
         if not self._journal_clean():
             return self.state.next_step()
         sub = self.state.interrupted()
+        now_changes = sub.attempts[-1].changes if sub is not None and sub.attempts else None
+        pending = (
+            now_changes.checked_commit
+            if sub is not None and now_changes is not None and sub.attempts[-1].merged is None
+            else None
+        )
+        if not self._run_branch_holds(sub.plan.subtask_id if sub else None, pending):
+            return self.state.next_step()
         if sub is not None:
             now = sub.attempts[-1]
             self._emit(
@@ -226,6 +235,32 @@ class Loop:
                 )
             )
         return self._drive()
+
+    def _expected_run_head(self) -> str | None:
+        """Where the run last left its branch: its last recorded merge, or its start."""
+        expected: str | None = None
+        for event in self.log.events:
+            if isinstance(event, Decomposed):
+                expected = event.spec_commit
+            elif isinstance(event, Merged):
+                expected = event.merge_commit
+        return expected
+
+    def _run_branch_holds(self, subtask_id: str | None, pending: str | None) -> bool:
+        """The run branch is where the run left it; otherwise an incident.
+
+        Checked before every merge and at every resume. A session's user can move
+        the ref as the same user; the hook layer refuses and puts back what it can
+        see, and this sees the rest, ``packed-refs`` included.
+        """
+        expected = self._expected_run_head()
+        if expected is None:
+            return True
+        moved = self._merger.run_branch_moved(expected, pending)
+        if moved is None:
+            return True
+        self._incident(subtask_id, "run_branch_moved", moved)
+        return False
 
     def _stop_leftovers(self) -> None:
         """Stop what a previous process left running, before anything reads or writes."""
@@ -597,6 +632,8 @@ class Loop:
             subtask_id, attempt, checked, str(line.gate_result), str(line.review_result)
         )
         if not self._apply(subtask_id, attempt, checked, role):
+            return False
+        if not self._run_branch_holds(subtask_id, checked):
             return False
         try:
             merge_commit = self._merger.merge(subtask_id, attempt, checked, merge_text)
