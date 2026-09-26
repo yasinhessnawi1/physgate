@@ -417,7 +417,10 @@ def test_thousands_of_generated_deep_documents_are_decided_the_same(tmp_path: Pa
 
 
 def test_a_document_nested_past_the_standard_librarys_own_limit_is_refused_by_both() -> None:
-    deep = "[" * 5000 + "]" * 5000
+    # Deep enough that the standard library's parser gives up with a recursion
+    # error (it parsed 5,000 levels on CPython 3.12 and failed at 100,000), which
+    # must become a refusal, not an exception out of the validator.
+    deep = "[" * 100_000 + "]" * 100_000
     text = json.dumps(event("Stop"))[:-1] + ', "zz": ' + deep + "}"
     assert _schema_input_python(text) is None
     assert _lean_input_python(text) is None
