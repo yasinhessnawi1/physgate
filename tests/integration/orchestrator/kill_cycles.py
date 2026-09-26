@@ -554,10 +554,9 @@ def main() -> None:
     }
     print(json.dumps(stamp), flush=True)
     install = out / "install"
-    if args.arm == "real":
-        prepare_install(install, REPO_ROOT)
-    else:
-        install.mkdir()
+    # Both arms: the command checks a reused installation against the source, and
+    # the fake arm's sessions never use it.
+    prepare_install(install, REPO_ROOT)
     script = session_script()
     anchor = Anchor()
     with serving(script) as (api, url):

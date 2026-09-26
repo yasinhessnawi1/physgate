@@ -495,3 +495,34 @@ def test_a_session_cannot_write_the_run_s_records_streams_integration_worktree_o
         if "protected" in r.last_user or "put back" in r.last_user
     ]
     assert len(refusals) == len(steps) - 2  # every write after the reading, refused or put back
+
+
+def test_an_installation_that_is_not_the_source_is_refused_whatever_the_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A stale build is planted directly, so the test does not depend on whether
+    # uv's cache would have produced one on this machine.
+    import subprocess as sp
+
+    real_run = sp.run
+    root = Path(__file__).resolve().parents[3]
+
+    def build_then_plant(argv: list[str], **kwargs: Any) -> Any:  # noqa: ANN401
+        done = real_run(argv, **kwargs)
+        if argv[:3] == ["uv", "pip", "install"]:
+            dest = Path(argv[argv.index("--python") + 1]).parent.parent
+            (copy,) = dest.glob("lib/python*/site-packages/physgate/hooks/cli.py")
+            copy.write_text(copy.read_text() + "\n# an earlier build\n")
+        return done
+
+    monkeypatch.setattr(sp, "run", build_then_plant)
+    with pytest.raises(InvocationError, match="not the source as it is now") as caught:
+        prepare_install(tmp_path / "install", root)
+    assert caught.value.context["differs"] == "hooks/cli.py"
+
+
+def test_a_reused_installation_is_checked_against_the_source(install_bin: Path) -> None:
+    from physgate.orchestrator.install import require_current
+
+    root = Path(__file__).resolve().parents[3]
+    require_current(install_bin.parent.parent, root)  # the fixture's is current

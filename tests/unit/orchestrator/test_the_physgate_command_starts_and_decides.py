@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -163,7 +164,12 @@ def test_the_hook_layer_is_still_reachable_through_the_one_command(
 
 
 def _run_args(tmp_path: Path) -> list[str]:
+    # A stand-in installation: the package as it is now, where the command checks it.
     (tmp_path / "install" / "bin").mkdir(parents=True, exist_ok=True)
+    package = tmp_path / "install" / "lib" / "python3.12" / "site-packages" / "physgate"
+    if not package.exists():
+        source = Path(__file__).resolve().parents[3] / "src" / "physgate"
+        shutil.copytree(source, package, ignore=shutil.ignore_patterns("__pycache__"))
     return [
         "run",
         "--run-dir",
@@ -345,3 +351,27 @@ def test_a_run_is_refused_against_another_endpoint_before_any_session(
     monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:53817/")
     assert main(args, registrations) == 2
     assert "no Claude Code binary" in capsys.readouterr().err
+
+
+def test_a_run_refuses_a_reused_installation_that_is_not_the_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from loop_fakes import FakeGate, FakeReviewer
+    from orch_helpers import make_config
+
+    from physgate.orchestrator.cli import Registrations
+    from physgate.orchestrator.record import RunRecord
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-not-a-credential")
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    record = RunRecord(make_config(), tmp_path / "run")
+    record.start([])
+    record.close()
+    args = _run_args(tmp_path)
+    stale = next((tmp_path / "install").glob("lib/python*/site-packages/physgate/hooks/cli.py"))
+    stale.write_text(stale.read_text() + "\n# an earlier build\n")
+    registrations = Registrations(gate=FakeGate(), reviewers={"electrical": FakeReviewer()})
+    assert main(args, registrations) == 2
+    error = json.loads(capsys.readouterr().err)
+    assert error["error"] == "the installation is not the source as it is now; build a new one"
+    assert error["differs"] == "hooks/cli.py"

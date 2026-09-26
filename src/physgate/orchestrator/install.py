@@ -91,6 +91,7 @@ def prepare_install(dest: Path, project_root: Path) -> Path:
         if done.returncode != 0:
             msg = "building the hook installation failed"
             raise InvocationError(msg, command=" ".join(argv[:3]), stderr=done.stderr[-600:])
+    require_current(dest, project_root)
     for directory, dirs, files in os.walk(dest, topdown=False):
         for name in files + dirs:
             path = os.path.join(directory, name)
@@ -99,6 +100,34 @@ def prepare_install(dest: Path, project_root: Path) -> Path:
                 os.chmod(path, mode & ~(stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH))
     os.chmod(dest, os.lstat(dest).st_mode & ~(stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH))
     return dest / "bin" / "physgate"
+
+
+def require_current(dest: Path, project_root: Path) -> None:
+    """Refuse an installation whose package is not the project's source as it is now.
+
+    The hooks a session runs under are this copy, not the source. A build from a
+    cache keyed on the project file, or an installation left from an earlier
+    source, would run other hook code than the source under review; checked
+    whenever an installation is built or reused.
+
+    Raises:
+        InvocationError: a source file is missing from the installation, or differs.
+    """
+    source = Path(project_root) / "src" / "physgate"
+    found = sorted(Path(dest).glob("lib/python*/site-packages/physgate"))
+    if len(found) != 1:
+        msg = "the installation holds no single copy of the package"
+        raise InvocationError(msg, path=str(dest))
+    stale = []
+    for path in sorted(source.rglob("*")):
+        if not path.is_file() or "__pycache__" in path.parts:
+            continue
+        copy = found[0] / path.relative_to(source)
+        if not copy.is_file() or copy.read_bytes() != path.read_bytes():
+            stale.append(str(path.relative_to(source)))
+    if stale:
+        msg = "the installation is not the source as it is now; build a new one"
+        raise InvocationError(msg, path=str(dest), differs=", ".join(stale[:5]))
 
 
 def filesystem_of(path: Path) -> tuple[str, bool]:
