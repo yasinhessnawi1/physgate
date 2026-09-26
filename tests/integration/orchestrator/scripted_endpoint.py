@@ -172,6 +172,10 @@ def _working_directory(messages: list[dict[str, Any]]) -> str:
     return ""
 
 
+class EmptySubstitutionError(ValueError):
+    """A scripted step's placeholder had no value to take."""
+
+
 def _fill(step: dict[str, Any], cwd: str) -> dict[str, Any]:
     """Put the session's working directory into a step: ``{cwd}``, ``{cwd_name}``, ``{cwd_ident}``.
 
@@ -179,9 +183,21 @@ def _fill(step: dict[str, Any], cwd: str) -> dict[str, Any]:
     several subtasks needs. ``{cwd_ident}`` is the directory's name with every
     character a node id does not allow turned into ``_``. A step without any
     placeholder is returned as it is.
+
+    Raises:
+        EmptySubstitutionError: a placeholder would be filled with nothing, as
+            when the binary stopped stating its directory where it is looked for.
+            Such a step is never sent: a session given ``/.physgate/specs/.md``
+            fails in ways that look like the orchestrator's fault.
     """
     name = cwd.rstrip("/").rsplit("/", 1)[-1]
     ident = re.sub(r"[^a-z0-9_]", "_", name.lower())
+    values = {"{cwd}": cwd, "{cwd_name}": name, "{cwd_ident}": ident}
+    used = sorted(p for p in values if p in json.dumps(step))
+    empty = [p for p in used if not values[p]]
+    if empty:
+        msg = f"the step's {', '.join(empty)} would be filled with nothing; it is not sent"
+        raise EmptySubstitutionError(msg)
 
     def fill(value: Any) -> Any:  # noqa: ANN401 - a tool's own input
         if isinstance(value, str):
@@ -205,6 +221,8 @@ class FakeMessagesApi:
         """Serve ``script``."""
         self.script = script
         self.requests: list[Recorded] = []
+        #: Every step refused before it was sent, with why. A run that has any is broken.
+        self.failures: list[str] = []
         #: Called before a scripted tool-offering request is answered, with the thread,
         #: the session's working directory and how many tool results it carries. It may
         #: block: that holds the request open, as a model that has not answered yet.
@@ -274,7 +292,20 @@ def serving(script: Script) -> Iterator[tuple[FakeMessagesApi, str]]:
             if "count_tokens" in self.path:
                 body, ctype = b'{"input_tokens": 1}', "application/json"
             else:
-                body, ctype = api.answer(self.path, self.headers, json.loads(raw or b"{}"))
+                try:
+                    body, ctype = api.answer(self.path, self.headers, json.loads(raw or b"{}"))
+                except EmptySubstitutionError as exc:
+                    # Loudly: recorded, and an error the binary cannot take for an answer.
+                    api.failures.append(str(exc))
+                    body = json.dumps(
+                        {"type": "error", "error": {"type": "api_error", "message": str(exc)}}
+                    ).encode()
+                    self.send_response(500)
+                    self.send_header("content-type", "application/json")
+                    self.send_header("content-length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
             self.send_response(200)
             self.send_header("content-type", ctype)
             self.send_header("content-length", str(len(body)))
