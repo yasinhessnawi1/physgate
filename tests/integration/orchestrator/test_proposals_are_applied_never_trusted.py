@@ -109,7 +109,7 @@ class Rig:
             reviewers={"electrical": Reviewer()},
             dispatcher=DispatchPort(dispatcher),
             changes=GitChangeChecker(self.run, self.store_root, {"s1": MODULE}),
-            merger=GitMerger(self.run),
+            merger=GitMerger(self.run, removal_timeout_s=60.0),
             graph=keeper or self.keeper,
             sleep=lambda _: None,
         )

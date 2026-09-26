@@ -14,24 +14,88 @@ person's decision on one.
 from __future__ import annotations
 
 import argparse
+import functools
 import hashlib
 import json
 import os
 import sys
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from pydantic import ValidationError
 
+import physgate
+from physgate.orchestrator.accounting import TokenAccount
+from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper
 from physgate.orchestrator.common import first_problem
 from physgate.orchestrator.decompose import binary_version, call, require_fresh, start_run
-from physgate.orchestrator.exceptions import OrchestratorError
+from physgate.orchestrator.dispatch import ClaudeDispatcher
+from physgate.orchestrator.events import SubtaskPlanned, read_events
+from physgate.orchestrator.exceptions import InvocationError, OrchestratorError, RunStateError
 from physgate.orchestrator.git import head_of
+from physgate.orchestrator.install import prepare_install
+from physgate.orchestrator.invocation import claude_binary
+from physgate.orchestrator.loop import Loop
+from physgate.orchestrator.merge import GitMerger, RunGit
+from physgate.orchestrator.protocols import Gate, Reviewer
 from physgate.orchestrator.queue import ApprovalQueue
-from physgate.orchestrator.run_config import RunConfig
+from physgate.orchestrator.run_config import RunConfig, load_run_config
+
+#: One worktree removal's bound. One removal on the server's network volume was
+#: measured at 266 s; past this it is recorded as timed out and left, and the run
+#: goes on.
+REMOVAL_TIMEOUT_S = 300.0
+
+RUN_GUIDANCE = (
+    "Put the run directory on a local disk where the machine has one: removing a worktree on "
+    "a network volume was measured at up to 266 s, and the first hook of a session costs more "
+    "there. The run records the filesystem its session state lives on; nothing enforces this."
+)
 
 
-def add_parsers(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+@dataclass(frozen=True)
+class Registrations:
+    """The gate and the reviewers a run may use.
+
+    There is no pass-through default: with none registered, a run in a gate mode
+    that needs a gate, or with a role that has no reviewer, refuses to start.
+    """
+
+    gate: Gate | None = None
+    reviewers: Mapping[str, Reviewer] = field(default_factory=dict)
+
+
+def default_registrations() -> Registrations:
+    """The registrations the ``physgate`` command runs with.
+
+    Empty: the physics gate registers its gate here, and the reviewers register
+    theirs, as plain imports that a reader can follow.
+    """
+    return Registrations()
+
+
+def add_parsers(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+    registrations: Registrations | None = None,
+) -> None:
     """Register the orchestrator's commands on the top-level command."""
+    found = registrations or default_registrations()
+    for name, resume, text in (
+        ("run", False, "drive a decomposed run's plan until it is done or halts"),
+        ("resume", True, "take over a run a previous process left, then drive it"),
+    ):
+        command = subparsers.add_parser(name, help=text, description=f"{text}. {RUN_GUIDANCE}")
+        command.add_argument("--run-dir", required=True, type=Path)
+        command.add_argument("--target", required=True, type=Path, help="the target repository")
+        command.add_argument(
+            "--install",
+            required=True,
+            type=Path,
+            help="the hooks' read-only installation; built there if it does not exist",
+        )
+        command.set_defaults(func=functools.partial(_drive, resume=resume, registrations=found))
+
     d = subparsers.add_parser("decompose", help="make the run's one model call and start it")
     d.add_argument("brief", type=Path)
     d.add_argument("--seed", required=True, type=int)
@@ -115,6 +179,76 @@ def _decompose(args: argparse.Namespace) -> int:
         }
     )
     return 0 if outcome.ok else 1
+
+
+def _project_root() -> Path:
+    """The source checkout the installation is built from."""
+    root = Path(physgate.__file__).resolve().parents[2]
+    if not (root / "pyproject.toml").exists():
+        msg = "no source checkout to build the hooks' installation from; build it first"
+        raise InvocationError(msg, looked_in=str(root))
+    return root
+
+
+def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registrations) -> int:
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return _fail("ANTHROPIC_API_KEY is not set; the role sessions need it")
+    run_dir = args.run_dir.resolve()
+    try:
+        config = load_run_config(run_dir / "run.json")
+        if not (run_dir / "events.jsonl").exists():
+            msg = "the run was never started; decompose it first"
+            raise RunStateError(msg, run_dir=str(run_dir))
+        install = args.install.resolve()
+        install_bin = (
+            install / "bin" / "physgate"
+            if install.exists()
+            else prepare_install(install, _project_root())
+        )
+        run = RunGit(repo=args.target.resolve(), run_dir=run_dir, run_id=config.run_id)
+        store_root = run_dir / "store"
+        plan = [e for e in read_events(run_dir / "events.jsonl") if isinstance(e, SubtaskPlanned)]
+        keeper = StoreKeeper(run, store_root)
+        loop = Loop(
+            config=config,
+            run_dir=run_dir,
+            gate=registrations.gate,
+            reviewers=registrations.reviewers,
+            dispatcher=ClaudeDispatcher(
+                config=config,
+                run=run,
+                store_root=store_root,
+                install_bin=install_bin,
+                binary=claude_binary(),
+                base_url=os.environ.get("ANTHROPIC_BASE_URL"),
+                api_key=api_key,
+            ),
+            changes=GitChangeChecker(run, store_root, {e.subtask_id: e.module_dir for e in plan}),
+            merger=GitMerger(run, removal_timeout_s=REMOVAL_TIMEOUT_S),
+            graph=keeper,
+        )
+    except OrchestratorError as exc:
+        return _fail(str(exc), **exc.context)
+    try:
+        step = loop.resume() if resume else loop.run()
+        account = TokenAccount.from_events(loop.log.events)
+        account.assert_no_routing()
+    except OrchestratorError as exc:
+        return _fail(str(exc), **exc.context)
+    finally:
+        loop.close()
+        keeper.close()
+    _print(
+        {
+            "run_id": config.run_id,
+            "step": step.kind,
+            "subtasks": {k: v.status for k, v in loop.state.subtasks.items()},
+            "open_queue_items": [item.item_id for item in loop.queue.open_items()],
+            "tokens": {k: v.total() for k, v in account.by_kind().items()},
+        }
+    )
+    return 0 if step.kind == "done" else 1
 
 
 def _queue_list(args: argparse.Namespace) -> int:

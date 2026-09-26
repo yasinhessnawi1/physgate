@@ -382,6 +382,23 @@ class LeftoverStopped(_Event):
     killed: Annotated[int, Field(ge=0)]
 
 
+class WorktreeRemoved(_Event):
+    """A done subtask's worktree was removed, or git refused to, and how long it took.
+
+    Only a done subtask's (merged, its diff clean), or an escalated one's once its
+    queue item was resolved. Never its branch, a session directory, the run branch or
+    the store, and never forced: a refusal is recorded and the worktree left.
+    """
+
+    kind: Literal["worktree_removed"] = "worktree_removed"
+    subtask_id: NonEmptyStr
+    path: NonEmptyStr
+    reason: Literal["done", "queue_resolved"]
+    outcome: Literal["removed", "refused", "timed_out", "absent"]
+    seconds: Annotated[float, Field(ge=0)]
+    detail: NonEmptyStr | None
+
+
 class Resumed(_Event):
     """A process took the run over from one that stopped, at a checkpoint of the attempt.
 
@@ -416,6 +433,7 @@ Event = Annotated[
     | Decomposed
     | EnvironmentRecorded
     | LeftoverStopped
+    | WorktreeRemoved
     | WriteIntended
     | WriteDone
     | NodeFilesRepaired

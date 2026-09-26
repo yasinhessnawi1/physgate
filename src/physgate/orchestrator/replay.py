@@ -47,6 +47,7 @@ from physgate.orchestrator.events import (
     SubtaskPlanned,
     SubtaskRemoved,
     TokensUsed,
+    WorktreeRemoved,
     WriteDone,
     WriteIntended,
 )
@@ -92,6 +93,8 @@ class SubtaskState:
     attempts: list[AttemptState] = field(default_factory=list)
     #: The attempt number a ``resolve`` may start or restart now, if any.
     next_resolve: int | None = 1
+    #: The approval-queue item an escalated subtask waits on.
+    queue_item: str | None = None
 
 
 @dataclass(frozen=True)
@@ -123,6 +126,9 @@ class RunState:
         #: decomposition's head, then each recorded write. Anything after it that no
         #: pending intent names is a foreign write.
         self.journal_head = 0
+        #: Subtasks whose worktree removal was tried, whatever came of it: a refused
+        #: removal is left, not retried or forced.
+        self.worktrees_handled: set[str] = set()
 
     # -- following the log -------------------------------------------------------
 
@@ -140,6 +146,14 @@ class RunState:
             return
         if isinstance(event, LeftoverStopped):
             return  # recorded at any time, a halted run's resume included
+        if isinstance(event, WorktreeRemoved):
+            if event.subtask_id not in self.subtasks or event.subtask_id in self.worktrees_handled:
+                _refuse("a worktree removal for no subtask, or for one already handled")
+            sub = self.subtasks[event.subtask_id]
+            allowed = {"done": sub.status == "done", "queue_resolved": sub.status == "escalated"}
+            self._expect(allowed[event.reason], "a worktree removal")
+            self.worktrees_handled.add(event.subtask_id)
+            return
         if isinstance(event, Incident) and event.subtask_id is None:
             self.incident = event
             return
@@ -241,6 +255,7 @@ class RunState:
             last = now.number == REPAIR_BUDGET and now.rejected is not None
             self._expect(last, "an escalation")
             sub.status = "escalated"
+            sub.queue_item = event.item_id
         elif isinstance(event, Incident):
             self.incident = event
         elif isinstance(event, Resumed):

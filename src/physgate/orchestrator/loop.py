@@ -19,6 +19,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 from physgate.orchestrator.apply import ProposalRefusedError
 from physgate.orchestrator.budget import infra_retry_delay
@@ -46,6 +47,7 @@ from physgate.orchestrator.events import (
     Stage,
     StageEntered,
     TokensUsed,
+    WorktreeRemoved,
     WriteDone,
     WriteIntended,
 )
@@ -232,6 +234,38 @@ class Loop:
                 LeftoverStopped(**self._env(), session_id=session_id, pid=pid, killed=killed)
             )
 
+    def _clean_up_worktrees(self) -> None:
+        """Remove the worktrees the rules allow, recording each; never stall or fail the run.
+
+        A done subtask's (merged, diff clean), and an escalated subtask's once its
+        queue item has a decision. Nothing else, and never forced.
+        """
+        resolved = {item.item_id for item in self.queue.items()} - {
+            item.item_id for item in self.queue.open_items()
+        }
+        for subtask_id in self.state.order:
+            sub = self.state.subtasks[subtask_id]
+            if subtask_id in self.state.worktrees_handled:
+                continue
+            if sub.status == "done":
+                reason: Literal["done", "queue_resolved"] = "done"
+            elif sub.status == "escalated" and sub.queue_item in resolved:
+                reason = "queue_resolved"
+            else:
+                continue
+            removal = self._merger.remove_worktree(subtask_id)
+            self._emit(
+                WorktreeRemoved(
+                    **self._env(),
+                    subtask_id=subtask_id,
+                    path=removal.path,
+                    reason=reason,
+                    outcome=removal.outcome,
+                    seconds=removal.seconds,
+                    detail=removal.detail,
+                )
+            )
+
     def _drive(self) -> Step:
         facts = self._dispatcher.environment()
         if facts is not None and self.state.next_step().kind not in ("done", "halted"):
@@ -239,6 +273,7 @@ class Loop:
         while True:
             step = self.state.next_step()
             if step.kind in ("done", "halted"):
+                self._clean_up_worktrees()
                 return step
             if step.subtask_id is None or step.attempt is None:
                 msg = "a step with no subtask or attempt"

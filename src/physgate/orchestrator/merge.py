@@ -35,10 +35,12 @@ from physgate.orchestrator.git import (
     commit_all,
     diff_text,
     git,
+    git_timed,
     head_of,
     merge_base,
     merges_of,
 )
+from physgate.orchestrator.ports import WorktreeRemoval
 
 #: Where an agent proposes graph nodes, one whole node per file (the hook layer's route).
 PROPOSALS = PurePosixPath(".physgate/proposals")
@@ -141,9 +143,14 @@ def merge_message(subtask_id: str, attempt: int, commit: str, gate: str, review:
 class GitMerger:
     """The loop's merge port over a run's git layout."""
 
-    def __init__(self, run: RunGit) -> None:
-        """Merge into ``run``'s run branch, which must already exist."""
+    def __init__(self, run: RunGit, *, removal_timeout_s: float) -> None:
+        """Merge into ``run``'s run branch, which must already exist.
+
+        ``removal_timeout_s`` bounds one worktree removal; on the server's network
+        volume one removal was measured at 266 s, and a removal must never stall a run.
+        """
         self._run = run
+        self._removal_timeout_s = removal_timeout_s
 
     def merge(self, subtask_id: str, attempt: int, attempt_commit: str, message: str) -> str:
         """Merge exactly ``attempt_commit`` into the run branch and return the merge.
@@ -171,6 +178,30 @@ class GitMerger:
                 msg, subtask=subtask_id, commit=attempt_commit, stderr=exc.context.get("stderr", "")
             ) from None
         return head_of(run.integration, "HEAD")
+
+    def remove_worktree(self, subtask_id: str) -> WorktreeRemoval:
+        """Remove a subtask's worktree with ``git worktree remove``, never forced.
+
+        The branch stays, and so does everything under the run directory but the
+        worktree. A removal git refuses (a modified or untracked file, a lock) is
+        reported and left as it is. Never raises.
+        """
+        path = self._run.subtask_worktree(subtask_id)
+        if not path.exists():
+            return WorktreeRemoval(path=str(path), outcome="absent", seconds=0.0, detail=None)
+        code, stderr, seconds = git_timed(
+            self._run.repo, "worktree", "remove", str(path), timeout=self._removal_timeout_s
+        )
+        if code is None:
+            detail = f"no answer within {self._removal_timeout_s:g} s"
+            return WorktreeRemoval(
+                path=str(path), outcome="timed_out", seconds=seconds, detail=detail
+            )
+        if code != 0:
+            return WorktreeRemoval(
+                path=str(path), outcome="refused", seconds=seconds, detail=stderr or f"exit {code}"
+            )
+        return WorktreeRemoval(path=str(path), outcome="removed", seconds=seconds, detail=None)
 
     def artefact_diff(self, attempt_commit: str) -> str:
         """The attempt's patch against where it left the run branch."""

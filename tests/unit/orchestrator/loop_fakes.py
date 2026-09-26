@@ -13,7 +13,12 @@ from orch_helpers import make_config, ticking_clock
 from physgate.orchestrator.budget import InfraCause, SessionEnd
 from physgate.orchestrator.common import GateMode
 from physgate.orchestrator.loop import Loop
-from physgate.orchestrator.ports import ChangeCheck, SessionReport, SessionRequest
+from physgate.orchestrator.ports import (
+    ChangeCheck,
+    SessionReport,
+    SessionRequest,
+    WorktreeRemoval,
+)
 from physgate.orchestrator.protocols import (
     Artefact,
     GateResult,
@@ -181,6 +186,14 @@ class FakeMerger:
 
     def artefact_diff(self, attempt_commit: str) -> str:
         return f"diff --git a/x b/x\n+ attempt {attempt_commit[:8]}\n"
+
+    removed: list[str] = field(default_factory=list)
+
+    def remove_worktree(self, subtask_id: str) -> WorktreeRemoval:
+        self.removed.append(subtask_id)
+        return WorktreeRemoval(
+            path=f"worktrees/{subtask_id}", outcome="removed", seconds=0.01, detail=None
+        )
 
 
 @dataclass

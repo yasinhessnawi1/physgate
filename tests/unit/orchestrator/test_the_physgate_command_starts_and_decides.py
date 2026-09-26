@@ -149,3 +149,55 @@ def test_the_hook_layer_is_still_reachable_through_the_one_command(
     )
     assert code == 0
     assert "--setting-sources" in json.loads(capsys.readouterr().out)["spawn_args"]
+
+
+def _run_args(tmp_path: Path) -> list[str]:
+    (tmp_path / "install" / "bin").mkdir(parents=True, exist_ok=True)
+    return [
+        "run",
+        "--run-dir",
+        str(tmp_path / "run"),
+        "--target",
+        str(tmp_path),
+        "--install",
+        str(tmp_path / "install"),
+    ]
+
+
+def test_run_refuses_without_a_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert main(_run_args(tmp_path)) == 2
+    assert "ANTHROPIC_API_KEY" in capsys.readouterr().err
+
+
+def test_run_refuses_a_directory_that_holds_no_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-not-a-credential")
+    assert main(_run_args(tmp_path)) == 2
+    assert "no run configuration" in capsys.readouterr().err
+
+
+def test_run_refuses_to_start_with_no_gate_registered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from orch_helpers import make_config
+
+    from physgate.orchestrator.record import RunRecord
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-not-a-credential")
+    record = RunRecord(make_config(), tmp_path / "run")
+    record.start([])
+    record.close()
+    assert main(_run_args(tmp_path)) == 2
+    assert "no gate is registered" in capsys.readouterr().err
+
+
+def test_the_run_command_says_where_its_directory_belongs(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit):
+        main(["run", "--help"])
+    assert "local disk" in capsys.readouterr().out

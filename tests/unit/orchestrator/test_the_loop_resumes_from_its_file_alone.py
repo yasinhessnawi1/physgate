@@ -451,3 +451,52 @@ def test_node_files_that_recovery_cannot_repair_halt_the_run_as_an_incident(
     (incident,) = [e for e in read_events(tmp_path / "events.jsonl") if isinstance(e, Incident)]
     assert incident.cause == "node_files_unrecoverable" and incident.subtask_id == "s1"
     assert rig.gate is not None and rig.gate.seen == []
+
+
+def test_a_done_subtasks_worktree_is_removed_once_and_recorded(tmp_path: Path) -> None:
+    from physgate.orchestrator.events import WorktreeRemoved
+
+    rig = Rig(tmp_path)
+    loop = rig.open()
+    loop.start(plan("s1", "s2"))
+    loop.run()
+    loop.close()
+    assert rig.merger.removed == ["s1", "s2"]
+    removed = [e for e in read_events(tmp_path / "events.jsonl") if isinstance(e, WorktreeRemoved)]
+    assert [(e.subtask_id, e.reason, e.outcome) for e in removed] == [
+        ("s1", "done", "removed"),
+        ("s2", "done", "removed"),
+    ]
+    again = rig.open()
+    again.run()
+    again.close()
+    assert rig.merger.removed == ["s1", "s2"], "a handled worktree is never tried twice"
+
+
+def test_an_escalated_subtasks_worktree_waits_for_its_queue_decision(tmp_path: Path) -> None:
+    from loop_fakes import FakeGate
+
+    rig = Rig(tmp_path, gate=FakeGate(verdicts=["fail", "fail", "fail"]))
+    loop = rig.open()
+    loop.start(plan("s1"))
+    loop.run()
+    (item,) = loop.queue.open_items()
+    loop.close()
+    assert rig.merger.removed == []
+    again = rig.open()
+    again.queue.resolve(item.item_id, decision="split it", resolved_by="yasin")
+    again.run()
+    again.close()
+    assert rig.merger.removed == ["s1"]
+
+
+def test_the_record_refuses_a_removal_the_rules_do_not_allow(tmp_path: Path) -> None:
+    from physgate.orchestrator.events import WorktreeRemoved
+
+    log = _started(tmp_path)
+    fields = {"path": "w", "outcome": "removed", "seconds": 0.1, "detail": None}
+    with pytest.raises(ValueError, match="worktree removal"):
+        log.emit(WorktreeRemoved, subtask_id="s1", reason="done", **fields)
+    with pytest.raises(ValueError, match="worktree removal"):
+        log.emit(WorktreeRemoved, subtask_id="s1", reason="queue_resolved", **fields)
+    log.close()

@@ -124,9 +124,13 @@ def test_the_merger_refuses_a_commit_other_than_the_checked_one(tmp_path: Path) 
     _, later = attempt_with(run, "s1", {"modules/power/b.py": "b\n"})
     before = head_of(run.repo, run.run_branch)
     with pytest.raises(MergeRefusedError):
-        GitMerger(run).merge("s1", 1, checked, merge_message("s1", 1, checked, "pass", "pass"))
+        GitMerger(run, removal_timeout_s=60.0).merge(
+            "s1", 1, checked, merge_message("s1", 1, checked, "pass", "pass")
+        )
     assert head_of(run.repo, run.run_branch) == before
-    merged = GitMerger(run).merge("s1", 1, later, merge_message("s1", 1, later, "pass", "pass"))
+    merged = GitMerger(run, removal_timeout_s=60.0).merge(
+        "s1", 1, later, merge_message("s1", 1, later, "pass", "pass")
+    )
     assert sh(run.repo, "log", "-1", "--format=%P", merged).split()[1] == later
 
 
@@ -134,8 +138,8 @@ def test_a_merge_is_made_once_however_often_it_is_asked_for(tmp_path: Path) -> N
     run = run_layout(tmp_path)
     _, commit = attempt_with(run, "s1", {"modules/power/a.py": "a\n"})
     text = merge_message("s1", 1, commit, "pass", "pass")
-    first = GitMerger(run).merge("s1", 1, commit, text)
-    second = GitMerger(run).merge("s1", 1, commit, text)
+    first = GitMerger(run, removal_timeout_s=60.0).merge("s1", 1, commit, text)
+    second = GitMerger(run, removal_timeout_s=60.0).merge("s1", 1, commit, text)
     assert first == second
     merges = sh(run.repo, "log", "--merges", "--format=%H", run.run_branch).split()
     assert merges == [first]
@@ -148,7 +152,9 @@ def test_a_conflict_is_aborted_and_leaves_the_run_branch_as_it_was(tmp_path: Pat
     sh(run.integration, "commit", "-q", "-am", "a write the plan never made")
     before = head_of(run.repo, run.run_branch)
     with pytest.raises(MergeConflictError):
-        GitMerger(run).merge("s1", 1, commit, merge_message("s1", 1, commit, "pass", "pass"))
+        GitMerger(run, removal_timeout_s=60.0).merge(
+            "s1", 1, commit, merge_message("s1", 1, commit, "pass", "pass")
+        )
     assert head_of(run.repo, run.run_branch) == before
     assert sh(run.integration, "status", "--porcelain") == ""
 
@@ -173,7 +179,9 @@ def test_an_accepted_attempt_is_merged_and_a_rejected_worktree_stays_for_the_rep
 ) -> None:
     run = run_layout(tmp_path)
     dispatcher = GitDispatcher(run)
-    loop = _loop(run, dispatcher, Gate(verdicts=["pass", "fail"]), GitMerger(run))
+    loop = _loop(
+        run, dispatcher, Gate(verdicts=["pass", "fail"]), GitMerger(run, removal_timeout_s=60.0)
+    )
     loop.start([plan_entry("s1", "modules/power"), plan_entry("s2", "modules/control")])
     assert loop.run().kind == "done"
     loop.close()
@@ -191,8 +199,10 @@ def test_an_accepted_attempt_is_merged_and_a_rejected_worktree_stays_for_the_rep
     merged_seconds = sh(run.repo, "log", "--merges", "--format=%P", run.run_branch).split()
     first_s2 = [r for r in dispatcher.requests if r.subtask_id == "s2"]
     assert len(first_s2) == 2
-    second_file = run.subtask_worktree("s2") / "modules" / "control" / "attempt2.py"
-    assert "attempt1.py" in second_file.read_text()
+    # The worktree itself is gone once s2 is done; its branch keeps what it held.
+    second = sh(run.repo, "show", f"{run.subtask_branch('s2')}:modules/control/attempt2.py")
+    assert "attempt1.py" in second
+    assert not run.subtask_worktree("s2").exists()
     assert len(sh(run.repo, "log", "--merges", "--format=%H", run.run_branch).split()) == 2
     assert checked[1] in merged_seconds
 
@@ -203,7 +213,7 @@ def test_an_attempt_out_of_scope_is_rejected_before_the_gate(tmp_path: Path) -> 
     # The first session writes outside its module; the repair session puts it back.
     # The change stays on the subtask's branch until a later attempt undoes it.
     dispatcher = GitDispatcher(run, outside={1}, repair={2})
-    loop = _loop(run, dispatcher, gate, GitMerger(run))
+    loop = _loop(run, dispatcher, gate, GitMerger(run, removal_timeout_s=60.0))
     loop.start([plan_entry("s1", "modules/power")])
     loop.run()
     loop.close()
@@ -226,14 +236,14 @@ def test_a_kill_between_the_merge_and_its_record_resumes_to_exactly_one_merge(
     run = run_layout(tmp_path)
     dispatcher = GitDispatcher(run)
     gate = Gate()
-    loop = _loop(run, dispatcher, gate, _KilledAfterMerge(run))
+    loop = _loop(run, dispatcher, gate, _KilledAfterMerge(run, removal_timeout_s=60.0))
     loop.start([plan_entry("s1", "modules/power")])
     with pytest.raises(KeyboardInterrupt):
         loop.run()
     loop.close()
     assert len(sh(run.repo, "log", "--merges", "--format=%H", run.run_branch).split()) == 1
 
-    again = _loop(run, dispatcher, gate, GitMerger(run))
+    again = _loop(run, dispatcher, gate, GitMerger(run, removal_timeout_s=60.0))
     assert again.resume().kind == "done"
     again.close()
     events = read_events(run.run_dir / "events.jsonl")
@@ -260,7 +270,7 @@ def test_a_branch_moved_after_the_check_halts_the_run_as_an_incident(tmp_path: P
             return super().merge(subtask_id, attempt, attempt_commit, message)
 
     before = head_of(run.repo, run.run_branch)
-    loop = _loop(run, GitDispatcher(run), Gate(), Moving(run))
+    loop = _loop(run, GitDispatcher(run), Gate(), Moving(run, removal_timeout_s=60.0))
     loop.start([plan_entry("s1", "modules/power")])
     assert loop.run().kind == "halted"
     loop.close()
@@ -278,7 +288,9 @@ def test_a_hook_script_in_the_target_repository_never_runs(tmp_path: Path) -> No
         script.write_text(f"#!/bin/sh\ntouch {marker}\nexit 1\n")
         script.chmod(0o755)
     _, commit = attempt_with(run, "s1", {"modules/power/a.py": "a\n"})
-    GitMerger(run).merge("s1", 1, commit, merge_message("s1", 1, commit, "pass", "pass"))
+    GitMerger(run, removal_timeout_s=60.0).merge(
+        "s1", 1, commit, merge_message("s1", 1, commit, "pass", "pass")
+    )
     assert not marker.exists()
 
 
@@ -288,11 +300,55 @@ def test_asking_again_after_later_merges_returns_the_original_merge(tmp_path: Pa
     # commit, not whatever the run branch points at now.
     run = run_layout(tmp_path)
     _, one = attempt_with(run, "s1", {"modules/power/a.py": "a\n"})
-    first = GitMerger(run).merge("s1", 1, one, merge_message("s1", 1, one, "pass", "pass"))
+    first = GitMerger(run, removal_timeout_s=60.0).merge(
+        "s1", 1, one, merge_message("s1", 1, one, "pass", "pass")
+    )
     worktree = run.open_subtask("s2")
     (worktree / "modules" / "control" / "b.py").write_text("b\n")
     two = commit_attempt(worktree, "s2", 1, "sess-2")
-    later = GitMerger(run).merge("s2", 1, two, merge_message("s2", 1, two, "pass", "pass"))
-    again = GitMerger(run).merge("s1", 1, one, merge_message("s1", 1, one, "pass", "pass"))
+    later = GitMerger(run, removal_timeout_s=60.0).merge(
+        "s2", 1, two, merge_message("s2", 1, two, "pass", "pass")
+    )
+    again = GitMerger(run, removal_timeout_s=60.0).merge(
+        "s1", 1, one, merge_message("s1", 1, one, "pass", "pass")
+    )
     assert again == first != later
     assert len(sh(run.repo, "log", "--merges", "--format=%H", run.run_branch).split()) == 2
+
+
+def test_a_worktree_is_removed_without_force_and_its_branch_kept(tmp_path: Path) -> None:
+    run = run_layout(tmp_path)
+    attempt_with(run, "s1", {"modules/power/a.py": "a\n"})
+    done = GitMerger(run, removal_timeout_s=60.0).remove_worktree("s1")
+    assert done.outcome == "removed" and not run.subtask_worktree("s1").exists()
+    assert sh(run.repo, "branch", "--list", run.subtask_branch("s1")).strip()
+    again = GitMerger(run, removal_timeout_s=60.0).remove_worktree("s1")
+    assert again.outcome == "absent"
+
+
+def test_a_removal_git_refuses_is_reported_and_the_worktree_left(tmp_path: Path) -> None:
+    run = run_layout(tmp_path)
+    attempt_with(run, "s1", {"modules/power/a.py": "a\n"})
+    (run.subtask_worktree("s1") / "modules" / "power" / "untracked.py").write_text("u\n")
+    refused = GitMerger(run, removal_timeout_s=60.0).remove_worktree("s1")
+    assert refused.outcome == "refused" and refused.detail
+    assert (run.subtask_worktree("s1") / "modules" / "power" / "untracked.py").exists()
+
+
+def test_a_removal_past_its_bound_is_recorded_and_left(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import physgate.orchestrator.merge as merge_module
+
+    run = run_layout(tmp_path)
+    attempt_with(run, "s1", {"modules/power/a.py": "a\n"})
+    asked: list[float] = []
+
+    def slow(cwd: Path, *args: str, timeout: float) -> tuple[int | None, str, float]:
+        asked.append(timeout)
+        return None, "", timeout  # what git_timed returns when the bound passes
+
+    monkeypatch.setattr(merge_module, "git_timed", slow)
+    late = GitMerger(run, removal_timeout_s=2.5).remove_worktree("s1")
+    assert (late.outcome, late.seconds, asked) == ("timed_out", 2.5, [2.5])
+    assert late.detail == "no answer within 2.5 s"

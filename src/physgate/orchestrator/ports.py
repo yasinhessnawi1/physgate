@@ -67,6 +67,15 @@ class ChangeCheck(_Frozen):
     graph_root: NonEmptyStr
 
 
+class WorktreeRemoval(_Frozen):
+    """What happened when a subtask's worktree was removed, and how long it took."""
+
+    path: NonEmptyStr
+    outcome: Literal["removed", "refused", "timed_out", "absent"]
+    seconds: Annotated[float, Field(ge=0)]
+    detail: NonEmptyStr | None
+
+
 class Dispatcher(Protocol):
     """Runs one attempt in a fresh session in the subtask's worktree."""
 
@@ -104,6 +113,10 @@ class Merger(Protocol):
 
     def artefact_diff(self, attempt_commit: str) -> str:
         """The attempt's diff against where it started, for a person to read."""
+        ...
+
+    def remove_worktree(self, subtask_id: str) -> WorktreeRemoval:
+        """Remove a subtask's worktree without force; never its branch. Never raises."""
         ...
 
 

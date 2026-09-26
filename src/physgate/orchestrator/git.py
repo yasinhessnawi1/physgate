@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -61,6 +62,28 @@ def git(cwd: Path, *args: str, check: bool = True, stdin: str | None = None) -> 
             stderr=done.stderr.strip()[-800:],
         )
     return done.stdout
+
+
+def git_timed(cwd: Path, *args: str, timeout: float) -> tuple[int | None, str, float]:
+    """Run one git command with a time limit: (exit code or None on timeout, stderr, seconds).
+
+    Never raises for a failure or a timeout: the caller records what happened.
+    """
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.devnull, **_ENV}
+    started = time.monotonic()
+    try:
+        done = subprocess.run(
+            ["git", *_FLAGS, *args],
+            cwd=cwd,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return None, "", time.monotonic() - started
+    return done.returncode, done.stderr.strip()[-400:], time.monotonic() - started
 
 
 def head_of(repo: Path, ref: str) -> str:
