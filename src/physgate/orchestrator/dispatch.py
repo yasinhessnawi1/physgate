@@ -31,6 +31,7 @@ from pydantic import BaseModel, ConfigDict
 
 from physgate.hooks.config import SessionConfig
 from physgate.hooks.reading import outstanding
+from physgate.orchestrator.accounting import require_matching_totals
 from physgate.orchestrator.budget import classify_session_end
 from physgate.orchestrator.credentials import (
     REDACTED_TEXT,
@@ -233,6 +234,7 @@ class ClaudeDispatcher:
         remove_secrets(sdir / "state", sdir / "config")
         redact(stdout, self._credential.secret)
         result, usage, answered = read_stream(stdout.read_text(errors="replace"))
+        require_matching_totals(result, usage)
         end = classify_session_end(result, exit_code=exit_code, stopped_at_wall_clock=timed_out)
         if end.outcome == "completed":
             echoed = sorted(answered)

@@ -51,6 +51,7 @@ def test_a_role_session_is_never_the_binarys_own_resume() -> None:
     assert argv[argv.index("--max-turns") + 1] == "20"
     assert argv[argv.index("--session-id") + 1] == "abc"
     assert "--verbose" in argv and "stream-json" in argv
+    assert "--include-partial-messages" in argv  # each message's final usage
 
 
 def test_the_key_is_redacted_from_the_captured_stream(tmp_path: Path) -> None:

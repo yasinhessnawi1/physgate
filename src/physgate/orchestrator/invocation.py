@@ -86,6 +86,8 @@ def decomposition_argv(
         "--output-format",
         "stream-json",
         "--verbose",
+        # Each message's final usage arrives only in its message_delta event.
+        "--include-partial-messages",
     ]
 
 
@@ -140,6 +142,8 @@ def role_argv(
         "stream-json",
         "--verbose",
         "--include-hook-events",
+        # Each message's final usage arrives only in its message_delta event.
+        "--include-partial-messages",
         "--model",
         model,
         "--session-id",

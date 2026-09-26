@@ -27,6 +27,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 
+from physgate.orchestrator.accounting import require_matching_totals
 from physgate.orchestrator.budget import classify_session_end
 from physgate.orchestrator.common import NonEmptyStr, first_problem
 from physgate.orchestrator.credentials import (
@@ -198,8 +199,16 @@ def read_stream(
 ) -> tuple[dict[str, Any] | None, tuple[MessageUsage, ...], frozenset[str]]:
     """The result object, the per-message usage and the answering models of a stream.
 
-    Usage is taken once per message id: the stream repeats a message's usage once
-    per content block. The answering model is each assistant message's own
+    Usage is each message's **final** usage, taken once per message id. The
+    ``assistant`` events carry the usage the message started with, and it is
+    repeated once per content block; measured against the real API, that
+    recorded 2 output tokens for a message whose result counted 673. The final
+    usage is in the message's ``message_delta`` event, which the stream holds only
+    with ``--include-partial-messages``; it follows the message's own
+    ``message_start`` in the same thread. A message with no ``message_delta``
+    (a session killed mid-message) keeps the usage it started with.
+
+    The answering model is each assistant message's own
     ``model``, not the result's ``modelUsage``: measured on 2.1.272 with the
     endpoint answering as another model, ``modelUsage`` still named the model
     that was asked for, and only the messages named the one that answered. A
@@ -208,7 +217,8 @@ def read_stream(
     # The binary's JSON stream is an untyped boundary: its events are read as
     # plain objects, and only the fields named here are taken from them.
     result: dict[str, Any] | None = None
-    seen: dict[str, MessageUsage] = {}
+    raw_usage: dict[str, dict[str, Any]] = {}
+    current: dict[str | None, str] = {}  # the open message per thread
     models: set[str] = set()
     for line in stdout.splitlines():
         try:
@@ -217,21 +227,35 @@ def read_stream(
             continue
         if not isinstance(event, dict):
             continue
-        if event.get("type") == "result":
+        kind = event.get("type")
+        if kind == "result":
             result = event
-        message = event.get("message") if event.get("type") == "assistant" else None
+        elif kind == "stream_event" and isinstance(event.get("event"), dict):
+            inner, thread = event["event"], event.get("parent_tool_use_id")
+            started = inner.get("message") if inner.get("type") == "message_start" else None
+            if isinstance(started, dict) and isinstance(started.get("id"), str):
+                current[thread] = started["id"]
+                raw_usage.setdefault(started["id"], dict(started.get("usage") or {}))
+            elif inner.get("type") == "message_delta" and thread in current:
+                raw_usage[current[thread]].update(inner.get("usage") or {})
+        message = event.get("message") if kind == "assistant" else None
         if isinstance(message, dict) and isinstance(message.get("id"), str):
-            raw = message.get("usage") or {}
-            usage = Usage(
+            raw_usage.setdefault(message["id"], dict(message.get("usage") or {}))
+            if isinstance(message.get("model"), str):
+                models.add(message["model"])
+    usages = tuple(
+        MessageUsage(
+            message_id=message_id,
+            usage=Usage(
                 input_tokens=int(raw.get("input_tokens") or 0),
                 output_tokens=int(raw.get("output_tokens") or 0),
                 cache_read_input_tokens=int(raw.get("cache_read_input_tokens") or 0),
                 cache_creation_input_tokens=int(raw.get("cache_creation_input_tokens") or 0),
-            )
-            seen.setdefault(message["id"], MessageUsage(message_id=message["id"], usage=usage))
-            if isinstance(message.get("model"), str):
-                models.add(message["model"])
-    return result, tuple(seen.values()), frozenset(models)
+            ),
+        )
+        for message_id, raw in raw_usage.items()
+    )
+    return result, usages, frozenset(models)
 
 
 def judge(
@@ -353,6 +377,7 @@ def call(
         remove_secrets(workdir / "state", workdir / "config")
     (workdir / "stdout.jsonl").write_text(stdout.replace(credential.secret, REDACTED_TEXT))
     result, usage, answered = read_stream(stdout)
+    require_matching_totals(result, usage)
     cause, detail, plan, model, turns = judge(
         result,
         exit_code=exit_code,

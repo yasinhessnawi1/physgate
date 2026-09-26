@@ -116,8 +116,19 @@ def _results(messages: list[dict[str, Any]]) -> int:
     )
 
 
+#: A message's usage as the real API sends it: complete input and cache figures at
+#: the start with output still at 1, then the final figures in ``message_delta``.
+START_USAGE = {
+    "input_tokens": 5,
+    "cache_read_input_tokens": 3,
+    "cache_creation_input_tokens": 2,
+    "output_tokens": 1,
+}
+FINAL_USAGE = {**START_USAGE, "output_tokens": 9}
+
+
 def _events(step: dict[str, Any], model: str, n: int) -> bytes:
-    usage = {"input_tokens": 1, "output_tokens": 1}
+    usage = dict(START_USAGE)
     if "tool" in step:
         start = {"type": "tool_use", "id": f"toolu_fake_{n}", "name": step["tool"], "input": {}}
         delta = {"type": "input_json_delta", "partial_json": json.dumps(step["input"])}
@@ -136,20 +147,36 @@ def _events(step: dict[str, Any], model: str, n: int) -> bytes:
         "stop_sequence": None,
         "usage": usage,
     }
-    events = [
-        ("message_start", {"type": "message_start", "message": message}),
-        (
-            "content_block_start",
-            {"type": "content_block_start", "index": 0, "content_block": start},
-        ),
-        ("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": delta}),
-        ("content_block_stop", {"type": "content_block_stop", "index": 0}),
+    # A step may open with a text block before its tool call: one message, two
+    # content blocks, which the binary reports as two events of one message id.
+    blocks = []
+    if "pre_text" in step:
+        blocks.append(
+            ({"type": "text", "text": ""}, {"type": "text_delta", "text": step["pre_text"]})
+        )
+    blocks.append((start, delta))
+    events: list[tuple[str, dict[str, Any]]] = [
+        ("message_start", {"type": "message_start", "message": message})
+    ]
+    for index, (block, block_delta) in enumerate(blocks):
+        events += [
+            (
+                "content_block_start",
+                {"type": "content_block_start", "index": index, "content_block": block},
+            ),
+            (
+                "content_block_delta",
+                {"type": "content_block_delta", "index": index, "delta": block_delta},
+            ),
+            ("content_block_stop", {"type": "content_block_stop", "index": index}),
+        ]
+    events += [
         (
             "message_delta",
             {
                 "type": "message_delta",
                 "delta": {"stop_reason": stop, "stop_sequence": None},
-                "usage": {"output_tokens": 1},
+                "usage": dict(FINAL_USAGE),
             },
         ),
         ("message_stop", {"type": "message_stop"}),

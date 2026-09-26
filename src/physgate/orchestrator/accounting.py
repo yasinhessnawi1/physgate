@@ -17,11 +17,11 @@ error, not a choice between them.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 
 from physgate.orchestrator.events import Event, TokensUsed
 from physgate.orchestrator.exceptions import AccountingError, RoutingTokensError
-from physgate.orchestrator.protocols import Usage
+from physgate.orchestrator.protocols import MessageUsage, Usage
 
 _ZERO = Usage(
     input_tokens=0, output_tokens=0, cache_read_input_tokens=0, cache_creation_input_tokens=0
@@ -37,6 +37,43 @@ def _plus(left: Usage, right: Usage) -> Usage:
             left.cache_creation_input_tokens + right.cache_creation_input_tokens
         ),
     )
+
+
+#: The result's per-model totals, by the account's field names.
+_MODEL_USAGE_FIELDS = {
+    "input_tokens": "inputTokens",
+    "output_tokens": "outputTokens",
+    "cache_read_input_tokens": "cacheReadInputTokens",
+    "cache_creation_input_tokens": "cacheCreationInputTokens",
+}
+
+
+def require_matching_totals(
+    # The binary's result object: an untyped boundary, only its totals are read.
+    result: Mapping[str, object] | None,
+    usages: Iterable[MessageUsage],
+) -> None:
+    """Hold one invocation's per-message account against the binary's own totals.
+
+    The result's ``modelUsage`` sums every model the invocation used. A session
+    with no result (killed, or stopped at its wall clock) has nothing to hold it
+    against, and is not checked.
+
+    Raises:
+        AccountingError: a field's per-message sum differs from the result's total.
+    """
+    per_model = (result or {}).get("modelUsage")
+    if not isinstance(per_model, dict) or not per_model:
+        return
+    total = _ZERO
+    for message in usages:
+        total = _plus(total, message.usage)
+    for field, key in _MODEL_USAGE_FIELDS.items():
+        charged = sum(int(m.get(key) or 0) for m in per_model.values() if isinstance(m, dict))
+        counted = int(getattr(total, field))
+        if counted != charged:
+            msg = "the per-message account differs from the binary's own totals"
+            raise AccountingError(msg, field=field, account=str(counted), result=str(charged))
 
 
 class TokenAccount:

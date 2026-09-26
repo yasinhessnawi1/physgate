@@ -356,3 +356,41 @@ def test_a_subscription_token_reaches_the_binary_as_a_login_and_nothing_else_hol
     assert not (sdir / "config" / ".credentials.json").exists()
     assert not (sdir / "state" / "key").exists()
     assert _files_holding(tmp_path, DUMMY_OAUTH_TOKEN) == []
+
+
+def test_each_message_is_counted_once_at_its_final_usage_and_matches_the_binary(
+    tmp_path: Path, install_bin: Path
+) -> None:
+    # The earlier measurement again, with the endpoint sending usage as the real
+    # API does: a message with a text block and a tool call is two assistant events
+    # of one id, each with the usage it started with (1 output token); the final
+    # usage (9) is in its message_delta.
+    worktree = tmp_path / "run" / "worktrees" / "s1"
+    reading = tool("Read", file_path=str(worktree / SPEC))
+    reading["pre_text"] = "I will read the specification."
+    api, (report, _), _ = dispatch(tmp_path, install_bin, [reading, text("done")])
+    assert report.end.outcome == "completed", report
+    events = [json.loads(line) for line in Path(str(report.trajectory)).read_text().splitlines()]
+    per_event = [e["message"]["id"] for e in events if e.get("type") == "assistant"]
+    assert len(per_event) == len(api.requests) + 1  # the two-block message twice
+    assert len(report.usage) == len(api.requests) == 2
+    assert all(u.usage.output_tokens == 9 and u.usage.input_tokens == 5 for u in report.usage)
+
+
+def test_an_account_that_differs_from_the_binary_s_totals_is_an_error(
+    tmp_path: Path, install_bin: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import physgate.orchestrator.dispatch as dispatch_module
+    from physgate.orchestrator.exceptions import AccountingError
+
+    real = dispatch_module.read_stream  # type: ignore[attr-defined]
+
+    def losing_a_message(text: str) -> Any:  # noqa: ANN401
+        result, usages, models = real(text)
+        return result, usages[:-1], models
+
+    monkeypatch.setattr(dispatch_module, "read_stream", losing_a_message)
+    worktree = tmp_path / "run" / "worktrees" / "s1"
+    steps = [tool("Read", file_path=str(worktree / SPEC)), text("done")]
+    with pytest.raises(AccountingError, match="differs from the binary's own totals"):
+        dispatch(tmp_path, install_bin, steps)

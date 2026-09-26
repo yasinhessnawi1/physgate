@@ -315,3 +315,29 @@ def test_a_wrapped_answer_is_refused_by_the_schema_and_recorded_as_such(tmp_path
     assert len(api.requests) == 1  # still one request: the refusal ends the one turn
     halted = [e for e in read_events(run_dir / "events.jsonl") if e.kind == "halted"]
     assert len(halted) == 1 and halted[0].detail.startswith("schema_refused")
+
+
+def test_the_one_call_s_account_must_match_the_binary_s_totals(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import physgate.orchestrator.decompose as decompose_module
+    from physgate.orchestrator.exceptions import AccountingError
+
+    real = decompose_module.read_stream
+
+    def starting_usage_only(text: str) -> Any:  # noqa: ANN401
+        # What the account read before: each message's usage as it started.
+        result, usages, models = real(text)
+        return (
+            result,
+            tuple(
+                u.model_copy(update={"usage": u.usage.model_copy(update={"output_tokens": 1})})
+                for u in usages
+            ),
+            models,
+        )
+
+    monkeypatch.setattr(decompose_module, "read_stream", starting_usage_only)
+    with pytest.raises(AccountingError) as caught:
+        decompose_once(tmp_path, 7, [tool("StructuredOutput", **PLAN)])
+    assert caught.value.context["field"] == "output_tokens"
