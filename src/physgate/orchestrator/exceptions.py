@@ -94,3 +94,7 @@ class InvocationError(OrchestratorError):
 
 class DecompositionError(OrchestratorError):
     """The decomposition's plan cannot be written: a node the store refuses, a bad path."""
+
+
+class StoreRefusalError(OrchestratorError):
+    """The store refused a write the pre-check had accepted. An incident, never a retry."""

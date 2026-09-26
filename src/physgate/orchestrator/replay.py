@@ -34,6 +34,7 @@ from physgate.orchestrator.events import (
     Incident,
     InfraRetryScheduled,
     Merged,
+    NodeFilesRepaired,
     ProposalsChecked,
     Resumed,
     ReviewRan,
@@ -44,6 +45,8 @@ from physgate.orchestrator.events import (
     SubtaskPlanned,
     SubtaskRemoved,
     TokensUsed,
+    WriteDone,
+    WriteIntended,
 )
 from physgate.orchestrator.exceptions import MergePreconditionError
 from physgate.orchestrator.repair import FindingSource
@@ -64,6 +67,10 @@ class AttemptState:
     rejected: AttemptRejected | None = None
     merged: Merged | None = None
     diff: DiffChecked | None = None
+    #: Nodes this attempt wrote into the canonical store, by revision. Kept across
+    #: a resume: they are in the store, and a resumed apply must not write them twice.
+    applied: dict[str, int] = field(default_factory=dict)
+    pending: WriteIntended | None = None
 
     def restart(self, cursor: Stage | None) -> None:
         """Forget everything the attempt did after ``cursor``."""
@@ -110,6 +117,10 @@ class RunState:
         self.halted: Halted | None = None
         self.incident: Incident | None = None
         self.ledger: list[TaskLine] = []
+        #: The newest canonical journal revision the orchestrator accounts for: the
+        #: decomposition's head, then each recorded write. Anything after it that no
+        #: pending intent names is a foreign write.
+        self.journal_head = 0
 
     # -- following the log -------------------------------------------------------
 
@@ -132,8 +143,11 @@ class RunState:
             self.subtasks[event.subtask_id] = SubtaskState(plan=event)
             self._ledger(event.subtask_id, attempt_count=0)
             return
-        if isinstance(event, TokensUsed | Decomposed):
-            return  # attributed or described, never a transition
+        if isinstance(event, Decomposed):
+            self.journal_head = event.head_revision
+            return
+        if isinstance(event, TokensUsed):
+            return  # attributed, never a transition
         sub = self.subtasks[event.subtask_id]
         if isinstance(event, SubtaskRemoved):
             if sub.status != "planned":
@@ -175,9 +189,32 @@ class RunState:
             self._expect(now.cursor == "decide" and basis == event.finding.source, "a rejection")
             now.rejected = event
             sub.next_resolve = after_rejection(now.number)
+        elif isinstance(event, WriteIntended):
+            ready = now.cursor == "decide" and self.mergeable(now) and now.pending is None
+            fresh = event.node_id not in now.applied
+            next_rev = event.expected_revision == self.journal_head + 1
+            own = event.actor_role == sub.plan.assigned_role
+            self._expect(ready and fresh and next_rev and own, "a write intent")
+            now.pending = event
+        elif isinstance(event, WriteDone):
+            pending = now.pending
+            landed = (
+                pending is not None
+                and pending.node_id == event.node_id
+                and pending.expected_revision == event.revision
+            )
+            self._expect(landed, "a write")
+            now.applied[event.node_id] = event.revision
+            self.journal_head = event.revision
+            now.pending = None
+        elif isinstance(event, NodeFilesRepaired):
+            done = now.session is not None and now.session.outcome == "completed"
+            self._expect(now.cursor == "spawn" and done, "a node-file repair")
         elif isinstance(event, Merged):
             checked = now.changes.checked_commit if now.changes is not None else None
             self._expect(now.cursor == "decide" and self.mergeable(now), "a merge")
+            if now.pending is not None:
+                _refuse("a merge with a store write still unaccounted for")
             if event.attempt_commit != checked:
                 _refuse("a merge of a commit other than the one that was checked")
             now.merged = event
@@ -276,6 +313,9 @@ class RunState:
             now.retries_done = 0
         if point != self.resume_point(now):
             _refuse(f"the attempt resumes at {self.resume_point(now)!r}, not {point!r}")
+        # A resume follows the journal check, which has recorded a pending write
+        # that landed and found none that did not; what is still pending never ran.
+        now.pending = None
         if point == "resolve":
             now.restart(None)
             sub.next_resolve = now.number

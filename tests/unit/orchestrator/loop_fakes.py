@@ -47,6 +47,7 @@ class FakeDispatcher:
 
     infra: dict[int, InfraCause] = field(default_factory=dict)
     unread: set[int] = field(default_factory=set)
+    halted: set[int] = field(default_factory=set)
     kill_on: int | None = None
     requests: list[SessionRequest] = field(default_factory=list)
 
@@ -64,6 +65,7 @@ class FakeDispatcher:
                 trajectory=None,
                 worktree=None,
                 reading_verified=False,
+                node_files_halted=False,
                 usage=(MessageUsage(message_id=f"m{call}", usage=usage(3)),),
             )
         return SessionReport(
@@ -73,6 +75,7 @@ class FakeDispatcher:
             trajectory=f"sessions/{sid}/stdout.jsonl",
             worktree=f"worktrees/{request.subtask_id}",
             reading_verified=call not in self.unread,
+            node_files_halted=call in self.halted,
             usage=(
                 MessageUsage(message_id=f"m{call}a", usage=usage(10)),
                 MessageUsage(message_id=f"m{call}a", usage=usage(10)),
@@ -174,13 +177,35 @@ class FakeMerger:
 
 
 @dataclass
-class FakeDiff:
-    divergent: dict[str, tuple[str, ...]] = field(default_factory=dict)
-    calls: list[str] = field(default_factory=list)
+class FakeGraph:
+    """A graph port with an empty journal, reporting divergences on chosen diff calls."""
 
-    def divergences(self, subtask_id: str) -> tuple[str, ...]:
-        self.calls.append(subtask_id)
-        return self.divergent.get(subtask_id, ())
+    divergent: dict[int, tuple[str, ...]] = field(default_factory=dict)
+    calls: list[tuple[int, str]] = field(default_factory=list)
+    reopened: int = 0
+
+    def records_after(self, revision: int) -> list[Any]:
+        return []
+
+    def hold(self) -> None:
+        return None
+
+    def commit(self, message: str) -> None:
+        return None
+
+    def proposals(self, subtask_id: str, attempt_commit: str) -> list[dict[str, Any]]:
+        return []
+
+    def write(self, payload: dict[str, Any], role: str) -> int:
+        raise AssertionError("no proposal, so nothing is written")
+
+    def divergences(self, since: int, acting_role: str) -> tuple[str, ...]:
+        self.calls.append((since, acting_role))
+        return self.divergent.get(len(self.calls), ())
+
+    def reopen(self) -> tuple[int, tuple[str, ...]]:
+        self.reopened += 1
+        return 0, ()
 
 
 @dataclass
@@ -194,7 +219,7 @@ class Rig:
     dispatcher: FakeDispatcher = field(default_factory=FakeDispatcher)
     changes: FakeChanges = field(default_factory=FakeChanges)
     merger: FakeMerger = field(default_factory=FakeMerger)
-    diff: FakeDiff = field(default_factory=FakeDiff)
+    diff: FakeGraph = field(default_factory=FakeGraph)
     delays: tuple[float, ...] = ()
     slept: list[float] = field(default_factory=list)
     config_overrides: dict[str, Any] = field(default_factory=dict)
@@ -214,7 +239,7 @@ class Rig:
             dispatcher=self.dispatcher,
             changes=self.changes,
             merger=self.merger,
-            graph_diff=self.diff,
+            graph=self.diff,
             sleep=sleeper,
             clock=ticking_clock(),
         )

@@ -287,6 +287,47 @@ class Decomposed(_Event):
     subtasks: Annotated[int, Field(ge=1)]
     interface_nodes: Annotated[tuple[NonEmptyStr, ...], Field(min_length=1)]
     spec_commit: Sha
+    head_revision: Annotated[int, Field(ge=1)]
+
+
+class WriteIntended(_Event):
+    """The orchestrator is about to write one node into the canonical store.
+
+    Synced before the write, so a restart can tell its own write that landed
+    without being recorded from a line it never intended, which is foreign.
+    """
+
+    kind: Literal["write_intended"] = "write_intended"
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    node_id: NonEmptyStr
+    payload_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+    actor_role: NonEmptyStr
+    expected_revision: Annotated[int, Field(ge=1)]
+
+
+class WriteDone(_Event):
+    """The intended write landed at this revision of the canonical journal."""
+
+    kind: Literal["write_done"] = "write_done"
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    node_id: NonEmptyStr
+    revision: Annotated[int, Field(ge=1)]
+
+
+class NodeFilesRepaired(_Event):
+    """Node files changed behind the journal were repaired before anything read the graph.
+
+    The session was halted for it; the store was reopened, and recovery rebuilt
+    the files from the journal.
+    """
+
+    kind: Literal["node_files_repaired"] = "node_files_repaired"
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    repaired: Annotated[int, Field(ge=0)]
+    quarantined: tuple[NonEmptyStr, ...]
 
 
 class Resumed(_Event):
@@ -321,6 +362,9 @@ Event = Annotated[
     | Incident
     | Resumed
     | Decomposed
+    | WriteIntended
+    | WriteDone
+    | NodeFilesRepaired
     | Halted,
     Field(discriminator="kind"),
 ]

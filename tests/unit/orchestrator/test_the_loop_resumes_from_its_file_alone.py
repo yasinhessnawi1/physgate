@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from loop_fakes import FakeDiff, FakeDispatcher, FakeReviewer, KilledError, Rig, plan
+from loop_fakes import FakeDispatcher, FakeGraph, FakeReviewer, KilledError, Rig, plan
 
 from physgate.orchestrator.events import (
     DiffChecked,
@@ -178,7 +178,7 @@ def test_an_exhausted_schedule_halts_the_run_and_resume_continues_the_same_attem
 
 
 def test_a_cross_role_write_halts_the_run_before_the_next_dispatch(tmp_path: Path) -> None:
-    rig = Rig(tmp_path, diff=FakeDiff(divergent={"s1": ("motor.left written by control",)}))
+    rig = Rig(tmp_path, diff=FakeGraph(divergent={1: ("motor.left written by control",)}))
     loop = rig.open()
     loop.start(plan("s1", "s2"))
     assert loop.run().kind == "halted"
@@ -338,4 +338,70 @@ def test_the_record_refuses_a_merge_of_any_commit_but_the_checked_one(tmp_path: 
             merge_commit=sha("m"),
         )
     log.emit(Merged, subtask_id="s1", attempt=1, attempt_commit=sha("c"), merge_commit=sha("m"))
+    log.close()
+
+
+def _to_decide(tmp_path: Path) -> EventLog:
+    from physgate.orchestrator.events import ReviewRan
+    from physgate.orchestrator.protocols import ReviewResult
+
+    log = _started(tmp_path)
+    _through_the_gate(log, verdict_fails=False)
+    log.emit(StageEntered, subtask_id="s1", attempt=1, stage="review")
+    review = ReviewResult(
+        verdict="pass", finding="ok", reviewer_model="claude-opus-5", session_id="r", usage=()
+    )
+    log.emit(ReviewRan, subtask_id="s1", attempt=1, result=review)
+    log.emit(StageEntered, subtask_id="s1", attempt=1, stage="decide")
+    return log
+
+
+def _intent(
+    log: EventLog, node_id: str = "electrical.x", expected: int = 1, role: str = "electrical"
+) -> None:
+    from physgate.orchestrator.events import WriteIntended
+
+    log.emit(
+        WriteIntended,
+        subtask_id="s1",
+        attempt=1,
+        node_id=node_id,
+        payload_sha256="d" * 64,
+        actor_role=role,
+        expected_revision=expected,
+    )
+
+
+def test_the_record_holds_every_store_write_to_its_intent(tmp_path: Path) -> None:
+    from loop_fakes import sha
+
+    from physgate.orchestrator.events import Merged, WriteDone
+
+    log = _to_decide(tmp_path)
+    with pytest.raises(ValueError, match="write intent"):
+        _intent(log, expected=2)  # not the next revision
+    with pytest.raises(ValueError, match="write intent"):
+        _intent(log, role="control")  # not the subtask's role
+    _intent(log)
+    with pytest.raises(ValueError, match="write intent"):
+        _intent(log, node_id="electrical.y", expected=2)  # one pending at a time
+    with pytest.raises(ValueError, match="other than|unaccounted"):
+        log.emit(Merged, subtask_id="s1", attempt=1, attempt_commit=sha("c"), merge_commit=sha("m"))
+    with pytest.raises(ValueError, match="a write cannot"):
+        log.emit(WriteDone, subtask_id="s1", attempt=1, node_id="electrical.x", revision=2)
+    log.emit(WriteDone, subtask_id="s1", attempt=1, node_id="electrical.x", revision=1)
+    with pytest.raises(ValueError, match="write intent"):
+        _intent(log, expected=2)  # the same node twice in one attempt
+    log.emit(Merged, subtask_id="s1", attempt=1, attempt_commit=sha("c"), merge_commit=sha("m"))
+    log.close()
+
+
+def test_a_node_file_repair_is_recorded_only_between_the_session_and_its_judgement(
+    tmp_path: Path,
+) -> None:
+    from physgate.orchestrator.events import NodeFilesRepaired
+
+    log = _to_decide(tmp_path)
+    with pytest.raises(ValueError, match="node-file repair"):
+        log.emit(NodeFilesRepaired, subtask_id="s1", attempt=1, repaired=1, quarantined=())
     log.close()

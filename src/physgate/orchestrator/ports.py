@@ -1,16 +1,17 @@
 """What the loop needs from the world, as narrow Protocols it is handed.
 
 The loop decides; these do. A session is spawned and waited for, an attempt's
-changes are checked before the gate, an accepted attempt is merged, and the
-graph is diffed. Each is a Protocol so the stage machine is tested over fakes
-with no process, no git and no tokens, and so the real implementations
+changes are checked before the gate, an accepted attempt's nodes are written
+into the canonical store and the attempt merged, and the graph is diffed. Each
+is a Protocol so the stage machine is tested over fakes with no process, no git
+and no tokens, and so the real implementations
 (the dispatcher, the git plumbing, the proposal apply) plug in without the loop
 changing. None of them decides anything the loop should decide.
 """
 
 from __future__ import annotations
 
-from typing import Annotated, Literal, Protocol
+from typing import Annotated, Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
@@ -18,6 +19,7 @@ from physgate.orchestrator.budget import SessionEnd
 from physgate.orchestrator.common import NonEmptyStr
 from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.run_config import RunBounds
+from physgate.state.store import JournalLine
 
 SessionId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
 
@@ -48,6 +50,7 @@ class SessionReport(_Frozen):
     trajectory: NonEmptyStr | None
     worktree: NonEmptyStr | None
     reading_verified: bool
+    node_files_halted: bool
     usage: tuple[MessageUsage, ...]
 
 
@@ -91,9 +94,47 @@ class Merger(Protocol):
         ...
 
 
-class GraphDiff(Protocol):
-    """Diffs the graph off the durable record after a subtask's step."""
+class GraphPort(Protocol):
+    """The canonical graph store, as the loop reads and writes it.
 
-    def divergences(self, subtask_id: str) -> tuple[str, ...]:
-        """Every node written in the step by a role that does not own it, described."""
+    The loop holds one store handle across steps. Reading the journal's newest
+    records never opens a store, since opening runs recovery, which writes; the
+    handle is opened only after that read has found nothing foreign.
+    """
+
+    def records_after(self, revision: int) -> list[JournalLine]:
+        """Every canonical journal record after ``revision``, read-only."""
+        ...
+
+    def hold(self) -> None:
+        """Open the store handle if it is not open, and keep it.
+
+        Called right after the journal was found to hold nothing foreign, so any
+        later append the orchestrator did not make leaves the handle stale and
+        its next write refuses, instead of being replayed by a later open.
+        """
+        ...
+
+    def commit(self, message: str) -> None:
+        """Commit the store's files, so the graph is committed (ARCH-010)."""
+        ...
+
+    def proposals(self, subtask_id: str, attempt_commit: str) -> list[dict[str, Any]]:
+        """The node proposals the attempt commit added or changed, validated."""
+        ...
+
+    def write(self, payload: dict[str, Any], role: str) -> int:
+        """Write one node through the store's guards and return its revision.
+
+        Raises ``StoreRefusalError`` for a refusal and ``StoreStaleError`` when the
+        journal moved underneath the handle.
+        """
+        ...
+
+    def divergences(self, since: int, acting_role: str) -> tuple[str, ...]:
+        """Every node changed after ``since`` by a role that does not own it."""
+        ...
+
+    def reopen(self) -> tuple[int, tuple[str, ...]]:
+        """Close and reopen the store; return the node files recovery repaired and moved aside."""
         ...

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from physgate.orchestrator.budget import SessionEnd
 from physgate.orchestrator.git import head_of
@@ -67,6 +70,13 @@ class GitDispatcher:
     run: RunGit
     outside: set[int] = field(default_factory=set)
     repair: set[int] = field(default_factory=set)
+    #: Per call: node proposals to write, by node id.
+    proposals: dict[int, dict[str, dict[str, Any]]] = field(default_factory=dict)
+    #: Per call: something done while the session runs, before the orchestrator commits.
+    during: dict[int, Callable[[Path], None]] = field(default_factory=dict)
+    #: Per call: something done to the worktree after the orchestrator committed.
+    after_commit: dict[int, Callable[[Path], None]] = field(default_factory=dict)
+    halted: set[int] = field(default_factory=set)
     requests: list[SessionRequest] = field(default_factory=list)
 
     def __call__(self, request: SessionRequest) -> SessionReport:
@@ -80,8 +90,16 @@ class GitDispatcher:
             (worktree / "README.md").write_text("changed outside the module\n")
         if call in self.repair:
             (worktree / "README.md").write_text("target\n")
+        for node_id, payload in self.proposals.get(call, {}).items():
+            path = worktree / ".physgate" / "proposals" / f"{node_id}.json"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(payload))
+        if call in self.during:
+            self.during[call](worktree)
         sid = f"sess-{call}"
         commit = commit_attempt(worktree, request.subtask_id, request.attempt, sid)
+        if call in self.after_commit:
+            self.after_commit[call](worktree)
         return SessionReport(
             session_id=sid,
             end=SessionEnd(outcome="completed", cause=None),
@@ -89,6 +107,7 @@ class GitDispatcher:
             trajectory=f"sessions/{sid}/stdout.jsonl",
             worktree=str(worktree),
             reading_verified=True,
+            node_files_halted=call in self.halted,
             usage=(
                 MessageUsage(
                     message_id=f"m{call}",
@@ -165,9 +184,29 @@ class Reviewer:
         )
 
 
-class NoDivergence:
-    def divergences(self, subtask_id: str) -> tuple[str, ...]:
+class EmptyGraph:
+    """A graph port with an empty journal and no proposals."""
+
+    def records_after(self, revision: int) -> list[Any]:
+        return []
+
+    def hold(self) -> None:
+        return None
+
+    def commit(self, message: str) -> None:
+        return None
+
+    def proposals(self, subtask_id: str, attempt_commit: str) -> list[dict[str, Any]]:
+        return []
+
+    def write(self, payload: dict[str, Any], role: str) -> int:
+        raise AssertionError("no proposal, so nothing is written")
+
+    def divergences(self, since: int, acting_role: str) -> tuple[str, ...]:
         return ()
+
+    def reopen(self) -> tuple[int, tuple[str, ...]]:
+        return 0, ()
 
 
 def config(run_id: str = "run-1") -> RunConfig:

@@ -354,6 +354,7 @@ def start_run(
             if not written.accepted:
                 msg = "the store refused an interface node the plan validated"
                 raise DecompositionError(msg, node=node.id, reason=str(written.reason))
+        head = store.head_revision()
     finally:
         store.close()
     init_repo(store_root)
@@ -368,6 +369,7 @@ def start_run(
             "subtasks": len(entries),
             "interface_nodes": tuple(n.id for n in plan.interface_nodes),
             "spec_commit": spec_commit,
+            "head_revision": head,
         },
     )
     return record

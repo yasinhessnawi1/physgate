@@ -21,6 +21,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from physgate.orchestrator.apply import ProposalRefusedError
 from physgate.orchestrator.budget import infra_retry_delay
 from physgate.orchestrator.common import utc_now
 from physgate.orchestrator.events import (
@@ -33,12 +34,15 @@ from physgate.orchestrator.events import (
     Incident,
     InfraRetryScheduled,
     Merged,
+    NodeFilesRepaired,
     ProposalsChecked,
     Resumed,
     ReviewRan,
     SessionEnded,
     StageEntered,
     TokensUsed,
+    WriteDone,
+    WriteIntended,
 )
 from physgate.orchestrator.exceptions import (
     GateNotRegisteredError,
@@ -46,9 +50,16 @@ from physgate.orchestrator.exceptions import (
     MergeRefusedError,
     ReviewerNotRegisteredError,
     RunStateError,
+    StoreRefusalError,
 )
 from physgate.orchestrator.merge import merge_message
-from physgate.orchestrator.ports import ChangeChecker, Dispatcher, GraphDiff, Merger, SessionRequest
+from physgate.orchestrator.ports import (
+    ChangeChecker,
+    Dispatcher,
+    GraphPort,
+    Merger,
+    SessionRequest,
+)
 from physgate.orchestrator.protocols import (
     Artefact,
     Gate,
@@ -59,8 +70,10 @@ from physgate.orchestrator.protocols import (
 from physgate.orchestrator.queue import escalation_item
 from physgate.orchestrator.record import RunRecord
 from physgate.orchestrator.repair import Finding, repair_instruction
-from physgate.orchestrator.replay import Step, require_mergeable
+from physgate.orchestrator.replay import AttemptState, Step, require_mergeable
 from physgate.orchestrator.run_config import RunConfig
+from physgate.state.exceptions import DesignStateError, StoreStaleError
+from physgate.state.store import payload_digest
 
 UNREAD = (
     "The session ended without completing its required reading, so nothing it "
@@ -107,7 +120,7 @@ class Loop:
         dispatcher: Dispatcher,
         changes: ChangeChecker,
         merger: Merger,
-        graph_diff: GraphDiff,
+        graph: GraphPort,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], datetime] = utc_now,
     ) -> None:
@@ -127,7 +140,7 @@ class Loop:
         self._dispatcher = dispatcher
         self._changes = changes
         self._merger = merger
-        self._graph_diff = graph_diff
+        self._graph = graph
         self._sleep = sleep
         self.record = RunRecord(config, self.run_dir, clock=clock)
         self.state = self.record.state
@@ -165,6 +178,8 @@ class Loop:
         if self.state.halted is None and self.state.interrupted() is not None:
             msg = "the run was interrupted mid-attempt; resume it instead"
             raise RunStateError(msg, run_dir=str(self.run_dir))
+        if self.state.halted is None and not self._journal_clean():
+            return self.state.next_step()
         return self._drive()
 
     def resume(self) -> Step:
@@ -182,6 +197,8 @@ class Loop:
         if halted is not None and halted.reason != "infrastructure_exhausted":
             msg = f"the run halted for {halted.reason}; a person resolves that before any resume"
             raise RunStateError(msg, run_dir=str(self.run_dir), detail=halted.detail)
+        if not self._journal_clean():
+            return self.state.next_step()
         sub = self.state.interrupted()
         if sub is not None:
             now = sub.attempts[-1]
@@ -259,7 +276,130 @@ class Loop:
             worktree=report.worktree,
             reading_verified=report.reading_verified,
         )
-        return report.end.outcome == "completed"
+        if report.end.outcome != "completed":
+            return False
+        if not self._journal_clean():
+            return False
+        return not report.node_files_halted or self._repair_node_files(subtask_id, attempt)
+
+    def _repair_node_files(self, subtask_id: str, attempt: int) -> bool:
+        """Reopen the store so recovery rebuilds node files from the journal, before any read."""
+        try:
+            repaired, quarantined = self._graph.reopen()
+        except DesignStateError as exc:
+            self._incident(subtask_id, "node_files_unrecoverable", str(exc))
+            return False
+        self._emit(
+            NodeFilesRepaired,
+            subtask_id=subtask_id,
+            attempt=attempt,
+            repaired=repaired,
+            quarantined=quarantined,
+        )
+        return True
+
+    def _incident(self, subtask_id: str | None, cause: str, detail: str) -> None:
+        self._emit(Incident, subtask_id=subtask_id, cause=cause, detail=detail)
+        where = f" in {subtask_id}" if subtask_id else ""
+        self._emit(Halted, reason="incident", detail=f"{cause}{where}")
+
+    def _active(self) -> tuple[str | None, AttemptState | None]:
+        for subtask_id in self.state.order:
+            sub = self.state.subtasks[subtask_id]
+            if sub.status == "active" and sub.attempts:
+                return subtask_id, sub.attempts[-1]
+        return None, None
+
+    def _journal_clean(self) -> bool:
+        """Account for every canonical journal line after the recorded head.
+
+        A line that is the pending intended write is the orchestrator's own and is
+        recorded as done. Any other line is foreign: the run halts as an incident,
+        and the store is not reopened, because recovery would replay the line as
+        genuine.
+        """
+        subtask_id, now = self._active()
+        try:
+            tail = self._graph.records_after(self.state.journal_head)
+        except DesignStateError as exc:
+            self._incident(subtask_id, "foreign_journal_line", str(exc))
+            return False
+        for line in tail:
+            pending = now.pending if now is not None else None
+            own = (
+                pending is not None
+                and line.rev == pending.expected_revision
+                and line.node_id == pending.node_id
+                and payload_digest(line.payload) == pending.payload_sha256
+            )
+            if own and pending is not None and subtask_id is not None:
+                self._emit(
+                    WriteDone,
+                    subtask_id=subtask_id,
+                    attempt=pending.attempt,
+                    node_id=line.node_id,
+                    revision=line.rev,
+                )
+                continue
+            detail = (
+                f"journal revision {line.rev}, a {line.op} of {line.node_id}, was not written "
+                "by the orchestrator"
+            )
+            self._incident(subtask_id, "foreign_journal_line", detail)
+            return False
+        self._graph.hold()
+        return True
+
+    def _apply(self, subtask_id: str, attempt: int, commit: str, role: str) -> bool:
+        """Write the attempt's proposals into the canonical store, each behind an intent."""
+        now = self.state.subtasks[subtask_id].attempts[-1]
+        try:
+            proposals = self._graph.proposals(subtask_id, commit)
+        except ProposalRefusedError as exc:
+            self._incident(subtask_id, "store_refusal", f"after a clean pre-check: {exc}")
+            return False
+        for payload in proposals:
+            node_id = str(payload["id"])
+            if node_id in now.applied:
+                continue
+            expected = self.state.journal_head + 1
+            self._emit(
+                WriteIntended,
+                subtask_id=subtask_id,
+                attempt=attempt,
+                node_id=node_id,
+                payload_sha256=payload_digest(payload),
+                actor_role=role,
+                expected_revision=expected,
+            )
+            try:
+                revision = self._graph.write(payload, role)
+            except StoreStaleError:
+                # The journal moved underneath the handle: something appended that
+                # the orchestrator did not. Never reopen and continue.
+                if self._journal_clean():
+                    self._incident(
+                        subtask_id, "foreign_journal_line", "the store handle went stale"
+                    )
+                return False
+            except StoreRefusalError as exc:
+                self._incident(subtask_id, "store_refusal", f"{exc} ({exc.context.get('reason')})")
+                return False
+            if revision != expected:
+                self._incident(
+                    subtask_id, "foreign_journal_line", f"revision {revision}, not {expected}"
+                )
+                return False
+            self._emit(
+                WriteDone,
+                subtask_id=subtask_id,
+                attempt=attempt,
+                node_id=node_id,
+                revision=revision,
+            )
+        if proposals:
+            self._graph.commit(f"Nodes of subtask {subtask_id}, attempt {attempt}\n")
+        return True
 
     def _judge(self, subtask_id: str, attempt: int) -> bool:
         """Reading, changes, gate, review, decision. True if the attempt was merged."""
@@ -337,12 +477,13 @@ class Loop:
         merge_text = merge_message(
             subtask_id, attempt, checked, str(line.gate_result), str(line.review_result)
         )
+        if not self._apply(subtask_id, attempt, checked, role):
+            return False
         try:
             merge_commit = self._merger.merge(subtask_id, attempt, checked, merge_text)
         except (MergeConflictError, MergeRefusedError) as exc:
             cause = "merge_conflict" if isinstance(exc, MergeConflictError) else "merge_refused"
-            self._emit(Incident, subtask_id=subtask_id, cause=cause, detail=str(exc))
-            self._emit(Halted, reason="incident", detail=f"{cause} in {subtask_id}")
+            self._incident(subtask_id, cause, str(exc))
             return False
         self._emit(
             Merged,
@@ -355,12 +496,13 @@ class Loop:
 
     def _diff(self, subtask_id: str, attempt: int) -> None:
         self._stage(subtask_id, attempt, "diff")
-        found = self._graph_diff.divergences(subtask_id)
+        now = self.state.subtasks[subtask_id].attempts[-1]
+        since = min(now.applied.values()) - 1 if now.applied else self.state.journal_head
+        role = self.state.subtasks[subtask_id].plan.assigned_role
+        found = self._graph.divergences(since, role)
         self._emit(DiffChecked, subtask_id=subtask_id, attempt=attempt, divergences=found)
         if found:
-            detail = "; ".join(found)
-            self._emit(Incident, subtask_id=subtask_id, cause="cross_role_write", detail=detail)
-            self._emit(Halted, reason="incident", detail=f"cross-role write in {subtask_id}")
+            self._incident(subtask_id, "cross_role_write", "; ".join(found))
 
     # -- what is not an attempt ---------------------------------------------------------
 

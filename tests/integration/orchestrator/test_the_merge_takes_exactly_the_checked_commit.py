@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 from git_rig import (
     DispatchPort,
+    EmptyGraph,
     Gate,
     GitDispatcher,
-    NoDivergence,
     Reviewer,
     ScopeChecker,
     config,
@@ -163,7 +163,7 @@ def _loop(run: RunGit, dispatcher: GitDispatcher, gate: Gate, merger: object) ->
         dispatcher=DispatchPort(dispatcher),
         changes=ScopeChecker(run, modules),
         merger=merger,  # type: ignore[arg-type]
-        graph_diff=NoDivergence(),
+        graph=EmptyGraph(),
         sleep=lambda _: None,
     )
 
