@@ -19,7 +19,6 @@ is redacted from the captured stream before anything reads it.
 from __future__ import annotations
 
 import json
-import signal
 import subprocess
 import time
 import uuid
@@ -36,10 +35,10 @@ from physgate.orchestrator.install import InstallFacts, install_facts
 from physgate.orchestrator.invocation import isolated_env, role_argv
 from physgate.orchestrator.merge import RunGit, commit_attempt
 from physgate.orchestrator.ports import SessionReport, SessionRequest
+from physgate.orchestrator.processes import started_at, stop_tree
 from physgate.orchestrator.run_config import RunConfig
 
 REDACTED = b"[redacted: the API key]"
-_STOP_GRACE_S = 5.0
 
 
 def role_prompt(request: SessionRequest) -> str:
@@ -76,18 +75,6 @@ def redact(path: Path, secret: str | None) -> None:
     data = path.read_bytes()
     if secret.encode() in data:
         path.write_bytes(data.replace(secret.encode(), REDACTED))
-
-
-def stop(process: subprocess.Popen[bytes]) -> int | None:
-    """Stop a session: SIGTERM, which was measured to leave no tool process, then SIGKILL."""
-    if process.poll() is not None:
-        return process.returncode
-    process.send_signal(signal.SIGTERM)
-    try:
-        return process.wait(timeout=_STOP_GRACE_S)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        return process.wait()
 
 
 class ClaudeDispatcher:
@@ -206,13 +193,19 @@ class ClaudeDispatcher:
                 stderr=err,
                 start_new_session=True,
             )
-            record = {"pid": process.pid, "spawned_at": time.time(), "session_id": session_id}
+            record = {
+                "pid": process.pid,
+                "started": started_at(process.pid),
+                "spawned_at": time.time(),
+                "session_id": session_id,
+            }
             (sdir / "process.json").write_text(json.dumps(record))
             try:
                 exit_code: int | None = process.wait(timeout=request.bounds.session_wall_clock_s)
                 timed_out = False
             except subprocess.TimeoutExpired:
-                exit_code, timed_out = stop(process), True
+                stop_tree(process.pid, record["started"])  # type: ignore[arg-type]
+                exit_code, timed_out = process.wait(), True
         # The key is on disk only while its session runs.
         for name in ("key", "key-helper.sh"):
             (sdir / "state" / name).unlink(missing_ok=True)
@@ -242,6 +235,29 @@ class ClaudeDispatcher:
             hook_journal_appends=appends,
             usage=usage,
         )
+
+    def stop_leftovers(self) -> list[tuple[str, int, int]]:
+        """Stop every session a previous orchestrator left running, before anything else.
+
+        A session is found from the pid and start time recorded when it was
+        spawned; a pid now held by another process is not signalled. Returns the
+        session id, the pid and how many of its processes needed SIGKILL, for each
+        session that was still running.
+        """
+        stopped: list[tuple[str, int, int]] = []
+        for record_path in sorted((self._run.run_dir / "sessions").glob("*/process.json")):
+            ended = record_path.parent / "ended.json"
+            if ended.exists():
+                continue
+            record = json.loads(record_path.read_text())
+            pid, started = int(record["pid"]), record.get("started")
+            if started is not None and started_at(pid) == started:
+                killed = stop_tree(pid, started)
+                stopped.append((str(record["session_id"]), pid, killed))
+                ended.write_text(json.dumps({"stopped_at_resume": True, "killed": killed}))
+            else:
+                ended.write_text(json.dumps({"not_running_at_resume": True}))
+        return stopped
 
     @staticmethod
     def _read_in_full(config_path: Path, session_id: str) -> bool:

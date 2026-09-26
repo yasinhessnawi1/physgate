@@ -10,6 +10,7 @@ conflict, is answered by code or by a person.
 | | |
 |---|---|
 | `dispatch.py` | One attempt in a fresh Claude Code session: the binary's version checked against the run's, the session's own directory outside the worktree, settings from the hook layer's installer run from the read-only installation, the key through a helper, the wall clock, and afterwards only the orchestrator's own records: the stream it captured (key redacted), the hook layer's reading records, the hook log's node-file halts and journal appends |
+| `processes.py` | Stopping a session so nothing it started is left running: the process tree collected by parent pid before the stop, SIGTERM, then SIGKILL for whatever is still alive and still the same process by start time |
 | `install.py` | The copied, read-only installation the hooks run from, and the facts each run records about it and about the state directory's filesystem |
 | `decompose.py` | The run's one model call (ARCH-001): one Claude Code invocation, no tools but the structured answer, one turn, so one request. The answer is untrusted input, validated here; success with no plan fails the run. Subtask ids are minted from the seed; specifications go onto the run branch, interface nodes into the store, and the store is committed |
 | `invocation.py` | The one module that names the Claude Code binary: the pinned version, the isolated argv and an environment built from nothing |

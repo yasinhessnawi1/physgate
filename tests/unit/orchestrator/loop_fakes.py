@@ -54,6 +54,9 @@ class FakeDispatcher:
     def environment(self) -> None:
         return None
 
+    def stop_leftovers(self) -> list[tuple[str, int, int]]:
+        return []
+
     def run(self, request: SessionRequest) -> SessionReport:
         self.requests.append(request)
         call = len(self.requests)

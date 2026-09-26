@@ -74,6 +74,10 @@ class Dispatcher(Protocol):
         """Spawn, wait within the request's bounds, stop, and report."""
         ...
 
+    def stop_leftovers(self) -> list[tuple[str, int, int]]:
+        """Stop every session a previous orchestrator left running; say which."""
+        ...
+
     def environment(self) -> InstallFacts | None:
         """What the hooks' installation and the session state directory are, on this machine."""
         ...

@@ -46,8 +46,9 @@ OS_SPAWN = {"system", "popen", "fork", "forkpty", "posix_spawn", "posix_spawnp"}
 OS_SPAWN_PREFIXES = ("exec", "spawn")
 DYNAMIC_IMPORT = {"import_module", "__import__"}
 #: The modules whose job is a process: sessions, the one call, git, and the
-#: installer that builds the hooks' read-only installation. None of them routes.
-MAY_SPAWN = {"dispatch.py", "decompose.py", "git.py", "install.py"}
+#: installer that builds the hooks' read-only installation, and the process table
+#: a stop reads. None of them routes.
+MAY_SPAWN = {"dispatch.py", "decompose.py", "git.py", "install.py", "processes.py"}
 MAY_NAME_THE_BINARY = {"invocation.py"}
 
 

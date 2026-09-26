@@ -34,6 +34,7 @@ from physgate.orchestrator.events import (
     Halted,
     Incident,
     InfraRetryScheduled,
+    LeftoverStopped,
     Merged,
     NodeFilesRepaired,
     ProposalsChecked,
@@ -177,6 +178,7 @@ class Loop:
         Raises:
             RunStateError: a previous process left the run mid-attempt; resume it.
         """
+        self._stop_leftovers()
         if self.state.halted is None and self.state.interrupted() is not None:
             msg = "the run was interrupted mid-attempt; resume it instead"
             raise RunStateError(msg, run_dir=str(self.run_dir))
@@ -195,6 +197,7 @@ class Loop:
         Raises:
             RunStateError: the run halted for an incident, which a person resolves.
         """
+        self._stop_leftovers()
         halted = self.state.halted
         if halted is not None and halted.reason != "infrastructure_exhausted":
             msg = f"the run halted for {halted.reason}; a person resolves that before any resume"
@@ -211,6 +214,13 @@ class Loop:
                 point=self.state.resume_point(now),
             )
         return self._drive()
+
+    def _stop_leftovers(self) -> None:
+        """Stop what a previous process left running, before anything reads or writes."""
+        if not self.log.events:
+            return
+        for session_id, pid, killed in self._dispatcher.stop_leftovers():
+            self._emit(LeftoverStopped, session_id=session_id, pid=pid, killed=killed)
 
     def _drive(self) -> Step:
         facts = self._dispatcher.environment()

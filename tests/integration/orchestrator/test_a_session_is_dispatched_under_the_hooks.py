@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -178,14 +179,16 @@ def test_the_wall_clock_stops_a_session_and_is_its_cause(tmp_path: Path, install
         update={"bounds": cfg.bounds.model_copy(update={"session_wall_clock_s": 4.0})}
     )
     worktree = tmp_path / "run" / "worktrees" / "s1"
+    marker = f"sleep 31.{os.getpid()}"
     steps = [
         tool("Read", file_path=str(worktree / SPEC)),
-        tool("Bash", command="sleep 30"),
+        tool("Bash", command=marker),
         text("x"),
     ]
     _, (report, _), _ = dispatch(tmp_path, install_bin, steps, cfg)
     assert report.end.outcome == "infrastructure" and report.end.cause == "wall_clock"
     assert report.attempt_commit is None
+    assert _running(marker) == [], "the stopped session left its tool running"
 
 
 def test_the_turn_limit_is_an_infrastructure_outcome(tmp_path: Path, install_bin: Path) -> None:
@@ -226,3 +229,75 @@ def test_a_session_answered_by_a_model_other_than_the_pinned_one_is_refused(
     with pytest.raises(InvocationError, match="other than the pinned one") as caught:
         dispatch(tmp_path, install_bin, steps, answer_as="claude-haiku-4-5")
     assert caught.value.context == {"asked": "claude-sonnet-4-5", "answered": "claude-haiku-4-5"}
+
+
+def _running(marker: str) -> list[str]:
+    import subprocess
+
+    out = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
+    return [line for line in out.splitlines() if marker in line and "ps -axo" not in line]
+
+
+def test_a_session_left_running_by_a_killed_orchestrator_is_stopped_with_its_tools(
+    tmp_path: Path, install_bin: Path
+) -> None:
+    import signal
+    import subprocess
+    import time
+
+    run, store_root = layout(tmp_path)
+    worktree = run.subtask_worktree("s1")
+    marker = f"sleep 23.{os.getpid()}"
+    late = worktree / "modules" / "power" / "late.py"
+    steps = [
+        tool("Read", file_path=str(worktree / SPEC)),
+        tool("Bash", command=f"{marker} ; echo late > modules/power/late.py"),
+        text("done"),
+    ]
+    cfg = config()
+    with serving(Script(main=steps)) as (_, url):
+        spec = {
+            "config": cfg.model_dump(mode="json"),
+            "repo": str(run.repo),
+            "run_dir": str(run.run_dir),
+            "store_root": str(store_root),
+            "install_bin": str(install_bin),
+            "base_url": url,
+            "api_key": DUMMY_KEY,
+            "request": request(cfg).model_dump(mode="json"),
+        }
+        (tmp_path / "standin.json").write_text(json.dumps(spec))
+        standin = subprocess.Popen(
+            [
+                sys.executable,
+                str(Path(__file__).with_name("dispatch_standin.py")),
+                str(tmp_path / "standin.json"),
+            ]
+        )
+        deadline = time.monotonic() + 60
+        while not _running(marker) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        assert _running(marker), "the session's tool never started"
+        standin.send_signal(signal.SIGKILL)
+        standin.wait()
+        time.sleep(1)
+        (record_path,) = (run.run_dir / "sessions").glob("*/process.json")
+        record = json.loads(record_path.read_text())
+        from physgate.orchestrator.processes import started_at
+
+        assert started_at(record["pid"]) == record["started"], "the orphaned session kept running"
+        dispatcher = ClaudeDispatcher(
+            config=cfg,
+            run=run,
+            store_root=store_root,
+            install_bin=install_bin,
+            binary=claude_binary(),
+            base_url=url,
+            api_key=DUMMY_KEY,
+        )
+        stopped = dispatcher.stop_leftovers()
+    assert [(s[0], s[1]) for s in stopped] == [(record["session_id"], record["pid"])]
+    time.sleep(25)
+    assert started_at(record["pid"]) is None
+    assert _running(marker) == []
+    assert not late.exists(), "a tool of the stopped session wrote after the stop"

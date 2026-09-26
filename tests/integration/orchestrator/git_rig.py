@@ -131,6 +131,9 @@ class DispatchPort:
     def environment(self) -> None:
         return None
 
+    def stop_leftovers(self) -> list[tuple[str, int, int]]:
+        return []
+
     def run(self, request: SessionRequest) -> SessionReport:
         return self.inner(request)
 

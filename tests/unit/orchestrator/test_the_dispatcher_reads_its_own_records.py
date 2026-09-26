@@ -4,15 +4,12 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
-import sys
-import time
 from pathlib import Path
 
 from loop_fakes import FakeDispatcher, Rig, plan
 from orch_helpers import SCRIPTED_BOUNDS
 
-from physgate.orchestrator.dispatch import REDACTED, ClaudeDispatcher, redact, role_prompt, stop
+from physgate.orchestrator.dispatch import REDACTED, ClaudeDispatcher, redact, role_prompt
 from physgate.orchestrator.events import EnvironmentRecorded, read_events
 from physgate.orchestrator.install import InstallFacts, filesystem_of
 from physgate.orchestrator.invocation import role_argv
@@ -75,13 +72,6 @@ def test_the_hook_log_is_read_for_this_session_only(tmp_path: Path) -> None:
     assert halted and len(appends) == 1 and appends[0].startswith("bytes [10, 90] after Bash")
     assert ClaudeDispatcher._hook_log(tmp_path, "nobody") == (False, ())
     assert ClaudeDispatcher._hook_log(tmp_path / "absent", "mine") == (False, ())
-
-
-def test_stop_ends_a_running_session_with_sigterm() -> None:
-    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
-    started = time.monotonic()
-    code = stop(child)
-    assert code is not None and code < 0 and time.monotonic() - started < 5
 
 
 def test_the_state_directory_filesystem_is_found_in_the_mount_table(tmp_path: Path) -> None:
