@@ -54,3 +54,19 @@ class RepairBudgetExhaustedError(OrchestratorError):
 
 class QueueError(OrchestratorError):
     """The approval queue was asked to do something its record forbids."""
+
+
+class MergePreconditionError(OrchestratorError):
+    """A merge was about to happen without what the ledger must show first (ARCH-001)."""
+
+
+class GateNotRegisteredError(OrchestratorError):
+    """The gate stage cannot pass: the run's gate mode needs a gate and none is registered."""
+
+
+class ReviewerNotRegisteredError(OrchestratorError):
+    """A role has no registered reviewer, or one on a model the run did not pin."""
+
+
+class RunStateError(OrchestratorError):
+    """The run is not in a state that allows what was asked: started twice, or interrupted."""

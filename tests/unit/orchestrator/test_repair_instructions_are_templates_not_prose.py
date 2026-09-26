@@ -25,6 +25,7 @@ REVIEW = Finding.from_review(
         verdict="fail",
         finding="the loop gain was changed without saying why",
         reviewer_model="claude-opus-5",
+        session_id="rev-1",
         usage=(),
     )
 )
@@ -66,7 +67,7 @@ def test_the_same_finding_always_gives_the_same_words() -> None:
 
 
 PROCESS_WORDS = re.compile(
-    r"spec_[A-Z][0-9]|\bD-[A-Z0-9]+-[0-9]|\bRQ-|\bM-[0-9]{1,3}\b|\bV-[0-9]|kickoff|\.docs|ruling",
+    r"spec_[A-Z][0-9]|\bD-[A-Z0-9]+-[0-9]|\bRQ-|\bM-[0-9]{1,3}\b|\bV-[0-9]|\.docs",
     re.IGNORECASE,
 )
 

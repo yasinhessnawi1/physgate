@@ -9,6 +9,9 @@ conflict, is answered by code or by a person.
 
 | | |
 |---|---|
+| `loop.py` | The eight stages (ARCH-030), one subtask at a time: fresh session, reading, change check, gate, review only if the gate result allows it, merge or templated rejection, diff. Refuses to start in a gate mode that needs a gate when none is registered; under gate mode `off` the stage is skipped on the record, never passed. Resume restarts an interrupted attempt at its checkpoint with a fresh session |
+| `replay.py` | `RunState`: the run's position, rebuilt from the event log, refusing a line that cannot come next at write time and at replay alike. The task ledger is projected from it, and the merge precondition reads that ledger back from disk (ARCH-001) |
+| `ports.py` | The narrow Protocols the loop is handed for what it does not decide: the session, the change check, the merge, the graph diff |
 | `events.py` | The run-event log. It is the loop's only memory: one synced, append-only line per stage transition and per decision. Each line carries its sequence number, UTC timestamp, run id and gate mode. A line the replay would refuse is refused before it is written |
 | `run_config.py` | Every input a run is reproduced from, written once before the first action: seed, model strings, bounds, gate mode, token ceiling. None has a default, and a resume under a different configuration is refused |
 | `protocols.py` | The `Gate` and `Reviewer` Protocols the loop calls, in that order, and the result shapes they hand back. No implementation of either ships here. Also the refusal to run a reviewer on the implementer's model string (ARCH-060) |

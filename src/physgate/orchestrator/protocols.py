@@ -110,6 +110,7 @@ class ReviewResult(_Frozen):
     verdict: Verdict
     finding: NonEmptyStr
     reviewer_model: ModelString
+    session_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
     usage: tuple[MessageUsage, ...]
 
 

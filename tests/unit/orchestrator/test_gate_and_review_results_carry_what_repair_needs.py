@@ -78,7 +78,9 @@ def test_a_gate_result_exists_only_for_the_modes_in_which_a_gate_runs() -> None:
 
 def test_a_reviewer_on_an_alias_is_refused() -> None:
     with pytest.raises(ValidationError, match="full model string"):
-        ReviewResult(verdict="pass", finding="fine", reviewer_model="opus", usage=())
+        ReviewResult(
+            verdict="pass", finding="fine", reviewer_model="opus", session_id="rev-1", usage=()
+        )
 
 
 def test_a_reviewer_on_the_implementers_model_is_refused() -> None:
@@ -106,7 +108,9 @@ class _TestReviewer:
     model = "claude-opus-5"
 
     def review(self, artefact: Artefact) -> ReviewResult:
-        return ReviewResult(verdict="pass", finding="ok", reviewer_model=self.model, usage=())
+        return ReviewResult(
+            verdict="pass", finding="ok", reviewer_model=self.model, session_id="rev-1", usage=()
+        )
 
 
 def test_the_protocols_are_structural_so_the_later_specs_register_without_subclassing() -> None:

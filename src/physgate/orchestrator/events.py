@@ -20,10 +20,19 @@ import os
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Any, Literal, TypeVar, cast
+from typing import Annotated, Any, Literal, Protocol, TypeVar, cast
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    TypeAdapter,
+    ValidationError,
+    model_validator,
+)
 
+from physgate.orchestrator.budget import REPAIR_BUDGET, InfraCause
 from physgate.orchestrator.common import (
     GateMode,
     NonEmptyStr,
@@ -34,11 +43,17 @@ from physgate.orchestrator.common import (
 )
 from physgate.orchestrator.exceptions import CorruptEventLogError, RunConfigError
 from physgate.orchestrator.protocols import GateResult, ReviewResult, Usage
+from physgate.orchestrator.repair import Finding
 
 #: The eight stages of the per-subtask loop, in the architecture's order (ARCH-030).
 Stage = Literal[
     "resolve", "spawn", "verify_reading", "implement", "gate", "review", "decide", "diff"
 ]
+
+#: An attempt number: the repair budget bounds it in the record itself, so a fourth
+#: attempt cannot even be written down.
+Attempt = Annotated[int, Field(ge=1, le=REPAIR_BUDGET)]
+Sha = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
 
 #: Why a run stopped short of the end of its plan.
 HaltReason = Literal["incident", "infrastructure_exhausted", "decomposition_failed"]
@@ -89,7 +104,7 @@ class StageEntered(_Event):
 
     kind: Literal["stage_entered"] = "stage_entered"
     subtask_id: NonEmptyStr
-    attempt: Annotated[int, Field(ge=1)]
+    attempt: Attempt
     stage: Stage
 
 
@@ -106,7 +121,7 @@ class GateRan(_Event):
 
     kind: Literal["gate_ran"] = "gate_ran"
     subtask_id: NonEmptyStr
-    attempt: Annotated[int, Field(ge=1)]
+    attempt: Attempt
     result: GateResult
 
 
@@ -118,7 +133,7 @@ class GateSkipped(_Event):
 
     kind: Literal["gate_skipped"] = "gate_skipped"
     subtask_id: NonEmptyStr
-    attempt: Annotated[int, Field(ge=1)]
+    attempt: Attempt
     reason: Literal["gate_mode=off"]
 
 
@@ -127,7 +142,7 @@ class ReviewRan(_Event):
 
     kind: Literal["review_ran"] = "review_ran"
     subtask_id: NonEmptyStr
-    attempt: Annotated[int, Field(ge=1)]
+    attempt: Attempt
     result: ReviewResult
 
 
@@ -144,6 +159,129 @@ class TokensUsed(_Event):
     usage: Usage
 
 
+class SessionEnded(_Event):
+    """A role session ended, and how. A completed one names its commit and trajectory."""
+
+    kind: Literal["session_ended"] = "session_ended"
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    session_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
+    outcome: Literal["completed", "infrastructure"]
+    cause: InfraCause | None
+    attempt_commit: Sha | None
+    trajectory: NonEmptyStr | None
+    worktree: NonEmptyStr | None
+    reading_verified: bool
+
+    @model_validator(mode="after")
+    def _completed_names_its_work(self) -> SessionEnded:
+        completed = self.outcome == "completed"
+        if completed != (self.cause is None):
+            msg = "an infrastructure outcome carries its cause, and a completed one none"
+            raise ValueError(msg)
+        if completed and None in (self.attempt_commit, self.trajectory, self.worktree):
+            msg = "a completed session names its attempt commit, trajectory and worktree"
+            raise ValueError(msg)
+        return self
+
+
+class InfraRetryScheduled(_Event):
+    """The same attempt will run again with a fresh session, after a delay.
+
+    Spends nothing from the repair budget.
+    """
+
+    kind: Literal["infra_retry_scheduled"] = "infra_retry_scheduled"
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    retries_done: Annotated[int, Field(ge=0)]
+    delay_s: Annotated[float, Field(ge=0)]
+
+
+class ProposalsChecked(_Event):
+    """The attempt's changes were checked before the gate.
+
+    First its write scope, then its node proposals against the store's own
+    guards on a scratch copy of the graph.
+    """
+
+    kind: Literal["proposals_checked"] = "proposals_checked"
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    refused_by: Literal["proposal", "write_scope"] | None
+    reason: NonEmptyStr | None
+    graph_root: NonEmptyStr
+
+    @model_validator(mode="after")
+    def _a_refusal_says_why(self) -> ProposalsChecked:
+        if (self.refused_by is None) != (self.reason is None):
+            msg = "a refusal names what refused and why, and an acceptance names neither"
+            raise ValueError(msg)
+        return self
+
+
+class AttemptRejected(_Event):
+    """The attempt was rejected; this spends one attempt of the repair budget."""
+
+    kind: Literal["attempt_rejected"] = "attempt_rejected"
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    finding: Finding
+
+
+class Merged(_Event):
+    """The attempt was merged into the run branch."""
+
+    kind: Literal["merged"] = "merged"
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    attempt_commit: Sha
+    merge_commit: Sha
+
+
+class DiffChecked(_Event):
+    """The graph was diffed off the durable record after the subtask's step.
+
+    Any divergence (a node written by a role that does not own it) is a blocking
+    failure caught before the next dispatch (ARCH-013).
+    """
+
+    kind: Literal["diff_checked"] = "diff_checked"
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    divergences: tuple[NonEmptyStr, ...]
+
+
+class Escalated(_Event):
+    """The subtask exhausted its repair budget and is in the approval queue."""
+
+    kind: Literal["escalated"] = "escalated"
+    subtask_id: NonEmptyStr
+    item_id: NonEmptyStr
+
+
+class Incident(_Event):
+    """Something the loop cannot answer by itself happened. The run halts after it."""
+
+    kind: Literal["incident"] = "incident"
+    subtask_id: NonEmptyStr
+    cause: Literal["cross_role_write", "merge_conflict", "foreign_journal_line", "store_refusal"]
+    detail: NonEmptyStr
+
+
+class Resumed(_Event):
+    """A process took the run over from one that stopped, at a checkpoint of the attempt.
+
+    Whatever the previous process had started after that checkpoint is done again:
+    a session is always a fresh one, never the binary's own resume.
+    """
+
+    kind: Literal["resumed"] = "resumed"
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    point: Literal["resolve", "verify_reading", "diff"]
+
+
 Event = Annotated[
     RunStarted
     | SubtaskPlanned
@@ -153,6 +291,15 @@ Event = Annotated[
     | GateSkipped
     | ReviewRan
     | TokensUsed
+    | SessionEnded
+    | InfraRetryScheduled
+    | ProposalsChecked
+    | AttemptRejected
+    | Merged
+    | DiffChecked
+    | Escalated
+    | Incident
+    | Resumed
     | Halted,
     Field(discriminator="kind"),
 ]
@@ -241,11 +388,33 @@ class _Context:
         self.count += 1
 
 
-def _parse_in(context: _Context) -> Callable[[bytes], Event]:
+class RecordState(Protocol):
+    """Something that follows a run's lines and refuses one that cannot come next.
+
+    The writer calls ``check`` before a line is written and ``record`` after it
+    is on disk; replay calls both for every line it reads. One object doing both
+    is what makes "the writer refuses what the replay refuses" true by
+    construction rather than by keeping two copies of a rule in step.
+    """
+
+    def check(self, event: Event) -> None:
+        """Raise ``ValueError`` unless ``event`` may be the next line."""
+        ...
+
+    def record(self, event: Event) -> None:
+        """Take ``event`` as the next line."""
+        ...
+
+
+def _parse_in(context: _Context, state: RecordState | None) -> Callable[[bytes], Event]:
     def parse(raw: bytes) -> Event:
         event = _EVENT.validate_json(raw)
         context.check(event)
+        if state is not None:
+            state.check(event)
         context.record(event)
+        if state is not None:
+            state.record(event)
         return event
 
     return parse
@@ -258,7 +427,7 @@ def read_events(path: Path) -> list[Event]:
         CorruptEventLogError: a complete line is not a record, or does not follow
             from the lines before it.
     """
-    events, _, corrupt = read_jsonl(Path(path), _parse_in(_Context()))
+    events, _, corrupt = read_jsonl(Path(path), _parse_in(_Context(), None))
     if corrupt is not None:
         offset, reason = corrupt
         msg = "the run-event log holds a line this package could not have written"
@@ -282,8 +451,12 @@ class EventLog:
         run_id: str,
         gate_mode: GateMode,
         clock: Callable[[], datetime] = utc_now,
+        state: RecordState | None = None,
     ) -> None:
         """Open or create the log at ``path`` for ``run_id``.
+
+        ``state``, if given, follows every line read at open and every line
+        written after, and can refuse one; the loop passes its run state here.
 
         Raises:
             CorruptEventLogError: as :func:`read_events`.
@@ -293,9 +466,10 @@ class EventLog:
         self._run = (run_id, gate_mode)
         self._clock = clock
         self._context = _Context()
+        self._state = state
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.touch(exist_ok=True)
-        events, good_end, corrupt = read_jsonl(self.path, _parse_in(self._context))
+        events, good_end, corrupt = read_jsonl(self.path, _parse_in(self._context, state))
         if corrupt is not None:
             offset, reason = corrupt
             msg = "the run-event log holds a line this package could not have written"
@@ -334,13 +508,18 @@ class EventLog:
             **fields,
         )
         self._context.check(event)
+        admitted = cast("Event", event)
+        if self._state is not None:
+            self._state.check(admitted)
         self._handle.write(event.model_dump_json().encode() + b"\n")
         self._handle.flush()
         os.fsync(self._handle.fileno())
         # Recorded only once the line is on disk, so a failed write leaves the
         # handle agreeing with the file.
         self._context.record(event)
-        self._events.append(cast("Event", event))
+        if self._state is not None:
+            self._state.record(admitted)
+        self._events.append(admitted)
         return event
 
     def close(self) -> None:
