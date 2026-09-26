@@ -76,6 +76,8 @@ class Recorded:
     offered_tools: tuple[str, ...]
     last_user: str
     served: dict[str, Any] | None
+    #: The input schema of the StructuredOutput tool, if one was offered.
+    structured_schema: dict[str, Any] | None = None
 
 
 def _text_of(content: Any) -> str:  # noqa: ANN401 - the Messages API's own content shape
@@ -272,6 +274,14 @@ class FakeMessagesApi:
                     offered_tools=offered,
                     last_user=_last_user(messages),
                     served=step,
+                    structured_schema=next(
+                        (
+                            t.get("input_schema")
+                            for t in body.get("tools") or []
+                            if t.get("name") == "StructuredOutput"
+                        ),
+                        None,
+                    ),
                 )
             )
         model = self.script.answer_as or body.get("model", "fake")

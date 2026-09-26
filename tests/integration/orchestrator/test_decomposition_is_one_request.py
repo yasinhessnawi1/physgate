@@ -146,7 +146,7 @@ def test_the_same_seed_gives_the_same_ids_and_another_seed_does_not(tmp_path: Pa
             ],
             "invalid_plan",
         ),
-        ([tool("StructuredOutput", modules=[], interface_nodes=[NODE])], "turn_limit"),
+        ([tool("StructuredOutput", modules=[], interface_nodes=[NODE])], "schema_refused"),
     ],
     ids=["a prose answer", "a plan with no interface", "a schema-violating answer"],
 )
@@ -297,3 +297,21 @@ def test_a_subscription_token_in_the_one_call_s_stream_is_redacted_before_it_is_
     assert outcome.ok, outcome.detail
     kept = (run_dir / "decomposition" / "stdout.jsonl").read_text()
     assert DUMMY_OAUTH_TOKEN not in kept and "[redacted: the credential]" in kept
+
+
+def test_the_schema_the_binary_offers_names_nothing_at_its_root(tmp_path: Path) -> None:
+    api, outcome, _ = decompose_once(tmp_path, 7, [tool("StructuredOutput", **PLAN)])
+    assert outcome.ok, outcome.detail
+    schema = api.requests[0].structured_schema
+    assert schema is not None and "modules" in schema.get("properties", {})
+    assert not {"title", "description"} & set(schema)
+
+
+def test_a_wrapped_answer_is_refused_by_the_schema_and_recorded_as_such(tmp_path: Path) -> None:
+    # Measured on the real API: the plan, correct, inside a "Plan" key.
+    api, outcome, run_dir = decompose_once(tmp_path, 7, [tool("StructuredOutput", Plan=PLAN)])
+    assert not outcome.ok and outcome.cause == "schema_refused"
+    assert "does not match required schema" in outcome.detail
+    assert len(api.requests) == 1  # still one request: the refusal ends the one turn
+    halted = [e for e in read_events(run_dir / "events.jsonl") if e.kind == "halted"]
+    assert len(halted) == 1 and halted[0].detail.startswith("schema_refused")

@@ -15,6 +15,7 @@ from physgate.orchestrator.decompose import (
     plan_schema,
     prompt_for,
     read_stream,
+    schema_refusal,
 )
 
 NODE: dict[str, Any] = {
@@ -206,3 +207,64 @@ def test_the_schema_the_binary_holds_the_answer_to_is_the_plans() -> None:
 def test_the_schema_itself_refuses_a_directory_that_starts_outside(module_dir: str) -> None:
     with pytest.raises(ValueError):
         plan([module("a", module_dir)])
+
+
+# The refusal event as the real binary wrote it (2.1.272, real API, 26.09.2026),
+# with its ids shortened.
+REAL_REFUSAL = json.dumps(
+    {
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "content": "Output does not match required schema: root: must have required "
+                    "property 'modules', root: must have required property "
+                    "'interface_nodes', root: must NOT have additional properties ('Plan' is "
+                    "not allowed)",
+                    "is_error": True,
+                    "tool_use_id": "toolu_x",
+                }
+            ],
+        },
+        "session_id": "s",
+    }
+)
+
+
+def test_the_schema_sent_to_the_binary_is_unnamed_at_its_root() -> None:
+    schema = json.loads(plan_schema())
+    assert not {"title", "description", "$id", "$comment"} & set(schema)
+    assert set(schema["required"]) == {"modules", "interface_nodes"}
+
+
+def test_a_schema_refusal_is_its_own_cause_not_the_turn_limit() -> None:
+    refused = schema_refusal(REAL_REFUSAL)
+    assert refused is not None and refused.startswith("Output does not match required schema")
+    ran_out = result(
+        subtype="error_max_turns",
+        is_error=True,
+        terminal_reason="max_turns",
+        structured_output=None,
+    )
+    got = judge(
+        ran_out,
+        exit_code=1,
+        timed_out=False,
+        model="claude-sonnet-5",
+        roles=["electrical"],
+        answered=PINNED,
+        refused=refused,
+    )
+    assert got[0] == "schema_refused" and "'Plan' is not allowed" in got[1]
+    without = judge(
+        ran_out,
+        exit_code=1,
+        timed_out=False,
+        model="claude-sonnet-5",
+        roles=["electrical"],
+        answered=PINNED,
+    )
+    assert without[0] == "turn_limit"
+    assert schema_refusal('{"type": "user", "message": {"content": "plain"}}\nnot json') is None

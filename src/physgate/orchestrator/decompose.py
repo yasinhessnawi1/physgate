@@ -62,6 +62,7 @@ FailureCause = Literal[
     "model_mismatch",
     "api_error",
     "credential_refused",
+    "schema_refused",
     "wall_clock",
     "turn_limit",
     "no_result",
@@ -89,9 +90,44 @@ class Plan(_Frozen):
     interface_nodes: Annotated[tuple[Node, ...], Field(min_length=1)]
 
 
+#: Root-level keys that name the schema rather than shape the answer. Left in, they
+#: invite a wrapper: measured on the real API, the model answered with the whole
+#: plan inside a ``"Plan"`` key, which the root's title names.
+_ROOT_NAMING = ("title", "description", "$id", "$comment")
+
+
 def plan_schema() -> str:
-    """The JSON schema the structured answer is held to by the binary."""
-    return json.dumps(Plan.model_json_schema(), sort_keys=True, separators=(",", ":"))
+    """The JSON schema the structured answer is held to by the binary, unnamed at its root."""
+    schema = {k: v for k, v in Plan.model_json_schema().items() if k not in _ROOT_NAMING}
+    return json.dumps(schema, sort_keys=True, separators=(",", ":"))
+
+
+#: How the binary reports a structured answer its schema check refused.
+_SCHEMA_REFUSAL = "Output does not match required schema"
+
+
+def schema_refusal(stdout: str) -> str | None:
+    """The binary's refusal of a structured answer, if the stream holds one.
+
+    With one turn, a refused answer ends the call at the turn limit: the refusal
+    is the cause, and it is read from the stream's tool result, since the result
+    object says only that the turns ran out.
+    """
+    for line in stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict) or event.get("type") != "user":
+            continue
+        content = (event.get("message") or {}).get("content")
+        for block in content if isinstance(content, list) else []:
+            if not isinstance(block, dict) or block.get("type") != "tool_result":
+                continue
+            text = block.get("content")
+            if isinstance(text, str) and text.startswith(_SCHEMA_REFUSAL):
+                return text
+    return None
 
 
 def plan_problems(plan: Plan, roles: Sequence[str]) -> list[str]:
@@ -207,12 +243,19 @@ def judge(
     model: str,
     roles: Sequence[str],
     answered: frozenset[str],
+    refused: str | None = None,
 ) -> tuple[FailureCause | None, str, Plan | None, str | None, int]:
-    """Decide from the result object whether the call produced a usable plan."""
+    """Decide from the result object whether the call produced a usable plan.
+
+    ``refused`` is the binary's schema refusal from the stream, if any: a call
+    that ran out of turns after one is ``schema_refused``, not ``turn_limit``.
+    """
     end = classify_session_end(result, exit_code=exit_code, stopped_at_wall_clock=timed_out)
     turns = int((result or {}).get("num_turns") or 0)
     echoed = sorted(answered)
     seen_model = echoed[0] if len(echoed) == 1 else None
+    if refused is not None and end.cause == "turn_limit":
+        return "schema_refused", refused, None, seen_model, turns
     if end.cause is not None:
         return end.cause, f"the call ended with {end.cause}", None, seen_model, turns
     if echoed != [model]:
@@ -317,6 +360,7 @@ def call(
         model=config.models.decomposition,
         roles=roles,
         answered=answered,
+        refused=schema_refusal(stdout),
     )
     return Outcome(
         session_id=session_id,
