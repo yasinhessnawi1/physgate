@@ -54,6 +54,7 @@ from physgate.orchestrator.decompose import (  # noqa: E402
     Plan,
     PlannedModule,
     binary_version,
+    read_stream,
     start_run,
 )
 from physgate.orchestrator.events import read_events  # noqa: E402
@@ -95,6 +96,45 @@ BRIEF = (
     "Plan exactly one interface node, this one, verbatim:\n"
     f"{json.dumps(INTERFACE)}\n"
 )
+
+
+C1 = "1 credential accepted"
+C2 = "2 kill mid-session"
+C3 = "3 resume exited 0, run done"
+C4 = "4 leftover stopped, nothing left running"
+C5 = "5 a fresh session completed attempt 1"
+C6 = "6 every request answered by the pinned model"
+C7 = "7 routing tokens 0"
+C8 = "8 the token in no file"
+C9 = "9 one journal write per node, one merge"
+C10 = "10 one decomposition request, pinned model, one module"
+
+
+def applicable(variant: str) -> tuple[str, ...]:
+    """The pass conditions a variant is judged by."""
+    common = (C1, C2, C3, C4, C5, C6, C7, C8, C9)
+    return (*common, C10) if variant == "b" else common
+
+
+def verdict(checks: dict[str, bool], variant: str) -> tuple[bool, list[str]]:
+    """Passed only when every applicable condition was evaluated and holds.
+
+    Returns the verdict and the conditions never reached: a run that stopped
+    before a check has not passed it.
+    """
+    not_reached = [c for c in applicable(variant) if c not in checks]
+    return not not_reached and all(checks[c] for c in applicable(variant)), not_reached
+
+
+def printed_json(path: Path) -> dict[str, Any]:
+    """The JSON object a command printed, or an empty one."""
+    text = path.read_text(errors="replace") if path.exists() else ""
+    start = text.find("{")
+    try:
+        found = json.loads(text[start:]) if start >= 0 else {}
+    except json.JSONDecodeError:
+        return {}
+    return found if isinstance(found, dict) else {}
 
 
 def utc_ms() -> str:
@@ -201,31 +241,32 @@ def spawn(root: Path, mode: str, env: dict[str, str], install: str) -> subproces
 
 
 def stream_stats(path: Path) -> dict[str, Any]:
-    """Requests, answering models and tokens from one captured stream."""
-    by_id: dict[str, dict[str, Any]] = {}
-    if path.exists():
-        for line in path.read_text(errors="replace").splitlines():
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(event, dict) or event.get("type") != "assistant":
-                continue
+    """Requests, the answering model of each, and tokens from one captured stream.
+
+    Tokens are each message's final usage, read as the orchestrator reads them.
+    """
+    text = path.read_text(errors="replace") if path.exists() else ""
+    _, usages, _ = read_stream(text)
+    model_of: dict[str, str | None] = {}
+    for line in text.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict) and event.get("type") == "assistant":
             message = event.get("message") or {}
             if message.get("id"):
-                by_id[message["id"]] = {
-                    "model": message.get("model"),
-                    "usage": message.get("usage") or {},
-                }
-    keys = ("input_tokens", "output_tokens", "cache_read_input_tokens")
-    totals = {k: sum(int(m["usage"].get(k) or 0) for m in by_id.values()) for k in keys}
-    totals["cache_creation_input_tokens"] = sum(
-        int(m["usage"].get("cache_creation_input_tokens") or 0) for m in by_id.values()
+                model_of.setdefault(message["id"], message.get("model"))
+    fields = (
+        "input_tokens",
+        "output_tokens",
+        "cache_read_input_tokens",
+        "cache_creation_input_tokens",
     )
     return {
-        "requests": len(by_id),
-        "models": [m["model"] for m in by_id.values()],
-        "tokens": totals,
+        "requests": len(usages),
+        "models": [model_of.get(u.message_id) for u in usages],
+        "tokens": {f: sum(int(getattr(u.usage, f)) for u in usages) for f in fields},
     }
 
 
@@ -300,7 +341,27 @@ def run_cycle(
         if api is not None:
             api.script = session_script()
         if code != 0:
-            return {"decomposition": decomposition, "stopped": "decomposition did not start a run"}
+            # What can be judged of a run that stopped at decomposition is judged;
+            # every other condition is left unreached, never taken as passed.
+            events = (
+                read_events(run_dir / "events.jsonl") if (run_dir / "events.jsonl").exists() else []
+            )
+            account = TokenAccount.from_events(events)
+            printed = printed_json(root / "decompose.out")
+            stopped_checks = {
+                C1: printed.get("cause") != "credential_refused",
+                C6: bool(decomposition["models"])
+                and all(m == MODEL for m in decomposition["models"]),
+                C7: account.by_kind().get("routing") is None
+                or account.by_kind()["routing"].total() == 0,
+                C10: False,
+            }
+            return {
+                "decomposition": decomposition,
+                "decompose_printed": printed,
+                "stopped": "decomposition did not start a run",
+                "checks": stopped_checks,
+            }
     else:
         start_fixed(root, endpoint_of(env.get("ANTHROPIC_BASE_URL")), version)
 
@@ -364,24 +425,19 @@ def run_cycle(
         models += decomposition["models"]
     refused = [e.cause for e in ended if e.cause == "credential_refused"]
     checks = {
-        "1 credential accepted": not refused
+        C1: not refused
         and not any(e.kind == "halted" and e.reason == "credential_refused" for e in events),
-        "2 kill mid-session": mid_task,
-        "3 resume exited 0, run done": code_resume == 0
-        and printed_step(root / "resume.out") == "done",
-        "4 leftover stopped, nothing left running": len(stopped) == 1 and not left_running(run_dir),
-        "5 a fresh session completed attempt 1": len(fresh) >= 1,
-        "6 every request answered by the pinned model": bool(models)
-        and all(m == MODEL for m in models),
-        "7 routing tokens 0": account.by_kind().get("routing") is None
-        or account.by_kind()["routing"].total() == 0,
-        "9 one journal write per node, one merge": all(n == 1 for n in writes.values())
-        and PROPOSAL in writes
-        and len(merges) == 1,
+        C2: mid_task,
+        C3: code_resume == 0 and printed_step(root / "resume.out") == "done",
+        C4: len(stopped) == 1 and not left_running(run_dir),
+        C5: len(fresh) >= 1,
+        C6: bool(models) and all(m == MODEL for m in models),
+        C7: account.by_kind().get("routing") is None or account.by_kind()["routing"].total() == 0,
+        C9: all(n == 1 for n in writes.values()) and PROPOSAL in writes and len(merges) == 1,
     }
     if decomposition is not None:
         planned = decomposition["planned"]
-        checks["10 one decomposition request, pinned model, one module"] = (
+        checks[C10] = (
             decomposition["exit"] == 0
             and decomposition["requests"] == 1
             and decomposition["models"] == [MODEL]
@@ -494,9 +550,9 @@ def main() -> None:
     else:
         result = run_cycle(run_root, args.variant, env, str(install), version, None)
     result["files_holding_the_token"] = files_holding(root, token)
-    checks = result.get("checks", {})
-    checks["8 the token in no file"] = result["files_holding_the_token"] == 0
-    result["passed"] = bool(checks) and all(checks.values())
+    checks = result.setdefault("checks", {})
+    checks[C8] = result["files_holding_the_token"] == 0
+    result["passed"], result["not_reached"] = verdict(checks, args.variant)
     result["finished_utc"] = utc_ms()
     out = {**stamp, **result}
     (root / "result.json").write_text(json.dumps(out, indent=1))
