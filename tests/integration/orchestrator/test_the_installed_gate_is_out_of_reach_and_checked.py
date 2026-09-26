@@ -5,7 +5,8 @@ read-only installation of this package, and that installation holds the gate
 the run is judged by. A session writing into it, through a file tool or its
 shell, is refused. And before any run uses an installation, the orchestrator
 holds it to the source: a gate file that differs, or one the source does not
-have, refuses the run.
+have, refuses the run; so does any file in its ``site-packages`` the build did
+not produce.
 """
 
 from __future__ import annotations
@@ -82,14 +83,6 @@ def test_an_installed_gate_file_that_differs_from_the_source_refuses_the_run(
     assert caught.value.context["differs"] == "gate/bounds/electrical.toml"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "the installation check compares every source file with its copy, and does "
-        "not yet refuse a file the source does not have; tightening it is a decision "
-        "on the installation's protection, taken outside this test"
-    ),
-)
 def test_a_file_planted_in_the_installed_gate_refuses_the_run(tmp_path: Path) -> None:
     install = tmp_path / "install"
     prepare_install(install, ROOT)
@@ -99,3 +92,16 @@ def test_a_file_planted_in_the_installed_gate_refuses_the_run(tmp_path: Path) ->
     with pytest.raises(InvocationError, match="not the source as it is now") as caught:
         require_current(install, ROOT)
     assert "gate/check_pass.py" in caught.value.context["differs"]
+
+
+def test_a_pth_file_planted_in_the_installation_refuses_the_run(tmp_path: Path) -> None:
+    # Python's startup executes a .pth file's import lines before anything else
+    # loads, even in isolated mode: planted here, it would run inside every hook.
+    install = tmp_path / "install"
+    prepare_install(install, ROOT)
+    (site,) = install.glob("lib/python*/site-packages")
+    _writable(site)
+    (site / "zz_planted.pth").write_text("import os\n")
+    with pytest.raises(InvocationError, match="not what its build produced") as caught:
+        require_current(install, ROOT)
+    assert caught.value.context["added"] == "zz_planted.pth"

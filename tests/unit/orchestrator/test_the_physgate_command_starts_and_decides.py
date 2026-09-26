@@ -171,8 +171,13 @@ def _run_args(tmp_path: Path) -> list[str]:
     (tmp_path / "install" / "bin").mkdir(parents=True, exist_ok=True)
     package = tmp_path / "install" / "lib" / "python3.12" / "site-packages" / "physgate"
     if not package.exists():
+        from physgate.orchestrator.install import MANIFEST_NAME, site_manifest
+
         source = Path(__file__).resolve().parents[3] / "src" / "physgate"
         shutil.copytree(source, package, ignore=shutil.ignore_patterns("__pycache__"))
+        # The manifest the builder writes, of what this stand-in holds.
+        manifest = site_manifest(package.parent)
+        (tmp_path / "install" / MANIFEST_NAME).write_text(json.dumps(manifest))
     return [
         "run",
         "--run-dir",

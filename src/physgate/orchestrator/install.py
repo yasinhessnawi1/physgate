@@ -21,6 +21,8 @@ The run says what it could not provide, rather than implying it did.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import stat
 import subprocess
@@ -31,6 +33,11 @@ from pydantic import BaseModel, ConfigDict
 
 from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.managed import SystemManagedFile, system_managed_facts
+
+#: What the build put in the installation's ``site-packages``, by path and sha256.
+#: Written when the installation is built, inside it, so it is as read-only and as
+#: protected as what it describes, and held against the installation at every use.
+MANIFEST_NAME = "physgate-install-manifest.json"
 
 #: Filesystems whose renames and opens go over a network; the hook state
 #: directory belongs on a local disk (the first hook's cost was measured there).
@@ -91,7 +98,9 @@ def prepare_install(dest: Path, project_root: Path) -> Path:
         if done.returncode != 0:
             msg = "building the hook installation failed"
             raise InvocationError(msg, command=" ".join(argv[:3]), stderr=done.stderr[-600:])
-    require_current(dest, project_root)
+    _require_package_is_source(dest, project_root)
+    site = _site_packages(dest)
+    (dest / MANIFEST_NAME).write_text(json.dumps(site_manifest(site), indent=1, sort_keys=True))
     for directory, dirs, files in os.walk(dest, topdown=False):
         for name in files + dirs:
             path = os.path.join(directory, name)
@@ -102,17 +111,32 @@ def prepare_install(dest: Path, project_root: Path) -> Path:
     return dest / "bin" / "physgate"
 
 
-def require_current(dest: Path, project_root: Path) -> None:
-    """Refuse an installation whose package is not the project's source as it is now.
+def _site_packages(dest: Path) -> Path:
+    found = sorted(Path(dest).glob("lib/python*/site-packages"))
+    if len(found) != 1:
+        msg = "the installation holds no single site-packages directory"
+        raise InvocationError(msg, path=str(dest))
+    return found[0]
 
-    The hooks a session runs under are this copy, not the source. A build from a
-    cache keyed on the project file, or an installation left from an earlier
-    source, would run other hook code than the source under review; checked
-    whenever an installation is built or reused.
 
-    Raises:
-        InvocationError: a source file is missing from the installation, or differs.
+def site_manifest(site: Path) -> dict[str, str]:
+    """Every file of an installation's ``site-packages``, by relative path: its sha256.
+
+    Compiled caches are left out; a symbolic link is recorded by its target.
     """
+    entries: dict[str, str] = {}
+    for path in sorted(Path(site).rglob("*")):
+        rel = path.relative_to(site)
+        if "__pycache__" in rel.parts:
+            continue
+        if path.is_symlink():
+            entries[rel.as_posix()] = "link:" + os.readlink(path)
+        elif path.is_file():
+            entries[rel.as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return entries
+
+
+def _require_package_is_source(dest: Path, project_root: Path) -> None:
     source = Path(project_root) / "src" / "physgate"
     found = sorted(Path(dest).glob("lib/python*/site-packages/physgate"))
     if len(found) != 1:
@@ -125,9 +149,56 @@ def require_current(dest: Path, project_root: Path) -> None:
         copy = found[0] / path.relative_to(source)
         if not copy.is_file() or copy.read_bytes() != path.read_bytes():
             stale.append(str(path.relative_to(source)))
+    # A file the source does not have is drift too: a module planted in the
+    # installed gate would pass a comparison that only reads the source's files.
+    for path in sorted(found[0].rglob("*")):
+        rel = path.relative_to(found[0])
+        if path.is_file() and "__pycache__" not in rel.parts and not (source / rel).is_file():
+            stale.append(f"{rel.as_posix()} (not in the source)")
     if stale:
         msg = "the installation is not the source as it is now; build a new one"
         raise InvocationError(msg, path=str(dest), differs=", ".join(stale[:5]))
+
+
+def require_current(dest: Path, project_root: Path) -> None:
+    """Refuse an installation that is not the source's build, file for file.
+
+    The hooks a session runs under are this copy, not the source, so two things
+    are held, whenever an installation is built or reused:
+
+    - its copy of the package is the project's source as it is now, with no file
+      the source lacks (a build from a cache keyed on the project file, or an
+      installation left from an earlier source, would run other hook code);
+    - everything else in its ``site-packages`` is what its own build produced,
+      recorded in a manifest when it was built. Python's startup executes the
+      lines of every ``.pth`` file there, and imports ``sitecustomize`` and
+      ``usercustomize``, before any hook or check loads and even in isolated
+      mode, so a file planted there would run inside every hook.
+
+    Raises:
+        InvocationError: the package is not the source, the manifest is missing,
+            or a file was added, removed or changed since the build.
+    """
+    _require_package_is_source(dest, project_root)
+    manifest_path = Path(dest) / MANIFEST_NAME
+    try:
+        built: dict[str, str] = json.loads(manifest_path.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        msg = "the installation has no manifest of what its build produced; build a new one"
+        raise InvocationError(msg, path=str(dest)) from None
+    now = site_manifest(_site_packages(dest))
+    added = sorted(set(now) - set(built))
+    removed = sorted(set(built) - set(now))
+    changed = sorted(k for k in set(now) & set(built) if now[k] != built[k])
+    if added or removed or changed:
+        msg = "the installation's site-packages is not what its build produced; build a new one"
+        raise InvocationError(
+            msg,
+            path=str(dest),
+            added=", ".join(added[:5]),
+            removed=", ".join(removed[:5]),
+            changed=", ".join(changed[:5]),
+        )
 
 
 def filesystem_of(path: Path) -> tuple[str, bool]:
