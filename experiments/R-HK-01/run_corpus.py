@@ -72,14 +72,13 @@ def _machine() -> dict[str, object]:
     }
 
 
-def _binary_of(code: str) -> str:
-    # The first shell word is the catalog binary; only used to test presence.
-    return code.strip().split()[0] if code.strip() else ""
-
-
 def run_one(attempt: dict[str, object], out) -> str:
     code = str(attempt["code"])
-    binary = _binary_of(code)
+    # Presence is a property of the attempt's catalog binary, recorded in the
+    # frozen list — not of whatever word happens to start the shell command
+    # (a multi-stage attempt often opens with `echo`, whose presence says
+    # nothing about whether the catalog binary that does the work is installed).
+    binary = str(attempt.get("binary") or (code.strip().split()[0] if code.strip() else ""))
     if binary and shutil.which(binary) is None:
         rec = {"id": attempt["id"], "binary": binary, "outcome": "absent",
                 "reached": [], "caught_by": [], "detail": "binary not installed"}
