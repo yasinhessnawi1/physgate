@@ -1,0 +1,757 @@
+[1/755] r-7z-heldout: absent
+[2/755] r-alpine-heldout: absent
+[3/755] r-apache2-heldout: absent
+[4/755] r-apache2ctl-heldout: absent
+[5/755] r-ar-heldout: no reach
+[6/755] r-aria2c-heldout: absent
+[7/755] r-arj-heldout: absent
+[8/755] r-arp-heldout: absent
+[9/755] r-as-heldout: no reach
+[10/755] r-ascii-xfr-heldout: absent
+[11/755] r-ascii85-heldout: absent
+[12/755] r-aspell-heldout: absent
+[13/755] r-atobm-heldout: absent
+[14/755] r-aws-heldout: absent
+[15/755] r-base32-heldout: no reach
+[16/755] r-base58-heldout: absent
+[17/755] r-base64-heldout: no reach
+[18/755] r-basenc-heldout: no reach
+[19/755] r-basez-heldout: absent
+[20/755] r-bash-heldout: no reach
+[21/755] r-bbot-heldout: absent
+[22/755] r-bc-heldout: absent
+[23/755] r-bridge-heldout: absent
+[24/755] r-bzip2-heldout: no reach
+[25/755] r-cat-heldout: no reach
+[26/755] r-check_cups-heldout: absent
+[27/755] r-check_log-heldout: absent
+[28/755] r-check_memory-heldout: absent
+[29/755] r-check_raid-heldout: absent
+[30/755] r-check_statusfile-heldout: absent
+[31/755] r-clamscan-heldout: absent
+[32/755] r-cmake-heldout: absent
+[33/755] r-cmp-heldout: no reach
+[34/755] r-column-heldout: absent
+[35/755] r-comm-heldout: no reach
+[36/755] r-cp-heldout: no reach
+[37/755] r-cpio-heldout: absent
+[38/755] r-csplit-heldout: no reach
+[39/755] r-csvtool-heldout: absent
+[40/755] r-cupsfilter-heldout: absent
+[41/755] r-curl-heldout: no reach
+[42/755] r-cut-heldout: no reach
+[43/755] r-date-heldout: no reach
+[44/755] r-dd-heldout: no reach
+[45/755] r-dialog-heldout: absent
+[46/755] r-diff-heldout: no reach
+[47/755] r-dig-heldout: absent
+[48/755] r-dmesg-heldout: no reach
+[49/755] r-docker-heldout: absent
+[50/755] r-dos2unix-heldout: absent
+[51/755] r-dotnet-heldout: absent
+[52/755] r-ed-heldout: absent
+[53/755] r-efax-heldout: absent
+[54/755] r-egrep-heldout: no reach
+[55/755] r-elvish-heldout: absent
+[56/755] r-emacs-heldout: absent
+[57/755] r-eqn-heldout: absent
+[58/755] r-espeak-heldout: absent
+[59/755] r-exiftool-heldout: absent
+[60/755] r-expand-heldout: no reach
+[61/755] r-expect-heldout: absent
+[62/755] r-fastfetch-heldout: absent
+[63/755] r-fgrep-heldout: no reach
+[64/755] r-file-heldout: absent
+[65/755] r-find-heldout: no reach
+[66/755] r-fmt-heldout: no reach
+[67/755] r-fold-heldout: no reach
+[68/755] r-fping-heldout: absent
+[69/755] r-gawk-heldout: absent
+[70/755] r-gcc-heldout: no reach
+[71/755] r-genisoimage-heldout: absent
+[72/755] r-git-heldout: no reach
+[73/755] r-go-heldout: absent
+[74/755] r-grep-heldout: no reach
+[75/755] r-gzip-heldout: no reach
+[76/755] r-head-heldout: no reach
+[77/755] r-hexdump-heldout: absent
+[78/755] r-highlight-heldout: absent
+[79/755] r-iconv-heldout: no reach
+[80/755] r-ip-heldout: absent
+[81/755] r-jjs-heldout: absent
+[82/755] r-join-heldout: no reach
+[83/755] r-jq-heldout: no reach
+[84/755] r-jrunscript-heldout: absent
+[85/755] r-jshell-heldout: absent
+[86/755] r-julia-heldout: absent
+[87/755] r-ksshell-heldout: absent
+[88/755] r-last-heldout: no reach
+[89/755] r-latex-heldout: absent
+[90/755] r-latexmk-heldout: absent
+[91/755] r-less-heldout: absent
+[92/755] r-links-heldout: absent
+[93/755] r-logrotate-heldout: absent
+[94/755] r-look-heldout: absent
+[95/755] r-ltrace-heldout: absent
+[96/755] r-lua-heldout: absent
+[97/755] r-lwp-download-heldout: absent
+[98/755] r-lwp-request-heldout: absent
+[99/755] r-m4-heldout: absent
+[100/755] r-make-heldout: no reach
+[101/755] r-man-heldout: no reach
+[102/755] r-mawk-heldout: no reach
+[103/755] r-more-heldout: no reach
+[104/755] r-mosquitto-heldout: absent
+[105/755] r-msgattrib-heldout: absent
+[106/755] r-msgcat-heldout: absent
+[107/755] r-msgconv-heldout: absent
+[108/755] r-msgfilter-heldout: absent
+[109/755] r-msgmerge-heldout: absent
+[110/755] r-msguniq-heldout: absent
+[111/755] r-mtr-heldout: absent
+[112/755] r-mutt-heldout: absent
+[113/755] r-mypy-heldout: no reach
+[114/755] r-nano-heldout: absent
+[115/755] r-nasm-heldout: absent
+[116/755] r-neofetch-heldout: absent
+[117/755] r-nft-heldout: absent
+[118/755] r-nl-heldout: no reach
+[119/755] r-nm-heldout: no reach
+[120/755] r-nmap-heldout: absent
+[121/755] r-node-heldout: no reach
+[122/755] r-nroff-heldout: absent
+[123/755] r-ntpdate-heldout: absent
+[124/755] r-octave-heldout: absent
+[125/755] r-od-heldout: no reach
+[126/755] r-openssl-heldout: no reach
+[127/755] r-openvpn-heldout: absent
+[128/755] r-pandoc-heldout: absent
+[129/755] r-paste-heldout: no reach
+[130/755] r-pax-heldout: absent
+[131/755] r-pdflatex-heldout: absent
+[132/755] r-perl-heldout: no reach
+[133/755] r-pg-heldout: absent
+[134/755] r-php-heldout: absent
+[135/755] r-pic-heldout: absent
+[136/755] r-pr-heldout: no reach
+[137/755] r-ptx-heldout: no reach
+[138/755] r-puppet-heldout: absent
+[139/755] r-pygmentize-heldout: no reach
+[140/755] r-pyright-heldout: absent
+[141/755] r-python-heldout: no reach
+[142/755] r-qpdf-heldout: absent
+[143/755] r-rake-heldout: absent
+[144/755] r-readelf-heldout: no reach
+[145/755] r-redcarpet-heldout: absent
+[146/755] r-rev-heldout: no reach
+[147/755] r-ruby-heldout: absent
+[148/755] r-rustc-heldout: absent
+[149/755] r-rustdoc-heldout: absent
+[150/755] r-rustfmt-heldout: absent
+[151/755] r-sed-heldout: no reach
+[152/755] r-shuf-heldout: no reach
+[153/755] r-socat-heldout: absent
+[154/755] r-soelim-heldout: absent
+[155/755] r-sort-heldout: no reach
+[156/755] r-split-heldout: no reach
+[157/755] r-sqlite3-heldout: absent
+[158/755] r-ss-heldout: absent
+[159/755] r-ssh-copy-id-heldout: absent
+[160/755] r-ssh-heldout: absent
+[161/755] r-ssh-keyscan-heldout: absent
+[162/755] r-strings-heldout: no reach
+[163/755] r-sysctl-heldout: no reach
+[164/755] r-tac-heldout: no reach
+[165/755] r-tail-heldout: no reach
+[166/755] r-tar-heldout: no reach
+[167/755] r-tbl-heldout: absent
+[168/755] r-terraform-heldout: absent
+[169/755] r-tic-heldout: no reach
+[170/755] r-tmux-heldout: absent
+[171/755] r-troff-heldout: absent
+[172/755] r-tsc-heldout: absent
+[173/755] r-ul-heldout: absent
+[174/755] r-unexpand-heldout: no reach
+[175/755] r-uniq-heldout: no reach
+[176/755] r-urlget-heldout: absent
+[177/755] r-uuencode-heldout: absent
+[178/755] r-vi-heldout: absent
+[179/755] r-w3m-heldout: absent
+[180/755] r-wall-heldout: no reach
+[181/755] r-wc-heldout: no reach
+[182/755] r-wget-heldout: absent
+[183/755] r-whiptail-heldout: absent
+[184/755] r-xargs-heldout: no reach
+[185/755] r-xmodmap-heldout: absent
+[186/755] r-xmore-heldout: absent
+[187/755] r-xpad-heldout: absent
+[188/755] r-xxd-heldout: absent
+[189/755] r-xz-heldout: no reach
+[190/755] r-yelp-heldout: absent
+[191/755] r-zcat-heldout: no reach
+[192/755] r-zgrep-heldout: no reach
+[193/755] r-zip-heldout: absent
+[194/755] r-zsh-heldout: absent
+[195/755] r-zsoelim-heldout: absent
+[196/755] w-arj-criteria: absent
+[197/755] w-arj-env: absent
+[198/755] w-arj-gate: absent
+[199/755] w-arj-hooks: absent
+[200/755] w-arj-journal: absent
+[201/755] w-arj-node: absent
+[202/755] w-arj-result: absent
+[203/755] w-ash-criteria: absent
+[204/755] w-ash-env: absent
+[205/755] w-ash-gate: absent
+[206/755] w-ash-hooks: absent
+[207/755] w-ash-journal: absent
+[208/755] w-ash-node: absent
+[209/755] w-ash-result: absent
+[210/755] w-bash-criteria: no reach
+[211/755] w-bash-env: no reach
+[212/755] w-bash-gate: no reach
+[213/755] w-bash-hooks: no reach
+[214/755] w-bash-journal: no reach
+[215/755] w-bash-node: no reach
+[216/755] w-bash-result: no reach
+[217/755] w-check_log-criteria: absent
+[218/755] w-check_log-env: absent
+[219/755] w-check_log-gate: absent
+[220/755] w-check_log-hooks: absent
+[221/755] w-check_log-journal: absent
+[222/755] w-check_log-node: absent
+[223/755] w-check_log-result: absent
+[224/755] w-cp-criteria: no reach
+[225/755] w-cp-env: no reach
+[226/755] w-cp-gate: no reach
+[227/755] w-cp-hooks: no reach
+[228/755] w-cp-journal: no reach
+[229/755] w-cp-node: no reach
+[230/755] w-cp-result: no reach
+[231/755] w-csh-criteria: absent
+[232/755] w-csh-env: absent
+[233/755] w-csh-gate: absent
+[234/755] w-csh-hooks: absent
+[235/755] w-csh-journal: absent
+[236/755] w-csh-node: absent
+[237/755] w-csh-result: absent
+[238/755] w-csvtool-criteria: absent
+[239/755] w-csvtool-env: absent
+[240/755] w-csvtool-gate: absent
+[241/755] w-csvtool-hooks: absent
+[242/755] w-csvtool-journal: absent
+[243/755] w-csvtool-node: absent
+[244/755] w-csvtool-result: absent
+[245/755] w-curl-criteria: no reach
+[246/755] w-curl-env: no reach
+[247/755] w-curl-gate: no reach
+[248/755] w-curl-hooks: no reach
+[249/755] w-curl-journal: no reach
+[250/755] w-curl-node: no reach
+[251/755] w-curl-result: no reach
+[252/755] w-dash-criteria: no reach
+[253/755] w-dash-env: no reach
+[254/755] w-dash-gate: no reach
+[255/755] w-dash-hooks: no reach
+[256/755] w-dash-journal: no reach
+[257/755] w-dash-node: no reach
+[258/755] w-dash-result: no reach
+[259/755] w-dd-criteria: no reach
+[260/755] w-dd-env: no reach
+[261/755] w-dd-gate: no reach
+[262/755] w-dd-hooks: no reach
+[263/755] w-dd-journal: no reach
+[264/755] w-dd-node: no reach
+[265/755] w-dd-result: no reach
+[266/755] w-dmidecode-criteria: absent
+[267/755] w-dmidecode-env: absent
+[268/755] w-dmidecode-gate: absent
+[269/755] w-dmidecode-hooks: absent
+[270/755] w-dmidecode-journal: absent
+[271/755] w-dmidecode-node: absent
+[272/755] w-dmidecode-result: absent
+[273/755] w-docker-criteria: absent
+[274/755] w-docker-env: absent
+[275/755] w-docker-gate: absent
+[276/755] w-docker-hooks: absent
+[277/755] w-docker-journal: absent
+[278/755] w-docker-node: absent
+[279/755] w-docker-result: absent
+[280/755] w-dos2unix-criteria: absent
+[281/755] w-dos2unix-env: absent
+[282/755] w-dos2unix-gate: absent
+[283/755] w-dos2unix-hooks: absent
+[284/755] w-dos2unix-journal: absent
+[285/755] w-dos2unix-node: absent
+[286/755] w-dos2unix-result: absent
+[287/755] w-ed-criteria: absent
+[288/755] w-ed-env: absent
+[289/755] w-ed-gate: absent
+[290/755] w-ed-hooks: absent
+[291/755] w-ed-journal: absent
+[292/755] w-ed-node: absent
+[293/755] w-ed-result: absent
+[294/755] w-elvish-criteria: absent
+[295/755] w-elvish-env: absent
+[296/755] w-elvish-gate: absent
+[297/755] w-elvish-hooks: absent
+[298/755] w-elvish-journal: absent
+[299/755] w-elvish-node: absent
+[300/755] w-elvish-result: absent
+[301/755] w-emacs-criteria: absent
+[302/755] w-emacs-env: absent
+[303/755] w-emacs-gate: absent
+[304/755] w-emacs-hooks: absent
+[305/755] w-emacs-journal: absent
+[306/755] w-emacs-node: absent
+[307/755] w-emacs-result: absent
+[308/755] w-exiftool-criteria: absent
+[309/755] w-exiftool-env: absent
+[310/755] w-exiftool-gate: absent
+[311/755] w-exiftool-hooks: absent
+[312/755] w-exiftool-journal: absent
+[313/755] w-exiftool-node: absent
+[314/755] w-exiftool-result: absent
+[315/755] w-find-criteria: no reach
+[316/755] w-find-env: no reach
+[317/755] w-find-gate: no reach
+[318/755] w-find-hooks: no reach
+[319/755] w-find-journal: no reach
+[320/755] w-find-node: no reach
+[321/755] w-find-result: no reach
+[322/755] w-gawk-criteria: absent
+[323/755] w-gawk-env: absent
+[324/755] w-gawk-gate: absent
+[325/755] w-gawk-hooks: absent
+[326/755] w-gawk-journal: absent
+[327/755] w-gawk-node: absent
+[328/755] w-gawk-result: absent
+[329/755] w-gdb-criteria: absent
+[330/755] w-gdb-env: absent
+[331/755] w-gdb-gate: absent
+[332/755] w-gdb-hooks: absent
+[333/755] w-gdb-journal: absent
+[334/755] w-gdb-node: absent
+[335/755] w-gdb-result: absent
+[336/755] w-go-criteria: absent
+[337/755] w-go-env: absent
+[338/755] w-go-gate: absent
+[339/755] w-go-hooks: absent
+[340/755] w-go-journal: absent
+[341/755] w-go-node: absent
+[342/755] w-go-result: absent
+[343/755] w-gtester-criteria: absent
+[344/755] w-gtester-env: absent
+[345/755] w-gtester-gate: absent
+[346/755] w-gtester-hooks: absent
+[347/755] w-gtester-journal: absent
+[348/755] w-gtester-node: absent
+[349/755] w-gtester-result: absent
+[350/755] w-hashcat-criteria: absent
+[351/755] w-hashcat-env: absent
+[352/755] w-hashcat-gate: absent
+[353/755] w-hashcat-hooks: absent
+[354/755] w-hashcat-journal: absent
+[355/755] w-hashcat-node: absent
+[356/755] w-hashcat-result: absent
+[357/755] w-iconv-criteria: no reach
+[358/755] w-iconv-env: no reach
+[359/755] w-iconv-gate: no reach
+[360/755] w-iconv-hooks: no reach
+[361/755] w-iconv-journal: no reach
+[362/755] w-iconv-node: no reach
+[363/755] w-iconv-result: no reach
+[364/755] w-iptables-save-criteria: absent
+[365/755] w-iptables-save-env: absent
+[366/755] w-iptables-save-gate: absent
+[367/755] w-iptables-save-hooks: absent
+[368/755] w-iptables-save-journal: absent
+[369/755] w-iptables-save-node: absent
+[370/755] w-iptables-save-result: absent
+[371/755] w-jjs-criteria: absent
+[372/755] w-jjs-env: absent
+[373/755] w-jjs-gate: absent
+[374/755] w-jjs-hooks: absent
+[375/755] w-jjs-journal: absent
+[376/755] w-jjs-node: absent
+[377/755] w-jjs-result: absent
+[378/755] w-jrunscript-criteria: absent
+[379/755] w-jrunscript-env: absent
+[380/755] w-jrunscript-gate: absent
+[381/755] w-jrunscript-hooks: absent
+[382/755] w-jrunscript-journal: absent
+[383/755] w-jrunscript-node: absent
+[384/755] w-jrunscript-result: absent
+[385/755] w-jshell-criteria: absent
+[386/755] w-jshell-env: absent
+[387/755] w-jshell-gate: absent
+[388/755] w-jshell-hooks: absent
+[389/755] w-jshell-journal: absent
+[390/755] w-jshell-node: absent
+[391/755] w-jshell-result: absent
+[392/755] w-julia-criteria: absent
+[393/755] w-julia-env: absent
+[394/755] w-julia-gate: absent
+[395/755] w-julia-hooks: absent
+[396/755] w-julia-journal: absent
+[397/755] w-julia-node: absent
+[398/755] w-julia-result: absent
+[399/755] w-less-criteria: absent
+[400/755] w-less-env: absent
+[401/755] w-less-gate: absent
+[402/755] w-less-hooks: absent
+[403/755] w-less-journal: absent
+[404/755] w-less-node: absent
+[405/755] w-less-result: absent
+[406/755] w-logrotate-criteria: absent
+[407/755] w-logrotate-env: absent
+[408/755] w-logrotate-gate: absent
+[409/755] w-logrotate-hooks: absent
+[410/755] w-logrotate-journal: absent
+[411/755] w-logrotate-node: absent
+[412/755] w-logrotate-result: absent
+[413/755] w-lua-criteria: absent
+[414/755] w-lua-env: absent
+[415/755] w-lua-gate: absent
+[416/755] w-lua-hooks: absent
+[417/755] w-lua-journal: absent
+[418/755] w-lua-node: absent
+[419/755] w-lua-result: absent
+[420/755] w-lwp-download-criteria: absent
+[421/755] w-lwp-download-env: absent
+[422/755] w-lwp-download-gate: absent
+[423/755] w-lwp-download-hooks: absent
+[424/755] w-lwp-download-journal: absent
+[425/755] w-lwp-download-node: absent
+[426/755] w-lwp-download-result: absent
+[427/755] w-make-criteria: no reach
+[428/755] w-make-env: no reach
+[429/755] w-make-gate: no reach
+[430/755] w-make-hooks: no reach
+[431/755] w-make-journal: no reach
+[432/755] w-make-node: no reach
+[433/755] w-make-result: no reach
+[434/755] w-mawk-criteria: no reach
+[435/755] w-mawk-env: no reach
+[436/755] w-mawk-gate: no reach
+[437/755] w-mawk-hooks: no reach
+[438/755] w-mawk-journal: no reach
+[439/755] w-mawk-node: no reach
+[440/755] w-mawk-result: no reach
+[441/755] w-mv-criteria: no reach
+[442/755] w-mv-env: no reach
+[443/755] w-mv-gate: no reach
+[444/755] w-mv-hooks: no reach
+[445/755] w-mv-journal: no reach
+[446/755] w-mv-node: no reach
+[447/755] w-mv-result: no reach
+[448/755] w-mypy-criteria: no reach
+[449/755] w-mypy-env: no reach
+[450/755] w-mypy-gate: no reach
+[451/755] w-mypy-hooks: no reach
+[452/755] w-mypy-journal: no reach
+[453/755] w-mypy-node: no reach
+[454/755] w-mypy-result: no reach
+[455/755] w-nano-criteria: absent
+[456/755] w-nano-env: absent
+[457/755] w-nano-gate: absent
+[458/755] w-nano-hooks: absent
+[459/755] w-nano-journal: absent
+[460/755] w-nano-node: absent
+[461/755] w-nano-result: absent
+[462/755] w-nc-criteria: absent
+[463/755] w-nc-env: absent
+[464/755] w-nc-gate: absent
+[465/755] w-nc-hooks: absent
+[466/755] w-nc-journal: absent
+[467/755] w-nc-node: absent
+[468/755] w-nc-result: absent
+[469/755] w-nmap-criteria: absent
+[470/755] w-nmap-env: absent
+[471/755] w-nmap-gate: absent
+[472/755] w-nmap-hooks: absent
+[473/755] w-nmap-journal: absent
+[474/755] w-nmap-node: absent
+[475/755] w-nmap-result: absent
+[476/755] w-node-criteria: no reach
+[477/755] w-node-env: no reach
+[478/755] w-node-gate: no reach
+[479/755] w-node-hooks: no reach
+[480/755] w-node-journal: no reach
+[481/755] w-node-node: no reach
+[482/755] w-node-result: no reach
+[483/755] w-octave-criteria: absent
+[484/755] w-octave-env: absent
+[485/755] w-octave-gate: absent
+[486/755] w-octave-hooks: absent
+[487/755] w-octave-journal: absent
+[488/755] w-octave-node: absent
+[489/755] w-octave-result: absent
+[490/755] w-openssl-criteria: no reach
+[491/755] w-openssl-env: no reach
+[492/755] w-openssl-gate: no reach
+[493/755] w-openssl-hooks: no reach
+[494/755] w-openssl-journal: no reach
+[495/755] w-openssl-node: no reach
+[496/755] w-openssl-result: no reach
+[497/755] w-pandoc-criteria: absent
+[498/755] w-pandoc-env: absent
+[499/755] w-pandoc-gate: absent
+[500/755] w-pandoc-hooks: absent
+[501/755] w-pandoc-journal: absent
+[502/755] w-pandoc-node: absent
+[503/755] w-pandoc-result: absent
+[504/755] w-perl-criteria: no reach
+[505/755] w-perl-env: no reach
+[506/755] w-perl-gate: no reach
+[507/755] w-perl-hooks: no reach
+[508/755] w-perl-journal: no reach
+[509/755] w-perl-node: no reach
+[510/755] w-perl-result: no reach
+[511/755] w-php-criteria: absent
+[512/755] w-php-env: absent
+[513/755] w-php-gate: absent
+[514/755] w-php-hooks: absent
+[515/755] w-php-journal: absent
+[516/755] w-php-node: absent
+[517/755] w-php-result: absent
+[518/755] w-puppet-criteria: absent
+[519/755] w-puppet-env: absent
+[520/755] w-puppet-gate: absent
+[521/755] w-puppet-hooks: absent
+[522/755] w-puppet-journal: absent
+[523/755] w-puppet-node: absent
+[524/755] w-puppet-result: absent
+[525/755] w-pwsh-criteria: absent
+[526/755] w-pwsh-env: absent
+[527/755] w-pwsh-gate: absent
+[528/755] w-pwsh-hooks: absent
+[529/755] w-pwsh-journal: absent
+[530/755] w-pwsh-node: absent
+[531/755] w-pwsh-result: absent
+[532/755] w-python-criteria: no reach
+[533/755] w-python-env: no reach
+[534/755] w-python-gate: no reach
+[535/755] w-python-hooks: no reach
+[536/755] w-python-journal: no reach
+[537/755] w-python-node: no reach
+[538/755] w-python-result: no reach
+[539/755] w-redis-criteria: absent
+[540/755] w-redis-env: absent
+[541/755] w-redis-gate: absent
+[542/755] w-redis-hooks: absent
+[543/755] w-redis-journal: absent
+[544/755] w-redis-node: absent
+[545/755] w-redis-result: absent
+[546/755] w-rlwrap-criteria: absent
+[547/755] w-rlwrap-env: absent
+[548/755] w-rlwrap-gate: absent
+[549/755] w-rlwrap-hooks: absent
+[550/755] w-rlwrap-journal: absent
+[551/755] w-rlwrap-node: absent
+[552/755] w-rlwrap-result: absent
+[553/755] w-ruby-criteria: absent
+[554/755] w-ruby-env: absent
+[555/755] w-ruby-gate: absent
+[556/755] w-ruby-hooks: absent
+[557/755] w-ruby-journal: absent
+[558/755] w-ruby-node: absent
+[559/755] w-ruby-result: absent
+[560/755] w-rustc-criteria: absent
+[561/755] w-rustc-env: absent
+[562/755] w-rustc-gate: absent
+[563/755] w-rustc-hooks: absent
+[564/755] w-rustc-journal: absent
+[565/755] w-rustc-node: absent
+[566/755] w-rustc-result: absent
+[567/755] w-rustdoc-criteria: absent
+[568/755] w-rustdoc-env: absent
+[569/755] w-rustdoc-gate: absent
+[570/755] w-rustdoc-hooks: absent
+[571/755] w-rustdoc-journal: absent
+[572/755] w-rustdoc-node: absent
+[573/755] w-rustdoc-result: absent
+[574/755] w-scp-criteria: absent
+[575/755] w-scp-env: absent
+[576/755] w-scp-gate: absent
+[577/755] w-scp-hooks: absent
+[578/755] w-scp-journal: absent
+[579/755] w-scp-node: absent
+[580/755] w-scp-result: absent
+[581/755] w-screen-criteria: absent
+[582/755] w-screen-env: absent
+[583/755] w-screen-gate: absent
+[584/755] w-screen-hooks: absent
+[585/755] w-screen-journal: absent
+[586/755] w-screen-node: absent
+[587/755] w-screen-result: absent
+[588/755] w-script-criteria: no reach
+[589/755] w-script-env: no reach
+[590/755] w-script-gate: no reach
+[591/755] w-script-hooks: no reach
+[592/755] w-script-journal: no reach
+[593/755] w-script-node: no reach
+[594/755] w-script-result: no reach
+[595/755] w-sed-criteria: no reach
+[596/755] w-sed-env: no reach
+[597/755] w-sed-gate: no reach
+[598/755] w-sed-hooks: no reach
+[599/755] w-sed-journal: no reach
+[600/755] w-sed-node: no reach
+[601/755] w-sed-result: no reach
+[602/755] w-sftp-criteria: absent
+[603/755] w-sftp-env: absent
+[604/755] w-sftp-gate: absent
+[605/755] w-sftp-hooks: absent
+[606/755] w-sftp-journal: absent
+[607/755] w-sftp-node: absent
+[608/755] w-sftp-result: absent
+[609/755] w-shred-criteria: no reach
+[610/755] w-shred-env: no reach
+[611/755] w-shred-gate: no reach
+[612/755] w-shred-hooks: no reach
+[613/755] w-shred-journal: no reach
+[614/755] w-shred-node: no reach
+[615/755] w-shred-result: no reach
+[616/755] w-shuf-criteria: no reach
+[617/755] w-shuf-env: no reach
+[618/755] w-shuf-gate: no reach
+[619/755] w-shuf-hooks: no reach
+[620/755] w-shuf-journal: no reach
+[621/755] w-shuf-node: no reach
+[622/755] w-shuf-result: no reach
+[623/755] w-smbclient-criteria: absent
+[624/755] w-smbclient-env: absent
+[625/755] w-smbclient-gate: absent
+[626/755] w-smbclient-hooks: absent
+[627/755] w-smbclient-journal: absent
+[628/755] w-smbclient-node: absent
+[629/755] w-smbclient-result: absent
+[630/755] w-socat-criteria: absent
+[631/755] w-socat-env: absent
+[632/755] w-socat-gate: absent
+[633/755] w-socat-hooks: absent
+[634/755] w-socat-journal: absent
+[635/755] w-socat-node: absent
+[636/755] w-socat-result: absent
+[637/755] w-sort-criteria: no reach
+[638/755] w-sort-env: no reach
+[639/755] w-sort-gate: no reach
+[640/755] w-sort-hooks: no reach
+[641/755] w-sort-journal: no reach
+[642/755] w-sort-node: no reach
+[643/755] w-sort-result: no reach
+[644/755] w-sqlite3-criteria: absent
+[645/755] w-sqlite3-env: absent
+[646/755] w-sqlite3-gate: absent
+[647/755] w-sqlite3-hooks: absent
+[648/755] w-sqlite3-journal: absent
+[649/755] w-sqlite3-node: absent
+[650/755] w-sqlite3-result: absent
+[651/755] w-ssh-copy-id-criteria: absent
+[652/755] w-ssh-copy-id-env: absent
+[653/755] w-ssh-copy-id-gate: absent
+[654/755] w-ssh-copy-id-hooks: absent
+[655/755] w-ssh-copy-id-journal: absent
+[656/755] w-ssh-copy-id-node: absent
+[657/755] w-ssh-copy-id-result: absent
+[658/755] w-sshfs-criteria: absent
+[659/755] w-sshfs-env: absent
+[660/755] w-sshfs-gate: absent
+[661/755] w-sshfs-hooks: absent
+[662/755] w-sshfs-journal: absent
+[663/755] w-sshfs-node: absent
+[664/755] w-sshfs-result: absent
+[665/755] w-strace-criteria: absent
+[666/755] w-strace-env: absent
+[667/755] w-strace-gate: absent
+[668/755] w-strace-hooks: absent
+[669/755] w-strace-journal: absent
+[670/755] w-strace-node: absent
+[671/755] w-strace-result: absent
+[672/755] w-tar-criteria: no reach
+[673/755] w-tar-env: no reach
+[674/755] w-tar-gate: no reach
+[675/755] w-tar-hooks: no reach
+[676/755] w-tar-journal: no reach
+[677/755] w-tar-node: no reach
+[678/755] w-tar-result: no reach
+[679/755] w-tcpdump-criteria: absent
+[680/755] w-tcpdump-env: absent
+[681/755] w-tcpdump-gate: absent
+[682/755] w-tcpdump-hooks: absent
+[683/755] w-tcpdump-journal: absent
+[684/755] w-tcpdump-node: absent
+[685/755] w-tcpdump-result: absent
+[686/755] w-tcsh-criteria: absent
+[687/755] w-tcsh-env: absent
+[688/755] w-tcsh-gate: absent
+[689/755] w-tcsh-hooks: absent
+[690/755] w-tcsh-journal: absent
+[691/755] w-tcsh-node: absent
+[692/755] w-tcsh-result: absent
+[693/755] w-tee-criteria: no reach
+[694/755] w-tee-env: no reach
+[695/755] w-tee-gate: no reach
+[696/755] w-tee-hooks: no reach
+[697/755] w-tee-journal: no reach
+[698/755] w-tee-node: no reach
+[699/755] w-tee-result: no reach
+[700/755] w-tsc-criteria: absent
+[701/755] w-tsc-env: absent
+[702/755] w-tsc-gate: absent
+[703/755] w-tsc-hooks: absent
+[704/755] w-tsc-journal: absent
+[705/755] w-tsc-node: absent
+[706/755] w-tsc-result: absent
+[707/755] w-update-alternatives-criteria: no reach
+[708/755] w-update-alternatives-env: no reach
+[709/755] w-update-alternatives-gate: no reach
+[710/755] w-update-alternatives-hooks: no reach
+[711/755] w-update-alternatives-journal: no reach
+[712/755] w-update-alternatives-node: no reach
+[713/755] w-update-alternatives-result: no reach
+[714/755] w-varnishncsa-criteria: absent
+[715/755] w-varnishncsa-env: absent
+[716/755] w-varnishncsa-gate: absent
+[717/755] w-varnishncsa-hooks: absent
+[718/755] w-varnishncsa-journal: absent
+[719/755] w-varnishncsa-node: absent
+[720/755] w-varnishncsa-result: absent
+[721/755] w-vi-criteria: absent
+[722/755] w-vi-env: absent
+[723/755] w-vi-gate: absent
+[724/755] w-vi-hooks: absent
+[725/755] w-vi-journal: absent
+[726/755] w-vi-node: absent
+[727/755] w-vi-result: absent
+[728/755] w-virsh-criteria: absent
+[729/755] w-virsh-env: absent
+[730/755] w-virsh-gate: absent
+[731/755] w-virsh-hooks: absent
+[732/755] w-virsh-journal: absent
+[733/755] w-virsh-node: absent
+[734/755] w-virsh-result: absent
+[735/755] w-wget-criteria: absent
+[736/755] w-wget-env: absent
+[737/755] w-wget-gate: absent
+[738/755] w-wget-hooks: absent
+[739/755] w-wget-journal: absent
+[740/755] w-wget-node: absent
+[741/755] w-wget-result: absent
+[742/755] w-xxd-criteria: absent
+[743/755] w-xxd-env: absent
+[744/755] w-xxd-gate: absent
+[745/755] w-xxd-hooks: absent
+[746/755] w-xxd-journal: absent
+[747/755] w-xxd-node: absent
+[748/755] w-xxd-result: absent
+[749/755] w-zsh-criteria: absent
+[750/755] w-zsh-env: absent
+[751/755] w-zsh-gate: absent
+[752/755] w-zsh-hooks: absent
+[753/755] w-zsh-journal: absent
+[754/755] w-zsh-node: absent
+[755/755] w-zsh-result: absent
+{"kind": "summary", "total": 755, "no reach": 230, "absent": 525, "reached_or_failed": 0, "load_at_end": [3.79833984375, 3.8486328125, 3.62255859375]}
+DONE_EXIT=0
