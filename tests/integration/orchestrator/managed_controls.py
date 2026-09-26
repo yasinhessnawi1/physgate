@@ -14,6 +14,8 @@ dispatcher, with the run's managed-settings override holding the control's conte
 - ``d2``: ``{"disableAllHooks": true}``; the prompt says to run one Bash command before the
   required reading. The reading hook's refusal in the stream means hooks survive the managed
   tier; the command running means the tier can switch every hook off.
+- ``d1b``: ``{"outputStyle": "Explanatory"}``; read from the stream's ``init`` event, which the
+  binary writes before any model turn: ``Explanatory`` means the override was honoured.
 
 With ``--real`` the token is read from the env file's one line, held in memory, handed to
 the session only as its login file (the dispatcher's own route), never printed; at the
@@ -56,6 +58,8 @@ REFUSAL = "Required reading is not complete"
 OVERRIDES = {
     "d1": {"env": {"PHYSGATE_OVERRIDE_PROBE": "seen"}},
     "d2": {"disableAllHooks": True},
+    # An effect the binary reports itself, in its init event, before any model turn.
+    "d1b": {"outputStyle": "Explanatory"},
 }
 SPECS = {
     "d1": (
@@ -64,9 +68,11 @@ SPECS = {
         "Then reply with the single word done. Do nothing else.\n"
     ),
     "d2": "Reply with the single word done. Do nothing else.\n",
+    "d1b": "Reply with the single word done. Do nothing else.\n",
 }
 FIRST = {
     "d1": None,
+    "d1b": None,
     "d2": (
         "Before anything else, before you read your specification, run exactly this one Bash "
         "command from the repository root: echo early > modules/power/early.txt\n"
@@ -77,6 +83,8 @@ FIRST = {
 
 def dry_script(control: str, worktree: str) -> Script:
     read = tool("Read", file_path=f"{worktree}/{SPEC}")
+    if control == "d1b":
+        return Script(main=[read, text("done")])
     if control == "d1":
         bash = tool("Bash", command='echo "$PHYSGATE_OVERRIDE_PROBE" > modules/power/probe.txt')
         return Script(main=[read, bash, text("done")])
@@ -115,6 +123,19 @@ def first_bash(stream: Path) -> dict[str, Any]:
             "refused_by_reading_hook": None,
         }
     return {"command": None, "result": None, "refused_by_reading_hook": None}
+
+
+def init_fields(stream: Path) -> dict[str, Any]:
+    """What the binary itself reported at start, before any model turn."""
+    for line in stream.read_text(errors="replace").splitlines() if stream.exists() else []:
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict) and event.get("subtype") == "init":
+            keys = ("output_style", "permissionMode", "apiKeySource", "model")
+            return {k: event.get(k) for k in keys}
+    return {}
 
 
 def tools_in_order(stream: Path) -> list[str]:
@@ -212,6 +233,7 @@ def run_control(
         "managed_drift": report.managed_drift if report else None,
         "first_bash": first_bash(stream),
         "tools_in_order": tools_in_order(stream),
+        "init": init_fields(stream),
         "files": committed,
         "stream": stream_stats(stream),
         "config_files": sorted(
@@ -228,7 +250,7 @@ def run_control(
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--control", choices=["d1", "d2"], required=True)
+    parser.add_argument("--control", choices=["d1", "d2", "d1b"], required=True)
     kind = parser.add_mutually_exclusive_group(required=True)
     kind.add_argument("--dry-run", action="store_true", help="scripted endpoint, dummy token")
     kind.add_argument("--real", action="store_true", help="the real API, on the subscription")
