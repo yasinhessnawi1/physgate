@@ -116,7 +116,7 @@ LAZY_MODULES = (
     "_weakrefset", "_zoneinfo", "array", "ast", "base64", "binascii", "bisect", "bz2", "calendar",
     "contextvars", "copy", "csv", "dataclasses", "datetime", "decimal", "dis", "email",
     "fractions", "importlib", "inspect", "ipaddress", "linecache", "locale", "lzma", "math",
-    "ntpath", "numbers", "opcode", "pathlib", "quopri", "random", "select", "selectors",
+    "ntpath", "numbers", "opcode", "pathlib", "platform", "quopri", "random", "select", "selectors",
     "shutil", "socket", "string", "struct", "sysconfig", "tempfile", "textwrap", "threading",
     "token", "tokenize", "urllib", "uuid", "weakref", "zipfile", "zlib", "zoneinfo",
 )  # fmt: skip
