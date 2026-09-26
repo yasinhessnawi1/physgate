@@ -28,10 +28,13 @@ from physgate.orchestrator.git import head_of  # noqa: E402
 from physgate.state.store import Store  # noqa: E402
 from physgate.state.task_ledger import TaskLedger  # noqa: E402
 
-pytestmark = pytest.mark.integration
-
-if not (os.environ.get("PHYSGATE_CLAUDE_BIN") or shutil.which("claude")):
-    pytest.skip("no Claude Code binary on this machine", allow_module_level=True)
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(
+        not (os.environ.get("PHYSGATE_CLAUDE_BIN") or shutil.which("claude")),
+        reason="no Claude Code binary on this machine",
+    ),
+]
 
 NODE: dict[str, Any] = {
     "id": "power.bus",
