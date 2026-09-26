@@ -280,3 +280,19 @@ def test_a_hook_script_in_the_target_repository_never_runs(tmp_path: Path) -> No
     _, commit = attempt_with(run, "s1", {"modules/power/a.py": "a\n"})
     GitMerger(run).merge("s1", 1, commit, merge_message("s1", 1, commit, "pass", "pass"))
     assert not marker.exists()
+
+
+def test_asking_again_after_later_merges_returns_the_original_merge(tmp_path: Path) -> None:
+    # Git alone would answer "already up to date" and leave HEAD on the latest
+    # merge, which is another subtask's. The merger must name the merge of this
+    # commit, not whatever the run branch points at now.
+    run = run_layout(tmp_path)
+    _, one = attempt_with(run, "s1", {"modules/power/a.py": "a\n"})
+    first = GitMerger(run).merge("s1", 1, one, merge_message("s1", 1, one, "pass", "pass"))
+    worktree = run.open_subtask("s2")
+    (worktree / "modules" / "control" / "b.py").write_text("b\n")
+    two = commit_attempt(worktree, "s2", 1, "sess-2")
+    later = GitMerger(run).merge("s2", 1, two, merge_message("s2", 1, two, "pass", "pass"))
+    again = GitMerger(run).merge("s1", 1, one, merge_message("s1", 1, one, "pass", "pass"))
+    assert again == first != later
+    assert len(sh(run.repo, "log", "--merges", "--format=%H", run.run_branch).split()) == 2
