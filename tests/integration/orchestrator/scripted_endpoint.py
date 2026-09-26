@@ -3,7 +3,9 @@
 The orchestrator's own copy of the hook layer's endpoint, with one addition: it
 can answer as a model other than the one asked for (``Script.answer_as``), so
 the orchestrator's refusal of a session answered by an unpinned model can be
-tested. The hook layer's copy is left as it is.
+tested; and a step may name the session's working directory (``{cwd}``,
+``{cwd_name}``), so one script can serve sessions in several worktrees. The hook
+layer's copy is left as it is.
 
 The bypass suite is "scripted attempts", and a model that can decline an attempt
 does not run a script. So the binary is pointed at this server, which answers
@@ -24,6 +26,7 @@ told after the hooks decided.
 from __future__ import annotations
 
 import json
+import re
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -133,6 +136,44 @@ def _events(step: dict[str, Any], model: str, n: int) -> bytes:
     return b"".join(f"event: {k}\ndata: {json.dumps(v)}\n\n".encode() for k, v in events)
 
 
+_CWD = re.compile(r"Primary working directory: (\S+)")
+
+
+def _working_directory(messages: list[dict[str, Any]]) -> str:
+    """The session's working directory, as Claude Code states it in the first message."""
+    for message in messages[:1]:
+        found = _CWD.search(_text_of(message.get("content")))
+        if found:
+            return found.group(1)
+    return ""
+
+
+def _fill(step: dict[str, Any], cwd: str) -> dict[str, Any]:
+    """Put the session's working directory into a step: ``{cwd}``, ``{cwd_name}``, ``{cwd_ident}``.
+
+    Lets one script serve sessions in different worktrees, which is what a run of
+    several subtasks needs. ``{cwd_ident}`` is the directory's name with every
+    character a node id does not allow turned into ``_``. A step without any
+    placeholder is returned as it is.
+    """
+    name = cwd.rstrip("/").rsplit("/", 1)[-1]
+    ident = re.sub(r"[^a-z0-9_]", "_", name.lower())
+
+    def fill(value: Any) -> Any:  # noqa: ANN401 - a tool's own input
+        if isinstance(value, str):
+            return (
+                value.replace("{cwd}", cwd)
+                .replace("{cwd_name}", name)
+                .replace("{cwd_ident}", ident)
+            )
+        if isinstance(value, dict):
+            return {k: fill(v) for k, v in value.items()}
+        return value
+
+    filled: dict[str, Any] = fill(step)
+    return filled
+
+
 class FakeMessagesApi:
     """The server, its script and its record of every request."""
 
@@ -157,7 +198,7 @@ class FakeMessagesApi:
             reply = {"text": "ok"}
         else:
             step = steps[done] if done < len(steps) else {"text": "done"}
-            reply = step
+            reply = _fill(step, _working_directory(messages))
         with self._lock:
             self._n += 1
             n = self._n
