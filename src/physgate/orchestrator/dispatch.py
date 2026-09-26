@@ -53,6 +53,31 @@ from physgate.orchestrator.run_config import RunConfig
 REDACTED = REDACTED_TEXT.encode()
 
 
+#: The run's own records, in the run directory. The session's working directory is
+#: one level below it, so none of these contains the worktree.
+RUN_RECORDS = ("events.jsonl", "ledger.jsonl", "run.json", "queue.jsonl", "decomposition")
+
+
+def run_protected_roots(run: RunGit) -> tuple[tuple[Path, ...], tuple[Path, ...]]:
+    """What a role session's tools may not write, beyond what the hook layer protects itself.
+
+    Returns the roots the sentinel puts back if they change, and the roots it only
+    refuses writes to, because the runtime writes them while the session runs.
+
+    - Put back: the run's records (the event log, the task ledger, the run
+      configuration, the approval queue, the decomposition call's files), the
+      orchestrator's integration worktree, and the run branch's ref in the target
+      repository. The orchestrator writes none of them while a session runs.
+    - Refused only: every session's directory, which holds each session's
+      captured stream (the trajectory the reviewer and the token account read)
+      and its process record, written by the runtime and the spawner during the
+      session.
+    """
+    ref = run.repo / ".git" / "refs" / "heads" / run.run_branch
+    reverted = (*(run.run_dir / name for name in RUN_RECORDS), run.integration, ref)
+    return reverted, (run.run_dir / "sessions",)
+
+
 def role_prompt(request: SessionRequest) -> str:
     """What a role session is told: a template, with the repair instruction if any."""
     text = (
@@ -139,6 +164,9 @@ class ClaudeDispatcher:
         if self._credential.mode == "api_key":
             key_helper = write_key_helper(state, self._credential.secret)
             helper = ["--api-key-helper", str(key_helper)]
+        reverted, refused = run_protected_roots(self._run)
+        protect = [arg for root in reverted for arg in ("--protect", str(root))]
+        protect += [arg for root in refused for arg in ("--protect-refuse-only", str(root))]
         argv = [
             str(self._install_bin),
             "hooks",
@@ -166,6 +194,7 @@ class ClaudeDispatcher:
             "--reading",
             str(worktree / request.spec_path),
             *helper,
+            *protect,
         ]
         done = subprocess.run(argv, capture_output=True, text=True, check=False)
         if done.returncode != 0:

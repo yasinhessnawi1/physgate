@@ -14,6 +14,7 @@ import json
 import os
 import shutil
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +30,7 @@ from scripted_endpoint import (  # noqa: E402
 )
 
 from physgate.orchestrator.credentials import Credential  # noqa: E402
-from physgate.orchestrator.dispatch import ClaudeDispatcher  # noqa: E402
+from physgate.orchestrator.dispatch import RUN_RECORDS, ClaudeDispatcher  # noqa: E402
 from physgate.orchestrator.exceptions import InvocationError  # noqa: E402
 from physgate.orchestrator.git import commit_all, git  # noqa: E402
 from physgate.orchestrator.install import prepare_install  # noqa: E402
@@ -49,6 +50,8 @@ pytestmark = [
 ]
 
 SPEC = ".physgate/specs/s1.md"
+#: The run's record files (the decomposition directory is the other run record).
+RECORD_FILES = tuple(name for name in RUN_RECORDS if name.endswith((".jsonl", ".json")))
 PROPOSAL: dict[str, Any] = {
     "id": "electrical.driver",
     "kind": "component",
@@ -102,8 +105,11 @@ def dispatch(
     cfg: RunConfig | None = None,
     answer_as: str | None = None,
     credential: Credential | None = None,
+    before: Callable[[RunGit], None] | None = None,
 ) -> tuple[Any, Any, RunGit]:
     run, store_root = layout(root)
+    if before is not None:
+        before(run)
     cfg = cfg or config()
     with serving(Script(main=steps, answer_as=answer_as)) as (api, url):
         dispatcher = ClaudeDispatcher(
@@ -435,3 +441,57 @@ def test_the_hook_installation_is_the_source_as_it_is_now(install_bin: Path) -> 
     for path in sorted(source.rglob("*.py")):
         copy = installed / path.relative_to(source)
         assert copy.read_bytes() == path.read_bytes(), f"stale in the installation: {copy}"
+
+
+def test_a_session_cannot_write_the_run_s_records_streams_integration_worktree_or_run_ref(
+    tmp_path: Path, install_bin: Path
+) -> None:
+    # The reproduction a review made: a role session's shell wrote the event log, the
+    # ledger, the run configuration, the integration worktree and its own captured
+    # stream. Each is now a protected root for every session.
+    run_dir = tmp_path / "run"
+    repo = tmp_path / "target"
+    records = {name: f"{name} as the orchestrator wrote it\n" for name in RECORD_FILES}
+    run_dir.mkdir(parents=True)
+    for name, content in records.items():
+        (run_dir / name).write_text(content)
+    (run_dir / "decomposition").mkdir()
+    (run_dir / "decomposition" / "stdout.jsonl").write_text("the one call\n")
+    worktree = run_dir / "worktrees" / "s1"
+    integration = run_dir / "worktrees" / "_integration"
+    ref = repo / ".git" / "refs" / "heads" / "physgate" / "run-1" / "run"
+    steps = [tool("Read", file_path=str(worktree / SPEC))]
+    for name in RECORD_FILES:
+        steps.append(tool("Bash", command=f"echo forged >> {run_dir / name}"))
+        steps.append(tool("Bash", command=f"echo forged >> ../../{name}"))
+    steps += [
+        tool("Write", file_path=str(run_dir / "events.jsonl"), content="forged\n"),
+        tool("Bash", command=f"echo forged > {run_dir / 'decomposition' / 'stdout.jsonl'}"),
+        tool("Bash", command=f"echo forged > {integration / 'forged.txt'}"),
+        tool("Write", file_path=str(integration / "README.md"), content="forged\n"),
+        tool("Bash", command="for f in ../../sessions/*/stdout.jsonl; do echo forged >> $f; done"),
+        tool("Bash", command=f"echo {'0' * 40} > {ref}"),
+        text("done"),
+    ]
+    run_head_before: dict[str, str] = {}
+
+    def before_spawn(run: RunGit) -> None:
+        run_head_before["head"] = git(run.repo, "rev-parse", run.run_branch).strip()
+        run_head_before["readme"] = (integration / "README.md").read_text()
+
+    api, (report, _), run = dispatch(tmp_path, install_bin, steps, before=before_spawn)
+    assert report.end.outcome == "completed", report
+    for name, content in records.items():
+        assert (run_dir / name).read_text() == content, name
+    assert (run_dir / "decomposition" / "stdout.jsonl").read_text() == "the one call\n"
+    assert not (integration / "forged.txt").exists()
+    assert (integration / "README.md").read_text() == run_head_before["readme"]
+    assert git(run.repo, "rev-parse", run.run_branch).strip() == run_head_before["head"]
+    stream = Path(str(report.trajectory)).read_text().splitlines()
+    assert "forged" not in stream
+    refusals = [
+        r.last_user
+        for r in api.requests[2:]
+        if "protected" in r.last_user or "put back" in r.last_user
+    ]
+    assert len(refusals) == len(steps) - 2  # every write after the reading, refused or put back
