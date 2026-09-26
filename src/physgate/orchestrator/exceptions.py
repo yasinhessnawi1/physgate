@@ -98,3 +98,7 @@ class DecompositionError(OrchestratorError):
 
 class StoreRefusalError(OrchestratorError):
     """The store refused a write the pre-check had accepted. An incident, never a retry."""
+
+
+class TrajectoryTamperedError(OrchestratorError):
+    """A session's captured stream is not what the runtime wrote, or not what was sealed."""

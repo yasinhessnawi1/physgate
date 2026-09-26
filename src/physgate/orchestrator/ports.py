@@ -20,6 +20,7 @@ from physgate.orchestrator.common import NonEmptyStr
 from physgate.orchestrator.install import InstallFacts
 from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.run_config import RunBounds
+from physgate.orchestrator.trajectory import Seal
 from physgate.state.store import JournalLine, Payload
 
 SessionId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
@@ -57,6 +58,10 @@ class SessionReport(_Frozen):
     usage: tuple[MessageUsage, ...]
     #: What changed in the managed-settings tier during the session, if anything.
     managed_drift: NonEmptyStr | None = None
+    #: The captured stream's digest and length when the session ended.
+    trajectory_seal: Seal | None = None
+    #: Why the stream is not one the runtime alone wrote (a forged tail), if it is not.
+    trajectory_tampered: NonEmptyStr | None = None
 
 
 class Leftover(_Frozen):

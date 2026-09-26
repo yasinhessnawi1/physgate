@@ -61,6 +61,7 @@ from physgate.orchestrator.exceptions import (
     ReviewerNotRegisteredError,
     RunStateError,
     StoreRefusalError,
+    TrajectoryTamperedError,
 )
 from physgate.orchestrator.merge import merge_message
 from physgate.orchestrator.ports import (
@@ -82,6 +83,7 @@ from physgate.orchestrator.record import PlanEntry, RunRecord
 from physgate.orchestrator.repair import Finding, repair_instruction
 from physgate.orchestrator.replay import AttemptState, Step, require_mergeable
 from physgate.orchestrator.run_config import RunConfig
+from physgate.orchestrator.trajectory import read_sealed
 from physgate.state.exceptions import DesignStateError, StoreStaleError
 from physgate.state.store import payload_digest
 
@@ -402,8 +404,14 @@ class Loop:
                 trajectory=report.trajectory,
                 worktree=report.worktree,
                 reading_verified=report.reading_verified,
+                trajectory_seal=report.trajectory_seal,
             )
         )
+        if report.trajectory_tampered is not None:
+            # Something other than the runtime wrote the stream after its result:
+            # nothing the session did is taken, and a person looks first.
+            self._incident(subtask_id, "trajectory_tampered", report.trajectory_tampered)
+            return False
         if report.managed_drift is not None:
             # Settings above every source the hooks were installed in changed under the
             # session: nothing it did is taken, and a person looks first.
@@ -582,6 +590,8 @@ class Loop:
             worktree=session.worktree,
             graph_root=check.graph_root,
             trajectory=session.trajectory,
+            trajectory_sha256=session.trajectory_seal.sha256 if session.trajectory_seal else None,
+            trajectory_length=session.trajectory_seal.length if session.trajectory_seal else None,
         )
         self._stage(subtask_id, attempt, "gate")
         mode = self.config.gate_mode
@@ -602,6 +612,9 @@ class Loop:
             if result.verdict == "fail" and mode == "on":
                 self._reject(subtask_id, attempt, Finding.from_gate(result))
                 return False
+        # The reviewer reads the trajectory: it must still be what was sealed.
+        if not self._trajectories_hold(subtask_id, [session]):
+            return False
         self._stage(subtask_id, attempt, "review")
         reviewer = self._reviewers[role]
         require_separate_models(implementer=self.config.models.roles[role], reviewer=reviewer.model)
@@ -699,10 +712,24 @@ class Loop:
         )
         self._sleep(delay)
 
+    def _trajectories_hold(self, subtask_id: str, sessions: list[SessionEnded]) -> bool:
+        """Every sealed trajectory is still what it was; otherwise an incident."""
+        for session in sessions:
+            if session.trajectory is None or session.trajectory_seal is None:
+                continue
+            try:
+                read_sealed(Path(session.trajectory), session.trajectory_seal)
+            except TrajectoryTamperedError as exc:
+                self._incident(subtask_id, "trajectory_tampered", f"{exc}: {exc.context}")
+                return False
+        return True
+
     def _escalate(self, subtask_id: str) -> None:
         attempts = self.state.subtasks[subtask_id].attempts
         findings = tuple(a.rejected.finding for a in attempts if a.rejected is not None)
         sessions = [a.session for a in attempts if a.session is not None]
+        if not self._trajectories_hold(subtask_id, sessions):
+            return  # the queue item would link a trajectory that is not what was sealed
         trajectories = tuple(s.trajectory for s in sessions if s.trajectory is not None)
         commits = [s.attempt_commit for s in sessions if s.attempt_commit is not None]
         item_id = f"{self.config.run_id}-{subtask_id}"

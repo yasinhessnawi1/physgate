@@ -51,6 +51,7 @@ from physgate.orchestrator.ports import Leftover, SessionReport, SessionRequest
 from physgate.orchestrator.processes import started_at, stop_tree
 from physgate.orchestrator.queue import DECISIONS_NAME
 from physgate.orchestrator.run_config import RunConfig
+from physgate.orchestrator.trajectory import forged_tail, seal, through_first_result
 
 REDACTED = REDACTED_TEXT.encode()
 
@@ -269,7 +270,15 @@ class ClaudeDispatcher:
         # The credential is on disk only while its session runs.
         remove_secrets(sdir / "state", sdir / "config")
         redact(stdout, self._credential.secret)
-        result, usage, answered = read_stream(stdout.read_text(errors="replace"))
+        # Sealed before anything reads it, and read from the same bytes.
+        data = stdout.read_bytes()
+        sealed = seal(data)
+        text = data.decode(errors="replace")
+        tampered = forged_tail(text)
+        if tampered is not None:
+            # What the runtime wrote ends at its first result; the rest is not read.
+            text = through_first_result(text)
+        result, usage, answered = read_stream(text)
         require_matching_totals(result, usage)
         end = classify_session_end(result, exit_code=exit_code, stopped_at_wall_clock=timed_out)
         if end.outcome == "completed":
@@ -295,6 +304,8 @@ class ClaudeDispatcher:
             hook_journal_appends=appends,
             usage=usage,
             managed_drift=drift(sdir / "config", system_before),
+            trajectory_seal=sealed,
+            trajectory_tampered=tampered,
         )
 
     def stop_leftovers(self) -> list[Leftover]:

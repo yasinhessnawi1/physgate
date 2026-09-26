@@ -84,6 +84,9 @@ class Artefact(_Frozen):
     worktree: NonEmptyStr
     graph_root: NonEmptyStr
     trajectory: NonEmptyStr
+    #: The trajectory's seal from the end of its session, for a reader to hold it to.
+    trajectory_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")] | None = None
+    trajectory_length: Annotated[int, Field(ge=0)] | None = None
 
 
 class GateResult(_Frozen):

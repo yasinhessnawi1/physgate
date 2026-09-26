@@ -31,6 +31,7 @@ from physgate.orchestrator.protocols import (
     Usage,
 )
 from physgate.orchestrator.record import PlanEntry
+from physgate.orchestrator.trajectory import seal
 from physgate.state.task_ledger import TaskLedger
 
 
@@ -58,6 +59,10 @@ class FakeDispatcher:
     kill_on: int | None = None
     #: Per call: what changed in the managed-settings tier during the session.
     drift: dict[int, str] = field(default_factory=dict)
+    #: Per call: why the stream is not the runtime's alone (a forged tail).
+    tampered: dict[int, str] = field(default_factory=dict)
+    #: Where to write real, sealed trajectory files; None keeps them notional.
+    trajectories: Path | None = None
     requests: list[SessionRequest] = field(default_factory=list)
 
     def environment(self) -> None:
@@ -83,11 +88,20 @@ class FakeDispatcher:
                 node_files_halted=False,
                 usage=(MessageUsage(message_id=f"m{call}", usage=usage(3)),),
             )
+        trajectory = f"sessions/{sid}/stdout.jsonl"
+        sealed = None
+        if self.trajectories is not None:
+            path = self.trajectories / sid / "stdout.jsonl"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b'{"type": "result", "session": "' + sid.encode() + b'"}\n')
+            trajectory, sealed = str(path), seal(path.read_bytes())
         return SessionReport(
             session_id=sid,
             end=SessionEnd(outcome="completed", cause=None),
             attempt_commit=sha(f"{request.subtask_id}-{request.attempt}-{call}"),
-            trajectory=f"sessions/{sid}/stdout.jsonl",
+            trajectory=trajectory,
+            trajectory_seal=sealed,
+            trajectory_tampered=self.tampered.get(call),
             worktree=f"worktrees/{request.subtask_id}",
             reading_verified=call not in self.unread,
             node_files_halted=call in self.halted,

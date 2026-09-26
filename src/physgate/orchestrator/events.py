@@ -45,6 +45,7 @@ from physgate.orchestrator.exceptions import CorruptEventLogError, RunConfigErro
 from physgate.orchestrator.install import InstallFacts
 from physgate.orchestrator.protocols import GateResult, ReviewResult, Usage
 from physgate.orchestrator.repair import Finding
+from physgate.orchestrator.trajectory import Seal
 
 #: The eight stages of the per-subtask loop, in the architecture's order (ARCH-030).
 Stage = Literal[
@@ -66,6 +67,7 @@ IncidentCause = Literal[
     "node_files_unrecoverable",
     "managed_settings_changed",
     "run_branch_moved",
+    "trajectory_tampered",
 ]
 
 #: Why a run stopped short of the end of its plan.
@@ -208,6 +210,9 @@ class SessionEnded(_Event):
     cause: InfraCause | None
     attempt_commit: Sha | None
     trajectory: NonEmptyStr | None
+    #: The trajectory's digest and length when the session ended; every later reader
+    #: holds the file to it. None for a session with no captured stream.
+    trajectory_seal: Seal | None = None
     worktree: NonEmptyStr | None
     reading_verified: bool
 
