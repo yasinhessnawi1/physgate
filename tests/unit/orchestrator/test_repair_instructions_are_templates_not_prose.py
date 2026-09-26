@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 import pytest
+from orch_helpers import gate_records
 
 from physgate.orchestrator.exceptions import RepairBudgetExhaustedError
 from physgate.orchestrator.protocols import GateResult, NumericOutput, QuantityRef, ReviewResult
@@ -15,9 +16,10 @@ GATE = Finding.from_gate(
         verdict="fail",
         mode="on",
         finding="the power budget does not balance",
-        failing_check="power_balance",
+        failing_check="power",
         numeric_output=NumericOutput(value=-1.25, unit="W"),
         quantities=(QuantityRef(node_id="power.budget", name="margin", value=-1.25, unit="W"),),
+        checks=gate_records("on", "power"),
     )
 )
 REVIEW = Finding.from_review(
@@ -35,7 +37,7 @@ def test_the_first_rejection_returns_the_finding_and_nothing_more() -> None:
     text = repair_instruction(1, GATE)
     assert "the power budget does not balance" in text
     assert "the physics gate" in text
-    assert "power_balance" not in text
+    assert "Failing check" not in text
     assert "-1.25 W" not in text
     assert "2 attempts remain" in text
 
@@ -43,7 +45,7 @@ def test_the_first_rejection_returns_the_finding_and_nothing_more() -> None:
 def test_the_second_rejection_adds_the_failing_check_and_its_number_with_unit() -> None:
     text = repair_instruction(2, GATE)
     assert "Finding: the power budget does not balance" in text
-    assert "Failing check: power_balance" in text
+    assert "Failing check: power" in text
     assert "Computed value: -1.25 W" in text
     assert "Quantity: power.budget margin = -1.25 W" in text
     assert "1 attempt remains" in text

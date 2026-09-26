@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 from loop_fakes import FakeDispatcher, FakeGraph, FakeReviewer, KilledError, Rig, plan
+from orch_helpers import gate_records
 
 from physgate.orchestrator.events import (
     DiffChecked,
@@ -296,6 +297,7 @@ def _through_the_gate(log: EventLog, verdict_fails: bool) -> None:
             failing_check=None,
             numeric_output=None,
             quantities=(),
+            checks=gate_records(mode, None),
         )
     )
     log.emit(GateRan, subtask_id="s1", attempt=1, result=result)

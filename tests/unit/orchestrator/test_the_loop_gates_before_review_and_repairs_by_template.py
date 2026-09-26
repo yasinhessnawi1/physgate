@@ -62,7 +62,7 @@ def test_three_rejections_repair_by_template_then_escalate_with_the_five_things(
     assert instructions[0] is None
     assert instructions[1] is not None and "Finding: the stall current" in instructions[1]
     assert "Failing check" not in instructions[1]
-    assert instructions[2] is not None and "Failing check: bounds" in instructions[2]
+    assert instructions[2] is not None and "Failing check: magnitude" in instructions[2]
     assert "Computed value: 3.4 A" in instructions[2]
     queue = loop.queue.open_items()
     assert len(queue) == 1
@@ -313,8 +313,8 @@ def test_each_rejection_carries_its_finding_key_and_whether_it_repeats(tmp_path:
     rejected = [e for e in read_events(tmp_path / "events.jsonl") if isinstance(e, AttemptRejected)]
     assert [e.finding_key for e in rejected] == [
         "review|-|-",
-        "gate|motor.left|bounds",
-        "gate|motor.left|bounds",
+        "gate|motor.left|magnitude",
+        "gate|motor.left|magnitude",
     ]
     assert [e.repeats_previous for e in rejected] == [False, False, True]
 

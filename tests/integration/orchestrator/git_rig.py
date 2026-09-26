@@ -15,9 +15,12 @@ from physgate.orchestrator.merge import RunGit, commit_attempt, write_scope_viol
 from physgate.orchestrator.ports import ChangeCheck, Leftover, SessionReport, SessionRequest
 from physgate.orchestrator.protocols import (
     Artefact,
+    CheckRecord,
     GateResult,
+    MagnitudeDetails,
     MessageUsage,
     NumericOutput,
+    PassDetails,
     ReviewResult,
     RunningGateMode,
     Usage,
@@ -169,10 +172,42 @@ class Gate:
             verdict=verdict,  # type: ignore[arg-type]
             mode=mode,
             finding="checked" if verdict == "pass" else "the stall current is too high",
-            failing_check=None if verdict == "pass" else "bounds",
+            failing_check=None if verdict == "pass" else "magnitude",
             numeric_output=None if verdict == "pass" else NumericOutput(value=3.4, unit="A"),
             quantities=(),
+            checks=(_record(mode, failed=verdict != "pass"),),
         )
+
+
+def _record(mode: RunningGateMode, *, failed: bool) -> CheckRecord:
+    """One magnitude record: a pass, or the stall current out of its range."""
+    amps = NumericOutput(value=3.4, unit="A")
+    details: PassDetails | MagnitudeDetails = (
+        MagnitudeDetails(
+            value=amps,
+            low=NumericOutput(value=0.36, unit="A"),
+            high=NumericOutput(value=2.0, unit="A"),
+            source="a test table",
+            table_sha256="0" * 64,
+        )
+        if failed
+        else PassDetails(evaluated=1)
+    )
+    return CheckRecord(
+        check=2,
+        name="magnitude",
+        scope="subtask",
+        outcome="fail" if failed else "pass",
+        blocking=True,
+        node="motor.left" if failed else None,
+        module=None,
+        value=amps if failed else None,
+        expected=None,
+        tool="test",
+        message="the stall current is too high" if failed else "in range",
+        gate_mode=mode,
+        details=details,
+    )
 
 
 @dataclass

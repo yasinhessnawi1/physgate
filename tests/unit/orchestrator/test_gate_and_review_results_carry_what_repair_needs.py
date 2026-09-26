@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from orch_helpers import ticking_clock
+from orch_helpers import gate_records, ticking_clock
 from pydantic import ValidationError
 
 from physgate.orchestrator.common import GateMode
@@ -37,18 +37,21 @@ def gate_result(**overrides: Any) -> GateResult:
         "verdict": "fail",
         "mode": "on",
         "finding": "the motor's stall current exceeds the driver's rating",
-        "failing_check": "bounds",
+        "failing_check": "magnitude",
         "numeric_output": NumericOutput(value=3.1, unit="A"),
         "quantities": (
             QuantityRef(node_id="motor.left", name="stall_current", value=3.1, unit="A"),
         ),
     }
     fields.update(overrides)
+    if "checks" not in fields:
+        failing = fields["failing_check"] if fields["verdict"] == "fail" else None
+        fields["checks"] = gate_records(fields["mode"], failing)
     return GateResult(**fields)
 
 
 def test_a_failing_verdict_names_its_check_and_a_pass_names_none() -> None:
-    assert gate_result().failing_check == "bounds"
+    assert gate_result().failing_check == "magnitude"
     with pytest.raises(ValidationError, match="names the check"):
         gate_result(failing_check=None)
     with pytest.raises(ValidationError, match="names the check"):

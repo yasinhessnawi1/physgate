@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from orch_helpers import make_config, ticking_clock
+from orch_helpers import gate_records, make_config, ticking_clock
 
 from physgate.orchestrator.budget import InfraCause, SessionEnd
 from physgate.orchestrator.common import GateMode
@@ -138,9 +138,10 @@ def failing_gate_result(mode: RunningGateMode) -> GateResult:
         verdict="fail",
         mode=mode,
         finding="the stall current exceeds the driver's rating",
-        failing_check="bounds",
+        failing_check="magnitude",
         numeric_output=NumericOutput(value=3.4, unit="A"),
         quantities=(QuantityRef(node_id="motor.left", name="stall_current", value=3.4, unit="A"),),
+        checks=gate_records(mode, "magnitude"),
     )
 
 
@@ -163,6 +164,7 @@ class FakeGate:
             failing_check=None,
             numeric_output=None,
             quantities=(),
+            checks=gate_records(mode, None),
         )
 
 
