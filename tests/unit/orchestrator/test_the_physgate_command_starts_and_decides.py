@@ -28,6 +28,25 @@ PARAMS = {
 }
 
 
+def fake_binary(tmp_path: Path, version: str) -> Path:
+    """A stand-in binary that only answers ``--version``."""
+    script = tmp_path / "bin" / "claude"
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text(f'#!/bin/sh\necho "{version} (Claude Code)"\n')
+    script.chmod(0o755)
+    return script
+
+
+def test_a_binary_that_is_not_the_pinned_version_is_refused_before_anything_is_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-not-a-credential")
+    monkeypatch.setenv("PHYSGATE_CLAUDE_BIN", str(fake_binary(tmp_path, "2.1.273")))
+    assert main(_decompose_args(tmp_path, PARAMS)) == 2
+    assert "2.1.273" in capsys.readouterr().err
+    assert not (tmp_path / "run").exists()
+
+
 def _decompose_args(tmp_path: Path, params: dict[str, object]) -> list[str]:
     (tmp_path / "brief.md").write_text("Build a robot.\n")
     (tmp_path / "params.json").write_text(json.dumps(params))
@@ -64,6 +83,7 @@ def test_decompose_refuses_parameters_missing_any_input(
     missing: str,
 ) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-not-a-credential")
+    monkeypatch.setenv("PHYSGATE_CLAUDE_BIN", str(fake_binary(tmp_path, "2.1.272")))
     params = {k: v for k, v in PARAMS.items() if k != missing}
     assert main(_decompose_args(tmp_path, params)) == 2
     error = json.loads(capsys.readouterr().err)

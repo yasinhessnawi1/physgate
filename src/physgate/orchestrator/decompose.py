@@ -29,7 +29,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, Validation
 
 from physgate.orchestrator.budget import classify_session_end
 from physgate.orchestrator.common import NonEmptyStr, first_problem
-from physgate.orchestrator.exceptions import DecompositionError, RunStateError
+from physgate.orchestrator.exceptions import DecompositionError, InvocationError, RunStateError
 from physgate.orchestrator.git import commit_all, init_repo
 from physgate.orchestrator.invocation import (
     claude_binary,
@@ -205,6 +205,23 @@ def judge(
     return None, "a plan", plan, seen_model, turns
 
 
+def binary_version(binary: str | None = None) -> str:
+    """The version the Claude Code binary reports, refused unless it is the pinned one.
+
+    Recorded in every run's configuration and checked again before every spawn:
+    a binary that updates itself would otherwise change the tool under
+    measurement between two runs of one spec, or in the middle of one.
+
+    Raises:
+        InvocationError: there is no binary, or it reports another version.
+    """
+    found = binary or claude_binary()
+    done = subprocess.run(
+        version_argv(found), capture_output=True, text=True, check=False, timeout=60
+    )
+    return require_pinned(done.stdout)
+
+
 def call(
     brief: str,
     *,
@@ -215,10 +232,10 @@ def call(
 ) -> Outcome:
     """Make the run's one model call, isolated, and judge what came back."""
     binary = claude_binary()
-    version = subprocess.run(
-        version_argv(binary), capture_output=True, text=True, check=False, timeout=60
-    )
-    require_pinned(version.stdout)
+    reported = binary_version(binary)
+    if reported != config.claude_version:
+        msg = "the binary is not the version this run recorded"
+        raise InvocationError(msg, reported=reported, recorded=config.claude_version)
     for name in ("home", "config", "cwd"):
         (workdir / name).mkdir(parents=True, exist_ok=True)
     settings = workdir / "settings.json"
@@ -285,7 +302,11 @@ def require_fresh(run_dir: Path) -> None:
         RunStateError: it holds a run's log, configuration or store.
     """
     if any((run_dir / name).exists() for name in ("events.jsonl", "run.json", "store")):
-        msg = "the run directory already holds a run; a rerun is a new run"
+        msg = (
+            "the run directory already holds a run; a rerun is a new run in a new directory. "
+            "A directory left by an interrupted decomposition is inert: remove it by hand, "
+            "nothing here deletes it"
+        )
         raise RunStateError(msg, run_dir=str(run_dir))
 
 

@@ -192,4 +192,7 @@ def test_the_decompose_command_twice_with_one_seed_gives_one_set_of_ids(
     first, second = json.loads(printed[0][1]), json.loads(printed[1][1])
     assert first["subtasks"] == second["subtasks"] and len(first["subtasks"]) == 2
     assert printed[2][0] == 2 and "already holds a run" in printed[2][2]
+    assert "remove it by hand" in printed[2][2]
+    recorded = json.loads((tmp_path / "a" / "run" / "run.json").read_text())
+    assert recorded["claude_version"] == "2.1.272"
     assert len(api.requests) == 2

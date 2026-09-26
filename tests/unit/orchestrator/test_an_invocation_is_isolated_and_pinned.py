@@ -64,3 +64,32 @@ def test_the_environment_is_built_from_nothing(
     )
     assert with_endpoint["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:1"
     assert with_endpoint["CLAUDE_CODE_MAX_RETRIES"] == "2"
+
+
+def _binary(tmp_path: Path, version: str) -> Path:
+    script = tmp_path / "claude"
+    script.write_text(f'#!/bin/sh\necho "{version} (Claude Code)"\n')
+    script.chmod(0o755)
+    return script
+
+
+def test_the_reported_version_is_read_from_the_binary_itself(tmp_path: Path) -> None:
+    from physgate.orchestrator.decompose import binary_version
+
+    assert binary_version(str(_binary(tmp_path, "2.1.272"))) == "2.1.272"
+    with pytest.raises(InvocationError):
+        binary_version(str(_binary(tmp_path, "2.1.280")))
+
+
+def test_a_binary_that_changed_since_the_run_recorded_it_is_refused_before_the_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from orch_helpers import make_config
+
+    from physgate.orchestrator.decompose import call
+
+    monkeypatch.setenv("PHYSGATE_CLAUDE_BIN", str(_binary(tmp_path, "2.1.272")))
+    recorded_elsewhere = make_config(claude_version="2.1.271")
+    with pytest.raises(InvocationError, match="not the version this run recorded"):
+        call("brief", config=recorded_elsewhere, workdir=tmp_path / "w", base_url=None, api_key="k")
+    assert not (tmp_path / "w").exists()

@@ -24,10 +24,9 @@ from typing import Any
 from pydantic import ValidationError
 
 from physgate.orchestrator.common import first_problem
-from physgate.orchestrator.decompose import call, require_fresh, start_run
+from physgate.orchestrator.decompose import binary_version, call, require_fresh, start_run
 from physgate.orchestrator.exceptions import OrchestratorError
 from physgate.orchestrator.git import head_of
-from physgate.orchestrator.invocation import PINNED_VERSION
 from physgate.orchestrator.queue import ApprovalQueue
 from physgate.orchestrator.run_config import RunConfig
 
@@ -73,7 +72,7 @@ def _config(args: argparse.Namespace) -> RunConfig:
         "seed": args.seed,
         "brief_sha256": hashlib.sha256(args.brief.read_bytes()).hexdigest(),
         "target_head": head_of(args.target.resolve(), "HEAD"),
-        "claude_version": PINNED_VERSION,
+        "claude_version": binary_version(),
     }
     return RunConfig.model_validate_json(json.dumps(fields))
 
@@ -84,6 +83,8 @@ def _decompose(args: argparse.Namespace) -> int:
         return _fail("ANTHROPIC_API_KEY is not set; the one model call needs it")
     try:
         config = _config(args)
+    except OrchestratorError as exc:
+        return _fail(str(exc), **exc.context)
     except ValidationError as exc:
         return _fail(
             "the run parameters are not a complete configuration", reason=first_problem(exc)
