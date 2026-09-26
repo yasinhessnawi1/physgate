@@ -15,6 +15,7 @@ from physgate.orchestrator.common import GateMode
 from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.ports import (
     ChangeCheck,
+    Leftover,
     SessionReport,
     SessionRequest,
     WorktreeRemoval,
@@ -62,7 +63,7 @@ class FakeDispatcher:
     def environment(self) -> None:
         return None
 
-    def stop_leftovers(self) -> list[tuple[str, int, int]]:
+    def stop_leftovers(self) -> list[Leftover]:
         return []
 
     def run(self, request: SessionRequest) -> SessionReport:

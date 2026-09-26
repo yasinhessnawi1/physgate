@@ -11,11 +11,20 @@ from pathlib import Path
 
 from loop_fakes import FakeDispatcher, KilledError, Rig, plan
 
+from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.dispatch import ClaudeDispatcher
-from physgate.orchestrator.events import LeftoverStopped, Resumed, StageEntered, read_events
+from physgate.orchestrator.events import (
+    LeftoverStopped,
+    Resumed,
+    StageEntered,
+    TokensUsed,
+    read_events,
+)
 from physgate.orchestrator.merge import RunGit
+from physgate.orchestrator.ports import Leftover
 from physgate.orchestrator.processes import started_at, stop_tree, tree
+from physgate.orchestrator.protocols import MessageUsage, Usage
 
 # A parent that starts a child in a process group of its own, as the Bash tool
 # does, so a group kill of the parent would miss it. Both write their pid.
@@ -86,7 +95,7 @@ def _dispatcher(run_dir: Path) -> ClaudeDispatcher:
         install_bin=run_dir / "bin" / "physgate",
         binary="/nonexistent/claude",
         base_url=None,
-        credential=Credential("api_key", "k"),
+        credential=Credential("api_key", "sk-ant-test-dummy-not-a-credential"),
     )
 
 
@@ -102,9 +111,32 @@ def test_a_resume_stops_a_recorded_session_still_running_and_only_that(tmp_path:
     (sessions / "done").mkdir()
     (sessions / "done" / "process.json").write_text(json.dumps({"pid": 1, "session_id": "done"}))
     (sessions / "done" / "ended.json").write_text("{}")
-    stopped = _dispatcher(tmp_path / "run").stop_leftovers()
+    # What the live one spent before its orchestrator died: one message, final usage 9.
+    start = {"input_tokens": 5, "output_tokens": 1}
+    (sessions / "live" / "stdout.jsonl").write_text(
+        "\n".join(
+            json.dumps(e)
+            for e in (
+                {
+                    "type": "stream_event",
+                    "event": {"type": "message_start", "message": {"id": "m1", "usage": start}},
+                },
+                {
+                    "type": "stream_event",
+                    "event": {"type": "message_delta", "usage": {**start, "output_tokens": 9}},
+                },
+            )
+        )
+    )
+    left = _dispatcher(tmp_path / "run").stop_leftovers()
     parent.wait()
-    assert stopped == [("live", pid, 1)]
+    assert [(x.session_id, x.pid, x.killed, x.stopped) for x in left] == [
+        ("live", pid, 1, True),
+        ("reused", pid, 0, False),
+    ]
+    live = left[0]
+    assert [(u.message_id, u.usage.output_tokens) for u in live.usage] == [("m1", 9)]
+    assert live.complete is False and left[1].usage == ()
     assert started_at(pid) is None and started_at(child) is None
     assert json.loads((sessions / "reused" / "ended.json").read_text()) == {
         "not_running_at_resume": True
@@ -113,9 +145,26 @@ def test_a_resume_stops_a_recorded_session_still_running_and_only_that(tmp_path:
     assert _dispatcher(tmp_path / "run").stop_leftovers() == []
 
 
+SPENT = MessageUsage(
+    message_id="m-old",
+    usage=Usage(
+        input_tokens=7, output_tokens=3, cache_read_input_tokens=11, cache_creation_input_tokens=13
+    ),
+)
+
+
 class _LeftBehind(FakeDispatcher):
-    def stop_leftovers(self) -> list[tuple[str, int, int]]:
-        return [("sess-old", 4242, 1)]
+    def stop_leftovers(self) -> list[Leftover]:
+        return [
+            Leftover(
+                session_id="sess-old",
+                pid=4242,
+                killed=1,
+                stopped=True,
+                usage=(SPENT,),
+                complete=False,
+            )
+        ]
 
 
 def test_a_resume_records_what_it_stopped_before_it_touches_the_attempt(tmp_path: Path) -> None:
@@ -135,3 +184,8 @@ def test_a_resume_records_what_it_stopped_before_it_touches_the_attempt(tmp_path
     assert [(e.session_id, e.pid, e.killed) for e in stops] == [("sess-old", 4242, 1)] * 2
     later_stage = min(e.seq for e in events if isinstance(e, StageEntered) and e.seq > stops[1].seq)
     assert stops[1].seq < resumed.seq < later_stage
+    # What the stopped session spent is in the account, marked partial.
+    spent = [e for e in events if isinstance(e, TokensUsed) and e.attribution == "session:sess-old"]
+    assert spent and all(e.partial and e.usage == SPENT.usage for e in spent)
+    account = TokenAccount.from_events(events)
+    assert account.by_attribution()["session:sess-old"] == SPENT.usage

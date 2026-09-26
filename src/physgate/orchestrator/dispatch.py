@@ -46,7 +46,7 @@ from physgate.orchestrator.install import InstallFacts, install_facts
 from physgate.orchestrator.invocation import isolated_env, role_argv
 from physgate.orchestrator.managed import drift
 from physgate.orchestrator.merge import RunGit, commit_attempt
-from physgate.orchestrator.ports import SessionReport, SessionRequest
+from physgate.orchestrator.ports import Leftover, SessionReport, SessionRequest
 from physgate.orchestrator.processes import started_at, stop_tree
 from physgate.orchestrator.run_config import RunConfig
 
@@ -263,16 +263,17 @@ class ClaudeDispatcher:
             managed_drift=drift(sdir / "config", system_before),
         )
 
-    def stop_leftovers(self) -> list[tuple[str, int, int]]:
+    def stop_leftovers(self) -> list[Leftover]:
         """Stop every session a previous orchestrator left running, before anything else.
 
         A session is found from the pid and start time recorded when it was
-        spawned; a pid now held by another process is not signalled. Returns the
-        session id, the pid and how many of its processes needed SIGKILL, for each
-        session that was still running. Then every session's credential files
-        are removed and its stream redacted.
+        spawned; a pid now held by another process is not signalled. Every
+        session left without an end is returned, stopped or not, with what its
+        captured stream shows it spent: its orchestrator died before recording
+        that, and nothing else will. Every session's credential files are then
+        removed and its stream redacted, before the stream is read.
         """
-        stopped: list[tuple[str, int, int]] = []
+        found: list[tuple[Path, str, int, int, bool]] = []
         for record_path in sorted((self._run.run_dir / "sessions").glob("*/process.json")):
             ended = record_path.parent / "ended.json"
             if ended.exists():
@@ -281,16 +282,32 @@ class ClaudeDispatcher:
             pid, started = int(record["pid"]), record.get("started")
             if started is not None and started_at(pid) == started:
                 killed = stop_tree(pid, started)
-                stopped.append((str(record["session_id"]), pid, killed))
                 ended.write_text(json.dumps({"stopped_at_resume": True, "killed": killed}))
+                found.append((record_path.parent, str(record["session_id"]), pid, killed, True))
             else:
                 ended.write_text(json.dumps({"not_running_at_resume": True}))
+                found.append((record_path.parent, str(record["session_id"]), pid, 0, False))
         # Nothing of this run is running now, so no session still needs its credential.
         # A killed orchestrator never removed it; its stream was never redacted either.
         for sdir in sorted(p for p in (self._run.run_dir / "sessions").glob("*") if p.is_dir()):
             remove_secrets(sdir / "state", sdir / "config")
             redact(sdir / "stdout.jsonl", self._credential.secret)
-        return stopped
+        leftovers = []
+        for sdir, session_id, pid, killed, stopped in found:
+            stream = sdir / "stdout.jsonl"
+            text = stream.read_text(errors="replace") if stream.exists() else ""
+            result, usage, _ = read_stream(text)
+            leftovers.append(
+                Leftover(
+                    session_id=session_id,
+                    pid=pid,
+                    killed=killed,
+                    stopped=stopped,
+                    usage=usage,
+                    complete=result is not None,
+                )
+            )
+        return leftovers
 
     @staticmethod
     def _read_in_full(config_path: Path, session_id: str) -> bool:

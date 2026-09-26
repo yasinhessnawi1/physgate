@@ -59,6 +59,23 @@ class SessionReport(_Frozen):
     managed_drift: NonEmptyStr | None = None
 
 
+class Leftover(_Frozen):
+    """A session a previous orchestrator left without an end, found at a resume.
+
+    ``stopped`` is whether it was still running and had to be stopped. Its usage
+    is what its captured stream shows, each message's final usage; ``complete``
+    is whether the stream holds the binary's result (a stopped session's never
+    does, so its usage is partial and has nothing to be checked against).
+    """
+
+    session_id: SessionId
+    pid: Annotated[int, Field(ge=1)]
+    killed: Annotated[int, Field(ge=0)]
+    stopped: bool
+    usage: tuple[MessageUsage, ...] = ()
+    complete: bool = False
+
+
 class ChangeCheck(_Frozen):
     """The verdict on an attempt's changes before the gate sees them."""
 
@@ -85,8 +102,8 @@ class Dispatcher(Protocol):
         """Spawn, wait within the request's bounds, stop, and report."""
         ...
 
-    def stop_leftovers(self) -> list[tuple[str, int, int]]:
-        """Stop every session a previous orchestrator left running; say which."""
+    def stop_leftovers(self) -> list[Leftover]:
+        """Stop every session a previous orchestrator left running; say which, and what it spent."""
         ...
 
     def environment(self) -> InstallFacts | None:

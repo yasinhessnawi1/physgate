@@ -191,6 +191,9 @@ class TokensUsed(_Event):
     attribution: Annotated[str, StringConstraints(pattern=ATTRIBUTION)]
     message_id: NonEmptyStr
     usage: Usage
+    #: Read from a session a killed orchestrator left behind, whose stream has no
+    #: result: its last message may be cut off, and nothing checks the sum.
+    partial: bool = False
 
 
 class SessionEnded(_Event):

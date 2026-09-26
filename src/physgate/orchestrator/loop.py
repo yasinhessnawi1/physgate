@@ -231,10 +231,24 @@ class Loop:
         """Stop what a previous process left running, before anything reads or writes."""
         if not self.log.events:
             return
-        for session_id, pid, killed in self._dispatcher.stop_leftovers():
-            self._emit(
-                LeftoverStopped(**self._env(), session_id=session_id, pid=pid, killed=killed)
-            )
+        for left in self._dispatcher.stop_leftovers():
+            if left.stopped:
+                self._emit(
+                    LeftoverStopped(
+                        **self._env(), session_id=left.session_id, pid=left.pid, killed=left.killed
+                    )
+                )
+            # Spent, and never recorded: its orchestrator died first.
+            for message in left.usage:
+                self._emit(
+                    TokensUsed(
+                        **self._env(),
+                        attribution=f"session:{left.session_id}",
+                        message_id=message.message_id,
+                        usage=message.usage,
+                        partial=not left.complete,
+                    )
+                )
 
     def _clean_up_worktrees(self) -> None:
         """Remove the worktrees the rules allow, recording each; never stall or fail the run.

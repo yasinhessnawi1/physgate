@@ -324,7 +324,14 @@ def test_a_session_left_running_by_a_killed_orchestrator_is_stopped_with_its_too
         )
         assert (record_path.parent / "state" / "key").exists()
         stopped = dispatcher.stop_leftovers()
-    assert [(s[0], s[1]) for s in stopped] == [(record["session_id"], record["pid"])]
+    assert [(s.session_id, s.pid, s.stopped) for s in stopped] == [
+        (record["session_id"], record["pid"], True)
+    ]
+    # It had made requests before the orchestrator died; what they spent is returned,
+    # partial, since a stopped session's stream has no result.
+    (left,) = stopped
+    assert left.usage and not left.complete
+    assert all(u.usage.output_tokens > 0 for u in left.usage)
     # The killed orchestrator never removed the key; the resume did.
     assert not (record_path.parent / "state" / "key").exists()
     assert not (record_path.parent / "state" / "key-helper.sh").exists()

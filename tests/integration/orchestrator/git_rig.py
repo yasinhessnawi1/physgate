@@ -12,7 +12,7 @@ from typing import Any
 from physgate.orchestrator.budget import SessionEnd
 from physgate.orchestrator.git import head_of
 from physgate.orchestrator.merge import RunGit, commit_attempt, write_scope_violations
-from physgate.orchestrator.ports import ChangeCheck, SessionReport, SessionRequest
+from physgate.orchestrator.ports import ChangeCheck, Leftover, SessionReport, SessionRequest
 from physgate.orchestrator.protocols import (
     Artefact,
     GateResult,
@@ -132,7 +132,7 @@ class DispatchPort:
     def environment(self) -> None:
         return None
 
-    def stop_leftovers(self) -> list[tuple[str, int, int]]:
+    def stop_leftovers(self) -> list[Leftover]:
         return []
 
     def run(self, request: SessionRequest) -> SessionReport:
