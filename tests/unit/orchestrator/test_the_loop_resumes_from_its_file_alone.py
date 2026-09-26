@@ -249,3 +249,61 @@ def test_nothing_but_a_resume_may_follow_a_halt(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="halted"):
         loop.log.emit(StageEntered, subtask_id="s1", attempt=1, stage="resolve")
     loop.close()
+
+
+def _through_the_gate(log: EventLog, verdict_fails: bool) -> None:
+    from loop_fakes import failing_gate_result, sha
+
+    from physgate.orchestrator.events import GateRan, ProposalsChecked
+    from physgate.orchestrator.protocols import GateResult, RunningGateMode
+
+    for stage in ("resolve", "spawn"):
+        log.emit(StageEntered, subtask_id="s1", attempt=1, stage=stage)
+    log.emit(
+        SessionEnded,
+        subtask_id="s1",
+        attempt=1,
+        session_id="sess-1",
+        outcome="completed",
+        cause=None,
+        attempt_commit=sha("c"),
+        trajectory="t",
+        worktree="w",
+        reading_verified=True,
+    )
+    for stage in ("verify_reading", "implement"):
+        log.emit(StageEntered, subtask_id="s1", attempt=1, stage=stage)
+    log.emit(
+        ProposalsChecked, subtask_id="s1", attempt=1, refused_by=None, reason=None, graph_root="g"
+    )
+    log.emit(StageEntered, subtask_id="s1", attempt=1, stage="gate")
+    mode: RunningGateMode = "on"
+    result = (
+        failing_gate_result(mode)
+        if verdict_fails
+        else GateResult(
+            verdict="pass",
+            mode=mode,
+            finding="ok",
+            failing_check=None,
+            numeric_output=None,
+            quantities=(),
+        )
+    )
+    log.emit(GateRan, subtask_id="s1", attempt=1, result=result)
+
+
+def test_the_record_refuses_a_review_after_a_blocking_gate_failed(tmp_path: Path) -> None:
+    log = _started(tmp_path)
+    _through_the_gate(log, verdict_fails=True)
+    with pytest.raises(ValueError, match="'review' cannot follow"):
+        log.emit(StageEntered, subtask_id="s1", attempt=1, stage="review")
+    log.emit(StageEntered, subtask_id="s1", attempt=1, stage="decide")
+    log.close()
+
+
+def test_the_record_allows_a_review_after_a_passing_gate(tmp_path: Path) -> None:
+    log = _started(tmp_path)
+    _through_the_gate(log, verdict_fails=False)
+    log.emit(StageEntered, subtask_id="s1", attempt=1, stage="review")
+    log.close()
