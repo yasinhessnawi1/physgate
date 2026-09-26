@@ -203,3 +203,15 @@ def test_a_binary_that_is_not_the_recorded_version_is_refused_before_any_spawn(
     with pytest.raises(InvocationError, match="not the version this run recorded"):
         dispatch(tmp_path, install_bin, [text("never")], cfg)
     assert not (tmp_path / "run" / "sessions").exists()
+
+
+def test_a_key_that_reaches_the_stream_anyway_is_redacted_before_anything_reads_it(
+    tmp_path: Path, install_bin: Path
+) -> None:
+    # The helper keeps the key out of the environment; this is the second layer,
+    # for a key that reaches the stream some other way, here in the model's words.
+    worktree = tmp_path / "run" / "worktrees" / "s1"
+    steps = [tool("Read", file_path=str(worktree / SPEC)), text(f"the key is {DUMMY_KEY}")]
+    _, (report, _), _ = dispatch(tmp_path, install_bin, steps)
+    captured = Path(str(report.trajectory)).read_text()
+    assert DUMMY_KEY not in captured and "[redacted: the API key]" in captured
