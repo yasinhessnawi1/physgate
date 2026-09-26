@@ -42,6 +42,7 @@ from physgate.orchestrator.common import (
     utc_stamp,
 )
 from physgate.orchestrator.exceptions import CorruptEventLogError, RunConfigError
+from physgate.orchestrator.install import InstallFacts
 from physgate.orchestrator.protocols import GateResult, ReviewResult, Usage
 from physgate.orchestrator.repair import Finding
 
@@ -335,6 +336,18 @@ class NodeFilesRepaired(_Event):
     quarantined: tuple[NonEmptyStr, ...]
 
 
+class EnvironmentRecorded(_Event):
+    """The machine the process runs on, as the hooks depend on it: recorded, not assumed.
+
+    Recorded by every process that drives the run, since a resume can happen on
+    another machine. Where the machine cannot provide an installation the session's
+    user cannot write, or a local disk for the hook state, this says so.
+    """
+
+    kind: Literal["environment_recorded"] = "environment_recorded"
+    facts: InstallFacts
+
+
 class Resumed(_Event):
     """A process took the run over from one that stopped, at a checkpoint of the attempt.
 
@@ -367,6 +380,7 @@ Event = Annotated[
     | Incident
     | Resumed
     | Decomposed
+    | EnvironmentRecorded
     | WriteIntended
     | WriteDone
     | NodeFilesRepaired

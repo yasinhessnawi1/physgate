@@ -9,7 +9,7 @@ failure rather than a review note, over the package's source:
 - no provider client and no network library is imported anywhere in it;
 - nothing imports a module by a name computed at run time;
 - a process can be spawned only from the modules whose job that is (dispatch,
-  decomposition, the git helper);
+  decomposition, the git helper, the installer);
 - the Claude Code binary is named only in the one module that builds a model
   invocation.
 
@@ -45,7 +45,9 @@ SPAWNING = {"subprocess", "pty", "multiprocessing", "asyncio.subprocess"}
 OS_SPAWN = {"system", "popen", "fork", "forkpty", "posix_spawn", "posix_spawnp"}
 OS_SPAWN_PREFIXES = ("exec", "spawn")
 DYNAMIC_IMPORT = {"import_module", "__import__"}
-MAY_SPAWN = {"dispatch.py", "decompose.py", "git.py"}
+#: The modules whose job is a process: sessions, the one call, git, and the
+#: installer that builds the hooks' read-only installation. None of them routes.
+MAY_SPAWN = {"dispatch.py", "decompose.py", "git.py", "install.py"}
 MAY_NAME_THE_BINARY = {"invocation.py"}
 
 

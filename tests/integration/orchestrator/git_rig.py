@@ -128,6 +128,9 @@ class DispatchPort:
     def __init__(self, inner: GitDispatcher) -> None:
         self.inner = inner
 
+    def environment(self) -> None:
+        return None
+
     def run(self, request: SessionRequest) -> SessionReport:
         return self.inner(request)
 

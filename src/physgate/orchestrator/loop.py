@@ -27,6 +27,7 @@ from physgate.orchestrator.common import utc_now
 from physgate.orchestrator.events import (
     AttemptRejected,
     DiffChecked,
+    EnvironmentRecorded,
     Escalated,
     GateRan,
     GateSkipped,
@@ -142,6 +143,7 @@ class Loop:
         self._merger = merger
         self._graph = graph
         self._sleep = sleep
+        self._appends: tuple[str, ...] = ()
         self.record = RunRecord(config, self.run_dir, clock=clock)
         self.state = self.record.state
         self.log = self.record.log
@@ -211,6 +213,9 @@ class Loop:
         return self._drive()
 
     def _drive(self) -> Step:
+        facts = self._dispatcher.environment()
+        if facts is not None and self.state.next_step().kind not in ("done", "halted"):
+            self._emit(EnvironmentRecorded, facts=facts)
         while True:
             step = self.state.next_step()
             if step.kind in ("done", "halted"):
@@ -287,6 +292,7 @@ class Loop:
         )
         if report.end.outcome != "completed":
             return False
+        self._appends = report.hook_journal_appends
         if not self._journal_clean():
             return False
         return not report.node_files_halted or self._repair_node_files(subtask_id, attempt)
@@ -354,6 +360,8 @@ class Loop:
                 f"journal revision {line.rev}, a {line.op} of {line.node_id}, was not written "
                 "by the orchestrator"
             )
+            if self._appends:
+                detail += "; the hook log recorded: " + " | ".join(self._appends)
             self._incident(subtask_id, "foreign_journal_line", detail)
             return False
         self._graph.hold()

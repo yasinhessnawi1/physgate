@@ -26,6 +26,7 @@ from physgate.orchestrator.events import (
     AttemptRejected,
     Decomposed,
     DiffChecked,
+    EnvironmentRecorded,
     Escalated,
     Event,
     GateRan,
@@ -146,8 +147,8 @@ class RunState:
         if isinstance(event, Decomposed):
             self.journal_head = event.head_revision
             return
-        if isinstance(event, TokensUsed):
-            return  # attributed, never a transition
+        if isinstance(event, TokensUsed | EnvironmentRecorded):
+            return  # attributed or recorded, never a transition
         sub = self.subtasks[event.subtask_id]
         if isinstance(event, SubtaskRemoved):
             if sub.status != "planned":

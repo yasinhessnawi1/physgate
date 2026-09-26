@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from physgate.orchestrator.budget import SessionEnd
 from physgate.orchestrator.common import NonEmptyStr
+from physgate.orchestrator.install import InstallFacts
 from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.run_config import RunBounds
 from physgate.state.store import JournalLine
@@ -51,6 +52,8 @@ class SessionReport(_Frozen):
     worktree: NonEmptyStr | None
     reading_verified: bool
     node_files_halted: bool
+    #: The hook log's record of every append to the graph journal during the session.
+    hook_journal_appends: tuple[NonEmptyStr, ...] = ()
     usage: tuple[MessageUsage, ...]
 
 
@@ -69,6 +72,10 @@ class Dispatcher(Protocol):
 
     def run(self, request: SessionRequest) -> SessionReport:
         """Spawn, wait within the request's bounds, stop, and report."""
+        ...
+
+    def environment(self) -> InstallFacts | None:
+        """What the hooks' installation and the session state directory are, on this machine."""
         ...
 
 

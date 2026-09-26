@@ -51,6 +51,9 @@ class FakeDispatcher:
     kill_on: int | None = None
     requests: list[SessionRequest] = field(default_factory=list)
 
+    def environment(self) -> None:
+        return None
+
     def run(self, request: SessionRequest) -> SessionReport:
         self.requests.append(request)
         call = len(self.requests)

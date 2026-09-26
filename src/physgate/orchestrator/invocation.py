@@ -115,3 +115,37 @@ def isolated_env(
     if api_key:
         env["ANTHROPIC_API_KEY"] = api_key
     return env
+
+
+def role_argv(
+    binary: str,
+    *,
+    prompt: str,
+    spawn_args: tuple[str, ...],
+    model: str,
+    session_id: str,
+    max_turns: int,
+) -> list[str]:
+    """A role session: the hook layer's spawn arguments, the stream the trajectory is.
+
+    Never ``--resume``: a resumed session replays turns from a file the session's
+    own user can write, including turns the model never produced (measured).
+    """
+    return [
+        binary,
+        "-p",
+        prompt,
+        *spawn_args,
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--include-hook-events",
+        "--model",
+        model,
+        "--session-id",
+        session_id,
+        "--max-turns",
+        str(max_turns),
+        "--permission-mode",
+        "bypassPermissions",
+    ]
