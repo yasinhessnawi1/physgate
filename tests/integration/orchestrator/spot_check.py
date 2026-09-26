@@ -108,11 +108,12 @@ C7 = "7 routing tokens 0"
 C8 = "8 the token in no file"
 C9 = "9 one journal write per node, one merge"
 C10 = "10 one decomposition request, pinned model, one module"
+C11 = "11 the managed-settings tier unchanged under every invocation"
 
 
 def applicable(variant: str) -> tuple[str, ...]:
     """The pass conditions a variant is judged by."""
-    common = (C1, C2, C3, C4, C5, C6, C7, C8, C9)
+    common = (C1, C2, C3, C4, C5, C6, C7, C8, C9, C11)
     return (*common, C10) if variant == "b" else common
 
 
@@ -124,6 +125,15 @@ def verdict(checks: dict[str, bool], variant: str) -> tuple[bool, list[str]]:
     """
     not_reached = [c for c in applicable(variant) if c not in checks]
     return not not_reached and all(checks[c] for c in applicable(variant)), not_reached
+
+
+def managed_cache(config_dir: Path) -> dict[str, str | None]:
+    """What the binary left of the managed tier in one invocation's configuration directory."""
+    found: dict[str, str | None] = {}
+    for name in ("remote-settings.json", "policy-limits.json"):
+        path = config_dir / name
+        found[name] = path.read_text()[:400] if path.exists() else None
+    return found
 
 
 def printed_json(path: Path) -> dict[str, Any]:
@@ -337,6 +347,8 @@ def run_cycle(
             ]
             if (run_dir / "events.jsonl").exists()
             else [],
+            "cause": printed_json(root / "decompose.out").get("cause"),
+            "managed_cache": managed_cache(run_dir / "decomposition" / "config"),
         }
         if api is not None:
             api.script = session_script()
@@ -355,6 +367,7 @@ def run_cycle(
                 C7: account.by_kind().get("routing") is None
                 or account.by_kind()["routing"].total() == 0,
                 C10: False,
+                C11: printed.get("cause") != "managed_settings_changed",
             }
             return {
                 "decomposition": decomposition,
@@ -402,7 +415,10 @@ def run_cycle(
     after = events[killed_at:]
     killed_id = str(record["session_id"]) if record else None
     sessions = {
-        p.parent.name: stream_stats(p.parent / "stdout.jsonl")
+        p.parent.name: {
+            **stream_stats(p.parent / "stdout.jsonl"),
+            "managed_cache": managed_cache(p.parent / "config"),
+        }
         for p in sorted((run_dir / "sessions").glob("*/process.json"))
     }
     ended = [e for e in events if e.kind == "session_ended"]
@@ -434,6 +450,8 @@ def run_cycle(
         C6: bool(models) and all(m == MODEL for m in models),
         C7: account.by_kind().get("routing") is None or account.by_kind()["routing"].total() == 0,
         C9: all(n == 1 for n in writes.values()) and PROPOSAL in writes and len(merges) == 1,
+        C11: not any(e.kind == "incident" and e.cause == "managed_settings_changed" for e in events)
+        and (decomposition is None or decomposition.get("cause") != "managed_settings_changed"),
     }
     if decomposition is not None:
         planned = decomposition["planned"]

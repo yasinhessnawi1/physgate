@@ -18,7 +18,7 @@ def test_a_run_that_stopped_before_its_checks_has_not_passed() -> None:
     passed, not_reached = verdict(checks, "b")
     assert passed is False
     assert not_reached == [c for c in applicable("b") if c not in checks]
-    assert len(not_reached) == 5
+    assert len(not_reached) == 6
 
 
 def test_every_condition_reached_and_holding_is_a_pass_and_one_false_is_not() -> None:
@@ -37,4 +37,4 @@ def test_nothing_reached_is_never_a_pass() -> None:
 def test_every_reached_condition_holding_is_still_no_pass_while_any_is_unreached() -> None:
     # Exactly the first real run's printout: the one condition it judged held.
     passed, not_reached = verdict({C8: True}, "b")
-    assert passed is False and C8 not in not_reached and len(not_reached) == 9
+    assert passed is False and C8 not in not_reached and len(not_reached) == 10
