@@ -55,6 +55,8 @@ class FakeDispatcher:
     unread: set[int] = field(default_factory=set)
     halted: set[int] = field(default_factory=set)
     kill_on: int | None = None
+    #: Per call: what changed in the managed-settings tier during the session.
+    drift: dict[int, str] = field(default_factory=dict)
     requests: list[SessionRequest] = field(default_factory=list)
 
     def environment(self) -> None:
@@ -88,6 +90,7 @@ class FakeDispatcher:
             worktree=f"worktrees/{request.subtask_id}",
             reading_verified=call not in self.unread,
             node_files_halted=call in self.halted,
+            managed_drift=self.drift.get(call),
             usage=(
                 MessageUsage(message_id=f"m{call}a", usage=usage(10)),
                 MessageUsage(message_id=f"m{call}a", usage=usage(10)),

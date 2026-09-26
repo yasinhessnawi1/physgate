@@ -354,6 +354,11 @@ class Loop:
                 reading_verified=report.reading_verified,
             )
         )
+        if report.managed_drift is not None:
+            # Settings above every source the hooks were installed in changed under the
+            # session: nothing it did is taken, and a person looks first.
+            self._incident(subtask_id, "managed_settings_changed", report.managed_drift)
+            return False
         if report.end.outcome != "completed":
             return False
         self._appends = report.hook_journal_appends

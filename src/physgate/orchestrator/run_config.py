@@ -130,6 +130,8 @@ class RunConfig(_Frozen):
     target_head: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
     endpoint: Endpoint
     auth: AuthMode
+    #: The run's managed-settings override file's sha256: checked before every spawn.
+    managed_override_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 
     def canonical_bytes(self) -> bytes:
         """The recorded form: stable key order, so equal configs are equal bytes."""

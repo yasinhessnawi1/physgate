@@ -7,6 +7,7 @@ from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from physgate.orchestrator.managed import EMPTY_OVERRIDE_SHA256
 from physgate.orchestrator.run_config import ModelStrings, RunBounds, RunConfig
 
 SCRIPTED_BOUNDS = RunBounds(
@@ -35,6 +36,7 @@ def make_config(**overrides: Any) -> RunConfig:
         "target_head": "b" * 40,
         "endpoint": "default",
         "auth": "api_key",
+        "managed_override_sha256": EMPTY_OVERRIDE_SHA256,
     }
     fields.update(overrides)
     return RunConfig(**fields)

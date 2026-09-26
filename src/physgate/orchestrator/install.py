@@ -30,6 +30,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from physgate.orchestrator.exceptions import InvocationError
+from physgate.orchestrator.managed import SystemManagedFile, system_managed_facts
 
 #: Filesystems whose renames and opens go over a network; the hook state
 #: directory belongs on a local disk (the first hook's cost was measured there).
@@ -50,6 +51,8 @@ class InstallFacts(BaseModel):
     stdlib_writable: bool
     state_filesystem: str
     state_on_local_disk: bool
+    #: The system paths the managed-settings tier is read from, as they are now.
+    system_managed: tuple[SystemManagedFile, ...] = ()
 
 
 def prepare_install(dest: Path, project_root: Path) -> Path:
@@ -146,4 +149,5 @@ def install_facts(dest: Path, state_dir: Path) -> InstallFacts:
         stdlib_writable=bool(base) and os.access(base, os.W_OK),
         state_filesystem=fs,
         state_on_local_disk=local,
+        system_managed=system_managed_facts(),
     )

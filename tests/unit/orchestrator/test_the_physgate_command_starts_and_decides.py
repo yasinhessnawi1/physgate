@@ -224,6 +224,7 @@ def test_both_example_parameters_files_are_complete_configurations() -> None:
                     "claude_version": "2.1.272",
                     "target_head": "b" * 40,
                     "endpoint": "default",
+                    "managed_override_sha256": "0" * 64,
                 }
             )
         )

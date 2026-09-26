@@ -64,6 +64,7 @@ IncidentCause = Literal[
     "foreign_journal_line",
     "store_refusal",
     "node_files_unrecoverable",
+    "managed_settings_changed",
 ]
 
 #: Why a run stopped short of the end of its plan.

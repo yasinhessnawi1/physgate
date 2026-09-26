@@ -30,6 +30,7 @@ from physgate.orchestrator.credentials import Credential  # noqa: E402
 from physgate.orchestrator.decompose import call, start_run  # noqa: E402
 from physgate.orchestrator.events import Decomposed, Halted, read_events  # noqa: E402
 from physgate.orchestrator.git import head_of  # noqa: E402
+from physgate.orchestrator.managed import write_override  # noqa: E402
 from physgate.state.store import Store  # noqa: E402
 from physgate.state.task_ledger import TaskLedger  # noqa: E402
 
@@ -90,6 +91,7 @@ def decompose_once(
             workdir=root / "run" / "decomposition",
             base_url=url,
             credential=credential or Credential("api_key", DUMMY_KEY),
+            override=write_override(root / "run"),
         )
     record = start_run(outcome, config=cfg, run_dir=root / "run", target_repo=repo)
     record.close()
@@ -341,3 +343,15 @@ def test_the_one_call_s_account_must_match_the_binary_s_totals(
     with pytest.raises(AccountingError) as caught:
         decompose_once(tmp_path, 7, [tool("StructuredOutput", **PLAN)])
     assert caught.value.context["field"] == "output_tokens"
+
+
+def test_the_one_call_names_the_run_s_override_and_drift_fails_the_call(tmp_path: Path) -> None:
+    # Remote managed settings found in the call's configuration directory
+    # afterwards, as a delivered fetch would leave them: the call fails.
+    cached = tmp_path / "run" / "decomposition" / "config" / "remote-settings.json"
+    cached.parent.mkdir(parents=True)
+    cached.write_text('{"disableAllHooks": true}')
+    _, outcome, run_dir = decompose_once(tmp_path, 7, [tool("StructuredOutput", **PLAN)])
+    assert not outcome.ok and outcome.cause == "managed_settings_changed"
+    assert "remote managed settings were delivered" in outcome.detail
+    assert (run_dir / "managed-settings-override.json").read_bytes() == b"{}\n"

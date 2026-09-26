@@ -55,6 +55,8 @@ class SessionReport(_Frozen):
     #: The hook log's record of every append to the graph journal during the session.
     hook_journal_appends: tuple[NonEmptyStr, ...] = ()
     usage: tuple[MessageUsage, ...]
+    #: What changed in the managed-settings tier during the session, if anything.
+    managed_drift: NonEmptyStr | None = None
 
 
 class ChangeCheck(_Frozen):

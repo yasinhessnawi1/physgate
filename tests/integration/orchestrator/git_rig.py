@@ -11,6 +11,7 @@ from typing import Any
 
 from physgate.orchestrator.budget import SessionEnd
 from physgate.orchestrator.git import head_of
+from physgate.orchestrator.managed import EMPTY_OVERRIDE_SHA256
 from physgate.orchestrator.merge import RunGit, commit_attempt, write_scope_violations
 from physgate.orchestrator.ports import ChangeCheck, SessionReport, SessionRequest
 from physgate.orchestrator.protocols import (
@@ -238,6 +239,7 @@ def config(run_id: str = "run-1") -> RunConfig:
         target_head="b" * 40,
         endpoint="default",
         auth="api_key",
+        managed_override_sha256=EMPTY_OVERRIDE_SHA256,
     )
 
 
