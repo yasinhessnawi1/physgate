@@ -325,3 +325,14 @@ def test_a_temperature_limit_written_in_degrees_celsius_is_not_refused(tmp_path:
         ),
     )
     assert ran.observations == () and ran.evaluated == 5
+
+
+def test_a_supply_nothing_draws_from_is_not_a_unit_error(tmp_path: Path) -> None:
+    # Found by the injected-error suite: an empty side of a relation was read as
+    # a dimensionless zero, and compared with watts, which pint refuses.
+    ran = run_check(
+        tmp_path,
+        node("electrical.battery", quantities={"power_supply": (20, "W")}),
+        node("electrical.drive", kind="module", quantities={"heat_rejection_capacity": (3, "W")}),
+    )
+    assert [o for o in ran.observations if o.outcome == "fail"] == []

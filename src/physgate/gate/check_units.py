@@ -167,6 +167,10 @@ def run(ctx: CheckContext) -> CheckRun:
     for instance in touching(instances(view), own):
         if instance.missing or any((r.node, r.name) in refused for r in instance.refs()):
             continue
+        if not instance.left or not instance.right:
+            # A side with no terms (a supply nothing draws from yet) has no unit to
+            # compare; reading it as a dimensionless zero was a false refusal.
+            continue
         evaluated += 1
         finding = _relation_finding(view, instance)
         if finding is not None:
