@@ -60,6 +60,105 @@ def graph(root: Path, *payloads: dict[str, Any]) -> int:
         store.close()
 
 
+# One wrong artefact per check, each otherwise sound: the unit, the range, the
+# mount, the module's budget, the module's mass, the component's temperature.
+# The comment on each says what is wrong and where the architecture refuses it.
+
+#: Check 1, at subtask scope: a stall current compared with a limit in volts.
+UNITS = (
+    node("electrical.driver", quantities={"current_limit": (2.4, "V")}),
+    node(
+        "electrical.motor_left",
+        quantities={"stall_current": (2.4, "A")},
+        constrains=["electrical.driver"],
+    ),
+)
+#: Check 2, at subtask scope: an IMU sampled at 50 kHz, above the register's 8 kHz.
+MAGNITUDE = (node("electrical.imu", quantities={"sample_rate": (50_000, "Hz")}),)
+#: Check 3, at module scope: a 1 kg wheel at 0.1 m on a bearing declaring no moment.
+EQUILIBRIUM = (
+    node("mechanical.wheel_mount", domain="mechanical", kind="module"),
+    node(
+        "mechanical.bearing",
+        domain="mechanical",
+        quantities={
+            "support_position": (0, "m"),
+            "reaction_force": (9.80665, "N"),
+            "reaction_moment": (0, "N*m"),
+        },
+        constrains=["mechanical.wheel_mount"],
+    ),
+    node(
+        "mechanical.wheel",
+        domain="mechanical",
+        quantities={"mount_position": (0.1, "m"), "mass": (1, "kg")},
+        constrains=["mechanical.wheel_mount"],
+    ),
+)
+#: Check 4, at module scope: 15 W drawn from a module that supplies 10 W.
+POWER = (
+    node("electrical.drive", kind="module", quantities={"power_supply": (10, "W")}),
+    node(
+        "electrical.motor_left",
+        quantities={"power_draw": (15, "W")},
+        constrains=["electrical.drive"],
+    ),
+)
+#: Check 4, at system scope only: two modules that each balance, over a 20 W battery.
+JOINT_POWER = (
+    node("electrical.battery", quantities={"power_supply": (20, "W")}),
+    node(
+        "electrical.drive",
+        kind="module",
+        quantities={"power_supply": (15, "W"), "power_draw": (15, "W")},
+        constrains=["electrical.battery"],
+    ),
+    node(
+        "electrical.control",
+        kind="module",
+        quantities={"power_supply": (10, "W"), "power_draw": (10, "W")},
+        constrains=["electrical.battery"],
+    ),
+)
+#: Check 5, at module scope: a module declared at 1 kg whose one member weighs 0.2 kg.
+CONSERVATION = (
+    node("electrical.drive", kind="module", quantities={"mass": (1, "kg")}),
+    node(
+        "electrical.motor_left",
+        quantities={"mass": (0.2, "kg")},
+        constrains=["electrical.drive"],
+    ),
+)
+#: Check 6, a warning at module scope and a block at system scope: 145 degC against 125.
+THERMAL = (
+    node("electrical.drive", kind="module"),
+    node(
+        "electrical.driver",
+        quantities={
+            "thermal_resistance": (40, "K/W"),
+            "heat_dissipation": (3, "W"),
+            "ambient_temperature": (25, "degC"),
+            "max_temperature": (125, "degC"),
+        },
+        constrains=["electrical.drive"],
+    ),
+)
+
+
+def all_six() -> tuple[dict[str, Any], ...]:
+    """One graph that breaks every check, each by its own wrong artefact."""
+    merged: dict[str, dict[str, Any]] = {}
+    for group in (UNITS, MAGNITUDE, EQUILIBRIUM, POWER, CONSERVATION, THERMAL):
+        for payload in group:
+            if payload["id"] in merged:
+                into = merged[payload["id"]]
+                into["quantities"] = {**into["quantities"], **payload["quantities"]}
+                into["constrains"] = sorted({*into["constrains"], *payload["constrains"]})
+            else:
+                merged[payload["id"]] = {**payload, "quantities": dict(payload["quantities"])}
+    return tuple(merged.values())
+
+
 def fixed(
     name: CheckName, observations: Sequence[Observation] = (), evaluated: int = 1
 ) -> RegisteredCheck:

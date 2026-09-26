@@ -30,6 +30,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 import physgate
+from physgate.gate.exceptions import GateError
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper
 from physgate.orchestrator.common import first_problem
@@ -89,10 +90,17 @@ class Registrations:
 def default_registrations() -> Registrations:
     """The registrations the ``physgate`` command runs with.
 
-    Empty: the physics gate registers its gate here, and the reviewers register
-    theirs, as plain imports that a reader can follow.
+    The physics gate is registered here as a plain import a reader can follow; the
+    reviewers are not yet, so a run still refuses to start until they are. Built
+    only when a run is driven: the gate loads its bounds table and its unit and
+    symbolic tools, which no other command needs.
+
+    Raises:
+        BoundsTableError: the gate's bounds table does not load; no gate is built.
     """
-    return Registrations()
+    from physgate.gate.runner import PhysicsGate
+
+    return Registrations(gate=PhysicsGate())
 
 
 def add_parsers(
@@ -100,7 +108,6 @@ def add_parsers(
     registrations: Registrations | None = None,
 ) -> None:
     """Register the orchestrator's commands on the top-level command."""
-    found = registrations or default_registrations()
     for name, resume, text in (
         ("run", False, "drive a decomposed run's plan until it is done or halts"),
         ("resume", True, "take over a run a previous process left, then drive it"),
@@ -114,7 +121,9 @@ def add_parsers(
             type=Path,
             help="the hooks' read-only installation; built there if it does not exist",
         )
-        command.set_defaults(func=functools.partial(_drive, resume=resume, registrations=found))
+        command.set_defaults(
+            func=functools.partial(_drive, resume=resume, registrations=registrations)
+        )
 
     d = subparsers.add_parser("decompose", help="make the run's one model call and start it")
     d.add_argument("brief", type=Path)
@@ -241,7 +250,12 @@ def _project_root() -> Path:
     return root
 
 
-def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registrations) -> int:
+def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registrations | None) -> int:
+    if registrations is None:
+        try:
+            registrations = default_registrations()
+        except GateError as exc:  # a gate that cannot be built stops the run here
+            return _fail(str(exc), **exc.context)
     run_dir = args.run_dir.resolve()
     try:
         config = load_run_config(run_dir / "run.json")

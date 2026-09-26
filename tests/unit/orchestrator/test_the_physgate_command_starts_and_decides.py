@@ -268,8 +268,31 @@ def test_run_refuses_to_start_with_no_gate_registered(
     record = RunRecord(make_config(), tmp_path / "run")
     record.start([])
     record.close()
-    assert main(_run_args(tmp_path)) == 2
+    from physgate.orchestrator.cli import Registrations
+
+    assert main(_run_args(tmp_path), Registrations()) == 2
     assert "no gate is registered" in capsys.readouterr().err
+
+
+def test_the_command_registers_the_physics_gate_and_still_waits_for_reviewers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from orch_helpers import make_config
+
+    from physgate.gate.runner import PhysicsGate
+    from physgate.orchestrator.cli import default_registrations
+    from physgate.orchestrator.record import RunRecord
+
+    registered = default_registrations()
+    assert isinstance(registered.gate, PhysicsGate) and dict(registered.reviewers) == {}
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-not-a-credential")
+    monkeypatch.setenv("PATH", "/nonexistent")
+    record = RunRecord(make_config(), tmp_path / "run")
+    record.start([])
+    record.close()
+    assert main(_run_args(tmp_path)) == 2
+    err = capsys.readouterr().err
+    assert "no gate is registered" not in err and "reviewer" in err
 
 
 def test_the_run_command_says_where_its_directory_belongs(
