@@ -86,6 +86,11 @@ class InstallRequest(BaseModel):
     always_loaded: tuple[AbsolutePath, ...] = ()
     held_out: tuple[AbsolutePath, ...] = ()
     extra_protected: tuple[AbsolutePath, ...] = ()
+    #: A script that prints the API key, named in the settings file so the key is
+    #: never in the session's environment, where every tool call could print it.
+    #: It must live in the session's own files or its state directory, both
+    #: protected roots, so no session tool can rewrite it.
+    api_key_helper: AbsolutePath | None = None
 
 
 @dataclass(frozen=True)
@@ -206,7 +211,11 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
 
 
 def render_settings(
-    config: SessionConfig, config_path: str, config_sha256: str, registry: Mapping[str, HookSpec]
+    config: SessionConfig,
+    config_path: str,
+    config_sha256: str,
+    registry: Mapping[str, HookSpec],
+    api_key_helper: str | None = None,
 ) -> dict[str, object]:
     """The settings file: one command per event, naming every hook module that handles it."""
     trampoline = str(Path(config.installation.package_dir) / "hooks" / "trampoline.sh")
@@ -241,7 +250,10 @@ def render_settings(
         if event in _TOOL_EVENTS:
             group["matcher"] = "*"
         hooks[event] = [group]
-    return {"disableAllHooks": False, "hooks": hooks}
+    settings: dict[str, object] = {"disableAllHooks": False, "hooks": hooks}
+    if api_key_helper is not None:
+        settings["apiKeyHelper"] = api_key_helper
+    return settings
 
 
 def _dump(value: object) -> bytes:
@@ -254,6 +266,12 @@ def install(
     installation: Installation | None = None,
 ) -> Installed:
     """Write the session's configuration and settings file; return how to spawn it."""
+    helper = request.api_key_helper
+    if helper is not None and not any(
+        _inside(helper, root) for root in (request.target_dir, request.state_dir)
+    ):
+        msg = "the key helper must live in the session's files or its state directory"
+        raise ValueError(msg)
     config = build_config(request, installation or current_installation())
     target = Path(request.target_dir)
     target.mkdir(parents=True, exist_ok=True)
@@ -266,7 +284,9 @@ def install(
         msg = "the configuration does not read back as the one that was built"
         raise ValueError(msg)
     config_path.write_bytes(config_bytes)
-    settings = render_settings(config, str(config_path), digest(config_bytes), registry)
+    settings = render_settings(
+        config, str(config_path), digest(config_bytes), registry, request.api_key_helper
+    )
     settings_path = target / SETTINGS_NAME
     settings_path.write_bytes(_dump(settings))
     return Installed(

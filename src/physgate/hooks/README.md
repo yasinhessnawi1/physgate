@@ -64,6 +64,13 @@ is not re-read when edited.
 Every hook command carries the path of the session configuration and its
 sha256, and a hook whose configuration no longer matches refuses every call.
 
+`--api-key-helper <script>` names a script that prints the API key in the
+settings file (`apiKeyHelper`), so the key is not in the session's environment,
+where any tool call could print it. The script must sit in the session's own
+files or its state directory, both protected roots; anywhere else is refused.
+A session running as the same user can still read and run it, which is a known
+limit, not a closure.
+
 Three profiles: `role` (a domain agent writing one module), `reviewer` (reads,
 writes nothing) and `orchestrator` (a harness session). None of the three
 writes the gate.
