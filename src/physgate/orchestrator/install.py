@@ -78,6 +78,11 @@ def prepare_install(dest: Path, project_root: Path) -> Path:
             str(dest / "bin" / "python"),
             "--link-mode",
             "copy",
+            # Built fresh from the source every time. uv keys its cache of a local
+            # project on its project file, not its source, so a cached build can be
+            # an earlier version of the hook layer (found when a new installer option
+            # was missing from the installation).
+            "--no-cache",
             str(project_root),
         ],
     ]

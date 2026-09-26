@@ -424,3 +424,14 @@ def test_remote_settings_delivered_during_a_session_are_reported_as_drift(
     _, (report, _), _ = dispatch(tmp_path, install_bin, steps)
     assert report.managed_drift is not None
     assert "remote managed settings were delivered" in report.managed_drift
+
+
+def test_the_hook_installation_is_the_source_as_it_is_now(install_bin: Path) -> None:
+    # The hooks a session runs under are the installation's copy, not the source.
+    # uv's cache of a local project is keyed on its project file, so a cached
+    # build could be an earlier hook layer; the installation is built without it.
+    source = Path(__file__).resolve().parents[3] / "src" / "physgate"
+    (installed,) = install_bin.parent.parent.glob("lib/python*/site-packages/physgate")
+    for path in sorted(source.rglob("*.py")):
+        copy = installed / path.relative_to(source)
+        assert copy.read_bytes() == path.read_bytes(), f"stale in the installation: {copy}"
