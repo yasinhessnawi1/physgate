@@ -17,31 +17,21 @@ the output of ``physgate gate-events`` are copied there.
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 from pathlib import Path
-from typing import Any
 
 import pytest
 from gate_fixtures import JOINT_POWER, POWER, UNITS
-from git_rig import Reviewer, config, target_repo
-from scripted_endpoint import DUMMY_KEY, Script, serving, text, tool
+from gate_run import build_install, drive_run, reviewer_tokens
 
-from physgate.cli import main
-from physgate.gate.runner import PhysicsGate
-from physgate.orchestrator.accounting import TokenAccount
-from physgate.orchestrator.cli import Registrations
 from physgate.orchestrator.events import (
     GateRan,
     IntegrationEscalated,
     IntegrationGateRan,
     IntegrationGateSkipped,
     ReviewRan,
-    read_events,
 )
-from physgate.orchestrator.install import prepare_install
-from physgate.orchestrator.protocols import MessageUsage, ReviewResult, Usage
 
 pytestmark = [
     pytest.mark.integration,
@@ -52,124 +42,10 @@ pytestmark = [
     ),
 ]
 
-INTERFACE: dict[str, Any] = {
-    "id": "iface.power_bus",
-    "kind": "interface",
-    "domain": "electrical",
-    "owner_role": "electrical",
-    "quantities": {"v": {"value": 12, "unit": "V", "source": "brief", "written_by": "electrical"}},
-    "requirements": [],
-    "constrains": [],
-    "model": None,
-    "geometry_hash": "sha256:0",
-    "updated": "2026-09-26T00:00:00Z",
-}
-
-
-class _PayingReviewer(Reviewer):
-    """A reviewer reporting the tokens a real one would, so a zero means it never ran."""
-
-    def review(self, artefact: Any) -> ReviewResult:
-        result = super().review(artefact)
-        usage = Usage(
-            input_tokens=40,
-            output_tokens=9,
-            cache_read_input_tokens=0,
-            cache_creation_input_tokens=0,
-        )
-        message = MessageUsage(message_id=f"r{self.calls}", usage=usage)
-        return result.model_copy(update={"usage": (message,)})
-
 
 @pytest.fixture(scope="module")
 def install(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    path = tmp_path_factory.mktemp("install") / "install"
-    prepare_install(path, Path(__file__).resolve().parents[3])
-    return path
-
-
-def session(*payloads: dict[str, Any]) -> Script:
-    """What every session does: read its specification, write its proposals, stop."""
-    writes = [
-        tool(
-            "Write",
-            file_path=f"{{cwd}}/.physgate/proposals/{p['id']}.json",
-            content=json.dumps(p),
-        )
-        for p in payloads
-    ]
-    return Script(
-        main=[tool("Read", file_path="{cwd}/.physgate/specs/{cwd_name}.md"), *writes, text("done")]
-    )
-
-
-def drive_run(
-    tmp_path: Path,
-    install: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-    modules: list[tuple[str, str]],
-    payloads: tuple[dict[str, Any], ...],
-    label: str,
-) -> tuple[dict[str, Any], list[Any], _PayingReviewer, list[dict[str, Any]]]:
-    """Decompose and run one plan.
-
-    Returns the printed outcome, the events, the reviewer and the gate events.
-    """
-    repo = target_repo(tmp_path)
-    run_dir = tmp_path / "run"
-    params = config().model_dump(include={"auth", "gate_mode", "models", "bounds", "token_ceiling"})
-    (tmp_path / "params.json").write_text(json.dumps(params))
-    (tmp_path / "brief.md").write_text("Build a self-balancing robot; start with its power.\n")
-    monkeypatch.setenv("ANTHROPIC_API_KEY", DUMMY_KEY)
-    plan = {
-        "modules": [
-            {"name": n, "role": "electrical", "module_dir": d, "spec": "Size the power."}
-            for n, d in modules
-        ],
-        "interface_nodes": [INTERFACE],
-    }
-    reviewer = _PayingReviewer()
-    registrations = Registrations(gate=PhysicsGate(), reviewers={"electrical": reviewer})
-    with serving(Script(main=[tool("StructuredOutput", **plan)])) as (api, url):
-        monkeypatch.setenv("ANTHROPIC_BASE_URL", url)
-        args = ["--seed", "7", "--run-id", "run-1", "--params", str(tmp_path / "params.json")]
-        code = main(
-            [
-                "decompose",
-                str(tmp_path / "brief.md"),
-                *args,
-                "--target",
-                str(repo),
-                "--run-dir",
-                str(run_dir),
-            ]
-        )
-        assert code == 0, capsys.readouterr().err
-        capsys.readouterr()
-        api.script = session(*payloads)
-        common = ["--run-dir", str(run_dir), "--target", str(repo), "--install", str(install)]
-        main(["run", *common], registrations)
-        out = capsys.readouterr()
-    printed = json.loads(out.out) if out.out.strip() else {"error": out.err}
-    assert "error" not in printed, out.err
-    assert main(["gate-events", "--run-dir", str(run_dir)]) == 0
-    gate_lines = [json.loads(x) for x in capsys.readouterr().out.splitlines()]
-    events = read_events(run_dir / "events.jsonl")
-    evidence = os.environ.get("PHYSGATE_EVIDENCE_DIR")
-    if evidence:
-        target = Path(evidence) / label
-        target.mkdir(parents=True, exist_ok=True)
-        shutil.copy(run_dir / "events.jsonl", target / "events.jsonl")
-        (target / "run_output.json").write_text(json.dumps(printed, indent=1, sort_keys=True))
-        (target / "gate_events.jsonl").write_text(
-            "".join(json.dumps(x, sort_keys=True) + "\n" for x in gate_lines)
-        )
-    return printed, events, reviewer, gate_lines
-
-
-def reviewer_tokens(events: list[Any]) -> int:
-    return TokenAccount.from_events(events).by_kind()["reviewer"].total()
+    return build_install(tmp_path_factory)
 
 
 def test_a_current_compared_with_a_voltage_is_refused_at_subtask_scope_through_the_command(
