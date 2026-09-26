@@ -40,9 +40,13 @@ time.sleep(60)
 """
 
 
-def family(tmp_path: Path, mode: str = "polite") -> tuple[subprocess.Popen[bytes], int, int]:
+def family(
+    tmp_path: Path, mode: str = "polite", session: str | None = None
+) -> tuple[subprocess.Popen[bytes], int, int]:
     marker = tmp_path / "pids"
-    parent = subprocess.Popen([sys.executable, "-c", FAMILY, str(marker), mode])
+    # A session's own command line carries its session id, as the runtime's does.
+    tag = ["--session-id", session] if session else []
+    parent = subprocess.Popen([sys.executable, "-c", FAMILY, str(marker), mode, *tag])
     deadline = time.monotonic() + 10
     while not marker.exists() and time.monotonic() < deadline:
         time.sleep(0.05)
@@ -100,7 +104,7 @@ def _dispatcher(run_dir: Path) -> ClaudeDispatcher:
 
 
 def test_a_resume_stops_a_recorded_session_still_running_and_only_that(tmp_path: Path) -> None:
-    parent, pid, child = family(tmp_path)
+    parent, pid, child = family(tmp_path, session="live")
     sessions = tmp_path / "run" / "sessions"
     for sid, record in (
         ("live", {"pid": pid, "started": started_at(pid), "session_id": "live"}),
@@ -189,3 +193,28 @@ def test_a_resume_records_what_it_stopped_before_it_touches_the_attempt(tmp_path
     assert spent and all(e.partial and e.usage == SPENT.usage for e in spent)
     account = TokenAccount.from_events(events)
     assert account.by_attribution()["session:sess-old"] == SPENT.usage
+
+
+def test_a_rewritten_process_record_never_points_the_stop_at_another_process(
+    tmp_path: Path,
+) -> None:
+    # process.json is in the sessions directory, a file the session's own user can
+    # write. A record rewritten to name another live process of that user, with
+    # that process's true start time, must not get it signalled: it is not the
+    # session, whose command line carries the session id.
+    parent, pid, child = family(tmp_path)
+    try:
+        sessions = tmp_path / "run" / "sessions"
+        (sessions / "forged").mkdir(parents=True)
+        record = {"pid": pid, "started": started_at(pid), "session_id": "forged"}
+        (sessions / "forged" / "process.json").write_text(json.dumps(record))
+        (left,) = _dispatcher(tmp_path / "run").stop_leftovers()
+        assert (left.session_id, left.stopped, left.killed) == ("forged", False, 0)
+        time.sleep(0.5)
+        assert started_at(pid) is not None and started_at(child) is not None
+        assert json.loads((sessions / "forged" / "ended.json").read_text()) == {
+            "not_running_at_resume": True
+        }
+    finally:
+        stop_tree(pid)
+        parent.wait()

@@ -48,7 +48,7 @@ from physgate.orchestrator.invocation import isolated_env, role_argv
 from physgate.orchestrator.managed import drift
 from physgate.orchestrator.merge import RunGit, commit_attempt
 from physgate.orchestrator.ports import Leftover, SessionReport, SessionRequest
-from physgate.orchestrator.processes import started_at, stop_tree
+from physgate.orchestrator.processes import is_session, started_at, stop_tree
 from physgate.orchestrator.queue import DECISIONS_NAME
 from physgate.orchestrator.run_config import RunConfig
 from physgate.orchestrator.trajectory import forged_tail, seal, through_first_result
@@ -325,7 +325,7 @@ class ClaudeDispatcher:
                 continue
             record = json.loads(record_path.read_text())
             pid, started = int(record["pid"]), record.get("started")
-            if started is not None and started_at(pid) == started:
+            if is_session(pid, started, str(record["session_id"])):
                 killed = stop_tree(pid, started)
                 ended.write_text(json.dumps({"stopped_at_resume": True, "killed": killed}))
                 found.append((record_path.parent, str(record["session_id"]), pid, killed, True))

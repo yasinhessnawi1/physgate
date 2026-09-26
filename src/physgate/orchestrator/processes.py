@@ -69,6 +69,32 @@ def started_at(pid: int) -> str | None:
     return proc.started if proc else None
 
 
+def command_of(pid: int) -> str | None:
+    """The command line ``ps`` reports for ``pid``, or ``None`` if it is not running."""
+    out = subprocess.run(
+        ["ps", "-ww", "-o", "command=", "-p", str(pid)],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+    ).stdout.strip()
+    return out or None
+
+
+def is_session(pid: int, started: str | None, session_id: str) -> bool:
+    """Whether ``pid`` is the session the record names, not merely a process that matches.
+
+    The record is a file the session's own user can write. A pid and start time
+    alone would let a rewritten record point a resume's stop at any other process
+    of that user; the session's own command line carries its session id, which
+    no other process's does.
+    """
+    if started is None or started_at(pid) != started:
+        return False
+    command = command_of(pid)
+    return command is not None and f"--session-id {session_id}" in command
+
+
 def tree(root: int) -> list[Proc]:
     """``root`` and every process descended from it, root first."""
     procs = table()
