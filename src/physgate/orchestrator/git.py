@@ -147,3 +147,9 @@ def merges_of(repo: Path, branch: str, since: str) -> dict[str, str]:
         if len(parts) >= 3:
             found[parts[2]] = parts[0]
     return found
+
+
+def init_repo(path: Path) -> None:
+    """Make ``path`` a git repository of its own, if it is not one already."""
+    if not (path / ".git").exists():
+        git(path, "init", "--quiet", "--initial-branch", "main")

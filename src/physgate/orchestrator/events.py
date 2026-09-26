@@ -277,6 +277,18 @@ class Incident(_Event):
     detail: NonEmptyStr
 
 
+class Decomposed(_Event):
+    """The run's one model call produced a plan, and what it wrote."""
+
+    kind: Literal["decomposed"] = "decomposed"
+    session_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
+    model: NonEmptyStr
+    num_turns: Annotated[int, Field(ge=0)]
+    subtasks: Annotated[int, Field(ge=1)]
+    interface_nodes: Annotated[tuple[NonEmptyStr, ...], Field(min_length=1)]
+    spec_commit: Sha
+
+
 class Resumed(_Event):
     """A process took the run over from one that stopped, at a checkpoint of the attempt.
 
@@ -308,6 +320,7 @@ Event = Annotated[
     | Escalated
     | Incident
     | Resumed
+    | Decomposed
     | Halted,
     Field(discriminator="kind"),
 ]

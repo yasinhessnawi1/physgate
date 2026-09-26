@@ -24,6 +24,7 @@ from physgate.orchestrator.budget import REPAIR_BUDGET, after_rejection
 from physgate.orchestrator.common import GateMode
 from physgate.orchestrator.events import (
     AttemptRejected,
+    Decomposed,
     DiffChecked,
     Escalated,
     Event,
@@ -131,8 +132,8 @@ class RunState:
             self.subtasks[event.subtask_id] = SubtaskState(plan=event)
             self._ledger(event.subtask_id, attempt_count=0)
             return
-        if isinstance(event, TokensUsed):
-            return  # attributed, never a transition
+        if isinstance(event, TokensUsed | Decomposed):
+            return  # attributed or described, never a transition
         sub = self.subtasks[event.subtask_id]
         if isinstance(event, SubtaskRemoved):
             if sub.status != "planned":

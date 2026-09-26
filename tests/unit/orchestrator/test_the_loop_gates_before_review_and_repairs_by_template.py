@@ -261,7 +261,7 @@ def test_a_ledger_that_lost_the_review_result_stops_the_merge(
     # The injected fault: the ledger on disk never receives the review result,
     # as if the projection had been skipped or the file edited. The loop reads the
     # ledger back before merging, so the merge must not happen.
-    import physgate.orchestrator.loop as loop_module
+    import physgate.orchestrator.record as loop_module
 
     def losing_review_lines(state: RunState, ledger: TaskLedger) -> int:
         kept = [line for line in state.ledger if line.review_result is None]

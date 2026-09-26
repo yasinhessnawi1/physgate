@@ -9,6 +9,9 @@ conflict, is answered by code or by a person.
 
 | | |
 |---|---|
+| `decompose.py` | The run's one model call (ARCH-001): one Claude Code invocation, no tools but the structured answer, one turn, so one request. The answer is untrusted input, validated here; success with no plan fails the run. Subtask ids are minted from the seed; specifications go onto the run branch, interface nodes into the store, and the store is committed |
+| `invocation.py` | The one module that names the Claude Code binary: the pinned version, the isolated argv and an environment built from nothing |
+| `record.py` | A run's durable record (configuration, event log, ledger, queue), so a run can be started without the ports a loop needs |
 | `loop.py` | The eight stages (ARCH-030), one subtask at a time: fresh session, reading, change check, gate, review only if the gate result allows it, merge or templated rejection, diff. Refuses to start in a gate mode that needs a gate when none is registered; under gate mode `off` the stage is skipped on the record, never passed. Resume restarts an interrupted attempt at its checkpoint with a fresh session |
 | `replay.py` | `RunState`: the run's position, rebuilt from the event log, refusing a line that cannot come next at write time and at replay alike. The task ledger is projected from it, and the merge precondition reads that ledger back from disk (ARCH-001) |
 | `merge.py` | A run's git layout (its own branch, an integration worktree, one branch and worktree per subtask kept across attempts), the orchestrator's templated attempt commit, the write-scope check (ARCH-005) that runs before the gate, and the merge: `--no-ff` of exactly the checked commit, idempotent, a conflict aborted and raised |

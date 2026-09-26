@@ -27,7 +27,6 @@ from physgate.orchestrator.events import (
     AttemptRejected,
     DiffChecked,
     Escalated,
-    EventLog,
     GateRan,
     GateSkipped,
     Halted,
@@ -37,11 +36,8 @@ from physgate.orchestrator.events import (
     ProposalsChecked,
     Resumed,
     ReviewRan,
-    RunStarted,
     SessionEnded,
     StageEntered,
-    SubtaskPlanned,
-    SubtaskRemoved,
     TokensUsed,
 )
 from physgate.orchestrator.exceptions import (
@@ -49,7 +45,6 @@ from physgate.orchestrator.exceptions import (
     MergeConflictError,
     MergeRefusedError,
     ReviewerNotRegisteredError,
-    RunConfigError,
     RunStateError,
 )
 from physgate.orchestrator.merge import merge_message
@@ -61,11 +56,11 @@ from physgate.orchestrator.protocols import (
     require_mode,
     require_separate_models,
 )
-from physgate.orchestrator.queue import ApprovalQueue, escalation_item
+from physgate.orchestrator.queue import escalation_item
+from physgate.orchestrator.record import RunRecord
 from physgate.orchestrator.repair import Finding, repair_instruction
-from physgate.orchestrator.replay import RunState, Step, project_ledger, require_mergeable
-from physgate.orchestrator.run_config import RunConfig, require_recorded, write_run_config
-from physgate.state.task_ledger import TaskLedger
+from physgate.orchestrator.replay import Step, require_mergeable
+from physgate.orchestrator.run_config import RunConfig
 
 UNREAD = (
     "The session ended without completing its required reading, so nothing it "
@@ -134,58 +129,32 @@ class Loop:
         self._merger = merger
         self._graph_diff = graph_diff
         self._sleep = sleep
-        self._config_path = self.run_dir / "run.json"
-        self.state = RunState()
-        self.log = EventLog(
-            self.run_dir / "events.jsonl",
-            run_id=config.run_id,
-            gate_mode=config.gate_mode,
-            clock=clock,
-            state=self.state,
-        )
-        if self._config_path.exists():
-            require_recorded(self._config_path, config)
-        elif self.log.events:
-            msg = "the run has events but no recorded configuration"
-            raise RunConfigError(msg, run_dir=str(self.run_dir))
-        self.ledger = TaskLedger(self.run_dir / "ledger.jsonl")
-        self.queue = ApprovalQueue(self.run_dir / "queue.jsonl", clock=clock)
-        project_ledger(self.state, self.ledger)
+        self.record = RunRecord(config, self.run_dir, clock=clock)
+        self.state = self.record.state
+        self.log = self.record.log
+        self.ledger = self.record.ledger
+        self.queue = self.record.queue
 
     def close(self) -> None:
         """Release every file handle."""
-        self.log.close()
-        self.ledger.close()
+        self.record.close()
 
-    def _emit(self, kind: Any, **fields: Any) -> Any:
-        event = self.log.emit(kind, **fields)
-        project_ledger(self.state, self.ledger)
-        return event
+    def _emit(self, kind: Any, **fields: Any) -> Any:  # noqa: ANN401 - forwards to the log
+        return self.record.emit(kind, **fields)
 
     # -- the run's life -------------------------------------------------------------
 
     def start(self, plan: Sequence[Mapping[str, str]]) -> None:
-        """Record the configuration and the plan, once.
+        """Record the configuration and the plan, with no decomposition call.
 
-        Raises:
-            RunStateError: the run was already started.
-            RunConfigError: a subtask's role has no pinned model.
+        What the decomposition step does is :meth:`RunRecord.start` with the call;
+        this is the same without one, for a plan given directly.
         """
-        if self.log.events:
-            msg = "the run was already started"
-            raise RunStateError(msg, run_dir=str(self.run_dir))
-        for entry in plan:
-            if entry["assigned_role"] not in self.config.models.roles:
-                msg = "a planned subtask's role has no pinned model"
-                raise RunConfigError(msg, role=entry["assigned_role"])
-        write_run_config(self._config_path, self.config)
-        self._emit(RunStarted, config_sha256=self.config.sha256())
-        for entry in plan:
-            self._emit(SubtaskPlanned, **entry)
+        self.record.start(plan)
 
     def remove(self, subtask_id: str, reason: str) -> None:
         """Take a subtask not yet dispatched out of the plan; its id stays visible."""
-        self._emit(SubtaskRemoved, subtask_id=subtask_id, reason=reason)
+        self.record.remove(subtask_id, reason)
 
     def run(self) -> Step:
         """Drive the plan until it is done or the run halts.

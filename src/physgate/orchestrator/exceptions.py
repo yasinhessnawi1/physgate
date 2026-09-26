@@ -86,3 +86,11 @@ class MergeConflictError(OrchestratorError):
 
 class MergeRefusedError(OrchestratorError):
     """The commit about to be merged is not the one that was checked."""
+
+
+class InvocationError(OrchestratorError):
+    """A Claude Code session cannot be invoked as measured: no binary, or another version."""
+
+
+class DecompositionError(OrchestratorError):
+    """The decomposition's plan cannot be written: a node the store refuses, a bad path."""
