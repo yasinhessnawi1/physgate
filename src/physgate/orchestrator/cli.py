@@ -36,7 +36,7 @@ from physgate.orchestrator.exceptions import InvocationError, OrchestratorError,
 from physgate.orchestrator.git import head_of
 from physgate.orchestrator.install import prepare_install
 from physgate.orchestrator.invocation import claude_binary
-from physgate.orchestrator.loop import Loop
+from physgate.orchestrator.loop import Loop, refuse_unregistered
 from physgate.orchestrator.merge import GitMerger, RunGit
 from physgate.orchestrator.protocols import Gate, Reviewer
 from physgate.orchestrator.queue import ApprovalQueue
@@ -197,6 +197,8 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
     run_dir = args.run_dir.resolve()
     try:
         config = load_run_config(run_dir / "run.json")
+        # The gate and the reviewers first: without them nothing else is worth building.
+        refuse_unregistered(config, registrations.gate, registrations.reviewers)
         if not (run_dir / "events.jsonl").exists():
             msg = "the run was never started; decompose it first"
             raise RunStateError(msg, run_dir=str(run_dir))

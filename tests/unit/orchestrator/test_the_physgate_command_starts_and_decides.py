@@ -188,6 +188,8 @@ def test_run_refuses_to_start_with_no_gate_registered(
     from physgate.orchestrator.record import RunRecord
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-not-a-credential")
+    monkeypatch.delenv("PHYSGATE_CLAUDE_BIN", raising=False)
+    monkeypatch.setenv("PATH", "/nonexistent")  # no binary either: the gate is refused first
     record = RunRecord(make_config(), tmp_path / "run")
     record.start([])
     record.close()
