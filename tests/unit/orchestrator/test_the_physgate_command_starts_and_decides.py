@@ -201,3 +201,30 @@ def test_the_run_command_says_where_its_directory_belongs(
     with pytest.raises(SystemExit):
         main(["run", "--help"])
     assert "local disk" in capsys.readouterr().out
+
+
+def test_a_run_whose_record_holds_a_routing_token_fails_at_the_end(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from loop_fakes import FakeGate, FakeReviewer
+    from orch_helpers import make_config
+
+    from physgate.orchestrator.cli import Registrations
+    from physgate.orchestrator.events import TokensUsed
+    from physgate.orchestrator.protocols import Usage
+    from physgate.orchestrator.record import RunRecord
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-not-a-credential")
+    monkeypatch.setenv("PHYSGATE_CLAUDE_BIN", str(fake_binary(tmp_path, "2.1.272")))
+    record = RunRecord(make_config(), tmp_path / "run")
+    record.start([])
+    one = Usage(
+        input_tokens=1, output_tokens=0, cache_read_input_tokens=0, cache_creation_input_tokens=0
+    )
+    record.emit(
+        TokensUsed(**record.envelope(), attribution="routing:loop", message_id="m", usage=one)
+    )
+    record.close()
+    registrations = Registrations(gate=FakeGate(), reviewers={"electrical": FakeReviewer()})
+    assert main(_run_args(tmp_path), registrations) == 2
+    assert "tokens were spent on routing" in capsys.readouterr().err

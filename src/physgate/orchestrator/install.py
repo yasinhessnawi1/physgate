@@ -125,6 +125,9 @@ def install_facts(dest: Path, state_dir: Path) -> InstallFacts:
             writable += bool(info.st_mode & (stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH))
             linked += info.st_nlink > 1
     python = dest / "bin" / "python"
+    if not python.exists():
+        msg = "the hook installation has no interpreter; build it again in a new directory"
+        raise InvocationError(msg, path=str(dest))
     base = subprocess.run(
         [str(python), "-I", "-c", "import sysconfig; print(sysconfig.get_paths()['stdlib'])"],
         capture_output=True,

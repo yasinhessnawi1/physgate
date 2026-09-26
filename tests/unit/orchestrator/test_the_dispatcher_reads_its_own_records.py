@@ -153,3 +153,14 @@ def test_a_foreign_journal_line_is_reported_with_what_the_hook_log_saw(tmp_path:
     loop.close()
     (incident,) = [e for e in read_events(tmp_path / "events.jsonl") if isinstance(e, Incident)]
     assert "the hook log recorded: bytes [0, 80] after Bash" in incident.detail
+
+
+def test_an_installation_with_no_interpreter_is_a_domain_error(tmp_path: Path) -> None:
+    import pytest
+
+    from physgate.orchestrator.exceptions import InvocationError
+    from physgate.orchestrator.install import install_facts
+
+    (tmp_path / "broken" / "bin").mkdir(parents=True)
+    with pytest.raises(InvocationError, match="no interpreter"):
+        install_facts(tmp_path / "broken", tmp_path / "state")

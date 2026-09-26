@@ -267,9 +267,10 @@ class Loop:
             )
 
     def _drive(self) -> Step:
-        facts = self._dispatcher.environment()
-        if facts is not None and self.state.next_step().kind not in ("done", "halted"):
-            self._emit(EnvironmentRecorded(**self._env(), facts=facts))
+        if self.state.next_step().kind not in ("done", "halted"):
+            facts = self._dispatcher.environment()
+            if facts is not None:
+                self._emit(EnvironmentRecorded(**self._env(), facts=facts))
         while True:
             step = self.state.next_step()
             if step.kind in ("done", "halted"):
