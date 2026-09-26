@@ -34,6 +34,7 @@ from physgate.orchestrator.events import (
     Halted,
     Incident,
     InfraRetryScheduled,
+    LeftoverStopped,
     Merged,
     NodeFilesRepaired,
     ProposalsChecked,
@@ -137,8 +138,13 @@ class RunState:
         if isinstance(event, Halted):
             self.halted = event
             return
-        if self.halted is not None and not isinstance(event, Resumed):
-            _refuse("the run is halted; only a resume may follow")
+        if isinstance(event, LeftoverStopped):
+            return  # recorded at any time, a halted run's resume included
+        if isinstance(event, Incident) and event.subtask_id is None:
+            self.incident = event
+            return
+        if self.halted is not None and not isinstance(event, Resumed | Incident):
+            _refuse("the run is halted; only a resume, or an incident found at one, may follow")
         if isinstance(event, SubtaskPlanned):
             self.order.append(event.subtask_id)
             self.subtasks[event.subtask_id] = SubtaskState(plan=event)
@@ -149,6 +155,8 @@ class RunState:
             return
         if isinstance(event, TokensUsed | EnvironmentRecorded):
             return  # attributed or recorded, never a transition
+        if event.subtask_id is None:
+            return  # an incident with no subtask, taken above; for the type checker
         sub = self.subtasks[event.subtask_id]
         if isinstance(event, SubtaskRemoved):
             if sub.status != "planned":

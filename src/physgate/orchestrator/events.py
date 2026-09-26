@@ -272,13 +272,15 @@ class Incident(_Event):
     """Something the loop cannot answer by itself happened. The run halts after it."""
 
     kind: Literal["incident"] = "incident"
-    subtask_id: NonEmptyStr
+    #: None when no subtask was active, as for a foreign line found when a run opens.
+    subtask_id: NonEmptyStr | None
     cause: Literal[
         "cross_role_write",
         "merge_conflict",
         "merge_refused",
         "foreign_journal_line",
         "store_refusal",
+        "node_files_unrecoverable",
     ]
     detail: NonEmptyStr
 
@@ -348,6 +350,20 @@ class EnvironmentRecorded(_Event):
     facts: InstallFacts
 
 
+class LeftoverStopped(_Event):
+    """A session a previous orchestrator left running was found and stopped.
+
+    Killing the orchestrator does not stop its session (measured: it finished its
+    whole attempt unobserved), so a new process stops it first, before anything
+    else touches the worktree or the store.
+    """
+
+    kind: Literal["leftover_stopped"] = "leftover_stopped"
+    session_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
+    pid: Annotated[int, Field(ge=1)]
+    killed: Annotated[int, Field(ge=0)]
+
+
 class Resumed(_Event):
     """A process took the run over from one that stopped, at a checkpoint of the attempt.
 
@@ -381,6 +397,7 @@ Event = Annotated[
     | Resumed
     | Decomposed
     | EnvironmentRecorded
+    | LeftoverStopped
     | WriteIntended
     | WriteDone
     | NodeFilesRepaired

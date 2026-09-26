@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from loop_fakes import FakeDispatcher, FakeGraph, FakeReviewer, KilledError, Rig, plan
@@ -406,3 +407,47 @@ def test_a_node_file_repair_is_recorded_only_between_the_session_and_its_judgeme
     with pytest.raises(ValueError, match="node-file repair"):
         log.emit(NodeFilesRepaired, subtask_id="s1", attempt=1, repaired=1, quarantined=())
     log.close()
+
+
+class _ForeignAtOpen(FakeGraph):
+    """A journal holding one line nobody intended, found before any subtask is active."""
+
+    def records_after(self, revision: int) -> list[Any]:
+        from types import SimpleNamespace
+
+        line = SimpleNamespace(rev=revision + 1, op="write", node_id="electrical.x", payload={})
+        return [line]
+
+
+def test_a_foreign_line_found_when_no_subtask_is_active_is_an_incident_with_no_subtask(
+    tmp_path: Path,
+) -> None:
+    rig = Rig(tmp_path, diff=_ForeignAtOpen())
+    loop = rig.open()
+    loop.start(plan("s1"))
+    assert loop.run().kind == "halted"
+    loop.close()
+    events = read_events(tmp_path / "events.jsonl")
+    (incident,) = [e for e in events if isinstance(e, Incident)]
+    assert incident.subtask_id is None and incident.cause == "foreign_journal_line"
+    assert rig.dispatcher.requests == []
+
+
+class _Unrecoverable(FakeGraph):
+    def reopen(self) -> tuple[int, tuple[str, ...]]:
+        from physgate.state.exceptions import CorruptRecordError
+
+        raise CorruptRecordError("a node file the journal never named", path="nodes/x.json")
+
+
+def test_node_files_that_recovery_cannot_repair_halt_the_run_as_an_incident(
+    tmp_path: Path,
+) -> None:
+    rig = Rig(tmp_path, dispatcher=FakeDispatcher(halted={1}), diff=_Unrecoverable())
+    loop = rig.open()
+    loop.start(plan("s1"))
+    assert loop.run().kind == "halted"
+    loop.close()
+    (incident,) = [e for e in read_events(tmp_path / "events.jsonl") if isinstance(e, Incident)]
+    assert incident.cause == "node_files_unrecoverable" and incident.subtask_id == "s1"
+    assert rig.gate is not None and rig.gate.seen == []
