@@ -284,3 +284,34 @@ def test_a_solved_split_is_held_support_by_support_not_only_in_total(tmp_path: P
     assert finding.outcome == "fail" and "support by support" in finding.message
     assert isinstance(finding.details, EquilibriumDetails)
     assert [r.force.value for r in finding.details.solved] == [4, 15.2266, 15.2266, 4.7734]
+
+
+def test_a_mount_whose_forces_miss_while_its_moments_balance_is_refused(tmp_path: Path) -> None:
+    # Standoffs at -0.1 and 0.1 m and the load at 0: the moments balance for any
+    # equal pair, so only the force sum can catch the wrong total.
+    ran = check(
+        tmp_path,
+        support("standoff_a", -0.1, 3),
+        support("standoff_b", 0.1, 3),
+        load("pcb", 0, 1),
+    )
+    (finding,) = ran.observations
+    assert isinstance(finding.details, EquilibriumDetails)
+    assert finding.details.residual_moment.value == 0
+    assert finding.details.residual_force.value == pytest.approx(6 - 9.80665)
+
+
+def test_only_the_mounts_the_attempt_touched_are_checked(tmp_path: Path) -> None:
+    root = tmp_path / "g"
+    head = graph(
+        root,
+        mount(),
+        support("bearing", 0, 9.80665, moment=0),  # an earlier imbalance, not this attempt's
+        load("wheel", 0.1, 1),
+        node("mechanical.arm", domain="mechanical", kind="module"),
+    )
+    graph(root, node("mechanical.clip", domain="mechanical", constrains=["mechanical.arm"]))
+    view = GraphView.read(root, base_revision=head)
+    ctx = CheckContext(view=view, scope="module", bounds=load_bounds())
+    ran = check_equilibrium.run(ctx)
+    assert ran.observations == () and ran.evaluated == 0
