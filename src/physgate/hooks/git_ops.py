@@ -66,6 +66,11 @@ _GLOBAL_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--
 _VALUE_OPTIONS = {"-m", "--message", "-F", "--file", "-C", "-c", "-t", "--template", "--author"}
 _VALUE_LETTERS = set("mFCctS")
 _HEAD_MOVERS = {"checkout", "switch", "symbolic-ref"}
+#: The forbidden long options, each matched spelt out or abbreviated (``_names``).
+_SKIP_HOOKS_LONG = ("--no-verify",)
+_FORCE_PUSH_LONG = ("--force", "--force-with-lease", "--force-if-includes", "--mirror", "--delete")
+_HARD_LONG = ("--hard",)
+_REF_WRITE_LONG = ("--force", "--delete", "--move", "--copy")
 _WATCHED = {"push", "commit", "reset", "rebase", "config", "merge", "am", "branch", "update-ref"}
 
 
@@ -105,6 +110,20 @@ def _flags(rest: list[str]) -> list[str]:
         if word.startswith("-"):
             flags.append(word)
     return flags
+
+
+def _names(flag: str, options: tuple[str, ...]) -> bool:
+    """True if ``flag`` is one of the long ``options``, spelt out or abbreviated.
+
+    git accepts any unique prefix of a subcommand's long option, so
+    ``git reset --har`` is a hard reset and ``git push --forc`` a force push.
+    Any ``--word`` that begins one of ``options`` is taken as that option, a
+    value after ``=`` ignored. That is stricter than git, which refuses a prefix
+    two options share; such a command would fail in git anyway. git's global
+    options, before the subcommand, take no abbreviation (measured, git 2.54).
+    """
+    name = flag.split("=", 1)[0]
+    return name.startswith("--") and len(name) > 2 and any(o.startswith(name) for o in options)
 
 
 def _short_cluster_has(flag: str, letter: str) -> bool:
@@ -169,27 +188,26 @@ def check_command(
         return DYNAMIC_GIT
     globals_, sub, rest = _split_git(argv)
     if any(_mentions_hooks_path(g) for g in globals_) or any(
-        g.startswith("--config-env") for g in globals_
+        _names(g, ("--config-env",)) for g in globals_
     ):
         return HOOK_CONFIG
     flags = _flags(rest)
-    if "--no-verify" in flags:
+    if any(_names(f, _SKIP_HOOKS_LONG) for f in flags):
         return SKIP_HOOKS
     if sub == "config" and any(_mentions_hooks_path(w) or w.startswith("alias.") for w in rest):
         return HOOK_CONFIG
     if sub == "commit" and any(_short_cluster_has(f, "n") for f in flags):
         return SKIP_HOOKS
     if sub == "push":
-        force = {"--force", "--force-with-lease", "--force-if-includes", "--mirror", "--delete"}
         if (
-            any(f in force or f.split("=", 1)[0] in force for f in flags)
+            any(_names(f, _FORCE_PUSH_LONG) for f in flags)
             or any(_short_cluster_has(f, "f") or _short_cluster_has(f, "d") for f in flags)
             or any(w.startswith(("+", ":")) for w in rest if not w.startswith("-"))
         ):
             return FORCE_PUSH
         if config.profile == "role":
             return ROLE_PUSH
-    if sub == "reset" and "--hard" in flags:
+    if sub == "reset" and any(_names(f, _HARD_LONG) for f in flags):
         refs = [w for w in rest if not w.startswith("-")]
         own = config.own_branch
         if (
@@ -205,8 +223,7 @@ def check_command(
     if sub == "update-ref" or (
         sub == "branch"
         and any(
-            f in ("--force", "--delete", "--move", "--copy")
-            or any(_short_cluster_has(f, x) for x in "fdDmMcC")
+            _names(f, _REF_WRITE_LONG) or any(_short_cluster_has(f, x) for x in "fdDmMcC")
             for f in flags
         )
     ):

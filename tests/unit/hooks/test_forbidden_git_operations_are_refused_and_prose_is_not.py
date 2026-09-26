@@ -126,6 +126,57 @@ def test_an_ordinary_command_or_text_naming_a_flag_passes(tmp_path: Path, comman
     assert _decide(tmp_path, command) == "allow"
 
 
+#: git accepts any unique prefix of a subcommand's long option, so every
+#: forbidden long option has abbreviated twins here. They are decided for the
+#: orchestrator profile, which may push, so a force push is refused as a force
+#: push and not merely as a push.
+ABBREVIATED = [
+    ("git commit --no-verif -m x", G.SKIP_HOOKS),
+    ("git commit -m x --no-v", G.SKIP_HOOKS),
+    ("git merge --no-ver topic", G.SKIP_HOOKS),
+    ("git push --no-verif origin x", G.SKIP_HOOKS),
+    ("git push --forc origin x", G.FORCE_PUSH),
+    ("git push --fo origin x", G.FORCE_PUSH),
+    ("git push --force-w origin x", G.FORCE_PUSH),
+    ("git push --force-with=x:abc origin x", G.FORCE_PUSH),
+    ("git push --force-if origin x", G.FORCE_PUSH),
+    ("git push --mirr", G.FORCE_PUSH),
+    ("git push --dele origin x", G.FORCE_PUSH),
+    ("git reset --har origin/master", G.HARD_RESET),
+    ("git reset --ha main", G.HARD_RESET),
+    ("git branch --forc x HEAD", G.REF_WRITE),
+    ("git branch --delet x", G.REF_WRITE),
+    ("git branch --mov a b", G.REF_WRITE),
+    ("git branch --cop a b", G.REF_WRITE),
+    ("git --config-e=core.hooksPath=X commit -m x", G.HOOK_CONFIG),
+]
+#: Long options that share a first letter with a forbidden one and are not a
+#: prefix of it: each is allowed.
+ABBREVIATED_TWINS_ALLOWED = [
+    "git push --follow-tags origin x",
+    "git push --dry-run origin x",
+    "git commit --no-edit --amend",
+    "git branch --contains HEAD",
+    "git branch --color=never",
+    "git reset --soft HEAD~1",
+    "git reset --hard",
+]
+
+
+@pytest.mark.parametrize(("command", "reason"), ABBREVIATED, ids=[c for c, _ in ABBREVIATED])
+def test_an_abbreviated_forbidden_long_option_is_refused(
+    tmp_path: Path, command: str, reason: str
+) -> None:
+    assert _decide(tmp_path, command, profile="orchestrator") == reason
+
+
+@pytest.mark.parametrize("command", ABBREVIATED_TWINS_ALLOWED, ids=ABBREVIATED_TWINS_ALLOWED)
+def test_a_long_option_that_only_shares_letters_with_a_forbidden_one_passes(
+    tmp_path: Path, command: str
+) -> None:
+    assert _decide(tmp_path, command, profile="orchestrator") == "allow"
+
+
 @pytest.mark.parametrize("profile", ["reviewer", "orchestrator"])
 def test_a_plain_push_is_refused_only_to_a_role(tmp_path: Path, profile: str) -> None:
     assert _decide(tmp_path, "git push origin x", profile=profile) == "allow"
