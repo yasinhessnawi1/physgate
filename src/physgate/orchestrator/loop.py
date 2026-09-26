@@ -291,6 +291,7 @@ class Loop:
         A done subtask's (merged, diff clean), and an escalated subtask's once its
         queue item has a decision. Nothing else, and never forced.
         """
+        self.queue.refresh()  # a person may have decided while a session ran
         resolved = {item.item_id for item in self.queue.items()} - {
             item.item_id for item in self.queue.open_items()
         }

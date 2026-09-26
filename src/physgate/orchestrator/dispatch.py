@@ -49,6 +49,7 @@ from physgate.orchestrator.managed import drift
 from physgate.orchestrator.merge import RunGit, commit_attempt
 from physgate.orchestrator.ports import Leftover, SessionReport, SessionRequest
 from physgate.orchestrator.processes import started_at, stop_tree
+from physgate.orchestrator.queue import DECISIONS_NAME
 from physgate.orchestrator.run_config import RunConfig
 
 REDACTED = REDACTED_TEXT.encode()
@@ -72,13 +73,14 @@ def run_protected_roots(run: RunGit) -> tuple[tuple[Path, ...], tuple[Path, ...]
     - Refused only: every session's directory, which holds each session's
       captured stream (the trajectory the reviewer and the token account read)
       and its process record, written by the runtime and the spawner during the
-      session.
+      session; and the approval queue's decisions file, which a person appends to
+      with ``physgate queue resolve`` whenever they decide, sessions running or not.
     """
     # Where git keeps the run branch's loose ref, for any repository layout. A ref
     # moved in packed-refs is seen by the loop's check of the branch instead.
     ref = common_dir(run.repo) / "refs" / "heads" / run.run_branch
     reverted = (*(run.run_dir / name for name in RUN_RECORDS), run.integration, ref)
-    return reverted, (run.run_dir / "sessions",)
+    return reverted, (run.run_dir / "sessions", run.run_dir / DECISIONS_NAME)
 
 
 def role_prompt(request: SessionRequest) -> str:

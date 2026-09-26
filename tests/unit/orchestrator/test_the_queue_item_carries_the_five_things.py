@@ -71,7 +71,9 @@ def test_items_and_decisions_are_appended_and_read_back_by_a_fresh_handle(tmp_pa
     fresh = ApprovalQueue(path)
     assert [i.item_id for i in fresh.items()] == ["q1", "q2"]
     assert [i.item_id for i in fresh.open_items()] == ["q2"]
-    assert path.read_bytes().count(b"\n") == 3
+    # Items in one file, a person's decisions in another.
+    assert path.read_bytes().count(b"\n") == 2
+    assert fresh.decisions_path.read_bytes().count(b"\n") == 1
 
 
 def test_every_queue_write_is_synced(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -101,8 +103,8 @@ def test_what_the_record_forbids_is_refused_and_writes_nothing(tmp_path: Path) -
     queue.resolve("q1", decision="accept", resolved_by="yasin")
     with pytest.raises(QueueError, match="not an open item"):
         queue.resolve("q1", decision="accept again", resolved_by="yasin")
-    assert path.read_bytes().startswith(before)
-    assert path.read_bytes().count(b"\n") == 2
+    assert path.read_bytes() == before
+    assert queue.decisions_path.read_bytes().count(b"\n") == 1
 
 
 @pytest.mark.parametrize(
@@ -133,3 +135,47 @@ def test_an_unterminated_final_line_is_dropped(tmp_path: Path) -> None:
     path.write_bytes(whole + b'{"kind": "item", "item_')
     assert [i.item_id for i in ApprovalQueue(path).items()] == ["q1"]
     assert path.read_bytes() == whole
+
+
+DECISION = (
+    b'{"kind": "resolution", "item_id": "q1", "ts": "' + TS.encode() + b'",'
+    b' "decision": "x", "resolved_by": "y"}\n'
+)
+
+
+def test_a_decision_in_the_items_file_is_refused(tmp_path: Path) -> None:
+    path = tmp_path / "queue.jsonl"
+    ApprovalQueue(path, clock=ticking_clock()).add(item("q1"))
+    path.write_bytes(path.read_bytes() + DECISION)
+    with pytest.raises(QueueError):
+        ApprovalQueue(path)
+
+
+def test_an_item_in_the_decisions_file_is_refused(tmp_path: Path) -> None:
+    path = tmp_path / "queue.jsonl"
+    queue = ApprovalQueue(path, clock=ticking_clock())
+    queue.add(item("q2"))
+    queue.decisions_path.write_bytes(path.read_bytes())
+    with pytest.raises(QueueError):
+        ApprovalQueue(path)
+
+
+def test_a_decision_must_name_an_item_that_is_open(tmp_path: Path) -> None:
+    path = tmp_path / "queue.jsonl"
+    queue = ApprovalQueue(path, clock=ticking_clock())
+    queue.add(item("q1"))
+    for decisions in (DECISION.replace(b'"q1"', b'"q9"'), DECISION + DECISION):
+        queue.decisions_path.write_bytes(decisions)
+        with pytest.raises(QueueError) as caught:
+            ApprovalQueue(path)
+        assert "not an open item" in caught.value.context["reason"]
+
+
+def test_a_decision_written_by_another_process_is_seen_on_refresh(tmp_path: Path) -> None:
+    path = tmp_path / "queue.jsonl"
+    queue = ApprovalQueue(path, clock=ticking_clock())
+    queue.add(item("q1"))
+    ApprovalQueue(path, clock=ticking_clock()).resolve("q1", decision="x", resolved_by="y")
+    assert [i.item_id for i in queue.open_items()] == ["q1"]
+    queue.refresh()
+    assert queue.open_items() == []

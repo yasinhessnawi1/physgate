@@ -1,10 +1,17 @@
 """The approval queue: what a person decides, with what they need to decide it.
 
-One append-only file per run. An item carries the five things ARCH-130 names:
-the decision required, the artefact diff, the finding that triggered it, the
-most relevant quantities (at most three), and a link to every trajectory
-involved. A person's decision is a second line that names the item; nothing is
-ever edited, so the file says what was asked, what was decided, and when.
+Two append-only files per run. The items file is written only by the
+orchestrator, between sessions. An item carries the five things ARCH-130
+names: the decision required, the artefact diff, the finding that triggered it,
+the most relevant quantities (at most three), and a link to every trajectory
+involved.
+
+A person's decision goes into its own file, because a person decides while a
+session may be running. The items file is put back by the hook layer if it
+changes during a session; the decisions file is only refused to the session's
+tools, so a decision appended by ``physgate queue resolve`` meanwhile stands.
+Each decision names an open item. Nothing is ever edited, so the two files say
+what was asked, what was decided, and when.
 
 The item's wording is a template filled by code. The queue is where a model
 would be most tempting, since it is prose for a person, and there is none.
@@ -60,9 +67,11 @@ class QueueResolution(_Record):
     resolved_by: NonEmptyStr
 
 
-_RECORD: TypeAdapter[QueueItem | QueueResolution] = TypeAdapter(
-    Annotated[QueueItem | QueueResolution, Field(discriminator="kind")]
-)
+#: The decisions file, beside the items file.
+DECISIONS_NAME = "queue_decisions.jsonl"
+
+_ITEM: TypeAdapter[QueueItem] = TypeAdapter(QueueItem)
+_DECISION: TypeAdapter[QueueResolution] = TypeAdapter(QueueResolution)
 
 
 def escalation_item(
@@ -117,25 +126,42 @@ class ApprovalQueue:
                 lines before it (an item listed twice, a decision on no open item).
         """
         self.path = Path(path)
+        self.decisions_path = self.path.with_name(DECISIONS_NAME)
         self._clock = clock
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.touch(exist_ok=True)
+        self.decisions_path.touch(exist_ok=True)
+        self.refresh()
+
+    def refresh(self) -> None:
+        """Read both files again: a person may have decided since they were last read.
+
+        Raises:
+            QueueError: a complete line is not a record of its file's kind, or does
+                not follow from the lines before it.
+        """
         self._items: dict[str, QueueItem] = {}
         self._resolved: dict[str, QueueResolution] = {}
-        records, good_end, corrupt = read_jsonl(self.path, self._admit_line)
+        self._load(self.path, _ITEM)
+        self._load(self.decisions_path, _DECISION)
+
+    def _load(
+        self, path: Path, adapter: TypeAdapter[QueueItem] | TypeAdapter[QueueResolution]
+    ) -> None:
+        def admit(raw: bytes) -> QueueItem | QueueResolution:
+            record = adapter.validate_json(raw)
+            self._check(record)
+            self._record(record)
+            return record
+
+        _, good_end, corrupt = read_jsonl(path, admit)
         if corrupt is not None:
             offset, reason = corrupt
             msg = "the approval queue holds a line this package could not have written"
-            raise QueueError(msg, queue=str(self.path), offset=str(offset), reason=reason)
-        if self.path.stat().st_size != good_end:
-            with self.path.open("r+b") as handle:
+            raise QueueError(msg, queue=str(path), offset=str(offset), reason=reason)
+        if path.stat().st_size != good_end:
+            with path.open("r+b") as handle:
                 handle.truncate(good_end)
-
-    def _admit_line(self, raw: bytes) -> QueueItem | QueueResolution:
-        record = _RECORD.validate_json(raw)
-        self._check(record)
-        self._record(record)
-        return record
 
     def _check(self, record: QueueItem | QueueResolution) -> None:
         """Raise ``ValueError`` unless ``record`` may be the next line."""
@@ -158,7 +184,8 @@ class ApprovalQueue:
             self._check(record)
         except ValueError as exc:
             raise QueueError(str(exc), queue=str(self.path)) from None
-        with self.path.open("ab") as handle:
+        target = self.path if isinstance(record, QueueItem) else self.decisions_path
+        with target.open("ab") as handle:
             handle.write(record.model_dump_json().encode() + b"\n")
             handle.flush()
             os.fsync(handle.fileno())
