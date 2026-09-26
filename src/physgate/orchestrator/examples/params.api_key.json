@@ -1,0 +1,29 @@
+{
+ "auth": "api_key",
+ "gate_mode": "on",
+ "models": {
+  "decomposition": "claude-sonnet-5",
+  "roles": {
+   "mechanical": "claude-sonnet-5",
+   "electrical": "claude-sonnet-5",
+   "control": "claude-sonnet-5",
+   "firmware": "claude-sonnet-5"
+  },
+  "reviewers": {
+   "mechanical": "claude-haiku-4-5-20251001",
+   "electrical": "claude-haiku-4-5-20251001",
+   "control": "claude-haiku-4-5-20251001",
+   "firmware": "claude-haiku-4-5-20251001"
+  }
+ },
+ "bounds": {
+  "binary_max_retries": 0,
+  "session_wall_clock_s": 1800.0,
+  "session_max_turns": 150,
+  "infra_retry_delays_s": [
+   60.0,
+   300.0
+  ]
+ },
+ "token_ceiling": 2000000
+}

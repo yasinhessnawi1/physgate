@@ -2,10 +2,12 @@
 
 ``decompose`` builds the run's configuration from explicit inputs (the seed on
 the command line, the brief's digest, the target repository's head, and a
-parameters file holding the model strings, bounds, gate mode and token ceiling),
-makes the run's one model call and starts the run from its plan. Nothing it
-records has a default. The API key comes from the environment and is never
-written anywhere. The endpoint (``ANTHROPIC_BASE_URL``, or the binary's default)
+parameters file holding the auth mode, model strings, bounds, gate mode and token
+ceiling), makes the run's one model call and starts the run from its plan.
+Nothing it records has a default. The auth mode names where the secret comes
+from (``CLAUDE_CODE_OAUTH_TOKEN`` for ``subscription``, ``ANTHROPIC_API_KEY``
+for ``api_key``); the secret is read from the environment and never written into
+any record. The endpoint (``ANTHROPIC_BASE_URL``, or the binary's default)
 is recorded without any credential in it, and ``run`` and ``resume`` refuse a
 different one.
 
@@ -31,6 +33,7 @@ import physgate
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper
 from physgate.orchestrator.common import first_problem
+from physgate.orchestrator.credentials import SECRET_VARIABLE, credential_for
 from physgate.orchestrator.decompose import binary_version, call, require_fresh, start_run
 from physgate.orchestrator.dispatch import ClaudeDispatcher
 from physgate.orchestrator.events import SubtaskPlanned, read_events
@@ -48,6 +51,9 @@ from physgate.orchestrator.run_config import (
     load_run_config,
     require_endpoint,
 )
+
+#: Example parameters files, one per auth mode.
+EXAMPLES = Path(__file__).resolve().parent / "examples"
 
 #: One worktree removal's bound. One removal on the server's network volume was
 #: measured at 266 s; past this it is recorded as timed out and left, and the run
@@ -107,7 +113,15 @@ def add_parsers(
     d.add_argument("brief", type=Path)
     d.add_argument("--seed", required=True, type=int)
     d.add_argument("--run-id", required=True)
-    d.add_argument("--params", required=True, type=Path, help="models, bounds, gate mode, ceiling")
+    d.add_argument(
+        "--params",
+        required=True,
+        type=Path,
+        help=(
+            "auth mode, models, bounds, gate mode, ceiling; examples for both auth modes are "
+            f"in {EXAMPLES}"
+        ),
+    )
     d.add_argument("--target", required=True, type=Path, help="the target repository")
     d.add_argument("--run-dir", required=True, type=Path)
     d.set_defaults(func=_decompose)
@@ -149,10 +163,12 @@ def _config(args: argparse.Namespace) -> RunConfig:
 
 
 def _decompose(args: argparse.Namespace) -> int:
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        return _fail("ANTHROPIC_API_KEY is not set; the one model call needs it")
     try:
+        # The credential first, from the mode the parameters name: a run whose mode
+        # has no secret in the environment is refused before anything else happens.
+        mode = json.loads(args.params.read_text()).get("auth")
+        known = isinstance(mode, str) and mode in SECRET_VARIABLE
+        credential = credential_for(mode, os.environ) if known else None
         config = _config(args)
     except OrchestratorError as exc:
         return _fail(str(exc), **exc.context)
@@ -160,6 +176,8 @@ def _decompose(args: argparse.Namespace) -> int:
         return _fail(
             "the run parameters are not a complete configuration", reason=first_problem(exc)
         )
+    if credential is None:  # the configuration validated, so the mode is a known one
+        return _fail("the run parameters name no auth mode")
     run_dir = args.run_dir.resolve()
     try:
         require_fresh(run_dir)
@@ -168,7 +186,7 @@ def _decompose(args: argparse.Namespace) -> int:
             config=config,
             workdir=run_dir / "decomposition",
             base_url=os.environ.get("ANTHROPIC_BASE_URL"),
-            api_key=api_key,
+            credential=credential,
         )
         record = start_run(
             outcome, config=config, run_dir=run_dir, target_repo=args.target.resolve()
@@ -199,12 +217,11 @@ def _project_root() -> Path:
 
 
 def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registrations) -> int:
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        return _fail("ANTHROPIC_API_KEY is not set; the role sessions need it")
     run_dir = args.run_dir.resolve()
     try:
         config = load_run_config(run_dir / "run.json")
+        # The recorded mode decides which secret the run needs; a resume cannot change it.
+        credential = credential_for(config.auth, os.environ)
         # The gate and the reviewers first: without them nothing else is worth building.
         refuse_unregistered(config, registrations.gate, registrations.reviewers)
         # The same provider, or the run's numbers would mean something else.
@@ -234,7 +251,7 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
                 install_bin=install_bin,
                 binary=claude_binary(),
                 base_url=os.environ.get("ANTHROPIC_BASE_URL"),
-                api_key=api_key,
+                credential=credential,
             ),
             changes=GitChangeChecker(run, store_root, {e.subtask_id: e.module_dir for e in plan}),
             merger=GitMerger(run, removal_timeout_s=REMOVAL_TIMEOUT_S),

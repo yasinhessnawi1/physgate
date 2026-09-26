@@ -19,8 +19,16 @@ from typing import Any
 
 import pytest
 from git_rig import config, run_layout
-from scripted_endpoint import DUMMY_KEY, Script, serving, text, tool  # noqa: E402
+from scripted_endpoint import (  # noqa: E402
+    DUMMY_KEY,
+    DUMMY_OAUTH_TOKEN,
+    Script,
+    serving,
+    text,
+    tool,
+)
 
+from physgate.orchestrator.credentials import Credential  # noqa: E402
 from physgate.orchestrator.dispatch import ClaudeDispatcher  # noqa: E402
 from physgate.orchestrator.exceptions import InvocationError  # noqa: E402
 from physgate.orchestrator.git import commit_all, git  # noqa: E402
@@ -92,6 +100,7 @@ def dispatch(
     steps: list[dict[str, Any]],
     cfg: RunConfig | None = None,
     answer_as: str | None = None,
+    credential: Credential | None = None,
 ) -> tuple[Any, Any, RunGit]:
     run, store_root = layout(root)
     cfg = cfg or config()
@@ -103,7 +112,7 @@ def dispatch(
             install_bin=install_bin,
             binary=claude_binary(),
             base_url=url,
-            api_key=DUMMY_KEY,
+            credential=credential or Credential("api_key", DUMMY_KEY),
         )
         report = dispatcher.run(request(cfg))
         facts = dispatcher.environment()
@@ -137,10 +146,10 @@ def test_a_session_reads_works_and_proposes_under_the_generated_settings(
     env_seen = (worktree / "modules" / "power" / "env.txt").read_text()
     assert "ANTHROPIC_API_KEY" not in env_seen and DUMMY_KEY not in env_seen
     # Through the helper the binary sends the key in both headers (measured: both
-    # carry the helper's key), so the scripted endpoint's "other credential" flag,
-    # which is any Authorization header, is set; the key itself is the dummy one,
-    # and nothing else could supply one: no key in the environment, a scratch home.
-    assert all(r.carried_dummy_key for r in api.requests)
+    # carry the helper's key) and no OAuth header; nothing else could supply one:
+    # no key in the environment, a scratch home.
+    assert all(r.carried_dummy_key and not r.carried_other_credential for r in api.requests)
+    assert not any(r.carried_oauth_login for r in api.requests)
     trajectory = Path(str(report.trajectory))
     assert trajectory.exists() and DUMMY_KEY not in trajectory.read_text()
     sdir = trajectory.parent
@@ -216,16 +225,20 @@ def test_a_binary_that_is_not_the_recorded_version_is_refused_before_any_spawn(
     assert not (tmp_path / "run" / "sessions").exists()
 
 
-def test_a_key_that_reaches_the_stream_anyway_is_redacted_before_anything_reads_it(
-    tmp_path: Path, install_bin: Path
+@pytest.mark.parametrize("mode", ["api_key", "subscription"])
+def test_a_credential_that_reaches_the_stream_anyway_is_redacted_before_anything_reads_it(
+    tmp_path: Path, install_bin: Path, mode: str
 ) -> None:
-    # The helper keeps the key out of the environment; this is the second layer,
-    # for a key that reaches the stream some other way, here in the model's words.
+    # The helper or the login file keeps the secret out of the environment; this is
+    # the second layer, for a secret that reaches the stream some other way, here in
+    # the model's words.
+    secret = DUMMY_KEY if mode == "api_key" else DUMMY_OAUTH_TOKEN
     worktree = tmp_path / "run" / "worktrees" / "s1"
-    steps = [tool("Read", file_path=str(worktree / SPEC)), text(f"the key is {DUMMY_KEY}")]
-    _, (report, _), _ = dispatch(tmp_path, install_bin, steps)
+    steps = [tool("Read", file_path=str(worktree / SPEC)), text(f"the secret is {secret}")]
+    credential = Credential(mode, secret)  # type: ignore[arg-type]
+    _, (report, _), _ = dispatch(tmp_path, install_bin, steps, credential=credential)
     captured = Path(str(report.trajectory)).read_text()
-    assert DUMMY_KEY not in captured and "[redacted: the API key]" in captured
+    assert secret not in captured and "[redacted: the credential]" in captured
 
 
 def test_a_session_answered_by_a_model_other_than_the_pinned_one_is_refused(
@@ -273,7 +286,7 @@ def test_a_session_left_running_by_a_killed_orchestrator_is_stopped_with_its_too
             "store_root": str(store_root),
             "install_bin": str(install_bin),
             "base_url": url,
-            "api_key": DUMMY_KEY,
+            "credential": {"mode": "api_key", "secret": DUMMY_KEY},
             "request": request(cfg).model_dump(mode="json"),
         }
         (tmp_path / "standin.json").write_text(json.dumps(spec))
@@ -303,11 +316,43 @@ def test_a_session_left_running_by_a_killed_orchestrator_is_stopped_with_its_too
             install_bin=install_bin,
             binary=claude_binary(),
             base_url=url,
-            api_key=DUMMY_KEY,
+            credential=Credential("api_key", DUMMY_KEY),
         )
+        assert (record_path.parent / "state" / "key").exists()
         stopped = dispatcher.stop_leftovers()
     assert [(s[0], s[1]) for s in stopped] == [(record["session_id"], record["pid"])]
+    # The killed orchestrator never removed the key; the resume did.
+    assert not (record_path.parent / "state" / "key").exists()
+    assert not (record_path.parent / "state" / "key-helper.sh").exists()
     time.sleep(25)
     assert started_at(record["pid"]) is None
     assert _running(marker) == []
     assert not late.exists(), "a tool of the stopped session wrote after the stop"
+
+
+def _files_holding(root: Path, secret: str) -> list[str]:
+    return [str(p) for p in root.rglob("*") if p.is_file() and secret.encode() in p.read_bytes()]
+
+
+def test_a_subscription_token_reaches_the_binary_as_a_login_and_nothing_else_holds_it(
+    tmp_path: Path, install_bin: Path
+) -> None:
+    worktree = tmp_path / "run" / "worktrees" / "s1"
+    steps = [
+        tool("Read", file_path=str(worktree / SPEC)),
+        tool("Bash", command="env > modules/power/env.txt; echo 'x = 2' > modules/power/a.py"),
+        text("done"),
+    ]
+    credential = Credential("subscription", DUMMY_OAUTH_TOKEN)
+    api, (report, _), _ = dispatch(tmp_path, install_bin, steps, credential=credential)
+    assert report.end.outcome == "completed", report
+    # As the binary's own login: a bearer token with the OAuth header, never as a key.
+    assert api.requests and all(r.carried_oauth_login for r in api.requests)
+    assert all(r.credential_headers == ("authorization",) for r in api.requests)
+    assert not any(r.carried_other_credential for r in api.requests)
+    env_seen = (worktree / "modules" / "power" / "env.txt").read_text()
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in env_seen and DUMMY_OAUTH_TOKEN not in env_seen
+    sdir = Path(str(report.trajectory)).parent
+    assert not (sdir / "config" / ".credentials.json").exists()
+    assert not (sdir / "state" / "key").exists()
+    assert _files_holding(tmp_path, DUMMY_OAUTH_TOKEN) == []

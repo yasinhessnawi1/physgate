@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.invocation import decomposition_argv, isolated_env, require_pinned
 
@@ -91,5 +92,11 @@ def test_a_binary_that_changed_since_the_run_recorded_it_is_refused_before_the_c
     monkeypatch.setenv("PHYSGATE_CLAUDE_BIN", str(_binary(tmp_path, "2.1.272")))
     recorded_elsewhere = make_config(claude_version="2.1.271")
     with pytest.raises(InvocationError, match="not the version this run recorded"):
-        call("brief", config=recorded_elsewhere, workdir=tmp_path / "w", base_url=None, api_key="k")
+        call(
+            "brief",
+            config=recorded_elsewhere,
+            workdir=tmp_path / "w",
+            base_url=None,
+            credential=Credential("api_key", "k"),
+        )
     assert not (tmp_path / "w").exists()

@@ -500,3 +500,23 @@ def test_the_record_refuses_a_removal_the_rules_do_not_allow(tmp_path: Path) -> 
     with pytest.raises(ValueError, match="worktree removal"):
         log.emit(WorktreeRemoved, subtask_id="s1", reason="queue_resolved", **fields)
     log.close()
+
+
+def test_a_refused_credential_halts_at_once_and_a_resume_continues_the_same_attempt(
+    tmp_path: Path,
+) -> None:
+    rig = Rig(
+        tmp_path, dispatcher=FakeDispatcher(infra={1: "credential_refused"}), delays=(5.0, 5.0)
+    )
+    loop = rig.open()
+    loop.start(plan("s1"))
+    assert loop.run().kind == "halted"
+    loop.close()
+    (halt,) = [e for e in read_events(tmp_path / "events.jsonl") if isinstance(e, Halted)]
+    assert halt.reason == "credential_refused"
+    assert "replace ANTHROPIC_API_KEY and resume" in halt.detail
+    assert rig.slept == [], "a refused credential is not retried on the schedule"
+    again = rig.open()
+    assert again.resume().kind == "done"
+    again.close()
+    assert [r.attempt for r in rig.dispatcher.requests] == [1, 1]

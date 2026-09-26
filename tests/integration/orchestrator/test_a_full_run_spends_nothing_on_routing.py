@@ -80,7 +80,7 @@ def test_decompose_run_and_resume_through_the_command_with_routing_at_zero(
     run_dir = tmp_path / "run"
     install = tmp_path / "install"
     prepare_install(install, Path(__file__).resolve().parents[3])
-    params = config().model_dump(include={"gate_mode", "models", "bounds", "token_ceiling"})
+    params = config().model_dump(include={"auth", "gate_mode", "models", "bounds", "token_ceiling"})
     (tmp_path / "params.json").write_text(json.dumps(params))
     (tmp_path / "brief.md").write_text("Build a self-balancing robot.\n")
     monkeypatch.setenv("ANTHROPIC_API_KEY", DUMMY_KEY)
@@ -108,7 +108,9 @@ def test_decompose_run_and_resume_through_the_command_with_routing_at_zero(
         )
         assert code == 0, capsys.readouterr().err
         capsys.readouterr()
-        assert json.loads((run_dir / "run.json").read_text())["endpoint"] == url
+        recorded = json.loads((run_dir / "run.json").read_text())
+        assert (recorded["endpoint"], recorded["auth"]) == (url, "api_key")
+        assert DUMMY_KEY not in (run_dir / "run.json").read_text()
 
         subtask = mint_id(7, 0, "power")
         worktree = run_dir / "worktrees" / subtask

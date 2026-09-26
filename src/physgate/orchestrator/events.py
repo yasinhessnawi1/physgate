@@ -67,7 +67,14 @@ IncidentCause = Literal[
 ]
 
 #: Why a run stopped short of the end of its plan.
-HaltReason = Literal["incident", "infrastructure_exhausted", "decomposition_failed"]
+HaltReason = Literal[
+    "incident", "infrastructure_exhausted", "credential_refused", "decomposition_failed"
+]
+
+#: Halts a resume continues from, the same attempt with a fresh schedule: the
+#: infrastructure schedule ran out, or the credential was refused and has since
+#: been replaced. Any other halt is resolved by a person first.
+RESUMABLE_HALTS: frozenset[str] = frozenset({"infrastructure_exhausted", "credential_refused"})
 
 #: Who spent a token: ``<what>:<invocation id>``. The invocation id is the Claude Code
 #: session id of the one call, so decomposition invocations can be counted.

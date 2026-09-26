@@ -16,9 +16,17 @@ from typing import Any
 
 import pytest
 from git_rig import config, target_repo
-from scripted_endpoint import DUMMY_KEY, Script, serving, text, tool  # noqa: E402
+from scripted_endpoint import (  # noqa: E402
+    DUMMY_KEY,
+    DUMMY_OAUTH_TOKEN,
+    Script,
+    serving,
+    text,
+    tool,
+)
 
 from physgate.orchestrator.accounting import TokenAccount  # noqa: E402
+from physgate.orchestrator.credentials import Credential  # noqa: E402
 from physgate.orchestrator.decompose import call, start_run  # noqa: E402
 from physgate.orchestrator.events import Decomposed, Halted, read_events  # noqa: E402
 from physgate.orchestrator.git import head_of  # noqa: E402
@@ -67,7 +75,11 @@ PLAN: dict[str, Any] = {
 
 
 def decompose_once(
-    root: Path, seed: int, steps: list[dict[str, Any]], answer_as: str | None = None
+    root: Path,
+    seed: int,
+    steps: list[dict[str, Any]],
+    answer_as: str | None = None,
+    credential: Credential | None = None,
 ) -> tuple[Any, Any, Path]:
     repo = target_repo(root)
     cfg = config().model_copy(update={"seed": seed, "target_head": head_of(repo, "master")})
@@ -77,7 +89,7 @@ def decompose_once(
             config=cfg,
             workdir=root / "run" / "decomposition",
             base_url=url,
-            api_key=DUMMY_KEY,
+            credential=credential or Credential("api_key", DUMMY_KEY),
         )
     record = start_run(outcome, config=cfg, run_dir=root / "run", target_repo=repo)
     record.close()
@@ -158,7 +170,7 @@ def test_the_decompose_command_twice_with_one_seed_gives_one_set_of_ids(
 
     from physgate.cli import main
 
-    params = config().model_dump(include={"gate_mode", "models", "bounds", "token_ceiling"})
+    params = config().model_dump(include={"auth", "gate_mode", "models", "bounds", "token_ceiling"})
     (tmp_path / "params.json").write_text(json.dumps(params))
     (tmp_path / "brief.md").write_text("Build a self-balancing robot.\n")
     printed = []
@@ -204,3 +216,84 @@ def test_a_plan_from_a_model_other_than_the_pinned_one_fails_the_run(tmp_path: P
     assert not outcome.ok and outcome.cause == "model_mismatch"
     assert "claude-haiku-4-5-20251001" in outcome.detail and len(api.requests) == 1
     assert not (run_dir / "store").exists()
+
+
+def test_the_one_call_on_a_subscription_carries_the_token_as_a_login_and_keeps_it_nowhere(
+    tmp_path: Path,
+) -> None:
+    credential = Credential("subscription", DUMMY_OAUTH_TOKEN)
+    api, outcome, run_dir = decompose_once(
+        tmp_path, 7, [tool("StructuredOutput", **PLAN)], credential=credential
+    )
+    assert outcome.ok, outcome.detail
+    assert len(api.requests) == 1 and api.requests[0].carried_oauth_login
+    assert api.requests[0].credential_headers == ("authorization",)
+    assert not (run_dir / "decomposition" / "config" / ".credentials.json").exists()
+    held = [
+        str(p)
+        for p in tmp_path.rglob("*")
+        if p.is_file() and DUMMY_OAUTH_TOKEN.encode() in p.read_bytes()
+    ]
+    assert held == []
+
+
+def test_the_decompose_command_in_subscription_mode_records_the_mode_and_not_the_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import json
+
+    from physgate.cli import main
+    from physgate.orchestrator.cli import EXAMPLES
+
+    params = json.loads((EXAMPLES / "params.subscription.json").read_text())
+    params["bounds"] = config().bounds.model_dump(mode="json")  # the scripted endpoint's
+    (tmp_path / "params.json").write_text(json.dumps(params))
+    (tmp_path / "brief.md").write_text("Build a self-balancing robot.\n")
+    repo = target_repo(tmp_path)
+    plan = {**PLAN, "modules": [{**m, "role": "electrical"} for m in PLAN["modules"]]}
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", DUMMY_OAUTH_TOKEN)
+    with serving(Script(main=[tool("StructuredOutput", **plan)])) as (api, url):
+        monkeypatch.setenv("ANTHROPIC_BASE_URL", url)
+        code = main(
+            [
+                "decompose",
+                str(tmp_path / "brief.md"),
+                "--seed",
+                "7",
+                "--run-id",
+                "run-1",
+                "--params",
+                str(tmp_path / "params.json"),
+                "--target",
+                str(repo),
+                "--run-dir",
+                str(tmp_path / "run"),
+            ]
+        )
+    out = capsys.readouterr()
+    assert code == 0, out.err
+    recorded = json.loads((tmp_path / "run" / "run.json").read_text())
+    assert recorded["auth"] == "subscription"
+    assert len(api.requests) == 1 and api.requests[0].carried_oauth_login
+    held = [
+        str(p)
+        for p in tmp_path.rglob("*")
+        if p.is_file() and DUMMY_OAUTH_TOKEN.encode() in p.read_bytes()
+    ]
+    assert held == []
+
+
+def test_a_subscription_token_in_the_one_call_s_stream_is_redacted_before_it_is_kept(
+    tmp_path: Path,
+) -> None:
+    # The login file keeps the token out of the call's environment; this is the
+    # second layer, for a token that reaches the stream anyway, here in the answer.
+    leaky = {**PLAN, "modules": [{**PLAN["modules"][0], "spec": f"use {DUMMY_OAUTH_TOKEN}"}]}
+    credential = Credential("subscription", DUMMY_OAUTH_TOKEN)
+    _, outcome, run_dir = decompose_once(
+        tmp_path, 7, [tool("StructuredOutput", **leaky)], credential=credential
+    )
+    assert outcome.ok, outcome.detail
+    kept = (run_dir / "decomposition" / "stdout.jsonl").read_text()
+    assert DUMMY_OAUTH_TOKEN not in kept and "[redacted: the credential]" in kept

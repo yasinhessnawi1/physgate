@@ -11,9 +11,11 @@ What the orchestrator reads afterwards is its own record and the hook layer's,
 never the session's say-so: the stream it captured itself (never the
 transcript in the session's writable configuration directory), the hook
 layer's reading records for whether the required reading was completed, and
-the hook log for a node-file halt and for journal appends. The key reaches the
-session through a helper the settings name, not through its environment, and
-is redacted from the captured stream before anything reads it.
+the hook log for a node-file halt and for journal appends. The credential
+reaches the session through a file, never its environment: an API key through a
+helper script the settings name, a subscription token as the binary's login file
+in the session's own configuration directory. Either is removed when the session
+ends and redacted from the captured stream before anything reads it.
 """
 
 from __future__ import annotations
@@ -30,6 +32,13 @@ from pydantic import BaseModel, ConfigDict
 from physgate.hooks.config import SessionConfig
 from physgate.hooks.reading import outstanding
 from physgate.orchestrator.budget import classify_session_end
+from physgate.orchestrator.credentials import (
+    REDACTED_TEXT,
+    Credential,
+    remove_secrets,
+    write_key_helper,
+    write_login,
+)
 from physgate.orchestrator.decompose import binary_version, read_stream
 from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.install import InstallFacts, install_facts
@@ -39,7 +48,7 @@ from physgate.orchestrator.ports import SessionReport, SessionRequest
 from physgate.orchestrator.processes import started_at, stop_tree
 from physgate.orchestrator.run_config import RunConfig
 
-REDACTED = b"[redacted: the API key]"
+REDACTED = REDACTED_TEXT.encode()
 
 
 def role_prompt(request: SessionRequest) -> str:
@@ -101,7 +110,7 @@ class ClaudeDispatcher:
         install_bin: Path,
         binary: str,
         base_url: str | None,
-        api_key: str,
+        credential: Credential,
     ) -> None:
         """Dispatch attempts of ``run`` with the hooks from ``install_bin``'s installation."""
         self._config = config
@@ -110,7 +119,7 @@ class ClaudeDispatcher:
         self._install_bin = install_bin
         self._binary = binary
         self._base_url = base_url
-        self._api_key = api_key
+        self._credential = credential
         self._facts: InstallFacts | None = None
 
     def environment(self) -> InstallFacts:
@@ -124,12 +133,10 @@ class ClaudeDispatcher:
     def _install(self, request: SessionRequest, worktree: Path, sdir: Path) -> _Installed:
         state = sdir / "state"
         state.mkdir(parents=True)
-        helper = state / "key-helper.sh"
-        secret = state / "key"
-        secret.write_text(self._api_key)
-        secret.chmod(0o600)
-        helper.write_text(f"#!/bin/sh\ncat '{secret}'\n")
-        helper.chmod(0o700)
+        helper: list[str] = []
+        if self._credential.mode == "api_key":
+            key_helper = write_key_helper(state, self._credential.secret)
+            helper = ["--api-key-helper", str(key_helper)]
         argv = [
             str(self._install_bin),
             "hooks",
@@ -156,13 +163,14 @@ class ClaudeDispatcher:
             str(self._config.token_ceiling),
             "--reading",
             str(worktree / request.spec_path),
-            "--api-key-helper",
-            str(helper),
+            *helper,
         ]
         done = subprocess.run(argv, capture_output=True, text=True, check=False)
         if done.returncode != 0:
             msg = "the hook layer's installer refused the session"
             raise InvocationError(msg, stderr=done.stderr[-600:])
+        if self._credential.mode == "subscription":
+            write_login(sdir / "config", self._credential.secret)
         return _Installed.model_validate_json(done.stdout)
 
     def run(self, request: SessionRequest) -> SessionReport:
@@ -221,10 +229,9 @@ class ClaudeDispatcher:
             except subprocess.TimeoutExpired:
                 stop_tree(process.pid, record["started"])  # type: ignore[arg-type]
                 exit_code, timed_out = process.wait(), True
-        # The key is on disk only while its session runs.
-        for name in ("key", "key-helper.sh"):
-            (sdir / "state" / name).unlink(missing_ok=True)
-        redact(stdout, self._api_key)
+        # The credential is on disk only while its session runs.
+        remove_secrets(sdir / "state", sdir / "config")
+        redact(stdout, self._credential.secret)
         result, usage, answered = read_stream(stdout.read_text(errors="replace"))
         end = classify_session_end(result, exit_code=exit_code, stopped_at_wall_clock=timed_out)
         if end.outcome == "completed":
@@ -257,7 +264,8 @@ class ClaudeDispatcher:
         A session is found from the pid and start time recorded when it was
         spawned; a pid now held by another process is not signalled. Returns the
         session id, the pid and how many of its processes needed SIGKILL, for each
-        session that was still running.
+        session that was still running. Then every session's credential files
+        are removed and its stream redacted.
         """
         stopped: list[tuple[str, int, int]] = []
         for record_path in sorted((self._run.run_dir / "sessions").glob("*/process.json")):
@@ -272,6 +280,11 @@ class ClaudeDispatcher:
                 ended.write_text(json.dumps({"stopped_at_resume": True, "killed": killed}))
             else:
                 ended.write_text(json.dumps({"not_running_at_resume": True}))
+        # Nothing of this run is running now, so no session still needs its credential.
+        # A killed orchestrator never removed it; its stream was never redacted either.
+        for sdir in sorted(p for p in (self._run.run_dir / "sessions").glob("*") if p.is_dir()):
+            remove_secrets(sdir / "state", sdir / "config")
+            redact(sdir / "stdout.jsonl", self._credential.secret)
         return stopped
 
     @staticmethod

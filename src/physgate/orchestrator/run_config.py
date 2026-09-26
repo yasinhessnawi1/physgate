@@ -24,7 +24,13 @@ from pydantic import (
     ValidationError,
 )
 
-from physgate.orchestrator.common import GateMode, ModelString, NonEmptyStr, first_problem
+from physgate.orchestrator.common import (
+    AuthMode,
+    GateMode,
+    ModelString,
+    NonEmptyStr,
+    first_problem,
+)
 from physgate.orchestrator.exceptions import RunConfigError
 
 
@@ -123,6 +129,7 @@ class RunConfig(_Frozen):
     claude_version: NonEmptyStr
     target_head: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
     endpoint: Endpoint
+    auth: AuthMode
 
     def canonical_bytes(self) -> bytes:
         """The recorded form: stable key order, so equal configs are equal bytes."""

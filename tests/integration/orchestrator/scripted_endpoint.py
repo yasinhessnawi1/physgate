@@ -35,6 +35,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 DUMMY_KEY = "sk-ant-test-dummy-not-a-credential"
+#: Shaped like the long-lived token ``claude setup-token`` prints; not one.
+DUMMY_OAUTH_TOKEN = "sk-ant-oat01-test-dummy-not-a-credential"
 SUBAGENT_MARKER = "SUBAGENT-MARKER"
 
 
@@ -65,6 +67,10 @@ class Recorded:
     path: str
     carried_dummy_key: bool
     carried_other_credential: bool
+    #: The dummy OAuth token as a bearer token, with the OAuth beta header.
+    carried_oauth_login: bool
+    #: Which credential headers were present, by name.
+    credential_headers: tuple[str, ...]
     thread: str
     tool_results: int
     offered_tools: tuple[str, ...]
@@ -200,6 +206,8 @@ class FakeMessagesApi:
     def answer(self, path: str, headers: Any, body: dict[str, Any]) -> tuple[bytes, str]:  # noqa: ANN401
         """The response to one request, recorded."""
         key = headers.get("x-api-key")
+        auth = headers.get("authorization") or ""
+        bearer = auth.removeprefix("Bearer ") if auth.startswith("Bearer ") else auth or None
         messages = body.get("messages", [])
         offered = tuple(t.get("name", "") for t in body.get("tools") or [])
         first = _text_of(messages[0]["content"]) if messages else ""
@@ -219,8 +227,16 @@ class FakeMessagesApi:
                 Recorded(
                     path=path,
                     carried_dummy_key=key == DUMMY_KEY,
-                    carried_other_credential=(key is not None and key != DUMMY_KEY)
-                    or headers.get("authorization") is not None,
+                    carried_other_credential=any(
+                        value not in (DUMMY_KEY, DUMMY_OAUTH_TOKEN)
+                        for value in (key, bearer)
+                        if value is not None
+                    ),
+                    carried_oauth_login=bearer == DUMMY_OAUTH_TOKEN
+                    and "oauth-2025-04-20" in (headers.get("anthropic-beta") or ""),
+                    credential_headers=tuple(
+                        name for name in ("x-api-key", "authorization") if headers.get(name)
+                    ),
                     thread=thread,
                     tool_results=done,
                     offered_tools=offered,

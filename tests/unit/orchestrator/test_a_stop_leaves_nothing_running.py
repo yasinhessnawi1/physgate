@@ -11,6 +11,7 @@ from pathlib import Path
 
 from loop_fakes import FakeDispatcher, KilledError, Rig, plan
 
+from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.dispatch import ClaudeDispatcher
 from physgate.orchestrator.events import LeftoverStopped, Resumed, StageEntered, read_events
 from physgate.orchestrator.merge import RunGit
@@ -85,7 +86,7 @@ def _dispatcher(run_dir: Path) -> ClaudeDispatcher:
         install_bin=run_dir / "bin" / "physgate",
         binary="/nonexistent/claude",
         base_url=None,
-        api_key="k",
+        credential=Credential("api_key", "k"),
     )
 
 

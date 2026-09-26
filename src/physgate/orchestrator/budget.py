@@ -27,7 +27,14 @@ REPAIR_BUDGET = 3
 
 #: Why a session is an infrastructure outcome. Each is recorded, so an experiment
 #: can decide for itself how to count one (a turn limit may be an agent looping).
-InfraCause = Literal["api_error", "wall_clock", "turn_limit", "no_result", "unexpected_exit"]
+#: ``credential_refused`` is an API error with HTTP 401 or 403: retrying cannot fix a
+#: refused credential, so the loop halts on it for a person to replace it.
+InfraCause = Literal[
+    "api_error", "credential_refused", "wall_clock", "turn_limit", "no_result", "unexpected_exit"
+]
+
+#: The HTTP statuses the binary reports for a credential the API refused.
+CREDENTIAL_REFUSED_STATUSES = frozenset({401, 403})
 
 
 class SessionEnd(BaseModel):
@@ -69,6 +76,8 @@ def classify_session_end(
     if terminal == "max_turns":
         return SessionEnd(outcome="infrastructure", cause="turn_limit")
     if is_error is True and terminal == "api_error":
+        if result.get("api_error_status") in CREDENTIAL_REFUSED_STATUSES:
+            return SessionEnd(outcome="infrastructure", cause="credential_refused")
         return SessionEnd(outcome="infrastructure", cause="api_error")
     if is_error is False and terminal == "completed" and exit_code == 0:
         return SessionEnd(outcome="completed", cause=None)

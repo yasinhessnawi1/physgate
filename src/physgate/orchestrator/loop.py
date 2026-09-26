@@ -24,7 +24,9 @@ from typing import Literal
 from physgate.orchestrator.apply import ProposalRefusedError
 from physgate.orchestrator.budget import infra_retry_delay
 from physgate.orchestrator.common import utc_now
+from physgate.orchestrator.credentials import SECRET_VARIABLE
 from physgate.orchestrator.events import (
+    RESUMABLE_HALTS,
     AttemptRejected,
     DiffChecked,
     Envelope,
@@ -207,7 +209,7 @@ class Loop:
         """
         self._stop_leftovers()
         halted = self.state.halted
-        if halted is not None and halted.reason != "infrastructure_exhausted":
+        if halted is not None and halted.reason not in RESUMABLE_HALTS:
             msg = f"the run halted for {halted.reason}; a person resolves that before any resume"
             raise RunStateError(msg, run_dir=str(self.run_dir), detail=halted.detail)
         if not self._journal_clean():
@@ -614,6 +616,14 @@ class Loop:
         now = self.state.subtasks[subtask_id].attempts[-1]
         delay = infra_retry_delay(self.config.bounds.infra_retry_delays_s, now.retries_done)
         cause = now.session.cause if now.session else "unknown"
+        if cause == "credential_refused":
+            variable = SECRET_VARIABLE[self.config.auth]
+            detail = (
+                f"subtask {subtask_id} attempt {attempt}: the API refused the "
+                f"{self.config.auth} credential; replace {variable} and resume"
+            )
+            self._emit(Halted(**self._env(), reason="credential_refused", detail=detail))
+            return
         if delay is None:
             detail = (
                 f"subtask {subtask_id} attempt {attempt}: {cause} after "

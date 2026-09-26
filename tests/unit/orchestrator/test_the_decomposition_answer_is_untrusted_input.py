@@ -86,6 +86,11 @@ def test_a_valid_answer_is_a_plan() -> None:
         ),
         ({"terminal_reason": "max_turns", "is_error": True}, 1, "turn_limit"),
         ({"terminal_reason": "api_error", "is_error": True}, 1, "api_error"),
+        (
+            {"terminal_reason": "api_error", "is_error": True, "api_error_status": 401},
+            1,
+            "credential_refused",
+        ),
         ({"structured_output": {"modules": []}}, 0, "invalid_plan"),
         (
             {
@@ -105,6 +110,7 @@ def test_a_valid_answer_is_a_plan() -> None:
         "answered partly by another model",
         "the turn limit",
         "an API error",
+        "a refused credential",
         "an empty plan",
         "a bare number in an interface",
     ],

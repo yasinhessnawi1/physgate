@@ -34,6 +34,7 @@ def make_config(**overrides: Any) -> RunConfig:
         "claude_version": "2.1.272",
         "target_head": "b" * 40,
         "endpoint": "default",
+        "auth": "api_key",
     }
     fields.update(overrides)
     return RunConfig(**fields)

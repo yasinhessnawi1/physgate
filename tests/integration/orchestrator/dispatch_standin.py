@@ -6,6 +6,7 @@ import json
 import sys
 from pathlib import Path
 
+from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.dispatch import ClaudeDispatcher
 from physgate.orchestrator.invocation import claude_binary
 from physgate.orchestrator.merge import RunGit
@@ -25,7 +26,7 @@ def main() -> None:
         install_bin=Path(spec["install_bin"]),
         binary=claude_binary(),
         base_url=spec["base_url"],
-        api_key=spec["api_key"],
+        credential=Credential(**spec["credential"]),
     )
     dispatcher.run(SessionRequest.model_validate_json(json.dumps(spec["request"])))
 

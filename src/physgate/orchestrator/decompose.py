@@ -29,6 +29,12 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, Validation
 
 from physgate.orchestrator.budget import classify_session_end
 from physgate.orchestrator.common import NonEmptyStr, first_problem
+from physgate.orchestrator.credentials import (
+    REDACTED_TEXT,
+    Credential,
+    remove_secrets,
+    write_login,
+)
 from physgate.orchestrator.exceptions import DecompositionError, InvocationError, RunStateError
 from physgate.orchestrator.git import commit_all, init_repo
 from physgate.orchestrator.invocation import (
@@ -55,6 +61,7 @@ FailureCause = Literal[
     "invalid_plan",
     "model_mismatch",
     "api_error",
+    "credential_refused",
     "wall_clock",
     "turn_limit",
     "no_result",
@@ -246,9 +253,14 @@ def call(
     config: RunConfig,
     workdir: Path,
     base_url: str | None,
-    api_key: str | None,
+    credential: Credential,
 ) -> Outcome:
-    """Make the run's one model call, isolated, and judge what came back."""
+    """Make the run's one model call, isolated, and judge what came back.
+
+    The call has no tools, so no agent runs in it. An API key goes in its
+    environment; a subscription token goes in as the binary's login file in the
+    call's own configuration directory, removed when the call ends.
+    """
     binary = claude_binary()
     reported = binary_version(binary)
     if reported != config.claude_version:
@@ -274,8 +286,10 @@ def call(
         binary=binary,
         max_retries=config.bounds.binary_max_retries,
         base_url=base_url,
-        api_key=api_key,
+        api_key=credential.secret if credential.mode == "api_key" else None,
     )
+    if credential.mode == "subscription":
+        write_login(workdir / "config", credential.secret)
     try:
         done = subprocess.run(
             argv,
@@ -292,7 +306,9 @@ def call(
         raw = exc.stdout or b""
         stdout = raw.decode(errors="replace") if isinstance(raw, bytes) else raw
         exit_code, timed_out = None, True
-    (workdir / "stdout.jsonl").write_text(stdout)
+    finally:
+        remove_secrets(workdir / "state", workdir / "config")
+    (workdir / "stdout.jsonl").write_text(stdout.replace(credential.secret, REDACTED_TEXT))
     result, usage, answered = read_stream(stdout)
     cause, detail, plan, model, turns = judge(
         result,

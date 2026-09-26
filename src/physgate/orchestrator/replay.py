@@ -23,6 +23,7 @@ from typing import Literal
 from physgate.orchestrator.budget import REPAIR_BUDGET, after_rejection
 from physgate.orchestrator.common import GateMode
 from physgate.orchestrator.events import (
+    RESUMABLE_HALTS,
     AttemptRejected,
     Decomposed,
     DiffChecked,
@@ -334,7 +335,7 @@ class RunState:
         return reviewed and now.merged is None and self._gate_allows_review(now)
 
     def _resume(self, sub: SubtaskState, now: AttemptState, point: str) -> None:
-        if self.halted is not None and self.halted.reason != "infrastructure_exhausted":
+        if self.halted is not None and self.halted.reason not in RESUMABLE_HALTS:
             _refuse(f"a run halted for {self.halted.reason} is not resumed by the loop")
         if self.halted is not None:
             self.halted = None
@@ -407,7 +408,7 @@ class RunState:
                 continue
             now = sub.attempts[-1]
             if self.halted is not None:
-                return sub if self.halted.reason == "infrastructure_exhausted" else None
+                return sub if self.halted.reason in RESUMABLE_HALTS else None
             clean = now.cursor is None or sub.next_resolve is not None
             failed = now.session is not None and now.session.outcome == "infrastructure"
             # An infrastructure failure not yet answered is answered by the retry

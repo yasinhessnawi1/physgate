@@ -18,6 +18,10 @@ NonEmptyStr = Annotated[str, StringConstraints(min_length=1)]
 #: without blocking. Required for every run; there is no default.
 GateMode = Literal["on", "off", "observe"]
 
+#: How a run's model calls authenticate: the subscription's long-lived token, or an
+#: API key. Required for every run; the secret itself is never recorded.
+AuthMode = Literal["subscription", "api_key"]
+
 # A full model string names a family and a version ("claude-sonnet-5",
 # "claude-haiku-4-5-20251001"). An alias ("sonnet", "opus") is resolved inside the
 # Claude Code binary and was measured to move with it: on 2.1.272 "sonnet" reached

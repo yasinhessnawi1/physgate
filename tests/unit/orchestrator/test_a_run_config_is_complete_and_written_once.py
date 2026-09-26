@@ -72,6 +72,8 @@ def test_a_full_model_string_is_accepted(full: str) -> None:
         ("endpoint", "http://user:key@host"),
         ("endpoint", "http://host/v1?key=k"),
         ("endpoint", ""),
+        ("auth", "oauth"),
+        ("auth", "subscription-token"),
     ],
 )
 def test_a_value_outside_its_domain_is_refused(field: str, value: object) -> None:
@@ -152,3 +154,11 @@ def test_a_run_is_driven_only_against_the_endpoint_it_recorded() -> None:
         with pytest.raises(RunConfigError, match="endpoint differs") as caught:
             require_endpoint(config, other)
         assert caught.value.context == {"recorded": config.endpoint, "now": endpoint_of(other)}
+
+
+def test_a_resume_under_another_auth_mode_is_refused(tmp_path: Path) -> None:
+    path = tmp_path / "run.json"
+    write_run_config(path, make_config(auth="subscription"))
+    with pytest.raises(RunConfigError) as caught:
+        require_recorded(path, make_config(auth="api_key"))
+    assert caught.value.context["changed"] == "auth"

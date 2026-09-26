@@ -12,6 +12,7 @@ from physgate.orchestrator.queue import ApprovalQueue, escalation_item
 from physgate.orchestrator.repair import Finding
 
 PARAMS = {
+    "auth": "api_key",
     "gate_mode": "on",
     "models": {
         "decomposition": "claude-sonnet-5",
@@ -66,16 +67,26 @@ def _decompose_args(tmp_path: Path, params: dict[str, object]) -> list[str]:
     ]
 
 
-def test_decompose_refuses_to_start_without_a_key(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+OTHER = {"api_key": "CLAUDE_CODE_OAUTH_TOKEN", "subscription": "ANTHROPIC_API_KEY"}
+NEEDED = {"api_key": "ANTHROPIC_API_KEY", "subscription": "CLAUDE_CODE_OAUTH_TOKEN"}
+
+
+@pytest.mark.parametrize("mode", ["api_key", "subscription"])
+def test_decompose_refuses_to_start_without_the_secret_its_auth_mode_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], mode: str
 ) -> None:
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    assert main(_decompose_args(tmp_path, PARAMS)) == 2
-    assert "ANTHROPIC_API_KEY" in capsys.readouterr().err
+    monkeypatch.delenv(NEEDED[mode], raising=False)
+    monkeypatch.setenv(OTHER[mode], "the-other-mode-s-secret-is-not-a-substitute")
+    monkeypatch.setenv("PATH", "/nonexistent")  # refused before the binary is even looked for
+    monkeypatch.delenv("PHYSGATE_CLAUDE_BIN", raising=False)
+    assert main(_decompose_args(tmp_path, {**PARAMS, "auth": mode})) == 2
+    error = json.loads(capsys.readouterr().err)
+    assert error["error"] == f"{NEEDED[mode]} is not set; a run in auth mode {mode} needs it"
+    assert (error["auth"], error["variable"]) == (mode, NEEDED[mode])
     assert not (tmp_path / "run").exists()
 
 
-@pytest.mark.parametrize("missing", ["gate_mode", "models", "bounds", "token_ceiling"])
+@pytest.mark.parametrize("missing", ["auth", "gate_mode", "models", "bounds", "token_ceiling"])
 def test_decompose_refuses_parameters_missing_any_input(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -164,12 +175,67 @@ def _run_args(tmp_path: Path) -> list[str]:
     ]
 
 
-def test_run_refuses_without_a_key(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize("command", ["run", "resume"])
+@pytest.mark.parametrize("mode", ["api_key", "subscription"])
+def test_a_run_is_refused_without_the_secret_its_recorded_mode_names(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    mode: str,
+    command: str,
 ) -> None:
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    assert main(_run_args(tmp_path)) == 2
-    assert "ANTHROPIC_API_KEY" in capsys.readouterr().err
+    from loop_fakes import FakeGate, FakeReviewer
+    from orch_helpers import make_config
+
+    from physgate.orchestrator.cli import Registrations
+    from physgate.orchestrator.record import RunRecord
+
+    record = RunRecord(make_config(auth=mode), tmp_path / "run")
+    record.start([])
+    record.close()
+    events = (tmp_path / "run" / "events.jsonl").read_bytes()
+    monkeypatch.delenv(NEEDED[mode], raising=False)
+    monkeypatch.setenv(OTHER[mode], "the-other-mode-s-secret-is-not-a-substitute")
+    monkeypatch.setenv("PATH", "/nonexistent")
+    monkeypatch.delenv("PHYSGATE_CLAUDE_BIN", raising=False)
+    registrations = Registrations(gate=FakeGate(), reviewers={"electrical": FakeReviewer()})
+    assert main([command, *_run_args(tmp_path)[1:]], registrations) == 2
+    error = json.loads(capsys.readouterr().err)
+    assert error["variable"] == NEEDED[mode]
+    assert (tmp_path / "run" / "events.jsonl").read_bytes() == events
+    assert not (tmp_path / "run" / "sessions").exists()
+
+
+def test_both_example_parameters_files_are_complete_configurations() -> None:
+    from physgate.orchestrator.cli import EXAMPLES
+    from physgate.orchestrator.run_config import RunConfig
+
+    found = {}
+    for path in sorted(EXAMPLES.glob("params.*.json")):
+        params = json.loads(path.read_text())
+        # As the command reads them: JSON, validated as JSON.
+        config = RunConfig.model_validate_json(
+            json.dumps(
+                {
+                    **params,
+                    "run_id": "r",
+                    "seed": 1,
+                    "brief_sha256": "a" * 64,
+                    "claude_version": "2.1.272",
+                    "target_head": "b" * 40,
+                    "endpoint": "default",
+                }
+            )
+        )
+        found[config.auth] = config
+        text = path.read_text()
+        assert "sk-" not in text and "TOKEN" not in text.upper().replace("TOKEN_CEILING", "")
+        for role, model in config.models.roles.items():
+            assert config.models.reviewers[role] != model  # ARCH-060: another model reviews
+    assert set(found) == {"subscription", "api_key"}
+    assert found["subscription"].models.reviewers["electrical"] == "claude-opus-5-5"
+    assert found["api_key"].models.reviewers["electrical"] == "claude-haiku-4-5-20251001"
+    assert {c.models.roles["electrical"] for c in found.values()} == {"claude-sonnet-5"}
 
 
 def test_run_refuses_a_directory_that_holds_no_run(

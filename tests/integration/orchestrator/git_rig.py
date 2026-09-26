@@ -237,6 +237,7 @@ def config(run_id: str = "run-1") -> RunConfig:
         claude_version="2.1.272",
         target_head="b" * 40,
         endpoint="default",
+        auth="api_key",
     )
 
 

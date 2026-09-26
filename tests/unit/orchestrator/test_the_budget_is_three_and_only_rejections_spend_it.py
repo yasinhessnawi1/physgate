@@ -104,3 +104,25 @@ def test_the_infrastructure_schedule_is_the_run_parameter_and_then_stops() -> No
     assert [infra_retry_delay((60.0, 300.0), n) for n in range(4)] == [60.0, 300.0, None, None]
     assert infra_retry_delay((), 0) is None
     assert infra_retry_delay((60.0,), -1) is None
+
+
+@pytest.mark.parametrize(
+    ("status", "cause"),
+    [
+        (401, "credential_refused"),
+        (403, "credential_refused"),
+        (500, "api_error"),
+        (None, "api_error"),
+    ],
+)
+def test_a_refused_credential_is_its_own_cause(status: int | None, cause: str) -> None:
+    # Measured on 2.1.272 against a local endpoint answering 401: this result, exit 1.
+    measured = {
+        "subtype": "success",
+        "is_error": True,
+        "terminal_reason": "api_error",
+        "api_error_status": status,
+        "result": "Failed to authenticate. API Error: 401 invalid token",
+    }
+    got = classify_session_end(measured, exit_code=1, stopped_at_wall_clock=False)
+    assert got == SessionEnd(outcome="infrastructure", cause=cause)  # type: ignore[arg-type]
