@@ -12,12 +12,10 @@ from __future__ import annotations
 
 import hashlib
 import os
-import re
 from pathlib import Path
 from typing import Annotated
 
 from pydantic import (
-    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -25,25 +23,8 @@ from pydantic import (
     ValidationError,
 )
 
-from physgate.orchestrator.events import GateMode, NonEmptyStr, first_problem
+from physgate.orchestrator.common import GateMode, ModelString, NonEmptyStr, first_problem
 from physgate.orchestrator.exceptions import RunConfigError
-
-# A full model string names a family and a version ("claude-sonnet-4-5",
-# "claude-sonnet-4-5-20250929"). An alias ("sonnet", "opus") is resolved inside the
-# Claude Code binary and was measured to move with it: on 2.1.272 "sonnet" reached
-# the endpoint as a different model than the same alias names on an older binary.
-# A run pinned to an alias is pinned to nothing.
-_FULL_MODEL = re.compile(r"^[a-z][a-z0-9._/-]*-[0-9][a-z0-9._-]*$")
-
-
-def _full_model_string(value: str) -> str:
-    if not _FULL_MODEL.match(value):
-        msg = f"{value!r} is not a full model string (an alias moves with the binary)"
-        raise ValueError(msg)
-    return value
-
-
-ModelString = Annotated[str, AfterValidator(_full_model_string)]
 
 
 class _Frozen(BaseModel):

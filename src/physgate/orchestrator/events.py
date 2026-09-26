@@ -24,13 +24,9 @@ from typing import Annotated, Any, Literal, TypeVar, cast
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter, ValidationError
 
+from physgate.orchestrator.common import GateMode, NonEmptyStr, first_problem
 from physgate.orchestrator.exceptions import CorruptEventLogError, RunConfigError
-
-NonEmptyStr = Annotated[str, StringConstraints(min_length=1)]
-
-#: The architecture's physics-gate flag (ARCH-140): blocking, not run, or run and logged
-#: without blocking. Required for every run; there is no default.
-GateMode = Literal["on", "off", "observe"]
+from physgate.orchestrator.protocols import GateResult, ReviewResult, Usage
 
 #: The eight stages of the per-subtask loop, in the architecture's order (ARCH-030).
 Stage = Literal[
@@ -39,6 +35,10 @@ Stage = Literal[
 
 #: Why a run stopped short of the end of its plan.
 HaltReason = Literal["incident", "infrastructure_exhausted", "decomposition_failed"]
+
+#: Who spent a token: ``<what>:<invocation id>``. The invocation id is the Claude Code
+#: session id of the one call, so decomposition invocations can be counted.
+ATTRIBUTION = r"^(decomposition|session|reviewer|routing):[A-Za-z0-9_-]{1,128}$"
 
 _TIMESTAMP = r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$"
 
@@ -96,8 +96,59 @@ class Halted(_Event):
     detail: NonEmptyStr
 
 
+class GateRan(_Event):
+    """The gate ran on an attempt, in the run's mode, and this is what it said."""
+
+    kind: Literal["gate_ran"] = "gate_ran"
+    subtask_id: NonEmptyStr
+    attempt: Annotated[int, Field(ge=1)]
+    result: GateResult
+
+
+class GateSkipped(_Event):
+    """The gate did not run, because the run's gate mode is ``off``.
+
+    A recorded ablation, not a result: no verdict exists, so none is written.
+    """
+
+    kind: Literal["gate_skipped"] = "gate_skipped"
+    subtask_id: NonEmptyStr
+    attempt: Annotated[int, Field(ge=1)]
+    reason: Literal["gate_mode=off"]
+
+
+class ReviewRan(_Event):
+    """The reviewer ran on an attempt, and this is what it said."""
+
+    kind: Literal["review_ran"] = "review_ran"
+    subtask_id: NonEmptyStr
+    attempt: Annotated[int, Field(ge=1)]
+    result: ReviewResult
+
+
+class TokensUsed(_Event):
+    """One model message's usage, attributed to the one thing that spent it.
+
+    The attribution is a closed set: decomposition, a role session, a reviewer,
+    or routing. Routing exists only so the account can prove it is zero.
+    """
+
+    kind: Literal["tokens_used"] = "tokens_used"
+    attribution: Annotated[str, StringConstraints(pattern=ATTRIBUTION)]
+    message_id: NonEmptyStr
+    usage: Usage
+
+
 Event = Annotated[
-    RunStarted | SubtaskPlanned | SubtaskRemoved | StageEntered | Halted,
+    RunStarted
+    | SubtaskPlanned
+    | SubtaskRemoved
+    | StageEntered
+    | GateRan
+    | GateSkipped
+    | ReviewRan
+    | TokensUsed
+    | Halted,
     Field(discriminator="kind"),
 ]
 _EVENT: TypeAdapter[Event] = TypeAdapter(Event)
@@ -114,15 +165,6 @@ def _stamp(moment: datetime) -> str:
         msg = "event timestamps are UTC"
         raise ValueError(msg)
     return moment.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-
-
-def first_problem(exc: ValidationError) -> str:
-    """The first thing wrong with a record, as a sentence rather than a report."""
-    problems = exc.errors()
-    if not problems:
-        return "the line is not a valid record"
-    where = ".".join(str(part) for part in problems[0]["loc"]) or "the record"
-    return f"{where}: {problems[0]['msg']}"
 
 
 def read_jsonl[T](
@@ -183,6 +225,17 @@ class _Context:
                 raise ValueError(msg)
         elif subtask is not None and subtask not in self.planned:
             msg = f"subtask {subtask!r} was never planned"
+            raise ValueError(msg)
+        mode = self.run[1] if self.run is not None else event.gate_mode
+        # Under ``off`` no gate result may exist, and a gate that ran must have run in
+        # the run's own mode: a pass recorded for a skipped gate is a fabricated one.
+        if isinstance(event, GateRan) and event.result.mode != mode:
+            msg = (
+                f"a gate result in mode {event.result.mode!r} in a run whose gate mode is {mode!r}"
+            )
+            raise ValueError(msg)
+        if isinstance(event, GateSkipped) and mode != "off":
+            msg = f"the gate was skipped in a run whose gate mode is {mode!r}"
             raise ValueError(msg)
 
     def record(self, event: _Event) -> None:

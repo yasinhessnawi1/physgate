@@ -11,6 +11,9 @@ conflict, is answered by code or by a person.
 |---|---|
 | `events.py` | The run-event log. It is the loop's only memory: one synced, append-only line per stage transition and per decision. Each line carries its sequence number, UTC timestamp, run id and gate mode. A line the replay would refuse is refused before it is written |
 | `run_config.py` | Every input a run is reproduced from, written once before the first action: seed, model strings, bounds, gate mode, token ceiling. None has a default, and a resume under a different configuration is refused |
+| `protocols.py` | The `Gate` and `Reviewer` Protocols the loop calls, in that order, and the result shapes they hand back. No implementation of either ships here. Also the refusal to run a reviewer on the implementer's model string (ARCH-060) |
+| `accounting.py` | The token account, rebuilt from the event log: every token attributed to decomposition, a role session, a reviewer or routing, deduplicated by message id, and routing asserted zero |
+| `common.py` | The small shapes the records share: the gate mode, the full-model-string rule |
 | `exceptions.py` | The domain exceptions. All of them carry a context mapping |
 
 ## What it deliberately does not own

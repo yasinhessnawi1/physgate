@@ -30,3 +30,19 @@ class CorruptEventLogError(OrchestratorError):
 
 class RunConfigError(OrchestratorError):
     """A run's configuration is missing, already written, or not the recorded one."""
+
+
+class ModelSeparationError(OrchestratorError):
+    """A reviewer was about to run on the implementer's model string (ARCH-060)."""
+
+
+class GateContractError(OrchestratorError):
+    """A gate handed back a result for a mode it was not asked to run in."""
+
+
+class AccountingError(OrchestratorError):
+    """The token record contradicts itself: one message, two usages."""
+
+
+class RoutingTokensError(OrchestratorError):
+    """Tokens were attributed to routing, which the deterministic binding never spends."""
