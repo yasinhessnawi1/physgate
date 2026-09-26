@@ -172,6 +172,16 @@ def test_the_same_graph_gives_the_same_records_byte_for_byte(tmp_path: Path) -> 
     assert first.model_dump_json() == second.model_dump_json()
 
 
+def test_records_do_not_depend_on_the_order_a_check_reports_them_in(view: GraphView) -> None:
+    # A check that walks a set or a mapping may report the same findings in
+    # another order on another run; the records must not follow it.
+    found = [thermal_failure("electrical.b", -1), thermal_failure("electrical.a", -3)]
+    forward = PhysicsGate((fixed("thermal", found),)).run(view, ["system"], "on")
+    backward = PhysicsGate((fixed("thermal", found[::-1]),)).run(view, ["system"], "on")
+    assert forward.model_dump_json() == backward.model_dump_json()
+    assert [r.node for r in forward.checks] == ["electrical.a", "electrical.b"]
+
+
 def test_check_reads_the_graph_at_the_artefact_s_root(tmp_path: Path) -> None:
     graph(tmp_path / "g", DRIVE, MOTOR)
     seen: list[CheckContext] = []
