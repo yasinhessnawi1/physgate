@@ -12,11 +12,11 @@ from typing import Annotated, Literal
 
 from pydantic import AfterValidator, StringConstraints, ValidationError
 
-NonEmptyStr = Annotated[str, StringConstraints(min_length=1)]
+# The gate mode is defined by the flag register and re-exported here, where the
+# orchestrator's records have always taken it from.
+from physgate.flags import GateMode as GateMode
 
-#: The architecture's physics-gate flag (ARCH-140): blocking, not run, or run and logged
-#: without blocking. Required for every run; there is no default.
-GateMode = Literal["on", "off", "observe"]
+NonEmptyStr = Annotated[str, StringConstraints(min_length=1)]
 
 #: How a run's model calls authenticate: the subscription's long-lived token, or an
 #: API key. Required for every run; the secret itself is never recorded.
