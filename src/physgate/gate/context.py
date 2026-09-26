@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from physgate.gate.bounds_table import Bounds
+from physgate.gate.equilibrium import EquilibriumSolver
 from physgate.gate.graph import GraphView
 from physgate.orchestrator.protocols import Scope
 
@@ -16,9 +17,11 @@ class CheckContext:
     At ``subtask`` scope a check looks at the attempt's own nodes; at ``module``
     scope at the modules the attempt touched; at ``system`` scope at the whole
     graph. Which nodes those are is read off ``view``. ``bounds`` is the sourced
-    bounds table, loaded once when the gate is built.
+    bounds table, loaded once when the gate is built. ``solver`` stands behind
+    the equilibrium check; ``None`` means the closed form.
     """
 
     view: GraphView
     scope: Scope
     bounds: Bounds
+    solver: EquilibriumSolver | None = None

@@ -21,6 +21,7 @@ from pathlib import Path
 from physgate.gate.bounds_table import Bounds, load_bounds
 from physgate.gate.catalogue import catalogue_digest
 from physgate.gate.context import CheckContext
+from physgate.gate.equilibrium import EquilibriumSolver
 from physgate.gate.exceptions import GateModeError, NothingCheckedError
 from physgate.gate.graph import GraphView
 from physgate.gate.registry import CADENCE, REGISTRY, OnFailure, RegisteredCheck
@@ -75,7 +76,10 @@ class PhysicsGate:
     """The physics gate: every registered check, at the scopes it is asked for."""
 
     def __init__(
-        self, registry: tuple[RegisteredCheck, ...] = REGISTRY, bounds: Bounds | None = None
+        self,
+        registry: tuple[RegisteredCheck, ...] = REGISTRY,
+        bounds: Bounds | None = None,
+        solver: EquilibriumSolver | None = None,
     ) -> None:
         """Run the checks in ``registry`` against ``bounds``: the real ones unless a test says.
 
@@ -85,6 +89,7 @@ class PhysicsGate:
         self._registry = registry
         self._bounds = bounds if bounds is not None else load_bounds()
         self._catalogue_sha256 = catalogue_digest()
+        self._solver = solver
 
     def check(self, artefact: Artefact, *, mode: RunningGateMode) -> GateResult:
         """Check one attempt's artefact.
@@ -116,7 +121,9 @@ class PhysicsGate:
                 on_failure = CADENCE[entry.name].get(scope)
                 if on_failure is None:
                     continue
-                ran = entry.run(CheckContext(view=view, scope=scope, bounds=self._bounds))
+                ran = entry.run(
+                    CheckContext(view=view, scope=scope, bounds=self._bounds, solver=self._solver)
+                )
                 stamped = _stamp(entry.name, scope, on_failure, running, ran)
                 records.extend(stamped)
                 if on_failure == "block":
