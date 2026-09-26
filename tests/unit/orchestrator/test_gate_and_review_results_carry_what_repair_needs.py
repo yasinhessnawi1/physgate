@@ -23,6 +23,7 @@ from physgate.orchestrator.protocols import (
     Artefact,
     Gate,
     GateResult,
+    IntegrationArtefact,
     NumericOutput,
     QuantityRef,
     Reviewer,
@@ -105,6 +106,9 @@ def test_a_gate_that_reports_another_mode_breaks_its_contract() -> None:
 
 class _TestGate:
     def check(self, artefact: Artefact, *, mode: str) -> GateResult:
+        return gate_result(mode=mode)
+
+    def check_integration(self, artefact: IntegrationArtefact, *, mode: str) -> GateResult:
         return gate_result(mode=mode)
 
 

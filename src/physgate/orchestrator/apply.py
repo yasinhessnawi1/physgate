@@ -169,6 +169,11 @@ class StoreKeeper:
             self._store = Store(self._root)
         return self._store
 
+    @property
+    def root(self) -> Path:
+        """The canonical store's directory."""
+        return self._root
+
     def records_after(self, revision: int) -> list[JournalLine]:
         """Every canonical journal record after ``revision``; never opens the store."""
         return journal_records_after(self._root, revision)

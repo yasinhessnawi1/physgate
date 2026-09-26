@@ -74,6 +74,10 @@ class MessageUsage(_Frozen):
     usage: Usage
 
 
+#: Where the gate checks one attempt. System scope is the integration call's alone.
+AttemptScope = Literal["subtask", "module"]
+
+
 class Artefact(_Frozen):
     """What an attempt produced, as the gate and the reviewer receive it."""
 
@@ -84,9 +88,33 @@ class Artefact(_Frozen):
     worktree: NonEmptyStr
     graph_root: NonEmptyStr
     trajectory: NonEmptyStr
+    #: Where the gate checks this attempt: always its own nodes, and its module once
+    #: the module is complete, which is when this is the last planned subtask for
+    #: the module's directory.
+    scopes: Annotated[tuple[AttemptScope, ...], Field(min_length=1)]
+    #: The canonical journal's head before this attempt: nodes above it in the
+    #: attempt's graph are the ones it wrote.
+    base_revision: Annotated[int, Field(ge=0)]
     #: The trajectory's seal from the end of its session, for a reader to hold it to.
     trajectory_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")] | None = None
     trajectory_length: Annotated[int, Field(ge=0)] | None = None
+
+    @model_validator(mode="after")
+    def _own_nodes_always(self) -> Artefact:
+        if "subtask" not in self.scopes or len(set(self.scopes)) != len(self.scopes):
+            msg = "an attempt is always checked at subtask scope, and each scope once"
+            raise ValueError(msg)
+        return self
+
+
+class IntegrationArtefact(_Frozen):
+    """The whole design once every planned subtask has merged, as the gate checks it."""
+
+    run_id: NonEmptyStr
+    #: The canonical store, which the gate reads without writing.
+    graph_root: NonEmptyStr
+    #: The run branch's head: the design the integration call judges.
+    run_head: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
 
 
 #: The architecture's physics checks, by name, with their numbers (ARCH-080).
@@ -314,7 +342,13 @@ class Gate(Protocol):
     """The physics gate: deterministic tooling, never a model (ARCH-004)."""
 
     def check(self, artefact: Artefact, *, mode: RunningGateMode) -> GateResult:
-        """Check ``artefact`` and say whether it passes."""
+        """Check one attempt's ``artefact`` at its scopes and say whether it passes."""
+        ...
+
+    def check_integration(
+        self, artefact: IntegrationArtefact, *, mode: RunningGateMode
+    ) -> GateResult:
+        """Check the integrated design at system scope and say whether it passes."""
         ...
 
 

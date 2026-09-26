@@ -7,11 +7,18 @@ from pathlib import Path
 import pytest
 from gate_fixtures import fixed, graph, node, recording, thermal_failure, unchecked
 
+from physgate.gate import runner
 from physgate.gate.context import CheckContext
 from physgate.gate.exceptions import GateModeError, NothingCheckedError
 from physgate.gate.graph import GraphView
-from physgate.gate.runner import PhysicsGate, scopes_and_base
-from physgate.orchestrator.protocols import Artefact, Gate, RunningGateMode
+from physgate.gate.runner import PhysicsGate
+from physgate.orchestrator.protocols import (
+    Artefact,
+    AttemptScope,
+    Gate,
+    IntegrationArtefact,
+    RunningGateMode,
+)
 
 DRIVE = node("electrical.drive", kind="module", quantities={"power_supply": (15, "W")})
 MOTOR = node(
@@ -25,7 +32,9 @@ def view(tmp_path: Path) -> GraphView:
     return GraphView.read(tmp_path / "g", base_revision=0)
 
 
-def artefact(graph_root: Path) -> Artefact:
+def artefact(
+    graph_root: Path, scopes: tuple[AttemptScope, ...] = ("subtask",), base: int = 0
+) -> Artefact:
     return Artefact(
         subtask_id="s1",
         attempt=1,
@@ -34,6 +43,8 @@ def artefact(graph_root: Path) -> Artefact:
         worktree="/w",
         graph_root=str(graph_root),
         trajectory="/t",
+        scopes=scopes,
+        base_revision=base,
     )
 
 
@@ -190,10 +201,38 @@ def test_check_reads_the_graph_at_the_artefact_s_root(tmp_path: Path) -> None:
     assert list(seen[0].view.nodes) == ["electrical.drive", "electrical.motor_left"]
 
 
-def test_the_bridge_checks_an_attempt_at_subtask_scope_with_every_node_its_own(
+def test_the_attempt_s_own_scopes_and_base_revision_are_what_the_gate_reads(
     tmp_path: Path,
 ) -> None:
-    # Until the orchestrator's artefact carries its scopes and base revision, an
-    # attempt is checked at subtask scope and every node counts as its own. The
-    # bridge goes when the artefact carries both, and a test then asserts it is gone.
-    assert scopes_and_base(artefact(tmp_path)) == (("subtask",), 0)
+    root = tmp_path / "g"
+    head = graph(root, DRIVE)
+    graph(root, MOTOR)
+    seen: list[CheckContext] = []
+    gate = PhysicsGate((recording("units", seen), recording("power", seen)))
+    gate.check(artefact(root, ("subtask", "module"), head), mode="on")
+    assert [c.scope for c in seen] == ["subtask", "module"]
+    assert seen[0].view.own() == ("electrical.motor_left",)
+    seen.clear()
+    gate.check(artefact(root, ("subtask",), head), mode="on")
+    assert [c.scope for c in seen] == ["subtask"]
+
+
+def test_the_integration_call_reads_the_whole_graph_at_system_scope(tmp_path: Path) -> None:
+    graph(tmp_path / "g", DRIVE, MOTOR)
+    seen: list[CheckContext] = []
+    gate = PhysicsGate((recording("units", seen), recording("power", seen)))
+    integrated = IntegrationArtefact(
+        run_id="run-1", graph_root=str(tmp_path / "g"), run_head="b" * 40
+    )
+    gate.check_integration(integrated, mode="observe")
+    assert [c.scope for c in seen] == ["system"]
+    assert seen[0].view.own() == ("electrical.drive", "electrical.motor_left")
+
+
+def test_the_temporary_bridge_for_scopes_and_base_revision_is_gone() -> None:
+    # The gate once guessed an attempt's scopes and base revision while the
+    # orchestrator's artefact lacked them. It now reads them from the artefact,
+    # and nothing that guesses may come back.
+    assert not hasattr(runner, "scopes_and_base")
+    source = Path(runner.__file__).read_text()
+    assert "getattr(artefact" not in source

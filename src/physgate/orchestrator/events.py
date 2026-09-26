@@ -176,6 +176,40 @@ class GateSkipped(_Event):
     reason: Literal["gate_mode=off"]
 
 
+class IntegrationGateRan(_Event):
+    """The gate ran once on the whole design, after every planned subtask merged.
+
+    System scope: the checks the architecture runs per run (ARCH-080), over the
+    canonical graph. It belongs to no subtask and no attempt.
+    """
+
+    kind: Literal["integration_gate_ran"] = "integration_gate_ran"
+    result: GateResult
+
+
+class IntegrationGateSkipped(_Event):
+    """Integration was not gated, and why.
+
+    The gate is off, the design is incomplete, or nothing was planned.
+    ``subtasks`` names the planned subtasks that were not merged; for the other
+    two reasons it is empty.
+    """
+
+    kind: Literal["integration_gate_skipped"] = "integration_gate_skipped"
+    reason: Literal["gate_mode=off", "not_all_merged", "nothing_planned"]
+    subtasks: tuple[NonEmptyStr, ...]
+
+
+class IntegrationEscalated(_Event):
+    """The integrated design failed the gate where a failure blocks; a person decides.
+
+    The run ends here, with the approval-queue item this line names.
+    """
+
+    kind: Literal["integration_escalated"] = "integration_escalated"
+    item_id: NonEmptyStr
+
+
 class ReviewRan(_Event):
     """The reviewer ran on an attempt, and this is what it said."""
 
@@ -457,6 +491,9 @@ Event = Annotated[
     | StageEntered
     | GateRan
     | GateSkipped
+    | IntegrationGateRan
+    | IntegrationGateSkipped
+    | IntegrationEscalated
     | ReviewRan
     | TokensUsed
     | SessionEnded
@@ -546,7 +583,7 @@ class _Context:
         mode = self.run[1] if self.run is not None else event.gate_mode
         # Under ``off`` no gate result may exist, and a gate that ran must have run in
         # the run's own mode: a pass recorded for a skipped gate is a fabricated one.
-        if isinstance(event, GateRan) and event.result.mode != mode:
+        if isinstance(event, GateRan | IntegrationGateRan) and event.result.mode != mode:
             msg = (
                 f"a gate result in mode {event.result.mode!r} in a run whose gate mode is {mode!r}"
             )
@@ -554,6 +591,15 @@ class _Context:
         if isinstance(event, GateSkipped) and mode != "off":
             msg = f"the gate was skipped in a run whose gate mode is {mode!r}"
             raise ValueError(msg)
+        if isinstance(event, IntegrationGateSkipped):
+            if (event.reason == "gate_mode=off") != (mode == "off"):
+                msg = (
+                    f"integration skipped as {event.reason!r} in a run whose gate mode is {mode!r}"
+                )
+                raise ValueError(msg)
+            if (event.reason == "not_all_merged") != bool(event.subtasks):
+                msg = "an incomplete design names the subtasks that did not merge, and only then"
+                raise ValueError(msg)
 
     def record(self, event: _Event) -> None:
         """Take ``event`` as the next line. Call only after :meth:`check` passed."""

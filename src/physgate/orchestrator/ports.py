@@ -11,6 +11,7 @@ changing. None of them decides anything the loop should decide.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Annotated, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
@@ -166,6 +167,11 @@ class GraphPort(Protocol):
     records never opens a store, since opening runs recovery, which writes; the
     handle is opened only after that read has found nothing foreign.
     """
+
+    @property
+    def root(self) -> Path:
+        """The canonical store's directory, for a reader that never writes it."""
+        ...
 
     def records_after(self, revision: int) -> list[JournalLine]:
         """Every canonical journal record after ``revision``, read-only."""

@@ -40,6 +40,9 @@ from physgate.orchestrator.events import (
     Incident,
     IncidentCause,
     InfraRetryScheduled,
+    IntegrationEscalated,
+    IntegrationGateRan,
+    IntegrationGateSkipped,
     LeftoverRead,
     LeftoverStopped,
     Merged,
@@ -74,12 +77,14 @@ from physgate.orchestrator.ports import (
 )
 from physgate.orchestrator.protocols import (
     Artefact,
+    AttemptScope,
     Gate,
+    IntegrationArtefact,
     Reviewer,
     require_mode,
     require_separate_models,
 )
-from physgate.orchestrator.queue import escalation_item
+from physgate.orchestrator.queue import INTEGRATION, escalation_item, integration_item
 from physgate.orchestrator.record import PlanEntry, RunRecord
 from physgate.orchestrator.repair import Finding, repair_instruction
 from physgate.orchestrator.replay import AttemptState, Step, require_mergeable
@@ -92,6 +97,17 @@ UNREAD = (
     "The session ended without completing its required reading, so nothing it "
     "produced is considered."
 )
+
+
+def run_head_of(events: Sequence[Event]) -> str | None:
+    """The run branch's head as the log records it: its last merge, or its start."""
+    head: str | None = None
+    for event in events:
+        if isinstance(event, Decomposed):
+            head = event.spec_commit
+        elif isinstance(event, Merged):
+            head = event.merge_commit
+    return head
 
 
 def refuse_unregistered(
@@ -241,13 +257,7 @@ class Loop:
 
     def _expected_run_head(self) -> str | None:
         """Where the run last left its branch: its last recorded merge, or its start."""
-        expected: str | None = None
-        for event in self.log.events:
-            if isinstance(event, Decomposed):
-                expected = event.spec_commit
-            elif isinstance(event, Merged):
-                expected = event.merge_commit
-        return expected
+        return run_head_of(self.log.events)
 
     def _run_branch_holds(self, subtask_id: str | None, pending: str | None) -> bool:
         """The run branch is where the run left it; otherwise an incident.
@@ -342,15 +352,20 @@ class Loop:
             )
 
     def _drive(self) -> Step:
-        if self.state.next_step().kind not in ("done", "halted"):
+        # The environment is recorded for a step that spawns a session; the
+        # integration call and a finished run spawn none.
+        if self.state.next_step().kind not in ("done", "halted", "escalated", "integrate"):
             facts = self._dispatcher.environment()
             if facts is not None:
                 self._emit(EnvironmentRecorded(**self._env(), facts=facts))
         while True:
             step = self.state.next_step()
-            if step.kind in ("done", "halted"):
+            if step.kind in ("done", "halted", "escalated"):
                 self._clean_up_worktrees()
                 return step
+            if step.kind == "integrate":
+                self._integrate()
+                continue
             if step.subtask_id is None or step.attempt is None:
                 msg = "a step with no subtask or attempt"
                 raise RunStateError(msg, step=step.kind)
@@ -624,6 +639,8 @@ class Loop:
             trajectory=session.trajectory,
             trajectory_sha256=session.trajectory_seal.sha256 if session.trajectory_seal else None,
             trajectory_length=session.trajectory_seal.length if session.trajectory_seal else None,
+            scopes=self._scopes(subtask_id),
+            base_revision=self.state.journal_head,
         )
         self._stage(subtask_id, attempt, "gate")
         mode = self.config.gate_mode
@@ -699,6 +716,94 @@ class Loop:
             )
         )
         return True
+
+    def _scopes(self, subtask_id: str) -> tuple[AttemptScope, ...]:
+        """Subtask scope always; module scope when this completes its module.
+
+        A module is complete when the last planned subtask for its directory is
+        judged; a subtask taken out of the plan does not count.
+        """
+        module_dir = self.state.subtasks[subtask_id].plan.module_dir
+        same = [
+            s
+            for s in self.state.order
+            if self.state.subtasks[s].plan.module_dir == module_dir
+            and self.state.subtasks[s].status != "removed"
+        ]
+        return ("subtask", "module") if same and same[-1] == subtask_id else ("subtask",)
+
+    def _integrate(self) -> None:
+        """The integration call, once every planned subtask is merged or queued.
+
+        Every subtask merged: the gate checks the whole design at system scope. In
+        ``on`` a failure becomes an approval-queue item and the run ends escalated;
+        in ``observe`` it is recorded and nothing blocks. Under ``off``, or with a
+        subtask that never merged, the log says integration was not gated, and why.
+        A killed process that recorded a blocking failure but not its escalation
+        escalates on its next pass, and adds the queue item at most once.
+        """
+        if self.state.integration is None:
+            mode = self.config.gate_mode
+            order = self.state.order
+            not_merged = tuple(s for s in order if self.state.subtasks[s].status != "done")
+            if mode == "off" or not_merged or not order:
+                reason: Literal["gate_mode=off", "not_all_merged", "nothing_planned"] = (
+                    "gate_mode=off"
+                    if mode == "off"
+                    else "not_all_merged"
+                    if not_merged
+                    else "nothing_planned"
+                )
+                self._emit(
+                    IntegrationGateSkipped(
+                        **self._env(),
+                        reason=reason,
+                        subtasks=not_merged if reason == "not_all_merged" else (),
+                    )
+                )
+                return
+            if self._gate is None:
+                msg = f"the integration call cannot pass: gate mode is {mode!r} and no gate"
+                raise GateNotRegisteredError(msg, gate_mode=mode)
+            head = self._expected_run_head()
+            if head is None:
+                msg = "an integration call with no run branch head recorded"
+                raise RunStateError(msg, run_dir=str(self.run_dir))
+            artefact = IntegrationArtefact(
+                run_id=self.config.run_id, graph_root=str(self._graph.root), run_head=head
+            )
+            result = require_mode(self._gate.check_integration(artefact, mode=mode), mode)
+            self._emit(IntegrationGateRan(**self._env(), result=result))
+            if result.verdict == "pass" or result.mode == "observe":
+                return
+        ran = self.state.integration
+        if not isinstance(ran, IntegrationGateRan) or self.state.integration_escalated:
+            return
+        item_id = f"{self.config.run_id}-{INTEGRATION}"
+        if item_id not in {item.item_id for item in self.queue.items()}:
+            head = run_head_of(self.log.events) or ""
+            # A plan started without a decomposition has no recorded start; its span
+            # is then the head alone.
+            start = next(
+                (e.spec_commit for e in self.log.events if isinstance(e, Decomposed)), head
+            )
+            sessions = [
+                a.session
+                for sub in self.state.subtasks.values()
+                for a in sub.attempts
+                if a.merged is not None and a.session is not None
+            ]
+            self.queue.add(
+                integration_item(
+                    item_id=item_id,
+                    run_id=self.config.run_id,
+                    result=ran.result,
+                    run_span=(start, head),
+                    trajectories=tuple(s.trajectory for s in sessions if s.trajectory),
+                    ts=self.log.events[-1].ts,
+                )
+            )
+        self._emit(IntegrationEscalated(**self._env(), item_id=item_id))
 
     def _diff(self, subtask_id: str, attempt: int) -> None:
         self._stage(subtask_id, attempt, "diff")

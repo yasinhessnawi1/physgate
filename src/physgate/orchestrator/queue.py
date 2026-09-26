@@ -31,7 +31,7 @@ from physgate.orchestrator.budget import REPAIR_BUDGET
 from physgate.orchestrator.common import NonEmptyStr, Timestamp, utc_now, utc_stamp
 from physgate.orchestrator.events import read_jsonl
 from physgate.orchestrator.exceptions import QueueError
-from physgate.orchestrator.protocols import QuantityRef
+from physgate.orchestrator.protocols import GateResult, QuantityRef
 from physgate.orchestrator.repair import Finding
 
 #: The queue's three sources (ARCH-130).
@@ -111,6 +111,57 @@ def escalation_item(
         artefact_diff=artefact_diff,
         triggering_finding=findings[-1].text,
         quantities=with_quantities[-1].quantities if with_quantities else (),
+        trajectories=trajectories,
+    )
+
+
+#: The subtask field of the item the integration call escalates: it is about the
+#: whole design, not one subtask.
+INTEGRATION = "integration"
+
+
+def integration_item(
+    *,
+    item_id: str,
+    run_id: str,
+    result: GateResult,
+    run_span: tuple[str, str],
+    trajectories: tuple[str, ...],
+    ts: str,
+) -> QueueItem:
+    """The item for an integrated design the gate refused (a physics-gate escalation).
+
+    No subtask owns a whole-system failure, so it goes to a person rather than to
+    a repair session. ``run_span`` is the run branch's start and head, the design
+    that was judged.
+
+    Raises:
+        QueueError: the refusal did not block, or no attempt left a trajectory.
+    """
+    if result.verdict != "fail" or result.mode != "on":
+        msg = "only a blocking integration failure is escalated"
+        raise QueueError(msg, verdict=result.verdict, mode=result.mode)
+    if not trajectories:
+        msg = "an integration item links every merged attempt's trajectory"
+        raise QueueError(msg)
+    start, head = run_span
+    return QueueItem(
+        item_id=item_id,
+        ts=ts,
+        run_id=run_id,
+        subtask_id=INTEGRATION,
+        source="gate_escalation",
+        decision_required=(
+            f"The integrated design failed the physics gate's {result.failing_check} check at "
+            "system scope, after every subtask had merged. No one subtask owns this. Decide "
+            "which module changes, or whether to accept the design as it stands."
+        ),
+        artefact_diff=(
+            f"The run branch from {start} to {head}: see `git diff {start} {head}` in the "
+            "target repository."
+        ),
+        triggering_finding=result.finding,
+        quantities=result.quantities,
         trajectories=trajectories,
     )
 

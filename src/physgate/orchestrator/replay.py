@@ -35,6 +35,9 @@ from physgate.orchestrator.events import (
     Halted,
     Incident,
     InfraRetryScheduled,
+    IntegrationEscalated,
+    IntegrationGateRan,
+    IntegrationGateSkipped,
     LeftoverRead,
     LeftoverStopped,
     Merged,
@@ -103,7 +106,7 @@ class SubtaskState:
 class Step:
     """What the loop does next."""
 
-    kind: Literal["attempt", "infra_failed", "escalate", "halted", "done"]
+    kind: Literal["attempt", "infra_failed", "escalate", "integrate", "halted", "escalated", "done"]
     subtask_id: str | None = None
     attempt: int | None = None
     point: Literal["resolve", "verify_reading", "diff"] | None = None
@@ -131,6 +134,10 @@ class RunState:
         #: Subtasks whose worktree removal was tried, whatever came of it: a refused
         #: removal is left, not retried or forced.
         self.worktrees_handled: set[str] = set()
+        #: The integration call's line, once every planned subtask is resolved, and
+        #: the escalation a blocking failure there led to.
+        self.integration: IntegrationGateRan | IntegrationGateSkipped | None = None
+        self.integration_escalated: IntegrationEscalated | None = None
 
     # -- following the log -------------------------------------------------------
 
@@ -139,7 +146,22 @@ class RunState:
         copy.deepcopy(self).record(event)
 
     def record(self, event: Event) -> None:
-        """Take ``event`` as the next line, or raise ``ValueError`` if it cannot be."""
+        """Take ``event`` as the next line, or raise ``ValueError`` if it cannot be.
+
+        Once the integration call is on the record the plan is closed: no line about
+        a subtask may follow, except a worktree removal. The rule is applied after the
+        line's own rules, so a line that breaks one of those is refused for it.
+        """
+        closed = (
+            self.integration is not None
+            and getattr(event, "subtask_id", None) is not None
+            and not isinstance(event, WorktreeRemoved)
+        )
+        self._record(event)
+        if closed:
+            _refuse("nothing about a subtask follows the integration call")
+
+    def _record(self, event: Event) -> None:
         if isinstance(event, RunStarted):
             self.gate_mode = event.gate_mode
             return
@@ -171,6 +193,9 @@ class RunState:
             return
         if isinstance(event, TokensUsed | EnvironmentRecorded):
             return  # attributed or recorded, never a transition
+        if isinstance(event, IntegrationGateRan | IntegrationGateSkipped | IntegrationEscalated):
+            self._integrate(event)
+            return
         if event.subtask_id is None:
             return  # an incident with no subtask, taken above; for the type checker
         sub = self.subtasks[event.subtask_id]
@@ -262,6 +287,38 @@ class RunState:
             self.incident = event
         elif isinstance(event, Resumed):
             self._resume(sub, now, event.point)
+
+    def _integrate(
+        self, event: IntegrationGateRan | IntegrationGateSkipped | IntegrationEscalated
+    ) -> None:
+        """The integration call: once, after every planned subtask is resolved."""
+        if isinstance(event, IntegrationEscalated):
+            ran = self.integration
+            blocked = (
+                isinstance(ran, IntegrationGateRan)
+                and ran.result.verdict == "fail"
+                and ran.result.mode == "on"
+            )
+            if not blocked or self.integration_escalated is not None:
+                _refuse("an integration escalation without a blocking integration failure")
+            self.integration_escalated = event
+            return
+        if self.integration is not None:
+            _refuse("the integration call is made once")
+        unresolved = [s for s in self.order if self.subtasks[s].status in ("planned", "active")]
+        if unresolved:
+            _refuse(f"integration before every planned subtask is merged or queued: {unresolved}")
+        not_merged = tuple(s for s in self.order if self.subtasks[s].status != "done")
+        if isinstance(event, IntegrationGateRan) and not_merged:
+            _refuse("the integration gate ran on a design with subtasks that did not merge")
+        if isinstance(event, IntegrationGateRan) and not self.order:
+            _refuse("the integration gate ran on a run that planned nothing")
+        if isinstance(event, IntegrationGateSkipped):
+            if event.reason == "not_all_merged" and event.subtasks != not_merged:
+                _refuse("an incomplete design names exactly the subtasks that did not merge")
+            if event.reason == "nothing_planned" and self.order:
+                _refuse("integration skipped as nothing planned in a run that planned subtasks")
+        self.integration = event
 
     def _expect(self, condition: bool, what: str) -> None:
         if not condition:
@@ -395,7 +452,17 @@ class RunState:
             if failed and sub.next_resolve is None:
                 return Step("infra_failed", subtask_id, now.number)
             return Step("attempt", subtask_id, now.number, self.resume_point(now))
-        return Step(kind="done")
+        ran = self.integration
+        if ran is None:
+            return Step(kind="integrate")
+        blocked = (
+            isinstance(ran, IntegrationGateRan)
+            and ran.result.verdict == "fail"
+            and ran.result.mode == "on"
+        )
+        if blocked and self.integration_escalated is None:
+            return Step(kind="integrate")
+        return Step(kind="escalated" if blocked else "done")
 
     def interrupted(self) -> SubtaskState | None:
         """The subtask a previous process left mid-attempt, if any.

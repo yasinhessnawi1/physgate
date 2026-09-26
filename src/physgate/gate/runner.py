@@ -32,6 +32,7 @@ from physgate.orchestrator.protocols import (
     CheckName,
     CheckRecord,
     GateResult,
+    IntegrationArtefact,
     PassDetails,
     QuantityRef,
     RunningGateMode,
@@ -41,20 +42,6 @@ from physgate.orchestrator.protocols import (
 #: The order the scopes are checked in, narrowest first.
 SCOPE_ORDER: tuple[Scope, ...] = ("subtask", "module", "system")
 RUNNING_MODES: frozenset[str] = frozenset({"on", "observe"})
-
-
-def scopes_and_base(artefact: Artefact) -> tuple[tuple[Scope, ...], int]:
-    """The scopes an attempt is checked at, and the journal head before it.
-
-    A bridge, and a temporary one: the orchestrator's artefact does not yet say
-    which scopes apply or where the attempt's own writes begin. Until it does, an
-    attempt is checked at subtask scope only, and every node counts as its own.
-    Once the artefact carries both, they are read from it, and this function is
-    removed with a test asserting it is gone.
-    """
-    scopes: tuple[Scope, ...] | None = getattr(artefact, "scopes", None)
-    base: int | None = getattr(artefact, "base_revision", None)
-    return (scopes if scopes is not None else ("subtask",), base if base is not None else 0)
 
 
 def require_running_mode(mode: object) -> RunningGateMode:
@@ -100,9 +87,24 @@ class PhysicsGate:
             CorruptRecordError, DesignStateError: the graph cannot be read.
         """
         running = require_running_mode(mode)
-        scopes, base = scopes_and_base(artefact)
-        view = GraphView.read(Path(artefact.graph_root), base_revision=base)
-        return self.run(view, scopes, running)
+        view = GraphView.read(Path(artefact.graph_root), base_revision=artefact.base_revision)
+        return self.run(view, artefact.scopes, running)
+
+    def check_integration(
+        self, artefact: IntegrationArtefact, *, mode: RunningGateMode
+    ) -> GateResult:
+        """Check the integrated design at system scope, over the canonical graph.
+
+        Every node is in scope; the store is read from its journal and never opened.
+
+        Raises:
+            GateModeError: ``mode`` is not one in which a gate runs.
+            NothingCheckedError: no registered check runs at system scope.
+            CorruptRecordError, DesignStateError: the graph cannot be read.
+        """
+        running = require_running_mode(mode)
+        view = GraphView.read(Path(artefact.graph_root), base_revision=0)
+        return self.run(view, ("system",), running)
 
     def run(self, view: GraphView, scopes: Iterable[Scope], mode: RunningGateMode) -> GateResult:
         """Run every registered check at each of ``scopes`` over ``view``.

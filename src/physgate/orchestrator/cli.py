@@ -44,6 +44,7 @@ from physgate.orchestrator.events import (
     read_events,
 )
 from physgate.orchestrator.exceptions import InvocationError, OrchestratorError, RunStateError
+from physgate.orchestrator.gate_events import gate_events
 from physgate.orchestrator.git import head_of
 from physgate.orchestrator.install import prepare_install, require_current
 from physgate.orchestrator.invocation import claude_binary
@@ -143,6 +144,24 @@ def add_parsers(
     resolve.add_argument("--decision", required=True)
     resolve.add_argument("--by", required=True)
     resolve.set_defaults(func=_queue_resolve)
+
+    g = subparsers.add_parser(
+        "gate-events",
+        help="print one line per gate check the run recorded, for catch accounting",
+    )
+    g.add_argument("--run-dir", required=True, type=Path)
+    g.set_defaults(func=_gate_events)
+
+
+def _gate_events(args: argparse.Namespace) -> int:
+    """Print every gate check the run recorded, one JSON line each, in log order."""
+    try:
+        events = read_events(args.run_dir.resolve() / "events.jsonl")
+    except OrchestratorError as exc:
+        return _fail(str(exc), **exc.context)
+    for event in gate_events(events):
+        print(event.model_dump_json())
+    return 0
 
 
 def _print(payload: dict[str, object]) -> None:

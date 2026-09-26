@@ -17,6 +17,7 @@ from physgate.orchestrator.protocols import (
     Artefact,
     CheckRecord,
     GateResult,
+    IntegrationArtefact,
     MagnitudeDetails,
     MessageUsage,
     NumericOutput,
@@ -164,6 +165,22 @@ class ScopeChecker:
 class Gate:
     verdicts: list[str] = field(default_factory=list)
     calls: int = 0
+    integrations: int = 0
+
+    def check_integration(
+        self, artefact: IntegrationArtefact, *, mode: RunningGateMode
+    ) -> GateResult:
+        self.integrations += 1
+        return GateResult(
+            verdict="pass",
+            mode=mode,
+            finding="checked",
+            failing_check=None,
+            numeric_output=None,
+            quantities=(),
+            checks=(_record(mode, failed=False),),
+            catalogue_sha256="c" * 64,
+        )
 
     def check(self, artefact: Artefact, *, mode: RunningGateMode) -> GateResult:
         self.calls += 1
@@ -229,6 +246,8 @@ class Reviewer:
 
 class EmptyGraph:
     """A graph port with an empty journal and no proposals."""
+
+    root = Path("graph")
 
     def records_after(self, revision: int) -> list[Any]:
         return []

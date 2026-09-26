@@ -23,6 +23,7 @@ from physgate.orchestrator.ports import (
 from physgate.orchestrator.protocols import (
     Artefact,
     GateResult,
+    IntegrationArtefact,
     MessageUsage,
     NumericOutput,
     QuantityRef,
@@ -150,6 +151,16 @@ def failing_gate_result(mode: RunningGateMode) -> GateResult:
 class FakeGate:
     verdicts: list[str] = field(default_factory=list)
     seen: list[Artefact] = field(default_factory=list)
+    integration_verdict: str = "pass"
+    integrations: list[IntegrationArtefact] = field(default_factory=list)
+
+    def check_integration(
+        self, artefact: IntegrationArtefact, *, mode: RunningGateMode
+    ) -> GateResult:
+        self.integrations.append(artefact)
+        if self.integration_verdict == "fail":
+            return failing_gate_result(mode)
+        return passing_gate_result(mode)
 
     def check(self, artefact: Artefact, *, mode: RunningGateMode) -> GateResult:
         self.seen.append(artefact)
@@ -158,16 +169,20 @@ class FakeGate:
         )
         if verdict == "fail":
             return failing_gate_result(mode)
-        return GateResult(
-            verdict="pass",
-            mode=mode,
-            finding="every check passed",
-            failing_check=None,
-            numeric_output=None,
-            quantities=(),
-            checks=gate_records(mode, None),
-            catalogue_sha256="c" * 64,
-        )
+        return passing_gate_result(mode)
+
+
+def passing_gate_result(mode: RunningGateMode) -> GateResult:
+    return GateResult(
+        verdict="pass",
+        mode=mode,
+        finding="every check passed",
+        failing_check=None,
+        numeric_output=None,
+        quantities=(),
+        checks=gate_records(mode, None),
+        catalogue_sha256="c" * 64,
+    )
 
 
 @dataclass
@@ -232,6 +247,7 @@ class FakeGraph:
     divergent: dict[int, tuple[str, ...]] = field(default_factory=dict)
     calls: list[tuple[int, str]] = field(default_factory=list)
     reopened: int = 0
+    root: Path = Path("store")
 
     def records_after(self, revision: int) -> list[Any]:
         return []
