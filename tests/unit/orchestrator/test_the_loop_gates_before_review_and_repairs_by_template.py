@@ -23,7 +23,7 @@ from physgate.orchestrator.exceptions import (
     ModelSeparationError,
     ReviewerNotRegisteredError,
 )
-from physgate.orchestrator.replay import require_mergeable
+from physgate.orchestrator.replay import RunState, project_ledger, require_mergeable
 from physgate.orchestrator.run_config import ModelStrings
 from physgate.state.task_ledger import TaskLedger, TaskLine
 
@@ -249,3 +249,50 @@ def test_a_rejecting_reviewer_spends_an_attempt_and_its_tokens_are_its_own(
         "reviewer:rev-2",
     }
     account.assert_no_routing()
+
+
+def test_a_ledger_that_lost_the_review_result_stops_the_merge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The injected fault: the ledger on disk never receives the review result,
+    # as if the projection had been skipped or the file edited. The loop reads the
+    # ledger back before merging, so the merge must not happen.
+    import physgate.orchestrator.loop as loop_module
+
+    def losing_review_lines(state: RunState, ledger: TaskLedger) -> int:
+        kept = [line for line in state.ledger if line.review_result is None]
+        shadow = RunState()
+        shadow.ledger = kept
+        return project_ledger(shadow, ledger)
+
+    monkeypatch.setattr(loop_module, "project_ledger", losing_review_lines)
+    rig = Rig(tmp_path)
+    loop = rig.open()
+    loop.start(plan("s1"))
+    with pytest.raises(MergePreconditionError):
+        loop.run()
+    loop.close()
+    assert rig.merger.merges == []
+
+
+def test_a_reviewer_whose_model_changes_after_start_is_refused_at_the_review(
+    tmp_path: Path,
+) -> None:
+    rig = Rig(tmp_path)
+    loop = rig.open()
+    loop.start(plan("s1"))
+    rig.reviewer.model = "claude-sonnet-4-5"
+    with pytest.raises(ModelSeparationError):
+        loop.run()
+    loop.close()
+    assert rig.reviewer.seen == []
+
+
+def test_a_ledger_holding_a_line_the_log_does_not_imply_refuses_the_run(tmp_path: Path) -> None:
+    rig = Rig(tmp_path)
+    loop = rig.open()
+    loop.start(plan("s1"))
+    loop.close()
+    _forge(tmp_path / "ledger.jsonl", gate_result="pass", review_result="pass")
+    with pytest.raises(MergePreconditionError, match="disagrees"):
+        rig.open()

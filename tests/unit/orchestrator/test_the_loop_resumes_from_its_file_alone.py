@@ -239,3 +239,13 @@ def test_a_file_with_a_stage_out_of_order_does_not_open(tmp_path: Path) -> None:
     (tmp_path / "events.jsonl").write_bytes(b"".join(raw) + line)
     with pytest.raises(CorruptEventLogError):
         EventLog(tmp_path / "events.jsonl", run_id="run-1", gate_mode="on", state=RunState())
+
+
+def test_nothing_but_a_resume_may_follow_a_halt(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, dispatcher=FakeDispatcher(infra={1: "api_error"}), delays=())
+    loop = rig.open()
+    loop.start(plan("s1"))
+    assert loop.run().kind == "halted"
+    with pytest.raises(ValueError, match="halted"):
+        loop.log.emit(StageEntered, subtask_id="s1", attempt=1, stage="resolve")
+    loop.close()
