@@ -299,6 +299,26 @@ def test_a_mount_whose_forces_miss_while_its_moments_balance_is_refused(tmp_path
     assert isinstance(finding.details, EquilibriumDetails)
     assert finding.details.residual_moment.value == 0
     assert finding.details.residual_force.value == pytest.approx(6 - 9.80665)
+    # Refused by the sums, not only by the split the closed form finds.
+    assert "the forces miss by" in finding.message
+
+
+def test_an_indeterminate_mount_whose_moments_balance_but_forces_do_not_is_refused(
+    tmp_path: Path,
+) -> None:
+    # Four standoffs symmetric about the load: equal reactions balance the moments
+    # whatever their size, so the force sum is the only thing that can refuse this.
+    symmetric = [("a", -0.15), ("b", -0.05), ("c", 0.05), ("d", 0.15)]
+    ran = check(
+        tmp_path,
+        *(support(f"standoff_{n}", x, 5) for n, x in symmetric),
+        load("pcb", 0, 4),
+    )
+    (finding,) = ran.observations
+    assert finding.outcome == "fail"
+    assert isinstance(finding.details, EquilibriumDetails)
+    assert finding.details.residual_moment.value == 0
+    assert finding.details.residual_force.value == pytest.approx(20 - 4 * 9.80665)
 
 
 def test_only_the_mounts_the_attempt_touched_are_checked(tmp_path: Path) -> None:
