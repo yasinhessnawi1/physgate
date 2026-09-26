@@ -17,6 +17,7 @@ from git_rig import (
     plan_entry,
     run_layout,
     sh,
+    target_repo,
 )
 
 from physgate.orchestrator.events import GateRan, Incident, Merged, Resumed, read_events
@@ -452,3 +453,21 @@ def test_the_merge_a_killed_process_made_and_never_recorded_is_where_the_run_lef
     events = read_events(run.run_dir / "events.jsonl")
     assert not [e for e in events if isinstance(e, Incident)]
     assert [e.subtask_id for e in events if isinstance(e, Merged)] == ["s1", "s2"]
+
+
+@pytest.mark.parametrize("layout", ["repository", "worktree of another repository"])
+def test_the_run_branch_ref_protected_is_where_git_keeps_it(tmp_path: Path, layout: str) -> None:
+    from physgate.orchestrator.dispatch import run_protected_roots
+
+    main = target_repo(tmp_path)
+    if layout == "repository":
+        repo = main
+    else:
+        repo = tmp_path / "elsewhere"
+        sh(main, "worktree", "add", "-q", "-b", "side", str(repo))
+    run = RunGit(repo=repo, run_dir=tmp_path / "run", run_id="run-1")
+    run.open_run_branch(head_of(repo, "HEAD"))
+    reverted, _ = run_protected_roots(run)
+    ref = [p for p in reverted if p.name == "run" and "refs" in p.parts]
+    assert ref == [main.resolve() / ".git" / "refs" / "heads" / "physgate" / "run-1" / "run"]
+    assert ref[0].read_text().strip() == head_of(repo, run.run_branch)

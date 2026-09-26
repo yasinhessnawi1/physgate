@@ -42,6 +42,7 @@ from physgate.orchestrator.credentials import (
 )
 from physgate.orchestrator.decompose import binary_version, read_stream
 from physgate.orchestrator.exceptions import InvocationError
+from physgate.orchestrator.git import common_dir
 from physgate.orchestrator.install import InstallFacts, install_facts
 from physgate.orchestrator.invocation import isolated_env, role_argv
 from physgate.orchestrator.managed import drift
@@ -73,7 +74,9 @@ def run_protected_roots(run: RunGit) -> tuple[tuple[Path, ...], tuple[Path, ...]
       and its process record, written by the runtime and the spawner during the
       session.
     """
-    ref = run.repo / ".git" / "refs" / "heads" / run.run_branch
+    # Where git keeps the run branch's loose ref, for any repository layout. A ref
+    # moved in packed-refs is seen by the loop's check of the branch instead.
+    ref = common_dir(run.repo) / "refs" / "heads" / run.run_branch
     reverted = (*(run.run_dir / name for name in RUN_RECORDS), run.integration, ref)
     return reverted, (run.run_dir / "sessions",)
 

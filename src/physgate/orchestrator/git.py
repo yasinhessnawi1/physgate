@@ -91,6 +91,16 @@ def head_of(repo: Path, ref: str) -> str:
     return git(repo, "rev-parse", "--verify", f"{ref}^{{commit}}").strip()
 
 
+def common_dir(repo: Path) -> Path:
+    """The git directory a repository's refs live in, whatever its layout.
+
+    A repository that is itself a worktree, or keeps its git directory elsewhere
+    behind a ``.git`` file, has no ``<repo>/.git/refs``; git says where they are.
+    """
+    found = Path(git(repo, "rev-parse", "--git-common-dir").strip())
+    return found if found.is_absolute() else (Path(repo) / found).resolve()
+
+
 def branch_exists(repo: Path, branch: str) -> bool:
     """Whether ``refs/heads/<branch>`` exists."""
     return bool(git(repo, "branch", "--list", branch).strip())
