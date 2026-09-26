@@ -123,6 +123,7 @@ def run_session(
     prepare: Callable[[Path], None] | None = None,
     registry: Mapping[str, HookSpec] | None = None,
     api_url_override: str | None = None,
+    setting_sources: str | None = None,
     **request_fields: Any,  # noqa: ANN401 - forwarded to the install request
 ) -> SessionRun:
     """Install hooks for a fresh worktree under ``root`` and run one scripted session."""
@@ -179,7 +180,7 @@ def run_session(
                 binary,
                 "-p",
                 "go",
-                *installed.spawn_args,
+                *_spawn_args(installed, setting_sources),
                 "--output-format",
                 "stream-json",
                 "--verbose",
@@ -206,6 +207,19 @@ def run_session(
     run = SessionRun(proc.returncode, api, stream, hook_log, installed, worktree, proc.stderr)
     check_the_run_means_something(run)
     return run
+
+
+def _spawn_args(installed: Installed, setting_sources: str | None) -> tuple[str, ...]:
+    """The generated spawn arguments, or, for a control only, with other setting sources.
+
+    A test that shows what the pinned arguments are worth has to run the same
+    session without them; nothing else changes them.
+    """
+    args = installed.spawn_args
+    if setting_sources is None:
+        return args
+    assert args[0] == "--setting-sources", args
+    return (args[0], setting_sources, *args[2:])
 
 
 def check_the_run_means_something(run: SessionRun) -> None:

@@ -139,9 +139,17 @@ def _run(argv: list[str], stdin: str) -> tuple[float, int]:
 
 
 def _summary(values: list[float]) -> dict[str, float]:
+    """Median, spread and tail of ``values``.
+
+    Quantiles are the inclusive kind, which interpolate between observed
+    values and so never fall outside them: the default method extrapolates past
+    the extremes of a small sample, which put a p90 above the maximum at n = 7.
+    The count over the budget is given beside the median, because a median can
+    pass while calls still miss.
+    """
     ordered = sorted(values)
-    deciles = statistics.quantiles(ordered, n=10)
-    quartiles = statistics.quantiles(ordered, n=4)
+    deciles = statistics.quantiles(ordered, n=10, method="inclusive")
+    quartiles = statistics.quantiles(ordered, n=4, method="inclusive")
     return {
         "median": statistics.median(ordered),
         "p10": deciles[0],
@@ -150,6 +158,7 @@ def _summary(values: list[float]) -> dict[str, float]:
         "min": ordered[0],
         "max": ordered[-1],
         "n": len(ordered),
+        "over_budget": sum(v > BUDGET_MS for v in ordered),
     }
 
 
@@ -262,6 +271,9 @@ def measure() -> dict[str, Any]:
         },
         "first_hook_of_a_session_takes_the_record": _summary(first),
         "steady": {name: _summary(v) for name, v in samples.items()},
+        # Every call, in the order taken, so a later reader can recompute any
+        # statistic instead of trusting these.
+        "raw_ms": {"first_hook_of_a_session_takes_the_record": first, **samples},
         "exit_codes": {name: sorted(c) for name, c in codes.items()},
     }
 
@@ -298,7 +310,8 @@ def table(result: dict[str, Any]) -> str:
 def _line(name: str, s: dict[str, float], tail: str) -> str:
     return (
         f"{name:42} median {s['median']:6.1f}  p10 {s['p10']:6.1f}  p90 {s['p90']:6.1f}  "
-        f"iqr {s['iqr']:6.1f}  max {s['max']:6.1f}  n={s['n']:.0f}  {tail}"
+        f"iqr {s['iqr']:6.1f}  max {s['max']:6.1f}  n={s['n']:.0f}  "
+        f">{BUDGET_MS:.0f} ms: {s['over_budget']:.0f}  {tail}"
     ).rstrip()
 
 
