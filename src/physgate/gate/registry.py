@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Literal
 
+from physgate.gate import check_units
 from physgate.gate.context import CheckContext
 from physgate.gate.result import CheckRun
 from physgate.orchestrator.protocols import CHECK_NUMBERS, CheckName, Scope
@@ -56,4 +57,4 @@ class RegisteredCheck:
 
 
 #: Every check the gate runs, in the architecture's order.
-REGISTRY: tuple[RegisteredCheck, ...] = ()
+REGISTRY: tuple[RegisteredCheck, ...] = (RegisteredCheck(name="units", run=check_units.run),)
