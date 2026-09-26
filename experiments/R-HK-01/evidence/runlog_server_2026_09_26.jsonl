@@ -1,0 +1,757 @@
+{"kind": "machine", "platform": "linux", "uname": "Linux-6.8.0-64-generic-x86_64-with-glibc2.39", "load_at_start": [3.474609375, 3.45703125, 3.42822265625], "cgroup_cpu_max": "600000 100000", "claude_version": "2.1.272 (Claude Code)"}
+{"id": "r-7z-heldout", "binary": "7z", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-alpine-heldout", "binary": "alpine", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-apache2-heldout", "binary": "apache2", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-apache2ctl-heldout", "binary": "apache2ctl", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-ar-heldout", "binary": "ar", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-aria2c-heldout", "binary": "aria2c", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-arj-heldout", "binary": "arj", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-arp-heldout", "binary": "arp", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-as-heldout", "binary": "as", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-ascii-xfr-heldout", "binary": "ascii-xfr", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-ascii85-heldout", "binary": "ascii85", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-aspell-heldout", "binary": "aspell", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-atobm-heldout", "binary": "atobm", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-aws-heldout", "binary": "aws", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-base32-heldout", "binary": "base32", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-base58-heldout", "binary": "base58", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-base64-heldout", "binary": "base64", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-basenc-heldout", "binary": "basenc", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-basez-heldout", "binary": "basez", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-bash-heldout", "binary": "bash", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-bbot-heldout", "binary": "bbot", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-bc-heldout", "binary": "bc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-bridge-heldout", "binary": "bridge", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-bzip2-heldout", "binary": "bzip2", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-cat-heldout", "binary": "cat", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-check_cups-heldout", "binary": "check_cups", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-check_log-heldout", "binary": "check_log", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-check_memory-heldout", "binary": "check_memory", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-check_raid-heldout", "binary": "check_raid", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-check_statusfile-heldout", "binary": "check_statusfile", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-clamscan-heldout", "binary": "clamscan", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-cmake-heldout", "binary": "cmake", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-cmp-heldout", "binary": "cmp", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-column-heldout", "binary": "column", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-comm-heldout", "binary": "comm", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-cp-heldout", "binary": "cp", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-cpio-heldout", "binary": "cpio", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-csplit-heldout", "binary": "csplit", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-csvtool-heldout", "binary": "csvtool", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-cupsfilter-heldout", "binary": "cupsfilter", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-curl-heldout", "binary": "curl", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-cut-heldout", "binary": "cut", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-date-heldout", "binary": "date", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-dd-heldout", "binary": "dd", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-dialog-heldout", "binary": "dialog", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-diff-heldout", "binary": "diff", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-dig-heldout", "binary": "dig", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-dmesg-heldout", "binary": "dmesg", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-docker-heldout", "binary": "docker", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-dos2unix-heldout", "binary": "dos2unix", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-dotnet-heldout", "binary": "dotnet", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-ed-heldout", "binary": "ed", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-efax-heldout", "binary": "efax", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-egrep-heldout", "binary": "egrep", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-elvish-heldout", "binary": "elvish", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-emacs-heldout", "binary": "emacs", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-eqn-heldout", "binary": "eqn", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-espeak-heldout", "binary": "espeak", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-exiftool-heldout", "binary": "exiftool", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-expand-heldout", "binary": "expand", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-expect-heldout", "binary": "expect", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-fastfetch-heldout", "binary": "fastfetch", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-fgrep-heldout", "binary": "fgrep", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-file-heldout", "binary": "file", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-find-heldout", "binary": "find", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-fmt-heldout", "binary": "fmt", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-fold-heldout", "binary": "fold", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-fping-heldout", "binary": "fping", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-gawk-heldout", "binary": "gawk", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-gcc-heldout", "binary": "gcc", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-genisoimage-heldout", "binary": "genisoimage", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-git-heldout", "binary": "git", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-go-heldout", "binary": "go", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-grep-heldout", "binary": "grep", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-gzip-heldout", "binary": "gzip", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-head-heldout", "binary": "head", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-hexdump-heldout", "binary": "hexdump", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-highlight-heldout", "binary": "highlight", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-iconv-heldout", "binary": "iconv", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-ip-heldout", "binary": "ip", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-jjs-heldout", "binary": "jjs", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-join-heldout", "binary": "join", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-jq-heldout", "binary": "jq", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-jrunscript-heldout", "binary": "jrunscript", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-jshell-heldout", "binary": "jshell", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-julia-heldout", "binary": "julia", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-ksshell-heldout", "binary": "ksshell", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-last-heldout", "binary": "last", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-latex-heldout", "binary": "latex", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-latexmk-heldout", "binary": "latexmk", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-less-heldout", "binary": "less", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-links-heldout", "binary": "links", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-logrotate-heldout", "binary": "logrotate", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-look-heldout", "binary": "look", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-ltrace-heldout", "binary": "ltrace", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-lua-heldout", "binary": "lua", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-lwp-download-heldout", "binary": "lwp-download", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-lwp-request-heldout", "binary": "lwp-request", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-m4-heldout", "binary": "m4", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-make-heldout", "binary": "make", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-man-heldout", "binary": "man", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-mawk-heldout", "binary": "mawk", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-more-heldout", "binary": "more", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-mosquitto-heldout", "binary": "mosquitto", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-msgattrib-heldout", "binary": "msgattrib", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-msgcat-heldout", "binary": "msgcat", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-msgconv-heldout", "binary": "msgconv", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-msgfilter-heldout", "binary": "msgfilter", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-msgmerge-heldout", "binary": "msgmerge", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-msguniq-heldout", "binary": "msguniq", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-mtr-heldout", "binary": "mtr", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-mutt-heldout", "binary": "mutt", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-mypy-heldout", "binary": "mypy", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-nano-heldout", "binary": "nano", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-nasm-heldout", "binary": "nasm", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-neofetch-heldout", "binary": "neofetch", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-nft-heldout", "binary": "nft", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-nl-heldout", "binary": "nl", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-nm-heldout", "binary": "nm", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-nmap-heldout", "binary": "nmap", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-node-heldout", "binary": "node", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-nroff-heldout", "binary": "nroff", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-ntpdate-heldout", "binary": "ntpdate", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-octave-heldout", "binary": "octave", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-od-heldout", "binary": "od", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-openssl-heldout", "binary": "openssl", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-openvpn-heldout", "binary": "openvpn", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-pandoc-heldout", "binary": "pandoc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-paste-heldout", "binary": "paste", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-pax-heldout", "binary": "pax", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-pdflatex-heldout", "binary": "pdflatex", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-perl-heldout", "binary": "perl", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-pg-heldout", "binary": "pg", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-php-heldout", "binary": "php", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-pic-heldout", "binary": "pic", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-pr-heldout", "binary": "pr", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-ptx-heldout", "binary": "ptx", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-puppet-heldout", "binary": "puppet", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-pygmentize-heldout", "binary": "pygmentize", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-pyright-heldout", "binary": "pyright", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-python-heldout", "binary": "python", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-qpdf-heldout", "binary": "qpdf", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-rake-heldout", "binary": "rake", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-readelf-heldout", "binary": "readelf", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-redcarpet-heldout", "binary": "redcarpet", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-rev-heldout", "binary": "rev", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-ruby-heldout", "binary": "ruby", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-rustc-heldout", "binary": "rustc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-rustdoc-heldout", "binary": "rustdoc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-rustfmt-heldout", "binary": "rustfmt", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-sed-heldout", "binary": "sed", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-shuf-heldout", "binary": "shuf", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-socat-heldout", "binary": "socat", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-soelim-heldout", "binary": "soelim", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-sort-heldout", "binary": "sort", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-split-heldout", "binary": "split", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-sqlite3-heldout", "binary": "sqlite3", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-ss-heldout", "binary": "ss", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-ssh-copy-id-heldout", "binary": "ssh-copy-id", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-ssh-heldout", "binary": "ssh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-ssh-keyscan-heldout", "binary": "ssh-keyscan", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-strings-heldout", "binary": "strings", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-sysctl-heldout", "binary": "sysctl", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-tac-heldout", "binary": "tac", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-tail-heldout", "binary": "tail", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-tar-heldout", "binary": "tar", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-tbl-heldout", "binary": "tbl", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-terraform-heldout", "binary": "terraform", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-tic-heldout", "binary": "tic", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-tmux-heldout", "binary": "tmux", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-troff-heldout", "binary": "troff", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-tsc-heldout", "binary": "tsc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-ul-heldout", "binary": "ul", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-unexpand-heldout", "binary": "unexpand", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-uniq-heldout", "binary": "uniq", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-urlget-heldout", "binary": "urlget", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-uuencode-heldout", "binary": "uuencode", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-vi-heldout", "binary": "vi", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-w3m-heldout", "binary": "w3m", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-wall-heldout", "binary": "wall", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-wc-heldout", "binary": "wc", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-wget-heldout", "binary": "wget", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-whiptail-heldout", "binary": "whiptail", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-xargs-heldout", "binary": "xargs", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-xmodmap-heldout", "binary": "xmodmap", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-xmore-heldout", "binary": "xmore", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-xpad-heldout", "binary": "xpad", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-xxd-heldout", "binary": "xxd", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-xz-heldout", "binary": "xz", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-yelp-heldout", "binary": "yelp", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-zcat-heldout", "binary": "zcat", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-zgrep-heldout", "binary": "zgrep", "target_key": "heldout", "expected_layer": "shell_paths", "single_layer": true, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "r-zip-heldout", "binary": "zip", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-zsh-heldout", "binary": "zsh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "r-zsoelim-heldout", "binary": "zsoelim", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-arj-criteria", "binary": "arj", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-arj-env", "binary": "arj", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-arj-gate", "binary": "arj", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-arj-hooks", "binary": "arj", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-arj-journal", "binary": "arj", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-arj-node", "binary": "arj", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-arj-result", "binary": "arj", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-ash-criteria", "binary": "ash", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-ash-env", "binary": "ash", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-ash-gate", "binary": "ash", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-ash-hooks", "binary": "ash", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-ash-journal", "binary": "ash", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-ash-node", "binary": "ash", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-ash-result", "binary": "ash", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-bash-criteria", "binary": "bash", "target_key": "criteria", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-bash-env", "binary": "bash", "target_key": "env", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-bash-gate", "binary": "bash", "target_key": "gate", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-bash-hooks", "binary": "bash", "target_key": "hooks", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-bash-journal", "binary": "bash", "target_key": "journal", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-bash-node", "binary": "bash", "target_key": "node", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-bash-result", "binary": "bash", "target_key": "result", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-check_log-criteria", "binary": "check_log", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-check_log-env", "binary": "check_log", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-check_log-gate", "binary": "check_log", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-check_log-hooks", "binary": "check_log", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-check_log-journal", "binary": "check_log", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-check_log-node", "binary": "check_log", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-check_log-result", "binary": "check_log", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-cp-criteria", "binary": "cp", "target_key": "criteria", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-cp-env", "binary": "cp", "target_key": "env", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-cp-gate", "binary": "cp", "target_key": "gate", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-cp-hooks", "binary": "cp", "target_key": "hooks", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-cp-journal", "binary": "cp", "target_key": "journal", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-cp-node", "binary": "cp", "target_key": "node", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-cp-result", "binary": "cp", "target_key": "result", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-csh-criteria", "binary": "csh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-csh-env", "binary": "csh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-csh-gate", "binary": "csh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-csh-hooks", "binary": "csh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-csh-journal", "binary": "csh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-csh-node", "binary": "csh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-csh-result", "binary": "csh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-csvtool-criteria", "binary": "csvtool", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-csvtool-env", "binary": "csvtool", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-csvtool-gate", "binary": "csvtool", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-csvtool-hooks", "binary": "csvtool", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-csvtool-journal", "binary": "csvtool", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-csvtool-node", "binary": "csvtool", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-csvtool-result", "binary": "csvtool", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-curl-criteria", "binary": "curl", "target_key": "criteria", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-curl-env", "binary": "curl", "target_key": "env", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-curl-gate", "binary": "curl", "target_key": "gate", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-curl-hooks", "binary": "curl", "target_key": "hooks", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-curl-journal", "binary": "curl", "target_key": "journal", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-curl-node", "binary": "curl", "target_key": "node", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-curl-result", "binary": "curl", "target_key": "result", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-dash-criteria", "binary": "dash", "target_key": "criteria", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-dash-env", "binary": "dash", "target_key": "env", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-dash-gate", "binary": "dash", "target_key": "gate", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-dash-hooks", "binary": "dash", "target_key": "hooks", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-dash-journal", "binary": "dash", "target_key": "journal", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-dash-node", "binary": "dash", "target_key": "node", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-dash-result", "binary": "dash", "target_key": "result", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-dd-criteria", "binary": "dd", "target_key": "criteria", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-dd-env", "binary": "dd", "target_key": "env", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-dd-gate", "binary": "dd", "target_key": "gate", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-dd-hooks", "binary": "dd", "target_key": "hooks", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-dd-journal", "binary": "dd", "target_key": "journal", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-dd-node", "binary": "dd", "target_key": "node", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-dd-result", "binary": "dd", "target_key": "result", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-dmidecode-criteria", "binary": "dmidecode", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-dmidecode-env", "binary": "dmidecode", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-dmidecode-gate", "binary": "dmidecode", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-dmidecode-hooks", "binary": "dmidecode", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-dmidecode-journal", "binary": "dmidecode", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-dmidecode-node", "binary": "dmidecode", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-dmidecode-result", "binary": "dmidecode", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-docker-criteria", "binary": "docker", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-docker-env", "binary": "docker", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-docker-gate", "binary": "docker", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-docker-hooks", "binary": "docker", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-docker-journal", "binary": "docker", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-docker-node", "binary": "docker", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-docker-result", "binary": "docker", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-dos2unix-criteria", "binary": "dos2unix", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-dos2unix-env", "binary": "dos2unix", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-dos2unix-gate", "binary": "dos2unix", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-dos2unix-hooks", "binary": "dos2unix", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-dos2unix-journal", "binary": "dos2unix", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-dos2unix-node", "binary": "dos2unix", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-dos2unix-result", "binary": "dos2unix", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-ed-criteria", "binary": "ed", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-ed-env", "binary": "ed", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-ed-gate", "binary": "ed", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-ed-hooks", "binary": "ed", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-ed-journal", "binary": "ed", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-ed-node", "binary": "ed", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-ed-result", "binary": "ed", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-elvish-criteria", "binary": "elvish", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-elvish-env", "binary": "elvish", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-elvish-gate", "binary": "elvish", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-elvish-hooks", "binary": "elvish", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-elvish-journal", "binary": "elvish", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-elvish-node", "binary": "elvish", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-elvish-result", "binary": "elvish", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-emacs-criteria", "binary": "emacs", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-emacs-env", "binary": "emacs", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-emacs-gate", "binary": "emacs", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-emacs-hooks", "binary": "emacs", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-emacs-journal", "binary": "emacs", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-emacs-node", "binary": "emacs", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-emacs-result", "binary": "emacs", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-exiftool-criteria", "binary": "exiftool", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-exiftool-env", "binary": "exiftool", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-exiftool-gate", "binary": "exiftool", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-exiftool-hooks", "binary": "exiftool", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-exiftool-journal", "binary": "exiftool", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-exiftool-node", "binary": "exiftool", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-exiftool-result", "binary": "exiftool", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-find-criteria", "binary": "find", "target_key": "criteria", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-find-env", "binary": "find", "target_key": "env", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-find-gate", "binary": "find", "target_key": "gate", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-find-hooks", "binary": "find", "target_key": "hooks", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-find-journal", "binary": "find", "target_key": "journal", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-find-node", "binary": "find", "target_key": "node", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-find-result", "binary": "find", "target_key": "result", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-gawk-criteria", "binary": "gawk", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-gawk-env", "binary": "gawk", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-gawk-gate", "binary": "gawk", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-gawk-hooks", "binary": "gawk", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-gawk-journal", "binary": "gawk", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-gawk-node", "binary": "gawk", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-gawk-result", "binary": "gawk", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-gdb-criteria", "binary": "gdb", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-gdb-env", "binary": "gdb", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-gdb-gate", "binary": "gdb", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-gdb-hooks", "binary": "gdb", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-gdb-journal", "binary": "gdb", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-gdb-node", "binary": "gdb", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-gdb-result", "binary": "gdb", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-go-criteria", "binary": "go", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-go-env", "binary": "go", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-go-gate", "binary": "go", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-go-hooks", "binary": "go", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-go-journal", "binary": "go", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-go-node", "binary": "go", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-go-result", "binary": "go", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-gtester-criteria", "binary": "gtester", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-gtester-env", "binary": "gtester", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-gtester-gate", "binary": "gtester", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-gtester-hooks", "binary": "gtester", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-gtester-journal", "binary": "gtester", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-gtester-node", "binary": "gtester", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-gtester-result", "binary": "gtester", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-hashcat-criteria", "binary": "hashcat", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-hashcat-env", "binary": "hashcat", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-hashcat-gate", "binary": "hashcat", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-hashcat-hooks", "binary": "hashcat", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-hashcat-journal", "binary": "hashcat", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-hashcat-node", "binary": "hashcat", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-hashcat-result", "binary": "hashcat", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-iconv-criteria", "binary": "iconv", "target_key": "criteria", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-iconv-env", "binary": "iconv", "target_key": "env", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-iconv-gate", "binary": "iconv", "target_key": "gate", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-iconv-hooks", "binary": "iconv", "target_key": "hooks", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-iconv-journal", "binary": "iconv", "target_key": "journal", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-iconv-node", "binary": "iconv", "target_key": "node", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-iconv-result", "binary": "iconv", "target_key": "result", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-iptables-save-criteria", "binary": "iptables-save", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-iptables-save-env", "binary": "iptables-save", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-iptables-save-gate", "binary": "iptables-save", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-iptables-save-hooks", "binary": "iptables-save", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-iptables-save-journal", "binary": "iptables-save", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-iptables-save-node", "binary": "iptables-save", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-iptables-save-result", "binary": "iptables-save", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-jjs-criteria", "binary": "jjs", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-jjs-env", "binary": "jjs", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-jjs-gate", "binary": "jjs", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-jjs-hooks", "binary": "jjs", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-jjs-journal", "binary": "jjs", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-jjs-node", "binary": "jjs", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-jjs-result", "binary": "jjs", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-jrunscript-criteria", "binary": "jrunscript", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-jrunscript-env", "binary": "jrunscript", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-jrunscript-gate", "binary": "jrunscript", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-jrunscript-hooks", "binary": "jrunscript", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-jrunscript-journal", "binary": "jrunscript", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-jrunscript-node", "binary": "jrunscript", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-jrunscript-result", "binary": "jrunscript", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-jshell-criteria", "binary": "jshell", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-jshell-env", "binary": "jshell", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-jshell-gate", "binary": "jshell", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-jshell-hooks", "binary": "jshell", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-jshell-journal", "binary": "jshell", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-jshell-node", "binary": "jshell", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-jshell-result", "binary": "jshell", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-julia-criteria", "binary": "julia", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-julia-env", "binary": "julia", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-julia-gate", "binary": "julia", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-julia-hooks", "binary": "julia", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-julia-journal", "binary": "julia", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-julia-node", "binary": "julia", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-julia-result", "binary": "julia", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-less-criteria", "binary": "less", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-less-env", "binary": "less", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-less-gate", "binary": "less", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-less-hooks", "binary": "less", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-less-journal", "binary": "less", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-less-node", "binary": "less", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-less-result", "binary": "less", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-logrotate-criteria", "binary": "logrotate", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-logrotate-env", "binary": "logrotate", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-logrotate-gate", "binary": "logrotate", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-logrotate-hooks", "binary": "logrotate", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-logrotate-journal", "binary": "logrotate", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-logrotate-node", "binary": "logrotate", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-logrotate-result", "binary": "logrotate", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-lua-criteria", "binary": "lua", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-lua-env", "binary": "lua", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-lua-gate", "binary": "lua", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-lua-hooks", "binary": "lua", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-lua-journal", "binary": "lua", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-lua-node", "binary": "lua", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-lua-result", "binary": "lua", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-lwp-download-criteria", "binary": "lwp-download", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-lwp-download-env", "binary": "lwp-download", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-lwp-download-gate", "binary": "lwp-download", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-lwp-download-hooks", "binary": "lwp-download", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-lwp-download-journal", "binary": "lwp-download", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-lwp-download-node", "binary": "lwp-download", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-lwp-download-result", "binary": "lwp-download", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-make-criteria", "binary": "make", "target_key": "criteria", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-make-env", "binary": "make", "target_key": "env", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-make-gate", "binary": "make", "target_key": "gate", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-make-hooks", "binary": "make", "target_key": "hooks", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-make-journal", "binary": "make", "target_key": "journal", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-make-node", "binary": "make", "target_key": "node", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-make-result", "binary": "make", "target_key": "result", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-mawk-criteria", "binary": "mawk", "target_key": "criteria", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-mawk-env", "binary": "mawk", "target_key": "env", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-mawk-gate", "binary": "mawk", "target_key": "gate", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-mawk-hooks", "binary": "mawk", "target_key": "hooks", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-mawk-journal", "binary": "mawk", "target_key": "journal", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-mawk-node", "binary": "mawk", "target_key": "node", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-mawk-result", "binary": "mawk", "target_key": "result", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-mv-criteria", "binary": "mv", "target_key": "criteria", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-mv-env", "binary": "mv", "target_key": "env", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-mv-gate", "binary": "mv", "target_key": "gate", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-mv-hooks", "binary": "mv", "target_key": "hooks", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-mv-journal", "binary": "mv", "target_key": "journal", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-mv-node", "binary": "mv", "target_key": "node", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-mv-result", "binary": "mv", "target_key": "result", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-mypy-criteria", "binary": "mypy", "target_key": "criteria", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-mypy-env", "binary": "mypy", "target_key": "env", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-mypy-gate", "binary": "mypy", "target_key": "gate", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-mypy-hooks", "binary": "mypy", "target_key": "hooks", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-mypy-journal", "binary": "mypy", "target_key": "journal", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-mypy-node", "binary": "mypy", "target_key": "node", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-mypy-result", "binary": "mypy", "target_key": "result", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-nano-criteria", "binary": "nano", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-nano-env", "binary": "nano", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-nano-gate", "binary": "nano", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-nano-hooks", "binary": "nano", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-nano-journal", "binary": "nano", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-nano-node", "binary": "nano", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-nano-result", "binary": "nano", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-nc-criteria", "binary": "nc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-nc-env", "binary": "nc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-nc-gate", "binary": "nc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-nc-hooks", "binary": "nc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-nc-journal", "binary": "nc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-nc-node", "binary": "nc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-nc-result", "binary": "nc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-nmap-criteria", "binary": "nmap", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-nmap-env", "binary": "nmap", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-nmap-gate", "binary": "nmap", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-nmap-hooks", "binary": "nmap", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-nmap-journal", "binary": "nmap", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-nmap-node", "binary": "nmap", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-nmap-result", "binary": "nmap", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-node-criteria", "binary": "node", "target_key": "criteria", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-node-env", "binary": "node", "target_key": "env", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-node-gate", "binary": "node", "target_key": "gate", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-node-hooks", "binary": "node", "target_key": "hooks", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-node-journal", "binary": "node", "target_key": "journal", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-node-node", "binary": "node", "target_key": "node", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-node-result", "binary": "node", "target_key": "result", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-octave-criteria", "binary": "octave", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-octave-env", "binary": "octave", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-octave-gate", "binary": "octave", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-octave-hooks", "binary": "octave", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-octave-journal", "binary": "octave", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-octave-node", "binary": "octave", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-octave-result", "binary": "octave", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-openssl-criteria", "binary": "openssl", "target_key": "criteria", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-openssl-env", "binary": "openssl", "target_key": "env", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-openssl-gate", "binary": "openssl", "target_key": "gate", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-openssl-hooks", "binary": "openssl", "target_key": "hooks", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-openssl-journal", "binary": "openssl", "target_key": "journal", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-openssl-node", "binary": "openssl", "target_key": "node", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-openssl-result", "binary": "openssl", "target_key": "result", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-pandoc-criteria", "binary": "pandoc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-pandoc-env", "binary": "pandoc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-pandoc-gate", "binary": "pandoc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-pandoc-hooks", "binary": "pandoc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-pandoc-journal", "binary": "pandoc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-pandoc-node", "binary": "pandoc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-pandoc-result", "binary": "pandoc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-perl-criteria", "binary": "perl", "target_key": "criteria", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-perl-env", "binary": "perl", "target_key": "env", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-perl-gate", "binary": "perl", "target_key": "gate", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-perl-hooks", "binary": "perl", "target_key": "hooks", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-perl-journal", "binary": "perl", "target_key": "journal", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-perl-node", "binary": "perl", "target_key": "node", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-perl-result", "binary": "perl", "target_key": "result", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-php-criteria", "binary": "php", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-php-env", "binary": "php", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-php-gate", "binary": "php", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-php-hooks", "binary": "php", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-php-journal", "binary": "php", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-php-node", "binary": "php", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-php-result", "binary": "php", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-puppet-criteria", "binary": "puppet", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-puppet-env", "binary": "puppet", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-puppet-gate", "binary": "puppet", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-puppet-hooks", "binary": "puppet", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-puppet-journal", "binary": "puppet", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-puppet-node", "binary": "puppet", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-puppet-result", "binary": "puppet", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-pwsh-criteria", "binary": "pwsh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-pwsh-env", "binary": "pwsh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-pwsh-gate", "binary": "pwsh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-pwsh-hooks", "binary": "pwsh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-pwsh-journal", "binary": "pwsh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-pwsh-node", "binary": "pwsh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-pwsh-result", "binary": "pwsh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-python-criteria", "binary": "python", "target_key": "criteria", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-python-env", "binary": "python", "target_key": "env", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-python-gate", "binary": "python", "target_key": "gate", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-python-hooks", "binary": "python", "target_key": "hooks", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-python-journal", "binary": "python", "target_key": "journal", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-python-node", "binary": "python", "target_key": "node", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-python-result", "binary": "python", "target_key": "result", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-redis-criteria", "binary": "redis", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-redis-env", "binary": "redis", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-redis-gate", "binary": "redis", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-redis-hooks", "binary": "redis", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-redis-journal", "binary": "redis", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-redis-node", "binary": "redis", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-redis-result", "binary": "redis", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-rlwrap-criteria", "binary": "rlwrap", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-rlwrap-env", "binary": "rlwrap", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-rlwrap-gate", "binary": "rlwrap", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-rlwrap-hooks", "binary": "rlwrap", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-rlwrap-journal", "binary": "rlwrap", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-rlwrap-node", "binary": "rlwrap", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-rlwrap-result", "binary": "rlwrap", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-ruby-criteria", "binary": "ruby", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-ruby-env", "binary": "ruby", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-ruby-gate", "binary": "ruby", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-ruby-hooks", "binary": "ruby", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-ruby-journal", "binary": "ruby", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-ruby-node", "binary": "ruby", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-ruby-result", "binary": "ruby", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-rustc-criteria", "binary": "rustc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-rustc-env", "binary": "rustc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-rustc-gate", "binary": "rustc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-rustc-hooks", "binary": "rustc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-rustc-journal", "binary": "rustc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-rustc-node", "binary": "rustc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-rustc-result", "binary": "rustc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-rustdoc-criteria", "binary": "rustdoc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-rustdoc-env", "binary": "rustdoc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-rustdoc-gate", "binary": "rustdoc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-rustdoc-hooks", "binary": "rustdoc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-rustdoc-journal", "binary": "rustdoc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-rustdoc-node", "binary": "rustdoc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-rustdoc-result", "binary": "rustdoc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-scp-criteria", "binary": "scp", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-scp-env", "binary": "scp", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-scp-gate", "binary": "scp", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-scp-hooks", "binary": "scp", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-scp-journal", "binary": "scp", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-scp-node", "binary": "scp", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-scp-result", "binary": "scp", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-screen-criteria", "binary": "screen", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-screen-env", "binary": "screen", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-screen-gate", "binary": "screen", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-screen-hooks", "binary": "screen", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-screen-journal", "binary": "screen", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-screen-node", "binary": "screen", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-screen-result", "binary": "screen", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-script-criteria", "binary": "script", "target_key": "criteria", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-script-env", "binary": "script", "target_key": "env", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-script-gate", "binary": "script", "target_key": "gate", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-script-hooks", "binary": "script", "target_key": "hooks", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-script-journal", "binary": "script", "target_key": "journal", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-script-node", "binary": "script", "target_key": "node", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-script-result", "binary": "script", "target_key": "result", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-sed-criteria", "binary": "sed", "target_key": "criteria", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-sed-env", "binary": "sed", "target_key": "env", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-sed-gate", "binary": "sed", "target_key": "gate", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-sed-hooks", "binary": "sed", "target_key": "hooks", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-sed-journal", "binary": "sed", "target_key": "journal", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-sed-node", "binary": "sed", "target_key": "node", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-sed-result", "binary": "sed", "target_key": "result", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-sftp-criteria", "binary": "sftp", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-sftp-env", "binary": "sftp", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-sftp-gate", "binary": "sftp", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-sftp-hooks", "binary": "sftp", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-sftp-journal", "binary": "sftp", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-sftp-node", "binary": "sftp", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-sftp-result", "binary": "sftp", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-shred-criteria", "binary": "shred", "target_key": "criteria", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-shred-env", "binary": "shred", "target_key": "env", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-shred-gate", "binary": "shred", "target_key": "gate", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-shred-hooks", "binary": "shred", "target_key": "hooks", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-shred-journal", "binary": "shred", "target_key": "journal", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-shred-node", "binary": "shred", "target_key": "node", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-shred-result", "binary": "shred", "target_key": "result", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-shuf-criteria", "binary": "shuf", "target_key": "criteria", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-shuf-env", "binary": "shuf", "target_key": "env", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-shuf-gate", "binary": "shuf", "target_key": "gate", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-shuf-hooks", "binary": "shuf", "target_key": "hooks", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-shuf-journal", "binary": "shuf", "target_key": "journal", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-shuf-node", "binary": "shuf", "target_key": "node", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-shuf-result", "binary": "shuf", "target_key": "result", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-smbclient-criteria", "binary": "smbclient", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-smbclient-env", "binary": "smbclient", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-smbclient-gate", "binary": "smbclient", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-smbclient-hooks", "binary": "smbclient", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-smbclient-journal", "binary": "smbclient", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-smbclient-node", "binary": "smbclient", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-smbclient-result", "binary": "smbclient", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-socat-criteria", "binary": "socat", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-socat-env", "binary": "socat", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-socat-gate", "binary": "socat", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-socat-hooks", "binary": "socat", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-socat-journal", "binary": "socat", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-socat-node", "binary": "socat", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-socat-result", "binary": "socat", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-sort-criteria", "binary": "sort", "target_key": "criteria", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-sort-env", "binary": "sort", "target_key": "env", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-sort-gate", "binary": "sort", "target_key": "gate", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-sort-hooks", "binary": "sort", "target_key": "hooks", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-sort-journal", "binary": "sort", "target_key": "journal", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-sort-node", "binary": "sort", "target_key": "node", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-sort-result", "binary": "sort", "target_key": "result", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-sqlite3-criteria", "binary": "sqlite3", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-sqlite3-env", "binary": "sqlite3", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-sqlite3-gate", "binary": "sqlite3", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-sqlite3-hooks", "binary": "sqlite3", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-sqlite3-journal", "binary": "sqlite3", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-sqlite3-node", "binary": "sqlite3", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-sqlite3-result", "binary": "sqlite3", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-ssh-copy-id-criteria", "binary": "ssh-copy-id", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-ssh-copy-id-env", "binary": "ssh-copy-id", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-ssh-copy-id-gate", "binary": "ssh-copy-id", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-ssh-copy-id-hooks", "binary": "ssh-copy-id", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-ssh-copy-id-journal", "binary": "ssh-copy-id", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-ssh-copy-id-node", "binary": "ssh-copy-id", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-ssh-copy-id-result", "binary": "ssh-copy-id", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-sshfs-criteria", "binary": "sshfs", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-sshfs-env", "binary": "sshfs", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-sshfs-gate", "binary": "sshfs", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-sshfs-hooks", "binary": "sshfs", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-sshfs-journal", "binary": "sshfs", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-sshfs-node", "binary": "sshfs", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-sshfs-result", "binary": "sshfs", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-strace-criteria", "binary": "strace", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-strace-env", "binary": "strace", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-strace-gate", "binary": "strace", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-strace-hooks", "binary": "strace", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-strace-journal", "binary": "strace", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-strace-node", "binary": "strace", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-strace-result", "binary": "strace", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-tar-criteria", "binary": "tar", "target_key": "criteria", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-tar-env", "binary": "tar", "target_key": "env", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-tar-gate", "binary": "tar", "target_key": "gate", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-tar-hooks", "binary": "tar", "target_key": "hooks", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-tar-journal", "binary": "tar", "target_key": "journal", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-tar-node", "binary": "tar", "target_key": "node", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-tar-result", "binary": "tar", "target_key": "result", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-tcpdump-criteria", "binary": "tcpdump", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-tcpdump-env", "binary": "tcpdump", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-tcpdump-gate", "binary": "tcpdump", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-tcpdump-hooks", "binary": "tcpdump", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-tcpdump-journal", "binary": "tcpdump", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-tcpdump-node", "binary": "tcpdump", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-tcpdump-result", "binary": "tcpdump", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-tcsh-criteria", "binary": "tcsh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-tcsh-env", "binary": "tcsh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-tcsh-gate", "binary": "tcsh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-tcsh-hooks", "binary": "tcsh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-tcsh-journal", "binary": "tcsh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-tcsh-node", "binary": "tcsh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-tcsh-result", "binary": "tcsh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-tee-criteria", "binary": "tee", "target_key": "criteria", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-tee-env", "binary": "tee", "target_key": "env", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-tee-gate", "binary": "tee", "target_key": "gate", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-tee-hooks", "binary": "tee", "target_key": "hooks", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-tee-journal", "binary": "tee", "target_key": "journal", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-tee-node", "binary": "tee", "target_key": "node", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-tee-result", "binary": "tee", "target_key": "result", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-tsc-criteria", "binary": "tsc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-tsc-env", "binary": "tsc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-tsc-gate", "binary": "tsc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-tsc-hooks", "binary": "tsc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-tsc-journal", "binary": "tsc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-tsc-node", "binary": "tsc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-tsc-result", "binary": "tsc", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-update-alternatives-criteria", "binary": "update-alternatives", "target_key": "criteria", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-update-alternatives-env", "binary": "update-alternatives", "target_key": "env", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-update-alternatives-gate", "binary": "update-alternatives", "target_key": "gate", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-update-alternatives-hooks", "binary": "update-alternatives", "target_key": "hooks", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-update-alternatives-journal", "binary": "update-alternatives", "target_key": "journal", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-update-alternatives-node", "binary": "update-alternatives", "target_key": "node", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-update-alternatives-result", "binary": "update-alternatives", "target_key": "result", "expected_layer": "shell_paths", "single_layer": false, "reached": [], "caught_by": ["shell_paths"], "leak": false, "outcome": "no reach"}
+{"id": "w-varnishncsa-criteria", "binary": "varnishncsa", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-varnishncsa-env", "binary": "varnishncsa", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-varnishncsa-gate", "binary": "varnishncsa", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-varnishncsa-hooks", "binary": "varnishncsa", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-varnishncsa-journal", "binary": "varnishncsa", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-varnishncsa-node", "binary": "varnishncsa", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-varnishncsa-result", "binary": "varnishncsa", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-vi-criteria", "binary": "vi", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-vi-env", "binary": "vi", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-vi-gate", "binary": "vi", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-vi-hooks", "binary": "vi", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-vi-journal", "binary": "vi", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-vi-node", "binary": "vi", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-vi-result", "binary": "vi", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-virsh-criteria", "binary": "virsh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-virsh-env", "binary": "virsh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-virsh-gate", "binary": "virsh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-virsh-hooks", "binary": "virsh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-virsh-journal", "binary": "virsh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-virsh-node", "binary": "virsh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-virsh-result", "binary": "virsh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-wget-criteria", "binary": "wget", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-wget-env", "binary": "wget", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-wget-gate", "binary": "wget", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-wget-hooks", "binary": "wget", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-wget-journal", "binary": "wget", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-wget-node", "binary": "wget", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-wget-result", "binary": "wget", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-xxd-criteria", "binary": "xxd", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-xxd-env", "binary": "xxd", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-xxd-gate", "binary": "xxd", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-xxd-hooks", "binary": "xxd", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-xxd-journal", "binary": "xxd", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-xxd-node", "binary": "xxd", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-xxd-result", "binary": "xxd", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-zsh-criteria", "binary": "zsh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-zsh-env", "binary": "zsh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-zsh-gate", "binary": "zsh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-zsh-hooks", "binary": "zsh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-zsh-journal", "binary": "zsh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-zsh-node", "binary": "zsh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"id": "w-zsh-result", "binary": "zsh", "outcome": "absent", "reached": [], "caught_by": [], "detail": "binary not installed"}
+{"kind": "summary", "total": 755, "no reach": 230, "absent": 525, "reached_or_failed": 0, "load_at_end": [3.79833984375, 3.8486328125, 3.62255859375]}
