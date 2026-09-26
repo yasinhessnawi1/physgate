@@ -1,0 +1,37 @@
+# Magnitude bounds for the electrical domain, read by the physics gate's
+# magnitude check. Every range carries its source, the date it was read and a
+# note on what the range is and is not; a range without them does not load.
+# Changing a range is a change to what the gate accepts, and is recorded as one.
+
+[meta]
+domain = "electrical"
+curated_by = "the physics gate, until the knowledge layer takes this table over"
+
+[[range]]
+quantity = "stall_current"
+low = 0.36
+high = 6.5
+unit = "A"
+class = "brushed DC metal gearmotor, 6 to 24 V, hobby class"
+source = """Pololu product pages: Micro Metal Gearmotors (pololu.com/category/60; 0.36 A \
+for the low-power 6 V version up to 1.6 A for the high-power 6 V version); 37D Metal \
+Gearmotors (pololu.com/category/116; 3 A at 24 V, 5.5 A at 12 V); product 2273, 34:1 \
+Metal Gearmotor 25Dx64L mm HP 6 V (6.5 A)"""
+retrieved = 2026-09-26
+note = """The span of three product families of one maker, from the smallest stall \
+current to the largest. It is not a physical limit of the class, and a motor outside \
+it may be legitimate; widening or narrowing it is a curation decision, recorded."""
+
+[[range]]
+quantity = "sample_rate"
+low = 3.90625
+high = 8000
+unit = "Hz"
+class = "MEMS inertial measurement unit, MPU-6000/6050"
+source = """InvenSense, MPU-6000 and MPU-6050 Register Map and Descriptions, \
+RM-MPU-6000A-00 revision 4.0 (03/09/2012), register 25: Sample Rate = Gyroscope Output \
+Rate / (1 + SMPLRT_DIV), the gyroscope output rate being 8 kHz with the low-pass filter \
+off and 1 kHz with it on, and SMPLRT_DIV being 8 bits"""
+retrieved = 2026-09-26
+note = """From 1 kHz / 256 to 8 kHz: every rate the register can set. The \
+accelerometer's own output rate is 1 kHz whatever the sample rate."""

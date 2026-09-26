@@ -11,6 +11,7 @@ import pytest
 from gate_fixtures import graph, node
 
 from physgate.gate import check_units
+from physgate.gate.bounds_table import load_bounds
 from physgate.gate.catalogue import KINDS, QUANTITIES, RELATIONS, Entry, Kind
 from physgate.gate.context import CheckContext
 from physgate.gate.graph import GraphView
@@ -215,7 +216,7 @@ def run_check(
     head = graph(root, *base) if base else 0
     graph(root, *payloads)
     view = GraphView.read(root, base_revision=head)
-    return check_units.run(CheckContext(view=view, scope="subtask"))
+    return check_units.run(CheckContext(view=view, scope="subtask", bounds=load_bounds()))
 
 
 DRIVER_IN = {

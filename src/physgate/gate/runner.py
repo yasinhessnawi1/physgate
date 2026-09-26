@@ -18,6 +18,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from pathlib import Path
 
+from physgate.gate.bounds_table import Bounds, load_bounds
 from physgate.gate.context import CheckContext
 from physgate.gate.exceptions import GateModeError, NothingCheckedError
 from physgate.gate.graph import GraphView
@@ -72,9 +73,16 @@ def require_running_mode(mode: object) -> RunningGateMode:
 class PhysicsGate:
     """The physics gate: every registered check, at the scopes it is asked for."""
 
-    def __init__(self, registry: tuple[RegisteredCheck, ...] = REGISTRY) -> None:
-        """Run the checks in ``registry``, which is the real one unless a test builds its own."""
+    def __init__(
+        self, registry: tuple[RegisteredCheck, ...] = REGISTRY, bounds: Bounds | None = None
+    ) -> None:
+        """Run the checks in ``registry`` against ``bounds``: the real ones unless a test says.
+
+        Raises:
+            BoundsTableError: the bounds table does not load; no gate is built without it.
+        """
         self._registry = registry
+        self._bounds = bounds if bounds is not None else load_bounds()
 
     def check(self, artefact: Artefact, *, mode: RunningGateMode) -> GateResult:
         """Check one attempt's artefact.
@@ -106,7 +114,7 @@ class PhysicsGate:
                 on_failure = CADENCE[entry.name].get(scope)
                 if on_failure is None:
                     continue
-                ran = entry.run(CheckContext(view=view, scope=scope))
+                ran = entry.run(CheckContext(view=view, scope=scope, bounds=self._bounds))
                 stamped = _stamp(entry.name, scope, on_failure, running, ran)
                 records.extend(stamped)
                 if on_failure == "block":
