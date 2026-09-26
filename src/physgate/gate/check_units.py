@@ -169,7 +169,24 @@ def run(ctx: CheckContext) -> CheckRun:
             continue
         if not instance.left or not instance.right:
             # A side with no terms (a supply nothing draws from yet) has no unit to
-            # compare; reading it as a dimensionless zero was a false refusal.
+            # compare; reading it as a dimensionless zero was a false refusal. It
+            # is recorded, so the attempt's coverage counts it, and never passed.
+            observations.append(
+                Observation(
+                    outcome="unchecked",
+                    node=instance.subject,
+                    module=view.module_of(instance.subject),
+                    value=None,
+                    expected=None,
+                    message=(
+                        f"{instance.expression()}: the relation has no terms on one side yet, "
+                        "so there is nothing to compare its units with"
+                    ),
+                    details=UncheckedDetails(
+                        quantities=tuple(sorted({r.name for r in instance.refs()}))
+                    ),
+                )
+            )
             continue
         evaluated += 1
         finding = _relation_finding(view, instance)

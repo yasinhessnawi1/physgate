@@ -336,3 +336,10 @@ def test_a_supply_nothing_draws_from_is_not_a_unit_error(tmp_path: Path) -> None
         node("electrical.drive", kind="module", quantities={"heat_rejection_capacity": (3, "W")}),
     )
     assert [o for o in ran.observations if o.outcome == "fail"] == []
+    empty = [o for o in ran.observations if o.outcome == "unchecked"]
+    assert {o.node for o in empty} == {"electrical.battery", "electrical.drive"}
+    assert all("no terms on one side yet" in o.message for o in empty)
+    assert {q for o in empty for q in o.details.quantities} == {
+        "power_supply",
+        "heat_rejection_capacity",
+    }
