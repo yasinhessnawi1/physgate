@@ -148,7 +148,6 @@ ABBREVIATED = [
     ("git branch --delet x", G.REF_WRITE),
     ("git branch --mov a b", G.REF_WRITE),
     ("git branch --cop a b", G.REF_WRITE),
-    ("git --config-e=core.hooksPath=X commit -m x", G.HOOK_CONFIG),
 ]
 #: Long options that share a first letter with a forbidden one and are not a
 #: prefix of it: each is allowed.
@@ -168,6 +167,22 @@ def test_an_abbreviated_forbidden_long_option_is_refused(
     tmp_path: Path, command: str, reason: str
 ) -> None:
     assert _decide(tmp_path, command, profile="orchestrator") == reason
+
+
+def test_an_abbreviated_config_env_global_is_refused_whatever_key_it_sets(tmp_path: Path) -> None:
+    """A guard for the future, not for today's git.
+
+    git 2.54 rejects an abbreviated global option (``--config-e=`` is an
+    unknown option), so this command fails in git as it stands. The hook refuses
+    it anyway, as the ``--config-env`` it would abbreviate if a later git
+    accepted prefixes there. The key names no hook path on purpose: a key that
+    did would be refused by the hook-path rule, and the row would then prove
+    nothing about the abbreviation.
+    """
+    assert (
+        _decide(tmp_path, "git --config-e=user.name=X commit -m x", profile="orchestrator")
+        == G.HOOK_CONFIG
+    )
 
 
 @pytest.mark.parametrize("command", ABBREVIATED_TWINS_ALLOWED, ids=ABBREVIATED_TWINS_ALLOWED)
