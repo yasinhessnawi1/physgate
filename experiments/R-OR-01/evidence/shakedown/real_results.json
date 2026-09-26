@@ -1,0 +1,178 @@
+{
+ "summary": {
+  "arm": "real",
+  "seeds": "901-902",
+  "commit": "4dd5b1c0d58e505acc30126c98857dceb83ad99c",
+  "dirty": false,
+  "src_is_src_of": "5cb2a40",
+  "harness_sha256": "1ed2e1376a43bcb769ea60b69730063c2dc067d73a923923f57ea4236b172469",
+  "endpoint_sha256": "6f8a4f03fc964475d2114e417a122669b911acc47c1e00d8d906e4843790d2b2",
+  "claude_bin": "/home/coder/r-or-01/claude-2.1.272/claude",
+  "claude_bin_sha256": "d81396a668eb76fbddb49a2a5841f1b5d7af96b4c1f6500ced92f2c988f5bcd4",
+  "machine": {
+   "host": "coder-yasinh-declassifai-77b9897f86-84qh6",
+   "platform": "Linux-6.8.0-64-generic-x86_64-with-glibc2.39",
+   "loadavg": [
+    3.5615234375,
+    3.17333984375,
+    2.685546875
+   ],
+   "cgroup_cpu.stat": "usage_usec 31475022672\nuser_usec 24644046200\nsystem_usec 6830976471\ncore_sched.force_idle_usec 0\nnr_periods 1469950\nnr_throttled 1474\nthrottled_usec 101305418\nnr_bursts 0\nburst_usec 0",
+   "cgroup_cpu.pressure": "some avg10=0.00 avg60=0.00 avg300=0.00 total=59317531\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=59281319"
+  },
+  "started_utc": "2026-09-26T20:09:34Z",
+  "reference_exit": 0,
+  "reference_T": 47,
+  "cycles": 2,
+  "kills_landed": 2,
+  "harness_misses": 0,
+  "clean": 2,
+  "endpoint_requests": 30,
+  "requests_with_another_credential": 0,
+  "endpoint_failures": [],
+  "machine_at_end": {
+   "host": "coder-yasinh-declassifai-77b9897f86-84qh6",
+   "platform": "Linux-6.8.0-64-generic-x86_64-with-glibc2.39",
+   "loadavg": [
+    3.19189453125,
+    3.13525390625,
+    2.69189453125
+   ],
+   "cgroup_cpu.stat": "usage_usec 31512398418\nuser_usec 24672635857\nsystem_usec 6839762561\ncore_sched.force_idle_usec 0\nnr_periods 1470290\nnr_throttled 1474\nthrottled_usec 101305418\nnr_bursts 0\nburst_usec 0",
+   "cgroup_cpu.pressure": "some avg10=0.00 avg60=0.00 avg300=0.00 total=59327524\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=59291303"
+  },
+  "finished_utc": "2026-09-26T20:10:08Z"
+ },
+ "cycles": [
+  {
+   "seed": 901,
+   "started_utc": "2026-09-26T20:09:45Z",
+   "anchor": {
+    "subtask": "s2-5e2ad0",
+    "request": 2
+   },
+   "harness_miss": false,
+   "request_held_utc": "2026-09-26T20:09:51.698+00:00",
+   "kill_utc": "2026-09-26T20:09:51.718+00:00",
+   "orchestrator_alive_at_kill": true,
+   "session": {
+    "session_id": "044493f4-c3bf-4f4f-9204-546528d83da8",
+    "pid": 1168059,
+    "recorded_start": "Sat Sep 26 20:09:50 2026",
+    "alive_just_before_kill": true,
+    "alive_just_after_kill": true,
+    "processes_in_tree_at_kill": 1,
+    "seen_dead_utc": "2026-09-26T20:09:52.186+00:00",
+    "leftover_stopped": [
+     {
+      "pid": 1168059,
+      "killed": 0,
+      "ts": "2026-09-26T20:09:52.204274Z"
+     }
+    ]
+   },
+   "lines_on_disk_after_kill": 27,
+   "torn_bytes_at_kill": {
+    "events.jsonl": 0,
+    "ledger.jsonl": 0,
+    "store/journal.jsonl": 0
+   },
+   "resume_exit": 0,
+   "resume_step": "done",
+   "fresh_session": "5131e64d-5a6a-4f77-9b31-68271c3ac22d",
+   "checks": {
+    "the kill landed mid-session": true,
+    "resume exited 0 with the run done": true,
+    "the live session was stopped as a leftover": true,
+    "a fresh session on the same attempt completed": true,
+    "prefix kept: events.jsonl": true,
+    "prefix kept: ledger.jsonl": true,
+    "prefix kept: store/journal.jsonl": true,
+    "no attempt beyond 1": true,
+    "each node written once, as in the reference": true,
+    "one merge per subtask": true,
+    "nothing left running": true
+   },
+   "clean": true,
+   "resume_outcome": [
+    "leftover_stopped(044493f4-c3bf-4f4f-9204-546528d83da8)",
+    "resumed(s2-5e2ad0,resolve)"
+   ],
+   "left_running": [],
+   "attempts_seen": [
+    1
+   ],
+   "journal_writes": {
+    "iface.bus": 1,
+    "electrical.node_s1_af41ca": 1,
+    "electrical.node_s2_5e2ad0": 1
+   },
+   "merges": 2
+  },
+  {
+   "seed": 902,
+   "started_utc": "2026-09-26T20:09:56Z",
+   "anchor": {
+    "subtask": "s1-af41ca",
+    "request": 4
+   },
+   "harness_miss": false,
+   "request_held_utc": "2026-09-26T20:10:00.060+00:00",
+   "kill_utc": "2026-09-26T20:10:00.075+00:00",
+   "orchestrator_alive_at_kill": true,
+   "session": {
+    "session_id": "95e05850-fa4a-4ef1-af78-690965081f5b",
+    "pid": 1168397,
+    "recorded_start": "Sat Sep 26 20:09:56 2026",
+    "alive_just_before_kill": true,
+    "alive_just_after_kill": true,
+    "processes_in_tree_at_kill": 1,
+    "seen_dead_utc": "2026-09-26T20:10:00.540+00:00",
+    "leftover_stopped": [
+     {
+      "pid": 1168397,
+      "killed": 0,
+      "ts": "2026-09-26T20:10:00.551917Z"
+     }
+    ]
+   },
+   "lines_on_disk_after_kill": 7,
+   "torn_bytes_at_kill": {
+    "events.jsonl": 0,
+    "ledger.jsonl": 0,
+    "store/journal.jsonl": 0
+   },
+   "resume_exit": 0,
+   "resume_step": "done",
+   "fresh_session": "b1200f30-09bd-49d8-af39-593515f21ec0",
+   "checks": {
+    "the kill landed mid-session": true,
+    "resume exited 0 with the run done": true,
+    "the live session was stopped as a leftover": true,
+    "a fresh session on the same attempt completed": true,
+    "prefix kept: events.jsonl": true,
+    "prefix kept: ledger.jsonl": true,
+    "prefix kept: store/journal.jsonl": true,
+    "no attempt beyond 1": true,
+    "each node written once, as in the reference": true,
+    "one merge per subtask": true,
+    "nothing left running": true
+   },
+   "clean": true,
+   "resume_outcome": [
+    "leftover_stopped(95e05850-fa4a-4ef1-af78-690965081f5b)",
+    "resumed(s1-af41ca,resolve)"
+   ],
+   "left_running": [],
+   "attempts_seen": [
+    1
+   ],
+   "journal_writes": {
+    "iface.bus": 1,
+    "electrical.node_s1_af41ca": 1,
+    "electrical.node_s2_5e2ad0": 1
+   },
+   "merges": 2
+  }
+ ]
+}

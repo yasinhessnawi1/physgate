@@ -1,0 +1,1128 @@
+{
+ "summary": {
+  "arm": "tool",
+  "seeds": "21-30",
+  "commit": "340b1d0dd504ec4368098706c5205aa80df09990",
+  "dirty": false,
+  "src_is_src_of": "5cb2a40",
+  "harness_sha256": "1ed2e1376a43bcb769ea60b69730063c2dc067d73a923923f57ea4236b172469",
+  "endpoint_sha256": "6f8a4f03fc964475d2114e417a122669b911acc47c1e00d8d906e4843790d2b2",
+  "claude_bin": "/home/coder/r-or-01/claude-2.1.272/claude",
+  "claude_bin_sha256": "d81396a668eb76fbddb49a2a5841f1b5d7af96b4c1f6500ced92f2c988f5bcd4",
+  "machine": {
+   "host": "coder-yasinh-declassifai-77b9897f86-84qh6",
+   "platform": "Linux-6.8.0-64-generic-x86_64-with-glibc2.39",
+   "loadavg": [
+    3.87060546875,
+    3.36181640625,
+    2.8720703125
+   ],
+   "cgroup_cpu.stat": "usage_usec 31854069921\nuser_usec 24955073028\nsystem_usec 6898996893\ncore_sched.force_idle_usec 0\nnr_periods 1472808\nnr_throttled 1537\nthrottled_usec 106006431\nnr_bursts 0\nburst_usec 0",
+   "cgroup_cpu.pressure": "some avg10=0.00 avg60=0.16 avg300=0.25 total=60727932\nfull avg10=0.00 avg60=0.16 avg300=0.25 total=60691629"
+  },
+  "started_utc": "2026-09-26T20:14:21Z",
+  "reference_exit": 0,
+  "reference_T": 47,
+  "cycles": 10,
+  "kills_landed": 10,
+  "harness_misses": 0,
+  "clean": 10,
+  "endpoint_requests": 108,
+  "requests_with_another_credential": 0,
+  "endpoint_failures": [],
+  "machine_at_end": {
+   "host": "coder-yasinh-declassifai-77b9897f86-84qh6",
+   "platform": "Linux-6.8.0-64-generic-x86_64-with-glibc2.39",
+   "loadavg": [
+    3.46533203125,
+    3.4013671875,
+    2.9677734375
+   ],
+   "cgroup_cpu.stat": "usage_usec 32112594693\nuser_usec 25159191825\nsystem_usec 6953402868\ncore_sched.force_idle_usec 0\nnr_periods 1474386\nnr_throttled 1607\nthrottled_usec 118277755\nnr_bursts 0\nburst_usec 0",
+   "cgroup_cpu.pressure": "some avg10=0.02 avg60=0.97 avg300=0.59 total=62486837\nfull avg10=0.02 avg60=0.97 avg300=0.59 total=62450501"
+  },
+  "finished_utc": "2026-09-26T20:16:59Z"
+ },
+ "cycles": [
+  {
+   "seed": 21,
+   "started_utc": "2026-09-26T20:14:31Z",
+   "anchor": {
+    "subtask": "s2-5e2ad0",
+    "request": 2,
+    "delay_s": 1.4
+   },
+   "harness_miss": false,
+   "bash_served_utc": "2026-09-26T20:14:37.671+00:00",
+   "marker_seen_utc": "2026-09-26T20:14:37.872+00:00",
+   "kill_utc": "2026-09-26T20:14:39.303+00:00",
+   "orchestrator_alive_at_kill": true,
+   "session": {
+    "session_id": "f2b0f8f1-dbef-451b-abb0-0aadb9453b8e",
+    "pid": 1177977,
+    "recorded_start": "Sat Sep 26 20:14:36 2026",
+    "alive_just_before_kill": true,
+    "alive_just_after_kill": true,
+    "leftover_stopped": [
+     {
+      "pid": 1177977,
+      "killed": 0,
+      "ts": "2026-09-26T20:14:39.864887Z"
+     }
+    ]
+   },
+   "tree_at_kill": [
+    {
+     "pid": 1177977,
+     "ppid": 1177769,
+     "started": "Sat Sep 26 20:14:36 2026",
+     "carries_marker": false,
+     "command": "/home/coder/r-or-01/claude-2.1.272/claude -p You implement subtask s2-5e2ad0 in the electrical role.  Your specification is .physgate/specs/s2-5e2ad0.md; read i"
+    },
+    {
+     "pid": 1178086,
+     "ppid": 1177977,
+     "started": "Sat Sep 26 20:14:37 2026",
+     "carries_marker": true,
+     "command": "/bin/bash -c source /home/coder/r-or-01/registered/out/tool/seed-21/run/sessions/f2b0f8f1-dbef-451b-abb0-0aadb9453b8e/config/shell-snapshots/snapshot-bash-17904"
+    },
+    {
+     "pid": 1178120,
+     "ppid": 1178086,
+     "started": "Sat Sep 26 20:14:38 2026",
+     "carries_marker": false,
+     "command": "sleep 0.1"
+    }
+   ],
+   "marker_alive_just_before_kill": true,
+   "marker_alive_just_after_kill": true,
+   "heartbeat": {
+    "path": "/home/coder/r-or-01/registered/out/tool/seed-21/tool/r-or-01-heartbeat-seed-21.log",
+    "lines_at_kill": 15,
+    "lines_total": 18,
+    "last_stamp": 1790453679.5800455,
+    "stop_stamp": 1790453679.864887,
+    "size_at_resume_exit": 378,
+    "size_after_quiet": 378
+   },
+   "after_resume": {
+    "resume_exit_utc": "2026-09-26T20:14:43.695+00:00",
+    "tree_processes_still_alive": [],
+    "marker_carriers": []
+   },
+   "lines_on_disk_after_kill": 27,
+   "torn_bytes_at_kill": {
+    "events.jsonl": 0,
+    "ledger.jsonl": 0,
+    "store/journal.jsonl": 0
+   },
+   "resume_exit": 0,
+   "resume_step": "done",
+   "fresh_session": "966796e5-268d-4a14-bcd3-a29b977d7664",
+   "checks": {
+    "the kill landed mid-tool": true,
+    "resume exited 0 with the run done": true,
+    "the live session was stopped as a leftover": true,
+    "a fresh session on the same attempt completed": true,
+    "prefix kept: events.jsonl": true,
+    "prefix kept: ledger.jsonl": true,
+    "prefix kept: store/journal.jsonl": true,
+    "no attempt beyond 1": true,
+    "each node written once, as in the reference": true,
+    "one merge per subtask": true,
+    "nothing left running": true,
+    "every process of the tree at the kill is gone": true,
+    "no process carries the marker": true,
+    "no heartbeat after the stop": true,
+    "the heartbeat did not grow after the resume": true
+   },
+   "clean": true,
+   "resume_outcome": [
+    "leftover_stopped(f2b0f8f1-dbef-451b-abb0-0aadb9453b8e)",
+    "resumed(s2-5e2ad0,resolve)"
+   ],
+   "left_running": [],
+   "attempts_seen": [
+    1
+   ],
+   "journal_writes": {
+    "iface.bus": 1,
+    "electrical.node_s1_af41ca": 1,
+    "electrical.node_s2_5e2ad0": 1
+   },
+   "merges": 2
+  },
+  {
+   "seed": 22,
+   "started_utc": "2026-09-26T20:14:46Z",
+   "anchor": {
+    "subtask": "s1-af41ca",
+    "request": 2,
+    "delay_s": 1.4
+   },
+   "harness_miss": false,
+   "bash_served_utc": "2026-09-26T20:14:48.641+00:00",
+   "marker_seen_utc": "2026-09-26T20:14:48.873+00:00",
+   "kill_utc": "2026-09-26T20:14:50.303+00:00",
+   "orchestrator_alive_at_kill": true,
+   "session": {
+    "session_id": "3e7e0028-1881-4d51-8141-789d0dc31b70",
+    "pid": 1178408,
+    "recorded_start": "Sat Sep 26 20:14:47 2026",
+    "alive_just_before_kill": true,
+    "alive_just_after_kill": true,
+    "leftover_stopped": [
+     {
+      "pid": 1178408,
+      "killed": 0,
+      "ts": "2026-09-26T20:14:50.864164Z"
+     }
+    ]
+   },
+   "tree_at_kill": [
+    {
+     "pid": 1178408,
+     "ppid": 1178393,
+     "started": "Sat Sep 26 20:14:47 2026",
+     "carries_marker": false,
+     "command": "/home/coder/r-or-01/claude-2.1.272/claude -p You implement subtask s1-af41ca in the electrical role.  Your specification is .physgate/specs/s1-af41ca.md; read i"
+    },
+    {
+     "pid": 1178515,
+     "ppid": 1178408,
+     "started": "Sat Sep 26 20:14:48 2026",
+     "carries_marker": true,
+     "command": "/bin/bash -c source /home/coder/r-or-01/registered/out/tool/seed-22/run/sessions/3e7e0028-1881-4d51-8141-789d0dc31b70/config/shell-snapshots/snapshot-bash-17904"
+    },
+    {
+     "pid": 1178548,
+     "ppid": 1178515,
+     "started": "Sat Sep 26 20:14:49 2026",
+     "carries_marker": false,
+     "command": ""
+    }
+   ],
+   "marker_alive_just_before_kill": true,
+   "marker_alive_just_after_kill": true,
+   "heartbeat": {
+    "path": "/home/coder/r-or-01/registered/out/tool/seed-22/tool/r-or-01-heartbeat-seed-22.log",
+    "lines_at_kill": 15,
+    "lines_total": 18,
+    "last_stamp": 1790453690.596191,
+    "stop_stamp": 1790453690.864164,
+    "size_at_resume_exit": 378,
+    "size_after_quiet": 378
+   },
+   "after_resume": {
+    "resume_exit_utc": "2026-09-26T20:14:58.409+00:00",
+    "tree_processes_still_alive": [],
+    "marker_carriers": []
+   },
+   "lines_on_disk_after_kill": 7,
+   "torn_bytes_at_kill": {
+    "events.jsonl": 0,
+    "ledger.jsonl": 0,
+    "store/journal.jsonl": 0
+   },
+   "resume_exit": 0,
+   "resume_step": "done",
+   "fresh_session": "0181c7bc-4a7f-43b2-8a93-a6fefcb74bcb",
+   "checks": {
+    "the kill landed mid-tool": true,
+    "resume exited 0 with the run done": true,
+    "the live session was stopped as a leftover": true,
+    "a fresh session on the same attempt completed": true,
+    "prefix kept: events.jsonl": true,
+    "prefix kept: ledger.jsonl": true,
+    "prefix kept: store/journal.jsonl": true,
+    "no attempt beyond 1": true,
+    "each node written once, as in the reference": true,
+    "one merge per subtask": true,
+    "nothing left running": true,
+    "every process of the tree at the kill is gone": true,
+    "no process carries the marker": true,
+    "no heartbeat after the stop": true,
+    "the heartbeat did not grow after the resume": true
+   },
+   "clean": true,
+   "resume_outcome": [
+    "leftover_stopped(3e7e0028-1881-4d51-8141-789d0dc31b70)",
+    "resumed(s1-af41ca,resolve)"
+   ],
+   "left_running": [],
+   "attempts_seen": [
+    1
+   ],
+   "journal_writes": {
+    "iface.bus": 1,
+    "electrical.node_s1_af41ca": 1,
+    "electrical.node_s2_5e2ad0": 1
+   },
+   "merges": 2
+  },
+  {
+   "seed": 23,
+   "started_utc": "2026-09-26T20:15:01Z",
+   "anchor": {
+    "subtask": "s2-5e2ad0",
+    "request": 2,
+    "delay_s": 1.9
+   },
+   "harness_miss": false,
+   "bash_served_utc": "2026-09-26T20:15:07.032+00:00",
+   "marker_seen_utc": "2026-09-26T20:15:07.237+00:00",
+   "kill_utc": "2026-09-26T20:15:09.168+00:00",
+   "orchestrator_alive_at_kill": true,
+   "session": {
+    "session_id": "a8ba76cd-35de-4884-8a2d-bdce23104038",
+    "pid": 1179279,
+    "recorded_start": "Sat Sep 26 20:15:05 2026",
+    "alive_just_before_kill": true,
+    "alive_just_after_kill": true,
+    "leftover_stopped": [
+     {
+      "pid": 1179279,
+      "killed": 0,
+      "ts": "2026-09-26T20:15:09.724743Z"
+     }
+    ]
+   },
+   "tree_at_kill": [
+    {
+     "pid": 1179279,
+     "ppid": 1179064,
+     "started": "Sat Sep 26 20:15:05 2026",
+     "carries_marker": false,
+     "command": "/home/coder/r-or-01/claude-2.1.272/claude -p You implement subtask s2-5e2ad0 in the electrical role.  Your specification is .physgate/specs/s2-5e2ad0.md; read i"
+    },
+    {
+     "pid": 1179388,
+     "ppid": 1179279,
+     "started": "Sat Sep 26 20:15:06 2026",
+     "carries_marker": true,
+     "command": "/bin/bash -c source /home/coder/r-or-01/registered/out/tool/seed-23/run/sessions/a8ba76cd-35de-4884-8a2d-bdce23104038/config/shell-snapshots/snapshot-bash-17904"
+    },
+    {
+     "pid": 1179429,
+     "ppid": 1179388,
+     "started": "Sat Sep 26 20:15:08 2026",
+     "carries_marker": false,
+     "command": "sleep 0.1"
+    }
+   ],
+   "marker_alive_just_before_kill": true,
+   "marker_alive_just_after_kill": true,
+   "heartbeat": {
+    "path": "/home/coder/r-or-01/registered/out/tool/seed-23/tool/r-or-01-heartbeat-seed-23.log",
+    "lines_at_kill": 19,
+    "lines_total": 23,
+    "last_stamp": 1790453709.4781005,
+    "stop_stamp": 1790453709.724743,
+    "size_at_resume_exit": 483,
+    "size_after_quiet": 483
+   },
+   "after_resume": {
+    "resume_exit_utc": "2026-09-26T20:15:13.611+00:00",
+    "tree_processes_still_alive": [],
+    "marker_carriers": []
+   },
+   "lines_on_disk_after_kill": 27,
+   "torn_bytes_at_kill": {
+    "events.jsonl": 0,
+    "ledger.jsonl": 0,
+    "store/journal.jsonl": 0
+   },
+   "resume_exit": 0,
+   "resume_step": "done",
+   "fresh_session": "cf4d6f4e-5579-4ade-a76b-90c5fce80cd4",
+   "checks": {
+    "the kill landed mid-tool": true,
+    "resume exited 0 with the run done": true,
+    "the live session was stopped as a leftover": true,
+    "a fresh session on the same attempt completed": true,
+    "prefix kept: events.jsonl": true,
+    "prefix kept: ledger.jsonl": true,
+    "prefix kept: store/journal.jsonl": true,
+    "no attempt beyond 1": true,
+    "each node written once, as in the reference": true,
+    "one merge per subtask": true,
+    "nothing left running": true,
+    "every process of the tree at the kill is gone": true,
+    "no process carries the marker": true,
+    "no heartbeat after the stop": true,
+    "the heartbeat did not grow after the resume": true
+   },
+   "clean": true,
+   "resume_outcome": [
+    "leftover_stopped(a8ba76cd-35de-4884-8a2d-bdce23104038)",
+    "resumed(s2-5e2ad0,resolve)"
+   ],
+   "left_running": [],
+   "attempts_seen": [
+    1
+   ],
+   "journal_writes": {
+    "iface.bus": 1,
+    "electrical.node_s1_af41ca": 1,
+    "electrical.node_s2_5e2ad0": 1
+   },
+   "merges": 2
+  },
+  {
+   "seed": 24,
+   "started_utc": "2026-09-26T20:15:16Z",
+   "anchor": {
+    "subtask": "s1-af41ca",
+    "request": 2,
+    "delay_s": 1.9
+   },
+   "harness_miss": false,
+   "bash_served_utc": "2026-09-26T20:15:18.679+00:00",
+   "marker_seen_utc": "2026-09-26T20:15:18.876+00:00",
+   "kill_utc": "2026-09-26T20:15:20.805+00:00",
+   "orchestrator_alive_at_kill": true,
+   "session": {
+    "session_id": "ce258fde-dbb3-42d6-8673-859a5382b0b0",
+    "pid": 1179738,
+    "recorded_start": "Sat Sep 26 20:15:17 2026",
+    "alive_just_before_kill": true,
+    "alive_just_after_kill": true,
+    "leftover_stopped": [
+     {
+      "pid": 1179738,
+      "killed": 0,
+      "ts": "2026-09-26T20:15:21.357284Z"
+     }
+    ]
+   },
+   "tree_at_kill": [
+    {
+     "pid": 1179738,
+     "ppid": 1179723,
+     "started": "Sat Sep 26 20:15:17 2026",
+     "carries_marker": false,
+     "command": "/home/coder/r-or-01/claude-2.1.272/claude -p You implement subtask s1-af41ca in the electrical role.  Your specification is .physgate/specs/s1-af41ca.md; read i"
+    },
+    {
+     "pid": 1179844,
+     "ppid": 1179738,
+     "started": "Sat Sep 26 20:15:18 2026",
+     "carries_marker": true,
+     "command": "/bin/bash -c source /home/coder/r-or-01/registered/out/tool/seed-24/run/sessions/ce258fde-dbb3-42d6-8673-859a5382b0b0/config/shell-snapshots/snapshot-bash-17904"
+    },
+    {
+     "pid": 1179885,
+     "ppid": 1179844,
+     "started": "Sat Sep 26 20:15:20 2026",
+     "carries_marker": false,
+     "command": "sleep 0.1"
+    }
+   ],
+   "marker_alive_just_before_kill": true,
+   "marker_alive_just_after_kill": true,
+   "heartbeat": {
+    "path": "/home/coder/r-or-01/registered/out/tool/seed-24/tool/r-or-01-heartbeat-seed-24.log",
+    "lines_at_kill": 19,
+    "lines_total": 22,
+    "last_stamp": 1790453721.020196,
+    "stop_stamp": 1790453721.357284,
+    "size_at_resume_exit": 462,
+    "size_after_quiet": 462
+   },
+   "after_resume": {
+    "resume_exit_utc": "2026-09-26T20:15:28.957+00:00",
+    "tree_processes_still_alive": [],
+    "marker_carriers": []
+   },
+   "lines_on_disk_after_kill": 7,
+   "torn_bytes_at_kill": {
+    "events.jsonl": 0,
+    "ledger.jsonl": 0,
+    "store/journal.jsonl": 0
+   },
+   "resume_exit": 0,
+   "resume_step": "done",
+   "fresh_session": "4f120f5b-119b-4213-8f75-360d0d93bf77",
+   "checks": {
+    "the kill landed mid-tool": true,
+    "resume exited 0 with the run done": true,
+    "the live session was stopped as a leftover": true,
+    "a fresh session on the same attempt completed": true,
+    "prefix kept: events.jsonl": true,
+    "prefix kept: ledger.jsonl": true,
+    "prefix kept: store/journal.jsonl": true,
+    "no attempt beyond 1": true,
+    "each node written once, as in the reference": true,
+    "one merge per subtask": true,
+    "nothing left running": true,
+    "every process of the tree at the kill is gone": true,
+    "no process carries the marker": true,
+    "no heartbeat after the stop": true,
+    "the heartbeat did not grow after the resume": true
+   },
+   "clean": true,
+   "resume_outcome": [
+    "leftover_stopped(ce258fde-dbb3-42d6-8673-859a5382b0b0)",
+    "resumed(s1-af41ca,resolve)"
+   ],
+   "left_running": [],
+   "attempts_seen": [
+    1
+   ],
+   "journal_writes": {
+    "iface.bus": 1,
+    "electrical.node_s1_af41ca": 1,
+    "electrical.node_s2_5e2ad0": 1
+   },
+   "merges": 2
+  },
+  {
+   "seed": 25,
+   "started_utc": "2026-09-26T20:15:32Z",
+   "anchor": {
+    "subtask": "s1-af41ca",
+    "request": 2,
+    "delay_s": 0.5
+   },
+   "harness_miss": false,
+   "bash_served_utc": "2026-09-26T20:15:33.959+00:00",
+   "marker_seen_utc": "2026-09-26T20:15:34.154+00:00",
+   "kill_utc": "2026-09-26T20:15:34.681+00:00",
+   "orchestrator_alive_at_kill": true,
+   "session": {
+    "session_id": "ebb99bd8-240a-449b-8e1e-bddc928dacb0",
+    "pid": 1180401,
+    "recorded_start": "Sat Sep 26 20:15:32 2026",
+    "alive_just_before_kill": true,
+    "alive_just_after_kill": true,
+    "leftover_stopped": [
+     {
+      "pid": 1180401,
+      "killed": 0,
+      "ts": "2026-09-26T20:15:35.236003Z"
+     }
+    ]
+   },
+   "tree_at_kill": [
+    {
+     "pid": 1180401,
+     "ppid": 1180390,
+     "started": "Sat Sep 26 20:15:32 2026",
+     "carries_marker": false,
+     "command": "/home/coder/r-or-01/claude-2.1.272/claude -p You implement subtask s1-af41ca in the electrical role.  Your specification is .physgate/specs/s1-af41ca.md; read i"
+    },
+    {
+     "pid": 1180509,
+     "ppid": 1180401,
+     "started": "Sat Sep 26 20:15:33 2026",
+     "carries_marker": true,
+     "command": "/bin/bash -c source /home/coder/r-or-01/registered/out/tool/seed-25/run/sessions/ebb99bd8-240a-449b-8e1e-bddc928dacb0/config/shell-snapshots/snapshot-bash-17904"
+    },
+    {
+     "pid": 1180524,
+     "ppid": 1180509,
+     "started": "Sat Sep 26 20:15:34 2026",
+     "carries_marker": false,
+     "command": "sleep 0.1"
+    }
+   ],
+   "marker_alive_just_before_kill": true,
+   "marker_alive_just_after_kill": true,
+   "heartbeat": {
+    "path": "/home/coder/r-or-01/registered/out/tool/seed-25/tool/r-or-01-heartbeat-seed-25.log",
+    "lines_at_kill": 6,
+    "lines_total": 9,
+    "last_stamp": 1790453734.9517636,
+    "stop_stamp": 1790453735.236003,
+    "size_at_resume_exit": 189,
+    "size_after_quiet": 189
+   },
+   "after_resume": {
+    "resume_exit_utc": "2026-09-26T20:15:42.633+00:00",
+    "tree_processes_still_alive": [],
+    "marker_carriers": []
+   },
+   "lines_on_disk_after_kill": 7,
+   "torn_bytes_at_kill": {
+    "events.jsonl": 0,
+    "ledger.jsonl": 0,
+    "store/journal.jsonl": 0
+   },
+   "resume_exit": 0,
+   "resume_step": "done",
+   "fresh_session": "78e1ae34-04c1-455a-a49c-d913f1df397a",
+   "checks": {
+    "the kill landed mid-tool": true,
+    "resume exited 0 with the run done": true,
+    "the live session was stopped as a leftover": true,
+    "a fresh session on the same attempt completed": true,
+    "prefix kept: events.jsonl": true,
+    "prefix kept: ledger.jsonl": true,
+    "prefix kept: store/journal.jsonl": true,
+    "no attempt beyond 1": true,
+    "each node written once, as in the reference": true,
+    "one merge per subtask": true,
+    "nothing left running": true,
+    "every process of the tree at the kill is gone": true,
+    "no process carries the marker": true,
+    "no heartbeat after the stop": true,
+    "the heartbeat did not grow after the resume": true
+   },
+   "clean": true,
+   "resume_outcome": [
+    "leftover_stopped(ebb99bd8-240a-449b-8e1e-bddc928dacb0)",
+    "resumed(s1-af41ca,resolve)"
+   ],
+   "left_running": [],
+   "attempts_seen": [
+    1
+   ],
+   "journal_writes": {
+    "iface.bus": 1,
+    "electrical.node_s1_af41ca": 1,
+    "electrical.node_s2_5e2ad0": 1
+   },
+   "merges": 2
+  },
+  {
+   "seed": 26,
+   "started_utc": "2026-09-26T20:15:45Z",
+   "anchor": {
+    "subtask": "s2-5e2ad0",
+    "request": 2,
+    "delay_s": 1.6
+   },
+   "harness_miss": false,
+   "bash_served_utc": "2026-09-26T20:15:51.420+00:00",
+   "marker_seen_utc": "2026-09-26T20:15:51.682+00:00",
+   "kill_utc": "2026-09-26T20:15:53.334+00:00",
+   "orchestrator_alive_at_kill": true,
+   "session": {
+    "session_id": "0dcaa9ee-c095-4954-8f5d-ad0e95058cca",
+    "pid": 1181239,
+    "recorded_start": "Sat Sep 26 20:15:50 2026",
+    "alive_just_before_kill": true,
+    "alive_just_after_kill": true,
+    "leftover_stopped": [
+     {
+      "pid": 1181239,
+      "killed": 0,
+      "ts": "2026-09-26T20:15:54.149322Z"
+     }
+    ]
+   },
+   "tree_at_kill": [
+    {
+     "pid": 1181239,
+     "ppid": 1181013,
+     "started": "Sat Sep 26 20:15:50 2026",
+     "carries_marker": false,
+     "command": "/home/coder/r-or-01/claude-2.1.272/claude -p You implement subtask s2-5e2ad0 in the electrical role.  Your specification is .physgate/specs/s2-5e2ad0.md; read i"
+    },
+    {
+     "pid": 1181348,
+     "ppid": 1181239,
+     "started": "Sat Sep 26 20:15:51 2026",
+     "carries_marker": true,
+     "command": "/bin/bash -c source /home/coder/r-or-01/registered/out/tool/seed-26/run/sessions/0dcaa9ee-c095-4954-8f5d-ad0e95058cca/config/shell-snapshots/snapshot-bash-17904"
+    },
+    {
+     "pid": 1181403,
+     "ppid": 1181348,
+     "started": "Sat Sep 26 20:15:52 2026",
+     "carries_marker": false,
+     "command": ""
+    }
+   ],
+   "marker_alive_just_before_kill": true,
+   "marker_alive_just_after_kill": true,
+   "heartbeat": {
+    "path": "/home/coder/r-or-01/registered/out/tool/seed-26/tool/r-or-01-heartbeat-seed-26.log",
+    "lines_at_kill": 17,
+    "lines_total": 22,
+    "last_stamp": 1790453753.8263717,
+    "stop_stamp": 1790453754.149322,
+    "size_at_resume_exit": 462,
+    "size_after_quiet": 462
+   },
+   "after_resume": {
+    "resume_exit_utc": "2026-09-26T20:15:59.343+00:00",
+    "tree_processes_still_alive": [],
+    "marker_carriers": []
+   },
+   "lines_on_disk_after_kill": 27,
+   "torn_bytes_at_kill": {
+    "events.jsonl": 0,
+    "ledger.jsonl": 0,
+    "store/journal.jsonl": 0
+   },
+   "resume_exit": 0,
+   "resume_step": "done",
+   "fresh_session": "db10d441-fbe7-4bef-961f-b11ea400a6e8",
+   "checks": {
+    "the kill landed mid-tool": true,
+    "resume exited 0 with the run done": true,
+    "the live session was stopped as a leftover": true,
+    "a fresh session on the same attempt completed": true,
+    "prefix kept: events.jsonl": true,
+    "prefix kept: ledger.jsonl": true,
+    "prefix kept: store/journal.jsonl": true,
+    "no attempt beyond 1": true,
+    "each node written once, as in the reference": true,
+    "one merge per subtask": true,
+    "nothing left running": true,
+    "every process of the tree at the kill is gone": true,
+    "no process carries the marker": true,
+    "no heartbeat after the stop": true,
+    "the heartbeat did not grow after the resume": true
+   },
+   "clean": true,
+   "resume_outcome": [
+    "leftover_stopped(0dcaa9ee-c095-4954-8f5d-ad0e95058cca)",
+    "resumed(s2-5e2ad0,resolve)"
+   ],
+   "left_running": [],
+   "attempts_seen": [
+    1
+   ],
+   "journal_writes": {
+    "iface.bus": 1,
+    "electrical.node_s1_af41ca": 1,
+    "electrical.node_s2_5e2ad0": 1
+   },
+   "merges": 2
+  },
+  {
+   "seed": 27,
+   "started_utc": "2026-09-26T20:16:02Z",
+   "anchor": {
+    "subtask": "s1-af41ca",
+    "request": 2,
+    "delay_s": 0.3
+   },
+   "harness_miss": false,
+   "bash_served_utc": "2026-09-26T20:16:04.318+00:00",
+   "marker_seen_utc": "2026-09-26T20:16:04.523+00:00",
+   "kill_utc": "2026-09-26T20:16:04.855+00:00",
+   "orchestrator_alive_at_kill": true,
+   "session": {
+    "session_id": "f3d94723-469d-4670-8a47-af643f4345ee",
+    "pid": 1181733,
+    "recorded_start": "Sat Sep 26 20:16:03 2026",
+    "alive_just_before_kill": true,
+    "alive_just_after_kill": true,
+    "leftover_stopped": [
+     {
+      "pid": 1181733,
+      "killed": 0,
+      "ts": "2026-09-26T20:16:05.449843Z"
+     }
+    ]
+   },
+   "tree_at_kill": [
+    {
+     "pid": 1181733,
+     "ppid": 1181722,
+     "started": "Sat Sep 26 20:16:03 2026",
+     "carries_marker": false,
+     "command": "/home/coder/r-or-01/claude-2.1.272/claude -p You implement subtask s1-af41ca in the electrical role.  Your specification is .physgate/specs/s1-af41ca.md; read i"
+    },
+    {
+     "pid": 1181838,
+     "ppid": 1181733,
+     "started": "Sat Sep 26 20:16:04 2026",
+     "carries_marker": true,
+     "command": "/bin/bash -c source /home/coder/r-or-01/registered/out/tool/seed-27/run/sessions/f3d94723-469d-4670-8a47-af643f4345ee/config/shell-snapshots/snapshot-bash-17904"
+    },
+    {
+     "pid": 1181853,
+     "ppid": 1181838,
+     "started": "Sat Sep 26 20:16:04 2026",
+     "carries_marker": false,
+     "command": "sleep 0.1"
+    }
+   ],
+   "marker_alive_just_before_kill": true,
+   "marker_alive_just_after_kill": true,
+   "heartbeat": {
+    "path": "/home/coder/r-or-01/registered/out/tool/seed-27/tool/r-or-01-heartbeat-seed-27.log",
+    "lines_at_kill": 4,
+    "lines_total": 7,
+    "last_stamp": 1790453765.1079593,
+    "stop_stamp": 1790453765.449843,
+    "size_at_resume_exit": 147,
+    "size_after_quiet": 147
+   },
+   "after_resume": {
+    "resume_exit_utc": "2026-09-26T20:16:13.007+00:00",
+    "tree_processes_still_alive": [],
+    "marker_carriers": []
+   },
+   "lines_on_disk_after_kill": 7,
+   "torn_bytes_at_kill": {
+    "events.jsonl": 0,
+    "ledger.jsonl": 0,
+    "store/journal.jsonl": 0
+   },
+   "resume_exit": 0,
+   "resume_step": "done",
+   "fresh_session": "cab3abbf-b4f8-40f5-acc2-d4610d4d4a19",
+   "checks": {
+    "the kill landed mid-tool": true,
+    "resume exited 0 with the run done": true,
+    "the live session was stopped as a leftover": true,
+    "a fresh session on the same attempt completed": true,
+    "prefix kept: events.jsonl": true,
+    "prefix kept: ledger.jsonl": true,
+    "prefix kept: store/journal.jsonl": true,
+    "no attempt beyond 1": true,
+    "each node written once, as in the reference": true,
+    "one merge per subtask": true,
+    "nothing left running": true,
+    "every process of the tree at the kill is gone": true,
+    "no process carries the marker": true,
+    "no heartbeat after the stop": true,
+    "the heartbeat did not grow after the resume": true
+   },
+   "clean": true,
+   "resume_outcome": [
+    "leftover_stopped(f3d94723-469d-4670-8a47-af643f4345ee)",
+    "resumed(s1-af41ca,resolve)"
+   ],
+   "left_running": [],
+   "attempts_seen": [
+    1
+   ],
+   "journal_writes": {
+    "iface.bus": 1,
+    "electrical.node_s1_af41ca": 1,
+    "electrical.node_s2_5e2ad0": 1
+   },
+   "merges": 2
+  },
+  {
+   "seed": 28,
+   "started_utc": "2026-09-26T20:16:16Z",
+   "anchor": {
+    "subtask": "s1-af41ca",
+    "request": 2,
+    "delay_s": 1.9
+   },
+   "harness_miss": false,
+   "bash_served_utc": "2026-09-26T20:16:18.061+00:00",
+   "marker_seen_utc": "2026-09-26T20:16:18.261+00:00",
+   "kill_utc": "2026-09-26T20:16:20.192+00:00",
+   "orchestrator_alive_at_kill": true,
+   "session": {
+    "session_id": "52069421-6bca-4e2f-8b97-d25c6073d51e",
+    "pid": 1182485,
+    "recorded_start": "Sat Sep 26 20:16:16 2026",
+    "alive_just_before_kill": true,
+    "alive_just_after_kill": true,
+    "leftover_stopped": [
+     {
+      "pid": 1182485,
+      "killed": 0,
+      "ts": "2026-09-26T20:16:20.744627Z"
+     }
+    ]
+   },
+   "tree_at_kill": [
+    {
+     "pid": 1182485,
+     "ppid": 1182450,
+     "started": "Sat Sep 26 20:16:16 2026",
+     "carries_marker": false,
+     "command": "/home/coder/r-or-01/claude-2.1.272/claude -p You implement subtask s1-af41ca in the electrical role.  Your specification is .physgate/specs/s1-af41ca.md; read i"
+    },
+    {
+     "pid": 1182590,
+     "ppid": 1182485,
+     "started": "Sat Sep 26 20:16:17 2026",
+     "carries_marker": true,
+     "command": "/bin/bash -c source /home/coder/r-or-01/registered/out/tool/seed-28/run/sessions/52069421-6bca-4e2f-8b97-d25c6073d51e/config/shell-snapshots/snapshot-bash-17904"
+    },
+    {
+     "pid": 1182637,
+     "ppid": 1182590,
+     "started": "Sat Sep 26 20:16:19 2026",
+     "carries_marker": false,
+     "command": "sleep 0.1"
+    }
+   ],
+   "marker_alive_just_before_kill": true,
+   "marker_alive_just_after_kill": true,
+   "heartbeat": {
+    "path": "/home/coder/r-or-01/registered/out/tool/seed-28/tool/r-or-01-heartbeat-seed-28.log",
+    "lines_at_kill": 20,
+    "lines_total": 23,
+    "last_stamp": 1790453780.4879339,
+    "stop_stamp": 1790453780.744627,
+    "size_at_resume_exit": 483,
+    "size_after_quiet": 483
+   },
+   "after_resume": {
+    "resume_exit_utc": "2026-09-26T20:16:28.195+00:00",
+    "tree_processes_still_alive": [],
+    "marker_carriers": []
+   },
+   "lines_on_disk_after_kill": 7,
+   "torn_bytes_at_kill": {
+    "events.jsonl": 0,
+    "ledger.jsonl": 0,
+    "store/journal.jsonl": 0
+   },
+   "resume_exit": 0,
+   "resume_step": "done",
+   "fresh_session": "7f8e8001-201f-422c-a196-66bfa527e546",
+   "checks": {
+    "the kill landed mid-tool": true,
+    "resume exited 0 with the run done": true,
+    "the live session was stopped as a leftover": true,
+    "a fresh session on the same attempt completed": true,
+    "prefix kept: events.jsonl": true,
+    "prefix kept: ledger.jsonl": true,
+    "prefix kept: store/journal.jsonl": true,
+    "no attempt beyond 1": true,
+    "each node written once, as in the reference": true,
+    "one merge per subtask": true,
+    "nothing left running": true,
+    "every process of the tree at the kill is gone": true,
+    "no process carries the marker": true,
+    "no heartbeat after the stop": true,
+    "the heartbeat did not grow after the resume": true
+   },
+   "clean": true,
+   "resume_outcome": [
+    "leftover_stopped(52069421-6bca-4e2f-8b97-d25c6073d51e)",
+    "resumed(s1-af41ca,resolve)"
+   ],
+   "left_running": [],
+   "attempts_seen": [
+    1
+   ],
+   "journal_writes": {
+    "iface.bus": 1,
+    "electrical.node_s1_af41ca": 1,
+    "electrical.node_s2_5e2ad0": 1
+   },
+   "merges": 2
+  },
+  {
+   "seed": 29,
+   "started_utc": "2026-09-26T20:16:31Z",
+   "anchor": {
+    "subtask": "s2-5e2ad0",
+    "request": 2,
+    "delay_s": 0.8
+   },
+   "harness_miss": false,
+   "bash_served_utc": "2026-09-26T20:16:37.021+00:00",
+   "marker_seen_utc": "2026-09-26T20:16:37.223+00:00",
+   "kill_utc": "2026-09-26T20:16:38.053+00:00",
+   "orchestrator_alive_at_kill": true,
+   "session": {
+    "session_id": "4c06c131-ea5d-49e7-924d-35db28df901f",
+    "pid": 1183365,
+    "recorded_start": "Sat Sep 26 20:16:35 2026",
+    "alive_just_before_kill": true,
+    "alive_just_after_kill": true,
+    "leftover_stopped": [
+     {
+      "pid": 1183365,
+      "killed": 0,
+      "ts": "2026-09-26T20:16:38.612746Z"
+     }
+    ]
+   },
+   "tree_at_kill": [
+    {
+     "pid": 1183365,
+     "ppid": 1183154,
+     "started": "Sat Sep 26 20:16:35 2026",
+     "carries_marker": false,
+     "command": "/home/coder/r-or-01/claude-2.1.272/claude -p You implement subtask s2-5e2ad0 in the electrical role.  Your specification is .physgate/specs/s2-5e2ad0.md; read i"
+    },
+    {
+     "pid": 1183477,
+     "ppid": 1183365,
+     "started": "Sat Sep 26 20:16:36 2026",
+     "carries_marker": true,
+     "command": "/bin/bash -c source /home/coder/r-or-01/registered/out/tool/seed-29/run/sessions/4c06c131-ea5d-49e7-924d-35db28df901f/config/shell-snapshots/snapshot-bash-17904"
+    },
+    {
+     "pid": 1183499,
+     "ppid": 1183477,
+     "started": "Sat Sep 26 20:16:37 2026",
+     "carries_marker": false,
+     "command": "sleep 0.1"
+    }
+   ],
+   "marker_alive_just_before_kill": true,
+   "marker_alive_just_after_kill": true,
+   "heartbeat": {
+    "path": "/home/coder/r-or-01/registered/out/tool/seed-29/tool/r-or-01-heartbeat-seed-29.log",
+    "lines_at_kill": 9,
+    "lines_total": 12,
+    "last_stamp": 1790453798.332309,
+    "stop_stamp": 1790453798.612746,
+    "size_at_resume_exit": 252,
+    "size_after_quiet": 252
+   },
+   "after_resume": {
+    "resume_exit_utc": "2026-09-26T20:16:42.394+00:00",
+    "tree_processes_still_alive": [],
+    "marker_carriers": []
+   },
+   "lines_on_disk_after_kill": 27,
+   "torn_bytes_at_kill": {
+    "events.jsonl": 0,
+    "ledger.jsonl": 0,
+    "store/journal.jsonl": 0
+   },
+   "resume_exit": 0,
+   "resume_step": "done",
+   "fresh_session": "ba677224-59e4-4fde-91ea-afa2b9c7a3e8",
+   "checks": {
+    "the kill landed mid-tool": true,
+    "resume exited 0 with the run done": true,
+    "the live session was stopped as a leftover": true,
+    "a fresh session on the same attempt completed": true,
+    "prefix kept: events.jsonl": true,
+    "prefix kept: ledger.jsonl": true,
+    "prefix kept: store/journal.jsonl": true,
+    "no attempt beyond 1": true,
+    "each node written once, as in the reference": true,
+    "one merge per subtask": true,
+    "nothing left running": true,
+    "every process of the tree at the kill is gone": true,
+    "no process carries the marker": true,
+    "no heartbeat after the stop": true,
+    "the heartbeat did not grow after the resume": true
+   },
+   "clean": true,
+   "resume_outcome": [
+    "leftover_stopped(4c06c131-ea5d-49e7-924d-35db28df901f)",
+    "resumed(s2-5e2ad0,resolve)"
+   ],
+   "left_running": [],
+   "attempts_seen": [
+    1
+   ],
+   "journal_writes": {
+    "iface.bus": 1,
+    "electrical.node_s1_af41ca": 1,
+    "electrical.node_s2_5e2ad0": 1
+   },
+   "merges": 2
+  },
+  {
+   "seed": 30,
+   "started_utc": "2026-09-26T20:16:45Z",
+   "anchor": {
+    "subtask": "s2-5e2ad0",
+    "request": 2,
+    "delay_s": 0.2
+   },
+   "harness_miss": false,
+   "bash_served_utc": "2026-09-26T20:16:51.162+00:00",
+   "marker_seen_utc": "2026-09-26T20:16:51.365+00:00",
+   "kill_utc": "2026-09-26T20:16:51.596+00:00",
+   "orchestrator_alive_at_kill": true,
+   "session": {
+    "session_id": "9fc5e3ce-759a-45c9-aafa-71a0dd9bcf43",
+    "pid": 1184018,
+    "recorded_start": "Sat Sep 26 20:16:49 2026",
+    "alive_just_before_kill": true,
+    "alive_just_after_kill": true,
+    "leftover_stopped": [
+     {
+      "pid": 1184018,
+      "killed": 0,
+      "ts": "2026-09-26T20:16:52.156738Z"
+     }
+    ]
+   },
+   "tree_at_kill": [
+    {
+     "pid": 1184018,
+     "ppid": 1183798,
+     "started": "Sat Sep 26 20:16:49 2026",
+     "carries_marker": false,
+     "command": "/home/coder/r-or-01/claude-2.1.272/claude -p You implement subtask s2-5e2ad0 in the electrical role.  Your specification is .physgate/specs/s2-5e2ad0.md; read i"
+    },
+    {
+     "pid": 1184123,
+     "ppid": 1184018,
+     "started": "Sat Sep 26 20:16:50 2026",
+     "carries_marker": true,
+     "command": "/bin/bash -c source /home/coder/r-or-01/registered/out/tool/seed-30/run/sessions/9fc5e3ce-759a-45c9-aafa-71a0dd9bcf43/config/shell-snapshots/snapshot-bash-17904"
+    },
+    {
+     "pid": 1184135,
+     "ppid": 1184123,
+     "started": "Sat Sep 26 20:16:51 2026",
+     "carries_marker": false,
+     "command": "sleep 0.1"
+    }
+   ],
+   "marker_alive_just_before_kill": true,
+   "marker_alive_just_after_kill": true,
+   "heartbeat": {
+    "path": "/home/coder/r-or-01/registered/out/tool/seed-30/tool/r-or-01-heartbeat-seed-30.log",
+    "lines_at_kill": 3,
+    "lines_total": 6,
+    "last_stamp": 1790453811.8581636,
+    "stop_stamp": 1790453812.156738,
+    "size_at_resume_exit": 126,
+    "size_after_quiet": 126
+   },
+   "after_resume": {
+    "resume_exit_utc": "2026-09-26T20:16:56.037+00:00",
+    "tree_processes_still_alive": [],
+    "marker_carriers": []
+   },
+   "lines_on_disk_after_kill": 27,
+   "torn_bytes_at_kill": {
+    "events.jsonl": 0,
+    "ledger.jsonl": 0,
+    "store/journal.jsonl": 0
+   },
+   "resume_exit": 0,
+   "resume_step": "done",
+   "fresh_session": "96bfd762-12fa-48ed-9805-c8e60676509b",
+   "checks": {
+    "the kill landed mid-tool": true,
+    "resume exited 0 with the run done": true,
+    "the live session was stopped as a leftover": true,
+    "a fresh session on the same attempt completed": true,
+    "prefix kept: events.jsonl": true,
+    "prefix kept: ledger.jsonl": true,
+    "prefix kept: store/journal.jsonl": true,
+    "no attempt beyond 1": true,
+    "each node written once, as in the reference": true,
+    "one merge per subtask": true,
+    "nothing left running": true,
+    "every process of the tree at the kill is gone": true,
+    "no process carries the marker": true,
+    "no heartbeat after the stop": true,
+    "the heartbeat did not grow after the resume": true
+   },
+   "clean": true,
+   "resume_outcome": [
+    "leftover_stopped(9fc5e3ce-759a-45c9-aafa-71a0dd9bcf43)",
+    "resumed(s2-5e2ad0,resolve)"
+   ],
+   "left_running": [],
+   "attempts_seen": [
+    1
+   ],
+   "journal_writes": {
+    "iface.bus": 1,
+    "electrical.node_s1_af41ca": 1,
+    "electrical.node_s2_5e2ad0": 1
+   },
+   "merges": 2
+  }
+ ]
+}

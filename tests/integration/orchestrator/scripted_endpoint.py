@@ -254,8 +254,9 @@ class FakeMessagesApi:
         self.failures: list[str] = []
         #: Called before a scripted tool-offering request is answered, with the thread,
         #: the session's working directory and how many tool results it carries. It may
-        #: block: that holds the request open, as a model that has not answered yet.
-        self.on_request: Callable[[str, str, int], None] | None = None
+        #: block: that holds the request open, as a model that has not answered yet. It
+        #: may return a step, which is served in place of the scripted one.
+        self.on_request: Callable[[str, str, int], dict[str, Any] | None] | None = None
         self._lock = threading.Lock()
         self._n = 0
 
@@ -277,7 +278,9 @@ class FakeMessagesApi:
             step = steps[done] if done < len(steps) else {"text": "done"}
             cwd = _working_directory(messages)
             if self.on_request is not None:
-                self.on_request(thread, cwd, done)
+                swapped = self.on_request(thread, cwd, done)
+                if swapped is not None:
+                    step = swapped
             reply = _fill(step, cwd)
         with self._lock:
             self._n += 1
