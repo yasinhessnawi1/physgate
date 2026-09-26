@@ -18,13 +18,20 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal, TypeVar, cast
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter, ValidationError
 
-from physgate.orchestrator.common import GateMode, NonEmptyStr, first_problem
+from physgate.orchestrator.common import (
+    GateMode,
+    NonEmptyStr,
+    Timestamp,
+    first_problem,
+    utc_now,
+    utc_stamp,
+)
 from physgate.orchestrator.exceptions import CorruptEventLogError, RunConfigError
 from physgate.orchestrator.protocols import GateResult, ReviewResult, Usage
 
@@ -40,8 +47,6 @@ HaltReason = Literal["incident", "infrastructure_exhausted", "decomposition_fail
 #: session id of the one call, so decomposition invocations can be counted.
 ATTRIBUTION = r"^(decomposition|session|reviewer|routing):[A-Za-z0-9_-]{1,128}$"
 
-_TIMESTAMP = r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$"
-
 
 class _Event(BaseModel):
     """What every line carries."""
@@ -49,7 +54,7 @@ class _Event(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     seq: Annotated[int, Field(ge=0)]
-    ts: Annotated[str, StringConstraints(pattern=_TIMESTAMP)]
+    ts: Timestamp
     run_id: NonEmptyStr
     gate_mode: GateMode
 
@@ -154,17 +159,6 @@ Event = Annotated[
 _EVENT: TypeAdapter[Event] = TypeAdapter(Event)
 
 E = TypeVar("E", bound=_Event)
-
-
-def _utc_now() -> datetime:
-    return datetime.now(UTC)
-
-
-def _stamp(moment: datetime) -> str:
-    if moment.utcoffset() != timedelta(0):
-        msg = "event timestamps are UTC"
-        raise ValueError(msg)
-    return moment.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
 def read_jsonl[T](
@@ -287,7 +281,7 @@ class EventLog:
         *,
         run_id: str,
         gate_mode: GateMode,
-        clock: Callable[[], datetime] = _utc_now,
+        clock: Callable[[], datetime] = utc_now,
     ) -> None:
         """Open or create the log at ``path`` for ``run_id``.
 
@@ -334,7 +328,7 @@ class EventLog:
         run_id, gate_mode = self._run
         event = kind(
             seq=len(self._events),
-            ts=_stamp(self._clock()),
+            ts=utc_stamp(self._clock()),
             run_id=run_id,
             gate_mode=gate_mode,
             **fields,

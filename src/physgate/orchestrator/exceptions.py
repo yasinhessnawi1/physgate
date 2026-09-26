@@ -46,3 +46,11 @@ class AccountingError(OrchestratorError):
 
 class RoutingTokensError(OrchestratorError):
     """Tokens were attributed to routing, which the deterministic binding never spends."""
+
+
+class RepairBudgetExhaustedError(OrchestratorError):
+    """An attempt past the repair budget was asked for. The budget is three (ARCH-030)."""
+
+
+class QueueError(OrchestratorError):
+    """The approval queue was asked to do something its record forbids."""

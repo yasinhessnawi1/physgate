@@ -13,6 +13,9 @@ conflict, is answered by code or by a person.
 | `run_config.py` | Every input a run is reproduced from, written once before the first action: seed, model strings, bounds, gate mode, token ceiling. None has a default, and a resume under a different configuration is refused |
 | `protocols.py` | The `Gate` and `Reviewer` Protocols the loop calls, in that order, and the result shapes they hand back. No implementation of either ships here. Also the refusal to run a reviewer on the implementer's model string (ARCH-060) |
 | `accounting.py` | The token account, rebuilt from the event log: every token attributed to decomposition, a role session, a reviewer or routing, deduplicated by message id, and routing asserted zero |
+| `budget.py` | The repair budget of three (ARCH-030), and the classifier that keeps infrastructure failures (API error, wall clock, turn limit, no result, unexpected exit) out of it. The binary's result is read by `is_error` and `terminal_reason`, never `subtype` |
+| `repair.py` | Repair instructions as fixed templates filled from the finding: attempt 1 the finding, attempt 2 plus the failing check and its number with unit, attempt 3 none (it escalates) |
+| `queue.py` | The approval queue: one append-only file, items carrying ARCH-130's five things, a person's decision as its own line |
 | `common.py` | The small shapes the records share: the gate mode, the full-model-string rule |
 | `exceptions.py` | The domain exceptions. All of them carry a context mapping |
 

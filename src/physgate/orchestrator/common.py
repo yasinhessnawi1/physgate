@@ -7,6 +7,7 @@ Protocols can all use them without importing each other.
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 
 from pydantic import AfterValidator, StringConstraints, ValidationError
@@ -42,3 +43,24 @@ def first_problem(exc: ValidationError) -> str:
         return "the line is not a valid record"
     where = ".".join(str(part) for part in problems[0]["loc"]) or "the record"
     return f"{where}: {problems[0]['msg']}"
+
+
+#: A UTC timestamp to the microsecond, as every record here writes it.
+Timestamp = Annotated[str, StringConstraints(pattern=r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$")]
+
+
+def utc_now() -> datetime:
+    """The current time, in UTC."""
+    return datetime.now(UTC)
+
+
+def utc_stamp(moment: datetime) -> str:
+    """``moment`` as a record's timestamp.
+
+    Raises:
+        ValueError: ``moment`` is naive or not in UTC.
+    """
+    if moment.utcoffset() != timedelta(0):
+        msg = "record timestamps are UTC"
+        raise ValueError(msg)
+    return moment.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
