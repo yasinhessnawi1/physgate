@@ -18,7 +18,13 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Literal
 
-from physgate.gate import check_conservation, check_magnitude, check_power, check_units
+from physgate.gate import (
+    check_conservation,
+    check_magnitude,
+    check_power,
+    check_thermal,
+    check_units,
+)
 from physgate.gate.context import CheckContext
 from physgate.gate.result import CheckRun
 from physgate.orchestrator.protocols import CHECK_NUMBERS, CheckName, Scope
@@ -62,4 +68,5 @@ REGISTRY: tuple[RegisteredCheck, ...] = (
     RegisteredCheck(name="magnitude", run=check_magnitude.run),
     RegisteredCheck(name="power", run=check_power.run),
     RegisteredCheck(name="conservation", run=check_conservation.run),
+    RegisteredCheck(name="thermal", run=check_thermal.run),
 )
