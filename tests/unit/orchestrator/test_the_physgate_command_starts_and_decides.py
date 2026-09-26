@@ -218,6 +218,7 @@ def test_a_run_whose_record_holds_a_routing_token_fails_at_the_end(
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-not-a-credential")
     monkeypatch.setenv("PHYSGATE_CLAUDE_BIN", str(fake_binary(tmp_path, "2.1.272")))
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
     record = RunRecord(make_config(), tmp_path / "run")
     record.start([])
     one = Usage(
@@ -230,3 +231,51 @@ def test_a_run_whose_record_holds_a_routing_token_fails_at_the_end(
     registrations = Registrations(gate=FakeGate(), reviewers={"electrical": FakeReviewer()})
     assert main(_run_args(tmp_path), registrations) == 2
     assert "tokens were spent on routing" in capsys.readouterr().err
+
+
+def _recorded_run(tmp_path: Path, endpoint: str) -> None:
+    from orch_helpers import make_config
+
+    from physgate.orchestrator.record import RunRecord
+
+    record = RunRecord(make_config(endpoint=endpoint), tmp_path / "run")
+    record.start([])
+    record.close()
+
+
+@pytest.mark.parametrize("command", ["run", "resume"])
+def test_a_run_is_refused_against_another_endpoint_before_any_session(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    command: str,
+) -> None:
+    from loop_fakes import FakeGate, FakeReviewer
+
+    from physgate.orchestrator.cli import Registrations
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-not-a-credential")
+    monkeypatch.delenv("PHYSGATE_CLAUDE_BIN", raising=False)
+    monkeypatch.setenv("PATH", "/nonexistent")
+    _recorded_run(tmp_path, "http://127.0.0.1:53817")
+    registrations = Registrations(gate=FakeGate(), reviewers={"electrical": FakeReviewer()})
+    args = [command, *_run_args(tmp_path)[1:]]
+    events = (tmp_path / "run" / "events.jsonl").read_bytes()
+
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+    assert main(args, registrations) == 2
+    error = json.loads(capsys.readouterr().err)
+    assert error["error"] == "the endpoint differs from the one this run recorded"
+    assert (error["recorded"], error["now"]) == (
+        "http://127.0.0.1:53817",
+        "https://api.anthropic.com",
+    )
+    monkeypatch.delenv("ANTHROPIC_BASE_URL")
+    assert main(args, registrations) == 2
+    assert json.loads(capsys.readouterr().err)["now"] == "default"
+    assert (tmp_path / "run" / "events.jsonl").read_bytes() == events
+
+    # The recorded endpoint passes this check; what stops the run then is the missing binary.
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:53817/")
+    assert main(args, registrations) == 2
+    assert "no Claude Code binary" in capsys.readouterr().err

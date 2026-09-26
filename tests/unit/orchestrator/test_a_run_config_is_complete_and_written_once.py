@@ -13,7 +13,9 @@ from physgate.orchestrator.run_config import (
     ModelStrings,
     RunBounds,
     RunConfig,
+    endpoint_of,
     load_run_config,
+    require_endpoint,
     require_recorded,
     write_run_config,
 )
@@ -67,6 +69,9 @@ def test_a_full_model_string_is_accepted(full: str) -> None:
         ("seed", "7"),
         ("target_head", "HEAD"),
         ("brief_sha256", "x"),
+        ("endpoint", "http://user:key@host"),
+        ("endpoint", "http://host/v1?key=k"),
+        ("endpoint", ""),
     ],
 )
 def test_a_value_outside_its_domain_is_refused(field: str, value: object) -> None:
@@ -111,3 +116,39 @@ def test_a_missing_or_damaged_configuration_is_a_domain_error(tmp_path: Path) ->
 def test_the_digest_follows_the_recorded_bytes() -> None:
     assert make_config().sha256() == make_config().sha256()
     assert make_config().sha256() != make_config(seed=8).sha256()
+
+
+@pytest.mark.parametrize(
+    ("base_url", "recorded"),
+    [
+        (None, "default"),
+        ("", "default"),
+        ("http://127.0.0.1:53817", "http://127.0.0.1:53817"),
+        ("http://127.0.0.1:53817/", "http://127.0.0.1:53817"),
+        ("https://openrouter.ai/api", "https://openrouter.ai/api"),
+        ("https://user:sk-secret@proxy.example/v1?key=sk-secret#x", "https://proxy.example/v1"),
+        ("HTTPS://Proxy.Example:8443/Path", "https://proxy.example:8443/Path"),
+        ("http://[::1]:8080", "http://[::1]:8080"),
+    ],
+)
+def test_the_endpoint_is_recorded_as_a_place_with_no_credential_in_it(
+    base_url: str | None, recorded: str
+) -> None:
+    assert endpoint_of(base_url) == recorded
+    assert "secret" not in recorded
+    assert make_config(endpoint=recorded).endpoint == recorded
+
+
+@pytest.mark.parametrize("base_url", ["localhost:8080", "ftp://host", "http://", "not a url"])
+def test_an_endpoint_that_is_not_an_http_url_is_refused(base_url: str) -> None:
+    with pytest.raises(RunConfigError, match="not an http"):
+        endpoint_of(base_url)
+
+
+def test_a_run_is_driven_only_against_the_endpoint_it_recorded() -> None:
+    config = make_config(endpoint="http://127.0.0.1:53817")
+    require_endpoint(config, "http://127.0.0.1:53817/")
+    for other in (None, "http://127.0.0.1:53818", "https://api.anthropic.com"):
+        with pytest.raises(RunConfigError, match="endpoint differs") as caught:
+            require_endpoint(config, other)
+        assert caught.value.context == {"recorded": config.endpoint, "now": endpoint_of(other)}

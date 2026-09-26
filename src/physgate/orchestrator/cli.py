@@ -4,8 +4,10 @@
 the command line, the brief's digest, the target repository's head, and a
 parameters file holding the model strings, bounds, gate mode and token ceiling),
 makes the run's one model call and starts the run from its plan. Nothing it
-records has a default. The API key and an optional endpoint come from the
-environment and are never written anywhere.
+records has a default. The API key comes from the environment and is never
+written anywhere. The endpoint (``ANTHROPIC_BASE_URL``, or the binary's default)
+is recorded without any credential in it, and ``run`` and ``resume`` refuse a
+different one.
 
 ``queue list`` prints the open approval items; ``queue resolve`` records a
 person's decision on one.
@@ -40,7 +42,12 @@ from physgate.orchestrator.loop import Loop, refuse_unregistered
 from physgate.orchestrator.merge import GitMerger, RunGit
 from physgate.orchestrator.protocols import Gate, Reviewer
 from physgate.orchestrator.queue import ApprovalQueue
-from physgate.orchestrator.run_config import RunConfig, load_run_config
+from physgate.orchestrator.run_config import (
+    RunConfig,
+    endpoint_of,
+    load_run_config,
+    require_endpoint,
+)
 
 #: One worktree removal's bound. One removal on the server's network volume was
 #: measured at 266 s; past this it is recorded as timed out and left, and the run
@@ -136,6 +143,7 @@ def _config(args: argparse.Namespace) -> RunConfig:
         "brief_sha256": hashlib.sha256(args.brief.read_bytes()).hexdigest(),
         "target_head": head_of(args.target.resolve(), "HEAD"),
         "claude_version": binary_version(),
+        "endpoint": endpoint_of(os.environ.get("ANTHROPIC_BASE_URL")),
     }
     return RunConfig.model_validate_json(json.dumps(fields))
 
@@ -199,6 +207,8 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
         config = load_run_config(run_dir / "run.json")
         # The gate and the reviewers first: without them nothing else is worth building.
         refuse_unregistered(config, registrations.gate, registrations.reviewers)
+        # The same provider, or the run's numbers would mean something else.
+        require_endpoint(config, os.environ.get("ANTHROPIC_BASE_URL"))
         if not (run_dir / "events.jsonl").exists():
             msg = "the run was never started; decompose it first"
             raise RunStateError(msg, run_dir=str(run_dir))

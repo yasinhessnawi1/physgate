@@ -63,6 +63,7 @@ from physgate.orchestrator.install import prepare_install  # noqa: E402
 from physgate.orchestrator.merge import RunGit, commit_attempt  # noqa: E402
 from physgate.orchestrator.ports import SessionReport, SessionRequest  # noqa: E402
 from physgate.orchestrator.processes import started_at, table  # noqa: E402
+from physgate.orchestrator.run_config import endpoint_of  # noqa: E402
 from physgate.state.schema import Node  # noqa: E402
 from physgate.state.store import journal_records_after  # noqa: E402
 
@@ -113,10 +114,12 @@ def session_script() -> Script:
     )
 
 
-def build(root: Path) -> None:
+def build(root: Path, url: str) -> None:
     """A fresh target repository and a run started from a fixed plan, as decomposition starts it."""
     repo = target_repo(root)
-    cfg = config().model_copy(update={"target_head": head_of(repo, "master")})
+    cfg = config().model_copy(
+        update={"target_head": head_of(repo, "master"), "endpoint": endpoint_of(url)}
+    )
     plan = Plan(
         modules=tuple(
             PlannedModule(
@@ -272,7 +275,7 @@ def judge(
 
 def reference_run(out: Path, arm: str, env: dict[str, str], install: str) -> dict[str, Any]:
     root = out / "reference"
-    build(root)
+    build(root, env["ANTHROPIC_BASE_URL"])
     code = spawn(root, arm, "run", env, install).wait(timeout=900)
     run_dir = root / "run"
     return {
@@ -306,7 +309,7 @@ def cycle(
 ) -> dict[str, Any]:
     root = out / f"seed-{seed}"
     started = utc()
-    build(root)
+    build(root, env["ANTHROPIC_BASE_URL"])
     anchor = random.Random(40_000 + seed).randint(4, ref["T"] - 1)
     events = root / "run" / "events.jsonl"
     proc = spawn(root, arm, "run", env, install)

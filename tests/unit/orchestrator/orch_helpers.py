@@ -33,6 +33,7 @@ def make_config(**overrides: Any) -> RunConfig:
         "token_ceiling": 100_000,
         "claude_version": "2.1.272",
         "target_head": "b" * 40,
+        "endpoint": "default",
     }
     fields.update(overrides)
     return RunConfig(**fields)

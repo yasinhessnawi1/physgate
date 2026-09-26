@@ -86,7 +86,9 @@ def test_decompose_run_and_resume_through_the_command_with_routing_at_zero(
     monkeypatch.setenv("ANTHROPIC_API_KEY", DUMMY_KEY)
     registrations = Registrations(gate=Gate(), reviewers={"electrical": _PayingReviewer()})
 
-    with serving(Script(main=[tool("StructuredOutput", **PLAN)])) as (_, url):
+    # One endpoint for the whole run: the run records it at decomposition and
+    # refuses to be driven against another.
+    with serving(Script(main=[tool("StructuredOutput", **PLAN)])) as (api, url):
         monkeypatch.setenv("ANTHROPIC_BASE_URL", url)
         code = main(
             [
@@ -104,24 +106,25 @@ def test_decompose_run_and_resume_through_the_command_with_routing_at_zero(
                 str(run_dir),
             ]
         )
-    assert code == 0, capsys.readouterr().err
-    capsys.readouterr()
+        assert code == 0, capsys.readouterr().err
+        capsys.readouterr()
+        assert json.loads((run_dir / "run.json").read_text())["endpoint"] == url
 
-    subtask = mint_id(7, 0, "power")
-    worktree = run_dir / "worktrees" / subtask
-    session = [
-        tool("Read", file_path=str(worktree / ".physgate" / "specs" / f"{subtask}.md")),
-        tool("Bash", command="echo 'x = 1' > modules/power/driver.py"),
-        tool(
-            "Write",
-            file_path=str(worktree / ".physgate" / "proposals" / "electrical.driver.json"),
-            content=json.dumps(DRIVER),
-        ),
-        text("done"),
-    ]
-    common = ["--run-dir", str(run_dir), "--target", str(repo), "--install", str(install)]
-    with serving(Script(main=session)) as (api, url):
-        monkeypatch.setenv("ANTHROPIC_BASE_URL", url)
+        subtask = mint_id(7, 0, "power")
+        worktree = run_dir / "worktrees" / subtask
+        api.script = Script(
+            main=[
+                tool("Read", file_path=str(worktree / ".physgate" / "specs" / f"{subtask}.md")),
+                tool("Bash", command="echo 'x = 1' > modules/power/driver.py"),
+                tool(
+                    "Write",
+                    file_path=str(worktree / ".physgate" / "proposals" / "electrical.driver.json"),
+                    content=json.dumps(DRIVER),
+                ),
+                text("done"),
+            ]
+        )
+        common = ["--run-dir", str(run_dir), "--target", str(repo), "--install", str(install)]
         code = main(["run", *common], registrations)
         out = capsys.readouterr()
         assert code == 0, out.err

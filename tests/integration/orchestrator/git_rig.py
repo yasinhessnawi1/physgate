@@ -236,6 +236,7 @@ def config(run_id: str = "run-1") -> RunConfig:
         token_ceiling=100_000,
         claude_version="2.1.272",
         target_head="b" * 40,
+        endpoint="default",
     )
 
 

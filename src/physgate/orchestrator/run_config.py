@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 from pathlib import Path
 from typing import Annotated
 
@@ -57,6 +58,58 @@ class RunBounds(_Frozen):
     infra_retry_delays_s: tuple[Annotated[float, Field(ge=0)], ...]
 
 
+#: The endpoint the run's model calls go to: ``default`` for the binary's own, or
+#: an http(s) URL with no credentials, query or fragment in it.
+Endpoint = Annotated[
+    str, StringConstraints(pattern=r"^(default|https?://[^/?#@\s]+(/[^?#@\s]*)?)$")
+]
+
+
+#: An http(s) URL, taken apart without a network library (the orchestrator imports
+#: none): scheme, optional userinfo (dropped), host, optional port, optional path,
+#: then anything from ``?`` or ``#`` on (dropped).
+_URL = re.compile(
+    r"^(?P<scheme>https?)://(?:[^@/?#]*@)?"
+    r"(?P<host>\[[0-9A-Fa-f:.]+\]|[^:/?#@\[\]\s]+)"
+    r"(?::(?P<port>[0-9]{1,5}))?(?P<path>/[^?#\s]*)?(?:[?#]\S*)?$",
+    re.IGNORECASE,
+)
+
+
+def endpoint_of(base_url: str | None) -> str:
+    """The endpoint a run records for ``ANTHROPIC_BASE_URL``: never the secret, always the place.
+
+    Which provider answered (the default, a proxy, the scripted local endpoint)
+    decides what a run's numbers mean, so it is recorded like a model string.
+    Userinfo, query and fragment are dropped, since a key can travel in any of
+    them; an unset or empty value is ``default``.
+
+    Raises:
+        RunConfigError: the value is not an http(s) URL with a host.
+    """
+    if not base_url:
+        return "default"
+    found = _URL.match(base_url)
+    if not found:
+        msg = "ANTHROPIC_BASE_URL is not an http(s) URL with a host"
+        raise RunConfigError(msg)
+    port = f":{found['port']}" if found["port"] else ""
+    path = (found["path"] or "").rstrip("/")
+    return f"{found['scheme'].lower()}://{found['host'].lower()}{port}{path}"
+
+
+def require_endpoint(config: RunConfig, base_url: str | None) -> None:
+    """Refuse to drive a run against an endpoint other than the one it recorded.
+
+    Raises:
+        RunConfigError: the endpoint differs, or the value is not a URL.
+    """
+    now = endpoint_of(base_url)
+    if now != config.endpoint:
+        msg = "the endpoint differs from the one this run recorded"
+        raise RunConfigError(msg, recorded=config.endpoint, now=now)
+
+
 class RunConfig(_Frozen):
     """Everything a run is reproduced from."""
 
@@ -69,6 +122,7 @@ class RunConfig(_Frozen):
     token_ceiling: Annotated[int, Field(gt=0)]
     claude_version: NonEmptyStr
     target_head: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
+    endpoint: Endpoint
 
     def canonical_bytes(self) -> bytes:
         """The recorded form: stable key order, so equal configs are equal bytes."""
