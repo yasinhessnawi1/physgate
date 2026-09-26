@@ -124,6 +124,7 @@ def run_session(
     registry: Mapping[str, HookSpec] | None = None,
     api_url_override: str | None = None,
     setting_sources: str | None = None,
+    unpin_disable: bool = False,
     **request_fields: Any,  # noqa: ANN401 - forwarded to the install request
 ) -> SessionRun:
     """Install hooks for a fresh worktree under ``root`` and run one scripted session."""
@@ -153,6 +154,13 @@ def run_session(
     # This is a parameter of the generator, reachable only by whoever writes the
     # settings file; nothing inside a session can change which hooks it runs.
     installed = install(InstallRequest(**fields), registry or REGISTRY)
+    if unpin_disable:
+        # For a control only: the generated file pins disableAllHooks to false,
+        # which outranks any worktree file; this takes the pin out to show what
+        # it is worth. Nothing a session can reach does this.
+        settings = json.loads(installed.settings_path.read_text())
+        del settings["disableAllHooks"]
+        installed.settings_path.write_text(json.dumps(settings))
     home = Path(fields["user_home"])
     home.mkdir(parents=True, exist_ok=True)
     with serving(script) as (api, base_url):
