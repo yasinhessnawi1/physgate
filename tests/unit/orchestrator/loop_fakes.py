@@ -63,6 +63,8 @@ class FakeDispatcher:
     tampered: dict[int, str] = field(default_factory=dict)
     #: Where to write real, sealed trajectory files; None keeps them notional.
     trajectories: Path | None = None
+    #: Per call: something done while the session runs.
+    during: dict[int, Callable[[], None]] = field(default_factory=dict)
     requests: list[SessionRequest] = field(default_factory=list)
 
     def environment(self) -> None:
@@ -76,6 +78,8 @@ class FakeDispatcher:
         call = len(self.requests)
         if call == self.kill_on:
             raise KilledError
+        if call in self.during:
+            self.during[call]()
         sid = f"sess-{call}"
         if call in self.infra:
             return SessionReport(
