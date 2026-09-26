@@ -20,6 +20,7 @@ GATE = Finding.from_gate(
         numeric_output=NumericOutput(value=-1.25, unit="W"),
         quantities=(QuantityRef(node_id="power.budget", name="margin", value=-1.25, unit="W"),),
         checks=gate_records("on", "power"),
+        catalogue_sha256="c" * 64,
     )
 )
 REVIEW = Finding.from_review(

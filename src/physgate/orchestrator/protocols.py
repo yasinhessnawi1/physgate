@@ -272,6 +272,10 @@ class GateResult(_Frozen):
     numeric_output: NumericOutput | None
     quantities: Annotated[tuple[QuantityRef, ...], Field(max_length=3)]
     checks: Annotated[tuple[CheckRecord, ...], Field(min_length=1)]
+    #: Which catalogue of quantity kinds and relations judged this call. The catalogue
+    #: decides what is checked at all, so a result that does not name it cannot be
+    #: reproduced or compared with another.
+    catalogue_sha256: Sha256
 
     @model_validator(mode="after")
     def _a_failure_names_its_check(self) -> GateResult:

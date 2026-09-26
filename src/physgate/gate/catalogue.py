@@ -22,6 +22,8 @@ built at all.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Annotated, Literal
@@ -217,3 +219,21 @@ def kind_of(name: str) -> Kind | None:
     """The kind of the quantity called ``name``, or ``None`` if the catalogue does not know it."""
     entry = QUANTITIES.get(name)
     return KINDS[entry.kind] if entry is not None else None
+
+
+def catalogue_digest() -> str:
+    """The sha256 of the catalogue's content: every kind, name, relation and product.
+
+    Taken over a canonical serialisation of what the catalogue says, not over this
+    file, so a comment changes nothing and one changed entry changes the digest.
+    Every gate result carries it: the catalogue decides what gets checked at all,
+    so a result that does not name its catalogue cannot be reproduced.
+    """
+    content = {
+        "kinds": [KINDS[k].model_dump() for k in sorted(KINDS)],
+        "quantities": [QUANTITIES[q].model_dump() for q in sorted(QUANTITIES)],
+        "relations": [RELATIONS[r].model_dump() for r in sorted(RELATIONS)],
+        "products": sorted([*pair, kind] for pair, kind in PRODUCTS.items()),
+    }
+    canonical = json.dumps(content, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()

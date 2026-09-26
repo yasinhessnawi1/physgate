@@ -46,6 +46,7 @@ def result(*checks: CheckRecord, **overrides: Any) -> GateResult:
         "numeric_output": None,
         "quantities": (),
         "checks": checks,
+        "catalogue_sha256": "c" * 64,
     }
     fields.update(overrides)
     return GateResult(**fields)
@@ -126,3 +127,13 @@ def test_every_record_is_in_the_mode_of_its_result() -> None:
 def test_a_result_with_no_records_is_refused() -> None:
     with pytest.raises(ValidationError):
         result(verdict="pass", failing_check=None)
+
+
+def test_a_result_names_the_catalogue_that_judged_it() -> None:
+    assert result(record()).catalogue_sha256 == "c" * 64
+    with pytest.raises(ValidationError):
+        result(record(), catalogue_sha256="not a digest")
+    fields = result(record()).model_dump()
+    del fields["catalogue_sha256"]
+    with pytest.raises(ValidationError):
+        GateResult.model_validate(fields)

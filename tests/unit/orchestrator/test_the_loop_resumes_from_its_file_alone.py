@@ -298,6 +298,7 @@ def _through_the_gate(log: EventLog, verdict_fails: bool) -> None:
             numeric_output=None,
             quantities=(),
             checks=gate_records(mode, None),
+            catalogue_sha256="c" * 64,
         )
     )
     log.emit(GateRan, subtask_id="s1", attempt=1, result=result)

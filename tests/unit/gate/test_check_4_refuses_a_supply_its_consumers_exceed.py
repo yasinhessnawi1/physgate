@@ -183,4 +183,5 @@ def test_power_balance_over_a_dense_graph_stays_under_a_second(tmp_path: Path) -
     ran = check_power.run(ctx)
     took = time.perf_counter() - started
     assert ran.evaluated == 40 and ran.observations == ()
+    print(f"power balance over 6,400 edges: {took:.4f} s")  # the measured number, for the record
     assert took < 1.0, f"power balance over 6,400 edges took {took:.3f} s"

@@ -47,6 +47,7 @@ def gate_result(**overrides: Any) -> GateResult:
     if "checks" not in fields:
         failing = fields["failing_check"] if fields["verdict"] == "fail" else None
         fields["checks"] = gate_records(fields["mode"], failing)
+    fields.setdefault("catalogue_sha256", "c" * 64)
     return GateResult(**fields)
 
 

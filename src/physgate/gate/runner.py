@@ -19,6 +19,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from physgate.gate.bounds_table import Bounds, load_bounds
+from physgate.gate.catalogue import catalogue_digest
 from physgate.gate.context import CheckContext
 from physgate.gate.exceptions import GateModeError, NothingCheckedError
 from physgate.gate.graph import GraphView
@@ -83,6 +84,7 @@ class PhysicsGate:
         """
         self._registry = registry
         self._bounds = bounds if bounds is not None else load_bounds()
+        self._catalogue_sha256 = catalogue_digest()
 
     def check(self, artefact: Artefact, *, mode: RunningGateMode) -> GateResult:
         """Check one attempt's artefact.
@@ -127,7 +129,7 @@ class PhysicsGate:
         if not records:
             msg = "no registered check runs at the scopes asked for"
             raise NothingCheckedError(msg, scopes=",".join(wanted) or "none")
-        return _fold(records, running, tuple(failing_quantities[:3]))
+        return _fold(records, running, tuple(failing_quantities[:3]), self._catalogue_sha256)
 
 
 def _ordered(observations: Iterable[Observation]) -> list[Observation]:
@@ -185,7 +187,10 @@ def _stamp(
 
 
 def _fold(
-    records: list[CheckRecord], mode: RunningGateMode, quantities: tuple[QuantityRef, ...]
+    records: list[CheckRecord],
+    mode: RunningGateMode,
+    quantities: tuple[QuantityRef, ...],
+    catalogue_sha256: str,
 ) -> GateResult:
     """The verdict and the finding the records add up to."""
     blocking = [r for r in records if r.outcome == "fail" and r.blocking]
@@ -204,6 +209,7 @@ def _fold(
             numeric_output=first.value,
             quantities=quantities,
             checks=tuple(records),
+            catalogue_sha256=catalogue_sha256,
         )
     finding = "every check passed"
     if warnings:
@@ -216,4 +222,5 @@ def _fold(
         numeric_output=None,
         quantities=(),
         checks=tuple(records),
+        catalogue_sha256=catalogue_sha256,
     )

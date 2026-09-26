@@ -176,6 +176,7 @@ class Gate:
             numeric_output=None if verdict == "pass" else NumericOutput(value=3.4, unit="A"),
             quantities=(),
             checks=(_record(mode, failed=verdict != "pass"),),
+            catalogue_sha256="c" * 64,
         )
 
 

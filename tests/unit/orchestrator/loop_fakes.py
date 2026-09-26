@@ -142,6 +142,7 @@ def failing_gate_result(mode: RunningGateMode) -> GateResult:
         numeric_output=NumericOutput(value=3.4, unit="A"),
         quantities=(QuantityRef(node_id="motor.left", name="stall_current", value=3.4, unit="A"),),
         checks=gate_records(mode, "magnitude"),
+        catalogue_sha256="c" * 64,
     )
 
 
@@ -165,6 +166,7 @@ class FakeGate:
             numeric_output=None,
             quantities=(),
             checks=gate_records(mode, None),
+            catalogue_sha256="c" * 64,
         )
 
 
