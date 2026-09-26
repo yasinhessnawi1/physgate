@@ -1,23 +1,23 @@
 """The managed-settings tier: the one settings source ``--setting-sources ""`` does not govern.
 
 Claude Code applies managed settings above every other source. They reach a
-session two ways:
+session two ways, and neither is written by the agent under test:
 
 - **Remote managed settings**, fetched for an eligible account from the
-  provider's API and cached as ``remote-settings.json`` in the configuration
-  directory. Measured on 2.1.272 against the real API: fetched and written even
-  with non-essential traffic switched off. The binary skips the fetch when
-  ``CLAUDE_CODE_REMOTE_SETTINGS_PATH`` names a file, and uses that file instead.
-  Every invocation this package makes names the run's own override file,
-  written by the orchestrator, read-only, with its sha256 recorded in the run
-  configuration and checked before every spawn.
+  provider's API and cached as ``remote-settings.json`` in the session's
+  configuration directory. Measured on 2.1.272 against the real API: fetched
+  and written even with non-essential traffic switched off, and not replaced by
+  ``CLAUDE_CODE_REMOTE_SETTINGS_PATH`` (an override named there left the
+  binary's own init report unchanged and the fetch still happened), so nothing
+  here tries to prevent them.
 - **System managed files**, read from fixed paths outside every directory this
-  package owns. They are recorded, never created, changed or removed here, and a
-  change to one during an invocation is an incident.
+  package owns. They are recorded, never created, changed or removed here.
 
-After every invocation the configuration directory's ``remote-settings.json``
-must be absent or empty, the override unchanged, and the system files as they
-were at the start; anything else is reported as drift.
+What this package does is detect: every session starts from a fresh
+configuration directory, and after every invocation a non-empty remote-settings
+cache, or a system managed path that changed, is drift, which halts the run.
+The harness cannot stop a managed-policy change pushed from outside; it halts on
+one.
 """
 
 from __future__ import annotations
@@ -32,15 +32,6 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from physgate.orchestrator.exceptions import InvocationError
-
-#: The run's override file, in the run directory.
-OVERRIDE_NAME = "managed-settings-override.json"
-#: What a run's override holds: no managed settings at all.
-EMPTY_OVERRIDE = b"{}\n"
-EMPTY_OVERRIDE_SHA256 = hashlib.sha256(EMPTY_OVERRIDE).hexdigest()
-#: The variable the binary reads the override's path from.
-OVERRIDE_VARIABLE = "CLAUDE_CODE_REMOTE_SETTINGS_PATH"
 #: Where the binary caches fetched remote settings, inside its configuration directory.
 REMOTE_CACHE = "remote-settings.json"
 
@@ -110,51 +101,8 @@ def system_managed_facts(
     return tuple(facts)
 
 
-def override_path(run_dir: Path) -> Path:
-    """Where a run's override file lives."""
-    return Path(run_dir) / OVERRIDE_NAME
-
-
-def write_override(run_dir: Path, content: bytes = EMPTY_OVERRIDE) -> Path:
-    """Write the run's override file, read-only; an identical one already there is kept.
-
-    Raises:
-        InvocationError: a different override is already there.
-    """
-    path = override_path(run_dir)
-    if path.exists():
-        if path.read_bytes() != content:
-            msg = "the run already holds a different managed-settings override"
-            raise InvocationError(msg, path=str(path))
-        return path
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(content)
-    path.chmod(0o444)
-    return path
-
-
-def require_override(path: Path, sha256: str) -> None:
-    """Refuse to spawn unless the override is the one the run recorded.
-
-    Raises:
-        InvocationError: it is missing or its content changed.
-    """
-    try:
-        found = hashlib.sha256(path.read_bytes()).hexdigest()
-    except FileNotFoundError:
-        found = "missing"
-    if found != sha256:
-        msg = "the managed-settings override is not the one this run recorded"
-        raise InvocationError(msg, path=str(path), recorded=sha256, found=found)
-
-
-def drift(
-    config_dir: Path,
-    override: Path,
-    sha256: str,
-    system_before: tuple[SystemManagedFile, ...],
-) -> str | None:
-    """What changed in the managed tier during an invocation, or ``None``."""
+def drift(config_dir: Path, system_before: tuple[SystemManagedFile, ...]) -> str | None:
+    """What the managed tier held or changed during an invocation, or ``None``."""
     found: list[str] = []
     cache = Path(config_dir) / REMOTE_CACHE
     if cache.exists():
@@ -164,12 +112,6 @@ def drift(
             empty = False
         if not empty:
             found.append(f"remote managed settings were delivered into {cache}")
-    try:
-        now = hashlib.sha256(override.read_bytes()).hexdigest()
-    except FileNotFoundError:
-        now = "missing"
-    if now != sha256:
-        found.append(f"the override {override} changed")
     after = system_managed_facts(tuple(Path(f.path) for f in system_before))
     for before, current in zip(system_before, after, strict=True):
         if before != current:

@@ -42,7 +42,6 @@ from physgate.orchestrator.git import head_of
 from physgate.orchestrator.install import prepare_install
 from physgate.orchestrator.invocation import claude_binary
 from physgate.orchestrator.loop import Loop, refuse_unregistered
-from physgate.orchestrator.managed import EMPTY_OVERRIDE_SHA256, write_override
 from physgate.orchestrator.merge import GitMerger, RunGit
 from physgate.orchestrator.protocols import Gate, Reviewer
 from physgate.orchestrator.queue import ApprovalQueue
@@ -159,7 +158,6 @@ def _config(args: argparse.Namespace) -> RunConfig:
         "target_head": head_of(args.target.resolve(), "HEAD"),
         "claude_version": binary_version(),
         "endpoint": endpoint_of(os.environ.get("ANTHROPIC_BASE_URL")),
-        "managed_override_sha256": EMPTY_OVERRIDE_SHA256,
     }
     return RunConfig.model_validate_json(json.dumps(fields))
 
@@ -183,14 +181,12 @@ def _decompose(args: argparse.Namespace) -> int:
     run_dir = args.run_dir.resolve()
     try:
         require_fresh(run_dir)
-        override = write_override(run_dir)
         outcome = call(
             args.brief.read_text(),
             config=config,
             workdir=run_dir / "decomposition",
             base_url=os.environ.get("ANTHROPIC_BASE_URL"),
             credential=credential,
-            override=override,
         )
         record = start_run(
             outcome, config=config, run_dir=run_dir, target_repo=args.target.resolve()

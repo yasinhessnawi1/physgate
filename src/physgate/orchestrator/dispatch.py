@@ -44,12 +44,7 @@ from physgate.orchestrator.decompose import binary_version, read_stream
 from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.install import InstallFacts, install_facts
 from physgate.orchestrator.invocation import isolated_env, role_argv
-from physgate.orchestrator.managed import (
-    OVERRIDE_VARIABLE,
-    drift,
-    override_path,
-    require_override,
-)
+from physgate.orchestrator.managed import drift
 from physgate.orchestrator.merge import RunGit, commit_attempt
 from physgate.orchestrator.ports import SessionReport, SessionRequest
 from physgate.orchestrator.processes import started_at, stop_tree
@@ -189,8 +184,6 @@ class ClaudeDispatcher:
         worktree = self._run.open_subtask(request.subtask_id)
         session_id = str(uuid.uuid4())
         sdir = self._run.run_dir / "sessions" / session_id
-        override = override_path(self._run.run_dir)
-        require_override(override, self._config.managed_override_sha256)
         system_before = self.environment().system_managed
         installed = self._install(request, worktree, sdir)
         (sdir / "home").mkdir(exist_ok=True)
@@ -203,8 +196,6 @@ class ClaudeDispatcher:
             api_key=None,
         )
         env.update(installed.spawn_env)
-        # The run's own override: the binary uses it and fetches no remote settings.
-        env[OVERRIDE_VARIABLE] = str(override)
         argv = role_argv(
             self._binary,
             prompt=role_prompt(request),
@@ -269,9 +260,7 @@ class ClaudeDispatcher:
             node_files_halted=halted,
             hook_journal_appends=appends,
             usage=usage,
-            managed_drift=drift(
-                sdir / "config", override, self._config.managed_override_sha256, system_before
-            ),
+            managed_drift=drift(sdir / "config", system_before),
         )
 
     def stop_leftovers(self) -> list[tuple[str, int, int]]:

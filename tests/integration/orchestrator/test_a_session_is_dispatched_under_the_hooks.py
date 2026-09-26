@@ -34,11 +34,7 @@ from physgate.orchestrator.exceptions import InvocationError  # noqa: E402
 from physgate.orchestrator.git import commit_all, git  # noqa: E402
 from physgate.orchestrator.install import prepare_install  # noqa: E402
 from physgate.orchestrator.invocation import claude_binary  # noqa: E402
-from physgate.orchestrator.managed import (  # noqa: E402
-    OVERRIDE_NAME,
-    system_managed_paths,
-    write_override,
-)
+from physgate.orchestrator.managed import system_managed_paths  # noqa: E402
 from physgate.orchestrator.merge import RunGit  # noqa: E402
 from physgate.orchestrator.ports import SessionRequest  # noqa: E402
 from physgate.orchestrator.run_config import RunConfig  # noqa: E402
@@ -83,7 +79,6 @@ def layout(root: Path) -> tuple[RunGit, Path]:
     store_root = run.run_dir / "store"
     store = Store(store_root)
     store.close()
-    write_override(run.run_dir)
     return run, store_root
 
 
@@ -171,8 +166,7 @@ def test_a_session_reads_works_and_proposes_under_the_generated_settings(
     assert len({u.message_id for u in report.usage}) == len(report.usage) == len(api.requests)
     assert facts.files_with_write_bits == 0 and facts.files_with_second_links == 0
     assert facts.owner_is_session_user  # the same user could make it writable again
-    # The run's override reached the binary, and the system tier is recorded as it is.
-    assert f"CLAUDE_CODE_REMOTE_SETTINGS_PATH={run.run_dir / OVERRIDE_NAME}" in env_seen
+    # The system tier is recorded as it is.
     assert [f.path for f in facts.system_managed] == [str(p) for p in system_managed_paths()]
     assert report.managed_drift is None
 
@@ -423,12 +417,3 @@ def test_remote_settings_delivered_during_a_session_are_reported_as_drift(
     _, (report, _), _ = dispatch(tmp_path, install_bin, steps)
     assert report.managed_drift is not None
     assert "remote managed settings were delivered" in report.managed_drift
-
-
-def test_an_override_that_is_not_the_recorded_one_is_refused_before_any_spawn(
-    tmp_path: Path, install_bin: Path
-) -> None:
-    recorded_elsewhere = config().model_copy(update={"managed_override_sha256": "0" * 64})
-    with pytest.raises(InvocationError, match="not the one this run recorded"):
-        dispatch(tmp_path, install_bin, [text("done")], cfg=recorded_elsewhere)
-    assert not list((tmp_path / "run").glob("sessions/*/process.json"))

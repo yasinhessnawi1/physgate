@@ -99,35 +99,5 @@ def test_a_binary_that_changed_since_the_run_recorded_it_is_refused_before_the_c
             workdir=tmp_path / "w",
             base_url=None,
             credential=Credential("api_key", "k"),
-            override=tmp_path / "unused-override.json",
         )
     assert not (tmp_path / "w").exists()
-
-
-def test_the_decomposition_call_is_spawned_with_the_run_s_override(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from orch_helpers import make_config
-
-    from physgate.orchestrator.decompose import call
-    from physgate.orchestrator.managed import write_override
-
-    seen = tmp_path / "env.txt"
-    script = tmp_path / "claude"
-    script.write_text(
-        '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "2.1.272 (Claude Code)"; exit 0; fi\n'
-        f"env > '{seen}'\n"
-    )
-    script.chmod(0o755)
-    monkeypatch.setenv("PHYSGATE_CLAUDE_BIN", str(script))
-    override = write_override(tmp_path / "run")
-    outcome = call(
-        "brief",
-        config=make_config(),
-        workdir=tmp_path / "run" / "decomposition",
-        base_url=None,
-        credential=Credential("api_key", "k"),
-        override=override,
-    )
-    assert not outcome.ok  # the stand-in answers nothing
-    assert f"CLAUDE_CODE_REMOTE_SETTINGS_PATH={override}" in seen.read_text().splitlines()

@@ -45,13 +45,7 @@ from physgate.orchestrator.invocation import (
     require_pinned,
     version_argv,
 )
-from physgate.orchestrator.managed import (
-    OVERRIDE_VARIABLE,
-    drift,
-    require_override,
-    system_managed_facts,
-    write_override,
-)
+from physgate.orchestrator.managed import drift, system_managed_facts
 from physgate.orchestrator.merge import RunGit
 from physgate.orchestrator.protocols import MessageUsage, Usage
 from physgate.orchestrator.record import (
@@ -329,7 +323,6 @@ def call(
     workdir: Path,
     base_url: str | None,
     credential: Credential,
-    override: Path,
 ) -> Outcome:
     """Make the run's one model call, isolated, and judge what came back.
 
@@ -364,8 +357,6 @@ def call(
         base_url=base_url,
         api_key=credential.secret if credential.mode == "api_key" else None,
     )
-    require_override(override, config.managed_override_sha256)
-    env[OVERRIDE_VARIABLE] = str(override)
     system_before = system_managed_facts()
     if credential.mode == "subscription":
         write_login(workdir / "config", credential.secret)
@@ -399,7 +390,7 @@ def call(
         answered=answered,
         refused=schema_refusal(stdout),
     )
-    changed = drift(workdir / "config", override, config.managed_override_sha256, system_before)
+    changed = drift(workdir / "config", system_before)
     if changed is not None:
         cause, detail, plan = "managed_settings_changed", changed, None
     return Outcome(
@@ -440,7 +431,6 @@ def start_run(
     """
     require_fresh(run_dir)
     store_root = run_dir / "store"
-    write_override(run_dir)  # kept if the decomposition call already wrote it
     record = RunRecord(config, run_dir)
     spent = DecompositionCall(session_id=outcome.session_id, usage=outcome.usage)
     if not outcome.ok or outcome.plan is None:
