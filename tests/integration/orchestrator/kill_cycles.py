@@ -7,22 +7,31 @@ Run as a script, not collected as a test:
 
 Each cycle starts a fresh run of two subtasks through the decomposition's own
 start (no model call: decomposition is outside the kill window), drives it with
-``physgate run`` in a child process, sends that process SIGKILL as soon as its
-event log holds a seeded number of lines, then runs ``physgate resume`` in a new
-child process, and judges the result from the files alone. Both commands run
-through the command's own code, with a test gate and a test reviewer registered.
+``physgate run`` in a child process, sends that process SIGKILL at a seeded
+point, then runs ``physgate resume`` in a new child process, and judges the
+result from the files alone. Both commands run through the command's own code,
+with a test gate and a test reviewer registered. No model is called in either
+arm, and the two arms are reported separately.
 
 Arm ``fake``: the command's session dispatcher is replaced by a stand-in that
-writes into the worktree after a 0.5 s pause, so kills land inside sessions as
-well as between steps. Arm ``real``: each session is a real Claude Code under the
-hook layer's settings, talking to a scripted endpoint served by this parent
-process, which outlives the killed orchestrator. No model is called in either
-arm. The two arms are reported separately.
+writes into the worktree after a 0.5 s pause. The kill anchor for seed ``k`` is
+``random.Random(40_000 + k).randint(4, T - 1)`` event lines, where ``T`` is the
+number of lines a reference run of the same workload, with no kill, writes.
 
-The kill anchor for seed ``k`` is ``random.Random(40_000 + k).randint(4, T - 1)``,
-where ``T`` is the number of event lines a reference run of the same workload,
-with no kill, writes. The output records the orchestrator's commit, this file's
-sha256, the seed, ``T``, the anchor and the line count actually reached.
+Arm ``real``: each session is a real Claude Code under the hook layer's
+settings, talking to a scripted endpoint served by this parent process, which
+outlives the killed orchestrator. No event line is written while a session
+runs, so this arm's kills are anchored on the endpoint instead: for seed ``k``,
+``rng = random.Random(50_000 + k)`` picks the subtask (``rng.randrange(2)``) and
+the request of its first session (``rng.randint(1, R)``, ``R`` the script's
+requests). The endpoint holds that request open, the orchestrator is sent
+SIGKILL while the binary waits on it, and the request is released only once the
+session is dead. A kill is counted as mid-task only if the session's pid was
+alive with its recorded start time just before and just after the kill;
+otherwise the cycle is a harness miss, reported as one and never re-drawn.
+
+The output records the orchestrator's commit, this file's sha256 and, per
+cycle, the seed, the anchor and what the kill actually hit.
 """
 
 from __future__ import annotations
@@ -35,8 +44,10 @@ import random
 import signal
 import subprocess
 import sys
+import threading
 import time
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -62,7 +73,7 @@ from physgate.orchestrator.git import head_of  # noqa: E402
 from physgate.orchestrator.install import prepare_install  # noqa: E402
 from physgate.orchestrator.merge import RunGit, commit_attempt  # noqa: E402
 from physgate.orchestrator.ports import SessionReport, SessionRequest  # noqa: E402
-from physgate.orchestrator.processes import started_at, table  # noqa: E402
+from physgate.orchestrator.processes import started_at, table, tree  # noqa: E402
 from physgate.orchestrator.run_config import endpoint_of  # noqa: E402
 from physgate.state.schema import Node  # noqa: E402
 from physgate.state.store import journal_records_after  # noqa: E402
@@ -304,7 +315,7 @@ def printed_step(path: Path) -> str | None:
     return found
 
 
-def cycle(
+def cycle_fake(
     out: Path, arm: str, seed: int, ref: dict[str, Any], env: dict[str, str], install: str
 ) -> dict[str, Any]:
     root = out / f"seed-{seed}"
@@ -350,6 +361,167 @@ def cycle(
     }
 
 
+#: How long the endpoint holds the anchored request, at most, and how long the
+#: harness waits for it to be reached.
+HOLD_S = 300.0
+REACH_S = 600.0
+
+
+def utc_ms() -> str:
+    return datetime.now(UTC).isoformat(timespec="milliseconds")
+
+
+class Anchor:
+    """The endpoint side of a real-arm kill: fire on one request, hold it open."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.target: tuple[str, int] | None = None
+        self.fired = threading.Event()
+        self.release = threading.Event()
+        self.fired_utc: str | None = None
+
+    def arm(self, subtask_id: str, request: int) -> None:
+        with self._lock:
+            self.target = (subtask_id, request)
+            self.fired_utc = None
+        self.fired.clear()
+        self.release.clear()
+
+    def __call__(self, thread: str, cwd: str, results: int) -> None:
+        with self._lock:
+            hit = self.target == (Path(cwd).name, results + 1) and thread == "main"
+            if hit:
+                self.target = None
+                self.fired_utc = utc_ms()
+        if hit:
+            self.fired.set()
+            self.release.wait(timeout=HOLD_S)
+
+
+def session_of(run_dir: Path, subtask_id: str) -> dict[str, Any] | None:
+    """The recorded session of ``subtask_id`` not yet marked ended, if there is one."""
+    for record_path in sorted((run_dir / "sessions").glob("*/process.json")):
+        if (record_path.parent / "ended.json").exists():
+            continue
+        record: dict[str, Any] = json.loads(record_path.read_text())
+        if any(f"subtask {subtask_id} " in part for part in record["argv"]):
+            return record
+    return None
+
+
+def cycle_real(
+    out: Path,
+    seed: int,
+    ref: dict[str, Any],
+    env: dict[str, str],
+    install: str,
+    anchor: Anchor,
+    requests: int,
+) -> dict[str, Any]:
+    root = out / f"seed-{seed}"
+    started = utc()
+    build(root, env["ANTHROPIC_BASE_URL"])
+    rng = random.Random(50_000 + seed)
+    subtask = SUBTASKS[rng.randrange(2)]
+    request = rng.randint(1, requests)
+    anchor.arm(subtask, request)
+    events = root / "run" / "events.jsonl"
+    proc = spawn(root, "real", "run", env, install)
+    deadline = time.monotonic() + REACH_S
+    while not anchor.fired.wait(timeout=0.05):
+        if proc.poll() is not None or time.monotonic() > deadline:
+            break
+    reached = anchor.fired.is_set()
+    held_utc = anchor.fired_utc
+    orchestrator_alive = proc.poll() is None
+    session = session_of(root / "run", subtask) if reached else None
+    pid = int(session["pid"]) if session else None
+    recorded_start = session.get("started") if session else None
+
+    def alive() -> bool:
+        return pid is not None and recorded_start is not None and started_at(pid) == recorded_start
+
+    alive_before = alive()
+    tree_at_kill = len(tree(pid)) if pid is not None and alive_before else 0
+    kill_utc = utc_ms()
+    proc.send_signal(signal.SIGKILL)
+    proc.wait()
+    alive_after = alive()
+    snapshot = {name: (root / "run" / name).read_bytes() for name in FILES}
+    killed_at = lines(events)
+    died: list[str] = []
+
+    def watch() -> None:
+        # The held request is let go only once the session is gone, so the resume
+        # finds it alive and has to stop it.
+        while alive() and not anchor.release.is_set():
+            time.sleep(0.05)
+        died.append(utc_ms())
+        anchor.release.set()
+
+    watcher = threading.Thread(target=watch, daemon=True)
+    watcher.start()
+    resume = spawn(root, "real", "resume", env, install)
+    try:
+        code: int | None = resume.wait(timeout=900)
+    except subprocess.TimeoutExpired:
+        resume.kill()
+        code = None
+    anchor.arm("", 0)  # disarm, and release anything still held
+    anchor.release.set()
+    watcher.join(timeout=10)
+    step = printed_step(root / "resume.out")
+    verdict = judge(root, snapshot, ref, killed_at)
+    after = read_events(events)[killed_at:]
+    killed_id = str(session["session_id"]) if session else None
+    stopped = [e for e in after if e.kind == "leftover_stopped" and e.session_id == killed_id]
+    fresh = [
+        e
+        for e in after
+        if e.kind == "session_ended"
+        and e.subtask_id == subtask
+        and e.session_id != killed_id
+        and e.attempt == 1
+        and e.outcome == "completed"
+    ]
+    mid_task = reached and orchestrator_alive and alive_before and alive_after
+    checks = {
+        "the kill landed mid-session": mid_task,
+        "resume exited 0 with the run done": code == 0 and step == "done",
+        "the live session was stopped as a leftover": len(stopped) == 1,
+        "a fresh session on the same attempt completed": len(fresh) == 1,
+    }
+    checks.update(verdict.pop("checks"))
+    return {
+        "seed": seed,
+        "started_utc": started,
+        "anchor": {"subtask": subtask, "request": request},
+        "harness_miss": not mid_task,
+        "request_held_utc": held_utc,
+        "kill_utc": kill_utc,
+        "orchestrator_alive_at_kill": orchestrator_alive,
+        "session": {
+            "session_id": killed_id,
+            "pid": pid,
+            "recorded_start": recorded_start,
+            "alive_just_before_kill": alive_before,
+            "alive_just_after_kill": alive_after,
+            "processes_in_tree_at_kill": tree_at_kill,
+            "seen_dead_utc": died[0] if died else None,
+            "leftover_stopped": [{"pid": e.pid, "killed": e.killed, "ts": e.ts} for e in stopped],
+        },
+        "lines_on_disk_after_kill": killed_at,
+        "torn_bytes_at_kill": {n: len(b) - (b.rfind(b"\n") + 1) for n, b in snapshot.items()},
+        "resume_exit": code,
+        "resume_step": step,
+        "fresh_session": fresh[0].session_id if fresh else None,
+        "checks": checks,
+        "clean": all(checks.values()),
+        **verdict,
+    }
+
+
 def seeds(spec: str) -> list[int]:
     first, _, last = spec.partition("-")
     return list(range(int(first), int(last or first) + 1))
@@ -386,21 +558,29 @@ def main() -> None:
         prepare_install(install, REPO_ROOT)
     else:
         install.mkdir()
-    with serving(session_script()) as (_, url):
+    script = session_script()
+    anchor = Anchor()
+    with serving(script) as (api, url):
         env = {**os.environ, "ANTHROPIC_API_KEY": DUMMY_KEY, "ANTHROPIC_BASE_URL": url}
         ref = reference_run(out, args.arm, env, str(install))
         print(json.dumps({"reference": {"exit": ref["exit"], "T": ref["T"]}}), flush=True)
+        api.on_request = anchor
         results = []
         for seed in seeds(args.seeds):
-            result = cycle(out, args.arm, seed, ref, env, str(install))
+            if args.arm == "real":
+                result = cycle_real(out, seed, ref, env, str(install), anchor, len(script.main))
+            else:
+                result = cycle_fake(out, args.arm, seed, ref, env, str(install))
             results.append(result)
             print(json.dumps(result), flush=True)
+    landed = "the kill landed mid-session" if args.arm == "real" else "the kill landed"
     summary = {
         **stamp,
         "reference_exit": ref["exit"],
         "reference_T": ref["T"],
         "cycles": len(results),
-        "kills_landed": sum(r["checks"]["the kill landed"] for r in results),
+        "kills_landed": sum(r["checks"][landed] for r in results),
+        "harness_misses": sum(bool(r.get("harness_miss")) for r in results),
         "clean": sum(r["clean"] for r in results),
         "finished_utc": utc(),
     }

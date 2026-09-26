@@ -28,7 +28,7 @@ from __future__ import annotations
 import json
 import re
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -159,8 +159,13 @@ _CWD = re.compile(r"Primary working directory: (\S+)")
 
 
 def _working_directory(messages: list[dict[str, Any]]) -> str:
-    """The session's working directory, as Claude Code states it in the first message."""
-    for message in messages[:1]:
+    """The session's working directory, as Claude Code states it in an early message.
+
+    Which message depends on the model (measured on 2.1.272: the first one for
+    ``claude-sonnet-4-5``, the second for ``claude-sonnet-5``), so the first that
+    states it is taken.
+    """
+    for message in messages:
         found = _CWD.search(_text_of(message.get("content")))
         if found:
             return found.group(1)
@@ -200,6 +205,10 @@ class FakeMessagesApi:
         """Serve ``script``."""
         self.script = script
         self.requests: list[Recorded] = []
+        #: Called before a scripted tool-offering request is answered, with the thread,
+        #: the session's working directory and how many tool results it carries. It may
+        #: block: that holds the request open, as a model that has not answered yet.
+        self.on_request: Callable[[str, str, int], None] | None = None
         self._lock = threading.Lock()
         self._n = 0
 
@@ -219,7 +228,10 @@ class FakeMessagesApi:
             reply = {"text": "ok"}
         else:
             step = steps[done] if done < len(steps) else {"text": "done"}
-            reply = _fill(step, _working_directory(messages))
+            cwd = _working_directory(messages)
+            if self.on_request is not None:
+                self.on_request(thread, cwd, done)
+            reply = _fill(step, cwd)
         with self._lock:
             self._n += 1
             n = self._n
