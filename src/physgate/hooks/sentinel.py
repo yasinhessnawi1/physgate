@@ -338,8 +338,12 @@ def _revert(base: dict[str, Any], state: _State) -> tuple[list[str], list[str]]:
     return sorted(set(touched)), failed
 
 
-def _check_journals(base: dict[str, Any], state: _State) -> list[str]:
+def _check_journals(
+    base: dict[str, Any], state: _State
+) -> tuple[list[str], list[tuple[str, int, int]]]:
+    """Journals put back, and appends seen: (journal, first byte, end), end exclusive."""
     restored = []
+    appended: list[tuple[str, int, int]] = []
     for root, was in base["journal"].items():
         journal = os.path.join(root, "journal.jsonl")
         if was is None:
@@ -353,13 +357,17 @@ def _check_journals(base: dict[str, Any], state: _State) -> list[str]:
         head = data[: was["size"]]
         if len(data) >= was["size"] and hashlib.sha256(head).hexdigest() == was["digest"]:
             if len(data) > was["size"]:
-                # Appended to: the orchestrator does that. The store's own guard
-                # refuses on its next call if the append was not its own.
+                # Appended to: the orchestrator does that, and so could anything
+                # that got past the first layer. The two cannot be told apart
+                # here, so the append is recorded with the call it was seen after
+                # and its byte range, for the orchestrator to match against its
+                # own writes; its stale-handle guard is the second layer.
+                appended.append((journal, was["size"], len(data)))
                 base["journal"][root] = _journal_state(root, state.blobs)
             continue
         state.blobs.restore(journal, was["blob"], 0o644)
         restored.append(journal)
-    return restored
+    return restored, appended
 
 
 def _code_record(path: str, *, hashed: bool = True) -> list[Any]:
@@ -486,10 +494,17 @@ def _check_logged(base: dict[str, Any], config: ConfigView) -> list[str]:
     return changed
 
 
-def _event(config: ConfigView, hook_input: InputView, action: str, paths: list[str]) -> None:
+def _event(
+    config: ConfigView,
+    hook_input: InputView,
+    action: str,
+    paths: list[str],
+    extra: dict[str, Any] | None = None,
+) -> None:
     append_log(
         config,
-        {
+        (extra or {})
+        | {
             "t": time.time(),
             "session": hook_input.session_id,
             "agent": hook_input.agent_id,
@@ -524,7 +539,8 @@ def check(hook_input: InputView, config: ConfigView) -> Decision:
             _event(config, hook_input, "halt", halted)
             return refuse(base["halted"])
         put_back, failed = _revert(base, state)
-        put_back += _check_journals(base, state)
+        journals_put_back, appended = _check_journals(base, state)
+        put_back += journals_put_back
         mismatched = _check_nodes(base)
         logged = _check_logged(base, config)
         if failed:
@@ -534,6 +550,8 @@ def check(hook_input: InputView, config: ConfigView) -> Decision:
         state.save(base)
     finally:
         _unlock(fd)
+    for journal, first, end in appended:
+        _event(config, hook_input, "journal append", [journal], {"bytes": [first, end]})
     if logged:
         _event(config, hook_input, "changed", logged)
     if failed:

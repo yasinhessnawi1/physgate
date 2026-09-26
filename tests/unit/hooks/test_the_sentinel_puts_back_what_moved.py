@@ -494,3 +494,26 @@ def test_the_interpreter_is_recorded_by_signature_and_any_move_of_it_halts(
     # The same bytes, touched: there is no digest to excuse it, so it is a change.
     os.utime(binary, ns=(1, 1))
     assert "every call is refused" in _check(root, config)
+
+
+def test_every_append_to_the_journal_is_recorded_with_its_call_and_byte_range(
+    root: Path,
+) -> None:
+    # An append cannot be told from the orchestrator's own here, so it is let
+    # through, and it is recorded: the call it was seen after, the profile and
+    # the exact bytes, for the orchestrator to match against its own writes.
+    _started(root)
+    journal = root / "store" / "journal.jsonl"
+    before = journal.stat().st_size
+    extra = b'{"rev": 99}\n'
+    with journal.open("ab") as handle:
+        handle.write(extra)
+    assert _check(root) == "allow"
+    (event_,) = [e for e in _log(root) if e.get("decision") == "journal append"]
+    assert event_["paths"] == [str(journal)]
+    assert event_["bytes"] == [before, before + len(extra)]
+    assert (event_["tool"], event_["profile"], event_["role"]) == ("Bash", "role", "electrical")
+    assert event_["tool_input"] == {"command": "x", "description": "x"}
+    # Seen once: the next call has nothing new to record.
+    assert _check(root) == "allow"
+    assert len([e for e in _log(root) if e.get("decision") == "journal append"]) == 1
