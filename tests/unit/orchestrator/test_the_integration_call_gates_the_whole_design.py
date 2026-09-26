@@ -334,3 +334,47 @@ def test_the_gate_events_command_prints_one_line_per_check(
     lines = [json.loads(x) for x in capsys.readouterr().out.splitlines()]
     assert [x["subtask_id"] for x in lines] == ["s1", "integration"]
     assert all(x["reviewer_had_passed"] is None for x in lines)
+
+
+def test_an_attempt_carries_the_journal_head_it_started_from(tmp_path: Path) -> None:
+    from physgate.orchestrator.record import DecompositionSummary
+
+    gate = FakeGate()
+    rig = Rig(tmp_path, gate=gate)
+    loop = rig.open()
+    summary = DecompositionSummary(
+        session_id="dec-1",
+        model="claude-sonnet-5",
+        num_turns=1,
+        subtasks=1,
+        interface_nodes=("iface.bus",),
+        spec_commit="d" * 40,
+        head_revision=7,
+    )
+    loop.record.start(plan("s1"), decomposed=summary)
+    loop.run()
+    loop.close()
+    assert [a.base_revision for a in gate.seen] == [7]
+
+
+def test_an_artefact_is_always_checked_at_subtask_scope_and_each_scope_once() -> None:
+    from pydantic import ValidationError
+
+    from physgate.orchestrator.protocols import Artefact
+
+    fields: dict[str, Any] = {
+        "subtask_id": "s1",
+        "attempt": 1,
+        "assigned_role": "electrical",
+        "attempt_commit": "a" * 40,
+        "worktree": "/w",
+        "graph_root": "/g",
+        "trajectory": "/t",
+        "base_revision": 0,
+    }
+    assert Artefact(**fields, scopes=("subtask", "module")).scopes == ("subtask", "module")
+    for bad in (("module",), ("subtask", "subtask"), ()):
+        with pytest.raises(ValidationError):
+            Artefact(**fields, scopes=bad)
+    with pytest.raises(ValidationError):
+        Artefact.model_validate({**fields, "scopes": ("subtask", "system")})
