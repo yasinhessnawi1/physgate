@@ -174,7 +174,12 @@ def test_power_balance_over_a_dense_graph_stays_under_a_second(tmp_path: Path) -
     # is marked and excluded from the default run, and a red here is repeated
     # before it is believed.
     supplies = [
-        node(f"electrical.s{i:02d}", kind="module", quantities={"power_supply": (10_000, "W")})
+        node(
+            f"electrical.s{i:02d}",
+            kind="module",
+            # Declared sources, so each is judged only as a supply to its consumers.
+            quantities={"power_supply": (10_000, "W"), "rated_output_power": (10_000, "W")},
+        )
         for i in range(40)
     ]
     ids = [s["id"] for s in supplies]
