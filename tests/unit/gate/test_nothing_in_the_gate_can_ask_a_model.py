@@ -11,8 +11,14 @@ It is an allowlist. The gate imports only the modules listed, and from the state
 package only its read-only reader, so the repository's own model-calling code,
 an aliased ``os``, ``posix`` and every module nobody thought to name are refused
 alike. Names that evaluate code, reach the builtins or look a binary up are
-refused however they are reached, and a string naming the model binary is
-refused even when it is split and joined with ``+``.
+refused however they are reached, pydantic's ``ImportString`` and the
+string-evaluating entry points of sympy and ``typing`` among them; the sympy
+wrapper may take from sympy only what it lists; and a string naming the model
+binary is refused even when it is split and joined with ``+``.
+
+What it cannot prove is what a string annotation evaluates to when pydantic or
+``typing`` resolves it. Nothing in the gate uses one for that today; the limit
+is registered, not fenced.
 
 It also holds sympy to one module. sympy ships no type information, and the one
 typed wrapper is what keeps its untyped values from spreading.
@@ -76,14 +82,24 @@ FORBIDDEN_NAMES = {
     "find_executable",
     "environ",
     "getenv",
+    # pydantic imports whatever a string names; sympy and typing evaluate strings.
+    "ImportString",
+    "sympify",
+    "parse_expr",
+    "lambdify",
+    "get_type_hints",
 }
+#: What the sympy wrapper may take from sympy, and nothing else: sympy has many
+#: entry points that parse and evaluate a string, and a list of what the wrapper
+#: needs is shorter than a list of those.
+SYMPY_USES = {"Symbol", "Add", "Rational", "__version__"}
 #: Dunder attributes the gate uses; any other is a way into the interpreter.
 ALLOWED_DUNDERS = {"__file__", "__init__", "__name__", "__version__"}
 
 
 def _module_allowed(module: str, file: str) -> bool:
     if module == "sympy" or module.startswith("sympy."):
-        return file == SYMPY_WRAPPER
+        return file == SYMPY_WRAPPER and module == "sympy"
     return module in ALLOWED_MODULES or module == GATE or module.startswith(GATE + ".")
 
 
@@ -107,6 +123,17 @@ def _imports(name: str, node: ast.AST) -> list[str]:
             )
         elif not _module_allowed(module, name):
             found.append(f"{name}: imports from {module}, which the gate may not import")
+        elif module == "sympy":
+            found.extend(
+                f"{name}: takes {alias.name} from sympy, which the wrapper does not list"
+                for alias in node.names
+                if alias.name not in SYMPY_USES
+            )
+        found.extend(
+            f"{name}: imports {alias.name}, which evaluates code or looks a binary up"
+            for alias in node.names
+            if alias.name in FORBIDDEN_NAMES
+        )
     return found
 
 
@@ -142,6 +169,13 @@ def violations_in(name: str, source: str) -> list[str]:
             and used not in ALLOWED_DUNDERS
         ):
             found.append(f"{name}: uses {used}, a way into the interpreter")
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "sympy"
+            and node.attr not in SYMPY_USES
+        ):
+            found.append(f"{name}: uses sympy.{node.attr}, which the wrapper does not list")
         text = _folded(node)
         if text is not None and "claude" in text.lower():
             found.append(f"{name}: names the model binary")
@@ -201,6 +235,14 @@ def test_nothing_in_the_gate_can_ask_a_model_or_reach_out() -> None:
         ("import physgate.orchestrator.decompose\n", "imports physgate.orchestrator.decompose"),
         ("from physgate.state.store import Store\n", "imports Store from physgate.state.store"),
         ("from .. import orchestrator\n", "by a relative import"),
+        (
+            "from pydantic import TypeAdapter, ImportString\n"
+            "TypeAdapter(ImportString).validate_python('subprocess.run')\n",
+            "imports ImportString",
+        ),
+        ("import pydantic\nx = pydantic.ImportString\n", "uses ImportString"),
+        ("from typing import get_type_hints\n", "imports get_type_hints"),
+        ("import typing\ntyping.get_type_hints(x)\n", "uses get_type_hints"),
     ],
 )
 def test_each_forbidden_form_is_caught_when_planted(
@@ -226,4 +268,34 @@ def test_what_the_gate_needs_passes_the_fence(tmp_path: Path) -> None:
 
 def test_sympy_is_allowed_in_its_wrapper_only(tmp_path: Path) -> None:
     (tmp_path / SYMPY_WRAPPER).write_text("import sympy\n")
+    assert fence(tmp_path) == []
+
+
+@pytest.mark.parametrize(
+    ("planted", "expected"),
+    [
+        ("import sympy\nsympy.sympify('1 + 1')\n", "uses sympify"),
+        ("import sympy\nsympy.S('1 + 1')\n", "uses sympy.S, which the wrapper does not list"),
+        ("from sympy import sympify\n", "takes sympify from sympy"),
+        ("from sympy import lambdify\n", "takes lambdify from sympy"),
+        ("from sympy.parsing.sympy_parser import parse_expr\n", "imports from sympy.parsing"),
+        ("import sympy.parsing.sympy_parser\n", "imports sympy.parsing.sympy_parser"),
+        ("import sympy\nsympy.parsing.sympy_parser.parse_expr('x')\n", "uses parse_expr"),
+        ("import sympy\nsympy.Symbol('x').subs\nsympy.lambdify\n", "uses lambdify"),
+    ],
+)
+def test_the_sympy_wrapper_may_use_only_what_it_lists(
+    tmp_path: Path, planted: str, expected: str
+) -> None:
+    (tmp_path / SYMPY_WRAPPER).write_text(planted)
+    found = fence(tmp_path)
+    assert found and any(expected in problem for problem in found), found
+
+
+def test_what_the_wrapper_uses_passes(tmp_path: Path) -> None:
+    (tmp_path / SYMPY_WRAPPER).write_text(
+        "import sympy\n"
+        "V = sympy.__version__\n"
+        "x = sympy.Add(sympy.Symbol('a'), sympy.Rational(1, 2))\n"
+    )
     assert fence(tmp_path) == []
