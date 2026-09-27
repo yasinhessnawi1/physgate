@@ -23,7 +23,11 @@ in this order, stopping at the first failure:
 4. the power of the radian in its root units is the kind's (this gate's rule);
 5. its unit has the kind's factor shape, where the kind has one: a torque is a
    force times a length, an energy an energy unit or a power times a time (this
-   gate's rule).
+   gate's rule);
+6. its value has the kind's sign, where the kind declares one: a mass or a
+   power is never negative, a thermal resistance never zero or negative (this
+   gate's rule: a -6 W consumer otherwise cancels 6 W of real draw on its
+   supply).
 
 Additions and comparisons then need one kind, except for temperature, which has
 its own algebra: absolute minus absolute is a difference, absolute plus
@@ -90,6 +94,15 @@ def pint_message(exc: Exception) -> str:
 
 class UnitRefusedError(GateError):
     """A quantity or an expression the unit rules refuse, with the reason as prose."""
+
+
+class SignRefusedError(UnitRefusedError):
+    """A quantity whose value has a sign its kind never has."""
+
+    def __init__(self, message: str, *, wanted: str, **context: str) -> None:
+        """Keep ``wanted``, what the kind's values may be, beside the context."""
+        super().__init__(message, **context)
+        self.wanted = wanted
 
 
 @dataclass(frozen=True)
@@ -163,7 +176,7 @@ def _shape_holds(shape: str, quantity: Any) -> bool:
 
 
 def measure(kind: Kind, value: float | int, unit: str) -> Measured:
-    """Measure one quantity against its kind: rules 1 to 5, in order.
+    """Measure one quantity against its kind: rules 1 to 6, in order.
 
     Raises:
         UnitRefusedError: the unit does not parse, or one of this gate's own rules
@@ -194,6 +207,16 @@ def measure(kind: Kind, value: float | int, unit: str) -> Measured:
     if kind.shape is not None and not _shape_holds(kind.shape, quantity):
         msg = f"{_said(kind.name)} is written as {kind.shape}, not {unit!r} ({OWN_RULE})"
         raise UnitRefusedError(msg, unit=unit, kind=kind.name)
+    magnitude = converted.magnitude
+    if (kind.sign == "nonnegative" and magnitude < 0) or (
+        kind.sign == "positive" and magnitude <= 0
+    ):
+        bound = "at least 0" if kind.sign == "nonnegative" else "more than 0"
+        never = "negative" if kind.sign == "nonnegative" else "zero or negative"
+        msg = f"{_said(kind.name)} is never {never} ({OWN_RULE})"
+        raise SignRefusedError(
+            msg, wanted=f"of {bound} {kind.canonical}", unit=unit, kind=kind.name
+        )
     return Measured(kind=kind, quantity=converted)
 
 

@@ -8,7 +8,8 @@ At subtask scope, over the nodes the attempt wrote:
    declared units, as written: its two sides must be in units pint can compare,
    and pint's own refusal, naming the expression and both sides, is the finding;
 3. every known quantity not already refused must meet its kind (the rules in
-   :mod:`physgate.gate.units`).
+   :mod:`physgate.gate.units`), its sign included: a negative mass or power is
+   refused here.
 
 A relation no check judges (its ``judged_by`` is ``None``) has only its units
 checked here, and a record says so: whether it holds is counted as unchecked.
@@ -29,6 +30,7 @@ from physgate.gate.units import (
     PINT,
     PINT_ERRORS,
     UREG,
+    SignRefusedError,
     UnitRefusedError,
     measure,
     parse,
@@ -226,6 +228,10 @@ def run(ctx: CheckContext) -> CheckRun:
                 observations.append(
                     _quantity_finding(view, node_id, name, pint_message(exc), kind.canonical)
                 )
+            except SignRefusedError as exc:
+                observations.append(
+                    _quantity_finding(view, node_id, name, str(exc), kind.canonical, exc.wanted)
+                )
             except UnitRefusedError as exc:
                 observations.append(
                     _quantity_finding(view, node_id, name, str(exc), kind.canonical)
@@ -234,7 +240,12 @@ def run(ctx: CheckContext) -> CheckRun:
 
 
 def _quantity_finding(
-    view: GraphView, node_id: str, name: str, reason: str, wanted: str
+    view: GraphView,
+    node_id: str,
+    name: str,
+    reason: str,
+    wanted: str,
+    value_wanted: str | None = None,
 ) -> Observation:
     q = view.nodes[node_id].quantities[name]
     kind = kind_of(name)
@@ -245,7 +256,7 @@ def _quantity_finding(
         node=node_id,
         module=view.module_of(node_id),
         value=NumericOutput(value=q.value, unit=q.unit),
-        expected=f"{what} in {wanted}",
+        expected=f"{what} {value_wanted}" if value_wanted else f"{what} in {wanted}",
         message=f"{name} of {node_id} is {q.value} {q.unit}, and {what} cannot be: {reason}",
         details=UnitDetails(
             expression=f"{name}({node_id}) = {q.value} {q.unit}",

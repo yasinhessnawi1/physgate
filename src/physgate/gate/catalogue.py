@@ -52,7 +52,10 @@ class Kind(_Frozen):
     structure a unit must have where the dimension alone cannot say: a torque is a
     force times a length, an energy is an energy unit or a power times a time.
     ``absolute`` marks an absolute temperature, the one kind an offset unit such
-    as the degree Celsius may be written in.
+    as the degree Celsius may be written in. ``sign`` is what the kind's values
+    may be, in its canonical unit: a mass or a power is never negative, and a
+    thermal resistance is never zero or negative; a kind that may take either
+    sign (a force, a position, a current) says ``any``.
     """
 
     name: _Text
@@ -60,6 +63,7 @@ class Kind(_Frozen):
     angle: Literal[0, 1] = 0
     shape: Literal["force*length", "energy"] | None = None
     absolute: bool = False
+    sign: Literal["any", "nonnegative", "positive"] = "any"
     source: _Text
 
 
@@ -78,9 +82,9 @@ def _kinds(*kinds: Kind) -> Mapping[str, Kind]:
 KINDS: Mapping[str, Kind] = _kinds(
     Kind(name="current", canonical="A", source=SI_BROCHURE),
     Kind(name="voltage", canonical="V", source=SI_BROCHURE),
-    Kind(name="power", canonical="W", source=SI_BROCHURE),
+    Kind(name="power", canonical="W", sign="nonnegative", source=SI_BROCHURE),
     Kind(name="energy", canonical="J", shape="energy", source=SI_BROCHURE),
-    Kind(name="mass", canonical="kg", source=SI_BROCHURE),
+    Kind(name="mass", canonical="kg", sign="nonnegative", source=SI_BROCHURE),
     Kind(name="length", canonical="m", source=SI_BROCHURE),
     Kind(name="force", canonical="N", source=SI_BROCHURE),
     Kind(name="torque", canonical="N*m", shape="force*length", source=SI_BROCHURE),
@@ -88,7 +92,7 @@ KINDS: Mapping[str, Kind] = _kinds(
     Kind(name="angular_velocity", canonical="rad/s", angle=1, source=SI_BROCHURE),
     Kind(name="temperature", canonical="K", absolute=True, source=SI_BROCHURE),
     Kind(name="temperature_difference", canonical="K", source=SI_BROCHURE),
-    Kind(name="thermal_resistance", canonical="K/W", source=SI_BROCHURE),
+    Kind(name="thermal_resistance", canonical="K/W", sign="positive", source=SI_BROCHURE),
     Kind(name="dimensionless", canonical="dimensionless", source=SI_BROCHURE),
 )
 

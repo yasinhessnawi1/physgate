@@ -58,6 +58,10 @@ PASSING: list[tuple[str, Callable[[], Measured]]] = [
         lambda: add(q("temperature", 85, "degC"), q("temperature_difference", 30, "K")),
     ),
     ("a current in mA", lambda: q("current", 2400, "mA")),
+    ("a power of zero", lambda: q("power", 0, "W")),
+    ("a mass of zero", lambda: q("mass", 0, "kg")),
+    ("a negative force", lambda: q("force", -9.8, "N")),
+    ("a negative position", lambda: q("length", -0.1, "m")),
 ]
 
 REFUSED: list[tuple[str, Callable[[], Measured], str]] = [
@@ -103,6 +107,14 @@ REFUSED: list[tuple[str, Callable[[], Measured], str]] = [
         "two absolute temperatures added",
         lambda: add(q("temperature", 85, "degC"), q("temperature", 25, "degC")),
         "never added",
+    ),
+    ("a negative power", lambda: q("power", -6, "W"), "a power is never negative"),
+    ("a negative power in mW", lambda: q("power", -1, "mW"), "a power is never negative"),
+    ("a negative mass", lambda: q("mass", -0.5, "kg"), "a mass is never negative"),
+    (
+        "a thermal resistance of zero",
+        lambda: q("thermal_resistance", 0, "K/W"),
+        "a thermal resistance is never zero or negative",
     ),
     ("a current written in V", lambda: q("current", 2.4, "V"), "cannot convert"),
     ("a unit pint cannot read", lambda: q("current", 1, "foo"), "not one pint can read"),
@@ -410,3 +422,37 @@ def test_an_ambient_written_as_a_difference_is_refused_before_its_margin_can_mis
     assert at_system.verdict == "fail" and at_system.failing_check == "thermal"
     (margin,) = [r for r in at_system.checks if r.name == "thermal" and r.outcome == "fail"]
     assert margin.value is not None and (margin.value.value, margin.value.unit) == (-55, "K")
+
+
+def test_a_negative_consumer_cannot_hide_real_draw_on_its_supply(tmp_path: Path) -> None:
+    # A -6 W sink beside a 15 W motor on a 10 W supply: the sum is 9 W and the
+    # budget balances. The sign rule refuses the -6 W where it is written.
+    payloads = (
+        node("electrical.drive", kind="module", quantities={"power_supply": (10, "W")}),
+        node(
+            "electrical.motor",
+            quantities={"power_draw": (15, "W")},
+            constrains=["electrical.drive"],
+        ),
+        node(
+            "electrical.sink",
+            quantities={"power_draw": (-6, "W")},
+            constrains=["electrical.drive"],
+        ),
+    )
+    ran = run_check(tmp_path, *payloads)
+    (finding,) = [o for o in ran.observations if o.outcome == "fail"]
+    assert finding.node == "electrical.sink" and finding.expected == "a power of at least 0 W"
+    assert "a power is never negative (a rule of this gate" in finding.message
+    graph(tmp_path / "r", *payloads)
+    result = PhysicsGate().run(GraphView.read(tmp_path / "r", 0), ["subtask", "module"], "on")
+    assert result.verdict == "fail" and result.failing_check == "units"
+
+
+def test_every_kind_declares_its_sign_and_the_three_that_have_one_say_so() -> None:
+    signs = {name: kind.sign for name, kind in KINDS.items() if kind.sign != "any"}
+    assert signs == {
+        "power": "nonnegative",
+        "mass": "nonnegative",
+        "thermal_resistance": "positive",
+    }
