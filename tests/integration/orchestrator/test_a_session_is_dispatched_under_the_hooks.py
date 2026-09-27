@@ -175,6 +175,9 @@ def test_a_session_reads_works_and_proposes_under_the_generated_settings(
     assert facts.owner_is_session_user  # the same user could make it writable again
     # The system tier is recorded as it is.
     assert [f.path for f in facts.system_managed] == [str(p) for p in system_managed_paths()]
+    # The settings that keep the binary's served catalog and remote flags off, as recorded.
+    assert facts.traffic is not None
+    assert (facts.traffic.nonessential_traffic, facts.traffic.telemetry) == ("disabled", "disabled")
     assert report.managed_drift is None
 
 

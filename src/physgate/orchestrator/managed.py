@@ -29,11 +29,13 @@ import getpass
 import hashlib
 import json
 import os
+import re
 import stat
 import sys
 from pathlib import Path
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, StringConstraints
 
 #: Where the binary caches fetched remote settings, inside its configuration directory.
 REMOTE_CACHE = "remote-settings.json"
@@ -108,6 +110,65 @@ def system_managed_facts(
             )
         )
     return tuple(facts)
+
+
+class TrafficSettings(BaseModel):
+    """The session-environment settings that keep the binary's remote catalog and flags off.
+
+    Measured on the real subscription path (2.1.272, 27.09.2026): with non-essential
+    traffic disabled the served model catalog stays off, and with telemetry disabled so
+    do the remote feature flags. Either could otherwise change what a request carries
+    while the binary's version stays the same.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    nonessential_traffic: Literal["disabled", "enabled"]
+    telemetry: Literal["disabled", "enabled"]
+    measured: str = (
+        "served model catalog and remote feature flags measured off under these settings on "
+        "Claude Code 2.1.272, 27.09.2026, on the real subscription path"
+    )
+
+
+#: What the decomposition call's own debug log says; a closed vocabulary, so nothing the
+#: log holds besides these words (a credential included) can reach the record.
+Observed = Literal["off", "not reported off"]
+
+
+class ObservedTraffic(BaseModel):
+    """The state of the binary's served model catalog and remote feature flags, as observed."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    served_catalog: Observed
+    #: The reason the log gave for an off catalog (``essential_traffic``), if one.
+    served_catalog_reason: Annotated[str, StringConstraints(pattern=r"^[a-z_]{1,40}$")] | None
+    feature_flags: Observed
+
+    def all_off(self) -> bool:
+        """Whether both are off, the only state a run proceeds under."""
+        return self.served_catalog == "off" and self.feature_flags == "off"
+
+
+_SERVED = re.compile(r"\[servedCatalog\] (\S+)(?: \(([a-z_]{1,40})\))?")
+_FLAGS_OFF = "GrowthBook is off for this session"
+
+
+def observe_traffic(debug_log: str) -> ObservedTraffic:
+    """Read the served-catalog and feature-flag state from one invocation's debug log.
+
+    Either reads ``not reported off`` unless the log says off, and says nothing else:
+    a line in another form, a second line saying anything but off, or no line at all.
+    """
+    served = [m for line in debug_log.splitlines() if (m := _SERVED.search(line))]
+    off = bool(served) and all(m.group(1) == "off" for m in served)
+    reasons = {m.group(2) for m in served if m.group(2)}
+    return ObservedTraffic(
+        served_catalog="off" if off else "not reported off",
+        served_catalog_reason=reasons.pop() if off and len(reasons) == 1 else None,
+        feature_flags="off" if _FLAGS_OFF in debug_log else "not reported off",
+    )
 
 
 def policy_limits_digest(config_dir: Path) -> str | None:

@@ -17,9 +17,13 @@ from pathlib import Path
 import pytest
 from loop_fakes import FakeDispatcher, Rig, plan
 
+from physgate.orchestrator.decompose import read_debug_log
 from physgate.orchestrator.events import Decomposed, Halted, Incident, SessionEnded, read_events
+from physgate.orchestrator.invocation import traffic_settings
 from physgate.orchestrator.managed import (
+    ObservedTraffic,
     drift,
+    observe_traffic,
     policy_limits_change,
     policy_limits_digest,
     system_managed_facts,
@@ -162,3 +166,64 @@ def test_a_session_under_other_policy_limits_is_an_incident_before_anything_is_t
     (ended,) = [e for e in events if isinstance(e, SessionEnded)]
     assert ended.policy_limits_sha256 == session  # what the session received is on the record
     assert not any(e.kind in ("gate_ran", "merged") for e in events)
+
+
+#: Lines as the pinned binary writes them, from its debug log on the real path.
+LOG_OFF = (
+    "2026-09-27T13:58:40.9Z [DEBUG] [servedCatalog] off (essential_traffic)\n"
+    "2026-09-27T13:58:41.0Z [DEBUG] hooks modules not loaded: rollout flag "
+    "(tengu_plugin_hooks_modules) is off, from the default (GrowthBook is off for this "
+    "session: a third-party provider, or telemetry opted out)\n"
+)
+TOKEN = "sk-ant-oat01-" + "Q" * 40
+
+
+def test_the_debug_log_s_off_lines_read_as_off() -> None:
+    seen = observe_traffic(LOG_OFF)
+    assert seen == ObservedTraffic(
+        served_catalog="off", served_catalog_reason="essential_traffic", feature_flags="off"
+    )
+    assert seen.all_off()
+
+
+@pytest.mark.parametrize(
+    "log",
+    [
+        "",  # no line at all
+        "[servedCatalog] on (served)\n",
+        "[servedCatalog] off (essential_traffic)\n[servedCatalog] applied v7\n",
+        "[servedCatalog] fetching\n",
+    ],
+    ids=["missing", "on", "off-then-other", "another-form"],
+)
+def test_anything_but_an_off_line_is_not_reported_off(log: str) -> None:
+    seen = observe_traffic(log + "GrowthBook is off for this session\n")
+    assert seen.served_catalog == "not reported off" and not seen.all_off()
+    assert observe_traffic("[servedCatalog] off (essential_traffic)\n").feature_flags == (
+        "not reported off"
+    )
+
+
+def test_what_is_kept_from_the_log_can_hold_no_credential() -> None:
+    logs = [
+        f"[servedCatalog] {TOKEN} (essential_traffic)\nGrowthBook is off for this session\n",
+        f"[servedCatalog] off ({TOKEN})\nGrowthBook is off for this session {TOKEN}\n",
+        f"{TOKEN}\n{LOG_OFF}Authorization: Bearer {TOKEN}\n",
+    ]
+    for log in logs:
+        kept = observe_traffic(log).model_dump_json()
+        assert TOKEN not in kept and "sk-ant" not in kept
+
+
+def test_the_debug_log_is_removed_once_read(tmp_path: Path) -> None:
+    log = tmp_path / "debug.log"
+    log.write_text(LOG_OFF + f"Bearer {TOKEN}\n")
+    assert read_debug_log(log).all_off()
+    assert not log.exists()
+    assert read_debug_log(log) == observe_traffic("")  # a missing log: nothing reported off
+
+
+def test_the_traffic_settings_are_read_from_the_session_environment() -> None:
+    settings = traffic_settings()
+    assert (settings.nonessential_traffic, settings.telemetry) == ("disabled", "disabled")
+    assert "2.1.272" in settings.measured

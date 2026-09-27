@@ -43,6 +43,7 @@ from physgate.orchestrator.common import (
 )
 from physgate.orchestrator.exceptions import CorruptEventLogError, RunConfigError
 from physgate.orchestrator.install import InstallFacts
+from physgate.orchestrator.managed import ObservedTraffic
 from physgate.orchestrator.protocols import GateResult, ReviewResult, Usage
 from physgate.orchestrator.repair import Finding
 from physgate.orchestrator.trajectory import Seal
@@ -377,6 +378,9 @@ class Decomposed(_Event):
     #: The digest of the policy limits the call received, ``None`` if none: the
     #: baseline every session of the run is held to.
     policy_limits_sha256: Sha256 | None = None
+    #: The binary's served catalog and remote feature flags as the call's debug log
+    #: showed them; ``None`` for a run started with no call.
+    observed_traffic: ObservedTraffic | None = None
 
 
 class WriteIntended(_Event):

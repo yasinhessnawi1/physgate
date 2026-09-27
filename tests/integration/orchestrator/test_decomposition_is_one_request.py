@@ -377,3 +377,41 @@ def test_a_call_that_received_no_policy_limits_records_none(tmp_path: Path) -> N
     assert outcome.ok and outcome.policy_limits_sha256 is None
     (decomposed,) = [e for e in read_events(run_dir / "events.jsonl") if isinstance(e, Decomposed)]
     assert decomposed.policy_limits_sha256 is None
+
+
+def test_the_call_s_debug_log_is_read_for_the_catalog_and_flags_and_then_removed(
+    tmp_path: Path,
+) -> None:
+    # The real binary's own log, against the scripted endpoint: both off, as measured.
+    _, outcome, run_dir = decompose_once(tmp_path, 7, [tool("StructuredOutput", **PLAN)])
+    assert outcome.ok, outcome.detail
+    seen = outcome.observed_traffic
+    assert seen is not None and seen.all_off()
+    assert seen.served_catalog_reason == "essential_traffic"
+    (decomposed,) = [e for e in read_events(run_dir / "events.jsonl") if isinstance(e, Decomposed)]
+    assert decomposed.observed_traffic == seen
+    assert not (run_dir / "decomposition" / "debug.log").exists()
+    assert not list(run_dir.rglob("debug.log"))
+
+
+def test_a_catalog_or_flags_not_reported_off_fail_the_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import physgate.orchestrator.decompose as decompose_module
+    from physgate.orchestrator.managed import ObservedTraffic
+
+    real = decompose_module.read_debug_log
+
+    def flags_on(path: Path) -> ObservedTraffic:
+        real(path)  # read and removed as usual; then reported as the flags being on
+        return ObservedTraffic(
+            served_catalog="off", served_catalog_reason=None, feature_flags="not reported off"
+        )
+
+    monkeypatch.setattr(decompose_module, "read_debug_log", flags_on)
+    _, outcome, run_dir = decompose_once(tmp_path, 7, [tool("StructuredOutput", **PLAN)])
+    assert not outcome.ok and outcome.cause == "managed_settings_changed"
+    assert "remote feature flags are not reported off" in outcome.detail
+    (halted,) = [e for e in read_events(run_dir / "events.jsonl") if isinstance(e, Halted)]
+    assert halted.reason == "decomposition_failed"
+    assert not (run_dir / "decomposition" / "debug.log").exists()

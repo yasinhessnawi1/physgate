@@ -27,6 +27,7 @@ from physgate.orchestrator.events import (
     TokensUsed,
 )
 from physgate.orchestrator.exceptions import RunConfigError, RunStateError
+from physgate.orchestrator.managed import ObservedTraffic
 from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.queue import ApprovalQueue
 from physgate.orchestrator.replay import RunState, project_ledger
@@ -67,6 +68,7 @@ class DecompositionSummary(BaseModel):
     spec_commit: NonEmptyStr
     head_revision: int
     policy_limits_sha256: str | None = None
+    observed_traffic: ObservedTraffic | None = None
 
 
 class RunRecord:
@@ -162,6 +164,7 @@ class RunRecord:
                     spec_commit=decomposed.spec_commit,
                     head_revision=decomposed.head_revision,
                     policy_limits_sha256=decomposed.policy_limits_sha256,
+                    observed_traffic=decomposed.observed_traffic,
                 )
             )
         for entry in plan:

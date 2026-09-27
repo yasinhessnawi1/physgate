@@ -32,7 +32,8 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from physgate.orchestrator.exceptions import InvocationError
-from physgate.orchestrator.managed import SystemManagedFile, system_managed_facts
+from physgate.orchestrator.invocation import traffic_settings
+from physgate.orchestrator.managed import SystemManagedFile, TrafficSettings, system_managed_facts
 
 #: Every file the build put in the installation, by path and sha256: the
 #: interpreter's links, the ``bin`` scripts every hook runs through, ``pyvenv.cfg``,
@@ -77,6 +78,9 @@ class InstallFacts(BaseModel):
     #: The sha256 of the installation's manifest when the run recorded it: a later
     #: step or resume holds the manifest to this, in the run's own protected log.
     manifest_sha256: str | None = None
+    #: The environment settings that keep the binary's served catalog and remote
+    #: feature flags off; what they are observed to be is on the decomposition line.
+    traffic: TrafficSettings | None = None
 
 
 def prepare_install(dest: Path, project_root: Path) -> Path:
@@ -326,4 +330,5 @@ def install_facts(dest: Path, state_dir: Path) -> InstallFacts:
         state_on_local_disk=local,
         system_managed=system_managed_facts(),
         manifest_sha256=manifest_digest(dest),
+        traffic=traffic_settings(),
     )

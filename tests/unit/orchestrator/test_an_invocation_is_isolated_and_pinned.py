@@ -27,6 +27,7 @@ def test_the_decomposition_call_offers_no_tool_and_one_turn(tmp_path: Path) -> N
         session_id="abc",
         settings=tmp_path / "settings.json",
         effort="low",
+        debug_file=tmp_path / "debug.log",
     )
     pairs = {argv[i]: argv[i + 1] for i in range(1, len(argv) - 1) if argv[i].startswith("--")}
     assert pairs["--setting-sources"] == ""
@@ -37,6 +38,7 @@ def test_the_decomposition_call_offers_no_tool_and_one_turn(tmp_path: Path) -> N
     assert pairs["--session-id"] == "abc"
     assert pairs["--json-schema"] == "{}"
     assert pairs["--effort"] == "low"  # the run's level, not the binary's catalog default
+    assert argv[argv.index("--debug-file") + 1] == str(tmp_path / "debug.log")
     assert "--include-partial-messages" in argv  # each message's final usage
     assert "--resume" not in argv
 

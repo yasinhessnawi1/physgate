@@ -19,6 +19,7 @@ import shutil
 from pathlib import Path
 
 from physgate.orchestrator.exceptions import InvocationError
+from physgate.orchestrator.managed import TrafficSettings
 
 #: The Claude Code version the headless contract was measured on.
 PINNED_VERSION = "2.1.272"
@@ -65,13 +66,16 @@ def decomposition_argv(
     session_id: str,
     settings: Path,
     effort: str,
+    debug_file: Path,
 ) -> list[str]:
     """The run's one model call: no tools but the structured answer, one turn.
 
     With one turn the call is exactly one request: a valid answer succeeds, and a
     plain-text or schema-violating one ends the call instead of the binary asking
     again on its own (both measured). The effort level is the run's, never the
-    binary's default, which comes from a catalog its version does not pin.
+    binary's default, which comes from a catalog its version does not pin. The call
+    writes the binary's debug log, from which the state of that catalog and of the
+    remote feature flags is read (measured not to change the request body).
     """
     return [
         binary,
@@ -98,6 +102,8 @@ def decomposition_argv(
         "--verbose",
         # Each message's final usage arrives only in its message_delta event.
         "--include-partial-messages",
+        "--debug-file",
+        str(debug_file),
     ]
 
 
@@ -133,6 +139,25 @@ def isolated_env(
     if api_key:
         env["ANTHROPIC_API_KEY"] = api_key
     return env
+
+
+def traffic_settings() -> TrafficSettings:
+    """The traffic settings every invocation's environment carries, read from that environment."""
+    env = isolated_env(
+        home=Path("/"),
+        config_dir=Path("/"),
+        binary="claude",
+        max_retries=0,
+        max_output_tokens=1,
+        base_url=None,
+        api_key=None,
+    )
+    nonessential = env.get("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC") == "1"
+    telemetry = env.get("DISABLE_TELEMETRY") == "1"
+    return TrafficSettings(
+        nonessential_traffic="disabled" if nonessential else "enabled",
+        telemetry="disabled" if telemetry else "enabled",
+    )
 
 
 def role_argv(
