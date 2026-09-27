@@ -117,6 +117,10 @@ def test_each_attempt_ends_merged_rejected_infrastructure_or_open() -> None:
         spawn("s3", 1),
         {"kind": "merged", "subtask_id": "s3", "attempt": 1},
         spawn("s4", 1),
+        # Started over after an infrastructure end, and nothing decided since: open.
+        spawn("s5", 1),
+        {"kind": "session_ended", "outcome": "infrastructure", "subtask_id": "s5", "attempt": 1},
+        spawn("s5", 1),
         # A decision on an attempt never dispatched is not an end of any attempt.
         {"kind": "merged", "subtask_id": "s9", "attempt": 1},
     ]
@@ -126,4 +130,5 @@ def test_each_attempt_ends_merged_rejected_infrastructure_or_open() -> None:
         ("s2", 1): "infrastructure",
         ("s3", 1): "merged",
         ("s4", 1): "open",
+        ("s5", 1): "open",
     }
