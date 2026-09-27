@@ -110,6 +110,18 @@ def test_the_owners_legal_proposal_lands(tmp_path: Path) -> None:
     _unchanged(tmp_path, store)
 
 
+def test_a_proposal_that_changes_a_nodes_kind_is_refused_and_nothing_changes(
+    tmp_path: Path,
+) -> None:
+    payload = _node("electrical.motor", "electrical", kind="module")
+    run, store = _run(tmp_path, _proposal("electrical.motor.json", payload))
+    (reason,) = _graph_refusals(run)
+    assert graph.KIND_CHANGE in reason and "created as a component" in reason
+    assert graph.KIND_CHANGE in run.told_after(1)
+    assert not (run.worktree / graph.PROPOSALS_DIR / "electrical.motor.json").exists()
+    _unchanged(tmp_path, store)
+
+
 def test_a_bare_number_is_refused_with_the_schema_error(tmp_path: Path) -> None:
     payload = {**_node("electrical.driver", "electrical"), "quantities": {"stall_current": 2.4}}
     run, store = _run(tmp_path, _proposal("electrical.driver.json", payload))

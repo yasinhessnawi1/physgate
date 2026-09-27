@@ -102,6 +102,13 @@ def test_handing_ones_own_node_to_another_role_is_refused(config: SessionConfig)
     assert graph.OWNER_CHANGE in told and "assigned when the task is decomposed" in told
 
 
+def test_changing_the_kind_of_ones_own_node_is_refused(config: SessionConfig) -> None:
+    # The store would accept this from the owner. The hook does not: a node's
+    # kind is fixed when it is created, like its owner.
+    told = _write(config, "electrical.motor.json", {**node("electrical.motor"), "kind": "module"})
+    assert graph.KIND_CHANGE in told and "a node's kind is fixed when it is created" in told
+
+
 def test_keeping_the_owner_while_changing_the_node_is_allowed(config: SessionConfig) -> None:
     changed = node("electrical.motor", "electrical", constrains=["power.budget"])
     assert _write(config, "electrical.motor.json", changed) == "allow"

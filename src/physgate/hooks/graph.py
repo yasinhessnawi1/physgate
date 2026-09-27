@@ -73,6 +73,8 @@ UNCHECKABLE = (
 #: Not one of the store's reasons: the store accepts this write, and the hook
 #: is stricter on purpose (see ``_owner_does_not_change``).
 OWNER_CHANGE = "owner_change"
+#: Not one of the store's reasons either (see ``_kind_does_not_change``).
+KIND_CHANGE = "kind_change"
 
 
 def _owner_is_the_session(
@@ -117,8 +119,34 @@ def _owner_does_not_change(
     )
 
 
+def _kind_does_not_change(
+    proposal: dict[str, Any], current: Head | None, config: ConfigView
+) -> tuple[str, str] | None:
+    """A node keeps the kind it was created with, as it keeps its owner.
+
+    The store accepts a kind change from the owner. The physics gate holds a node
+    to relations that follow from its kind (a module's declared mass is the sum
+    of its parts'), so a node rewritten under another kind would step out of a
+    relation it failed. Refused here, and again when the orchestrator applies
+    proposals.
+    """
+    if current is None:
+        return None
+    was, now = current[2].get("kind"), proposal.get("kind")
+    if now == was:
+        return None
+    return KIND_CHANGE, (
+        f"{proposal.get('id')} was created as a {was}, and this proposal would make it a "
+        f"{now}; a node's kind is fixed when it is created, like its owner"
+    )
+
+
 #: Checked in order; the first to object refuses the proposal.
-OWNERSHIP_RULES: tuple[OwnershipRule, ...] = (_owner_is_the_session, _owner_does_not_change)
+OWNERSHIP_RULES: tuple[OwnershipRule, ...] = (
+    _owner_is_the_session,
+    _owner_does_not_change,
+    _kind_does_not_change,
+)
 
 
 def _check(proposal: object, file_stem: str, config: ConfigView) -> tuple[str, str] | None:
