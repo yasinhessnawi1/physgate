@@ -23,7 +23,7 @@ session is started with them.
 | `paths.py` | No file tool writes a protected path, and nothing reads the held-out tier |
 | `shell_paths.py`, `shell.py` | No shell command names a protected path unless it only reads; no background jobs; no nested Claude Code. `shell.py` splits a command into the commands it would run |
 | `git_ops.py` | No force push, no skipping the repository's hooks, no rebase, no hard reset beyond the session's own branch, no ref writes |
-| `graph.py`, `journal_view.py` | A graph node reaches the store only as a proposal file, checked for owner and schema as it is written; the journal is read without ever opening a store |
+| `graph.py`, `journal_view.py` | A graph node reaches the store only as a proposal file, checked for owner, kind and schema as it is written; the journal is read without ever opening a store |
 | `reading.py` | No tool but Read until the required reading is done (ARCH-020) |
 | `token_ceiling.py` | Every tool refused while the always-loaded set is over its ceiling (ARCH-023) |
 | `sentinel.py`, `snapshot.py` | The second layer: every protected path compared at every hook, and put back when it moved |
@@ -144,7 +144,7 @@ writing the whole node to `.physgate/proposals/<node id>.json` in its worktree
 with the Write or Edit tool. The hook checks it as it is written, in the store's
 order and with the store's reasons: a legal identifier matching the file name;
 ownership (a new node names the session's role, an existing node is already
-owned by it and keeps that owner); no write to an interface node; every
+owned by it and keeps that owner and its kind); no write to an interface node; every
 quantity a value with a unit, a source and a writer; the whole node valid. The
 current owner is read from the journal, opened read-only; a hook never opens a
 store, because opening one runs recovery, which writes.
