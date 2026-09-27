@@ -164,6 +164,12 @@ def write_build_record(dest: Path) -> None:
     os.chmod(record, stat.S_IRUSR)
 
 
+def manifest_entries(dest: Path) -> int:
+    """How many files ``dest``'s manifest records; 0 if it has none."""
+    path = Path(dest) / MANIFEST_NAME
+    return len(json.loads(path.read_text())) if path.is_file() else 0
+
+
 def manifest_digest(dest: Path) -> str | None:
     """The sha256 of ``dest``'s manifest, or ``None`` if it has none."""
     path = Path(dest) / MANIFEST_NAME

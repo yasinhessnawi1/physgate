@@ -435,6 +435,20 @@ class EnvironmentRecorded(_Event):
     facts: InstallFacts
 
 
+class InstallChecked(_Event):
+    """The hooks' installation was checked against its build, or built, and how long it took.
+
+    Checked at every run and resume before anything is spawned; the time is the
+    run's, not a session's. ``entries`` is the size of the manifest it was held to.
+    """
+
+    kind: Literal["install_checked"] = "install_checked"
+    path: NonEmptyStr
+    action: Literal["checked", "built"]
+    seconds: Annotated[float, Field(ge=0)]
+    entries: Annotated[int, Field(ge=0)]
+
+
 class LeftoverStopped(_Event):
     """A session a previous orchestrator left running was found and stopped.
 
@@ -518,6 +532,7 @@ Event = Annotated[
     | Resumed
     | Decomposed
     | EnvironmentRecorded
+    | InstallChecked
     | LeftoverStopped
     | LeftoverRead
     | WorktreeRemoved

@@ -23,9 +23,11 @@ import hashlib
 import json
 import os
 import sys
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 from pydantic import ValidationError
 
@@ -39,6 +41,7 @@ from physgate.orchestrator.decompose import binary_version, call, require_fresh,
 from physgate.orchestrator.dispatch import ClaudeDispatcher
 from physgate.orchestrator.events import (
     EnvironmentRecorded,
+    InstallChecked,
     LeftoverRead,
     SessionEnded,
     StageEntered,
@@ -49,6 +52,7 @@ from physgate.orchestrator.exceptions import InvocationError, OrchestratorError,
 from physgate.orchestrator.gate_events import gate_events
 from physgate.orchestrator.git import head_of
 from physgate.orchestrator.install import (
+    manifest_entries,
     prepare_install,
     require_current,
     require_recorded_manifest,
@@ -301,12 +305,15 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
             msg = "the run was never started; decompose it first"
             raise RunStateError(msg, run_dir=str(run_dir))
         install = args.install.resolve()
-        if install.exists():
+        started = time.monotonic()
+        action: Literal["checked", "built"] = "checked" if install.exists() else "built"
+        if action == "checked":
             require_current(install, _project_root())
             require_recorded_manifest(install, _recorded_manifest(run_dir, install))
             install_bin = install / "bin" / "physgate"
         else:
             install_bin = prepare_install(install, _project_root())
+        checked_in = time.monotonic() - started
         run = RunGit(repo=args.target.resolve(), run_dir=run_dir, run_id=config.run_id)
         store_root = run_dir / "store"
         plan = [e for e in read_events(run_dir / "events.jsonl") if isinstance(e, SubtaskPlanned)]
@@ -332,6 +339,16 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
     except OrchestratorError as exc:
         return _fail(str(exc), **exc.context)
     try:
+        # The check ran before the log was open; it is recorded now, before any spawn.
+        loop.record.emit(
+            InstallChecked(
+                **loop.record.envelope(),
+                path=str(install),
+                action=action,
+                seconds=checked_in,
+                entries=manifest_entries(install),
+            )
+        )
         step = loop.resume() if resume else loop.run()
         account = TokenAccount.from_events(loop.log.events)
         account.assert_no_routing()
