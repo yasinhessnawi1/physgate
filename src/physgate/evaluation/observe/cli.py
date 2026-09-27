@@ -2,8 +2,9 @@
 
 Each command reads through the one reader of its format and prints JSON. A
 refusal, or a record that does not hold, prints the error and its context on
-standard error and exits 2, as the orchestrator's commands do. ``rerun`` exits
-1 when the rerun did not reproduce the run.
+standard error and exits 2, as the orchestrator's commands do. ``rerun`` prints
+the rule that judged it and the divergence that decided, and exits 1 when the
+rerun did not reproduce the run.
 """
 
 from __future__ import annotations
@@ -85,7 +86,13 @@ def _rerun(args: argparse.Namespace, *, registrations: Registrations | None) -> 
         install=args.install,
         driver=through_the_command(registrations),
     )
-    _print(result, reproduced=result.reproduced)
+    first = result.first
+    _print(
+        result,
+        reproduced=result.reproduced,
+        rule=result.rule,
+        first=None if first is None else json.loads(first.model_dump_json()),
+    )
     return 0 if result.reproduced else 1
 
 

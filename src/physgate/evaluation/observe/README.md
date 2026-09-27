@@ -38,8 +38,9 @@ physgate compare  BASELINE CANDIDATE
 ```
 
 Output is JSON on standard output. A refusal, or a record that does not hold,
-prints `{"error": …, <context>}` on standard error and exits 2. `rerun` exits 1
-when the rerun did not reproduce the run.
+prints `{"error": …, <context>}` on standard error and exits 2. `rerun` prints
+the comparison with `reproduced`, the `rule` that judged it and the `first`
+divergence that decided, and exits 1 when the rerun did not reproduce the run.
 
 ## Reproduction
 

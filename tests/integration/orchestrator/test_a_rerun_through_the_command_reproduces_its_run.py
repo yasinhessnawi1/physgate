@@ -148,7 +148,7 @@ def test_a_scripted_run_rerun_through_the_command_reproduces_every_record(
         out = capsys.readouterr()
         assert code == 0, out.out[-4000:] + out.err
         shown = json.loads(out.out[out.out.rindex("\n{\n") + 1 :])
-        assert shown["reproduced"] is True
+        assert (shown["reproduced"], shown["rule"], shown["first"]) == (True, "exact", None)
         assert shown["recorded_manifest_id"] == same.recorded_manifest_id
 
         # One proposal with a bare number where a quantity belongs.

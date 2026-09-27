@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from observe_rig import fake_run, target_repo
+from observe_rig import fake_driver, fake_run, target_repo
 
 from physgate.cli import main
 from physgate.evaluation.observe.cost import read_trend
@@ -118,3 +118,24 @@ def test_a_rerun_refused_before_anything_runs_exits_two(
     where = ["--target", str(tmp_path / "target"), "--install", str(tmp_path / "install")]
     error = refused(capsys, ["rerun", str(run), "--brief", str(other), *common, *where])
     assert "brief" in error["error"] and not (tmp_path / "run-r").exists()
+
+
+def test_a_rerun_that_parts_exits_one_and_prints_its_rule_and_first_divergence(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import physgate.evaluation.observe.cli as observe_cli
+
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:9")
+    run = run_of(tmp_path)
+    brief = tmp_path / "brief.md"
+    brief.write_text(BRIEF)
+    elsewhere = tmp_path / "elsewhere"
+    driver = fake_driver(elsewhere, tmp_path / "target", bare={1})
+    monkeypatch.setattr(observe_cli, "through_the_command", lambda _registrations: driver)
+    argv = ["rerun", str(run), "--brief", str(brief), "--run-id", "run-r"]
+    where = ["--run-dir", str(elsewhere / "run-r"), "--target", str(tmp_path / "target")]
+    assert main([*argv, *where, "--install", str(tmp_path / "install")]) == 1
+    shown = json.loads(capsys.readouterr().out)
+    assert (shown["reproduced"], shown["rule"]) == (False, "exact")
+    assert (shown["first"]["record"], shown["first"]["field"]) == ("events", "attempt_commit")
+    assert shown["recorded_manifest_id"] == read_manifest(run).manifest_id
