@@ -671,3 +671,25 @@ def test_holding_moments_about_every_support_adds_nothing_the_per_number_test_la
             refused_by_old += 1
             assert check_equilibrium.rounding_miss(declared) is not None, declared
     assert refused_by_old > 1000
+
+
+def test_a_mount_whose_only_slack_is_in_its_moments_is_still_held_to_them(
+    tmp_path: Path,
+) -> None:
+    # Two fixed supports declare 5 N*m each, no force, and nothing stands on the
+    # mount. No declared force has slack, so no force's position gives a moment
+    # equation to test; the equation about the supports' centroid is what refuses
+    # the 10 N*m nobody balances.
+    ran = check(
+        tmp_path / "wrong",
+        support("bearing_a", 0, 0, moment=5),
+        support("bearing_b", 1, 0, moment=5),
+    )
+    (finding,) = ran.observations
+    assert finding.outcome == "fail" and "do not balance" in finding.message
+    ran = check(
+        tmp_path / "right",
+        support("bearing_a", 0, 0, moment=5),
+        support("bearing_b", 1, 0, moment=-5),
+    )
+    assert [o.outcome for o in ran.observations] == ["unchecked"]
