@@ -85,6 +85,21 @@ REFUSED: list[tuple[str, Callable[[], Measured], str]] = [
         "offset unit",
     ),
     (
+        "an absolute temperature written in delta_degC",
+        lambda: q("temperature", 40, "delta_degC"),
+        "not written in a temperature-difference unit",
+    ),
+    (
+        "an absolute temperature written in delta_degF",
+        lambda: q("temperature", 40, "delta_degF"),
+        "not written in a temperature-difference unit",
+    ),
+    (
+        "an absolute temperature written with the difference sign",
+        lambda: q("temperature", 40, "Δ°C"),
+        "not written in a temperature-difference unit",
+    ),
+    (
         "two absolute temperatures added",
         lambda: add(q("temperature", 85, "degC"), q("temperature", 25, "degC")),
         "never added",
@@ -343,3 +358,30 @@ def test_a_supply_nothing_draws_from_is_not_a_unit_error(tmp_path: Path) -> None
         "power_supply",
         "heat_rejection_capacity",
     }
+
+
+def test_an_ambient_written_as_a_difference_is_refused_before_its_margin_can_mislead(
+    tmp_path: Path,
+) -> None:
+    # 40 delta_degC reads as 40 K: the margin would come out 218.15 K when the true
+    # one, at an ambient of 40 degC, is -55 K. The unit check refuses it first.
+    def driver(ambient_unit: str) -> dict[str, Any]:
+        return node(
+            "electrical.driver_ic",
+            quantities={
+                "ambient_temperature": (40, ambient_unit),
+                "thermal_resistance": (50, "K/W"),
+                "heat_dissipation": (2, "W"),
+                "max_temperature": (85, "degC"),
+            },
+            constrains=["electrical.drive"],
+        )
+
+    graph(tmp_path / "d", node("electrical.drive", kind="module"), driver("delta_degC"))
+    refused = PhysicsGate().run(GraphView.read(tmp_path / "d", 0), ["subtask"], "on")
+    assert refused.verdict == "fail" and refused.failing_check == "units"
+    graph(tmp_path / "c", node("electrical.drive", kind="module"), driver("degC"))
+    at_system = PhysicsGate().run(GraphView.read(tmp_path / "c", 0), ["system"], "on")
+    assert at_system.verdict == "fail" and at_system.failing_check == "thermal"
+    (margin,) = [r for r in at_system.checks if r.name == "thermal" and r.outcome == "fail"]
+    assert margin.value is not None and (margin.value.value, margin.value.unit) == (-55, "K")

@@ -16,7 +16,10 @@ in this order, stopping at the first failure:
 1. its unit parses (pint's error);
 2. it converts to the kind's canonical unit (pint's error);
 3. an offset unit such as the degree Celsius appears only on an absolute
-   temperature (pint's error, provoked on purpose);
+   temperature (pint's error, provoked on purpose), and a difference unit such
+   as ``delta_degC`` never appears on one (this gate's rule: pint converts
+   40 delta_degC to 40 K, so an ambient of 40 degrees read as a difference would
+   be 273.15 K colder than written);
 4. the power of the radian in its root units is the kind's (this gate's rule);
 5. its unit has the kind's factor shape, where the kind has one: a torque is a
    force times a length, an energy an energy unit or a power times a time (this
@@ -134,6 +137,12 @@ def _root_angle(quantity: Any) -> int:
     return int(power)
 
 
+def _difference_units(quantity: Any) -> list[str]:
+    # pint defines a difference unit for each offset unit by prefixing its name
+    # with "delta_"; the parsed quantity carries the unit's full name.
+    return [name for name in quantity.units._units if name.startswith("delta_")]  # noqa: SLF001
+
+
 def _factors(quantity: Any) -> list[tuple[Any, Any]]:
     units = dict(quantity.units._units)  # noqa: SLF001 - no public view of the factors
     return [(UREG.Unit(name).dimensionality, power) for name, power in units.items()]
@@ -168,6 +177,13 @@ def measure(kind: Kind, value: float | int, unit: str) -> Measured:
     if not kind.absolute:
         # pint refuses arithmetic on an offset unit; provoking it is the test.
         quantity * 1  # noqa: B018 - the refusal is the point
+    elif _difference_units(quantity):
+        msg = (
+            f"{_said(kind.name)} is not written in a temperature-difference unit such as "
+            f"{unit!r}: pint reads {value} {unit} as {value} K above absolute zero, not "
+            f"as a temperature of {value} degrees ({OWN_RULE})"
+        )
+        raise UnitRefusedError(msg, unit=unit, kind=kind.name)
     if _root_angle(quantity) != kind.angle:
         msg = (
             f"{_said(kind.name)} is written with the radian to the power "
