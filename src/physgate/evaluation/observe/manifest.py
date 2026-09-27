@@ -212,6 +212,42 @@ def _artefacts(run_dir: Path, config: RunConfig, events: list[Event]) -> Artefac
     )
 
 
+def manifest_id_of(run_dir: Path, events: list[Event]) -> str:
+    """The run's manifest id, held to the digest its first event line carries.
+
+    Every reader that prints a number takes the id from here.
+
+    Raises:
+        ManifestError: there is no configuration, or it is not the one the run started under.
+    """
+    try:
+        manifest_id = hashlib.sha256((Path(run_dir) / "run.json").read_bytes()).hexdigest()
+    except FileNotFoundError:
+        msg = "the run directory holds no configuration"
+        raise ManifestError(msg, run_dir=str(run_dir)) from None
+    started = events[0] if events else None
+    if not isinstance(started, RunStarted) or started.config_sha256 != manifest_id:
+        msg = "the run's first line does not name the configuration recorded beside it"
+        raise ManifestError(msg, run_dir=str(run_dir), manifest_id=manifest_id)
+    return manifest_id
+
+
+def read_run_events(run_dir: Path) -> list[Event]:
+    """The run's event log, read fresh; a missing or damaged log is a domain error.
+
+    Raises:
+        ManifestError: the log is missing, or holds a line the orchestrator could not
+            have written.
+    """
+    try:
+        return read_events(Path(run_dir) / "events.jsonl")
+    except FileNotFoundError:
+        msg = "the run directory holds no event log"
+        raise ManifestError(msg, run_dir=str(run_dir)) from None
+    except OrchestratorError as exc:
+        raise ManifestError(str(exc), **exc.context) from None
+
+
 def read_manifest(run_dir: Path) -> RunManifest:
     """The run's manifest, assembled from its records and validated whole.
 
@@ -222,19 +258,12 @@ def read_manifest(run_dir: Path) -> RunManifest:
             configuration with the run's first line, a commit with its repository.
     """
     run_dir = Path(run_dir)
+    events = read_run_events(run_dir)
     try:
         config = load_run_config(run_dir / "run.json")
-        events = read_events(run_dir / "events.jsonl")
-    except FileNotFoundError:
-        msg = "the run directory holds no event log"
-        raise ManifestError(msg, run_dir=str(run_dir)) from None
     except OrchestratorError as exc:
         raise ManifestError(str(exc), **exc.context) from None
-    manifest_id = hashlib.sha256((run_dir / "run.json").read_bytes()).hexdigest()
-    started = events[0] if events else None
-    if not isinstance(started, RunStarted) or started.config_sha256 != manifest_id:
-        msg = "the run's first line does not name the configuration recorded beside it"
-        raise ManifestError(msg, run_dir=str(run_dir), manifest_id=manifest_id)
+    manifest_id = manifest_id_of(run_dir, events)
     defaults = BINARY_DEFAULTS.get(config.claude_version)
     if defaults is None:
         msg = "no measured defaults are recorded for the binary version this run used"

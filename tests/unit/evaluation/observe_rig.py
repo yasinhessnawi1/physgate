@@ -14,7 +14,9 @@ from __future__ import annotations
 import json
 import subprocess
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -300,6 +302,7 @@ def drive(
     gate: Gate | None = None,
     session_content: dict[int, str] | None = None,
     resume: bool = False,
+    clock: Callable[[], datetime] | None = None,
 ) -> str:
     """Drive a started run with the real loop and ports; return the step it ended on."""
     run_dir = root / cfg.run_id
@@ -319,6 +322,7 @@ def drive(
         merger=GitMerger(run, removal_timeout_s=60.0),
         graph=keeper,
         sleep=lambda _: None,
+        **({"clock": clock} if clock is not None else {}),
     )
     try:
         step = loop.resume() if resume else loop.run()
