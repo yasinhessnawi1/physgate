@@ -9,9 +9,10 @@ A mount is any node other nodes constrain as supports or as loads:
   and no ``mount_position`` loads the mount somewhere nobody said, so the mount
   is recorded as unchecked, naming it, rather than balanced without its weight.
 
-The declared reactions are held to the loads: the sum of forces and the sum of
-moments about the supports' centroid must each vanish, within the rounding the
-declared numbers can carry (the allowance in :mod:`physgate.gate.tolerances`).
+The declared reactions are held to the loads: the sum of forces, and the sum of
+moments about every support position, must each vanish within the rounding the
+declared numbers can carry (the allowance in :mod:`physgate.gate.tolerances`,
+made from that equation's own terms).
 A mount of pins at one point with a load off that point is refused as unstable
 before any of that, since a pin cannot resist a moment. A mount statics can solve
 alone is also solved, and a failure returns the solved reactions beside the
@@ -135,22 +136,59 @@ def _declared(view: GraphView, mount: _Mount) -> _Declared:
     return _Declared(problem, tuple(reactions))
 
 
-def _sums(declared: _Declared) -> tuple[Fraction, list[Fraction], Fraction, list[Fraction]]:
-    """Force residual and terms, moment residual and terms, of the declared reactions.
+@dataclass(frozen=True)
+class _Moments:
+    """The moment equation about one point: where, its residual, and its terms."""
 
-    Moments are taken about the supports' centroid, so the terms, and the
-    allowance made from them, are the mount's own lever arms wherever it sits.
+    about: str
+    x_m: Fraction
+    residual: Fraction
+    terms: list[Fraction]
+
+
+def _about(declared: _Declared, label: str, x_m: Fraction) -> _Moments:
+    problem = declared.problem
+    at = {s.node_id: s.x_m for s in problem.supports}
+    terms = (
+        [r.force_n * (at[r.support_id] - x_m) for r in declared.reactions]
+        + [r.moment_nm for r in declared.reactions]
+        + [-ld.force_n * (ld.x_m - x_m) for ld in problem.loads]
+    )
+    return _Moments(label, x_m, sum(terms, Fraction(0)), terms)
+
+
+def _ratio(m: _Moments) -> Fraction | None:
+    """How far past its allowance a moment residual is; ``None`` for a miss with none."""
+    allowance = rounding_allowance(m.terms)
+    if allowance == 0:
+        return None if m.residual != 0 else Fraction(0)
+    return abs(m.residual) / allowance
+
+
+def _sums(declared: _Declared) -> tuple[Fraction, list[Fraction], _Moments, bool]:
+    """The force residual and terms, the worst moment equation, and whether all moments hold.
+
+    The moment equation is held about **every support position**, each against
+    the allowance made from its own terms. A mount in equilibrium is in
+    equilibrium about every point, so this refuses nothing a correct declaration
+    passes; but the allowance about any one point grows with the lever arms to
+    it, and a support that carries nothing still lengthens the arms to the point
+    it stands at. Held about every support, no support the declaration adds can
+    widen the allowance about the others. A mount with no support is held about
+    its loads' centroid.
     """
     problem = declared.problem
-    ref = reference_point(problem)
-    arm = {s.node_id: s.x_m - ref for s in problem.supports}
     force_terms = [r.force_n for r in declared.reactions] + [-ld.force_n for ld in problem.loads]
-    moment_terms = (
-        [r.force_n * arm[r.support_id] for r in declared.reactions]
-        + [r.moment_nm for r in declared.reactions]
-        + [-ld.force_n * (ld.x_m - ref) for ld in problem.loads]
-    )
-    return sum(force_terms, Fraction(0)), force_terms, sum(moment_terms, Fraction(0)), moment_terms
+    points: dict[Fraction, str] = {}
+    for support in problem.supports:
+        points.setdefault(support.x_m, support.node_id)
+    if not points:
+        points[reference_point(problem)] = "the loads' centroid"
+    about = [_about(declared, label, x) for x, label in points.items()]
+    failing = [m for m in about if not holds_within_rounding(m.residual, m.terms)]
+    candidates = failing or about
+    worst = max(candidates, key=lambda m: (_ratio(m) is None, _ratio(m) or 0))
+    return sum(force_terms, Fraction(0)), force_terms, worst, not failing
 
 
 def _matches(declared: tuple[Reaction, ...], solved: tuple[Reaction, ...]) -> bool:
@@ -190,13 +228,14 @@ def _judge(view: GraphView, mount: _Mount, solver: EquilibriumSolver) -> Observa
     except (UnitRefusedError, *PINT_ERRORS):
         names = (*mount.supports, *mount.loads)
         return _unchecked(mount, module, "has a quantity in a unit the unit check refuses", names)
-    f_res, f_terms, m_res, m_terms = _sums(declared)
+    f_res, f_terms, moments, moments_hold = _sums(declared)
+    m_res, m_terms = moments.residual, moments.terms
     unstable = mechanism(declared.problem)
     if unstable is not None:
         return _refused(
             view, mount, module, declared, (f_res, m_res), unstable, "none: a mechanism", ()
         )
-    balanced = holds_within_rounding(f_res, f_terms) and holds_within_rounding(m_res, m_terms)
+    balanced = holds_within_rounding(f_res, f_terms) and moments_hold
     try:
         solution = solver.solve(declared.problem)
         solved, method, determinate = solution.reactions, solution.solver, True
@@ -224,10 +263,11 @@ def _judge(view: GraphView, mount: _Mount, solver: EquilibriumSolver) -> Observa
         else (
             f"its declared reactions do not balance its loads: the forces miss by "
             f"{output(f_res, 'N').value} N (rounding allows {f_allow} N) and the moments by "
-            f"{output(m_res, 'N*m').value} N*m (rounding allows {m_allow} N*m)"
+            f"{output(m_res, 'N*m').value} N*m (rounding allows {m_allow} N*m) about "
+            f"{moments.about} at {output(moments.x_m, 'm').value} m"
         )
     )
-    worst_is_moment = not holds_within_rounding(m_res, m_terms)
+    worst_is_moment = not moments_hold
     return _refused(
         view,
         mount,

@@ -297,9 +297,9 @@ def test_a_mount_whose_forces_miss_while_its_moments_balance_is_refused(tmp_path
     )
     (finding,) = ran.observations
     assert isinstance(finding.details, EquilibriumDetails)
-    assert finding.details.residual_moment.value == 0
     assert finding.details.residual_force.value == pytest.approx(6 - 9.80665)
-    # Refused by the sums, not only by the split the closed form finds.
+    # Refused by the sums, not only by the split the closed form finds. About the
+    # centroid the moments balance; about each support the missing force has an arm.
     assert "the forces miss by" in finding.message
 
 
@@ -317,7 +317,6 @@ def test_an_indeterminate_mount_whose_moments_balance_but_forces_do_not_is_refus
     (finding,) = ran.observations
     assert finding.outcome == "fail"
     assert isinstance(finding.details, EquilibriumDetails)
-    assert finding.details.residual_moment.value == 0
     assert finding.details.residual_force.value == pytest.approx(20 - 4 * 9.80665)
 
 
@@ -457,3 +456,93 @@ def test_a_module_whose_members_have_masses_and_no_supports_is_not_a_mount(
     member = node("mechanical.arm", domain="mechanical", quantities={"mass": (1, "kg")})
     ran = check(tmp_path, {**member, "constrains": [MOUNT]})
     assert ran.observations == () and ran.evaluated == 0
+
+
+def test_a_mount_whose_moments_hold_about_its_one_support_but_forces_miss_is_refused(
+    tmp_path: Path,
+) -> None:
+    # The load stands on the fixed support: every lever arm is zero, so only the
+    # force sum can refuse a declared 5 N against a 9.80665 N weight.
+    ran = check(tmp_path, support("bearing", 0, 5, moment=0), load("wheel", 0, 1))
+    (finding,) = ran.observations
+    assert isinstance(finding.details, EquilibriumDetails)
+    assert finding.details.residual_moment.value == 0
+    assert finding.details.residual_force.value == pytest.approx(5 - 9.80665)
+
+
+# --- moments about every support: a support that carries nothing widens nothing --------
+
+W = 9.80665
+
+
+def plate(
+    *supports: tuple[str, float, float], loads: tuple[tuple[str, float, float], ...]
+) -> list[dict[str, Any]]:
+    return [support(n, x, f) for n, x, f in supports] + [load(n, x, kg) for n, x, kg in loads]
+
+
+def test_a_far_support_carrying_nothing_does_not_widen_the_allowance(tmp_path: Path) -> None:
+    # The reviewer's E1: all the weight declared on the standoff at 0 while the
+    # load stands at 0.2 m, plus a fourth support at 1000 m declaring 0 N. About
+    # the centroid the allowance grew to about 25 N*m; about the standoff at 0 it
+    # is 0.0098 N*m, and the 1.96 N*m miss is refused there.
+    ran = check(
+        tmp_path,
+        *plate(
+            ("standoff_a", 0, W),
+            ("standoff_b", 0.1, 0),
+            ("standoff_c", 0.2, 0),
+            ("standoff_far", 1000, 0),
+            loads=(("pcb", 0.2, 1),),
+        ),
+    )
+    (finding,) = ran.observations
+    assert finding.outcome == "fail" and "do not balance" in finding.message
+    assert isinstance(finding.details, EquilibriumDetails)
+    assert abs(finding.details.residual_moment.value) == pytest.approx(1.96133)
+
+
+def test_pins_at_one_point_with_a_far_empty_pin_are_refused(tmp_path: Path) -> None:
+    # The reviewer's E3: two pins at 0 share the weight of a load 0.1 m away, and a
+    # pin at 1000 m declares 0 N. The far pin makes the pins stand at two points,
+    # so this is no longer the mechanism rule's; the moments about the pins at 0
+    # miss by 0.98 N*m against an allowance of 0.0049 N*m.
+    ran = check(
+        tmp_path,
+        *plate(
+            ("standoff_a", 0, W / 2),
+            ("standoff_b", 0, W / 2),
+            ("standoff_far", 1000, 0),
+            loads=(("pcb", 0.1, 1),),
+        ),
+    )
+    (finding,) = ran.observations
+    assert finding.outcome == "fail" and "do not balance" in finding.message
+    assert "about mechanical.standoff_a at 0 m" in finding.message
+
+
+def test_a_far_support_that_carries_its_share_passes(tmp_path: Path) -> None:
+    # Supports at 0, 500 and 1000 m under a 1 kg load at 500 m, declared to three
+    # figures as a quarter, a half and a quarter: balanced about every support.
+    ran = check(
+        tmp_path,
+        *plate(
+            ("standoff_a", 0, 2.45),
+            ("standoff_b", 500, 4.90),
+            ("standoff_c", 1000, 2.45),
+            loads=(("pcb", 500, 1),),
+        ),
+    )
+    (record,) = ran.observations
+    assert record.outcome == "unchecked" and "balances its loads in total" in record.message
+
+
+def test_a_determinate_plate_with_a_far_support_carrying_its_share_passes(
+    tmp_path: Path,
+) -> None:
+    # Two pins at 0 and 1000 m, the load at 250 m: 7.35 N and 2.45 N to three figures.
+    ran = check(
+        tmp_path,
+        *plate(("standoff_a", 0, 7.35), ("standoff_b", 1000, 2.45), loads=(("pcb", 250, 1),)),
+    )
+    assert ran.observations == () and ran.evaluated == 1

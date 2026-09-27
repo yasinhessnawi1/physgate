@@ -6,15 +6,16 @@ counter-clockwise, so an upward force to the right of the reference point has a
 positive moment. A load's force is its weight or declared force, acting
 downward.
 
-Moments are taken about :func:`reference_point`, the centroid of the mount's
-supports, not the axis's origin. Where the origin sits is the author's choice
-and says nothing about the mount, but the rounding allowance is a fraction of
-the moment terms' sizes, and about a far origin every term is large: a mount
-1000 m from the origin would be allowed an error a thousand times the one it is
-allowed at the origin. About a point of the mount itself the terms are the
-mount's own lever arms, so moving the whole mount changes no verdict. The
-centroid rather than the first support, because it depends on neither the order
-nor the names of the supports.
+The check holds the moment equation about every support position, each against
+the allowance made from its own terms, not about the axis's origin or any one
+chosen point. Where the origin sits is the author's choice and says nothing
+about the mount, and the rounding allowance is a fraction of the moment terms'
+sizes: about a far point every term is large. A single reference point, even
+one of the mount's own such as its supports' centroid, can still be moved by the
+declaration, by a support far away that carries nothing. Held about every
+support, no support the declaration adds can widen the allowance about the
+others, and a mount in equilibrium passes about each of them.
+:func:`reference_point` is only for a mount with no support at all.
 
 A mount that cannot resist a moment at all, pins at one point with a load off
 that point, is a mechanism, not a structure: :func:`mechanism` names it, and no
@@ -120,10 +121,10 @@ class EquilibriumSolver(Protocol):
 
 
 def reference_point(problem: MountProblem) -> Fraction:
-    """The point moments are taken about: the centroid of the mount's supports.
+    """A point of the mount: the centroid of its supports, else of its loads, else the origin.
 
-    A mount with no supports takes its loads' centroid, and one with neither
-    takes the origin; such a mount fails its force sum whatever the point.
+    The check holds moments about every support; this is the point it uses for a
+    mount with no support, which fails its force sum whatever the point.
     """
     points = [s.x_m for s in problem.supports] or [ld.x_m for ld in problem.loads]
     return sum(points, Fraction(0)) / len(points) if points else Fraction(0)
