@@ -355,3 +355,39 @@ def test_a_module_rewritten_as_a_component_is_refused_at_apply(tmp_path: Path) -
         first.finding.text
     )
     assert rig.canonical() == before
+
+
+def test_a_justification_in_a_proposal_is_applied_and_journalled(tmp_path: Path) -> None:
+    """The excuse is on the durable record, applied like every other field of the node."""
+    rig = Rig(tmp_path)
+    reason = "the driver keeps 3 A of headroom above the motor's new stall current"
+    excused = {**node("electrical.motor"), "no_change_justified": {"electrical.driver": reason}}
+    dispatcher = GitDispatcher(rig.run, proposals={1: {"electrical.motor": excused}})
+    loop = rig.loop(dispatcher)
+    assert loop.run().kind == "done"
+    loop.close()
+    rig.keeper.close()
+    assert rig.canonical()["electrical.motor"]["no_change_justified"] == {
+        "electrical.driver": reason
+    }
+
+
+def test_a_justification_without_a_reason_rejects_the_attempt_at_apply(tmp_path: Path) -> None:
+    rig = Rig(tmp_path)
+    before = rig.canonical()
+    blank = {**node("electrical.motor"), "no_change_justified": {"electrical.driver": " "}}
+
+    def withdraw(worktree: Path) -> None:
+        for path in (worktree / ".physgate" / "proposals").iterdir():
+            path.unlink()
+
+    dispatcher = GitDispatcher(
+        rig.run, proposals={1: {"electrical.motor": blank}}, during={2: withdraw}
+    )
+    loop = rig.loop(dispatcher)
+    loop.run()
+    loop.close()
+    rig.keeper.close()
+    (first, *_) = [e for e in rig.events() if isinstance(e, AttemptRejected)]
+    assert first.finding.source == "proposal" and "no_change_justified" in first.finding.text
+    assert rig.canonical() == before
