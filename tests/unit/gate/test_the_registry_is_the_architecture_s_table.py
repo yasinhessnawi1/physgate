@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from gate_fixtures import fixed
 
-from physgate.gate.registry import CADENCE, REGISTRY, RegisteredCheck
-from physgate.orchestrator.protocols import CHECK_NUMBERS, CheckName
+from physgate.gate import registry
+from physgate.gate.registry import CADENCE, REGISTRY, TIGHTENED, RegisteredCheck
+from physgate.orchestrator.protocols import CHECK_NUMBERS, CheckName, Scope
 
 #: ARCH-080, transcribed: "runs at" and "on failure" for each of the seven checks.
-ARCH_080: dict[CheckName, dict[str, str]] = {
+ARCH_080: dict[CheckName, dict[Scope, str]] = {
     "units": {"subtask": "block"},
     "magnitude": {"subtask": "block"},
     "equilibrium": {"module": "block"},
@@ -30,9 +31,28 @@ def order_problems(registry: tuple[RegisteredCheck, ...]) -> list[str]:
     return problems
 
 
-def test_the_cadence_is_the_architecture_s_table() -> None:
-    assert {name: dict(scopes) for name, scopes in CADENCE.items()} == ARCH_080
+#: The scopes the gate adds beyond ARCH-080, each one blocking.
+BEYOND: dict[CheckName, dict[Scope, str]] = {
+    "equilibrium": {"system": "block"},
+    "conservation": {"system": "block"},
+}
+
+
+def test_the_table_is_the_architecture_s_and_the_additions_are_named() -> None:
+    assert {name: dict(scopes) for name, scopes in registry.ARCH_080.items()} == ARCH_080
+    assert {name: dict(scopes) for name, scopes in TIGHTENED.items()} == BEYOND
     assert set(CADENCE) == set(CHECK_NUMBERS)
+
+
+def test_the_cadence_only_adds_blocking_scopes_to_the_architecture_s_table() -> None:
+    for name, scopes in CADENCE.items():
+        for scope, on_failure in ARCH_080[name].items():
+            assert scopes[scope] == on_failure, (name, scope)
+        for scope in set(scopes) - set(ARCH_080[name]):
+            assert scopes[scope] == "block", (name, scope)
+    assert {n: dict(s) for n, s in CADENCE.items()} == {
+        n: {**s, **BEYOND.get(n, {})} for n, s in ARCH_080.items()
+    }
 
 
 def test_the_real_registry_is_in_order_with_no_repeats() -> None:

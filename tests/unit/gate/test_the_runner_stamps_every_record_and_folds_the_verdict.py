@@ -89,11 +89,11 @@ def test_records_follow_the_registry_then_the_scope_narrowest_first(view: GraphV
 
 def test_a_check_runs_only_where_the_architecture_says_it_runs(view: GraphView) -> None:
     seen: list[CheckContext] = []
-    gate = PhysicsGate((recording("units", seen), recording("equilibrium", seen)))
+    gate = PhysicsGate((recording("units", seen), recording("power", seen)))
     gate.run(view, ["subtask"], "on")
     assert [c.scope for c in seen] == ["subtask"]
     seen.clear()
-    gate.run(view, ["module", "system"], "on")
+    gate.run(view, ["module"], "on")
     assert [c.scope for c in seen] == ["module"]
 
 

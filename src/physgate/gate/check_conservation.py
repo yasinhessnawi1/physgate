@@ -1,4 +1,4 @@
-"""Check 5, energy and mass conservation, per node and per module.
+"""Check 5, energy and mass conservation: per node and module, and over the whole graph.
 
 Two balances, each an equality between numbers declared separately:
 
@@ -100,15 +100,17 @@ def _judge(view: GraphView, instance: Instance) -> Observation | None:
 
 
 def run(ctx: CheckContext) -> CheckRun:
-    """Check every mass and energy balance the attempt could have changed.
+    """Check every mass and energy balance the attempt could have changed, or every one.
 
-    The balances of every node the attempt affected and of the modules those
-    belong to.
+    At module scope: the balances of every node the attempt affected and of the
+    modules those belong to. At system scope: every balance in the graph.
     """
     view = ctx.view
     near = set(view.affected()) | set(view.modules_touched())
     balances = [
-        i for i in instances(view) if i.relation.name in BALANCES and _in_scope(view, i, near)
+        i
+        for i in instances(view)
+        if i.relation.name in BALANCES and (ctx.scope == "system" or _in_scope(view, i, near))
     ]
     observations = [o for o in (_judge(view, i) for i in balances) if o is not None]
     evaluated = sum(1 for i in balances if not i.missing)

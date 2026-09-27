@@ -120,3 +120,20 @@ def test_the_affected_set_names_the_edges_before_and_after_the_attempt(tmp_path:
     view = attempt(tmp_path, base, [moved])
     assert view.affected() == (f"{M}.arm", f"{M}.clip", f"{M}.plate")
     assert view.modules_touched() == (f"{M}.arm", f"{M}.plate")
+
+
+def test_a_mount_and_a_balance_no_attempt_reached_are_refused_at_integration(
+    tmp_path: Path,
+) -> None:
+    # Both are broken before the attempt, which writes only an unrelated node, so
+    # no attempt's module scope reaches them; the whole graph at integration does.
+    base = [
+        *[n for n in two_pin_plate() if n["id"] != f"{M}.standoff1"],
+        *chassis(b_attached=False),
+    ]
+    view = attempt(tmp_path, base, [node("electrical.unrelated")])
+    assert gated(view).verdict == "pass"
+    system = PhysicsGate().run(view, ("system",), "on")
+    assert system.verdict == "fail"
+    refused = {r.name for r in system.checks if r.outcome == "fail"}
+    assert refused == {"equilibrium", "conservation"}

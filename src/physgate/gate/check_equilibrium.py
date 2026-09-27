@@ -1,4 +1,4 @@
-"""Check 3, static equilibrium and load path, per module.
+"""Check 3, static equilibrium and load path: per module, and over the whole graph.
 
 A mount is any node other nodes constrain as supports or as loads:
 
@@ -279,16 +279,20 @@ def _unchecked(mount: _Mount, module: str | None, why: str, names: tuple[str, ..
 
 
 def run(ctx: CheckContext) -> CheckRun:
-    """Check every mount the attempt could have changed.
+    """Check every mount the attempt could have changed, or every mount at system scope.
 
-    A mount is in scope when it, one of its supports or loads, or
+    A mount is in scope at module scope when it, one of its supports or loads, or
     its module is a node the attempt affected: one it wrote, or one those name as
     their targets before or after the attempt, so a support removed from a mount
     brings the mount it left.
     """
     view = ctx.view
     near = set(view.affected()) | set(view.modules_touched())
-    found = [m for m in mounts(view) if near & {m.mount_id, *m.supports, *m.loads}]
+    found = [
+        m
+        for m in mounts(view)
+        if ctx.scope == "system" or near & {m.mount_id, *m.supports, *m.loads}
+    ]
     solver = ctx.solver if ctx.solver is not None else ClosedFormSolver()
     observations = [o for o in (_judge(view, m, solver) for m in found) if o is not None]
     return CheckRun(

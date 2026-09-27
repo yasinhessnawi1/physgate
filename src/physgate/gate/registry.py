@@ -6,7 +6,9 @@ never fire, and the test that runs the real gate on an artefact violating every
 check is what notices.
 
 Where each check runs and what its failure does is the architecture's own
-table (ARCH-080), written once here as :data:`CADENCE` and read by the runner. A
+table (ARCH-080), written once here as :data:`ARCH_080`, with the scopes the
+gate adds beyond it in :data:`TIGHTENED`; the runner reads the two together as
+:data:`CADENCE`. A
 check cannot soften its own consequence: it reports what it saw, and this table
 decides whether that blocks.
 """
@@ -37,7 +39,7 @@ OnFailure = Literal["block", "warn"]
 #: propagation per run (the system). Thermal warns at module and blocks at
 #: integration. Propagation is the catch-accounting spec's check and is listed so
 #: the table is the architecture's whole table.
-CADENCE: Mapping[CheckName, Mapping[Scope, OnFailure]] = MappingProxyType(
+ARCH_080: Mapping[CheckName, Mapping[Scope, OnFailure]] = MappingProxyType(
     {
         "units": MappingProxyType({"subtask": "block"}),
         "magnitude": MappingProxyType({"subtask": "block"}),
@@ -46,6 +48,27 @@ CADENCE: Mapping[CheckName, Mapping[Scope, OnFailure]] = MappingProxyType(
         "conservation": MappingProxyType({"module": "block"}),
         "thermal": MappingProxyType({"module": "warn", "system": "block"}),
         "propagation": MappingProxyType({"system": "block"}),
+    }
+)
+
+#: Where the gate runs a check beyond ARCH-080's table. Each entry only adds a
+#: scope at which a failure blocks; none changes or removes a scope the table
+#: gives. Equilibrium and conservation run over the whole graph at integration
+#: because module scope is reached only through the nodes an attempt wrote: a
+#: mount or a balance broken by writes from several attempts, or by an edge no
+#: attempt's nodes still name, is caught there if nowhere earlier.
+TIGHTENED: Mapping[CheckName, Mapping[Scope, OnFailure]] = MappingProxyType(
+    {
+        "equilibrium": MappingProxyType({"system": "block"}),
+        "conservation": MappingProxyType({"system": "block"}),
+    }
+)
+
+#: Where each check runs and what its failure does: the table, with the tightenings.
+CADENCE: Mapping[CheckName, Mapping[Scope, OnFailure]] = MappingProxyType(
+    {
+        name: MappingProxyType({**scopes, **TIGHTENED.get(name, {})})
+        for name, scopes in ARCH_080.items()
     }
 )
 
