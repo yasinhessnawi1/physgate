@@ -399,6 +399,36 @@ def test_a_source_that_also_draws_is_held_to_its_rating_plus_its_draw(tmp_path: 
     assert check(tmp_path / "enough", "system", mains, ups(14), motor).observations == ()
 
 
+def test_a_source_that_also_draws_and_declares_no_rating_is_unchecked_not_passed(
+    tmp_path: Path,
+) -> None:
+    # The same battery-backed module, drawing 1 W from the mains and supplying
+    # 15 W, but its battery declares only the energy it stores, no discharge
+    # rating. Drawing from an upstream supply must not exempt a declared source
+    # from being bounded: with no rating catalogued, its supply is recorded
+    # unchecked, never passed silently.
+    mains = node(
+        "electrical.mains",
+        quantities={"power_supply": (100, "W"), "rated_output_power": (100, "W")},
+    )
+    ups = node(
+        "electrical.ups",
+        kind="module",
+        quantities={
+            "power_supply": (15, "W"),
+            "power_draw": (1, "W"),
+            "energy_capacity": (20, "W*h"),
+        },
+        constrains=["electrical.mains"],
+    )
+    motor = consumer("motor", 15, "ups")
+    ran = check(tmp_path, "system", mains, ups, motor)
+    assert all(o.outcome != "pass" for o in ran.observations)
+    (unchecked,) = [o for o in ran.observations if o.outcome == "unchecked"]
+    assert unchecked.node == "electrical.ups"
+    assert "no output rating (max_discharge_power)" in unchecked.message
+
+
 @pytest.mark.parametrize("stored", [0, -5])
 def test_a_stored_energy_of_zero_or_less_is_refused_by_the_unit_check(
     tmp_path: Path, stored: int

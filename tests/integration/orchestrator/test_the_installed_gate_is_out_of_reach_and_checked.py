@@ -26,8 +26,10 @@ from physgate.orchestrator.install import (
     MANIFEST_NAME,
     build_record_path,
     install_manifest,
+    manifest_digest,
     prepare_install,
     require_current,
+    require_recorded_manifest,
 )
 
 pytestmark = pytest.mark.integration
@@ -174,3 +176,41 @@ def test_a_dispatched_role_session_cannot_rewrite_the_installation_s_build_recor
     assert report.end.outcome == "completed", report
     assert record.read_bytes() == before
     require_current(install_bin.parent.parent, ROOT)
+
+
+def test_a_run_s_recorded_manifest_refuses_a_same_user_rewrite_of_both(
+    tmp_path: Path,
+    install_bin: Path,  # noqa: F811 - the fixture, imported
+) -> None:
+    # A real dispatched session's run records the installation's manifest digest.
+    # Outside any session, the same user then plants a file and rewrites the
+    # manifest and its build record together, so `require_current` alone is
+    # fooled, exactly as in the case above with no session at all. What the run
+    # recorded when it first used the installation is not.
+    install = install_bin.parent.parent
+    steps = [
+        tool("Read", file_path=str(tmp_path / "run" / "worktrees" / "s1" / SPEC)),
+        text("done"),
+    ]
+    _, (report, facts), _ = dispatch(tmp_path, install_bin, steps)
+    assert report.end.outcome == "completed", report
+    recorded = facts.manifest_sha256
+    assert recorded is not None
+    require_recorded_manifest(install, recorded)  # matches, so far
+
+    (site,) = install.glob("lib/python*/site-packages")
+    _writable(site)
+    (site / "zz_planted_after_run.pth").write_text("import os\n")
+    _writable(install)
+    _writable(install / MANIFEST_NAME)
+    (install / MANIFEST_NAME).write_text(json.dumps(install_manifest(install)))
+    record = build_record_path(install)
+    _writable(record)
+    record.write_text(
+        json.dumps({"installation": str(install), "manifest_sha256": manifest_digest(install)})
+    )
+
+    require_current(install, ROOT)  # the same-user rewrite of both still passes it
+    with pytest.raises(InvocationError, match="not the one this run recorded") as caught:
+        require_recorded_manifest(install, recorded)
+    assert caught.value.context["recorded"] == recorded
