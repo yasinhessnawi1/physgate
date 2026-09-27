@@ -187,5 +187,15 @@ def test_observe_every_check_runs_every_line_says_observe_and_nothing_is_refused
     assert printed["step"] == "done" and printed["open_queue_items"] == []
     assert {e.gate_mode for e in events} == {"observe"}
     assert gate_lines and {x["gate_mode"] for x in gate_lines} == {"observe"}
-    assert all(x["reviewer_had_passed"] is None for x in gate_lines)
+    # Under observe the reviewer runs after the failed gate and passes the module,
+    # so every failure is stamped: the attempt's by its own review, the integration
+    # call's by the review of the attempt that last wrote the failing node.
+    (review,) = [e for e in events if isinstance(e, ReviewRan)]
+    failures = [x for x in gate_lines if x["outcome"] in ("fail", "warn")]
+    assert failures and {(x["reviewer_had_passed"], x["review_seq"]) for x in failures} == {
+        (review.result.verdict == "pass", review.seq)
+    }
+    assert {x["reviewer_basis"] for x in failures if x["subtask_id"] == "integration"} == {
+        "last_writer_of_node"
+    }
     assert printed["tokens"]["routing"] == 0
