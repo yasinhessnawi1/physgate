@@ -11,12 +11,20 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
-from observe_rig import HARNESS, FakeSession, Gate, drive, fake_run, start, target_repo
+from observe_rig import (
+    HARNESS,
+    FakeSession,
+    Gate,
+    drive,
+    fake_driver,
+    fake_run,
+    start,
+    target_repo,
+)
 
 from physgate.evaluation.observe import rerun as rerun_module
 from physgate.evaluation.observe import sequence
@@ -49,22 +57,6 @@ def recorded(tmp_path: Path, repo: Path, run_id: str = "run-a", **kwargs: Any) -
     digest = hashlib.sha256(BRIEF.encode()).hexdigest()
     overrides = {"brief_sha256": digest, **kwargs.pop("overrides", {})}
     return fake_run(tmp_path, run_id, repo, overrides=overrides, **kwargs)
-
-
-def fake_driver(root: Path, repo: Path, **drive_kwargs: Any) -> Callable[[RerunPlan], None]:  # noqa: ANN401
-    """Drives a rerun as ``decompose`` then ``run`` would, with the stand-in session."""
-
-    def drive_it(plan: RerunPlan) -> None:
-        # The parameters as recorded; what decompose measures, measured again.
-        fields = {k: getattr(plan.recorded, k) for k in RunConfig.model_fields if k not in MEASURED}
-        fields |= {
-            "seed": plan.recorded.seed,
-            "brief_sha256": hashlib.sha256(plan.brief.read_bytes()).hexdigest(),
-        }
-        cfg = start(root, plan.run_id, repo, **fields)
-        drive(root, cfg, repo, **drive_kwargs)
-
-    return drive_it
 
 
 def do_rerun(tmp_path: Path, run: Path, repo: Path, brief: Path, **drive_kwargs: Any) -> Any:  # noqa: ANN401

@@ -11,6 +11,7 @@ by construction: session ids, commit times, timestamps.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import uuid
@@ -20,6 +21,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from physgate.evaluation.observe.rerun import MEASURED, RerunPlan
 from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper
 from physgate.orchestrator.budget import SessionEnd
 from physgate.orchestrator.cli import _harness_root
@@ -346,3 +348,19 @@ def fake_run(root: Path, run_id: str, repo: Path, **kwargs: Any) -> Path:  # noq
     cfg = start(root, run_id, repo, **overrides)
     drive(root, cfg, repo, **kwargs)
     return root / run_id
+
+
+def fake_driver(root: Path, repo: Path, **drive_kwargs: Any) -> Callable[[RerunPlan], None]:  # noqa: ANN401
+    """Drives a rerun as ``decompose`` then ``run`` would, with the stand-in session."""
+
+    def drive_it(plan: RerunPlan) -> None:
+        # The parameters as recorded; what decompose measures, measured again.
+        fields = {k: getattr(plan.recorded, k) for k in RunConfig.model_fields if k not in MEASURED}
+        fields |= {
+            "seed": plan.recorded.seed,
+            "brief_sha256": hashlib.sha256(plan.brief.read_bytes()).hexdigest(),
+        }
+        cfg = start(root, plan.run_id, repo, **fields)
+        drive(root, cfg, repo, **drive_kwargs)
+
+    return drive_it
