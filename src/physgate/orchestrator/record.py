@@ -66,6 +66,7 @@ class DecompositionSummary(BaseModel):
     interface_nodes: tuple[NonEmptyStr, ...]
     spec_commit: NonEmptyStr
     head_revision: int
+    policy_limits_sha256: str | None = None
 
 
 class RunRecord:
@@ -160,6 +161,7 @@ class RunRecord:
                     interface_nodes=decomposed.interface_nodes,
                     spec_commit=decomposed.spec_commit,
                     head_revision=decomposed.head_revision,
+                    policy_limits_sha256=decomposed.policy_limits_sha256,
                 )
             )
         for entry in plan:

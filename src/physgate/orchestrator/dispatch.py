@@ -46,7 +46,7 @@ from physgate.orchestrator.exceptions import AccountingError, InvocationError
 from physgate.orchestrator.git import common_dir
 from physgate.orchestrator.install import InstallFacts, build_record_path, install_facts
 from physgate.orchestrator.invocation import isolated_env, role_argv
-from physgate.orchestrator.managed import drift
+from physgate.orchestrator.managed import drift, policy_limits_digest
 from physgate.orchestrator.merge import RunGit, commit_attempt
 from physgate.orchestrator.ports import Leftover, SessionReport, SessionRequest
 from physgate.orchestrator.processes import is_session, started_at, stop_tree
@@ -336,6 +336,7 @@ class ClaudeDispatcher:
             hook_journal_appends=appends,
             usage=usage,
             managed_drift=drift(sdir / "config", system_before),
+            policy_limits_sha256=policy_limits_digest(sdir / "config"),
             trajectory_seal=sealed,
             trajectory_tampered=tampered,
         )

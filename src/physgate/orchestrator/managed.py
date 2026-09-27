@@ -15,7 +15,10 @@ session two ways, and neither is written by the agent under test:
 
 What this package does is detect: every session starts from a fresh
 configuration directory, and after every invocation a non-empty remote-settings
-cache, or a system managed path that changed, is drift, which halts the run.
+cache, or a system managed path that changed, is drift, which halts the run. So
+are policy limits that differ from the ones the run's decomposition call received:
+the account's side can change them, and they are applied without a trace in any
+file the hooks see.
 The harness cannot stop a managed-policy change pushed from outside; it halts on
 one.
 """
@@ -34,6 +37,12 @@ from pydantic import BaseModel, ConfigDict
 
 #: Where the binary caches fetched remote settings, inside its configuration directory.
 REMOTE_CACHE = "remote-settings.json"
+
+#: Where the binary writes the account's policy limits it fetched and applied. Measured
+#: on the real API (2.1.272): fetched and applied on every invocation from a fresh
+#: configuration directory, non-essential traffic off or not; never written against a
+#: third-party endpoint. The stamp file beside it carries a timestamp and is not read.
+POLICY_LIMITS = "policy-limits.json"
 
 
 class SystemManagedFile(BaseModel):
@@ -99,6 +108,29 @@ def system_managed_facts(
             )
         )
     return tuple(facts)
+
+
+def policy_limits_digest(config_dir: Path) -> str | None:
+    """The sha256 of the policy limits an invocation left, or ``None`` if it left none."""
+    path = Path(config_dir) / POLICY_LIMITS
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+
+
+def policy_limits_change(baseline: str | None, now: str | None) -> str | None:
+    """How an invocation's policy limits differ from the run's first, or ``None``.
+
+    Every invocation starts from an empty configuration directory, so the limits
+    are fetched afresh each time, and the run's decomposition call is the first
+    one: what it received is what every later session must receive. A file that
+    appears or disappears is a change like any other.
+    """
+    if now == baseline:
+        return None
+    if baseline is None:
+        return f"policy limits appeared ({now}) where the decomposition call received none"
+    if now is None:
+        return f"no policy limits arrived where the decomposition call received {baseline}"
+    return f"the policy limits changed from {baseline} to {now}"
 
 
 def drift(config_dir: Path, system_before: tuple[SystemManagedFile, ...]) -> str | None:

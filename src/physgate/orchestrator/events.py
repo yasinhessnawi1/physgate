@@ -56,6 +56,7 @@ Stage = Literal[
 #: attempt cannot even be written down.
 Attempt = Annotated[int, Field(ge=1, le=REPAIR_BUDGET)]
 Sha = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
+Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 
 #: What an incident is about. Each halts the run; none spends from the repair budget.
 IncidentCause = Literal[
@@ -254,6 +255,9 @@ class SessionEnded(_Event):
     decisions_bytes: Annotated[int, Field(ge=0)] | None = None
     worktree: NonEmptyStr | None
     reading_verified: bool
+    #: The digest of the policy limits the session's invocation received, ``None`` if
+    #: none: held to the decomposition call's.
+    policy_limits_sha256: Sha256 | None = None
 
     @model_validator(mode="after")
     def _completed_names_its_work(self) -> SessionEnded:
@@ -370,6 +374,9 @@ class Decomposed(_Event):
     interface_nodes: Annotated[tuple[NonEmptyStr, ...], Field(min_length=1)]
     spec_commit: Sha
     head_revision: Annotated[int, Field(ge=1)]
+    #: The digest of the policy limits the call received, ``None`` if none: the
+    #: baseline every session of the run is held to.
+    policy_limits_sha256: Sha256 | None = None
 
 
 class WriteIntended(_Event):

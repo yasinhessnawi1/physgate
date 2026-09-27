@@ -63,6 +63,8 @@ class SessionReport(_Frozen):
     trajectory_seal: Seal | None = None
     #: Why the stream is not one the runtime alone wrote (a forged tail), if it is not.
     trajectory_tampered: NonEmptyStr | None = None
+    #: The digest of the policy limits the invocation received, if it received any.
+    policy_limits_sha256: NonEmptyStr | None = None
 
 
 class Leftover(_Frozen):

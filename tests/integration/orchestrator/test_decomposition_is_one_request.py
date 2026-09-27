@@ -9,6 +9,7 @@ than one request inside it.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 from pathlib import Path
@@ -352,3 +353,27 @@ def test_remote_settings_found_after_the_one_call_fail_it(tmp_path: Path) -> Non
     _, outcome, run_dir = decompose_once(tmp_path, 7, [tool("StructuredOutput", **PLAN)])
     assert not outcome.ok and outcome.cause == "managed_settings_changed"
     assert "remote managed settings were delivered" in outcome.detail
+
+
+def test_the_policy_limits_the_call_received_are_the_run_s_recorded_baseline(
+    tmp_path: Path,
+) -> None:
+    # As the real API leaves them in the call's configuration directory; the scripted
+    # endpoint never writes them.
+    limits = b'{"restrictions": {}, "compliance_taints": []}'
+    placed = tmp_path / "run" / "decomposition" / "config" / "policy-limits.json"
+    placed.parent.mkdir(parents=True)
+    placed.write_bytes(limits)
+    _, outcome, run_dir = decompose_once(tmp_path, 7, [tool("StructuredOutput", **PLAN)])
+    assert outcome.ok, outcome.detail
+    digest = hashlib.sha256(limits).hexdigest()
+    assert outcome.policy_limits_sha256 == digest
+    (decomposed,) = [e for e in read_events(run_dir / "events.jsonl") if isinstance(e, Decomposed)]
+    assert decomposed.policy_limits_sha256 == digest
+
+
+def test_a_call_that_received_no_policy_limits_records_none(tmp_path: Path) -> None:
+    _, outcome, run_dir = decompose_once(tmp_path, 7, [tool("StructuredOutput", **PLAN)])
+    assert outcome.ok and outcome.policy_limits_sha256 is None
+    (decomposed,) = [e for e in read_events(run_dir / "events.jsonl") if isinstance(e, Decomposed)]
+    assert decomposed.policy_limits_sha256 is None

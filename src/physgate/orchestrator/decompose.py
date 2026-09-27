@@ -45,7 +45,7 @@ from physgate.orchestrator.invocation import (
     require_pinned,
     version_argv,
 )
-from physgate.orchestrator.managed import drift, system_managed_facts
+from physgate.orchestrator.managed import drift, policy_limits_digest, system_managed_facts
 from physgate.orchestrator.merge import RunGit
 from physgate.orchestrator.protocols import MessageUsage, Usage
 from physgate.orchestrator.record import (
@@ -194,6 +194,8 @@ class Outcome(_Frozen):
     usage: tuple[MessageUsage, ...]
     model: str | None
     num_turns: int
+    #: The digest of the policy limits the call received, ``None`` if none (or no call).
+    policy_limits_sha256: str | None = None
 
 
 def read_stream(
@@ -404,6 +406,7 @@ def call(
         usage=usage,
         model=model,
         num_turns=turns,
+        policy_limits_sha256=policy_limits_digest(workdir / "config"),
     )
 
 
@@ -482,6 +485,7 @@ def start_run(
             interface_nodes=tuple(n.id for n in plan.interface_nodes),
             spec_commit=spec_commit,
             head_revision=head,
+            policy_limits_sha256=outcome.policy_limits_sha256,
         ),
     )
     return record
