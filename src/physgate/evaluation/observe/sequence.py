@@ -13,7 +13,8 @@ The binary exposes no seed and no temperature, so there are two levels:
     commit id carries its commit time;
   - *dropped:* ``ts`` on every line; the ``seconds`` a worktree removal and the
     installation check took; a token line's ``message_id``; the scratch
-    ``graph_root`` of a proposal check; a trajectory's seal, whose stream carries
+    ``graph_root`` of a proposal check; a review's usage ``message_id``s; a
+    trajectory's seal, whose stream carries
     uuids and durations by design; and the first line's configuration digest,
     which is replaced by comparing the two configurations with the run id mapped.
 
@@ -62,6 +63,11 @@ DROPPED: dict[str, frozenset[str]] = {
     "session_ended": frozenset({"trajectory_seal"}),
     "leftover_read": frozenset({"trajectory_seal"}),
     "run_started": frozenset({"config_sha256"}),
+}
+#: Dropped at a path inside a line, per event kind; ``*`` stands for every item of
+#: a list. A review's message ids are random on any real API, like a token line's.
+DROPPED_AT: dict[str, tuple[tuple[str, ...], ...]] = {
+    "review_ran": (("result", "usage", "*", "message_id"),),
 }
 
 #: The records of an exact comparison, in the order a divergence is looked for.
@@ -201,8 +207,12 @@ class RunView:
 
     def line(self, line: dict[str, Any]) -> dict[str, Any]:
         """One line with the dropped fields removed and the rest normalised."""
-        dropped = DROPPED_EVERYWHERE | DROPPED.get(str(line.get("kind")), frozenset())
-        normalised: dict[str, Any] = self.value({k: v for k, v in line.items() if k not in dropped})
+        kind = str(line.get("kind"))
+        dropped = DROPPED_EVERYWHERE | DROPPED.get(kind, frozenset())
+        kept: Any = {k: v for k, v in line.items() if k not in dropped}
+        for path in DROPPED_AT.get(kind, ()):
+            kept = _drop_at(kept, path)
+        normalised: dict[str, Any] = self.value(kept)
         return normalised
 
     def git_trees(self) -> list[dict[str, Any]]:
@@ -243,6 +253,20 @@ class RunView:
             ],
             "git": self.git_trees(),
         }
+
+
+def _drop_at(value: Any, path: tuple[str, ...]) -> Any:  # noqa: ANN401 - JSON of any shape
+    """``value`` without the field at ``path``; a missing step leaves it as it is."""
+    if not path:
+        return value
+    head, rest = path[0], path[1:]
+    if head == "*":
+        return [_drop_at(item, rest) for item in value] if isinstance(value, list) else value
+    if not isinstance(value, dict) or head not in value:
+        return value
+    if not rest:
+        return {k: v for k, v in value.items() if k != head}
+    return {**value, head: _drop_at(value[head], rest)}
 
 
 def _flat(value: Any, prefix: str = "") -> dict[str, Any]:  # noqa: ANN401 - JSON of any shape

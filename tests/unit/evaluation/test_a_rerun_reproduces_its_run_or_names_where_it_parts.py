@@ -129,6 +129,29 @@ def test_each_dropped_field_is_needed(
     assert json.loads(parted.recorded or "null") != json.loads(parted.rerun or "null")
 
 
+def test_a_review_s_message_ids_are_dropped_and_are_needed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = target_repo(tmp_path)
+    a = recorded(tmp_path, repo, "run-a")
+    b = recorded(tmp_path, repo, "run-b", reviewer_ids="q")
+    raw = [json.loads(x) for x in (b / "events.jsonl").read_text().splitlines()]
+    assert {e["result"]["usage"][0]["message_id"] for e in raw if e["kind"] == "review_ran"} == {
+        "q-1",
+        "q-2",
+    }
+    assert compare_runs(a, b).reproduced  # the two differ in nothing else
+    monkeypatch.setattr(sequence, "DROPPED_AT", {})
+    compared = compare_runs(a, b)
+    parted = compared.exact["events"]
+    assert not compared.reproduced and parted is not None
+    assert (parted.field, parted.recorded, parted.rerun) == (
+        "result.usage[0].message_id",
+        '"r-1"',
+        '"q-1"',
+    )
+
+
 def test_the_timestamp_is_dropped_on_every_line_and_is_needed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -146,6 +169,14 @@ def test_every_dropped_field_and_no_other_is_removed_from_a_line(tmp_path: Path)
         line = {"seq": 3, "ts": "t", "kind": kind, "kept": 1, **dict.fromkeys(fields, "x")}
         assert view.line(line) == {"seq": 3, "kind": kind, "kept": 1}
     assert "leftover_read" in sequence.DROPPED  # a resumed run's reading of a leftover stream
+    usage: list[dict[str, Any]] = [{"message_id": "m1", "usage": 1}, {"message_id": "m2"}]
+    result: dict[str, Any] = {"verdict": "pass", "usage": usage}
+    review: dict[str, Any] = {"seq": 4, "ts": "t", "kind": "review_ran", "result": result}
+    assert view.line(review) == {
+        "seq": 4,
+        "kind": "review_ran",
+        "result": {"verdict": "pass", "usage": [{"usage": 1}, {}]},
+    }
 
 
 def test_each_mapped_identifier_is_replaced_by_what_it_stands_for(tmp_path: Path) -> None:

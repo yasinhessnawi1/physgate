@@ -56,7 +56,8 @@ set by what is controllable, at two levels, chosen from the recorded endpoint.
     - *mapped:* the run id, the run directory, session ids (by order of first
       appearance), and commit ids (to their trees);
     - *dropped:* `ts`, the `seconds` of a worktree removal and of the
-      installation check, a token line's `message_id`, a proposal check's
+      installation check, a token line's `message_id` and a review's usage
+      `message_id`s, a proposal check's
       scratch `graph_root`, trajectory seals, and the first line's
       configuration digest.
 - **Decisions**, for a real model. Only the decision sequence is scored: each

@@ -250,6 +250,8 @@ class Gate:
 @dataclass
 class Reviewer:
     model: str = "claude-opus-5-5"
+    #: The prefix of its message ids, to make one run's differ from another's.
+    ids: str = "r"
     calls: int = 0
 
     def review(self, artefact: Artefact) -> ReviewResult:
@@ -262,7 +264,7 @@ class Reviewer:
             usage=(
                 MessageUsage(
                     # Numbered per call, as the scripted endpoint numbers its messages.
-                    message_id=f"r-{self.calls}",
+                    message_id=f"{self.ids}-{self.calls}",
                     usage=Usage(
                         input_tokens=40,
                         output_tokens=9,
@@ -311,6 +313,7 @@ def drive(
     gate: Gate | None = None,
     session_content: dict[int, str] | None = None,
     bare: set[int] | None = None,
+    reviewer_ids: str = "r",
     resume: bool = False,
     clock: Callable[[], datetime] | None = None,
 ) -> str:
@@ -326,7 +329,9 @@ def drive(
         config=cfg,
         run_dir=run_dir,
         gate=gate or Gate(),
-        reviewers={role: Reviewer(model=m) for role, m in cfg.models.reviewers.items()},
+        reviewers={
+            role: Reviewer(model=m, ids=reviewer_ids) for role, m in cfg.models.reviewers.items()
+        },
         dispatcher=FakeSession(run, content=session_content or {}, bare=bare or set()),
         changes=GitChangeChecker(run, run_dir / "store", modules),
         merger=GitMerger(run, removal_timeout_s=60.0),
