@@ -5,7 +5,9 @@ A mount is any node other nodes constrain as supports or as loads:
 - a **support** carries ``support_position`` and declares its ``reaction_force``,
   and a ``reaction_moment`` if it is fixed;
 - a **load** carries ``mount_position`` and either a ``mass`` (its weight, at
-  standard gravity) or a ``load_force``, acting downward.
+  standard gravity) or a ``load_force``, acting downward. A member with a mass
+  and no ``mount_position`` loads the mount somewhere nobody said, so the mount
+  is recorded as unchecked, naming it, rather than balanced without its weight.
 
 The declared reactions are held to the loads: the sum of forces and the sum of
 moments about the supports' centroid must each vanish, within the rounding the
@@ -57,6 +59,9 @@ class _Mount:
     mount_id: str
     supports: tuple[str, ...]
     loads: tuple[str, ...]
+    #: Members with a mass and no ``mount_position``: weight the mount carries
+    #: somewhere nobody said, so its balance cannot be checked.
+    unplaced: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -80,8 +85,13 @@ def mounts(view: GraphView) -> list[_Mount]:
         loads = tuple(
             m for m in members if "mount_position" in view.nodes[m].quantities and m not in supports
         )
+        unplaced = tuple(
+            m
+            for m in members
+            if "mass" in view.nodes[m].quantities and m not in supports and m not in loads
+        )
         if supports or loads:
-            found.append(_Mount(node_id, supports, loads))
+            found.append(_Mount(node_id, supports, loads, unplaced))
     return found
 
 
@@ -96,7 +106,9 @@ def _declared(view: GraphView, mount: _Mount) -> _Declared:
         _IncompleteError: a support or load lacks what it needs.
         UnitRefusedError, pint errors: a quantity's unit is refused.
     """
-    missing: list[str] = []
+    missing: list[str] = [
+        f"mount_position of {m}, which has a mass and so loads this mount" for m in mount.unplaced
+    ]
     supports, reactions, loads = [], [], []
     for s in mount.supports:
         q = view.nodes[s].quantities

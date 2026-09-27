@@ -434,3 +434,26 @@ def test_a_mount_recorded_as_unchecked_is_not_counted_as_evaluated(tmp_path: Pat
         tmp_path, *(support(f"standoff_{n}", x, 9.80665) for n, x in FOUR), load("pcb", 0.15, 4)
     )
     assert [o.outcome for o in ran.observations] == ["unchecked"] and ran.evaluated == 0
+
+
+def test_a_member_with_a_mass_and_no_position_leaves_the_mount_unchecked(tmp_path: Path) -> None:
+    # The board balances on the bearing; the 5 kg pack weighs on the plate too,
+    # at a place nobody wrote, so the balance cannot be checked without it.
+    pack = node(
+        "mechanical.battery_pack",
+        domain="mechanical",
+        quantities={"mass": (5, "kg")},
+        constrains=[MOUNT],
+    )
+    ran = check(tmp_path, support("bearing", 0, 9.80665, moment=0), load("board", 0, 1), pack)
+    (record,) = ran.observations
+    assert record.outcome == "unchecked" and ran.evaluated == 0
+    assert "mount_position of mechanical.battery_pack, which has a mass" in record.message
+
+
+def test_a_module_whose_members_have_masses_and_no_supports_is_not_a_mount(
+    tmp_path: Path,
+) -> None:
+    member = node("mechanical.arm", domain="mechanical", quantities={"mass": (1, "kg")})
+    ran = check(tmp_path, {**member, "constrains": [MOUNT]})
+    assert ran.observations == () and ran.evaluated == 0
