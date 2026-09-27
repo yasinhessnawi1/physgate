@@ -49,7 +49,7 @@ from physgate.gate.exceptions import GateError
 #: What check 3 does with a mount the closed form cannot solve.
 INDETERMINATE_MOUNTS: Literal["block", "resultant"] = "resultant"
 
-#: Standard gravity, exactly as the SI defines it, in m/s^2.
+#: Standard gravity, the conventional value adopted in 1901 by the 3rd CGPM, exactly, in m/s^2.
 STANDARD_GRAVITY = Fraction("9.80665")
 
 

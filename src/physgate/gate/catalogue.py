@@ -32,9 +32,11 @@ from pydantic import BaseModel, ConfigDict, StringConstraints
 
 _Text = Annotated[str, StringConstraints(min_length=1)]
 
+#: Read through search results and the passage pint's documentation quotes, not
+#: in full (26.09.2026); the citation says so wherever it is recorded.
 SI_BROCHURE = (
     "The International System of Units (SI), 9th edition, 2019 (NIST SP 330-2019), "
-    "section 2.3.4 and the notes to Table 4"
+    "section 2.3.4 and the notes to Table 4 (read via search, not in full, 26.09.2026)"
 )
 WORKLOAD = "the name as the design-state graph's reference workload uses it"
 
