@@ -1,4 +1,4 @@
-"""Check 5, energy and mass conservation, per module.
+"""Check 5, energy and mass conservation, per node and per module.
 
 Two balances, each an equality between numbers declared separately:
 
@@ -31,9 +31,14 @@ TOOL = f"{SYMPY}, with the declared-rounding allowance"
 BALANCES = {"mass_sum": "kg", "energy_balance": "W"}
 
 
-def _in_scope(view: GraphView, instance: Instance, touched: set[str]) -> bool:
+def _in_scope(view: GraphView, instance: Instance, near: set[str]) -> bool:
+    """A balance of a node the attempt affected, or of a member of a module it affected.
+
+    An energy balance is a node's own, so it is checked whether or not the node
+    belongs to any module.
+    """
     subject = instance.subject
-    return subject in touched or bool(touched & set(view.nodes[subject].constrains))
+    return subject in near or bool(near & set(view.nodes[subject].constrains))
 
 
 def _values(view: GraphView, side: tuple[object, ...]) -> list[tuple[str, Fraction]]:
@@ -95,11 +100,15 @@ def _judge(view: GraphView, instance: Instance) -> Observation | None:
 
 
 def run(ctx: CheckContext) -> CheckRun:
-    """Check every mass and energy balance of the modules the attempt touched."""
+    """Check every mass and energy balance the attempt could have changed.
+
+    The balances of every node the attempt affected and of the modules those
+    belong to.
+    """
     view = ctx.view
-    touched = set(view.modules_touched())
+    near = set(view.affected()) | set(view.modules_touched())
     balances = [
-        i for i in instances(view) if i.relation.name in BALANCES and _in_scope(view, i, touched)
+        i for i in instances(view) if i.relation.name in BALANCES and _in_scope(view, i, near)
     ]
     observations = [o for o in (_judge(view, i) for i in balances) if o is not None]
     evaluated = sum(1 for i in balances if not i.missing)

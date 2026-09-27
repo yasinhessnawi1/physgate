@@ -8,8 +8,9 @@ no allowance: the design claims these numbers, and a consumer set drawing more
 than its supply is refused with the deficit in watts and the contributing nodes
 (ARCH-080).
 
-At module scope the supplies checked are the modules the attempt touched; at
-system scope, every supply in the graph, which is where modules that each
+At module scope the supplies checked are the modules of the nodes the attempt
+affected (see :meth:`physgate.gate.graph.GraphView.affected`), a module a
+consumer left included; at system scope, every supply in the graph, which is where modules that each
 balance but together exceed their battery are refused.
 """
 
