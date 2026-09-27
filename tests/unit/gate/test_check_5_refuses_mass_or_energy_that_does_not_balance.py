@@ -120,3 +120,22 @@ def test_only_the_modules_the_attempt_touched_are_balanced(tmp_path: Path) -> No
     view = GraphView.read(root, base_revision=head)
     ran = check_conservation.run(CheckContext(view=view, scope="module", bounds=load_bounds()))
     assert ran.observations == () and ran.evaluated == 1
+
+
+def test_a_part_that_constrains_a_component_for_another_reason_is_not_its_mass(
+    tmp_path: Path,
+) -> None:
+    # A 0.2 kg motor constrains its 0.1 kg driver electrically. The driver is a
+    # component, so its mass is not the sum of what constrains it: no balance.
+    graph(
+        tmp_path / "g",
+        node("electrical.driver", quantities={"mass": (0.1, "kg")}),
+        node(
+            "electrical.motor",
+            quantities={"mass": (0.2, "kg")},
+            constrains=["electrical.driver"],
+        ),
+    )
+    result = PhysicsGate().run(GraphView.read(tmp_path / "g", 0), ["module", "system"], "on")
+    assert result.verdict == "pass"
+    assert not [r for r in result.checks if r.name == "conservation" and r.outcome != "pass"]
