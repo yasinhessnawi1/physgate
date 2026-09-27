@@ -10,6 +10,9 @@ At subtask scope, over the nodes the attempt wrote:
 3. every known quantity not already refused must meet its kind (the rules in
    :mod:`physgate.gate.units`).
 
+A relation no check judges (its ``judged_by`` is ``None``) has only its units
+checked here, and a record says so: whether it holds is counted as unchecked.
+
 Returns the offending expression and both unit sides (ARCH-080).
 """
 
@@ -128,6 +131,23 @@ def _relation_finding(view: GraphView, instance: Instance) -> Observation | None
     return None
 
 
+def _unjudged(view: GraphView, instance: Instance) -> Observation:
+    """The record for a relation whose units agree and whose comparison no check makes."""
+    return Observation(
+        outcome="unchecked",
+        node=instance.subject,
+        module=view.module_of(instance.subject),
+        value=None,
+        expected=None,
+        message=(
+            f"{instance.expression()}: its units were checked and agree, but whether it holds "
+            f"('{instance.relation.statement}') is not one of the gate's checks, so it is "
+            "counted as unchecked, never as passed"
+        ),
+        details=UncheckedDetails(quantities=tuple(sorted({r.name for r in instance.refs()}))),
+    )
+
+
 def run(ctx: CheckContext) -> CheckRun:
     """Check the units of the attempt's own nodes and of every relation they are in."""
     view = ctx.view
@@ -193,6 +213,8 @@ def run(ctx: CheckContext) -> CheckRun:
         if finding is not None:
             observations.append(finding)
             refused.update((r.node, r.name) for r in instance.refs())
+        elif instance.relation.judged_by is None:
+            observations.append(_unjudged(view, instance))
     for node_id in own:
         for name, q in view.nodes[node_id].quantities.items():
             kind = kind_of(name)

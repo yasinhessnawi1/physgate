@@ -265,6 +265,31 @@ def test_the_same_comparison_in_milliamps_passes(tmp_path: Path) -> None:
     assert ran.evaluated == 3  # two quantities and one relation
 
 
+def test_a_relation_no_check_judges_is_recorded_as_unchecked_never_as_passed(
+    tmp_path: Path,
+) -> None:
+    # A 6 A stall on a 1 A driver: the units agree, and whether the current fits
+    # is not one of the gate's checks. The record says both, and counts it.
+    driver = node("electrical.driver", quantities={"current_limit": (1, "A")})
+    motor = node(
+        "electrical.motor",
+        quantities={"stall_current": (6, "A")},
+        constrains=["electrical.driver"],
+    )
+    ran = run_check(tmp_path, driver, motor)
+    (record,) = ran.observations
+    assert record.outcome == "unchecked" and record.node == "electrical.driver"
+    assert "units were checked and agree" in record.message
+    assert "is not one of the gate's checks" in record.message
+    assert isinstance(record.details, UncheckedDetails)
+    assert record.details.quantities == ("current_limit", "stall_current")
+    graph(tmp_path / "r", driver, motor)
+    result = PhysicsGate().run(GraphView.read(tmp_path / "r", 0), ["subtask"], "on")
+    assert result.verdict == "pass"
+    unjudged = [r for r in result.checks if r.name == "units" and r.outcome == "unchecked"]
+    assert len(unjudged) == 1 and "not one of the gate's checks" in unjudged[0].message
+
+
 def test_a_power_draw_written_in_amperes_is_refused_where_it_meets_its_supply(
     tmp_path: Path,
 ) -> None:
