@@ -23,3 +23,7 @@ class GateModeError(GateError):
 
 class NothingCheckedError(GateError):
     """A gate call in which no check ran: there is no verdict to give, so none is given."""
+
+
+class ChangeHistoryError(GateError):
+    """A change history that does not describe the journal the gate was asked to read."""

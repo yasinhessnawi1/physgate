@@ -23,7 +23,7 @@ from physgate.gate.catalogue import catalogue_digest
 from physgate.gate.context import CheckContext
 from physgate.gate.equilibrium import EquilibriumSolver
 from physgate.gate.exceptions import GateModeError, NothingCheckedError
-from physgate.gate.graph import GraphView
+from physgate.gate.graph import ChangeHistory, GraphView
 from physgate.gate.registry import CADENCE, REGISTRY, OnFailure, RegisteredCheck
 from physgate.gate.result import CheckRun, Observation
 from physgate.orchestrator.protocols import (
@@ -96,14 +96,19 @@ class PhysicsGate:
         """Check the integrated design at system scope, over the canonical graph.
 
         Every node is in scope; the store is read from its journal and never opened.
+        The artefact's change history goes with it, for the propagation check.
 
         Raises:
+            ChangeHistoryError: the history does not describe the store's journal.
             GateModeError: ``mode`` is not one in which a gate runs.
             NothingCheckedError: no registered check runs at system scope.
             CorruptRecordError, DesignStateError: the graph cannot be read.
         """
         running = require_running_mode(mode)
-        view = GraphView.read(Path(artefact.graph_root), base_revision=0)
+        history = ChangeHistory(
+            baseline=artefact.baseline_revision, change_sets=artefact.change_sets
+        )
+        view = GraphView.read(Path(artefact.graph_root), base_revision=0, history=history)
         return self.run(view, ("system",), running)
 
     def run(self, view: GraphView, scopes: Iterable[Scope], mode: RunningGateMode) -> GateResult:

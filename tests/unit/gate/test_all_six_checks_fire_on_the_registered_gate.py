@@ -22,7 +22,7 @@ from physgate.orchestrator.protocols import CHECK_NUMBERS, Artefact
 SIX = {"units", "magnitude", "equilibrium", "power", "conservation", "thermal"}
 
 
-def test_every_check_but_propagation_is_registered_in_order() -> None:
+def test_every_check_is_registered_in_the_architecture_s_order() -> None:
     assert [entry.name for entry in REGISTRY] == [
         "units",
         "magnitude",
@@ -30,7 +30,9 @@ def test_every_check_but_propagation_is_registered_in_order() -> None:
         "power",
         "conservation",
         "thermal",
+        "propagation",
     ]
+    assert [entry.number for entry in REGISTRY] == sorted(CHECK_NUMBERS.values())
     assert set(CHECK_NUMBERS) - SIX == {"propagation"}
 
 

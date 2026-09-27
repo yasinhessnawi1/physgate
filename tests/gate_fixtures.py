@@ -7,9 +7,11 @@ from pathlib import Path
 from typing import Any
 
 from physgate.gate.context import CheckContext
+from physgate.gate.graph import ChangeHistory
 from physgate.gate.registry import RegisteredCheck
 from physgate.gate.result import CheckRun, Observation
 from physgate.orchestrator.protocols import (
+    ChangeSet,
     CheckName,
     IntegrationArtefact,
     NumericOutput,
@@ -59,6 +61,42 @@ def graph(root: Path, *payloads: dict[str, Any]) -> int:
         return store.head_revision()
     finally:
         store.close()
+
+
+def changed(
+    root: Path, base: Sequence[dict[str, Any]], *change_sets: Sequence[dict[str, Any]]
+) -> ChangeHistory:
+    """Write ``base`` as the given design, then each change set in order; return the history.
+
+    Each change set stands for one merged attempt. Its subtask is named for its
+    position, and it may write nodes of any owner, as a test needs to.
+    """
+    graph(root, *base)
+    store = Store(root)
+    sets: list[ChangeSet] = []
+    try:
+        baseline = store.head_revision()
+        for position, payloads in enumerate(change_sets, start=1):
+            revisions = []
+            for payload in payloads:
+                result = store.write_node(payload, str(payload["owner_role"]))
+                assert result.accepted and result.revision is not None, result
+                revisions.append(result.revision)
+            sets.append(ChangeSet(subtask_id=f"s{position}", attempt=1, revisions=tuple(revisions)))
+    finally:
+        store.close()
+    return ChangeHistory(baseline=baseline, change_sets=tuple(sets))
+
+
+def integrated(root: Path, history: ChangeHistory) -> IntegrationArtefact:
+    """The integration call the loop makes over ``root``, carrying ``history``."""
+    return IntegrationArtefact(
+        run_id="run-1",
+        graph_root=str(root),
+        run_head="b" * 40,
+        baseline_revision=history.baseline,
+        change_sets=history.change_sets,
+    )
 
 
 def given(root: Path) -> IntegrationArtefact:
