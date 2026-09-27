@@ -68,8 +68,17 @@ set by what is controllable, at two levels, chosen from the recorded endpoint.
   - The prompt itself differs between reruns: the binary's own context carries
     the branch, a short commit id and the date.
 
+- **Exact up to a resume**, at the exact level, when either run's log holds a
+  `resumed` line: a second process took that run over. The two logs cannot match
+  line for line, since only one holds what the resume wrote.
+  - These must match exactly: the ledger, the queue and its decisions, the
+    graph journal, every git tree, and the decision sequence.
+  - The event log must match exactly up to the first `resumed` line, and its
+    first divergence, if any, must be that line. Anything that parts earlier fails.
+
 A divergence names its record, its position, the event line it stands for, the
-first differing field, and the subtask, attempt and stage.
+first differing field, and the subtask, attempt and stage. A comparison says
+which rule judged it (`exact`, `exact_to_resume` or `decisions`).
 
 A rerun is refused, before anything runs, when any of these differs from what the
 run recorded: the brief, the harness checkout, the target's head, the endpoint,

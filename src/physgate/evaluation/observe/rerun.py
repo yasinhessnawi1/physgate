@@ -11,6 +11,14 @@ binary or another endpoint is a second run, not a rerun.
 The comparison is ``compare_runs``, at the level ``sequence.level_of`` sets from
 the recorded endpoint. Both levels are always computed and reported; the
 verdict is the one the level names.
+
+**A run a second process took over** (a ``resumed`` line in either log) cannot
+match a run that was never interrupted line for line, since only one of them
+holds the lines the resume wrote. At the exact level it is judged by its own
+rule, ``exact_to_resume``: the ledger, the queue and its decisions, the graph
+journal, every git tree and the decision sequence exactly; the event log exactly
+up to the first ``resumed`` line, whose position must be the log's first
+divergence. Anything that parts earlier fails.
 """
 
 from __future__ import annotations
@@ -24,9 +32,9 @@ import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from physgate.evaluation.observe.exceptions import RerunError
 from physgate.evaluation.observe.manifest import read_manifest
@@ -57,6 +65,11 @@ MEASURED = frozenset(
 )
 
 
+#: How a comparison is judged: exactly; exactly up to where a second process took
+#: the run over; or on its decisions alone.
+Rule = Literal["exact", "exact_to_resume", "decisions"]
+
+
 class _Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
@@ -74,13 +87,37 @@ class Comparison(_Frozen):
     #: The first divergence in the decision sequence, or ``None``.
     decisions: Divergence | None
     decisions_compared: int
+    #: The position of the first ``resumed`` line in either run's log; ``None`` when
+    #: neither run was taken over by a second process.
+    resumed_at: Annotated[int, Field(ge=0)] | None
+
+    @property
+    def rule(self) -> Rule:
+        """Which rule the verdict is given by: exact, exact up to a resume, or decisions."""
+        if self.level == "decisions":
+            return "decisions"
+        return "exact" if self.resumed_at is None else "exact_to_resume"
 
     @property
     def reproduced(self) -> bool:
-        """Whether the rerun reproduced the run, at the level the run's endpoint sets."""
-        if self.level == "decisions":
+        """Whether the rerun reproduced the run, by its rule.
+
+        Under ``exact_to_resume`` every record but the event log must match, and so
+        must the decisions; the log must match up to the first ``resumed`` line, and
+        its first divergence, if it has one, must be that line. A divergence earlier
+        in the log fails, and so does one after it that the log's first divergence
+        hides from nothing else: the other records still have to match.
+        """
+        if self.rule == "decisions":
             return self.decisions is None
-        return self.decisions is None and all(d is None for d in self.exact.values())
+        if self.decisions is not None:
+            return False
+        if any(d is not None for name, d in self.exact.items() if name != "events"):
+            return False
+        events = self.exact["events"]
+        if events is None:
+            return True
+        return self.rule == "exact_to_resume" and events.index == self.resumed_at
 
     @property
     def first(self) -> Divergence | None:
@@ -105,7 +142,12 @@ def compare_runs(recorded: Path, rerun: Path) -> Comparison:
         where = event_position(ra["events"]) if name == "events" else None
         exact[name] = first_divergence(name, ra[name], rb[name], where)
     da, db = decisions(a.events), decisions(b.events)
+    resumes = [
+        next((i for i, e in enumerate(view.events) if e.get("kind") == "resumed"), None)
+        for view in (a, b)
+    ]
     return Comparison(
+        resumed_at=min((i for i in resumes if i is not None), default=None),
         recorded_manifest_id=mine.manifest_id,
         rerun_manifest_id=theirs.manifest_id,
         recorded_run_id=mine.config.run_id,

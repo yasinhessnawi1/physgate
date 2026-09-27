@@ -202,13 +202,22 @@ def test_a_run_id_inside_a_placeholder_does_not_rewrite_it(tmp_path: Path) -> No
     )
 
 
-def test_a_run_killed_and_resumed_keeps_its_state_and_parts_only_where_it_resumed(
-    tmp_path: Path, brief: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    class Killed(BaseException):
-        """The orchestrator's process dying while a session runs."""
+class Killed(BaseException):
+    """The orchestrator's process dying while a session runs."""
 
-    repo = target_repo(tmp_path)
+
+def killed_and_resumed(
+    tmp_path: Path,
+    repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    before: dict[int, str] | None = None,
+    after: dict[int, str] | None = None,
+) -> Path:
+    """A run whose process dies in its second subtask's session, then is resumed.
+
+    ``before`` and ``after`` give the module file's content per session call of
+    the first and the second process.
+    """
     digest = hashlib.sha256(BRIEF.encode()).hexdigest()
     cfg = start(tmp_path, "run-k", repo, brief_sha256=digest)
     real_run = FakeSession.run
@@ -220,17 +229,61 @@ def test_a_run_killed_and_resumed_keeps_its_state_and_parts_only_where_it_resume
 
     monkeypatch.setattr(FakeSession, "run", dies_on_the_second_subtask)
     with pytest.raises(Killed):
-        drive(tmp_path, cfg, repo)
+        drive(tmp_path, cfg, repo, session_content=before)
     monkeypatch.setattr(FakeSession, "run", real_run)
-    assert drive(tmp_path, cfg, repo, resume=True) == "done"
-    result = do_rerun(tmp_path, tmp_path / "run-k", repo, brief)
+    assert drive(tmp_path, cfg, repo, session_content=after, resume=True) == "done"
+    return tmp_path / "run-k"
+
+
+def test_a_run_killed_and_resumed_reproduces_exactly_up_to_where_it_resumed(
+    tmp_path: Path, brief: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = target_repo(tmp_path)
+    run = killed_and_resumed(tmp_path, repo, monkeypatch)
+    result = do_rerun(tmp_path, run, repo, brief)
+    events = [json.loads(x) for x in (run / "events.jsonl").read_text().splitlines()]
+    resumed = next(i for i, e in enumerate(events) if e["kind"] == "resumed")
+    assert (result.rule, result.resumed_at) == ("exact_to_resume", resumed)
+    assert result.reproduced
     # The project's state and every decision are the uninterrupted run's.
     assert result.decisions is None
     assert {k for k, v in result.exact.items() if v is not None} == {"events"}
     # The log parts at the one line only the resumed run has.
     parted = result.exact["events"]
     assert parted is not None and (parted.field, parted.recorded) == ("kind", '"resumed"')
-    assert (parted.subtask_id, parted.attempt, parted.stage) == ("s2-5e2ad0", 1, "spawn")
+    assert (parted.index, parted.subtask_id, parted.attempt, parted.stage) == (
+        resumed,
+        "s2-5e2ad0",
+        1,
+        "spawn",
+    )
+
+
+def test_a_resumed_run_that_parts_before_its_resume_line_is_not_reproduced(
+    tmp_path: Path, brief: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = target_repo(tmp_path)
+    # The first process's first session wrote other work than the rerun's will.
+    run = killed_and_resumed(tmp_path, repo, monkeypatch, before={1: "x = 2\n"})
+    result = do_rerun(tmp_path, run, repo, brief)
+    parted = result.exact["events"]
+    assert result.rule == "exact_to_resume" and not result.reproduced
+    assert parted is not None and result.resumed_at is not None
+    assert parted.index < result.resumed_at and parted.subtask_id == "s1-af41ca"
+
+
+def test_a_resumed_run_whose_state_differs_after_the_resume_is_not_reproduced(
+    tmp_path: Path, brief: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = target_repo(tmp_path)
+    # After the resume the second subtask's work differs. The log's first
+    # divergence is still the resume line, so only the other records can tell.
+    run = killed_and_resumed(tmp_path, repo, monkeypatch, after={1: "x = 2\n"})
+    result = do_rerun(tmp_path, run, repo, brief)
+    parted = result.exact["events"]
+    assert parted is not None and parted.index == result.resumed_at
+    assert result.exact["git"] is not None and result.decisions is None
+    assert not result.reproduced
 
 
 def test_a_real_endpoint_run_is_compared_on_its_decisions_alone(tmp_path: Path) -> None:
