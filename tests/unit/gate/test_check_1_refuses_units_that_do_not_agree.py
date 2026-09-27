@@ -182,7 +182,10 @@ def test_every_catalogue_unit_is_one_pint_reads() -> None:
 
 
 ALL_RELATIONS = (
-    node("electrical.battery", quantities={"power_supply": (24, "W")}),
+    node(
+        "electrical.battery",
+        quantities={"power_supply": (24, "W"), "energy_capacity": (50, "W*h")},
+    ),
     node(
         "electrical.drive",
         kind="module",

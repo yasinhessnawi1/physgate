@@ -20,7 +20,11 @@ from physgate.orchestrator.protocols import PowerDetails, Scope
 
 
 def battery(watts: int = 20) -> dict[str, Any]:
-    return node("electrical.battery", quantities={"power_supply": (watts, "W")})
+    """A declared source: a battery declares the energy it stores."""
+    return node(
+        "electrical.battery",
+        quantities={"power_supply": (watts, "W"), "energy_capacity": (20, "W*h")},
+    )
 
 
 def module(name: str, supply: int, draw: int) -> dict[str, Any]:
@@ -136,6 +140,7 @@ def test_the_balance_is_exact_and_no_rounding_is_credited(tmp_path: Path) -> Non
     ran = check(
         tmp_path,
         "module",
+        battery(),
         module("drive", supply=15, draw=15),
         consumer("motor_left", 15.000001, "drive"),
     )
@@ -221,7 +226,7 @@ def test_the_real_gate_blocks_the_starved_modules_at_module_scope(tmp_path: Path
     assert result.verdict == "fail" and result.failing_check == "power"
 
 
-def test_a_stage_that_draws_from_a_supply_and_declares_no_draw_is_unchecked(
+def test_a_stage_that_draws_from_a_supply_and_declares_no_draw_is_refused(
     tmp_path: Path,
 ) -> None:
     silent = node(
@@ -231,10 +236,40 @@ def test_a_stage_that_draws_from_a_supply_and_declares_no_draw_is_unchecked(
         constrains=["electrical.battery"],
     )
     ran = check(tmp_path, "module", battery(), silent)
-    (record,) = ran.observations
-    assert record.outcome == "unchecked" and "declares no power_draw" in record.message
+    (finding,) = ran.observations
+    assert finding.outcome == "fail" and finding.node == "electrical.drive"
+    assert "declares no power_draw from electrical.battery" in finding.message
 
 
-def test_a_supply_with_nothing_upstream_is_not_held_to_a_draw(tmp_path: Path) -> None:
+def test_a_declared_source_with_nothing_upstream_is_not_held_to_a_draw(tmp_path: Path) -> None:
     ran = check(tmp_path, "system", battery(20), consumer("mcu", 5, "battery"))
     assert ran.observations == () and ran.evaluated == 1
+
+
+def test_a_bench_supply_is_a_declared_source(tmp_path: Path) -> None:
+    bench = node(
+        "electrical.bench",
+        quantities={"power_supply": (30, "W"), "rated_output_power": (30, "W")},
+    )
+    ran = check(tmp_path, "system", bench, consumer("mcu", 5, "bench"))
+    assert ran.observations == ()
+
+
+def test_a_module_that_drops_its_upstream_edge_and_draw_is_refused_as_no_source(
+    tmp_path: Path,
+) -> None:
+    # The reviewer's C3: the drive supplied 15 W while drawing 5 W from a 5 W
+    # battery, and was refused. Rewritten with no edge and no draw, it passed as a
+    # source of its own. A node that supplies power is a declared source, or draws
+    # what it supplies from one.
+    payloads = (
+        battery(5),
+        node("electrical.drive", kind="module", quantities={"power_supply": (15, "W")}),
+        consumer("motor", 15, "drive"),
+    )
+    for scope in ("module", "system"):
+        ran = check(tmp_path / scope, scope, *payloads)
+        (finding,) = ran.observations
+        assert finding.outcome == "fail" and finding.node == "electrical.drive"
+        assert "is not a declared source" in finding.message
+        assert "draws from no supply" in finding.message

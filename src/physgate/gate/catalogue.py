@@ -122,6 +122,11 @@ QUANTITIES: Mapping[str, Entry] = _entries(
     Entry(name="heat_dissipation", kind="power", source=FIXTURES),
     Entry(name="heat_rejection_capacity", kind="power", source=FIXTURES),
     Entry(name="energy_capacity", kind="energy", source=FIXTURES),
+    Entry(
+        name="rated_output_power",
+        kind="power",
+        source="a bench or mains power supply's rated output, as its datasheet states it",
+    ),
     Entry(name="mass", kind="mass", source=WORKLOAD),
     Entry(name="support_position", kind="length", source=FIXTURES),
     Entry(name="mount_position", kind="length", source=FIXTURES),
@@ -233,6 +238,18 @@ RELATIONS: Mapping[str, Relation] = MappingProxyType(
 )
 
 
+#: What makes a node a declared source of power, and why. A node that supplies
+#: power is one of these, or it draws what it supplies from a supply upstream;
+#: otherwise any module could become a source by dropping its upstream edge and
+#: its draw.
+SOURCES: Mapping[str, str] = MappingProxyType(
+    {
+        "energy_capacity": "a battery: it declares the energy it stores",
+        "rated_output_power": "a bench or mains supply: it declares its rated output",
+    }
+)
+
+
 def kind_of(name: str) -> Kind | None:
     """The kind of the quantity called ``name``, or ``None`` if the catalogue does not know it."""
     entry = QUANTITIES.get(name)
@@ -252,6 +269,7 @@ def catalogue_digest() -> str:
         "quantities": [QUANTITIES[q].model_dump() for q in sorted(QUANTITIES)],
         "relations": [RELATIONS[r].model_dump() for r in sorted(RELATIONS)],
         "products": sorted([*pair, kind] for pair, kind in PRODUCTS.items()),
+        "sources": sorted(SOURCES.items()),
     }
     canonical = json.dumps(content, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest()

@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 from typing import Literal
 
-from physgate.gate.catalogue import RELATIONS, Relation, kind_of
+from physgate.gate.catalogue import RELATIONS, SOURCES, Relation, kind_of
 from physgate.gate.graph import GraphView
 from physgate.gate.units import Measured, add, measure, multiply
 from physgate.orchestrator.protocols import NumericOutput, Term
@@ -111,8 +111,8 @@ def instances(view: GraphView) -> list[Instance]:
                     missing=() if "power_supply" in q else ("power_supply",),
                 )
             )
-        upstream = [t for t in node.constrains if t in view.nodes and _has(view, t, "power_supply")]
-        if "power_supply" in q and ("power_draw" in q or upstream):
+        if "power_supply" in q and not any(name in q for name in SOURCES):
+            # Not a declared source, so what it supplies it must draw from upstream.
             found.append(
                 Instance(
                     relation=RELATIONS["supply_covered"],

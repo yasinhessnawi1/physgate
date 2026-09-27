@@ -8,9 +8,11 @@ no allowance: the design claims these numbers, and a consumer set drawing more
 than its supply is refused with the deficit in watts and the contributing nodes
 (ARCH-080).
 
-A node that passes power on, a module drawing from a battery and supplying its
-own members, is also held to what it takes in: the power it supplies is at most
-the power it draws upstream. Without that, two modules each supplying their
+A node that supplies power is either a declared source (the catalogue's
+``SOURCES``: a battery declares its energy, a bench or mains supply its rated
+output) or it draws what it supplies from a supply it constrains, and is held
+to that: the power it supplies is at most the power it draws upstream. A node
+that is neither is refused. Without that, two modules each supplying their
 members in full while drawing almost nothing from the battery balance at every
 supply, and the battery never sees what their members really draw.
 
@@ -24,6 +26,7 @@ from __future__ import annotations
 
 from fractions import Fraction
 
+from physgate.gate.catalogue import SOURCES
 from physgate.gate.context import CheckContext
 from physgate.gate.graph import GraphView
 from physgate.gate.relations import Instance, TermRef, instances, measured, output
@@ -101,16 +104,50 @@ def _judge(view: GraphView, instance: Instance) -> Observation | None:
     )
 
 
+def upstream(view: GraphView, node_id: str) -> tuple[str, ...]:
+    """The supplies ``node_id`` draws from: the nodes it constrains that declare one."""
+    return tuple(
+        t
+        for t in view.nodes[node_id].constrains
+        if t in view.nodes and "power_supply" in view.nodes[t].quantities
+    )
+
+
+def _not_a_source(view: GraphView, instance: Instance, why: str) -> Observation:
+    sources = " or ".join(SOURCES)
+    q = view.nodes[instance.subject].quantities["power_supply"]
+    return Observation(
+        outcome="fail",
+        node=instance.subject,
+        module=view.module_of(instance.subject),
+        value=output(measured(view, TermRef(instance.subject, "power_supply")).magnitude, "W"),
+        expected=f"a declared source ({sources}), or a draw from a supply it constrains",
+        message=(
+            f"{instance.subject} supplies {q.value} {q.unit} but is not a declared source "
+            f"(it declares neither {sources}) and {why}; a node that supplies power either "
+            f"is a source or draws what it supplies from one"
+        ),
+        details=PowerDetails(
+            deficit=output(
+                measured(view, TermRef(instance.subject, "power_supply")).magnitude, "W"
+            ),
+            contributing=(instance.subject,),
+        ),
+        quantities=(_ref(view, TermRef(instance.subject, "power_supply")),),
+    )
+
+
 def _judge_covered(view: GraphView, instance: Instance) -> Observation | None:
-    """The finding for one node that passes power on, or ``None`` if it takes in enough."""
-    if instance.missing:
-        return _unchecked(
-            view,
-            instance,
-            "cannot be checked: it supplies what draws from it and draws from a supply "
-            "itself, and declares no power_draw",
-            instance.missing,
-        )
+    """The finding for a node that supplies power and is not a declared source."""
+    feeds = upstream(view, instance.subject)
+    try:
+        if not feeds:
+            return _not_a_source(view, instance, "draws from no supply")
+        if instance.missing:
+            return _not_a_source(view, instance, f"declares no power_draw from {', '.join(feeds)}")
+    except (UnitRefusedError, *PINT_ERRORS):
+        names = tuple(sorted({r.name for r in instance.refs()}))
+        return _unchecked(view, instance, "is in a unit the unit check refuses", names)
     (supply,), (draw,) = instance.left, instance.right
     if not isinstance(supply, TermRef) or not isinstance(draw, TermRef):
         msg = "a covered supply compares two single quantities"
