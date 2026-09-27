@@ -9,10 +9,11 @@ A mount is any node other nodes constrain as supports or as loads:
   and no ``mount_position`` loads the mount somewhere nobody said, so the mount
   is recorded as unchecked, naming it, rather than balanced without its weight.
 
-The declared reactions are held to the loads: the sum of forces, and the sum of
-moments about every support position, must each vanish within the rounding the
-declared numbers can carry (the allowance in :mod:`physgate.gate.tolerances`,
-made from that equation's own terms).
+The declared reactions are held to the loads: both the force balance and the
+moment balance must be explained by moving each declared force, weight and
+moment within its own rounding, half a unit in its third significant figure
+(D-P0-13's model, :mod:`physgate.gate.tolerances`), with positions exact. See
+:func:`rounding_miss` for how that is decided exactly.
 A mount of pins at one point with a load off that point is refused as unstable
 before any of that, since a pin cannot resist a moment. A mount statics can solve
 alone is also solved, and a failure returns the solved reactions beside the
@@ -43,7 +44,7 @@ from physgate.gate.equilibrium import (
 from physgate.gate.graph import GraphView
 from physgate.gate.relations import TermRef, measured, output
 from physgate.gate.result import CheckRun, Observation
-from physgate.gate.tolerances import holds_within_rounding, rounding_allowance
+from physgate.gate.tolerances import ROUNDING_SHARE, holds_within_rounding
 from physgate.gate.units import PINT_ERRORS, UnitRefusedError
 from physgate.orchestrator.protocols import (
     EquilibriumDetails,
@@ -137,58 +138,105 @@ def _declared(view: GraphView, mount: _Mount) -> _Declared:
 
 
 @dataclass(frozen=True)
-class _Moments:
-    """The moment equation about one point: where, its residual, and its terms."""
+class _Generator:
+    """One declared number's rounding slack, as a (force, moment about 0) direction.
 
-    about: str
-    x_m: Fraction
+    ``half_width`` is how far the number may move: half a unit in its third
+    significant figure, which is at most ``ROUNDING_SHARE`` of its magnitude. A
+    declared 0 has none.
+    """
+
+    force: Fraction
+    moment: Fraction
+    half_width: Fraction
+
+
+@dataclass(frozen=True)
+class _Miss:
+    """An equation the declared rounding cannot explain: what, where, by how much."""
+
+    what: str
+    x_m: Fraction | None
     residual: Fraction
-    terms: list[Fraction]
+    bound: Fraction
 
 
-def _about(declared: _Declared, label: str, x_m: Fraction) -> _Moments:
+def _residuals(declared: _Declared) -> tuple[Fraction, Fraction]:
+    """The force residual, and the moment residual about the axis's origin."""
     problem = declared.problem
     at = {s.node_id: s.x_m for s in problem.supports}
-    terms = (
-        [r.force_n * (at[r.support_id] - x_m) for r in declared.reactions]
-        + [r.moment_nm for r in declared.reactions]
-        + [-ld.force_n * (ld.x_m - x_m) for ld in problem.loads]
+    force = sum((r.force_n for r in declared.reactions), Fraction(0)) - sum(
+        (ld.force_n for ld in problem.loads), Fraction(0)
     )
-    return _Moments(label, x_m, sum(terms, Fraction(0)), terms)
+    moment = sum(
+        (r.force_n * at[r.support_id] + r.moment_nm for r in declared.reactions), Fraction(0)
+    ) - sum((ld.force_n * ld.x_m for ld in problem.loads), Fraction(0))
+    return force, moment
 
 
-def _ratio(m: _Moments) -> Fraction | None:
-    """How far past its allowance a moment residual is; ``None`` for a miss with none."""
-    allowance = rounding_allowance(m.terms)
-    if allowance == 0:
-        return None if m.residual != 0 else Fraction(0)
-    return abs(m.residual) / allowance
-
-
-def _sums(declared: _Declared) -> tuple[Fraction, list[Fraction], _Moments, bool]:
-    """The force residual and terms, the worst moment equation, and whether all moments hold.
-
-    The moment equation is held about **every support position**, each against
-    the allowance made from its own terms. A mount in equilibrium is in
-    equilibrium about every point, so this refuses nothing a correct declaration
-    passes; but the allowance about any one point grows with the lever arms to
-    it, and a support that carries nothing still lengthens the arms to the point
-    it stands at. Held about every support, no support the declaration adds can
-    widen the allowance about the others. A mount with no support is held about
-    its loads' centroid.
-    """
+def _generators(declared: _Declared) -> list[_Generator]:
     problem = declared.problem
-    force_terms = [r.force_n for r in declared.reactions] + [-ld.force_n for ld in problem.loads]
-    points: dict[Fraction, str] = {}
-    for support in problem.supports:
-        points.setdefault(support.x_m, support.node_id)
-    if not points:
-        points[reference_point(problem)] = "the loads' centroid"
-    about = [_about(declared, label, x) for x, label in points.items()]
-    failing = [m for m in about if not holds_within_rounding(m.residual, m.terms)]
-    candidates = failing or about
-    worst = max(candidates, key=lambda m: (_ratio(m) is None, _ratio(m) or 0))
-    return sum(force_terms, Fraction(0)), force_terms, worst, not failing
+    at = {s.node_id: s.x_m for s in problem.supports}
+    found = []
+    for r in declared.reactions:
+        found.append(_Generator(Fraction(1), at[r.support_id], ROUNDING_SHARE * abs(r.force_n)))
+        found.append(_Generator(Fraction(0), Fraction(1), ROUNDING_SHARE * abs(r.moment_nm)))
+    found.extend(
+        _Generator(Fraction(-1), -ld.x_m, ROUNDING_SHARE * abs(ld.force_n)) for ld in problem.loads
+    )
+    return [g for g in found if g.half_width != 0]
+
+
+def _about(x: Fraction, force: Fraction, moment: Fraction) -> Fraction:
+    """A (force, moment about 0) pair's moment about ``x``."""
+    return moment - x * force
+
+
+def rounding_miss(declared: _Declared) -> _Miss | None:
+    """The equation declared rounding cannot explain, or ``None`` if it can explain both.
+
+    D-P0-13's model is per number: each declared force, weight and moment is true
+    to within half a unit in its third significant figure. The question is
+    whether moving each one within its own slack balances both the force row and
+    the moment row at once. Positions are taken as exact: a coordinate's
+    precision is not relative to its size, and rounding it by a share of its
+    value would make the answer depend on where the origin is again.
+
+    The slacks' combined effect on (force, moment) is a zonotope, a centrally
+    symmetric polygon whose edges are parallel to the numbers' directions. The
+    residual lies inside it exactly when it lies within every edge's supporting
+    lines. An edge parallel to a force at position x has a normal that measures
+    the moment about x; an edge parallel to a moment has one that measures the
+    force. So the test is: the force residual within the force slack, and the
+    moment residual about every position that carries a declared number within
+    the moment slack about that position. The moments about the supports'
+    centroid are tested as well, which settles the one degenerate case, every
+    slack a moment. Every quantity is a fraction, so the answer is exact. Row
+    operations do not change it, so neither does the choice of origin.
+    """
+    force, moment = _residuals(declared)
+    gens = _generators(declared)
+    tests: list[_Miss] = [
+        _Miss("forces", None, force, sum((g.half_width * abs(g.force) for g in gens), Fraction(0)))
+    ]
+    points = {g.moment / g.force for g in gens if g.force != 0}
+    points.add(reference_point(declared.problem))
+    for x in sorted(points):
+        bound = sum((g.half_width * abs(_about(x, g.force, g.moment)) for g in gens), Fraction(0))
+        tests.append(_Miss("moments", x, _about(x, force, moment), bound))
+    failing = [t for t in tests if abs(t.residual) > t.bound]
+    if not failing:
+        return None
+    return max(failing, key=lambda t: (t.bound == 0, abs(t.residual) / t.bound if t.bound else 0))
+
+
+def _where(declared: _Declared, x: Fraction) -> str:
+    problem = declared.problem
+    named = [s.node_id for s in problem.supports if s.x_m == x] + [
+        ld.node_id for ld in problem.loads if ld.x_m == x
+    ]
+    shown = output(x, "m").value
+    return f"{named[0]} at {shown} m" if named else f"{shown} m"
 
 
 def _matches(declared: tuple[Reaction, ...], solved: tuple[Reaction, ...]) -> bool:
@@ -228,14 +276,17 @@ def _judge(view: GraphView, mount: _Mount, solver: EquilibriumSolver) -> Observa
     except (UnitRefusedError, *PINT_ERRORS):
         names = (*mount.supports, *mount.loads)
         return _unchecked(mount, module, "has a quantity in a unit the unit check refuses", names)
-    f_res, f_terms, moments, moments_hold = _sums(declared)
-    m_res, m_terms = moments.residual, moments.terms
+    f_res, m_origin = _residuals(declared)
+    miss = rounding_miss(declared)
+    at = miss.x_m if miss is not None and miss.x_m is not None else None
+    at = at if at is not None else reference_point(declared.problem)
+    m_res = _about(at, f_res, m_origin)
     unstable = mechanism(declared.problem)
     if unstable is not None:
         return _refused(
             view, mount, module, declared, (f_res, m_res), unstable, "none: a mechanism", ()
         )
-    balanced = holds_within_rounding(f_res, f_terms) and moments_hold
+    balanced = miss is None
     try:
         solution = solver.solve(declared.problem)
         solved, method, determinate = solution.reactions, solution.solver, True
@@ -253,21 +304,29 @@ def _judge(view: GraphView, mount: _Mount, solver: EquilibriumSolver) -> Observa
     elif determinate and balanced and _matches(declared.reactions, solved):
         return None
     blocked_for_fea = not determinate and equilibrium.INDETERMINATE_MOUNTS == "block"
-    f_allow = output(rounding_allowance(f_terms), "N").value
-    m_allow = output(rounding_allowance(m_terms), "N*m").value
+    if miss is None:
+        why = ""
+    elif miss.what == "forces":
+        why = (
+            f"the forces miss by {output(f_res, 'N').value} N, and moving each declared "
+            f"force and weight within half a unit in its third significant figure "
+            f"explains at most {output(miss.bound, 'N').value} N"
+        )
+    else:
+        where = _where(declared, at)
+        why = (
+            f"the moments about {where} miss by {output(m_res, 'N*m').value} N*m, and "
+            f"moving each declared force, weight and moment within half a unit in its "
+            f"third significant figure explains at most {output(miss.bound, 'N*m').value} N*m"
+        )
     reason = (
         "the reaction split on this mount needs FEA, which is not available"
         if blocked_for_fea
         else f"its declared reactions are not the ones {method} finds, support by support"
         if determinate and balanced
-        else (
-            f"its declared reactions do not balance its loads: the forces miss by "
-            f"{output(f_res, 'N').value} N (rounding allows {f_allow} N) and the moments by "
-            f"{output(m_res, 'N*m').value} N*m (rounding allows {m_allow} N*m) about "
-            f"{moments.about} at {output(moments.x_m, 'm').value} m"
-        )
+        else f"its declared reactions do not balance its loads: {why}"
     )
-    worst_is_moment = not moments_hold
+    worst_is_moment = miss is not None and miss.what == "moments"
     return _refused(
         view,
         mount,

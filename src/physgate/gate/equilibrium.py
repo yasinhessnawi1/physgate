@@ -6,16 +6,12 @@ counter-clockwise, so an upward force to the right of the reference point has a
 positive moment. A load's force is its weight or declared force, acting
 downward.
 
-The check holds the moment equation about every support position, each against
-the allowance made from its own terms, not about the axis's origin or any one
-chosen point. Where the origin sits is the author's choice and says nothing
-about the mount, and the rounding allowance is a fraction of the moment terms'
-sizes: about a far point every term is large. A single reference point, even
-one of the mount's own such as its supports' centroid, can still be moved by the
-declaration, by a support far away that carries nothing. Held about every
-support, no support the declaration adds can widen the allowance about the
-others, and a mount in equilibrium passes about each of them.
-:func:`reference_point` is only for a mount with no support at all.
+The check asks whether moving each declared force, weight and moment within its
+own rounding (half a unit in its third significant figure) balances forces and
+moments at once, with positions exact; ``rounding_miss`` in the check decides
+it exactly. The answer does not depend on where the origin is, or on any point
+the declaration could move. :func:`reference_point` is one more point the check
+tests moments about, and the point it reports a mount with no support at.
 
 A mount that cannot resist a moment at all, pins at one point with a load off
 that point, is a mechanism, not a structure: :func:`mechanism` names it, and no

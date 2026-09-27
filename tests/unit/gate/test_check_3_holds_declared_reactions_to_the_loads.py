@@ -87,7 +87,8 @@ def test_a_cantilever_declaring_no_moment_reaction_is_refused_with_reactions_and
     assert solved.moment is not None and solved.moment.value == pytest.approx(0.980665)
     (declared,) = details.declared
     assert declared.moment is not None and declared.moment.value == 0
-    assert "moments by -0.980665 N*m (rounding allows 0.004903325 N*m)" in finding.message
+    assert "miss by -0.980665 N*m" in finding.message
+    assert "explains at most 0.004903325 N*m" in finding.message
 
 
 def test_a_cantilever_declaring_its_moment_to_three_figures_passes(tmp_path: Path) -> None:
@@ -415,7 +416,8 @@ def test_a_cantilever_far_from_the_origin_declaring_no_moment_is_still_refused(
     )
     (finding,) = ran.observations
     assert finding.outcome == "fail"
-    assert "moments by -0.980665 N*m (rounding allows 0.004903325 N*m)" in finding.message
+    assert "miss by -0.980665 N*m" in finding.message
+    assert "explains at most 0.004903325 N*m" in finding.message
 
 
 def test_moments_are_taken_about_the_supports_centroid() -> None:
@@ -546,3 +548,116 @@ def test_a_determinate_plate_with_a_far_support_carrying_its_share_passes(
         *plate(("standoff_a", 0, 7.35), ("standoff_b", 1000, 2.45), loads=(("pcb", 250, 1),)),
     )
     assert ran.observations == () and ran.evaluated == 1
+
+
+# --- the rounding model per number: can each declared value's own slack balance it? ----
+
+
+def far_pair(offset: float = 0) -> list[dict[str, Any]]:
+    """The reviewer's E1 plus 1000 kg standing on its own support at 1000 m (X1)."""
+    return plate(
+        ("standoff_a", offset + 0, W),
+        ("standoff_b", offset + 0.1, 0),
+        ("standoff_c", offset + 0.2, 0),
+        ("standoff_far", offset + 1000, 1000 * 9.80665),
+        loads=(("pcb", offset + 0.2, 1), ("ballast", offset + 1000, 1000)),
+    )
+
+
+def test_a_smaller_far_pair_cannot_explain_the_miss_and_is_refused(tmp_path: Path) -> None:
+    # X3: 10 kg standing on a support at 10 m. Its slack, 0.49 N, would have to
+    # move by 0.196 N and the near standoff's by the same to balance, and the near
+    # standoff's slack is 0.049 N: no change within rounding explains it.
+    ran = check(
+        tmp_path,
+        *plate(
+            ("standoff_a", 0, W),
+            ("standoff_b", 0.1, 0),
+            ("standoff_c", 0.2, 0),
+            ("standoff_far", 10, 98.0665),
+            loads=(("pcb", 0.2, 1), ("ballast", 10, 10)),
+        ),
+    )
+    (finding,) = ran.observations
+    assert finding.outcome == "fail" and "do not balance" in finding.message
+
+
+def test_a_heavy_far_pair_is_explained_by_rounding_and_the_witness_balances_exactly() -> None:
+    # X1 under the rounding model: each declared number is true to half a unit in
+    # its third significant figure. Moving the far reaction up by 0.00196 N (its
+    # slack is 49 N) and the near one down by the same (its slack is 0.049 N)
+    # balances forces and moments exactly, so the per-number model cannot refuse
+    # it. What it cannot verify, the split, is recorded as unchecked.
+    w = Fraction("9.80665")
+    shift = Fraction("0.00196133")
+    supports = ((Fraction(0), w - shift), (Fraction(1000), 1000 * w + shift))
+    loads = ((Fraction("0.2"), w), (Fraction(1000), 1000 * w))
+    assert sum(r for _, r in supports) - sum(f for _, f in loads) == 0
+    assert sum(r * x for x, r in supports) - sum(f * x for x, f in loads) == 0
+    assert shift <= Fraction(5, 1000) * w and shift <= Fraction(5, 1000) * 1000 * w
+
+
+@pytest.mark.parametrize("case", ["far pair", "sound plate", "wrong plate"])
+def test_the_verdict_does_not_depend_on_where_the_mount_sits(tmp_path: Path, case: str) -> None:
+    def build(offset: float) -> list[dict[str, Any]]:
+        if case == "far pair":
+            return far_pair(offset)
+        split = (14.71, 4.903) if case == "sound plate" else (4.903, 14.71)
+        return plate(
+            ("standoff_a", offset, split[0]),
+            ("standoff_b", offset + 0.2, split[1]),
+            loads=(("battery", offset + 0.05, 2),),
+        )
+
+    near = check(tmp_path / "near", *build(0))
+    far = check(tmp_path / "far", *build(1000))
+    assert [o.outcome for o in near.observations] == [o.outcome for o in far.observations]
+    assert near.evaluated == far.evaluated
+
+
+def _aggregate_about_every_support_misses(declared: Any) -> bool:
+    """The check this replaced: each support's moments against 0.005 of their terms."""
+    problem = declared.problem
+    at = {s.node_id: s.x_m for s in problem.supports}
+    for x in {s.x_m for s in problem.supports}:
+        terms = (
+            [r.force_n * (at[r.support_id] - x) for r in declared.reactions]
+            + [r.moment_nm for r in declared.reactions]
+            + [-ld.force_n * (ld.x_m - x) for ld in problem.loads]
+        )
+        if abs(sum(terms, Fraction(0))) > Fraction(5, 1000) * sum(abs(t) for t in terms):
+            return True
+    return False
+
+
+def test_holding_moments_about_every_support_adds_nothing_the_per_number_test_lacks() -> None:
+    # Each support's aggregate test is the per-number test's edge normal to that
+    # support's reaction, so every mount it refuses is refused already. Checked
+    # over seeded random mounts, exact fractions throughout.
+    import random
+
+    rng = random.Random(20260927)
+    refused_by_old = 0
+    for _ in range(3000):
+        n = rng.randint(1, 4)
+        supports = tuple(
+            Support(f"s{i}", rng.choice(["pin", "fixed"]), Fraction(rng.randint(-50, 50), 10))
+            for i in range(n)
+        )
+        reactions = tuple(
+            Reaction(
+                s.node_id,
+                Fraction(rng.randint(0, 400), 10),
+                Fraction(rng.randint(-40, 40), 10) if s.kind == "fixed" else Fraction(0),
+            )
+            for s in supports
+        )
+        loads = tuple(
+            Load(f"l{j}", Fraction(rng.randint(0, 400), 10), Fraction(rng.randint(-50, 50), 10))
+            for j in range(rng.randint(1, 3))
+        )
+        declared = check_equilibrium._Declared(MountProblem("m", supports, loads), reactions)
+        if _aggregate_about_every_support_misses(declared):
+            refused_by_old += 1
+            assert check_equilibrium.rounding_miss(declared) is not None, declared
+    assert refused_by_old > 1000
