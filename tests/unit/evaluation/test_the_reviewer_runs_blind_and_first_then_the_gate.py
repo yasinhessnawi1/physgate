@@ -36,7 +36,7 @@ from physgate.evaluation.inject.runner import (
     run_instrument,
 )
 from physgate.orchestrator.catches import catches
-from physgate.orchestrator.events import GateRan, ReviewRan, read_events
+from physgate.orchestrator.events import GateRan, ReviewRan, SubtaskPlanned, read_events
 from physgate.orchestrator.exceptions import ModelSeparationError
 from physgate.orchestrator.gate_events import gate_events
 from physgate.orchestrator.protocols import Artefact
@@ -143,11 +143,20 @@ def test_each_row_is_one_artefact_and_the_catch_count_is_what_the_rows_add_up_to
 
 
 def test_the_log_names_no_artefact_id_and_no_class_order(corpus: Corpus, tmp_path: Path) -> None:
-    _run(corpus, tmp_path / "out", SeededFakeReviewer())
-    log = read_events(tmp_path / "out" / "run" / "events.jsonl")
-    subtasks = [e.subtask_id for e in log if isinstance(e, ReviewRan)]
-    assert subtasks == sorted(review_id(SEED, a) for a in ("m1", "p1"))
-    assert not {"m1", "p1"} & set(subtasks)
+    seed = 3  # a seed under which the run's order is not the corpus's
+    assert review_id(seed, "m1") > review_id(seed, "p1")
+    run_instrument(
+        corpus,
+        {"electrical": SeededFakeReviewer()},
+        run_dir=tmp_path / "run",
+        scratch=tmp_path / "s",
+        run_id="x",
+        seed=seed,
+    )
+    log = read_events(tmp_path / "run" / "events.jsonl")
+    for kind in (SubtaskPlanned, ReviewRan, GateRan):
+        subtasks = [e.subtask_id for e in log if isinstance(e, kind)]
+        assert subtasks == [review_id(seed, "p1"), review_id(seed, "m1")]
 
 
 def test_the_same_input_and_seed_give_the_same_results_file(corpus: Corpus, tmp_path: Path) -> None:
