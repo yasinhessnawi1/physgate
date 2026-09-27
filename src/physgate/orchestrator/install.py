@@ -34,9 +34,11 @@ from pydantic import BaseModel, ConfigDict
 from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.managed import SystemManagedFile, system_managed_facts
 
-#: What the build put in the installation's ``site-packages``, by path and sha256.
-#: Written when the installation is built, inside it, so it is as read-only and as
-#: protected as what it describes, and held against the installation at every use.
+#: Every file the build put in the installation, by path and sha256: the
+#: interpreter's links, the ``bin`` scripts every hook runs through, ``pyvenv.cfg``,
+#: ``site-packages``, compiled caches included. Written when the installation is
+#: built, inside it, so it is as read-only and as protected as what it describes,
+#: and held against the installation at every use.
 MANIFEST_NAME = "physgate-install-manifest.json"
 
 #: Filesystems whose renames and opens go over a network; the hook state
@@ -99,8 +101,8 @@ def prepare_install(dest: Path, project_root: Path) -> Path:
             msg = "building the hook installation failed"
             raise InvocationError(msg, command=" ".join(argv[:3]), stderr=done.stderr[-600:])
     _require_package_is_source(dest, project_root)
-    site = _site_packages(dest)
-    (dest / MANIFEST_NAME).write_text(json.dumps(site_manifest(site), indent=1, sort_keys=True))
+    manifest = install_manifest(dest)
+    (dest / MANIFEST_NAME).write_text(json.dumps(manifest, indent=1, sort_keys=True))
     for directory, dirs, files in os.walk(dest, topdown=False):
         for name in files + dirs:
             path = os.path.join(directory, name)
@@ -111,23 +113,17 @@ def prepare_install(dest: Path, project_root: Path) -> Path:
     return dest / "bin" / "physgate"
 
 
-def _site_packages(dest: Path) -> Path:
-    found = sorted(Path(dest).glob("lib/python*/site-packages"))
-    if len(found) != 1:
-        msg = "the installation holds no single site-packages directory"
-        raise InvocationError(msg, path=str(dest))
-    return found[0]
+def install_manifest(dest: Path) -> dict[str, str]:
+    """Every file of an installation, by path relative to it: its sha256.
 
-
-def site_manifest(site: Path) -> dict[str, str]:
-    """Every file of an installation's ``site-packages``, by relative path: its sha256.
-
-    Compiled caches are left out; a symbolic link is recorded by its target.
+    The manifest itself is left out. A symbolic link is recorded by its target.
+    Compiled caches are recorded like any other file: a read-only installation
+    never gains one by running, and one planted there runs in place of its source.
     """
     entries: dict[str, str] = {}
-    for path in sorted(Path(site).rglob("*")):
-        rel = path.relative_to(site)
-        if "__pycache__" in rel.parts:
+    for path in sorted(Path(dest).rglob("*")):
+        rel = path.relative_to(dest)
+        if rel.as_posix() == MANIFEST_NAME:
             continue
         if path.is_symlink():
             entries[rel.as_posix()] = "link:" + os.readlink(path)
@@ -169,11 +165,13 @@ def require_current(dest: Path, project_root: Path) -> None:
     - its copy of the package is the project's source as it is now, with no file
       the source lacks (a build from a cache keyed on the project file, or an
       installation left from an earlier source, would run other hook code);
-    - everything else in its ``site-packages`` is what its own build produced,
-      recorded in a manifest when it was built. Python's startup executes the
-      lines of every ``.pth`` file there, and imports ``sitecustomize`` and
-      ``usercustomize``, before any hook or check loads and even in isolated
-      mode, so a file planted there would run inside every hook.
+    - every file of the installation is what its own build produced, recorded
+      in a manifest when it was built: the ``bin`` scripts every hook is run
+      through, ``pyvenv.cfg``, which decides what the interpreter imports from
+      outside the installation, and ``site-packages``, where Python's startup
+      executes the lines of every ``.pth`` file and imports ``sitecustomize``
+      and ``usercustomize`` before any hook or check loads, even in isolated
+      mode.
 
     Raises:
         InvocationError: the package is not the source, the manifest is missing,
@@ -186,12 +184,12 @@ def require_current(dest: Path, project_root: Path) -> None:
     except (FileNotFoundError, json.JSONDecodeError):
         msg = "the installation has no manifest of what its build produced; build a new one"
         raise InvocationError(msg, path=str(dest)) from None
-    now = site_manifest(_site_packages(dest))
+    now = install_manifest(dest)
     added = sorted(set(now) - set(built))
     removed = sorted(set(built) - set(now))
     changed = sorted(k for k in set(now) & set(built) if now[k] != built[k])
     if added or removed or changed:
-        msg = "the installation's site-packages is not what its build produced; build a new one"
+        msg = "the installation is not what its build produced; build a new one"
         raise InvocationError(
             msg,
             path=str(dest),

@@ -5,8 +5,8 @@ read-only installation of this package, and that installation holds the gate
 the run is judged by. A session writing into it, through a file tool or its
 shell, is refused. And before any run uses an installation, the orchestrator
 holds it to the source: a gate file that differs, or one the source does not
-have, refuses the run; so does any file in its ``site-packages`` the build did
-not produce.
+have, refuses the run; so does any file of the installation the build did not
+produce or left otherwise, its entry script and ``pyvenv.cfg`` included.
 """
 
 from __future__ import annotations
@@ -104,4 +104,27 @@ def test_a_pth_file_planted_in_the_installation_refuses_the_run(tmp_path: Path) 
     (site / "zz_planted.pth").write_text("import os\n")
     with pytest.raises(InvocationError, match="not what its build produced") as caught:
         require_current(install, ROOT)
-    assert caught.value.context["added"] == "zz_planted.pth"
+    assert caught.value.context["added"] == f"{site.relative_to(install)}/zz_planted.pth"
+
+
+@pytest.mark.parametrize(
+    ("path", "line"),
+    [
+        ("bin/physgate", "import os; os.system('touch /tmp/planted')"),
+        ("pyvenv.cfg", "include-system-site-packages = true"),
+    ],
+)
+def test_a_changed_entry_script_or_interpreter_setting_refuses_the_run(
+    tmp_path: Path, path: str, line: str
+) -> None:
+    # The script every hook is run through, and the setting that lets the
+    # interpreter import from outside the installation: both outside site-packages.
+    install = tmp_path / "install"
+    prepare_install(install, ROOT)
+    target = install / path
+    _writable(target.parent)
+    _writable(target)
+    target.write_text(target.read_text() + line + "\n")
+    with pytest.raises(InvocationError, match="not what its build produced") as caught:
+        require_current(install, ROOT)
+    assert caught.value.context["changed"] == path
