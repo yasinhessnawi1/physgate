@@ -107,15 +107,19 @@ def config(run_id: str, repo: Path, **overrides: Any) -> RunConfig:  # noqa: ANN
     return RunConfig(**fields)
 
 
-def node(node_id: str, kind: str = "component") -> dict[str, Any]:
+def node(node_id: str, kind: str = "component", *, bare: bool = False) -> dict[str, Any]:
+    """A node proposal; ``bare`` writes its quantity as a bare number, a schema error."""
+    quantity: Any = (
+        1.5
+        if bare
+        else {"value": 1.5, "unit": "A", "source": "datasheet", "written_by": "electrical"}
+    )
     return {
         "id": node_id,
         "kind": kind,
         "domain": "electrical",
         "owner_role": "electrical",
-        "quantities": {
-            "i": {"value": 1.5, "unit": "A", "source": "datasheet", "written_by": "electrical"}
-        },
+        "quantities": {"i": quantity},
         "requirements": [],
         "constrains": [],
         "model": None,
@@ -131,6 +135,8 @@ class FakeSession:
     layout: RunGit
     #: Per call: the value the module file holds, to make one run differ from another.
     content: dict[int, str] = field(default_factory=dict)
+    #: The calls whose proposal writes a bare number.
+    bare: set[int] = field(default_factory=set)
     calls: int = 0
 
     def environment(self) -> None:
@@ -148,7 +154,7 @@ class FakeSession:
         node_id = f"electrical.node_{request.subtask_id.replace('-', '_')}"
         proposal = worktree / ".physgate" / "proposals" / f"{node_id}.json"
         proposal.parent.mkdir(parents=True, exist_ok=True)
-        proposal.write_text(json.dumps(node(node_id)))
+        proposal.write_text(json.dumps(node(node_id, bare=self.calls in self.bare)))
         sid = f"fake-{uuid.uuid4().hex[:12]}"
         stream = self.layout.run_dir / "sessions" / sid / "stdout.jsonl"
         stream.parent.mkdir(parents=True, exist_ok=True)
@@ -253,7 +259,8 @@ class Reviewer:
             session_id=f"rev-{uuid.uuid4().hex[:8]}",
             usage=(
                 MessageUsage(
-                    message_id=f"r-{uuid.uuid4().hex[:8]}",
+                    # Numbered per call, as the scripted endpoint numbers its messages.
+                    message_id=f"r-{self.calls}",
                     usage=Usage(
                         input_tokens=40,
                         output_tokens=9,
@@ -301,6 +308,7 @@ def drive(
     *,
     gate: Gate | None = None,
     session_content: dict[int, str] | None = None,
+    bare: set[int] | None = None,
     resume: bool = False,
     clock: Callable[[], datetime] | None = None,
 ) -> str:
@@ -317,7 +325,7 @@ def drive(
         run_dir=run_dir,
         gate=gate or Gate(),
         reviewers={role: Reviewer(model=m) for role, m in cfg.models.reviewers.items()},
-        dispatcher=FakeSession(run, content=session_content or {}),
+        dispatcher=FakeSession(run, content=session_content or {}, bare=bare or set()),
         changes=GitChangeChecker(run, run_dir / "store", modules),
         merger=GitMerger(run, removal_timeout_s=60.0),
         graph=keeper,
