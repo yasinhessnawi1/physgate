@@ -597,11 +597,21 @@ def test_a_heavy_far_pair_is_explained_by_rounding_and_the_witness_balances_exac
     assert shift <= Fraction(5, 1000) * w and shift <= Fraction(5, 1000) * 1000 * w
 
 
-@pytest.mark.parametrize("case", ["far pair", "sound plate", "wrong plate"])
+@pytest.mark.parametrize(
+    "case", ["far pair", "sound plate", "wrong plate", "wrong indeterminate plate"]
+)
 def test_the_verdict_does_not_depend_on_where_the_mount_sits(tmp_path: Path, case: str) -> None:
     def build(offset: float) -> list[dict[str, Any]]:
         if case == "far pair":
             return far_pair(offset)
+        if case == "wrong indeterminate plate":
+            # Three standoffs, so no closed form checks the split: only the balance.
+            return plate(
+                ("standoff_a", offset, W),
+                ("standoff_b", offset + 0.1, 0),
+                ("standoff_c", offset + 0.2, 0),
+                loads=(("pcb", offset + 0.2, 1),),
+            )
         split = (14.71, 4.903) if case == "sound plate" else (4.903, 14.71)
         return plate(
             ("standoff_a", offset, split[0]),
