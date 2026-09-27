@@ -29,6 +29,8 @@ from physgate.orchestrator.ports import SessionReport, SessionRequest
 from physgate.orchestrator.run_config import RunConfig
 
 BRIEF = "Build two modules.\n"
+#: A rerun's run directory is elsewhere on disk from the recorded run's, as it would be.
+ELSEWHERE = "elsewhere"
 
 
 @pytest.fixture
@@ -70,10 +72,10 @@ def do_rerun(tmp_path: Path, run: Path, repo: Path, brief: Path, **drive_kwargs:
         run,
         brief=brief,
         run_id="run-r",
-        run_dir=tmp_path / "run-r",
+        run_dir=tmp_path / ELSEWHERE / "run-r",
         target=repo,
         install=tmp_path / "install",
-        driver=fake_driver(tmp_path, repo, **drive_kwargs),
+        driver=fake_driver(tmp_path / ELSEWHERE, repo, **drive_kwargs),
     )
 
 
@@ -85,7 +87,7 @@ def test_a_fake_session_rerun_reproduces_every_record_exactly(tmp_path: Path, br
     assert set(result.exact) == set(sequence.RECORDS)
     assert result.decisions_compared == 9  # 2 planned, 2 x (gate, review, merged), integration
     assert result.recorded_manifest_id == read_manifest(run).manifest_id
-    assert result.rerun_manifest_id == read_manifest(tmp_path / "run-r").manifest_id
+    assert result.rerun_manifest_id == read_manifest(tmp_path / ELSEWHERE / "run-r").manifest_id
     assert result.recorded_manifest_id != result.rerun_manifest_id
 
 
