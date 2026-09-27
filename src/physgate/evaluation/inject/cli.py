@@ -42,6 +42,11 @@ def add_parser(
     p.add_argument("--scratch", required=True, type=Path, help="where reviewers' worktrees go")
     p.add_argument("--run-id", required=True)
     p.add_argument("--seed", required=True, type=int)
+    p.add_argument(
+        "--review-clean-twins",
+        action="store_true",
+        help="also review each clean twin, blind, in the same phase (recorded in the run)",
+    )
     p.set_defaults(func=lambda args: _inject(args, registrations))
 
 
@@ -60,6 +65,7 @@ def _inject(args: argparse.Namespace, registrations: Registrations | None) -> in
             scratch=args.scratch.resolve(),
             run_id=args.run_id,
             seed=args.seed,
+            review_clean_twins=args.review_clean_twins,
         )
     except (InstrumentError, OrchestratorError, GateError) as exc:
         print(json.dumps({"error": str(exc), **exc.context}, sort_keys=True), file=sys.stderr)

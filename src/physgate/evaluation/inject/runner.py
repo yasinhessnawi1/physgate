@@ -6,7 +6,10 @@ runs on anything**, so while any reviewer works there is no gate output
 anywhere in the run to be read. The reviewer is given the injected artefact as
 a worktree, its design and a neutral account of the revision, checked first to
 hold no answer; it is never given the corpus, the class, the expected check or
-the run directory.
+the run directory. Its copy is removed once its verdict is written, so no
+reviewer finds another artefact, or an artefact's twin, beside its own. On
+request the clean twins are reviewed too, in the same phase, each under an id of
+its own, and their reviews go into the controls log.
 
 The gate then judges each injected artefact over a fresh copy of it (a reviewer
 that wrote to its worktree changes nothing the gate reads) in one call at all
@@ -32,6 +35,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated, Literal
@@ -44,6 +48,7 @@ from physgate.evaluation.inject.corpus import (
     Corpus,
     CorpusArtefact,
     ErrorClass,
+    Patch,
     digest,
 )
 from physgate.evaluation.inject.exceptions import ReviewerRefusedError, RunDirectoryError
@@ -64,6 +69,7 @@ from physgate.orchestrator.protocols import (
     CheckName,
     GateResult,
     Reviewer,
+    ReviewResult,
     Scope,
     Verdict,
     require_separate_models,
@@ -95,6 +101,8 @@ class InstrumentConfig(_Frozen):
     author_model: ModelString
     #: The reviewer each role's artefacts go to, by its pinned model string.
     reviewer_models: dict[NonEmptyStr, ModelString]
+    #: Whether each clean twin was reviewed too, in the same blind phase.
+    review_clean_twins: bool
     gate_mode: Literal["observe"]
     scopes: tuple[Scope, ...]
     catalogue_sha256: Sha256
@@ -117,7 +125,11 @@ class ResultRow(_Frozen):
     #: The checks whose failure blocked on the injected artefact, in the table's
     #: order; empty when the gate caught nothing.
     gate_blocking: tuple[CheckName, ...]
-    #: The same for the clean patch, the control.
+    #: The id the clean twin ran under in the controls log.
+    control_id: ReviewId
+    #: The clean twin's reviewer verdict, when the twins were reviewed; else ``None``.
+    control_reviewer_verdict: Verdict | None
+    #: The gate on the clean patch, the control.
     control_verdict: Verdict
     control_blocking: tuple[CheckName, ...]
 
@@ -125,6 +137,11 @@ class ResultRow(_Frozen):
 def review_id(seed: int, artefact_id: str) -> str:
     """The id an artefact runs under: from the seed and its corpus id, telling neither."""
     return "r" + hashlib.sha256(f"{seed}:{artefact_id}".encode()).hexdigest()[:12]
+
+
+def control_id(seed: int, artefact_id: str) -> str:
+    """The id an artefact's clean twin runs under: another id, of the same form."""
+    return review_id(seed, f"{artefact_id}#clean")
 
 
 def require_reviewers(corpus: Corpus, reviewers: Mapping[str, Reviewer]) -> None:
@@ -216,6 +233,42 @@ def _start(
     return log
 
 
+def _review(
+    reviewer: Reviewer,
+    author: str,
+    base: Base,
+    patch: Patch,
+    place: Path,
+    subtask: str,
+    artefact: CorpusArtefact,
+) -> ReviewResult:
+    """One blind review of ``patch`` over ``base``, on a copy removed once it is judged.
+
+    The copy is gone before the next review starts, so no reviewer finds another's
+    artefact, or an artefact's twin, beside its own.
+    """
+    made = materialise(base, patch, place)
+    try:
+        require_blind(made, (artefact.id, artefact.description))
+        result = reviewer.review(
+            Artefact(
+                subtask_id=subtask,
+                attempt=1,
+                assigned_role=artefact.assigned_role,
+                attempt_commit=made.commit,
+                worktree=str(made.worktree),
+                graph_root=str(made.graph_root),
+                trajectory=str(made.trajectory),
+                scopes=("subtask", "module"),
+                base_revision=made.baseline,
+            )
+        )
+    finally:
+        shutil.rmtree(place)
+    require_separate_models(implementer=author, reviewer=result.reviewer_model)
+    return result
+
+
 def run_instrument(
     corpus: Corpus,
     reviewers: Mapping[str, Reviewer],
@@ -224,6 +277,7 @@ def run_instrument(
     scratch: Path,
     run_id: str,
     seed: int,
+    review_clean_twins: bool = False,
     gate: PhysicsGate | None = None,
 ) -> tuple[ResultRow, ...]:
     """Review every artefact of ``corpus`` blind, then gate each, and write the results.
@@ -231,6 +285,11 @@ def run_instrument(
     Writes ``instrument.json``, ``events.jsonl``, ``controls/events.jsonl`` and
     ``results.jsonl`` into ``run_dir``; the materialised worktrees go under
     ``scratch``. Returns the rows written.
+
+    With ``review_clean_twins``, each clean twin is also reviewed, in the same blind
+    phase and under its own id, interleaved with the injected artefacts by id, and
+    its review goes into the controls log before the control's gate line. Off unless
+    asked for, and recorded in ``instrument.json`` either way.
 
     Raises:
         ReviewerRefusedError, ModelSeparationError: as :func:`require_reviewers`,
@@ -251,6 +310,7 @@ def run_instrument(
         corpus_manifest_sha256=corpus.manifest_sha256,
         author_model=author,
         reviewer_models={role: reviewers[role].model for role in roles},
+        review_clean_twins=review_clean_twins,
         gate_mode=GATE_MODE,
         scopes=SCOPES,
         catalogue_sha256=catalogue_digest(),
@@ -262,30 +322,31 @@ def run_instrument(
     )
     config_sha256 = digest(config_path)
     order = sorted(((review_id(seed, a.id), a) for a in corpus.artefacts), key=lambda p: p[0])
+    twins = sorted(((control_id(seed, a.id), a) for a in corpus.artefacts), key=lambda p: p[0])
+    twin_of = {a.id: cid for cid, a in twins}
 
     log = _start(run_dir / EVENTS_NAME, run_id, config_sha256, order)
+    controls = _start(
+        run_dir / CONTROLS_DIRNAME / EVENTS_NAME, f"{run_id}-controls", config_sha256, twins
+    )
     reviews: dict[str, ReviewRan] = {}
     try:
         # Every review first, each on its own copy, before the gate has run on anything.
-        for rid, artefact in order:
-            made = materialise(corpus.base, artefact.injected, scratch / "review" / rid)
-            require_blind(made, (artefact.id, artefact.description))
-            result = reviewers[artefact.assigned_role].review(
-                Artefact(
-                    subtask_id=rid,
-                    attempt=1,
-                    assigned_role=artefact.assigned_role,
-                    attempt_commit=made.commit,
-                    worktree=str(made.worktree),
-                    graph_root=str(made.graph_root),
-                    trajectory=str(made.trajectory),
-                    scopes=("subtask", "module"),
-                    base_revision=made.baseline,
-                )
+        queue = [(rid, a, a.injected, log) for rid, a in order]
+        if review_clean_twins:
+            queue += [(cid, a, a.clean, controls) for cid, a in twins]
+        for subtask, artefact, patch, into in sorted(queue, key=lambda q: q[0]):
+            result = _review(
+                reviewers[artefact.assigned_role],
+                author,
+                corpus.base,
+                patch,
+                scratch / "review" / subtask,
+                subtask,
+                artefact,
             )
-            require_separate_models(implementer=author, reviewer=result.reviewer_model)
-            reviews[rid] = log.append(
-                ReviewRan(**log.envelope(), subtask_id=rid, attempt=1, result=result)
+            reviews[subtask] = into.append(
+                ReviewRan(**into.envelope(), subtask_id=subtask, attempt=1, result=result)
             )
         gated: dict[str, GateRan] = {}
         for rid, artefact in order:
@@ -293,21 +354,15 @@ def run_instrument(
             gated[rid] = log.append(
                 GateRan(**log.envelope(), subtask_id=rid, attempt=1, result=_gate(gate, made, rid))
             )
-    finally:
-        log.close()
-
-    controls = _start(
-        run_dir / CONTROLS_DIRNAME / EVENTS_NAME, f"{run_id}-controls", config_sha256, order
-    )
-    controlled: dict[str, GateResult] = {}
-    try:
-        for rid, artefact in order:
-            made = materialise(corpus.base, artefact.clean, scratch / "control" / rid)
-            controlled[rid] = _gate(gate, made, rid)
+        controlled: dict[str, GateResult] = {}
+        for cid, artefact in twins:
+            made = materialise(corpus.base, artefact.clean, scratch / "control" / cid)
+            controlled[cid] = _gate(gate, made, cid)
             controls.append(
-                GateRan(**controls.envelope(), subtask_id=rid, attempt=1, result=controlled[rid])
+                GateRan(**controls.envelope(), subtask_id=cid, attempt=1, result=controlled[cid])
             )
     finally:
+        log.close()
         controls.close()
 
     rows = tuple(
@@ -323,8 +378,12 @@ def run_instrument(
             gate_seq=gated[rid].seq,
             gate_verdict=gated[rid].result.verdict,
             gate_blocking=blocking(gated[rid].result),
-            control_verdict=controlled[rid].verdict,
-            control_blocking=blocking(controlled[rid]),
+            control_id=twin_of[artefact.id],
+            control_reviewer_verdict=(
+                reviews[twin_of[artefact.id]].result.verdict if review_clean_twins else None
+            ),
+            control_verdict=controlled[twin_of[artefact.id]].verdict,
+            control_blocking=blocking(controlled[twin_of[artefact.id]]),
         )
         for rid, artefact in sorted(order, key=lambda p: p[1].id)
     )

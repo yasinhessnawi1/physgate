@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from gate_fixtures import node
+import gate_fixtures
 
 from physgate.evaluation.inject.corpus import (
     ARTEFACTS_DIRNAME,
@@ -32,6 +32,18 @@ from physgate.orchestrator.protocols import Artefact, MessageUsage, ReviewResult
 AUTHOR = "claude-sonnet-5"
 REVIEWER = "claude-opus-5-5"
 LABEL = "a test design for the instrument's own tests, not the measurement's"
+
+#: A source in the corpus's own form: the URL of the row a number was copied from.
+SOURCE = "https://www.pololu.com/product/3575/specs"
+
+
+def node(node_id: str, **fields: Any) -> dict[str, Any]:  # noqa: ANN401 - the fixture's own fields
+    """The gate's fixture node, with every quantity sourced by URL as a corpus requires."""
+    payload = gate_fixtures.node(node_id, **fields)
+    for quantity in payload["quantities"].values():
+        quantity["source"] = SOURCE
+    return payload
+
 
 DRIVER = node("electrical.driver", quantities={"current_limit": (3, "A")})
 MOTOR = node(

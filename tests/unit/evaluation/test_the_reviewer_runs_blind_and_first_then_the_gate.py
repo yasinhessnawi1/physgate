@@ -18,7 +18,14 @@ import json
 from pathlib import Path
 
 import pytest
-from instrument_corpus import AUTHOR, MAGNITUDE_ARTEFACT, SeededFakeReviewer, coin, write_corpus
+from instrument_corpus import (
+    AUTHOR,
+    MAGNITUDE_ARTEFACT,
+    SOURCE,
+    SeededFakeReviewer,
+    coin,
+    write_corpus,
+)
 
 from physgate.evaluation.inject.corpus import Corpus, load_corpus, strings_of, telltales
 from physgate.evaluation.inject.exceptions import (
@@ -84,15 +91,17 @@ def test_what_is_shown_holds_no_gate_result_nor_anything_telling_and_is_judged_f
                 assert artefact_of_corpus.error_class + " error" not in text
         assert not set(json.loads(artefact.model_dump_json())) & {"gate", "result", "verdict"}
         assert not [s for s in strings_of(json.loads(artefact.model_dump_json())) if telltales(s)]
-        log = [json.loads(line) for line in (run_dir / "events.jsonl").read_text().splitlines()]
-        assert not [e for e in log if e["kind"] in ("gate_ran", "integration_gate_ran")]
+        for path in (run_dir / "events.jsonl", run_dir / "controls" / "events.jsonl"):
+            log = [json.loads(line) for line in path.read_text().splitlines()]
+            assert not [e for e in log if e["kind"] in ("gate_ran", "integration_gate_ran")]
         assert not (run_dir / RESULTS_NAME).exists()
-        assert not (run_dir / "controls").exists()
+        assert [p.name for p in (worktree.parent.parent).iterdir()] == [artefact.subtask_id]
         checked.append(artefact.subtask_id)
 
     reviewer = SeededFakeReviewer(seed=FAKE_SEED, before_verdict=blind)
     rows = _run(corpus, tmp_path / "out", reviewer)
     assert sorted(checked) == sorted(r.review_id for r in rows) and len(checked) == 2
+    assert list((tmp_path / "out" / "scratch" / "review").iterdir()) == []
 
     log = read_events(run_dir / "events.jsonl")
     reviews = [e for e in log if isinstance(e, ReviewRan)]
@@ -140,6 +149,48 @@ def test_each_row_is_one_artefact_and_the_catch_count_is_what_the_rows_add_up_to
         gate_events(read_events(tmp_path / "out" / "run" / "controls" / "events.jsonl"))
     )
     assert [c.artefacts_caught for c in controls if c.name == "all"] == [0]
+
+
+def test_the_clean_twins_are_reviewed_only_when_asked_and_blind_and_first(
+    corpus: Corpus, tmp_path: Path
+) -> None:
+    off = SeededFakeReviewer(seed=FAKE_SEED)
+    rows = _run(corpus, tmp_path / "off", off)
+    assert [r.control_reviewer_verdict for r in rows] == [None, None]
+    assert sorted(a.subtask_id for a in off.seen) == sorted(r.review_id for r in rows)
+    config = json.loads((tmp_path / "off" / "run" / CONFIG_NAME).read_text())
+    assert config["review_clean_twins"] is False
+
+    seen: list[str] = []
+    reviewer = SeededFakeReviewer(
+        seed=FAKE_SEED, before_verdict=lambda a: seen.append(a.subtask_id)
+    )
+    rows = run_instrument(
+        corpus,
+        {"electrical": reviewer},
+        run_dir=tmp_path / "on" / "run",
+        scratch=tmp_path / "on" / "scratch",
+        run_id="dry-1",
+        seed=SEED,
+        review_clean_twins=True,
+    )
+    twins = {r.control_id for r in rows}
+    assert sorted(seen) == seen and set(seen) == twins | {r.review_id for r in rows}
+    assert not twins & {r.review_id for r in rows}
+    for row in rows:
+        assert row.control_reviewer_verdict == (
+            "pass" if coin(FAKE_SEED, row.control_id) else "fail"
+        )
+    controls = read_events(tmp_path / "on" / "run" / "controls" / "events.jsonl")
+    reviews = [e for e in controls if isinstance(e, ReviewRan)]
+    gates = [e for e in controls if isinstance(e, GateRan)]
+    assert {e.subtask_id for e in reviews} == twins
+    assert max(r.seq for r in reviews) < min(g.seq for g in gates)
+    main = read_events(tmp_path / "on" / "run" / "events.jsonl")
+    assert not twins & {e.subtask_id for e in main if isinstance(e, ReviewRan)}
+    for event in gate_events(controls):
+        assert event.reviewer_had_passed is coin(FAKE_SEED, event.subtask_id)
+    assert json.loads((tmp_path / "on" / "run" / CONFIG_NAME).read_text())["review_clean_twins"]
 
 
 def test_the_log_names_no_artefact_id_and_no_class_order(corpus: Corpus, tmp_path: Path) -> None:
@@ -236,7 +287,7 @@ def test_a_used_run_directory_is_refused(corpus: Corpus, tmp_path: Path) -> None
 
 
 def test_an_artefact_whose_description_the_design_spells_out_is_never_shown(tmp_path: Path) -> None:
-    telling = {**MAGNITUDE_ARTEFACT, "description": "datasheet"}  # every node's source says it
+    telling = {**MAGNITUDE_ARTEFACT, "description": SOURCE}  # every node's source says it
     corpus = load_corpus(write_corpus(tmp_path / "corpus", artefacts=(telling,)))
     reviewer = SeededFakeReviewer()
     with pytest.raises(BlindnessError):

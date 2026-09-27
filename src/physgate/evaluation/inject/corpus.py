@@ -21,6 +21,10 @@ artefact changed after a run is a different corpus and says so.
 difference between them is the error, however its author chose to make it. A
 fixed set of operations would itself steer which errors get written.
 
+**Every number says where it comes from**: a URL, ``derived: ...``, or
+``design: ...`` for a rate, a gain or a set-point the design chooses. A property
+of a bought part is never a choice.
+
 **Nothing a reviewer is shown may say what the corpus is.** Every string in every
 node payload, keys included, is held to a list of telltale words (``inject``,
 ``mistake``, the class names followed by "error", and so on). The class, the
@@ -120,6 +124,30 @@ def strings_of(value: object) -> Iterator[str]:
             yield from strings_of(item)
 
 
+#: A quantity a design chooses rather than buys: a rate, a gain or a set-point, by name.
+DESIGN_CHOICE = re.compile(r"^([a-z0-9]+_)*(rate|gain|setpoint|set_point)$")
+_URL = re.compile(r"^https?://\S+$")
+
+
+def source_problem(name: str, source: str) -> str | None:
+    """Why ``source`` is not a legal source for the quantity ``name``, or ``None``.
+
+    Every number says where it comes from, in one of three forms: the URL of the
+    row it was copied from; ``derived: <arithmetic>`` over other quantities; or
+    ``design: <reason>`` for a choice the design makes. A choice is a rate, a gain
+    or a set-point, and nothing else: a property of a bought part is read from its
+    datasheet or derived, never chosen.
+    """
+    head, _, rest = source.partition(":")
+    if head in ("derived", "design") and not rest.strip():
+        return f"a {head} source says what it is: {source!r}"
+    if head == "design" and not DESIGN_CHOICE.match(name):
+        return f"{name!r} is not a rate, a gain or a set-point, so it is not a design choice"
+    if head not in ("derived", "design") and not _URL.match(source):
+        return f"a source is a URL, 'derived: ...' or 'design: ...', not {source!r}"
+    return None
+
+
 def _whole_nodes(nodes: tuple[Payload, ...]) -> tuple[Payload, ...]:
     ids = [str(n.get("id")) for n in nodes]
     if len(set(ids)) != len(ids):
@@ -131,6 +159,11 @@ def _whole_nodes(nodes: tuple[Payload, ...]) -> tuple[Payload, ...]:
         except (DesignStateError, ValidationError) as exc:
             msg = f"node {payload.get('id')!r} is not a whole node: {exc}"
             raise ValueError(msg) from exc
+        for name, quantity in payload.get("quantities", {}).items():
+            problem = source_problem(str(name), str(quantity["source"]))
+            if problem is not None:
+                msg = f"node {payload.get('id')!r}: {problem}"
+                raise ValueError(msg)
         found = sorted({w for s in strings_of(payload) for w in telltales(s)})
         if found:
             msg = f"node {payload.get('id')!r} carries words that give the corpus away: {found}"

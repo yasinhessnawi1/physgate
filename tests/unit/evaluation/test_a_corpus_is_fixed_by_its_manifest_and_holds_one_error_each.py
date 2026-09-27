@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from gate_fixtures import node
 from instrument_corpus import (
     AUTHOR,
     BASE_NODES,
@@ -25,6 +24,7 @@ from instrument_corpus import (
     MAGNITUDE_ARTEFACT,
     MOTOR,
     PROPAGATION_ARTEFACT,
+    node,
     with_quantity,
     write_corpus,
 )
@@ -170,10 +170,10 @@ def test_every_node_of_a_patch_is_a_whole_node() -> None:
 @pytest.mark.parametrize(
     ("where", "text"),
     [
-        ("source", "datasheet, with an injected error"),
-        ("source", "a deliberate mistake"),
-        ("source", "the magnitude-error artefact"),
-        ("source", "see the corpus"),
+        ("source", "https://example.org/an-injected-error"),
+        ("source", "derived: a deliberate mistake"),
+        ("source", "design: the magnitude-error artefact"),
+        ("source", "https://example.org/see/the/corpus"),
         ("model", "the wrong IMU"),
         ("key", "sample_rate_injected"),
     ],
@@ -187,6 +187,50 @@ def test_nothing_in_a_node_says_what_the_corpus_is(where: str, text: str) -> Non
     else:
         payload[where] = text
     with pytest.raises(ValidationError, match="give the corpus away"):
+        _artefact(injected={"nodes": [payload]})
+
+
+@pytest.mark.parametrize(
+    ("name", "source"),
+    [
+        ("stall_current", "design: a stronger motor is chosen"),
+        ("mass", "design: light enough"),
+        ("current_limit", "design: the driver is set to this"),
+        ("rated_voltage", "design:"),
+    ],
+)
+def test_a_bought_part_s_property_is_never_a_design_choice(name: str, source: str) -> None:
+    payload = node("electrical.part", quantities={name: (1, "A")})
+    payload["quantities"][name]["source"] = source
+    with pytest.raises(ValidationError, match="not a design choice|says what it is"):
+        _artefact(injected={"nodes": [payload]})
+
+
+@pytest.mark.parametrize(
+    ("name", "source"),
+    [
+        ("sample_rate", "design: the loop runs at 100 Hz"),
+        ("loop_gain", "design: tuned for a 5 Hz bandwidth"),
+        ("pitch_setpoint", "design: upright"),
+        ("stall_current", "derived: 2 * electrical.motor_left.stall_current"),
+        ("stall_current", "https://www.pololu.com/product/3073/specs"),
+    ],
+)
+def test_a_rate_a_gain_or_a_set_point_may_be_chosen_and_anything_may_be_sourced(
+    name: str, source: str
+) -> None:
+    payload = node("electrical.part", quantities={name: (1, "Hz")})
+    payload["quantities"][name]["source"] = source
+    _artefact(injected={"nodes": [payload]})
+
+
+@pytest.mark.parametrize(
+    "source", ["datasheet", "derived:", "ftp://example.org/x", "see the sheet"]
+)
+def test_a_number_without_a_source_of_one_of_the_three_forms_is_refused(source: str) -> None:
+    payload = with_quantity(IMU, "sample_rate", 900, "Hz")
+    payload["quantities"]["sample_rate"]["source"] = source
+    with pytest.raises(ValidationError, match="a source is a URL|says what it is"):
         _artefact(injected={"nodes": [payload]})
 
 

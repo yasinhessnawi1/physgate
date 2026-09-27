@@ -53,3 +53,19 @@ def test_with_a_reviewer_an_incomplete_corpus_is_refused(
     assert "10 artefacts of each class" in error["error"]
     assert (error["magnitude"], error["propagation"]) == ("1", "1")
     assert not (tmp_path / "run").exists()
+
+
+@pytest.mark.parametrize(("flag", "expected"), [([], False), (["--review-clean-twins"], True)])
+def test_the_clean_twin_switch_reaches_the_run_and_is_off_unless_given(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flag: list[str], expected: bool
+) -> None:
+    import physgate.evaluation.inject.cli as inject_cli
+
+    asked: list[bool] = []
+    monkeypatch.setattr(inject_cli, "require_complete", lambda corpus: None)
+    monkeypatch.setattr(
+        inject_cli, "run_instrument", lambda *a, **k: asked.append(k["review_clean_twins"])
+    )
+    registered = Registrations(reviewers={"electrical": SeededFakeReviewer()})
+    assert main([*_argv(tmp_path), *flag], registered) == 0
+    assert asked == [expected]
