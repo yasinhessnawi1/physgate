@@ -66,13 +66,15 @@ def node(
 class Rig:
     """A decomposed run: a real repository, a real store holding two nodes, a real loop."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, also: tuple[dict[str, Any], ...] = ()) -> None:
         self.run: RunGit = run_layout(root)
         self.store_root = self.run.run_dir / "store"
         store = Store(self.store_root)
         assert store.write_node(node("electrical.motor"), "electrical").accepted
         bus = node("iface.power_bus", kind="interface")
         assert store.write_node(bus, "electrical").accepted
+        for extra in also:
+            assert store.write_node(extra, "electrical").accepted
         head = store.head_revision()
         store.close()
         self.gate = Gate()
@@ -165,12 +167,14 @@ def test_proposals_are_read_from_the_commit_and_applied_behind_intents(tmp_path:
             "interface_immutable",
         ),
         ({"electrical.motor": node("electrical.motor", owner="control")}, "changes the owner"),
+        ({"electrical.motor": node("electrical.motor", kind="module")}, "changes the kind"),
         ({"electrical.wrong": node("electrical.driver")}, "named for its file"),
     ],
     ids=[
         "a node owned by another role",
         "all or none: the second proposal writes an interface",
         "an owner change, even from the owner",
+        "a kind change, even from the owner",
         "a file named for another node",
     ],
 )
@@ -326,3 +330,28 @@ def test_an_unwithdrawn_proposal_is_the_same_finding_on_every_attempt(tmp_path: 
     assert [e.repeats_previous for e in rejected] == [False, True, True]
     assert {e.finding_key for e in rejected} == {"proposal|control.loop|-"}
     assert len(open_items) == 1 and rig.gate.calls == 0
+
+
+def test_a_module_rewritten_as_a_component_is_refused_at_apply(tmp_path: Path) -> None:
+    # A module whose declared mass is not the sum of its parts would step out of
+    # that balance by being rewritten as a component; the kind is fixed instead.
+    rig = Rig(tmp_path, also=(node("electrical.drive", kind="module"),))
+    before = rig.canonical()
+
+    def withdraw(worktree: Path) -> None:
+        for path in (worktree / ".physgate" / "proposals").iterdir():
+            path.unlink()
+
+    dispatcher = GitDispatcher(
+        rig.run, proposals={1: {"electrical.drive": node("electrical.drive")}}, during={2: withdraw}
+    )
+    loop = rig.loop(dispatcher)
+    loop.run()
+    loop.close()
+    rig.keeper.close()
+    (first, *_) = [e for e in rig.events() if isinstance(e, AttemptRejected)]
+    assert first.finding.source == "proposal"
+    assert "changes the kind of electrical.drive from 'module' to 'component'" in (
+        first.finding.text
+    )
+    assert rig.canonical() == before

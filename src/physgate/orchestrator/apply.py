@@ -9,6 +9,10 @@ the file as it is written. Here the orchestrator:
 - takes the acting role from the subtask's own plan line, never from the proposal;
 - refuses an owner change, which the store alone would accept from the current
   owner, because owners are assigned at decomposition and not by roles;
+- refuses a kind change, for the same reason: a node's kind is fixed when it is
+  created, and the relations the physics gate holds a node to follow from it (a
+  module's declared mass is the sum of its parts), so rewriting the kind would
+  let a node step out of a relation it failed;
 - pre-checks **all** of an attempt's proposals against the store's own guards on
   a scratch copy of the graph built from the canonical journal, so an attempt is
   applied whole or not at all, and a refusal is a rejected attempt carrying the
@@ -56,10 +60,10 @@ class ProposalRefusedError(Exception):
         self.subject = subject
 
 
-def _owners(store_root: Path) -> dict[str, str]:
-    """The current owner of every node, from the canonical journal, read-only."""
+def _fixed(store_root: Path) -> dict[str, tuple[str, str]]:
+    """Every node's owner and kind, fixed at creation, from the canonical journal, read-only."""
     return {
-        line.node_id: str(line.payload["owner_role"])
+        line.node_id: (str(line.payload["owner_role"]), str(line.payload["kind"]))
         for line in journal_records_after(store_root, 0)
     }
 
@@ -69,9 +73,9 @@ def read_proposals(repo: Path, base: str, commit: str, store_root: Path) -> list
 
     Raises:
         ProposalRefusedError: a proposal is not a regular file, not JSON, not a whole
-            node, named for another node, or changes a node's owner.
+            node, named for another node, or changes a node's owner or kind.
     """
-    owners = _owners(store_root)
+    fixed = _fixed(store_root)
     found: list[Payload] = []
     for change in changes_between(repo, base, commit):
         named = _PROPOSAL.match(change.path)
@@ -94,11 +98,17 @@ def read_proposals(repo: Path, base: str, commit: str, store_root: Path) -> list
             raise ProposalRefusedError(
                 f"{change.path} is not a valid node: {exc}", change.path
             ) from None
-        owner = owners.get(named["id"])
+        owner, kind = fixed.get(named["id"], (None, None))
         if owner is not None and payload["owner_role"] != owner:
             raise ProposalRefusedError(
                 f"{change.path} changes the owner of {named['id']} from {owner!r}; owners are "
                 "assigned at decomposition",
+                named["id"],
+            )
+        if kind is not None and payload["kind"] != kind:
+            raise ProposalRefusedError(
+                f"{change.path} changes the kind of {named['id']} from {kind!r} to "
+                f"{payload['kind']!r}; a node's kind is fixed when it is created, like its owner",
                 named["id"],
             )
         found.append(payload)
