@@ -272,6 +272,27 @@ def test_a_resumed_run_that_parts_before_its_resume_line_is_not_reproduced(
     assert parted.index < result.resumed_at and parted.subtask_id == "s1-af41ca"
 
 
+def test_a_resumed_run_whose_log_alone_parts_before_its_resume_line_is_not_reproduced(
+    tmp_path: Path, brief: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = target_repo(tmp_path)
+    run = killed_and_resumed(tmp_path, repo, monkeypatch)
+    # One token more on the first session's line: a difference only the log holds,
+    # so no other record can fail the comparison in its place.
+    log = run / "events.jsonl"
+    lines = [json.loads(x) for x in log.read_text().splitlines()]
+    first = next(i for i, e in enumerate(lines) if e["kind"] == "tokens_used")
+    lines[first]["usage"]["input_tokens"] += 1
+    log.write_text("".join(json.dumps(e, separators=(",", ":")) + "\n" for e in lines))
+    result = do_rerun(tmp_path, run, repo, brief)
+    parted = result.exact["events"]
+    assert result.decisions is None
+    assert {k for k, v in result.exact.items() if v is not None} == {"events"}
+    assert parted is not None and result.resumed_at is not None
+    assert (parted.index, parted.field) == (first, "usage.input_tokens")
+    assert first < result.resumed_at and not result.reproduced
+
+
 def test_a_resumed_run_whose_state_differs_after_the_resume_is_not_reproduced(
     tmp_path: Path, brief: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
