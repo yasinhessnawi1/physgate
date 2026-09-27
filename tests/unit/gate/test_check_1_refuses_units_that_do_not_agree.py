@@ -184,7 +184,11 @@ def test_every_catalogue_unit_is_one_pint_reads() -> None:
 ALL_RELATIONS = (
     node(
         "electrical.battery",
-        quantities={"power_supply": (24, "W"), "energy_capacity": (50, "W*h")},
+        quantities={
+            "power_supply": (24, "W"),
+            "energy_capacity": (50, "W*h"),
+            "max_discharge_power": (30, "W"),
+        },
     ),
     node(
         "electrical.drive",
@@ -452,10 +456,11 @@ def test_a_negative_consumer_cannot_hide_real_draw_on_its_supply(tmp_path: Path)
     assert result.verdict == "fail" and result.failing_check == "units"
 
 
-def test_every_kind_declares_its_sign_and_the_three_that_have_one_say_so() -> None:
+def test_every_kind_declares_its_sign_and_the_four_that_have_one_say_so() -> None:
     signs = {name: kind.sign for name, kind in KINDS.items() if kind.sign != "any"}
     assert signs == {
         "power": "nonnegative",
         "mass": "nonnegative",
         "thermal_resistance": "positive",
+        "energy": "positive",
     }

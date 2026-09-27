@@ -85,7 +85,7 @@ KINDS: Mapping[str, Kind] = _kinds(
     Kind(name="current", canonical="A", source=SI_BROCHURE),
     Kind(name="voltage", canonical="V", source=SI_BROCHURE),
     Kind(name="power", canonical="W", sign="nonnegative", source=SI_BROCHURE),
-    Kind(name="energy", canonical="J", shape="energy", source=SI_BROCHURE),
+    Kind(name="energy", canonical="J", shape="energy", sign="positive", source=SI_BROCHURE),
     Kind(name="mass", canonical="kg", sign="nonnegative", source=SI_BROCHURE),
     Kind(name="length", canonical="m", source=SI_BROCHURE),
     Kind(name="force", canonical="N", source=SI_BROCHURE),
@@ -122,6 +122,14 @@ QUANTITIES: Mapping[str, Entry] = _entries(
     Entry(name="heat_dissipation", kind="power", source=FIXTURES),
     Entry(name="heat_rejection_capacity", kind="power", source=FIXTURES),
     Entry(name="energy_capacity", kind="energy", source=FIXTURES),
+    Entry(
+        name="max_discharge_power",
+        kind="power",
+        source=(
+            "a battery's maximum continuous discharge power, as its datasheet states it "
+            "(its maximum continuous discharge current at its nominal voltage)"
+        ),
+    ),
     Entry(
         name="rated_output_power",
         kind="power",
@@ -192,6 +200,15 @@ RELATIONS: Mapping[str, Relation] = MappingProxyType(
                 ),
             ),
             Relation(
+                name="source_rating",
+                statement=(
+                    "the power a declared source supplies is at most its declared output "
+                    "rating plus whatever it draws from upstream"
+                ),
+                judged_by=4,
+                source="a source's datasheet rating bounds its continuous output",
+            ),
+            Relation(
                 name="current_limit",
                 statement="a consumer's stall current is at most its supply's current limit",
                 judged_by=None,
@@ -238,14 +255,21 @@ RELATIONS: Mapping[str, Relation] = MappingProxyType(
 )
 
 
-#: What makes a node a declared source of power, and why. A node that supplies
-#: power is one of these, or it draws what it supplies from a supply upstream;
-#: otherwise any module could become a source by dropping its upstream edge and
-#: its draw.
+#: What makes a node a declared source of power, and the rating that bounds it.
+#: A node that supplies power is one of these, or it draws what it supplies from a
+#: supply upstream; otherwise any module could become a source by dropping its
+#: upstream edge and its draw. Declaring a source does not exempt a node from a
+#: bound: its supply is held to its rating (plus anything it draws upstream), and
+#: a source with no rating is recorded as unchecked, never passed.
+#:
+#: - ``energy_capacity``: a battery declares the energy it stores, and is bounded
+#:   by ``max_discharge_power``, its maximum continuous discharge;
+#: - ``rated_output_power``: a bench or mains supply declares its rated output,
+#:   which is its bound.
 SOURCES: Mapping[str, str] = MappingProxyType(
     {
-        "energy_capacity": "a battery: it declares the energy it stores",
-        "rated_output_power": "a bench or mains supply: it declares its rated output",
+        "energy_capacity": "max_discharge_power",
+        "rated_output_power": "rated_output_power",
     }
 )
 

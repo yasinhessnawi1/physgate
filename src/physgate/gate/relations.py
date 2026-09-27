@@ -111,7 +111,22 @@ def instances(view: GraphView) -> list[Instance]:
                     missing=() if "power_supply" in q else ("power_supply",),
                 )
             )
-        if "power_supply" in q and not any(name in q for name in SOURCES):
+        markers = [m for m in SOURCES if m in q]
+        if "power_supply" in q and markers:
+            # A declared source: its supply is held to its rating, plus its draw.
+            ratings = [SOURCES[m] for m in markers if SOURCES[m] in q]
+            draw = (TermRef(node_id, "power_draw"),) if "power_draw" in q else ()
+            found.append(
+                Instance(
+                    relation=RELATIONS["source_rating"],
+                    subject=node_id,
+                    left=(TermRef(node_id, "power_supply"),),
+                    op="<=",
+                    right=(TermRef(node_id, ratings[0]), *draw) if ratings else (),
+                    missing=() if ratings else (SOURCES[markers[0]],),
+                )
+            )
+        if "power_supply" in q and not markers:
             # Not a declared source, so what it supplies it must draw from upstream.
             found.append(
                 Instance(

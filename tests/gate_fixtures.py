@@ -106,7 +106,14 @@ POWER = (
 )
 #: Check 4, at system scope only: two modules that each balance, over a 20 W battery.
 JOINT_POWER = (
-    node("electrical.battery", quantities={"power_supply": (20, "W")}),
+    node(
+        "electrical.battery",
+        quantities={
+            "power_supply": (20, "W"),
+            "energy_capacity": (20, "W*h"),
+            "max_discharge_power": (20, "W"),
+        },
+    ),
     node(
         "electrical.drive",
         kind="module",

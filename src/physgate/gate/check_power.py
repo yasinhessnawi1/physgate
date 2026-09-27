@@ -12,7 +12,12 @@ A node that supplies power is either a declared source (the catalogue's
 ``SOURCES``: a battery declares its energy, a bench or mains supply its rated
 output) or it draws what it supplies from a supply it constrains, and is held
 to that: the power it supplies is at most the power it draws upstream. A node
-that is neither is refused. Without that, two modules each supplying their
+that is neither is refused. A declared source is bounded too: its supply is at
+most its output rating (a battery's maximum discharge, a supply's rated output)
+plus whatever it draws upstream, and a source that declares no rating is
+recorded as unchecked, its supply unbounded, never passed. These two relations
+are a node's own, so at module scope they are judged for every node the attempt
+affected. Without that, two modules each supplying their
 members in full while drawing almost nothing from the battery balance at every
 supply, and the battery never sees what their members really draw.
 
@@ -113,6 +118,54 @@ def upstream(view: GraphView, node_id: str) -> tuple[str, ...]:
     )
 
 
+def _judge_rating(view: GraphView, instance: Instance) -> Observation | None:
+    """The finding for a declared source: its supply against its rating plus its draw."""
+    if instance.missing:
+        return _unchecked(
+            view,
+            instance,
+            f"cannot be bounded: it declares a source but no output rating "
+            f"({', '.join(instance.missing)}); its supply is not bounded",
+            instance.missing,
+        )
+    (supply,) = instance.left
+    if not isinstance(supply, TermRef):
+        msg = "a source's supply is a single quantity"
+        raise TypeError(msg)
+    try:
+        supplied = _watts(view, supply)
+        allowed = [(t.spelled(), _watts(view, t)) for t in instance.right if isinstance(t, TermRef)]
+    except (UnitRefusedError, *PINT_ERRORS):
+        names = tuple(sorted({r.name for r in instance.refs()}))
+        return _unchecked(view, instance, "is in a unit the unit check refuses", names)
+    margin = residual(allowed, [(supply.spelled(), supplied)])
+    if margin >= 0:
+        return None
+    over = output(-margin, "W")
+    bound = output(sum((w for _, w in allowed), Fraction(0)), "W")
+    parts = " plus ".join(
+        f"{t.name} {output(w, 'W').value} W"
+        for t, (_, w) in zip(instance.right, allowed, strict=True)
+        if isinstance(t, TermRef)
+    )
+    return Observation(
+        outcome="fail",
+        node=instance.subject,
+        module=view.module_of(instance.subject),
+        value=over,
+        expected=f"a supply of at most {bound.value} W ({parts})",
+        message=(
+            f"{instance.subject} supplies {output(supplied, 'W').value} W, more than its "
+            f"declared bound of {bound.value} W ({parts}) by {over.value} W; a source "
+            f"cannot deliver more than it is rated for"
+        ),
+        details=PowerDetails(deficit=over, contributing=(instance.subject,)),
+        quantities=tuple(
+            _ref(view, t) for t in (supply, *instance.right) if isinstance(t, TermRef)
+        )[:3],
+    )
+
+
 def _not_a_source(view: GraphView, instance: Instance, why: str) -> Observation:
     sources = " or ".join(SOURCES)
     q = view.nodes[instance.subject].quantities["power_supply"]
@@ -178,7 +231,14 @@ def _judge_covered(view: GraphView, instance: Instance) -> Observation | None:
     )
 
 
-JUDGES = {"power_budget": _judge, "supply_covered": _judge_covered}
+JUDGES = {
+    "power_budget": _judge,
+    "supply_covered": _judge_covered,
+    "source_rating": _judge_rating,
+}
+#: Relations about one node's own numbers: at module scope they are judged for
+#: every node the attempt affected, not only for modules.
+OWN = {"supply_covered", "source_rating"}
 
 
 def run(ctx: CheckContext) -> CheckRun:
@@ -187,7 +247,8 @@ def run(ctx: CheckContext) -> CheckRun:
     budgets = [i for i in instances(view) if i.relation.name in JUDGES]
     if ctx.scope == "module":
         touched = set(view.modules_touched())
-        budgets = [i for i in budgets if i.subject in touched]
+        near = touched | set(view.affected())
+        budgets = [i for i in budgets if i.subject in (near if i.relation.name in OWN else touched)]
     observations = [o for o in (JUDGES[i.relation.name](view, i) for i in budgets) if o is not None]
     evaluated = sum(1 for i in budgets if not i.missing)
     return CheckRun(tool=TOOL, evaluated=evaluated, observations=tuple(observations))
