@@ -317,6 +317,8 @@ def test_every_gate_check_becomes_one_event_with_the_reviewer_field_empty(tmp_pa
     assert all(e.catalogue_sha256 == "c" * 64 for e in found)
     dumped = found[0].model_dump()
     assert {"check", "value", "node", "module", "reviewer_had_passed"} <= set(dumped)
+    # A pass says how much it looked at; a finding does not.
+    assert [e.evaluated for e in found] == [None, 1]
 
 
 def test_the_gate_events_command_prints_one_line_per_check(
@@ -334,6 +336,7 @@ def test_the_gate_events_command_prints_one_line_per_check(
     lines = [json.loads(x) for x in capsys.readouterr().out.splitlines()]
     assert [x["subtask_id"] for x in lines] == ["s1", "integration"]
     assert all(x["reviewer_had_passed"] is None for x in lines)
+    assert [x["evaluated"] for x in lines] == [1, 1]
 
 
 def test_an_attempt_carries_the_journal_head_it_started_from(tmp_path: Path) -> None:

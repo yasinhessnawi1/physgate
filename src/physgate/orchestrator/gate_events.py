@@ -24,8 +24,10 @@ from physgate.orchestrator.common import NonEmptyStr, Timestamp
 from physgate.orchestrator.events import Event, GateRan, IntegrationGateRan
 from physgate.orchestrator.protocols import (
     CheckName,
+    Count,
     NumericOutput,
     Outcome,
+    PassDetails,
     RunningGateMode,
     Scope,
 )
@@ -53,6 +55,9 @@ class GateEvent(BaseModel):
     value: NumericOutput | None
     node: NonEmptyStr | None
     module: NonEmptyStr | None
+    #: For a pass, how many things the check looked at: a pass over nothing and a
+    #: pass over fifty are different evidence. ``None`` for any other outcome.
+    evaluated: Count | None
     catalogue_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
     reviewer_had_passed: None = None
 
@@ -83,6 +88,9 @@ def gate_events(events: Iterable[Event]) -> list[GateEvent]:
                 value=record.value,
                 node=record.node,
                 module=record.module,
+                evaluated=(
+                    record.details.evaluated if isinstance(record.details, PassDetails) else None
+                ),
                 catalogue_sha256=event.result.catalogue_sha256,
                 reviewer_had_passed=record.reviewer_had_passed,
             )
