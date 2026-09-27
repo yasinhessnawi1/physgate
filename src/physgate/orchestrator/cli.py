@@ -35,6 +35,7 @@ import physgate
 from physgate.gate.exceptions import GateError
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper
+from physgate.orchestrator.catches import catches, parse_time
 from physgate.orchestrator.common import first_problem
 from physgate.orchestrator.credentials import SECRET_VARIABLE, credential_for
 from physgate.orchestrator.decompose import binary_version, call, require_fresh, start_run
@@ -49,7 +50,7 @@ from physgate.orchestrator.events import (
     read_events,
 )
 from physgate.orchestrator.exceptions import InvocationError, OrchestratorError, RunStateError
-from physgate.orchestrator.gate_events import gate_events
+from physgate.orchestrator.gate_events import GateEvent, gate_events
 from physgate.orchestrator.git import head_of
 from physgate.orchestrator.install import (
     manifest_entries,
@@ -173,6 +174,21 @@ def add_parsers(
     g.add_argument("--run-dir", required=True, type=Path)
     g.set_defaults(func=_gate_events)
 
+    c = subparsers.add_parser(
+        "catches",
+        help="count the blocking gate failures on work a reviewer had passed, per check",
+        description=(
+            "Count, per gate mode and per check, the blocking gate failures and the distinct "
+            "artefacts caught, and of those the ones a reviewer had passed (ARCH-083), over "
+            "one or more runs and an optional window. Prints one JSON line per row; a run with "
+            "no gate events prints nothing."
+        ),
+    )
+    c.add_argument("--run-dir", required=True, type=Path, action="append", dest="run_dirs")
+    c.add_argument("--since", help="UTC date or time the window starts at, included")
+    c.add_argument("--until", help="UTC date or time the window ends at, excluded")
+    c.set_defaults(func=_catches)
+
 
 def _gate_events(args: argparse.Namespace) -> int:
     """Print every gate check the run recorded, one JSON line each, in log order."""
@@ -182,6 +198,27 @@ def _gate_events(args: argparse.Namespace) -> int:
         return _fail(str(exc), **exc.context)
     for event in gate_events(events):
         print(event.model_dump_json())
+    return 0
+
+
+def _catches(args: argparse.Namespace) -> int:
+    """Print the catch count over every run named, in the window, one JSON line per row."""
+    try:
+        since = parse_time(args.since) if args.since else None
+        until = parse_time(args.until) if args.until else None
+    except ValueError as exc:
+        return _fail(f"the window is not a UTC date or time: {exc}")
+    found: list[GateEvent] = []
+    for run_dir in args.run_dirs:
+        path = run_dir.resolve() / "events.jsonl"
+        if not path.is_file():
+            return _fail("no run-event log in the run directory", run_dir=str(run_dir))
+        try:
+            found.extend(gate_events(read_events(path)))
+        except OrchestratorError as exc:
+            return _fail(str(exc), **exc.context)
+    for row in catches(found, since=since, until=until):
+        print(row.model_dump_json())
     return 0
 
 

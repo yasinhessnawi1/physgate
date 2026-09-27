@@ -51,10 +51,10 @@ from __future__ import annotations
 from datetime import datetime
 
 import pytest
-from synthetic_ledger import Log, record
+from synthetic_ledger import Log, record, result
 
 from physgate.orchestrator.catches import CatchRow, catches, parse_time
-from physgate.orchestrator.events import Event
+from physgate.orchestrator.events import Event, GateRan
 from physgate.orchestrator.gate_events import gate_events
 
 WEEK_1 = "2026-09-24T10:00:00.000000Z"
@@ -158,3 +158,30 @@ def test_a_bare_date_is_its_midnight() -> None:
 def test_the_events_the_query_reads_are_the_derived_ones() -> None:
     lines: list[Event] = observe_run().lines
     assert catches(gate_events(lines)) == catches(gate_events(list(lines)))
+
+
+def test_one_check_run_with_two_findings_is_one_check_run_and_one_artefact() -> None:
+    log = Log()
+    log.lines.append(
+        GateRan(
+            **log.env(),
+            subtask_id="s1",
+            attempt=1,
+            result=result((record("fail", "motor.left"), record("fail", "motor.right")), "observe"),
+        )
+    )
+    log.review("s1", 1, "pass")
+    (magnitude, _) = catches(gate_events(log.lines))
+    assert (magnitude.checks_run, magnitude.blocking_failures) == (1, 2)
+    assert (magnitude.artefacts_caught, magnitude.caught_after_reviewer_passed) == (1, 1)
+
+
+def test_a_failure_whose_scope_does_not_block_is_not_a_catch() -> None:
+    log = Log()
+    soft = record("fail", "motor.left").model_copy(update={"blocking": False})
+    log.lines.append(
+        GateRan(**log.env(), subtask_id="s1", attempt=1, result=result((soft,), "observe"))
+    )
+    log.review("s1", 1, "pass")
+    (magnitude, _) = catches(gate_events(log.lines))
+    assert (magnitude.blocking_failures, magnitude.artefacts_caught) == (0, 0)
