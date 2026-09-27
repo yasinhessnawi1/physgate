@@ -17,7 +17,9 @@ and only the mode differs:
 self-balancing robot, not the reference design's brief. Its proposals carry two
 deliberate errors: 15 W drawn from a 10 W module (blocking at module and system
 scope), and a driver at 145 degC against its 125 degC limit (a warning at module
-scope, blocking at system scope). Everything else is sound.
+scope, blocking at system scope). Everything else is sound: the module draws what
+it supplies from a battery, which declares the energy it stores, so the power
+check's rule that a supply is a declared source or draws from one holds.
 """
 
 from __future__ import annotations
@@ -52,14 +54,22 @@ STAND_IN_BRIEF = (
     "STAND-IN BRIEF, written for the physics gate's three-mode test; not the reference "
     "design's brief.\n\n"
     "Size the drive power module of a two-wheeled self-balancing robot: two brushed DC "
-    "gearmotors on one motor driver, fed from the module's power supply.\n"
+    "gearmotors on one motor driver, fed from the module's power supply, which is fed "
+    "from a battery.\n"
 )
 
 DRIVE_MODULE: tuple[dict[str, Any], ...] = (
+    # A declared source: a battery declares the energy it stores.
+    node(
+        "electrical.battery",
+        quantities={"power_supply": (20, "W"), "energy_capacity": (20, "W*h")},
+    ),
+    # The module draws what it supplies from the battery.
     node(
         "electrical.drive",
         kind="module",
-        quantities={"power_supply": (10, "W"), "mass": (0.4, "kg")},
+        quantities={"power_supply": (10, "W"), "power_draw": (10, "W"), "mass": (0.4, "kg")},
+        constrains=["electrical.battery"],
     ),
     *(
         node(
@@ -122,6 +132,9 @@ def test_on_the_gate_refuses_the_module_and_the_reviewer_never_sees_it(
     ] * 3
     warned = [r for r in gated[0].result.checks if r.outcome == "warn"]
     assert [(r.name, r.scope) for r in warned] == [("thermal", "module")]
+    for g in gated:
+        failed = [(r.name, r.scope, r.node) for r in g.result.checks if r.outcome == "fail"]
+        assert failed == [("power", "module", "electrical.drive")]
     assert [e for e in events if isinstance(e, ReviewRan)] == []
     assert reviewer.calls == 0 and reviewer_tokens(events) == 0
     assert list(printed["subtasks"].values()) == ["escalated"]
@@ -169,8 +182,8 @@ def test_observe_every_check_runs_every_line_says_observe_and_nothing_is_refused
     assert len([e for e in events if isinstance(e, Merged)]) == 1
     (integrated,) = [e for e in events if isinstance(e, IntegrationGateRan)]
     assert (integrated.result.verdict, integrated.result.mode) == ("fail", "observe")
-    at_system = {r.name for r in integrated.result.checks if r.outcome == "fail"}
-    assert at_system == {"power", "thermal"}
+    at_system = {(r.name, r.node) for r in integrated.result.checks if r.outcome == "fail"}
+    assert at_system == {("power", "electrical.drive"), ("thermal", "electrical.driver")}
     assert printed["step"] == "done" and printed["open_queue_items"] == []
     assert {e.gate_mode for e in events} == {"observe"}
     assert gate_lines and {x["gate_mode"] for x in gate_lines} == {"observe"}
