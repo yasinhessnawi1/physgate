@@ -335,3 +335,95 @@ def test_only_the_mounts_the_attempt_touched_are_checked(tmp_path: Path) -> None
     ctx = CheckContext(view=view, scope="module", bounds=load_bounds())
     ran = check_equilibrium.run(ctx)
     assert ran.observations == () and ran.evaluated == 0
+
+
+# --- where the mount sits changes nothing ------------------------------------------------
+
+
+def shifted(offset: int, *payloads: dict[str, Any]) -> list[dict[str, Any]]:
+    """The same mount moved ``offset`` metres along its axis."""
+    moved = []
+    for payload in payloads:
+        quantities = dict(payload["quantities"])
+        for name in ("support_position", "mount_position"):
+            if name in quantities:
+                value = quantities[name]["value"]
+                quantities[name] = {**quantities[name], "value": value + offset}
+        moved.append({**payload, "quantities": quantities})
+    return moved
+
+
+@pytest.mark.parametrize("offset", [0, 1000])
+def test_all_the_weight_on_the_far_standoff_is_refused_wherever_the_plate_sits(
+    tmp_path: Path, offset: int
+) -> None:
+    # 1 kg over the standoff at 0.2 m, the whole reaction declared on the one at 0:
+    # the forces balance and the moments miss by 1.96 N*m. About the axis's origin a
+    # plate 1000 m away was allowed 98 N*m of error, and passed.
+    ran = check(
+        tmp_path,
+        *shifted(
+            offset,
+            support("standoff_a", 0, 9.80665),
+            support("standoff_b", 0.1, 0),
+            support("standoff_c", 0.2, 0),
+            load("pcb", 0.2, 1),
+        ),
+    )
+    (finding,) = ran.observations
+    assert finding.outcome == "fail" and "do not balance" in finding.message
+    assert isinstance(finding.details, EquilibriumDetails)
+    assert finding.details.residual_moment.value == pytest.approx(-1.96133)
+
+
+@pytest.mark.parametrize("offset", [0, 1000])
+def test_a_single_pin_with_its_load_off_the_pin_is_refused_as_unstable(
+    tmp_path: Path, offset: int
+) -> None:
+    # The declared force balances the weight, but nothing resists its moment.
+    ran = check(tmp_path, *shifted(offset, support("standoff_a", 0, 9.80665), load("pcb", 0.1, 1)))
+    (finding,) = ran.observations
+    assert finding.outcome == "fail"
+    assert "unstable: a single pin cannot resist a moment" in finding.message
+    assert "FEA" not in finding.message
+    assert isinstance(finding.details, EquilibriumDetails) and finding.details.solved == ()
+
+
+def test_pins_at_one_point_with_the_load_off_it_are_unstable_even_under_the_block_setting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(equilibrium, "INDETERMINATE_MOUNTS", "block")
+    ran = check(
+        tmp_path,
+        support("standoff_a", 0.3, 4.903325),
+        support("standoff_b", 0.3, 4.903325),
+        load("pcb", 0.1, 1),
+    )
+    (finding,) = ran.observations
+    assert "unstable: pins at one point cannot resist a moment" in finding.message
+
+
+def test_a_single_pin_directly_under_its_load_is_solved_and_passes(tmp_path: Path) -> None:
+    ran = check(tmp_path, support("standoff_a", 0.1, 9.81), load("pcb", 0.1, 1))
+    assert ran.observations == () and ran.evaluated == 1
+
+
+def test_a_cantilever_far_from_the_origin_declaring_no_moment_is_still_refused(
+    tmp_path: Path,
+) -> None:
+    ran = check(
+        tmp_path, *shifted(1000, support("bearing", 0, 9.80665, moment=0), load("wheel", 0.1, 1))
+    )
+    (finding,) = ran.observations
+    assert finding.outcome == "fail"
+    assert "moments by -0.980665 N*m (rounding allows 0.004903325 N*m)" in finding.message
+
+
+def test_moments_are_taken_about_the_supports_centroid() -> None:
+    plate = MountProblem(
+        "m",
+        (Support("a", "pin", Fraction(1000)), Support("b", "pin", Fraction(1002, 1))),
+        (Load("l", Fraction(10), Fraction(1001)),),
+    )
+    assert equilibrium.reference_point(plate) == 1001
+    assert equilibrium.mechanism(plate) is None

@@ -1,10 +1,24 @@
 """Static equilibrium of a mount: the problem, the solver boundary, and the closed form.
 
 A mount is a planar problem: forces along one vertical axis, positive upward;
-positions along one horizontal axis, in metres; moments about that axis's
-origin, positive counter-clockwise, so an upward force at a positive position
-has a positive moment. A load's force is its weight or declared force, acting
+positions along one horizontal axis, in metres; moments positive
+counter-clockwise, so an upward force to the right of the reference point has a
+positive moment. A load's force is its weight or declared force, acting
 downward.
+
+Moments are taken about :func:`reference_point`, the centroid of the mount's
+supports, not the axis's origin. Where the origin sits is the author's choice
+and says nothing about the mount, but the rounding allowance is a fraction of
+the moment terms' sizes, and about a far origin every term is large: a mount
+1000 m from the origin would be allowed an error a thousand times the one it is
+allowed at the origin. About a point of the mount itself the terms are the
+mount's own lever arms, so moving the whole mount changes no verdict. The
+centroid rather than the first support, because it depends on neither the order
+nor the names of the supports.
+
+A mount that cannot resist a moment at all, pins at one point with a load off
+that point, is a mechanism, not a structure: :func:`mechanism` names it, and no
+solver is asked to split its load.
 
 The solver boundary is a Protocol so an FEA solver can stand behind it later
 without the check changing: it takes the problem as reduced from the graph, not
@@ -105,8 +119,38 @@ class EquilibriumSolver(Protocol):
         ...
 
 
+def reference_point(problem: MountProblem) -> Fraction:
+    """The point moments are taken about: the centroid of the mount's supports.
+
+    A mount with no supports takes its loads' centroid, and one with neither
+    takes the origin; such a mount fails its force sum whatever the point.
+    """
+    points = [s.x_m for s in problem.supports] or [ld.x_m for ld in problem.loads]
+    return sum(points, Fraction(0)) / len(points) if points else Fraction(0)
+
+
+def mechanism(problem: MountProblem) -> str | None:
+    """Why ``problem`` is a mechanism, or ``None`` if it is not one.
+
+    Pins resist no moment, so pins that all stand at one point, with no fixed
+    support, turn about that point under any load that is off it. Such a mount
+    is unstable whatever its declared reactions say.
+    """
+    supports = problem.supports
+    if not supports or any(s.kind == "fixed" for s in supports):
+        return None
+    if len({s.x_m for s in supports}) != 1:
+        return None
+    pivot = supports[0].x_m
+    turning = sum((ld.force_n * (ld.x_m - pivot) for ld in problem.loads), Fraction(0))
+    if turning == 0:
+        return None
+    what = "a single pin cannot" if len(supports) == 1 else "pins at one point cannot"
+    return f"unstable: {what} resist a moment"
+
+
 class ClosedFormSolver:
-    """Statics alone: one fixed support, or two supports that resist no moment."""
+    """Statics alone: one fixed support, one pin under its loads, or two pins apart."""
 
     @property
     def name(self) -> str:
@@ -117,12 +161,12 @@ class ClosedFormSolver:
         """Solve a statically determinate mount exactly.
 
         Raises:
-            NotSolvableError: the mount is not one fixed support or two pins at two
-                different positions.
+            NotSolvableError: the mount is not one fixed support, one pin with its
+                loads' moment about it zero, or two pins at two different positions.
         """
         total = sum((load.force_n for load in problem.loads), Fraction(0))
         supports = problem.supports
-        if len(supports) == 1 and supports[0].kind == "fixed":
+        if len(supports) == 1 and mechanism(problem) is None:
             (s,) = supports
             moment = sum((load.force_n * (load.x_m - s.x_m) for load in problem.loads), Fraction(0))
             return MountSolution(

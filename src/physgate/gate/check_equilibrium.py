@@ -8,8 +8,10 @@ A mount is any node other nodes constrain as supports or as loads:
   standard gravity) or a ``load_force``, acting downward.
 
 The declared reactions are held to the loads: the sum of forces and the sum of
-moments must each vanish, within the rounding the declared numbers can carry
-(the allowance in :mod:`physgate.gate.tolerances`). A mount statics can solve
+moments about the supports' centroid must each vanish, within the rounding the
+declared numbers can carry (the allowance in :mod:`physgate.gate.tolerances`).
+A mount of pins at one point with a load off that point is refused as unstable
+before any of that, since a pin cannot resist a moment. A mount statics can solve
 alone is also solved, and a failure returns the solved reactions beside the
 declared ones and both residuals (ARCH-080). A mount statics cannot solve is
 handled as :data:`physgate.gate.equilibrium.INDETERMINATE_MOUNTS` says. A mount
@@ -32,6 +34,8 @@ from physgate.gate.equilibrium import (
     NotSolvableError,
     Reaction,
     Support,
+    mechanism,
+    reference_point,
 )
 from physgate.gate.graph import GraphView
 from physgate.gate.relations import TermRef, measured, output
@@ -120,14 +124,19 @@ def _declared(view: GraphView, mount: _Mount) -> _Declared:
 
 
 def _sums(declared: _Declared) -> tuple[Fraction, list[Fraction], Fraction, list[Fraction]]:
-    """Force residual and terms, moment residual and terms, of the declared reactions."""
+    """Force residual and terms, moment residual and terms, of the declared reactions.
+
+    Moments are taken about the supports' centroid, so the terms, and the
+    allowance made from them, are the mount's own lever arms wherever it sits.
+    """
     problem = declared.problem
-    at = {s.node_id: s.x_m for s in problem.supports}
+    ref = reference_point(problem)
+    arm = {s.node_id: s.x_m - ref for s in problem.supports}
     force_terms = [r.force_n for r in declared.reactions] + [-ld.force_n for ld in problem.loads]
     moment_terms = (
-        [r.force_n * at[r.support_id] for r in declared.reactions]
+        [r.force_n * arm[r.support_id] for r in declared.reactions]
         + [r.moment_nm for r in declared.reactions]
-        + [-ld.force_n * ld.x_m for ld in problem.loads]
+        + [-ld.force_n * (ld.x_m - ref) for ld in problem.loads]
     )
     return sum(force_terms, Fraction(0)), force_terms, sum(moment_terms, Fraction(0)), moment_terms
 
@@ -170,8 +179,12 @@ def _judge(view: GraphView, mount: _Mount, solver: EquilibriumSolver) -> Observa
         names = (*mount.supports, *mount.loads)
         return _unchecked(mount, module, "has a quantity in a unit the unit check refuses", names)
     f_res, f_terms, m_res, m_terms = _sums(declared)
+    unstable = mechanism(declared.problem)
+    if unstable is not None:
+        return _refused(
+            view, mount, module, declared, (f_res, m_res), unstable, "none: a mechanism", ()
+        )
     balanced = holds_within_rounding(f_res, f_terms) and holds_within_rounding(m_res, m_terms)
-    fixed = {s.node_id for s in declared.problem.supports if s.kind == "fixed"}
     try:
         solution = solver.solve(declared.problem)
         solved, method, determinate = solution.reactions, solution.solver, True
@@ -191,8 +204,6 @@ def _judge(view: GraphView, mount: _Mount, solver: EquilibriumSolver) -> Observa
     blocked_for_fea = not determinate and equilibrium.INDETERMINATE_MOUNTS == "block"
     f_allow = output(rounding_allowance(f_terms), "N").value
     m_allow = output(rounding_allowance(m_terms), "N*m").value
-    residual_force, residual_moment = output(f_res, "N"), output(m_res, "N*m")
-    worst = residual_moment if not holds_within_rounding(m_res, m_terms) else residual_force
     reason = (
         "the reaction split on this mount needs FEA, which is not available"
         if blocked_for_fea
@@ -200,15 +211,43 @@ def _judge(view: GraphView, mount: _Mount, solver: EquilibriumSolver) -> Observa
         if determinate and balanced
         else (
             f"its declared reactions do not balance its loads: the forces miss by "
-            f"{residual_force.value} N (rounding allows {f_allow} N) and the moments by "
-            f"{residual_moment.value} N*m (rounding allows {m_allow} N*m)"
+            f"{output(f_res, 'N').value} N (rounding allows {f_allow} N) and the moments by "
+            f"{output(m_res, 'N*m').value} N*m (rounding allows {m_allow} N*m)"
         )
     )
+    worst_is_moment = not holds_within_rounding(m_res, m_terms)
+    return _refused(
+        view,
+        mount,
+        module,
+        declared,
+        (f_res, m_res),
+        reason,
+        method,
+        solved,
+        worst_is_moment=worst_is_moment,
+    )
+
+
+def _refused(
+    view: GraphView,
+    mount: _Mount,
+    module: str | None,
+    declared: _Declared,
+    residuals: tuple[Fraction, Fraction],
+    reason: str,
+    method: str,
+    solved: tuple[Reaction, ...],
+    *,
+    worst_is_moment: bool = True,
+) -> Observation:
+    fixed = {s.node_id for s in declared.problem.supports if s.kind == "fixed"}
+    residual_force, residual_moment = output(residuals[0], "N"), output(residuals[1], "N*m")
     return Observation(
         outcome="fail",
         node=mount.mount_id,
         module=module,
-        value=worst,
+        value=residual_moment if worst_is_moment else residual_force,
         expected="declared reactions that balance the loads, within declared rounding",
         message=f"mount {mount.mount_id}: {reason}",
         details=EquilibriumDetails(
