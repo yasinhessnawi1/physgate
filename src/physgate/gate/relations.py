@@ -111,6 +111,18 @@ def instances(view: GraphView) -> list[Instance]:
                     missing=() if "power_supply" in q else ("power_supply",),
                 )
             )
+        upstream = [t for t in node.constrains if t in view.nodes and _has(view, t, "power_supply")]
+        if "power_supply" in q and ("power_draw" in q or upstream):
+            found.append(
+                Instance(
+                    relation=RELATIONS["supply_covered"],
+                    subject=node_id,
+                    left=(TermRef(node_id, "power_supply"),),
+                    op="<=",
+                    right=(TermRef(node_id, "power_draw"),) if "power_draw" in q else (),
+                    missing=() if "power_draw" in q else ("power_draw",),
+                )
+            )
         if "current_limit" in q:
             found.extend(
                 Instance(

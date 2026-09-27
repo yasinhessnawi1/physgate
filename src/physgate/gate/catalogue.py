@@ -169,6 +169,18 @@ RELATIONS: Mapping[str, Relation] = MappingProxyType(
                 source="conservation of energy at steady state: a supply's output covers its loads",
             ),
             Relation(
+                name="supply_covered",
+                statement=(
+                    "the power a node supplies to what draws from it is at most the power it "
+                    "draws from its own supply"
+                ),
+                judged_by=4,
+                source=(
+                    "conservation of energy at steady state: a stage that passes power on "
+                    "cannot hand out more than it takes in"
+                ),
+            ),
+            Relation(
                 name="current_limit",
                 statement="a consumer's stall current is at most its supply's current limit",
                 judged_by=None,

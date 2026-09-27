@@ -78,7 +78,8 @@ def test_a_balanced_module_passes(tmp_path: Path) -> None:
         consumer("motor_left", 7.5, "drive"),
         consumer("motor_right", 7500, "drive", unit="mW"),
     )
-    assert ran.observations == () and ran.evaluated == 1
+    # Two: its consumers against its supply, and its supply against what it draws.
+    assert ran.observations == () and ran.evaluated == 2
 
 
 def test_modules_that_each_balance_but_not_together_pass_at_module_and_fail_at_system(
@@ -92,7 +93,7 @@ def test_modules_that_each_balance_but_not_together_pass_at_module_and_fail_at_s
         consumer("mcu", 10, "control"),
     )
     at_module = check(tmp_path / "m", "module", *payloads)
-    assert at_module.observations == () and at_module.evaluated == 2
+    assert at_module.observations == () and at_module.evaluated == 4
     at_system = check(tmp_path / "s", "system", *payloads)
     (finding,) = at_system.observations
     assert finding.node == "electrical.battery"
@@ -117,7 +118,7 @@ def test_at_module_scope_only_the_modules_the_attempt_touched_are_balanced(tmp_p
     graph(root, consumer("mcu", 5, "control"))
     view = GraphView.read(root, base_revision=head)
     ran = check_power.run(CheckContext(view=view, scope="module", bounds=load_bounds()))
-    assert ran.observations == () and ran.evaluated == 1
+    assert ran.observations == () and ran.evaluated == 2
 
 
 def test_a_module_with_consumers_and_no_supply_is_unchecked_never_passed(tmp_path: Path) -> None:
@@ -185,3 +186,55 @@ def test_power_balance_over_a_dense_graph_stays_under_a_second(tmp_path: Path) -
     assert ran.evaluated == 40 and ran.observations == ()
     print(f"power balance over 6,400 edges: {took:.4f} s")  # the measured number, for the record
     assert took < 1.0, f"power balance over 6,400 edges took {took:.3f} s"
+
+
+# --- a stage that passes power on is held to what it takes in ---------------------------
+
+
+def starved() -> tuple[dict[str, Any], ...]:
+    # Each module supplies its members in full while drawing 1 W from the battery:
+    # every supply balances, and the battery sees 2 W of the 25 W really drawn.
+    return (
+        battery(20),
+        module("drive", supply=15, draw=1),
+        module("control", supply=10, draw=1),
+        consumer("motor", 15, "drive"),
+        consumer("mcu", 10, "control"),
+    )
+
+
+@pytest.mark.parametrize("scope", ["module", "system"])
+def test_modules_supplying_more_than_they_draw_upstream_are_refused(
+    tmp_path: Path, scope: Scope
+) -> None:
+    ran = check(tmp_path, scope, *starved())
+    found = {(o.node, o.value.value if o.value else None) for o in ran.observations}
+    assert found == {("electrical.drive", 14), ("electrical.control", 9)}
+    assert all(o.outcome == "fail" for o in ran.observations)
+    drive = next(o for o in ran.observations if o.node == "electrical.drive")
+    assert "supplies 15 W to what draws from it but draws only 1 W" in drive.message
+
+
+def test_the_real_gate_blocks_the_starved_modules_at_module_scope(tmp_path: Path) -> None:
+    graph(tmp_path / "g", *starved())
+    result = PhysicsGate().run(GraphView.read(tmp_path / "g", 0), ["module"], "on")
+    assert result.verdict == "fail" and result.failing_check == "power"
+
+
+def test_a_stage_that_draws_from_a_supply_and_declares_no_draw_is_unchecked(
+    tmp_path: Path,
+) -> None:
+    silent = node(
+        "electrical.drive",
+        kind="module",
+        quantities={"power_supply": (15, "W")},
+        constrains=["electrical.battery"],
+    )
+    ran = check(tmp_path, "module", battery(), silent)
+    (record,) = ran.observations
+    assert record.outcome == "unchecked" and "declares no power_draw" in record.message
+
+
+def test_a_supply_with_nothing_upstream_is_not_held_to_a_draw(tmp_path: Path) -> None:
+    ran = check(tmp_path, "system", battery(20), consumer("mcu", 5, "battery"))
+    assert ran.observations == () and ran.evaluated == 1

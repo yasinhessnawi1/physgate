@@ -8,6 +8,12 @@ no allowance: the design claims these numbers, and a consumer set drawing more
 than its supply is refused with the deficit in watts and the contributing nodes
 (ARCH-080).
 
+A node that passes power on, a module drawing from a battery and supplying its
+own members, is also held to what it takes in: the power it supplies is at most
+the power it draws upstream. Without that, two modules each supplying their
+members in full while drawing almost nothing from the battery balance at every
+supply, and the battery never sees what their members really draw.
+
 At module scope the supplies checked are the modules of the nodes the attempt
 affected (see :meth:`physgate.gate.graph.GraphView.affected`), a module a
 consumer left included; at system scope, every supply in the graph, which is where modules that each
@@ -95,13 +101,56 @@ def _judge(view: GraphView, instance: Instance) -> Observation | None:
     )
 
 
+def _judge_covered(view: GraphView, instance: Instance) -> Observation | None:
+    """The finding for one node that passes power on, or ``None`` if it takes in enough."""
+    if instance.missing:
+        return _unchecked(
+            view,
+            instance,
+            "cannot be checked: it supplies what draws from it and draws from a supply "
+            "itself, and declares no power_draw",
+            instance.missing,
+        )
+    (supply,), (draw,) = instance.left, instance.right
+    if not isinstance(supply, TermRef) or not isinstance(draw, TermRef):
+        msg = "a covered supply compares two single quantities"
+        raise TypeError(msg)
+    try:
+        supplied, drawn = _watts(view, supply), _watts(view, draw)
+    except (UnitRefusedError, *PINT_ERRORS):
+        names = tuple(sorted({r.name for r in instance.refs()}))
+        return _unchecked(view, instance, "is in a unit the unit check refuses", names)
+    margin = residual([(draw.spelled(), drawn)], [(supply.spelled(), supplied)])
+    if margin >= 0:
+        return None
+    short = output(-margin, "W")
+    shown_supplied, shown_drawn = output(supplied, "W").value, output(drawn, "W").value
+    return Observation(
+        outcome="fail",
+        node=instance.subject,
+        module=view.module_of(instance.subject),
+        value=short,
+        expected=f"a supply of at most the {shown_drawn} W it draws upstream",
+        message=(
+            f"{instance.subject} supplies {shown_supplied} W to what draws from it but draws "
+            f"only {shown_drawn} W from its own supply, {short.value} W short: a stage cannot "
+            f"hand out more power than it takes in"
+        ),
+        details=PowerDetails(deficit=short, contributing=(instance.subject,)),
+        quantities=(_ref(view, supply), _ref(view, draw)),
+    )
+
+
+JUDGES = {"power_budget": _judge, "supply_covered": _judge_covered}
+
+
 def run(ctx: CheckContext) -> CheckRun:
-    """Balance every supply in scope against its consumers."""
+    """Balance every supply in scope against its consumers, and against what it draws."""
     view = ctx.view
-    budgets = [i for i in instances(view) if i.relation.name == "power_budget"]
+    budgets = [i for i in instances(view) if i.relation.name in JUDGES]
     if ctx.scope == "module":
         touched = set(view.modules_touched())
         budgets = [i for i in budgets if i.subject in touched]
-    observations = [o for o in (_judge(view, i) for i in budgets) if o is not None]
+    observations = [o for o in (JUDGES[i.relation.name](view, i) for i in budgets) if o is not None]
     evaluated = sum(1 for i in budgets if not i.missing)
     return CheckRun(tool=TOOL, evaluated=evaluated, observations=tuple(observations))
