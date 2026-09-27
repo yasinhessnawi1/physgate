@@ -74,6 +74,9 @@ class InstallFacts(BaseModel):
     state_on_local_disk: bool
     #: The system paths the managed-settings tier is read from, as they are now.
     system_managed: tuple[SystemManagedFile, ...] = ()
+    #: The sha256 of the installation's manifest when the run recorded it: a later
+    #: step or resume holds the manifest to this, in the run's own protected log.
+    manifest_sha256: str | None = None
 
 
 def prepare_install(dest: Path, project_root: Path) -> Path:
@@ -155,6 +158,31 @@ def write_build_record(dest: Path) -> None:
         json.dumps({"installation": str(dest), "manifest_sha256": digest}, sort_keys=True)
     )
     os.chmod(record, stat.S_IRUSR)
+
+
+def manifest_digest(dest: Path) -> str | None:
+    """The sha256 of ``dest``'s manifest, or ``None`` if it has none."""
+    path = Path(dest) / MANIFEST_NAME
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+
+
+def require_recorded_manifest(dest: Path, recorded: str | None) -> None:
+    """Refuse an installation whose manifest is not the one this run recorded using.
+
+    The run's event log is a record a role session cannot write undetected (the
+    sentinel puts it back), so a manifest and a build record rewritten together
+    still differ from what the run recorded when it first used the installation.
+
+    Raises:
+        InvocationError: the run recorded a manifest and this is not it.
+    """
+    now = manifest_digest(dest)
+    if recorded is not None and now != recorded:
+        msg = (
+            "the installation's manifest is not the one this run recorded when it first "
+            "used it; build a new installation and start a new run"
+        )
+        raise InvocationError(msg, path=str(dest), recorded=recorded, found=str(now))
 
 
 def _require_manifest_is_the_built_one(dest: Path) -> None:
@@ -297,4 +325,5 @@ def install_facts(dest: Path, state_dir: Path) -> InstallFacts:
         state_filesystem=fs,
         state_on_local_disk=local,
         system_managed=system_managed_facts(),
+        manifest_sha256=manifest_digest(dest),
     )

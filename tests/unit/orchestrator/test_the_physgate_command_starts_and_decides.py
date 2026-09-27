@@ -411,3 +411,44 @@ def test_a_run_refuses_a_reused_installation_that_is_not_the_source(
     error = json.loads(capsys.readouterr().err)
     assert error["error"] == "the installation is not the source as it is now; build a new one"
     assert error["differs"] == "hooks/cli.py"
+
+
+def test_a_run_refuses_an_installation_whose_manifest_is_not_the_one_it_recorded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A manifest and its build record rewritten together pass the installation
+    # check; the digest the run recorded in its own log, which sessions cannot
+    # write undetected, does not match.
+    from loop_fakes import FakeGate, FakeReviewer
+    from orch_helpers import make_config
+
+    from physgate.orchestrator.cli import Registrations
+    from physgate.orchestrator.events import EnvironmentRecorded
+    from physgate.orchestrator.install import InstallFacts
+    from physgate.orchestrator.record import RunRecord
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-not-a-credential")
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    args = _run_args(tmp_path)
+    install = (tmp_path / "install").resolve()
+    record = RunRecord(make_config(), tmp_path / "run")
+    record.start([])
+    facts = InstallFacts(
+        path=str(install),
+        interpreter=str(install / "bin" / "python"),
+        owner_is_session_user=True,
+        files_with_write_bits=0,
+        files_with_second_links=0,
+        stdlib="/lib",
+        stdlib_writable=False,
+        state_filesystem="apfs",
+        state_on_local_disk=True,
+        manifest_sha256="0" * 64,
+    )
+    record.emit(EnvironmentRecorded(**record.envelope(), facts=facts))
+    record.close()
+    registrations = Registrations(gate=FakeGate(), reviewers={"electrical": FakeReviewer()})
+    assert main(args, registrations) == 2
+    error = json.loads(capsys.readouterr().err)
+    assert error["error"].startswith("the installation's manifest is not the one this run")
+    assert error["recorded"] == "0" * 64

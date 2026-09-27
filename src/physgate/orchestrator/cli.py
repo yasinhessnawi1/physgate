@@ -38,6 +38,7 @@ from physgate.orchestrator.credentials import SECRET_VARIABLE, credential_for
 from physgate.orchestrator.decompose import binary_version, call, require_fresh, start_run
 from physgate.orchestrator.dispatch import ClaudeDispatcher
 from physgate.orchestrator.events import (
+    EnvironmentRecorded,
     LeftoverRead,
     SessionEnded,
     StageEntered,
@@ -47,7 +48,11 @@ from physgate.orchestrator.events import (
 from physgate.orchestrator.exceptions import InvocationError, OrchestratorError, RunStateError
 from physgate.orchestrator.gate_events import gate_events
 from physgate.orchestrator.git import head_of
-from physgate.orchestrator.install import prepare_install, require_current
+from physgate.orchestrator.install import (
+    prepare_install,
+    require_current,
+    require_recorded_manifest,
+)
 from physgate.orchestrator.invocation import claude_binary
 from physgate.orchestrator.loop import Loop, refuse_unregistered
 from physgate.orchestrator.merge import GitMerger, RunGit
@@ -250,6 +255,18 @@ def _project_root() -> Path:
     return root
 
 
+def _recorded_manifest(run_dir: Path, install: Path) -> str | None:
+    """The manifest digest this run first recorded for ``install``, if it recorded one."""
+    for event in read_events(run_dir / "events.jsonl"):
+        if (
+            isinstance(event, EnvironmentRecorded)
+            and event.facts.path == str(install)
+            and event.facts.manifest_sha256 is not None
+        ):
+            return event.facts.manifest_sha256
+    return None
+
+
 def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registrations | None) -> int:
     if registrations is None:
         try:
@@ -271,6 +288,7 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
         install = args.install.resolve()
         if install.exists():
             require_current(install, _project_root())
+            require_recorded_manifest(install, _recorded_manifest(run_dir, install))
             install_bin = install / "bin" / "physgate"
         else:
             install_bin = prepare_install(install, _project_root())
