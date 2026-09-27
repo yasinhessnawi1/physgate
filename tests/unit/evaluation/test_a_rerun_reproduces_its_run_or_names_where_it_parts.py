@@ -127,7 +127,9 @@ def test_each_dropped_field_is_needed(
     a, b = recorded(tmp_path, repo, "run-a"), recorded(tmp_path, repo, "run-b")
     assert compare_runs(a, b).reproduced
     monkeypatch.setitem(sequence.DROPPED, kind, sequence.DROPPED[kind] - {field})
-    parted = compare_runs(a, b).exact["events"]
+    compared = compare_runs(a, b)
+    assert not compared.reproduced and compared.decisions is None
+    parted = compared.exact["events"]
     assert parted is not None and parted.field is not None
     assert parted.field.split(".")[0] == field
     assert json.loads(parted.recorded or "null") != json.loads(parted.rerun or "null")
