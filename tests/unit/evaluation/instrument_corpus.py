@@ -24,6 +24,7 @@ import gate_fixtures
 from physgate.evaluation.inject.corpus import (
     ARTEFACTS_DIRNAME,
     BASE_NAME,
+    SOURCES_NAME,
     manifest_for,
     write_manifest,
 )
@@ -89,14 +90,26 @@ PROPAGATION_ARTEFACT: dict[str, Any] = {
 ARTEFACTS = (MAGNITUDE_ARTEFACT, PROPAGATION_ARTEFACT)
 
 
+#: The parts sheet the test design's numbers may cite, by row.
+SOURCE_ROWS: dict[str, dict[str, Any]] = {
+    "R1.01": {"quantity": "stall current @ 6V", "value": 1.5, "unit": "A", "url": SOURCE},
+    "R1.02": {"quantity": "mass (weight)", "value": 9.5, "unit": "g", "url": SOURCE},
+    "R5.01": {"quantity": "cell nominal voltage", "value": 1.2, "unit": "V", "url": SOURCE},
+    "R8.01": {"quantity": "gyroscope ODR options", "value": None, "unit": None, "url": SOURCE},
+}
+
+
 def write_corpus(
     root: Path,
     artefacts: tuple[dict[str, Any], ...] = ARTEFACTS,
     base_nodes: tuple[dict[str, Any], ...] = BASE_NODES,
     author: str = AUTHOR,
+    rows: dict[str, dict[str, Any]] | None = None,
 ) -> Path:
-    """Write a corpus at ``root`` with its manifest, and return ``root``."""
+    """Write a corpus at ``root`` with its parts sheet and manifest, and return ``root``."""
     (root / ARTEFACTS_DIRNAME).mkdir(parents=True)
+    sheet = {"label": "a test parts sheet", "rows": SOURCE_ROWS if rows is None else rows}
+    (root / SOURCES_NAME).write_text(json.dumps(sheet))
     (root / BASE_NAME).write_text(json.dumps({"label": LABEL, "nodes": list(base_nodes)}))
     for artefact in artefacts:
         (root / ARTEFACTS_DIRNAME / f"{artefact['id']}.json").write_text(json.dumps(artefact))

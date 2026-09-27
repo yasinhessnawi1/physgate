@@ -9,6 +9,8 @@ A corpus is one directory:
   revision; the error class, exactly one of four; the check expected to catch
   it; and a description of the error in physics terms. A propagation artefact
   also names the one edge whose target the change did not reach.
+- ``sources.json``: the parts sheet the numbers cite, by row id, each row that
+  is one number with its unit and the URL it was read from.
 - ``MANIFEST.json``: the digest of every other file, the corpus's label and the
   model string of the sessions that wrote it.
 - any ``*.md`` file: documentation, digested like the rest.
@@ -21,9 +23,10 @@ artefact changed after a run is a different corpus and says so.
 difference between them is the error, however its author chose to make it. A
 fixed set of operations would itself steer which errors get written.
 
-**Every number says where it comes from**: a URL, ``derived: ...``, or
-``design: ...`` for a rate, a gain or a set-point the design chooses. A property
-of a bought part is never a choice.
+**Every number says where it comes from**: a URL; ``derived: ...``, arithmetic
+over cited rows of the corpus's parts sheet (``sources.json``), which must give
+the quantity's dimension under pint; or ``design: ...``, only for the closed
+list of design choices. A property of a bought part is never a choice.
 
 **Nothing a reviewer is shown may say what the corpus is.** Every string in every
 node payload, keys included, is held to a list of telltale words (``inject``,
@@ -34,13 +37,14 @@ artefact's own fields, which no reviewer is given.
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import re
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, cast
 
 from pydantic import (
     AfterValidator,
@@ -53,6 +57,7 @@ from pydantic import (
 )
 
 from physgate.evaluation.inject.exceptions import CorpusError
+from physgate.gate.units import PINT_ERRORS, UnitRefusedError, parse
 from physgate.orchestrator.common import ModelString, NonEmptyStr, first_problem
 from physgate.orchestrator.protocols import CheckName
 from physgate.state.exceptions import DesignStateError
@@ -66,6 +71,7 @@ PER_CLASS = 10
 
 MANIFEST_NAME = "MANIFEST.json"
 BASE_NAME = "base.json"
+SOURCES_NAME = "sources.json"
 ARTEFACTS_DIRNAME = "artefacts"
 
 ArtefactId = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9-]{0,31}$")]
@@ -124,25 +130,83 @@ def strings_of(value: object) -> Iterator[str]:
             yield from strings_of(item)
 
 
-#: A quantity a design chooses rather than buys: a rate, a gain or a set-point, by name.
-DESIGN_CHOICE = re.compile(r"^([a-z0-9]+_)*(rate|gain|setpoint|set_point)$")
+#: The quantities a design chooses rather than buys, and the only ones a ``design:``
+#: source may carry: a closed list, because a suffix such as ``_setpoint`` can be put
+#: on any name and a list cannot. The common quantity list marks exactly these.
+DESIGN_CHOICES: frozenset[str] = frozenset({"sample_rate", "loop_gain"})
 _URL = re.compile(r"^https?://\S+$")
+#: A cited row of the parts sheet: ``[R<section>.<row>]``, e.g. ``[R1.03]``, ``[R1a.02]``.
+_ROW = r"R[0-9]+[a-z]?\.[0-9]{2}"
+_ROW_REF = re.compile(rf"\[({_ROW})\]")
+_ARITHMETIC = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Pow)
+
+
+def derivation(text: str) -> tuple[ast.expr, tuple[str, ...]]:
+    """A ``derived:`` expression parsed, and the rows it cites, in order of first use.
+
+    Every operand is a cited row of the parts sheet, ``[R1.03]``; the only numbers
+    written into the expression are whole-number powers. Anything else (a node's
+    quantity, a bare constant, a call) is refused, so a derived number is arithmetic
+    over sourced numbers and never a guess folded into a formula.
+
+    Raises:
+        ValueError: the expression is not one of that form.
+    """
+    rows: list[str] = []
+
+    def named(match: re.Match[str]) -> str:
+        if match.group(1) not in rows:
+            rows.append(match.group(1))
+        return f"_row{rows.index(match.group(1))}"
+
+    spelled = _ROW_REF.sub(named, text.strip())
+    try:
+        tree = ast.parse(spelled, mode="eval").body
+    except SyntaxError as exc:
+        msg = f"a derived source is arithmetic over cited rows: {text!r}"
+        raise ValueError(msg) from exc
+
+    def check(node: ast.expr, exponent: bool = False) -> None:
+        if isinstance(node, ast.BinOp) and isinstance(node.op, _ARITHMETIC):
+            check(node.left)
+            check(node.right, exponent=isinstance(node.op, ast.Pow))
+        elif isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub | ast.UAdd):
+            check(node.operand, exponent)
+        elif isinstance(node, ast.Name) and re.fullmatch(r"_row[0-9]+", node.id):
+            if exponent:
+                msg = "a power is a whole number, not a cited row"
+                raise ValueError(msg)
+        elif exponent and isinstance(node, ast.Constant) and type(node.value) is int:
+            return
+        else:
+            msg = f"every operand of a derived source is a cited row of the parts sheet: {text!r}"
+            raise ValueError(msg)
+
+    # A number is accepted only as a power, which has a base, so every expression
+    # that passes cites at least one row.
+    check(tree)
+    return tree, tuple(rows)
 
 
 def source_problem(name: str, source: str) -> str | None:
     """Why ``source`` is not a legal source for the quantity ``name``, or ``None``.
 
     Every number says where it comes from, in one of three forms: the URL of the
-    row it was copied from; ``derived: <arithmetic>`` over other quantities; or
-    ``design: <reason>`` for a choice the design makes. A choice is a rate, a gain
-    or a set-point, and nothing else: a property of a bought part is read from its
-    datasheet or derived, never chosen.
+    row it was copied from; ``derived: <arithmetic over cited rows>``; or
+    ``design: <reason>``, only for a quantity on the closed list of design choices.
+    Whether the cited rows exist, and whether the arithmetic gives the quantity's
+    dimension, is checked when the corpus loads, against its parts sheet.
     """
     head, _, rest = source.partition(":")
     if head in ("derived", "design") and not rest.strip():
         return f"a {head} source says what it is: {source!r}"
-    if head == "design" and not DESIGN_CHOICE.match(name):
-        return f"{name!r} is not a rate, a gain or a set-point, so it is not a design choice"
+    if head == "design" and name not in DESIGN_CHOICES:
+        return f"{name!r} is not on the list of design choices, so it is not a design choice"
+    if head == "derived":
+        try:
+            derivation(rest)
+        except ValueError as exc:
+            return str(exc)
     if head not in ("derived", "design") and not _URL.match(source):
         return f"a source is a URL, 'derived: ...' or 'design: ...', not {source!r}"
     return None
@@ -267,6 +331,33 @@ class Manifest(_Frozen):
     files: dict[RelativePath, Sha256]
 
 
+RowId = Annotated[str, StringConstraints(pattern=rf"^{_ROW}$")]
+
+
+class SourceRow(_Frozen):
+    """One row of the parts sheet: a number with its unit where the row is one number."""
+
+    quantity: NonEmptyStr
+    #: ``None`` for a row that is not one number (a range, a text): it cannot be cited.
+    value: float | int | None
+    unit: NonEmptyStr | None
+    url: NonEmptyStr
+
+    @model_validator(mode="after")
+    def _a_number_has_its_unit(self) -> SourceRow:
+        if (self.value is None) != (self.unit is None):
+            msg = "a row's number and unit are given together, or neither is"
+            raise ValueError(msg)
+        return self
+
+
+class Sources(_Frozen):
+    """The parts sheet the design's numbers come from, by row."""
+
+    label: NonEmptyStr
+    rows: dict[RowId, SourceRow]
+
+
 @dataclass(frozen=True)
 class Corpus:
     """A corpus as loaded: held to its manifest, every artefact validated."""
@@ -276,6 +367,7 @@ class Corpus:
     #: The digest of the manifest file's bytes: the corpus's identity in a run's record.
     manifest_sha256: str
     base: Base
+    sources: Sources
     #: Every artefact, in id order.
     artefacts: tuple[CorpusArtefact, ...]
 
@@ -353,7 +445,7 @@ def load_corpus(root: Path) -> Corpus:
     for rel in manifest.files:
         is_artefact = rel.startswith(ARTEFACTS_DIRNAME + "/") and rel.count("/") == 1
         if (
-            rel != BASE_NAME
+            rel not in (BASE_NAME, SOURCES_NAME)
             and not rel.endswith(".md")
             and not (is_artefact and rel.endswith(".json"))
         ):
@@ -362,7 +454,13 @@ def load_corpus(root: Path) -> Corpus:
     if BASE_NAME not in manifest.files:
         msg = "the corpus has no base design"
         raise CorpusError(msg, root=str(root))
+    if SOURCES_NAME not in manifest.files:
+        msg = "the corpus has no parts sheet for its numbers to cite"
+        raise CorpusError(msg, root=str(root))
     base = _parse(Base, root / BASE_NAME, root)
+    sources = _parse(Sources, root / SOURCES_NAME, root)
+    numbers = _numbers(sources)
+    _derivations_hold(numbers, "base", base.nodes, dimension=True)
     artefacts = []
     for rel in sorted(
         p for p in manifest.files if p.startswith(ARTEFACTS_DIRNAME + "/") and p.endswith(".json")
@@ -372,14 +470,109 @@ def load_corpus(root: Path) -> Corpus:
             msg = "an artefact's file is named for its id"
             raise CorpusError(msg, path=rel, id=artefact.id)
         _writable_over(base, artefact)
+        _derivations_hold(numbers, artefact.id, artefact.clean.nodes, dimension=True)
+        # The injected patch may carry the error in a derived quantity's unit or value,
+        # so only its citations are held there, not its arithmetic.
+        _derivations_hold(numbers, artefact.id, artefact.injected.nodes, dimension=False)
         artefacts.append(artefact)
     return Corpus(
         root=root,
         manifest=manifest,
         manifest_sha256=digest(manifest_path),
         base=base,
+        sources=sources,
         artefacts=tuple(artefacts),
     )
+
+
+def _numbers(sources: Sources) -> dict[str, Any]:
+    """Every row that is one number, as a quantity under the gate's own unit registry.
+
+    Raises:
+        CorpusError: a row's unit is not one the registry reads.
+    """
+    found: dict[str, Any] = {}
+    for row_id, row in sources.rows.items():
+        if row.value is None or row.unit is None:
+            continue
+        try:
+            found[row_id] = parse(row.value, row.unit)
+        except UnitRefusedError as exc:
+            msg = "a row of the parts sheet has a unit the gate cannot read"
+            raise CorpusError(msg, row=row_id, unit=row.unit) from exc
+    return found
+
+
+def _evaluate(node: ast.expr, operands: dict[str, Any]) -> Any:  # noqa: ANN401 - pint's type
+    if isinstance(node, ast.BinOp):
+        left, right = _evaluate(node.left, operands), _evaluate(node.right, operands)
+        if isinstance(node.op, ast.Add):
+            return left + right
+        if isinstance(node.op, ast.Sub):
+            return left - right
+        if isinstance(node.op, ast.Mult):
+            return left * right
+        if isinstance(node.op, ast.Div):
+            return left / right
+        return left**right
+    if isinstance(node, ast.UnaryOp):
+        value = _evaluate(node.operand, operands)
+        return -value if isinstance(node.op, ast.USub) else value
+    if isinstance(node, ast.Name):
+        return operands[node.id]
+    return cast("ast.Constant", node).value
+
+
+def _spelled(dimensionality: Mapping[str, Any]) -> str:
+    """A dimension as text, ``[current]*[length]^-1``; pint's own spelling fails on fractions."""
+    parts = [k if v == 1 else f"{k}^{v}" for k, v in sorted(dict(dimensionality).items())]
+    return "*".join(parts) or "dimensionless"
+
+
+def _derivations_hold(
+    numbers: dict[str, Any], where: str, nodes: tuple[Payload, ...], *, dimension: bool
+) -> None:
+    """Refuse a derived quantity that cites a row the sheet lacks, or has another dimension.
+
+    Raises:
+        CorpusError: a cited row is not on the sheet or is not one number; or, where
+            ``dimension`` holds, the arithmetic does not check under pint or does not
+            give the dimension of the quantity's own unit.
+    """
+    for payload in nodes:
+        for name, quantity in payload.get("quantities", {}).items():
+            head, _, rest = str(quantity["source"]).partition(":")
+            if head != "derived":
+                continue
+            tree, rows = derivation(rest)
+            missing = [r for r in rows if r not in numbers]
+            if missing:
+                msg = "a derived quantity cites a row that is not one number on the parts sheet"
+                raise CorpusError(
+                    msg, where=where, node=str(payload["id"]), quantity=name, rows=",".join(missing)
+                )
+            if not dimension:
+                continue
+            operands = {f"_row{n}": numbers[r] for n, r in enumerate(rows)}
+            try:
+                derived = _evaluate(tree, operands)
+                declared = parse(quantity["value"], quantity["unit"])
+                same = derived.dimensionality == declared.dimensionality
+            except (*PINT_ERRORS, UnitRefusedError, AttributeError) as exc:
+                msg = "a derived quantity's arithmetic does not check under pint"
+                raise CorpusError(
+                    msg, where=where, node=str(payload["id"]), quantity=name, reason=str(exc)
+                ) from exc
+            if not same:
+                msg = "a derived quantity's arithmetic gives another dimension than its unit"
+                raise CorpusError(
+                    msg,
+                    where=where,
+                    node=str(payload["id"]),
+                    quantity=name,
+                    derived=_spelled(derived.dimensionality),
+                    declared=_spelled(declared.dimensionality),
+                )
 
 
 def _writable_over(base: Base, artefact: CorpusArtefact) -> None:
