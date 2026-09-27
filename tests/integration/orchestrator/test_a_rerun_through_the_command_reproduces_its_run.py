@@ -117,7 +117,10 @@ def rerun_of(run: Path, tmp_path: Path, repo: Path, install: Path, run_id: str) 
 
 
 def test_a_scripted_run_rerun_through_the_command_reproduces_every_record(
-    tmp_path: Path, install: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    install: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     repo = target_repo(tmp_path)
     (tmp_path / "brief.md").write_text(STAND_IN_BRIEF)
@@ -135,6 +138,18 @@ def test_a_scripted_run_rerun_through_the_command_reproduces_every_record(
         assert {k: v for k, v in same.exact.items() if v is not None} == {}
         assert same.decisions is None and same.reproduced
         assert same.decisions_compared >= 5
+
+        # The same, as a person runs it: ``physgate rerun``, exit 0 and both ids printed.
+        serve(api, DRIVE_MODULE)
+        capsys.readouterr()
+        argv = ["rerun", str(run), "--brief", str(tmp_path / "brief.md"), "--run-id", "run-d"]
+        where = ["--run-dir", str(tmp_path / "run-d"), "--target", str(repo)]
+        code = main([*argv, *where, "--install", str(install)], registrations())
+        out = capsys.readouterr()
+        assert code == 0, out.out[-4000:] + out.err
+        shown = json.loads(out.out[out.out.rindex("\n{\n") + 1 :])
+        assert shown["reproduced"] is True
+        assert shown["recorded_manifest_id"] == same.recorded_manifest_id
 
         # One proposal with a bare number where a quantity belongs.
         bare = dict(DRIVE_MODULE[0])
