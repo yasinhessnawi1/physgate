@@ -215,16 +215,20 @@ def test_a_patch_may_not_rewrite_an_interface_or_give_a_node_another_owner(tmp_p
             load_corpus(root)
 
 
-def _forty(distinct_edges: int) -> Corpus:
+def _forty(distinct_edges: int, target_domain: str = "mechanical") -> Corpus:
     artefacts = []
     for n in range(40):
         error_class = ("unit", "magnitude", "equilibrium", "propagation")[n // 10]
         source = node(
             f"electrical.m{n % distinct_edges}",
             quantities={"stall_current": (2, "A")},
-            constrains=[f"electrical.d{n % distinct_edges}"],
+            constrains=[f"{target_domain}.d{n % distinct_edges}"],
         )
-        target = node(f"electrical.d{n % distinct_edges}", quantities={"current_limit": (3, "A")})
+        target = node(
+            f"{target_domain}.d{n % distinct_edges}",
+            domain=target_domain,
+            quantities={"current_limit": (3, "A")},
+        )
         changed = with_quantity(source, "stall_current", 2 + n / 100, "A")
         edge = {"source": source["id"], "target": target["id"]}
         artefacts.append(
@@ -245,11 +249,16 @@ def _forty(distinct_edges: int) -> Corpus:
     return Corpus(Path("."), manifest, "0" * 64, None, tuple(artefacts))  # type: ignore[arg-type]
 
 
-def test_a_complete_corpus_has_ten_of_each_class_and_ten_distinct_edges(tmp_path: Path) -> None:
+def test_a_complete_corpus_has_ten_of_each_class_and_ten_distinct_cross_domain_edges(
+    tmp_path: Path,
+) -> None:
     require_complete(_forty(distinct_edges=10))
     with pytest.raises(CorpusError, match="10 distinct edges") as caught:
         require_complete(_forty(distinct_edges=9))
     assert caught.value.context["distinct"] == "9"
+    with pytest.raises(CorpusError, match="joins two domains") as caught:
+        require_complete(_forty(distinct_edges=10, target_domain="electrical"))
+    assert caught.value.context["domain"] == "electrical"
     with pytest.raises(CorpusError, match="10 artefacts of each class") as caught:
         require_complete(load_corpus(write_corpus(tmp_path / "c")))
     assert caught.value.context == {

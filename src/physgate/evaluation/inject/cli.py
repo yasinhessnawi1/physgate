@@ -4,7 +4,7 @@ The command takes the reviewers the ``physgate`` command is registered with,
 and there are none yet, so today it refuses to start, naming the first role
 without one. A reviewer is registered where the loop's are; the instrument then
 runs without any change here. It refuses a corpus that is not complete (ten
-artefacts of each class, ten distinct propagation edges), so the measurement
+artefacts of each class, ten distinct cross-domain propagation edges), so the measurement
 never runs on a partial one.
 """
 

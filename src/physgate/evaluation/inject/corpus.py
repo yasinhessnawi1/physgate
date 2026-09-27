@@ -373,9 +373,13 @@ def _writable_over(base: Base, artefact: CorpusArtefact) -> None:
 def require_complete(corpus: Corpus) -> None:
     """Refuse a corpus that is not the measurement's: ten per class, ten distinct edges.
 
+    The propagation check is the cross-domain one (ARCH-080, row 7), so each
+    propagation artefact's edge joins two nodes of different domains.
+
     Raises:
-        CorpusError: a class has other than ten artefacts, or two propagation
-            artefacts name the same edge, so ten errors would be fewer than ten.
+        CorpusError: a class has other than ten artefacts; two propagation
+            artefacts name the same edge, so ten errors would be fewer than ten;
+            or an edge stays within one domain.
     """
     counts = {c: sum(a.error_class == c for a in corpus.artefacts) for c in ERROR_CLASSES}
     if any(n != PER_CLASS for n in counts.values()):
@@ -387,3 +391,11 @@ def require_complete(corpus: Corpus) -> None:
             f"a complete corpus's {PER_CLASS} propagation artefacts name {PER_CLASS} distinct edges"
         )
         raise CorpusError(msg, distinct=str(len(edges)))
+    for artefact in corpus.artefacts:
+        if artefact.edge is None:
+            continue
+        source = artefact.injected.node(artefact.edge.source) or {}
+        target = artefact.clean.node(artefact.edge.target) or {}
+        if source.get("domain") == target.get("domain"):
+            msg = "a propagation artefact's edge joins two domains"
+            raise CorpusError(msg, artefact=artefact.id, domain=str(source.get("domain")))
