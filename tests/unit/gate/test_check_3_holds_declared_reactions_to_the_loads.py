@@ -427,3 +427,10 @@ def test_moments_are_taken_about_the_supports_centroid() -> None:
     )
     assert equilibrium.reference_point(plate) == 1001
     assert equilibrium.mechanism(plate) is None
+
+
+def test_a_mount_recorded_as_unchecked_is_not_counted_as_evaluated(tmp_path: Path) -> None:
+    ran = check(
+        tmp_path, *(support(f"standoff_{n}", x, 9.80665) for n, x in FOUR), load("pcb", 0.15, 4)
+    )
+    assert [o.outcome for o in ran.observations] == ["unchecked"] and ran.evaluated == 0

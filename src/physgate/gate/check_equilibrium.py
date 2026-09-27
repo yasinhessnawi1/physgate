@@ -295,8 +295,10 @@ def run(ctx: CheckContext) -> CheckRun:
     ]
     solver = ctx.solver if ctx.solver is not None else ClosedFormSolver()
     observations = [o for o in (_judge(view, m, solver) for m in found) if o is not None]
+    # A mount recorded as unchecked was not judged, so it is not counted as evaluated.
+    unchecked = sum(1 for o in observations if o.outcome == "unchecked")
     return CheckRun(
         tool=f"{solver.name}, with the declared-rounding allowance",
-        evaluated=len(found),
+        evaluated=len(found) - unchecked,
         observations=tuple(observations),
     )
