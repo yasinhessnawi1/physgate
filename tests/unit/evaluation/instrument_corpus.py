@@ -95,6 +95,12 @@ SOURCE_ROWS: dict[str, dict[str, Any]] = {
     "R1.01": {"quantity": "stall current @ 6V", "value": 1.5, "unit": "A", "url": SOURCE},
     "R1.02": {"quantity": "mass (weight)", "value": 9.5, "unit": "g", "url": SOURCE},
     "R5.01": {"quantity": "cell nominal voltage", "value": 1.2, "unit": "V", "url": SOURCE},
+    "R5.02": {
+        "quantity": "number of cells in the pack",
+        "value": 6,
+        "unit": "dimensionless",
+        "url": SOURCE,
+    },
     "R8.01": {"quantity": "gyroscope ODR options", "value": None, "unit": None, "url": SOURCE},
 }
 

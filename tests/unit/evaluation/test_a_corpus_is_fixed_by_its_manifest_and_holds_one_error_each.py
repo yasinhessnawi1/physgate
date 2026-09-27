@@ -292,6 +292,27 @@ def test_a_derivation_that_does_not_give_its_dimension_is_refused(
         load_corpus(_derived(tmp_path, where, source))
 
 
+@pytest.mark.parametrize("where", ["base", "clean"])
+def test_a_count_a_source_states_is_a_row_and_may_be_cited(tmp_path: Path, where: str) -> None:
+    """Six cells of 9.5 g each: the count is a row of its own, cited like any other."""
+    payload = node("electrical.pack", quantities={"mass": (57, "g")})
+    payload["quantities"]["mass"]["source"] = "derived: [R5.02] * [R1.02]"
+    artefact = dict(MAGNITUDE_ARTEFACT)
+    base: tuple[dict[str, Any], ...] = BASE_NODES
+    if where == "base":
+        base = (*BASE_NODES, payload)
+    else:
+        artefact[where] = {"nodes": [*artefact[where]["nodes"], payload]}
+    load_corpus(write_corpus(tmp_path / "c", artefacts=(artefact,), base_nodes=base))
+
+
+def test_a_count_no_source_states_is_never_assumed() -> None:
+    payload = node("electrical.pack", quantities={"mass": (57, "g")})
+    payload["quantities"]["mass"]["source"] = "derived: 6 * [R1.02]"
+    with pytest.raises(ValidationError, match="cited row"):
+        _artefact(injected={"nodes": [payload]})
+
+
 def test_an_injected_patch_may_carry_its_error_in_a_derived_quantity(tmp_path: Path) -> None:
     load_corpus(_derived(tmp_path, "injected", "derived: [R1.01]", unit="V"))
 
