@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from git_rig import config, target_repo
+from git_rig import PARAMS, config, target_repo
 from scripted_endpoint import (  # noqa: E402
     DUMMY_KEY,
     DUMMY_OAUTH_TOKEN,
@@ -170,7 +170,7 @@ def test_the_decompose_command_twice_with_one_seed_gives_one_set_of_ids(
 
     from physgate.cli import main
 
-    params = config().model_dump(include={"auth", "gate_mode", "models", "bounds", "token_ceiling"})
+    params = config().model_dump(include=PARAMS)
     (tmp_path / "params.json").write_text(json.dumps(params))
     (tmp_path / "brief.md").write_text("Build a self-balancing robot.\n")
     printed = []

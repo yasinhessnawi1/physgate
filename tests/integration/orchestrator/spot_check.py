@@ -178,6 +178,9 @@ def params() -> dict[str, Any]:
             infra_retry_delays_s=(),
         ).model_dump(mode="json"),
         "token_ceiling": 400_000,
+        "reportable": False,
+        "effort": "high",
+        "max_output_tokens": 64000,
     }
 
 

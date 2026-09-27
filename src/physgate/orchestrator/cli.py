@@ -61,8 +61,11 @@ from physgate.orchestrator.queue import ApprovalQueue
 from physgate.orchestrator.run_config import (
     RunConfig,
     endpoint_of,
+    harness_state,
     load_run_config,
     require_endpoint,
+    require_harness,
+    require_reportable,
 )
 
 #: Example parameters files, one per auth mode.
@@ -189,6 +192,9 @@ def _fail(message: str, **context: str) -> int:
 
 def _config(args: argparse.Namespace) -> RunConfig:
     params = json.loads(args.params.read_text())
+    # Measured, never chosen: a parameters file that names the harness is overruled.
+    harness = harness_state(_harness_root())
+    require_reportable(harness, reportable=params.get("reportable") is True)
     fields = {
         **params,
         "run_id": args.run_id,
@@ -197,8 +203,15 @@ def _config(args: argparse.Namespace) -> RunConfig:
         "target_head": head_of(args.target.resolve(), "HEAD"),
         "claude_version": binary_version(),
         "endpoint": endpoint_of(os.environ.get("ANTHROPIC_BASE_URL")),
+        "harness": harness.model_dump(),
     }
     return RunConfig.model_validate_json(json.dumps(fields))
+
+
+def _harness_root() -> Path | None:
+    """The source checkout this orchestrator runs from, or ``None`` if it runs from none."""
+    root = Path(physgate.__file__).resolve().parents[2]
+    return root if (root / "pyproject.toml").exists() else None
 
 
 def _decompose(args: argparse.Namespace) -> int:
@@ -282,6 +295,8 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
         refuse_unregistered(config, registrations.gate, registrations.reviewers)
         # The same provider, or the run's numbers would mean something else.
         require_endpoint(config, os.environ.get("ANTHROPIC_BASE_URL"))
+        # The same code: a run continued on other code is two runs under one name.
+        require_harness(config, harness_state(_harness_root()))
         if not (run_dir / "events.jsonl").exists():
             msg = "the run was never started; decompose it first"
             raise RunStateError(msg, run_dir=str(run_dir))

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from physgate.orchestrator.budget import SessionEnd
+from physgate.orchestrator.cli import _harness_root
 from physgate.orchestrator.git import head_of
 from physgate.orchestrator.merge import RunGit, commit_attempt, write_scope_violations
 from physgate.orchestrator.ports import ChangeCheck, Leftover, SessionReport, SessionRequest
@@ -27,7 +28,7 @@ from physgate.orchestrator.protocols import (
     Usage,
 )
 from physgate.orchestrator.record import PlanEntry
-from physgate.orchestrator.run_config import ModelStrings, RunBounds, RunConfig
+from physgate.orchestrator.run_config import ModelStrings, RunBounds, RunConfig, harness_state
 
 GITENV = {
     "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
@@ -271,6 +272,23 @@ class EmptyGraph:
         return 0, ()
 
 
+#: The harness as the command measures it, taken once at import (before any test
+#: narrows ``PATH``): a run a test drives under another record is refused.
+MEASURED_HARNESS = harness_state(_harness_root())
+
+#: The fields a parameters file holds: chosen per run, never measured.
+PARAMS = {
+    "auth",
+    "gate_mode",
+    "models",
+    "bounds",
+    "token_ceiling",
+    "reportable",
+    "effort",
+    "max_output_tokens",
+}
+
+
 def config(run_id: str = "run-1") -> RunConfig:
     return RunConfig(
         run_id=run_id,
@@ -293,6 +311,10 @@ def config(run_id: str = "run-1") -> RunConfig:
         target_head="b" * 40,
         endpoint="default",
         auth="api_key",
+        reportable=False,
+        harness=MEASURED_HARNESS,
+        effort="high",
+        max_output_tokens=64000,
     )
 
 
