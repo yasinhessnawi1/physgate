@@ -348,12 +348,14 @@ def call(
         model=config.models.decomposition,
         session_id=session_id,
         settings=settings,
+        effort=config.effort,
     )
     env = isolated_env(
         home=workdir / "home",
         config_dir=workdir / "config",
         binary=binary,
         max_retries=config.bounds.binary_max_retries,
+        max_output_tokens=config.max_output_tokens,
         base_url=base_url,
         api_key=credential.secret if credential.mode == "api_key" else None,
     )

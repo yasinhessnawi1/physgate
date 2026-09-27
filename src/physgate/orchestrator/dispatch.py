@@ -263,6 +263,7 @@ class ClaudeDispatcher:
             config_dir=sdir / "config",
             binary=self._binary,
             max_retries=request.bounds.binary_max_retries,
+            max_output_tokens=self._config.max_output_tokens,
             base_url=self._base_url,
             api_key=None,
         )
@@ -274,6 +275,7 @@ class ClaudeDispatcher:
             model=request.model,
             session_id=session_id,
             max_turns=request.bounds.session_max_turns,
+            effort=self._config.effort,
         )
         stdout = sdir / "stdout.jsonl"
         with stdout.open("wb") as out, (sdir / "stderr.txt").open("wb") as err:

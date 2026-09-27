@@ -57,13 +57,21 @@ def require_pinned(version_output: str) -> str:
 
 
 def decomposition_argv(
-    binary: str, *, prompt: str, schema: str, model: str, session_id: str, settings: Path
+    binary: str,
+    *,
+    prompt: str,
+    schema: str,
+    model: str,
+    session_id: str,
+    settings: Path,
+    effort: str,
 ) -> list[str]:
     """The run's one model call: no tools but the structured answer, one turn.
 
     With one turn the call is exactly one request: a valid answer succeeds, and a
     plain-text or schema-violating one ends the call instead of the binary asking
-    again on its own (both measured).
+    again on its own (both measured). The effort level is the run's, never the
+    binary's default, which comes from a catalog its version does not pin.
     """
     return [
         binary,
@@ -81,6 +89,8 @@ def decomposition_argv(
         "1",
         "--model",
         model,
+        "--effort",
+        effort,
         "--session-id",
         session_id,
         "--output-format",
@@ -97,16 +107,22 @@ def isolated_env(
     config_dir: Path,
     binary: str,
     max_retries: int,
+    max_output_tokens: int,
     base_url: str | None,
     api_key: str | None,
 ) -> dict[str, str]:
-    """An environment built from nothing for one session."""
+    """An environment built from nothing for one session.
+
+    The output-token limit is the run's: left unset, the binary takes the
+    request's ``max_tokens`` from its model catalog, like the effort level.
+    """
     env = {
         "HOME": str(home),
         "PATH": f"{Path(binary).parent}:/usr/bin:/bin:/usr/sbin:/sbin",
         "TERM": "dumb",
         "CLAUDE_CONFIG_DIR": str(config_dir),
         "CLAUDE_CODE_MAX_RETRIES": str(max_retries),
+        "CLAUDE_CODE_MAX_OUTPUT_TOKENS": str(max_output_tokens),
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
         "DISABLE_AUTOUPDATER": "1",
         "DISABLE_TELEMETRY": "1",
@@ -127,6 +143,7 @@ def role_argv(
     model: str,
     session_id: str,
     max_turns: int,
+    effort: str,
 ) -> list[str]:
     """A role session: the hook layer's spawn arguments, the stream the trajectory is.
 
@@ -146,6 +163,8 @@ def role_argv(
         "--include-partial-messages",
         "--model",
         model,
+        "--effort",
+        effort,
         "--session-id",
         session_id,
         "--max-turns",

@@ -45,8 +45,10 @@ def test_a_role_session_is_never_the_binarys_own_resume() -> None:
         model="claude-sonnet-5",
         session_id="abc",
         max_turns=20,
+        effort="medium",
     )
     assert "--resume" not in argv and "--continue" not in argv
+    assert argv[argv.index("--effort") + 1] == "medium"  # the run's level, not the catalog's
     assert argv[argv.index("--settings") + 1] == "/s/settings.json"
     assert argv[argv.index("--max-turns") + 1] == "20"
     assert argv[argv.index("--session-id") + 1] == "abc"
