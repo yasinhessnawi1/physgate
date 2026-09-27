@@ -24,6 +24,7 @@ from test_a_session_is_dispatched_under_the_hooks import SPEC, dispatch, install
 from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.install import (
     MANIFEST_NAME,
+    build_record_path,
     install_manifest,
     prepare_install,
     require_current,
@@ -151,3 +152,25 @@ def test_a_planted_pth_with_the_manifest_rewritten_to_match_refuses_the_run(
     (install / MANIFEST_NAME).write_text(json.dumps(install_manifest(install)))
     with pytest.raises(InvocationError, match="not the one its build recorded"):
         require_current(install, ROOT)
+
+
+def test_a_dispatched_role_session_cannot_rewrite_the_installation_s_build_record(
+    tmp_path: Path,
+    install_bin: Path,  # noqa: F811 - the fixture, imported
+) -> None:
+    # The reviewer's command: make the read-only record writable and empty it. The
+    # record lives beside the installation, outside the installation root, so it
+    # is protected on its own at every spawn: refused, or put back.
+    record = build_record_path(install_bin.parent.parent)
+    before = record.read_bytes()
+    worktree = tmp_path / "run" / "worktrees" / "s1"
+    steps = [
+        tool("Read", file_path=str(worktree / SPEC)),
+        tool("Bash", command=f"chmod u+w {record} && echo '{{}}' > {record}"),
+        tool("Write", file_path=str(record), content="{}\n"),
+        text("done"),
+    ]
+    api, (report, _), _ = dispatch(tmp_path, install_bin, steps)
+    assert report.end.outcome == "completed", report
+    assert record.read_bytes() == before
+    require_current(install_bin.parent.parent, ROOT)

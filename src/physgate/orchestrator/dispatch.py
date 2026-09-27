@@ -44,7 +44,7 @@ from physgate.orchestrator.credentials import (
 from physgate.orchestrator.decompose import binary_version, read_stream
 from physgate.orchestrator.exceptions import AccountingError, InvocationError
 from physgate.orchestrator.git import common_dir
-from physgate.orchestrator.install import InstallFacts, install_facts
+from physgate.orchestrator.install import InstallFacts, build_record_path, install_facts
 from physgate.orchestrator.invocation import isolated_env, role_argv
 from physgate.orchestrator.managed import drift
 from physgate.orchestrator.merge import RunGit, commit_attempt
@@ -203,6 +203,10 @@ class ClaudeDispatcher:
             key_helper = write_key_helper(state, self._credential.secret)
             helper = ["--api-key-helper", str(key_helper)]
         reverted, refused = run_protected_roots(self._run)
+        # The installation's build record lives beside it, outside the installation
+        # root the hook layer protects; a session that rewrote it would make the
+        # next run refuse, or, with the manifest, pass. It is put back.
+        reverted = (*reverted, build_record_path(self._install_bin.parent.parent))
         protect = [arg for root in reverted for arg in ("--protect", str(root))]
         protect += [arg for root in refused for arg in ("--protect-refuse-only", str(root))]
         argv = [
