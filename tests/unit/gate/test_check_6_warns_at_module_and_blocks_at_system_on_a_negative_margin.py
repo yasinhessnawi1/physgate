@@ -108,3 +108,35 @@ def test_the_same_negative_margin_blocks_at_system_scope(tmp_path: Path) -> None
     thermal = [r for r in result.checks if r.name == "thermal"]
     assert [(r.outcome, r.blocking, r.scope) for r in thermal] == [("fail", True, "system")]
     assert result.numeric_output is not None and result.numeric_output.unit == "K"
+
+
+# --- the comparison is exact: the boundary, and just past it -----------------------------
+
+
+def test_a_margin_of_zero_passes_and_a_hundredth_of_a_kelvin_under_it_blocks(
+    tmp_path: Path,
+) -> None:
+    # 40 K/W * 2.50025 W = 100.01 K: 0.01 K past a limit reached exactly at 2.5 W.
+    assert check(tmp_path / "at", "system", DRIVE, driver(2.5)).observations == ()
+    (finding,) = check(tmp_path / "past", "system", DRIVE, driver(2.50025)).observations
+    assert isinstance(finding.details, ThermalDetails)
+    assert (finding.details.margin.value, finding.details.margin.unit) == (-0.01, "K")
+
+
+def test_a_heat_budget_met_exactly_passes_and_a_milliwatt_over_it_blocks(tmp_path: Path) -> None:
+    def cooled(capacity: float | int) -> dict[str, Any]:
+        return node(
+            "electrical.drive",
+            kind="module",
+            quantities={"heat_rejection_capacity": (capacity, "W")},
+        )
+
+    member = node(
+        "electrical.regulator",
+        quantities={"heat_dissipation": (4, "W")},
+        constrains=["electrical.drive"],
+    )
+    assert check(tmp_path / "at", "system", cooled(4), member).observations == ()
+    (finding,) = check(tmp_path / "past", "system", cooled(3.999), member).observations
+    assert isinstance(finding.details, ThermalDetails)
+    assert (finding.details.margin.value, finding.details.margin.unit) == (-0.001, "W")
