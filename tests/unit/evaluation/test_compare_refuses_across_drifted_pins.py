@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from observe_rig import HARNESS, fake_run, target_repo
+from observe_rig import HARNESS, Gate, fake_run, target_repo
 
 from physgate.evaluation.observe.compare import compare, drift
 from physgate.evaluation.observe.exceptions import CompareRefusedError
@@ -120,3 +120,13 @@ def test_the_numbers_stand_side_by_side_each_with_its_manifest_id(tmp_path: Path
         # Sessions 10+3+5 and 20+3+5; two reviews of 40+9; routing none.
         assert numbers.tokens == {"decomposition": 0, "session": 46, "reviewer": 98, "routing": 0}
         assert numbers.wall_clock_s >= 0
+
+
+def test_a_rejected_attempt_is_counted_on_its_side(tmp_path: Path) -> None:
+    repo = target_repo(tmp_path)
+    baseline = fake_run(tmp_path, "base", repo)
+    candidate = fake_run(tmp_path, "cand", repo, gate=Gate(fail_on={1}))
+    side = compare(baseline, candidate)
+    assert (side.baseline.attempts_rejected, side.candidate.attempts_rejected) == (0, 1)
+    assert (side.baseline.sessions, side.candidate.sessions) == (2, 3)
+    assert side.candidate.attempts_merged == 2
