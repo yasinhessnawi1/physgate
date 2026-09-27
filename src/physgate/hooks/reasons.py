@@ -10,6 +10,12 @@ HELD_OUT_REASON = (
     "it is the held-out evaluation tier, which nothing reads or writes before "
     "measurement (ARCH-141)"
 )
+ANSWER_KEY_REASON = (
+    "it is an evaluation corpus whose files state each artefact's injected error and the "
+    "check expected to catch it; no session writes it, and no reviewer reads it, because a "
+    "reviewer that read the answer would make the measurement of what reviewers miss "
+    "measure nothing"
+)
 GATE_REASON = "it holds the physics gate, which no agent session writes (ARCH-081)"
 STORE_REASON = (
     "it is the design-state graph's own store: its journal is the only authority, and a "

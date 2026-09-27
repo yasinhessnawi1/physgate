@@ -64,7 +64,7 @@ def _lean_config(data: bytes) -> dict[str, Any] | None:
     out["installation"] = {
         name: getattr(config.installation, name) for name in lean.LeanInstallation.__slots__
     }
-    for name in ("held_out", "required_reading", "always_loaded", "tools_allowed"):
+    for name in ("held_out", "answer_keys", "required_reading", "always_loaded", "tools_allowed"):
         out[name] = list(out[name])
     return out
 
@@ -151,6 +151,10 @@ def test_a_valid_configuration_comes_out_the_same(tmp_path: Path) -> None:
         {"protected_roots": [{"path": "/a", "reason": "r", "watch": "revert", "x": 1}]},
         {"experiments": [{"root": "/e", "frozen_marker": "", "always_frozen_name": "C"}]},
         {"held_out": "/one/path"},
+        {"answer_keys": "/one/path"},
+        {"answer_keys": ["relative/corpus"]},
+        {"answer_keys": [""]},
+        {"answer_keys": ["/c", 3]},
     ],
 )
 def test_the_configurations_own_cases_are_decided_the_same(
@@ -166,6 +170,7 @@ def test_thousands_of_generated_configurations_are_decided_the_same(tmp_path: Pa
         tmp_path,
         experiments=[{"root": "/e", "frozen_marker": "RESULT.md", "always_frozen_name": "C.md"}],
         held_out=["/h"],
+        answer_keys=["/c"],
         required_reading=["/r"],
         always_loaded=["/l"],
     )
@@ -277,6 +282,7 @@ def test_thousands_of_documents_mutated_character_by_character_are_decided_the_s
             tmp_path,
             experiments=[{"root": "/e", "frozen_marker": "RESULT.md", "always_frozen_name": "C"}],
             held_out=["/h"],
+            answer_keys=["/c"],
         )
     )
     event_text = json.dumps(

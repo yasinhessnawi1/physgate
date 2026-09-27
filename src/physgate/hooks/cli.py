@@ -33,6 +33,12 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
     p.add_argument("--reading", action="append", default=[])
     p.add_argument("--always-loaded", action="append", default=[])
     p.add_argument("--held-out", action="append", default=[])
+    p.add_argument(
+        "--answer-key",
+        action="append",
+        default=[],
+        help="a corpus carrying its answers: written by no session, read by no reviewer",
+    )
     p.add_argument("--protect", action="append", default=[])
     p.add_argument(
         "--protect-refuse-only",
@@ -63,6 +69,7 @@ def _install(args: argparse.Namespace) -> int:
         required_reading=tuple(_abs(p) for p in args.reading),
         always_loaded=tuple(_abs(p) for p in args.always_loaded),
         held_out=tuple(_abs(p) for p in args.held_out),
+        answer_keys=tuple(_abs(p) for p in args.answer_key),
         extra_protected=tuple(_abs(p) for p in args.protect),
         extra_protected_refuse_only=tuple(_abs(p) for p in args.protect_refuse_only),
         api_key_helper=_abs(args.api_key_helper) if args.api_key_helper else None,

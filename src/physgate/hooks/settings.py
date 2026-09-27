@@ -42,6 +42,7 @@ from physgate.hooks.config import (
     Watch,
     digest,
 )
+from physgate.hooks.reasons import ANSWER_KEY_REASON as ANSWER_KEY_REASON
 from physgate.hooks.reasons import GATE_REASON as GATE_REASON
 from physgate.hooks.reasons import HELD_OUT_REASON as HELD_OUT_REASON
 from physgate.hooks.reasons import STORE_REASON as STORE_REASON
@@ -85,6 +86,9 @@ class InstallRequest(BaseModel):
     required_reading: tuple[AbsolutePath, ...] = ()
     always_loaded: tuple[AbsolutePath, ...] = ()
     held_out: tuple[AbsolutePath, ...] = ()
+    #: Evaluation corpora carrying their answers, beside the worktree's own
+    #: ``corpora`` directory, which is always one.
+    answer_keys: tuple[AbsolutePath, ...] = ()
     extra_protected: tuple[AbsolutePath, ...] = ()
     #: Paths no session tool may write, but which the runtime or the spawner writes
     #: while the session runs (its captured stream, its process record), so the
@@ -187,6 +191,9 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         )
     for path in request.held_out:
         protected.setdefault(path, (HELD_OUT_REASON, "revert"))
+    answer_keys = sorted({str(worktree / "corpora"), *request.answer_keys})
+    for path in answer_keys:
+        protected.setdefault(path, (ANSWER_KEY_REASON, "revert"))
     if request.store_root is not None:
         protected[request.store_root] = (STORE_REASON, "journal")
     for path in protected:
@@ -214,6 +221,7 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
             ),
         ),
         held_out=tuple(sorted(request.held_out)),
+        answer_keys=tuple(answer_keys),
         required_reading=tuple(sorted(request.required_reading)),
         always_loaded=tuple(sorted(request.always_loaded)),
         token_ceiling=request.token_ceiling,

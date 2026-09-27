@@ -157,7 +157,7 @@ class LeanInstallation:
 
 _CONFIG_FIELDS = (
     "profile", "role", "worktree", "own_branch", "store_root", "state_dir", "protected_roots",
-    "experiments", "held_out", "required_reading", "always_loaded", "token_ceiling",
+    "experiments", "held_out", "answer_keys", "required_reading", "always_loaded", "token_ceiling",
     "tools_allowed", "installation", "watchdog_seconds", "hook_timeout_seconds",
 )  # fmt: skip
 
@@ -183,6 +183,7 @@ class LeanConfig:
             data["experiments"], "experiments", LeanExperiment
         )
         self.held_out: tuple[str, ...] = _strings(data["held_out"], "held_out", _absolute)
+        self.answer_keys: tuple[str, ...] = _strings(data["answer_keys"], "answer_keys", _absolute)
         self.required_reading: tuple[str, ...] = _strings(
             data["required_reading"], "required_reading", _absolute
         )
