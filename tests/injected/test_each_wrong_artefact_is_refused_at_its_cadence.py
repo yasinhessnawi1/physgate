@@ -22,12 +22,13 @@ from gate_fixtures import (
     POWER,
     THERMAL,
     UNITS,
+    given,
     graph,
 )
 
 from physgate.gate.graph import GraphView
 from physgate.orchestrator.cli import default_registrations
-from physgate.orchestrator.protocols import GateResult, IntegrationArtefact, Scope
+from physgate.orchestrator.protocols import GateResult, Scope
 
 pytestmark = pytest.mark.injected
 
@@ -56,7 +57,7 @@ def at(root: Path, scope: Scope) -> GateResult:
     gate = default_registrations().gate
     assert gate is not None
     if scope == "system":
-        artefact = IntegrationArtefact(run_id="run-1", graph_root=str(root), run_head="b" * 40)
+        artefact = given(root)
         return gate.check_integration(artefact, mode="on")
     scopes: list[Scope] = ["subtask"] if scope == "subtask" else ["subtask", "module"]
     return gate.run(GraphView.read(root, base_revision=0), scopes, "on")  # type: ignore[attr-defined, no-any-return]

@@ -11,13 +11,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from gate_fixtures import all_six, graph
+from gate_fixtures import all_six, given, graph
 
 from physgate.gate.graph import GraphView
 from physgate.gate.registry import REGISTRY
 from physgate.gate.runner import PhysicsGate
 from physgate.orchestrator.cli import default_registrations
-from physgate.orchestrator.protocols import CHECK_NUMBERS, Artefact, IntegrationArtefact
+from physgate.orchestrator.protocols import CHECK_NUMBERS, Artefact
 
 SIX = {"units", "magnitude", "equilibrium", "power", "conservation", "thermal"}
 
@@ -42,9 +42,7 @@ def test_the_registered_gate_fires_all_six_checks_on_a_graph_that_breaks_them_al
     root = tmp_path / "g"
     graph(root, *all_six())
     attempt = gate.run(GraphView.read(root, base_revision=0), ["subtask", "module"], "on")
-    integrated = gate.check_integration(
-        IntegrationArtefact(run_id="run-1", graph_root=str(root), run_head="b" * 40), mode="on"
-    )
+    integrated = gate.check_integration(given(root), mode="on")
     fired = {
         r.name
         for result in (attempt, integrated)
@@ -81,9 +79,7 @@ def test_the_registered_gate_refuses_through_the_calls_the_loop_makes(tmp_path: 
         ),
         mode="on",
     )
-    integrated = gate.check_integration(
-        IntegrationArtefact(run_id="run-1", graph_root=str(root), run_head="b" * 40), mode="on"
-    )
+    integrated = gate.check_integration(given(root), mode="on")
     assert attempt.verdict == "fail" and integrated.verdict == "fail"
     fired = {
         r.name

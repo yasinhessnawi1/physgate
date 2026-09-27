@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from gate_fixtures import fixed, graph, node, recording, thermal_failure, unchecked
+from gate_fixtures import fixed, given, graph, node, recording, thermal_failure, unchecked
 
 from physgate.gate import runner
 from physgate.gate.context import CheckContext
@@ -16,7 +16,6 @@ from physgate.orchestrator.protocols import (
     Artefact,
     AttemptScope,
     Gate,
-    IntegrationArtefact,
     RunningGateMode,
 )
 
@@ -222,9 +221,7 @@ def test_the_integration_call_reads_the_whole_graph_at_system_scope(tmp_path: Pa
     graph(tmp_path / "g", DRIVE, MOTOR)
     seen: list[CheckContext] = []
     gate = PhysicsGate((recording("units", seen), recording("power", seen)))
-    integrated = IntegrationArtefact(
-        run_id="run-1", graph_root=str(tmp_path / "g"), run_head="b" * 40
-    )
+    integrated = given(tmp_path / "g")
     gate.check_integration(integrated, mode="observe")
     assert [c.scope for c in seen] == ["system", "system"]
     assert seen[0].view.own() == ("electrical.drive", "electrical.motor_left")

@@ -23,6 +23,7 @@ from typing import Literal
 
 from physgate.orchestrator.apply import ProposalRefusedError
 from physgate.orchestrator.budget import infra_retry_delay
+from physgate.orchestrator.change_sets import change_history
 from physgate.orchestrator.common import utc_now
 from physgate.orchestrator.credentials import SECRET_VARIABLE
 from physgate.orchestrator.events import (
@@ -784,8 +785,13 @@ class Loop:
             if head is None:
                 msg = "an integration call with no run branch head recorded"
                 raise RunStateError(msg, run_dir=str(self.run_dir))
+            baseline, change_sets = change_history(self.log.events)
             artefact = IntegrationArtefact(
-                run_id=self.config.run_id, graph_root=str(self._graph.root), run_head=head
+                run_id=self.config.run_id,
+                graph_root=str(self._graph.root),
+                run_head=head,
+                baseline_revision=baseline,
+                change_sets=change_sets,
             )
             result = require_mode(self._gate.check_integration(artefact, mode=mode), mode)
             self._emit(IntegrationGateRan(**self._env(), result=result))

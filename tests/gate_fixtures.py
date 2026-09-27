@@ -11,12 +11,13 @@ from physgate.gate.registry import RegisteredCheck
 from physgate.gate.result import CheckRun, Observation
 from physgate.orchestrator.protocols import (
     CheckName,
+    IntegrationArtefact,
     NumericOutput,
     QuantityRef,
     ThermalDetails,
     UncheckedDetails,
 )
-from physgate.state.store import Store
+from physgate.state.store import Store, journal_records_after
 
 OWNER = {"electrical": "electrical", "mechanical": "mechanical", "cross": "integration"}
 
@@ -58,6 +59,22 @@ def graph(root: Path, *payloads: dict[str, Any]) -> int:
         return store.head_revision()
     finally:
         store.close()
+
+
+def given(root: Path) -> IntegrationArtefact:
+    """The integration call over a graph that is all given design: nothing changed in it.
+
+    For the checks that judge the design as it stands. Every revision is at or
+    below the baseline, so the propagation check has no change to follow.
+    """
+    head = max((line.rev for line in journal_records_after(root, 0)), default=0)
+    return IntegrationArtefact(
+        run_id="run-1",
+        graph_root=str(root),
+        run_head="b" * 40,
+        baseline_revision=head,
+        change_sets=(),
+    )
 
 
 # One wrong artefact per check, each otherwise sound: the unit, the range, the
