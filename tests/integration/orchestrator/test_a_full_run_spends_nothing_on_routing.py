@@ -10,6 +10,7 @@ routing is zero.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -142,9 +143,13 @@ def test_decompose_run_and_resume_through_the_command_with_routing_at_zero(
     assert code == 0, again.err
 
     assert printed["step"] == "done" and printed["subtasks"] == {subtask: "done"}
+    # The numbers name their record: the recorded configuration's digest, run and resume alike.
+    manifest_id = hashlib.sha256((run_dir / "run.json").read_bytes()).hexdigest()
+    assert printed["manifest_id"] == json.loads(again.out)["manifest_id"] == manifest_id
     assert printed["tokens"]["routing"] == 0 and printed["tokens"]["session"] > 0
     events = read_events(run_dir / "events.jsonl")
     # The installation was checked at the run and again at the resume, each on the record.
+    assert events[0].kind == "run_started" and events[0].config_sha256 == manifest_id
     checks = [e for e in events if isinstance(e, InstallChecked)]
     assert [(c.path, c.action) for c in checks] == [(str(install), "checked")] * 2
     assert all(c.entries > 1000 and 0 <= c.seconds < 60 for c in checks)

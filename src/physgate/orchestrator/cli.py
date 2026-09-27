@@ -360,6 +360,9 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
     _print(
         {
             "run_id": config.run_id,
+            # Every number printed here names the record it came from: the run
+            # configuration's digest, which the run's first line also carries.
+            "manifest_id": config.sha256(),
             "step": step.kind,
             "subtasks": {k: v.status for k, v in loop.state.subtasks.items()},
             "open_queue_items": [item.item_id for item in loop.queue.open_items()],
