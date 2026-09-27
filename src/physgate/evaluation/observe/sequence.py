@@ -159,6 +159,13 @@ class RunView:
             for row in git(repo, "log", "--all", "--format=%H %T").splitlines():
                 commit, tree = row.split()
                 self.trees[commit] = tree
+        self._names: dict[str, str] = {
+            str(self.run_dir): "<run-dir>",
+            **self.sessions,
+            self.run_id: "<run>",
+        }
+        longest_first = sorted(self._names, key=len, reverse=True)
+        self._pattern = re.compile("|".join([*map(re.escape, longest_first), _COMMIT.pattern]))
 
     def _repositories(self) -> list[Path]:
         return [
@@ -168,14 +175,19 @@ class RunView:
         ]
 
     def text(self, value: str) -> str:
-        """``value`` with the run's own identifiers replaced by what they stand for."""
-        value = value.replace(str(self.run_dir), "<run-dir>")
-        for sid, placeholder in self.sessions.items():
-            value = value.replace(sid, placeholder)
-        value = _COMMIT.sub(
-            lambda m: f"<tree {self.trees[m[0]]}>" if m[0] in self.trees else m[0], value
-        )
-        return value.replace(self.run_id, "<run>")
+        """``value`` with the run's own identifiers replaced by what they stand for.
+
+        One pass, the longest name first, so a placeholder already written is never
+        rewritten: a run id such as ``run-d`` occurs inside ``<run-dir>``.
+        """
+
+        def swap(found: re.Match[str]) -> str:
+            name = found[0]
+            if name in self._names:
+                return self._names[name]
+            return f"<tree {self.trees[name]}>" if name in self.trees else name
+
+        return self._pattern.sub(swap, value)
 
     def value(self, value: Any) -> Any:  # noqa: ANN401 - JSON of any shape
         """``value`` normalised throughout."""

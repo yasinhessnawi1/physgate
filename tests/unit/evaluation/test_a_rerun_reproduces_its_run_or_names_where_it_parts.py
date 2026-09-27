@@ -163,6 +163,14 @@ def test_each_mapped_identifier_is_replaced_by_what_it_stands_for(tmp_path: Path
     assert view.text(unknown) == unknown
 
 
+def test_a_run_id_inside_a_placeholder_does_not_rewrite_it(tmp_path: Path) -> None:
+    repo = target_repo(tmp_path)
+    view = RunView(recorded(tmp_path, repo, "run-d"))
+    assert view.text(f"{view.run_dir}/sessions/x physgate/run-d/run") == (
+        "<run-dir>/sessions/x physgate/<run>/run"
+    )
+
+
 def test_a_run_killed_and_resumed_keeps_its_state_and_parts_only_where_it_resumed(
     tmp_path: Path, brief: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
