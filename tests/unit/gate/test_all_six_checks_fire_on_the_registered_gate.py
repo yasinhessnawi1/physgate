@@ -17,7 +17,7 @@ from physgate.gate.graph import GraphView
 from physgate.gate.registry import REGISTRY
 from physgate.gate.runner import PhysicsGate
 from physgate.orchestrator.cli import default_registrations
-from physgate.orchestrator.protocols import CHECK_NUMBERS, IntegrationArtefact
+from physgate.orchestrator.protocols import CHECK_NUMBERS, Artefact, IntegrationArtefact
 
 SIX = {"units", "magnitude", "equilibrium", "power", "conservation", "thermal"}
 
@@ -55,3 +55,38 @@ def test_the_registered_gate_fires_all_six_checks_on_a_graph_that_breaks_them_al
     assert attempt.verdict == integrated.verdict == "fail"
     blocking_at_system = {r.name for r in integrated.checks if r.outcome == "fail" and r.blocking}
     assert blocking_at_system == {"power", "thermal"}
+
+
+def test_the_registered_gate_refuses_through_the_calls_the_loop_makes(tmp_path: Path) -> None:
+    # The loop calls check(artefact) at an attempt's scopes and check_integration at
+    # the end. A gate whose check() passed everything would pass every test that
+    # drives run() directly, so this drives the two calls the loop makes.
+    gate = default_registrations().gate
+    assert gate is not None
+    root = tmp_path / "g"
+    graph(root, *all_six())
+    attempt = gate.check(
+        Artefact(
+            subtask_id="s1",
+            attempt=1,
+            assigned_role="electrical",
+            attempt_commit="a" * 40,
+            worktree="/w",
+            graph_root=str(root),
+            trajectory="/t",
+            scopes=("subtask", "module"),
+            base_revision=0,
+        ),
+        mode="on",
+    )
+    integrated = gate.check_integration(
+        IntegrationArtefact(run_id="run-1", graph_root=str(root), run_head="b" * 40), mode="on"
+    )
+    assert attempt.verdict == "fail" and integrated.verdict == "fail"
+    fired = {
+        r.name
+        for result in (attempt, integrated)
+        for r in result.checks
+        if r.outcome in ("fail", "warn")
+    }
+    assert fired == SIX
