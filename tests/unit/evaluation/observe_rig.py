@@ -316,7 +316,7 @@ def drive(
         config=cfg,
         run_dir=run_dir,
         gate=gate or Gate(),
-        reviewers={"electrical": Reviewer()},
+        reviewers={role: Reviewer(model=m) for role, m in cfg.models.reviewers.items()},
         dispatcher=FakeSession(run, content=session_content or {}),
         changes=GitChangeChecker(run, run_dir / "store", modules),
         merger=GitMerger(run, removal_timeout_s=60.0),
