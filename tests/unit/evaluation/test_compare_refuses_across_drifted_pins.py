@@ -1,9 +1,10 @@
-"""``compare`` refuses across a drifted model, binary or endpoint, and reports the rest.
+"""``compare`` refuses across a drifted model, setting, binary or endpoint, and reports the rest.
 
-Criterion: when a pinned model string, the binary's version or the endpoint
-differs from the baseline's, the comparison is refused and every drifted field
-named; one test per field. What an ablation varies on purpose (gate mode, auth,
-effort, harness) is compared and reported beside the numbers.
+Criterion: when a pinned model string, the effort level, the output-token
+limit, the binary's version or the endpoint differs from the baseline's, the
+comparison is refused and every drifted field named; one test per field. What
+an ablation varies on purpose (gate mode, auth, harness) is compared and
+reported beside the numbers.
 """
 
 from __future__ import annotations
@@ -51,6 +52,8 @@ def models(**changes: Any) -> ModelStrings:  # noqa: ANN401
             },
             "models.reviewers.mechanical",
         ),
+        ({"effort": "low"}, "effort"),
+        ({"max_output_tokens": 32000}, "max_output_tokens"),
         ({"claude_version": "2.1.273"}, "claude_version"),
         ({"endpoint": "default"}, "endpoint"),
     ],
@@ -96,12 +99,11 @@ def test_an_ablation_s_own_changes_are_compared_and_reported(tmp_path: Path) -> 
         overrides={
             "gate_mode": "observe",
             "auth": "subscription",
-            "effort": "low",
             "harness": moved,
         },
     )
     side = compare(baseline, candidate)
-    assert side.differs_in == ("gate_mode", "auth", "effort", "harness")
+    assert side.differs_in == ("gate_mode", "auth", "harness")
     assert (side.baseline.gate_mode, side.candidate.gate_mode) == ("on", "observe")
     assert side.candidate.harness_commit == "0" * 40
 

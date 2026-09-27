@@ -20,7 +20,7 @@ configuration the run did not start under.
 | `sequence.py` | What a rerun compares: the normalisation, the exact records, the decision sequence, `first_divergence`, and `level_of`. See *Reproduction* below |
 | `rerun.py` | `rerun(recorded, …)` makes the run again through `physgate decompose` and `physgate run`, and `compare_runs(a, b)` → `Comparison` |
 | `variance.py` | Ordering and merge-decision variance (definitions in the module docstring): `measure_variance(run_dirs)` over recorded runs, and `repeat_run(recorded, n=…)` to make the repeats as reruns |
-| `compare.py` | `compare(baseline, candidate)` → `SideBySide`, refused across drifted pins |
+| `compare.py` | `compare(baseline, candidate)` → `SideBySide`, refused across drifted pins: a model string, the effort level, the output-token limit, the binary version, the endpoint |
 | `cli.py` | The commands below |
 | `prices/` | The dated price sheets, one JSON file per date, never edited |
 | `exceptions.py` | The domain exceptions, each with a context mapping |
@@ -121,5 +121,6 @@ the files.
 - **What the gate checks mean.** Per-check records are read through
   `gate_events`, the gate records' one reader.
 - **A model changing behind an unchanged string.** `compare` refuses a changed
-  string, a changed binary version and a changed endpoint. It cannot see a
+  string, a changed effort level or output-token limit, a changed binary version
+  and a changed endpoint, and reports a changed gate mode, auth mode or harness. It cannot see a
   provider serving a different model under the same string.

@@ -4,12 +4,13 @@ A comparison across a changed model means nothing: a baseline measured on one
 model and a candidate on another differ for a reason neither run can show. So
 ``compare`` refuses, and does not warn, when any pinned model string differs
 (the decomposition model, any role's, any reviewer's, or a role present in one
-run only), when the binary's version differs, or when the endpoint differs.
-The way past the refusal is a fresh baseline under the candidate's pins.
+run only), when a pinned model setting differs (the effort level and the
+output-token limit, which set what every request asks the model for), when the
+binary's version differs, or when the endpoint differs. The way past the
+refusal is a fresh baseline under the candidate's pins.
 
 What an ablation changes on purpose is reported beside the numbers, never
-refused: the gate mode, the harness commit, the auth mode, the effort level and
-the output-token limit.
+refused: the gate mode, the harness commit and the auth mode.
 
 The check runs on the two configurations before anything else is read, so a
 drifted run is refused as drifted, not for some later reason. It cannot see a
@@ -39,7 +40,7 @@ from physgate.orchestrator.exceptions import OrchestratorError
 from physgate.orchestrator.run_config import RunConfig, load_run_config
 
 #: Reported when they differ, never refused: what an ablation varies on purpose.
-REPORTED = ("gate_mode", "auth", "effort", "max_output_tokens", "harness")
+REPORTED = ("gate_mode", "auth", "harness")
 
 
 class _Frozen(BaseModel):
@@ -90,6 +91,10 @@ def drift(baseline: RunConfig, candidate: RunConfig) -> list[str]:
             for k in sorted(mine.keys() | theirs.keys())
             if mine.get(k) != theirs.get(k)
         ]
+    if baseline.effort != candidate.effort:
+        drifted.append("effort")
+    if baseline.max_output_tokens != candidate.max_output_tokens:
+        drifted.append("max_output_tokens")
     if baseline.claude_version != candidate.claude_version:
         drifted.append("claude_version")
     if baseline.endpoint != candidate.endpoint:
@@ -137,8 +142,9 @@ def compare(baseline: Path, candidate: Path) -> SideBySide:
     """The two runs' numbers side by side, unless what answered them has drifted.
 
     Raises:
-        CompareRefusedError: a pinned model string, the binary version or the
-            endpoint differs; every drifted field is named.
+        CompareRefusedError: a pinned model string, the effort level, the
+            output-token limit, the binary version or the endpoint differs; every
+            drifted field is named.
         ManifestError: either directory does not hold a complete run.
     """
     mine, theirs = _config(baseline), _config(candidate)
