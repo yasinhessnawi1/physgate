@@ -263,7 +263,7 @@ def test_a_bench_supply_is_a_declared_source(tmp_path: Path) -> None:
 def test_a_module_that_drops_its_upstream_edge_and_draw_is_refused_as_no_source(
     tmp_path: Path,
 ) -> None:
-    # The reviewer's C3: the drive supplied 15 W while drawing 5 W from a 5 W
+    # The drive supplied 15 W while drawing 5 W from a 5 W
     # battery, and was refused. Rewritten with no edge and no draw, it passed as a
     # source of its own. A node that supplies power is a declared source, or draws
     # what it supplies from one.

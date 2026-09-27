@@ -137,7 +137,7 @@ def test_the_build_records_the_manifest_s_digest_outside_the_installation(tmp_pa
 def test_a_planted_file_with_the_manifest_rewritten_to_match_refuses_the_run(
     tmp_path: Path,
 ) -> None:
-    # The reviewer's case: a .pth planted and the manifest inside the installation
+    # A .pth planted and the manifest inside the installation
     # rewritten to list it. The manifest agrees with the files; the build's record
     # outside does not agree with the manifest.
     dest, site = stand_in(tmp_path)

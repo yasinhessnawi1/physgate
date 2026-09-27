@@ -484,7 +484,7 @@ def plate(
 
 
 def test_a_far_support_carrying_nothing_does_not_widen_the_allowance(tmp_path: Path) -> None:
-    # The reviewer's E1: all the weight declared on the standoff at 0 while the
+    # All the weight declared on the standoff at 0 while the
     # load stands at 0.2 m, plus a fourth support at 1000 m declaring 0 N. About
     # the centroid the allowance grew to about 25 N*m; about the standoff at 0 it
     # is 0.0098 N*m, and the 1.96 N*m miss is refused there.
@@ -505,7 +505,7 @@ def test_a_far_support_carrying_nothing_does_not_widen_the_allowance(tmp_path: P
 
 
 def test_pins_at_one_point_with_a_far_empty_pin_are_refused(tmp_path: Path) -> None:
-    # The reviewer's E3: two pins at 0 share the weight of a load 0.1 m away, and a
+    # Two pins at 0 share the weight of a load 0.1 m away, and a
     # pin at 1000 m declares 0 N. The far pin makes the pins stand at two points,
     # so this is no longer the mechanism rule's; the moments about the pins at 0
     # miss by 0.98 N*m against an allowance of 0.0049 N*m.
@@ -554,7 +554,7 @@ def test_a_determinate_plate_with_a_far_support_carrying_its_share_passes(
 
 
 def far_pair(offset: float = 0) -> list[dict[str, Any]]:
-    """The reviewer's E1 plus 1000 kg standing on its own support at 1000 m (X1)."""
+    """All the weight on the wrong standoff, plus 1000 kg standing on its own support at 1000 m."""
     return plate(
         ("standoff_a", offset + 0, W),
         ("standoff_b", offset + 0.1, 0),
@@ -565,7 +565,7 @@ def far_pair(offset: float = 0) -> list[dict[str, Any]]:
 
 
 def test_a_smaller_far_pair_cannot_explain_the_miss_and_is_refused(tmp_path: Path) -> None:
-    # X3: 10 kg standing on a support at 10 m. Its slack, 0.49 N, would have to
+    # 10 kg standing on a support at 10 m. Its slack, 0.49 N, would have to
     # move by 0.196 N and the near standoff's by the same to balance, and the near
     # standoff's slack is 0.049 N: no change within rounding explains it.
     ran = check(
@@ -583,7 +583,7 @@ def test_a_smaller_far_pair_cannot_explain_the_miss_and_is_refused(tmp_path: Pat
 
 
 def test_a_heavy_far_pair_is_explained_by_rounding_and_the_witness_balances_exactly() -> None:
-    # X1 under the rounding model: each declared number is true to half a unit in
+    # The far pair under the rounding model: each declared number is true to half a unit in
     # its third significant figure. Moving the far reaction up by 0.00196 N (its
     # slack is 49 N) and the near one down by the same (its slack is 0.049 N)
     # balances forces and moments exactly, so the per-number model cannot refuse

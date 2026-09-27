@@ -12,7 +12,7 @@ A mount is any node other nodes constrain as supports or as loads:
 The declared reactions are held to the loads: both the force balance and the
 moment balance must be explained by moving each declared force, weight and
 moment within its own rounding, half a unit in its third significant figure
-(D-P0-13's model, :mod:`physgate.gate.tolerances`), with positions exact. See
+(the rounding model of :mod:`physgate.gate.tolerances`), with positions exact. See
 :func:`rounding_miss` for how that is decided exactly.
 A mount of pins at one point with a load off that point is refused as unstable
 before any of that, since a pin cannot resist a moment. A mount statics can solve
@@ -195,7 +195,7 @@ def _about(x: Fraction, force: Fraction, moment: Fraction) -> Fraction:
 def rounding_miss(declared: _Declared) -> _Miss | None:
     """The equation declared rounding cannot explain, or ``None`` if it can explain both.
 
-    D-P0-13's model is per number: each declared force, weight and moment is true
+    The rounding model is per number: each declared force, weight and moment is true
     to within half a unit in its third significant figure. The question is
     whether moving each one within its own slack balances both the force row and
     the moment row at once. Positions are taken as exact: a coordinate's
