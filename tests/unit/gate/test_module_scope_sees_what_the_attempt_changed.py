@@ -137,3 +137,20 @@ def test_a_mount_and_a_balance_no_attempt_reached_are_refused_at_integration(
     assert system.verdict == "fail"
     refused = {r.name for r in system.checks if r.outcome == "fail"}
     assert refused == {"equilibrium", "conservation"}
+
+
+def test_a_node_the_decomposition_wrote_gets_checks_1_and_2_at_integration(
+    tmp_path: Path,
+) -> None:
+    # Written before any attempt, so below every base revision: no attempt's
+    # subtask scope holds it. A 240 A stall current, and a mass in volts.
+    interface = node(
+        "electrical.motor",
+        quantities={"stall_current": (240, "A")},
+    )
+    wrong_unit = node(f"{M}.bracket", domain=M, quantities={"mass": (2, "V")})
+    view = attempt(tmp_path, [interface, wrong_unit], [node("electrical.unrelated")])
+    assert gated(view).verdict == "pass"
+    system = PhysicsGate().run(view, ("system",), "on")
+    refused = {(r.name, r.node) for r in system.checks if r.outcome == "fail"}
+    assert refused == {("magnitude", "electrical.motor"), ("units", f"{M}.bracket")}

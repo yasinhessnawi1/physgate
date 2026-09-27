@@ -54,9 +54,9 @@ def test_the_registered_gate_fires_all_six_checks_on_a_graph_that_breaks_them_al
     assert fired == SIX
     assert attempt.verdict == integrated.verdict == "fail"
     blocking_at_system = {r.name for r in integrated.checks if r.outcome == "fail" and r.blocking}
-    # Power and thermal by the architecture's table; equilibrium and conservation
-    # because the gate also runs them over the whole graph at integration.
-    assert blocking_at_system == {"power", "thermal", "equilibrium", "conservation"}
+    # Power and thermal by the architecture's table; the other four because the
+    # gate also runs them over the whole graph at integration.
+    assert blocking_at_system == SIX
 
 
 def test_the_registered_gate_refuses_through_the_calls_the_loop_makes(tmp_path: Path) -> None:

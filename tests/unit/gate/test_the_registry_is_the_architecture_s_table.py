@@ -33,6 +33,8 @@ def order_problems(registry: tuple[RegisteredCheck, ...]) -> list[str]:
 
 #: The scopes the gate adds beyond ARCH-080, each one blocking.
 BEYOND: dict[CheckName, dict[Scope, str]] = {
+    "units": {"system": "block"},
+    "magnitude": {"system": "block"},
     "equilibrium": {"system": "block"},
     "conservation": {"system": "block"},
 }

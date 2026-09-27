@@ -80,6 +80,7 @@ def test_records_follow_the_registry_then_the_scope_narrowest_first(view: GraphV
     result = gate.run(view, ["system", "module", "subtask"], "on")
     assert [(r.name, r.scope) for r in result.checks] == [
         ("units", "subtask"),
+        ("units", "system"),
         ("power", "module"),
         ("power", "system"),
         ("thermal", "module"),
@@ -225,7 +226,7 @@ def test_the_integration_call_reads_the_whole_graph_at_system_scope(tmp_path: Pa
         run_id="run-1", graph_root=str(tmp_path / "g"), run_head="b" * 40
     )
     gate.check_integration(integrated, mode="observe")
-    assert [c.scope for c in seen] == ["system"]
+    assert [c.scope for c in seen] == ["system", "system"]
     assert seen[0].view.own() == ("electrical.drive", "electrical.motor_left")
 
 

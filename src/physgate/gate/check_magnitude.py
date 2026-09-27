@@ -1,6 +1,7 @@
 """Check 2, magnitude plausibility: each value against its sourced range.
 
-At subtask scope, over the nodes the attempt wrote, every quantity the catalogue
+At subtask scope over the nodes the attempt wrote, and at system scope over every
+node (the decomposition's included), every quantity the catalogue
 knows is looked up in its domain's bounds table and compared with the range
 exactly, in the range's unit: the bounds are what the source says, and rounding
 is never credited toward a pass. A value outside is refused with the value, the
@@ -60,7 +61,8 @@ def run(ctx: CheckContext) -> CheckRun:
     view = ctx.view
     observations: list[Observation] = []
     evaluated = 0
-    for node_id in view.own():
+    # At system scope every node, the decomposition's included; otherwise the attempt's.
+    for node_id in tuple(view.nodes) if ctx.scope == "system" else view.own():
         node = view.nodes[node_id]
         no_range: list[str] = []
         unreadable: list[str] = []

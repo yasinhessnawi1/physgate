@@ -1,6 +1,7 @@
 """Check 1, unit consistency: every quantity and every relation an attempt touches.
 
-At subtask scope, over the nodes the attempt wrote:
+At subtask scope over the nodes the attempt wrote, and at system scope over every
+node, the ones the decomposition wrote included:
 
 1. every quantity's unit must parse; a name the catalogue does not know is
    recorded as unchecked, never as passed;
@@ -153,7 +154,8 @@ def _unjudged(view: GraphView, instance: Instance) -> Observation:
 def run(ctx: CheckContext) -> CheckRun:
     """Check the units of the attempt's own nodes and of every relation they are in."""
     view = ctx.view
-    own = view.own()
+    # At system scope every node, the decomposition's included; otherwise the attempt's.
+    own = tuple(view.nodes) if ctx.scope == "system" else view.own()
     observations: list[Observation] = []
     refused: set[tuple[str, str]] = set()
     evaluated = 0

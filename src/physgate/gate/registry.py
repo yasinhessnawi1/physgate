@@ -53,12 +53,17 @@ ARCH_080: Mapping[CheckName, Mapping[Scope, OnFailure]] = MappingProxyType(
 
 #: Where the gate runs a check beyond ARCH-080's table. Each entry only adds a
 #: scope at which a failure blocks; none changes or removes a scope the table
-#: gives. Equilibrium and conservation run over the whole graph at integration
-#: because module scope is reached only through the nodes an attempt wrote: a
-#: mount or a balance broken by writes from several attempts, or by an edge no
-#: attempt's nodes still name, is caught there if nowhere earlier.
+#: gives. Units and magnitude run over every node at integration because the
+#: nodes the decomposition writes are below every attempt's base revision, so no
+#: attempt's subtask scope ever holds them. Equilibrium and conservation run over
+#: the whole graph at integration because module scope is reached only through
+#: the nodes an attempt wrote: a mount or a balance broken by writes from several
+#: attempts, or by an edge no attempt's nodes still name, is caught there if
+#: nowhere earlier.
 TIGHTENED: Mapping[CheckName, Mapping[Scope, OnFailure]] = MappingProxyType(
     {
+        "units": MappingProxyType({"system": "block"}),
+        "magnitude": MappingProxyType({"system": "block"}),
         "equilibrium": MappingProxyType({"system": "block"}),
         "conservation": MappingProxyType({"system": "block"}),
     }
