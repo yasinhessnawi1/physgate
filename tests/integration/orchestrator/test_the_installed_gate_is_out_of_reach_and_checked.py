@@ -12,6 +12,7 @@ produce or left otherwise, its entry script and ``pyvenv.cfg`` included.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import stat
 from pathlib import Path
@@ -21,7 +22,12 @@ from scripted_endpoint import text, tool
 from test_a_session_is_dispatched_under_the_hooks import SPEC, dispatch, install_bin  # noqa: F401
 
 from physgate.orchestrator.exceptions import InvocationError
-from physgate.orchestrator.install import prepare_install, require_current
+from physgate.orchestrator.install import (
+    MANIFEST_NAME,
+    install_manifest,
+    prepare_install,
+    require_current,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -128,3 +134,20 @@ def test_a_changed_entry_script_or_interpreter_setting_refuses_the_run(
     with pytest.raises(InvocationError, match="not what its build produced") as caught:
         require_current(install, ROOT)
     assert caught.value.context["changed"] == path
+
+
+def test_a_planted_pth_with_the_manifest_rewritten_to_match_refuses_the_run(
+    tmp_path: Path,
+) -> None:
+    # The manifest inside the installation is rewritten to list the planted file;
+    # the digest the build recorded beside the installation still refuses it.
+    install = tmp_path / "install"
+    prepare_install(install, ROOT)
+    (site,) = install.glob("lib/python*/site-packages")
+    _writable(site)
+    (site / "zz_planted.pth").write_text("import os\n")
+    _writable(install)
+    _writable(install / MANIFEST_NAME)
+    (install / MANIFEST_NAME).write_text(json.dumps(install_manifest(install)))
+    with pytest.raises(InvocationError, match="not the one its build recorded"):
+        require_current(install, ROOT)

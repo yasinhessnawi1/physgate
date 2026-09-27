@@ -41,6 +41,18 @@ from physgate.orchestrator.managed import SystemManagedFile, system_managed_fact
 #: and held against the installation at every use.
 MANIFEST_NAME = "physgate-install-manifest.json"
 
+
+def build_record_path(dest: Path) -> Path:
+    """Where the build of ``dest`` records its manifest's digest: beside it, not in it.
+
+    A manifest inside the installation attests only to itself: a file planted
+    there and the manifest rewritten to match would pass. The digest recorded
+    outside at build time is what the manifest is held to.
+    """
+    dest = Path(dest)
+    return dest.with_name(dest.name + ".build.json")
+
+
 #: Filesystems whose renames and opens go over a network; the hook state
 #: directory belongs on a local disk (the first hook's cost was measured there).
 NETWORK_FILESYSTEMS = {"ceph", "nfs", "nfs4", "cifs", "smbfs", "fuse.sshfs", "9p", "afpfs"}
@@ -103,6 +115,7 @@ def prepare_install(dest: Path, project_root: Path) -> Path:
     _require_package_is_source(dest, project_root)
     manifest = install_manifest(dest)
     (dest / MANIFEST_NAME).write_text(json.dumps(manifest, indent=1, sort_keys=True))
+    write_build_record(dest)
     for directory, dirs, files in os.walk(dest, topdown=False):
         for name in files + dirs:
             path = os.path.join(directory, name)
@@ -130,6 +143,34 @@ def install_manifest(dest: Path) -> dict[str, str]:
         elif path.is_file():
             entries[rel.as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
     return entries
+
+
+def write_build_record(dest: Path) -> None:
+    """Record the digest of ``dest``'s manifest outside it, read-only."""
+    record = build_record_path(dest)
+    if record.exists():  # a record left by an installation no longer there
+        os.chmod(record, stat.S_IRUSR | stat.S_IWUSR)
+    digest = hashlib.sha256((Path(dest) / MANIFEST_NAME).read_bytes()).hexdigest()
+    record.write_text(
+        json.dumps({"installation": str(dest), "manifest_sha256": digest}, sort_keys=True)
+    )
+    os.chmod(record, stat.S_IRUSR)
+
+
+def _require_manifest_is_the_built_one(dest: Path) -> None:
+    record = build_record_path(dest)
+    try:
+        built = json.loads(record.read_text())["manifest_sha256"]
+    except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError):
+        msg = "the installation has no record of its build beside it; build a new one"
+        raise InvocationError(msg, path=str(dest), record=str(record)) from None
+    now = hashlib.sha256((Path(dest) / MANIFEST_NAME).read_bytes()).hexdigest()
+    if now != built:
+        msg = (
+            "the installation's manifest is not the one its build recorded; a manifest "
+            "rewritten inside the installation attests to nothing; build a new one"
+        )
+        raise InvocationError(msg, path=str(dest), recorded=built, found=now)
 
 
 def _require_package_is_source(dest: Path, project_root: Path) -> None:
@@ -166,7 +207,8 @@ def require_current(dest: Path, project_root: Path) -> None:
       the source lacks (a build from a cache keyed on the project file, or an
       installation left from an earlier source, would run other hook code);
     - every file of the installation is what its own build produced, recorded
-      in a manifest when it was built: the ``bin`` scripts every hook is run
+      in a manifest when it was built, and the manifest is the one whose digest
+      the build recorded beside the installation, outside it: the ``bin`` scripts every hook is run
       through, ``pyvenv.cfg``, which decides what the interpreter imports from
       outside the installation, and ``site-packages``, where Python's startup
       executes the lines of every ``.pth`` file and imports ``sitecustomize``
@@ -174,8 +216,9 @@ def require_current(dest: Path, project_root: Path) -> None:
       mode.
 
     Raises:
-        InvocationError: the package is not the source, the manifest is missing,
-            or a file was added, removed or changed since the build.
+        InvocationError: the package is not the source, the manifest or the build
+            record is missing, the manifest is not the one the build recorded, or
+            a file was added, removed or changed since the build.
     """
     _require_package_is_source(dest, project_root)
     manifest_path = Path(dest) / MANIFEST_NAME
@@ -184,6 +227,7 @@ def require_current(dest: Path, project_root: Path) -> None:
     except (FileNotFoundError, json.JSONDecodeError):
         msg = "the installation has no manifest of what its build produced; build a new one"
         raise InvocationError(msg, path=str(dest)) from None
+    _require_manifest_is_the_built_one(dest)
     now = install_manifest(dest)
     added = sorted(set(now) - set(built))
     removed = sorted(set(built) - set(now))

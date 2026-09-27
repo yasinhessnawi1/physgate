@@ -17,7 +17,13 @@ import pytest
 
 import physgate
 from physgate.orchestrator.exceptions import InvocationError
-from physgate.orchestrator.install import MANIFEST_NAME, install_manifest, require_current
+from physgate.orchestrator.install import (
+    MANIFEST_NAME,
+    build_record_path,
+    install_manifest,
+    require_current,
+    write_build_record,
+)
 
 SOURCE = Path(physgate.__file__).resolve().parent
 ROOT = SOURCE.parents[1]
@@ -36,6 +42,7 @@ def stand_in(tmp_path: Path) -> tuple[Path, Path]:
     )
     (dest / "pyvenv.cfg").write_text("home = /usr/bin\ninclude-system-site-packages = false\n")
     (dest / MANIFEST_NAME).write_text(json.dumps(install_manifest(dest)))
+    write_build_record(dest)
     return dest, site
 
 
@@ -117,4 +124,33 @@ def test_an_installation_without_its_manifest_is_refused(tmp_path: Path) -> None
     dest, _ = stand_in(tmp_path)
     (dest / MANIFEST_NAME).unlink()
     with pytest.raises(InvocationError, match="no manifest"):
+        require_current(dest, ROOT)
+
+
+def test_the_build_records_the_manifest_s_digest_outside_the_installation(tmp_path: Path) -> None:
+    dest, _ = stand_in(tmp_path)
+    record = build_record_path(dest)
+    assert record.parent == dest.parent and record.name == "install.build.json"
+    assert json.loads(record.read_text())["installation"] == str(dest)
+
+
+def test_a_planted_file_with_the_manifest_rewritten_to_match_refuses_the_run(
+    tmp_path: Path,
+) -> None:
+    # The reviewer's case: a .pth planted and the manifest inside the installation
+    # rewritten to list it. The manifest agrees with the files; the build's record
+    # outside does not agree with the manifest.
+    dest, site = stand_in(tmp_path)
+    (site / "zz_planted.pth").write_text("import os\n")
+    (dest / MANIFEST_NAME).write_text(json.dumps(install_manifest(dest)))
+    with pytest.raises(InvocationError, match="not the one its build recorded"):
+        require_current(dest, ROOT)
+
+
+def test_an_installation_without_its_build_record_is_refused(tmp_path: Path) -> None:
+    dest, _ = stand_in(tmp_path)
+    record = build_record_path(dest)
+    record.chmod(0o600)
+    record.unlink()
+    with pytest.raises(InvocationError, match="no record of its build"):
         require_current(dest, ROOT)
