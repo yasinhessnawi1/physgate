@@ -143,3 +143,26 @@ def test_the_worktree_s_corpora_are_always_an_answer_key_and_are_put_back(root: 
 def test_other_files_are_untouched_by_the_rule(root: Path) -> None:
     assert _tool(root, "Write", "notes.md", "reviewer") == "allow"
     assert _tool(root, "Read", "notes.md", "reviewer") == "allow"
+
+
+def test_the_shell_layer_knows_an_answer_key_by_name_even_without_its_protected_root(
+    root: Path,
+) -> None:
+    """A bare word is checked only if it could name something protected.
+
+    The generator also lists every answer key as a protected root, which alone
+    would put its name on that list; the configuration is held to the answer
+    keys themselves, so a key is never skipped because a root is missing.
+    """
+    full = _config(root, "reviewer")
+    keys_only = full.model_copy(
+        update={
+            "protected_roots": tuple(
+                r for r in full.protected_roots if r.path not in set(full.answer_keys)
+            )
+        }
+    )
+    decision = sp.pre_tool_use(
+        HookInput.model_validate(bash("ls corpora", cwd=str(root / "worktree"))), keys_only
+    )
+    assert not decision.allow and ANSWER_KEY_REASON in decision.reason
