@@ -132,3 +132,15 @@ def test_each_attempt_ends_merged_rejected_infrastructure_or_open() -> None:
         ("s4", 1): "open",
         ("s5", 1): "open",
     }
+
+
+def test_attempts_align_on_the_union_and_one_missing_from_a_run_differs() -> None:
+    # Unequal attempt sets: s1/1 in both and agreeing, s2/1 only in the first run,
+    # s3/1 only in the second. The union has three attempts; two differ.
+    first: dict[Attempt, End] = {("s1", 1): "merged", ("s2", 1): "merged"}
+    second: dict[Attempt, End] = {("s1", 1): "merged", ("s3", 1): "merged"}
+    assert decision_distance(first, second) == Fraction(2, 3)
+    # Missing even where the present end is "open": absence is never an agreement.
+    assert decision_distance({("s1", 1): "open"}, {}) == 1
+    # Pairs of (first, first, second): 0, 2/3, 2/3. Mean: 4/9.
+    assert merge_decision_variance([first, first, second]) == Fraction(4, 9)
