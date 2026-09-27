@@ -12,188 +12,12 @@ record's node.
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 from pydantic import ValidationError
+from synthetic_ledger import Log, record
 
-from physgate.orchestrator.events import (
-    Event,
-    GateRan,
-    IntegrationGateRan,
-    Resumed,
-    ReviewRan,
-    SessionEnded,
-    WriteDone,
-)
 from physgate.orchestrator.gate_events import GateEvent, gate_events
-from physgate.orchestrator.protocols import (
-    CheckRecord,
-    GateResult,
-    PassDetails,
-    PropagationDetails,
-    ReviewResult,
-    RunningGateMode,
-    Verdict,
-)
-
-TS = "2026-09-27T12:00:00.000000Z"
-MODE: RunningGateMode = "observe"
-
-
-class Log:
-    """A run-event log built line by line, each with the next sequence number."""
-
-    def __init__(self) -> None:
-        self.lines: list[Event] = []
-
-    def env(self) -> dict[str, Any]:
-        return {"seq": len(self.lines), "ts": TS, "run_id": "run-1", "gate_mode": MODE}
-
-    def gate(
-        self, subtask: str, attempt: int, *, fails: bool = True, node: str = "motor.left"
-    ) -> GateRan:
-        line = GateRan(
-            **self.env(), subtask_id=subtask, attempt=attempt, result=result(fails, node)
-        )
-        self.lines.append(line)
-        return line
-
-    def integration(self, *records: CheckRecord) -> IntegrationGateRan:
-        verdict: Verdict = "fail" if any(r.outcome == "fail" for r in records) else "pass"
-        failing = next((r.name for r in records if r.outcome == "fail"), None)
-        line = IntegrationGateRan(
-            **self.env(),
-            result=GateResult(
-                verdict=verdict,
-                mode=MODE,
-                finding="integrated",
-                failing_check=failing,
-                numeric_output=None,
-                quantities=(),
-                checks=records,
-                catalogue_sha256="c" * 64,
-            ),
-        )
-        self.lines.append(line)
-        return line
-
-    def review(self, subtask: str, attempt: int, verdict: str) -> ReviewRan:
-        line = ReviewRan(
-            **self.env(),
-            subtask_id=subtask,
-            attempt=attempt,
-            result=ReviewResult(
-                verdict=verdict,  # type: ignore[arg-type]
-                finding="reviewed",
-                reviewer_model="claude-opus-5-5",
-                session_id=f"rev-{len(self.lines)}",
-                usage=(),
-            ),
-        )
-        self.lines.append(line)
-        return line
-
-    def resumed(self, subtask: str, attempt: int) -> None:
-        self.lines.append(
-            Resumed(**self.env(), subtask_id=subtask, attempt=attempt, point="verify_reading")
-        )
-
-    def session(self, subtask: str, attempt: int) -> None:
-        self.lines.append(
-            SessionEnded(
-                **self.env(),
-                subtask_id=subtask,
-                attempt=attempt,
-                session_id=f"role-{len(self.lines)}",
-                outcome="completed",
-                cause=None,
-                attempt_commit="a" * 40,
-                trajectory="/t",
-                worktree="/w",
-                reading_verified=True,
-            )
-        )
-
-    def wrote(self, subtask: str, attempt: int, node: str, revision: int) -> None:
-        self.lines.append(
-            WriteDone(
-                **self.env(), subtask_id=subtask, attempt=attempt, node_id=node, revision=revision
-            )
-        )
-
-
-def record(outcome: str, node: str | None, name: str = "magnitude") -> CheckRecord:
-    if outcome == "pass":
-        return CheckRecord(
-            check=2,
-            name="magnitude",
-            scope="subtask",
-            outcome="pass",
-            blocking=True,
-            node=None,
-            module=None,
-            value=None,
-            expected=None,
-            tool="t",
-            message="fine",
-            gate_mode=MODE,
-            details=PassDetails(evaluated=1),
-        )
-    from physgate.orchestrator.protocols import MagnitudeDetails, NumericOutput
-
-    if name == "propagation":
-        return CheckRecord(
-            check=7,
-            name="propagation",
-            scope="system",
-            outcome="fail",
-            blocking=True,
-            node=node,
-            module=None,
-            value=None,
-            expected=None,
-            tool="t",
-            message="unwritten",
-            gate_mode=MODE,
-            details=PropagationDetails(unwritten=(f"{node}->power.budget",)),
-        )
-    amps = NumericOutput(value=240, unit="A")
-    return CheckRecord(
-        check=2,
-        name="magnitude",
-        scope="subtask",
-        outcome="fail",
-        blocking=True,
-        node=node,
-        module=None,
-        value=amps,
-        expected="0.36 A to 6.5 A",
-        tool="t",
-        message="implausible",
-        gate_mode=MODE,
-        details=MagnitudeDetails(
-            value=amps,
-            low=NumericOutput(value=0.36, unit="A"),
-            high=NumericOutput(value=6.5, unit="A"),
-            source="s",
-            table_sha256="d" * 64,
-        ),
-    )
-
-
-def result(fails: bool, node: str) -> GateResult:
-    checks = (record("fail", node),) if fails else (record("pass", None),)
-    return GateResult(
-        verdict="fail" if fails else "pass",
-        mode=MODE,
-        finding="judged",
-        failing_check="magnitude" if fails else None,
-        numeric_output=None,
-        quantities=(),
-        checks=checks,
-        catalogue_sha256="c" * 64,
-    )
+from physgate.orchestrator.protocols import CheckRecord, Verdict
 
 
 def stamps(log: Log) -> list[tuple[bool | None, str | None, int | None]]:
@@ -205,7 +29,7 @@ def stamps(log: Log) -> list[tuple[bool | None, str | None, int | None]]:
 
 @pytest.mark.parametrize(("verdict", "stamped"), [("pass", True), ("fail", False)])
 def test_a_gate_line_takes_the_verdict_of_the_review_that_follows_it(
-    verdict: str, stamped: bool
+    verdict: Verdict, stamped: bool
 ) -> None:
     log = Log()
     log.session("s1", 1)
