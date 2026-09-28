@@ -83,28 +83,41 @@ BINARY_DEFAULTS: dict[str, BinaryDefaults] = {
         measured="request bodies at the scripted endpoint, Claude Code 2.1.272, 27.09.2026",
     ),
     #: Measured separately at the scripted endpoint on 28.09.2026 (T9's binary bump,
-    #: evidence/t9): every field below is identical to 2.1.272's, across the
-    #: decomposition call, a tool-using role session and a resumed session. This is
-    #: a distinct, independently measured entry, not an alias of 2.1.272's, because
-    #: the manifest states what was actually measured for the version a run used.
-    #: A small, reproducible stream-ordering difference was found alongside this
-    #: (the decomposition call's tool-result event moves relative to its message's
-    #: own closing events); it does not touch any field recorded here, or the
-    #: result object's fields, and is recorded in MAINTENANCE.md, not here.
+    #: evidence/t9), through the real driver's own dry run (the oauth-shaped
+    #: subscription path, the full hook layer, decomposition and a role session):
+    #: ``thinking``, ``context_management``, ``max_tokens``, ``effort`` and
+    #: ``sampling`` are identical to 2.1.272's. ``anthropic_beta`` is NOT: 2.1.283
+    #: sends one flag 2.1.272 does not, ``per-turn-control-2026-07-01``, confirmed
+    #: by running the same driver, same commit, same script and criteria against
+    #: each pinned binary in turn. This is a distinct, independently measured
+    #: entry, not an alias of 2.1.272's. A small, reproducible stream-ordering
+    #: difference was found alongside this (the decomposition call's tool-result
+    #: event moves relative to its message's own closing events); it does not
+    #: touch any field recorded here, or the result object's fields, and is
+    #: recorded in MAINTENANCE.md, not here.
     "2.1.283": BinaryDefaults(
         claude_version="2.1.283",
         thinking={"type": "adaptive"},
         context_management={"edits": [{"type": "clear_thinking_20251015", "keep": "all"}]},
         anthropic_beta=(
             "claude-code-20250219",
-            "interleaved-thinking-2025-05-14",
-            "thinking-token-count-2026-05-13",
             "context-management-2025-06-27",
-            "prompt-caching-scope-2026-01-05",
-            "mid-conversation-system-2026-04-07",
             "effort-2025-11-24",
+            "extended-cache-ttl-2025-04-11",
+            "interleaved-thinking-2025-05-14",
+            "mid-conversation-system-2026-04-07",
+            "mid-conversation-tool-changes-2026-07-01",
+            "oauth-2025-04-20",
+            "per-turn-control-2026-07-01",
+            "prompt-caching-scope-2026-01-05",
+            "thinking-token-count-2026-05-13",
         ),
-        measured="request bodies at the scripted endpoint, Claude Code 2.1.283, 28.09.2026",
+        measured=(
+            "request bodies at the scripted endpoint, Claude Code 2.1.283, 28.09.2026, "
+            "captured through tests/integration/orchestrator/real_rerun.py --dry-run "
+            "(the oauth-shaped subscription path with the full hook layer active), "
+            "not the bare argv probe first used for this version"
+        ),
     ),
 }
 
