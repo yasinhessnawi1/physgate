@@ -257,9 +257,15 @@ def test_both_example_parameters_files_are_complete_configurations() -> None:
         for role, model in config.models.roles.items():
             assert config.models.reviewers[role] != model  # ARCH-060: another model reviews
     assert set(found) == {"subscription", "api_key"}
-    assert found["subscription"].models.reviewers["electrical"] == "claude-opus-5-5"
+    # The evaluation pins: Opus implements and decomposes, Sonnet reviews. On an API key,
+    # the cheap end: Sonnet implements and Haiku reviews.
+    subscription = found["subscription"].models
+    assert subscription.decomposition == "claude-opus-5-5"
+    assert set(subscription.roles.values()) == {"claude-opus-5-5"}
+    assert set(subscription.reviewers.values()) == {"claude-sonnet-5"}
     assert found["api_key"].models.reviewers["electrical"] == "claude-haiku-4-5-20251001"
-    assert {c.models.roles["electrical"] for c in found.values()} == {"claude-sonnet-5"}
+    assert found["api_key"].models.reviewers["electrical"] == "claude-haiku-4-5-20251001"
+    assert found["api_key"].models.roles["electrical"] == "claude-sonnet-5"
 
 
 def test_run_refuses_a_directory_that_holds_no_run(
