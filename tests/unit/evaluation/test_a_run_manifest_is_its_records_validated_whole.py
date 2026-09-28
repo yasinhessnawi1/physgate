@@ -52,6 +52,22 @@ def test_the_manifest_holds_every_input_and_artefact_the_run_recorded(run: Path)
     assert art.store_tree and len(art.trajectories) == 2
 
 
+def test_read_manifest_resolves_binary_defaults_for_either_pinned_version(
+    tmp_path: Path,
+) -> None:
+    for version in ("2.1.272", "2.1.283"):
+        run = fake_run(
+            tmp_path / version,
+            "run-a",
+            target_repo(tmp_path / version),
+            overrides={"claude_version": version},
+        )
+        manifest = read_manifest(run)
+        assert manifest.config.claude_version == version
+        assert manifest.binary_defaults == BINARY_DEFAULTS[version]
+        assert manifest.binary_defaults.claude_version == version
+
+
 @pytest.mark.parametrize(
     "missing",
     sorted(RunManifest.model_fields),

@@ -8,8 +8,8 @@ because its default was measured to retry an overloaded endpoint for minutes and
 to hide those requests from the orchestrator's count.
 
 The version is pinned: the headless contract the orchestrator relies on (the
-stream's shape, the result fields, what a resume replays) was measured on this
-version and on no other.
+stream's shape, the result fields, what a resume replays) was measured on
+these versions and on no other.
 """
 
 from __future__ import annotations
@@ -21,8 +21,12 @@ from pathlib import Path
 from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.managed import TrafficSettings
 
-#: The Claude Code version the headless contract was measured on.
-PINNED_VERSION = "2.1.272"
+#: The Claude Code versions the headless contract was measured on: the stream's
+#: shape, the result fields and what a resume replays match on both (measured
+#: 28.09.2026, evidence/t9). One small, reproducible stream-ordering difference
+#: between them, confined to the decomposition-shaped call and not touching
+#: result content or fields, is recorded in MAINTENANCE.md rather than here.
+PINNED_VERSIONS = frozenset({"2.1.272", "2.1.283"})
 _BINARY = "claude"
 
 
@@ -45,15 +49,16 @@ def version_argv(binary: str) -> list[str]:
 
 
 def require_pinned(version_output: str) -> str:
-    """Return the version if it is the pinned one.
+    """Return the version if it is one of the pinned ones.
 
     Raises:
         InvocationError: it is any other.
     """
     version = version_output.strip().split(" ", 1)[0]
-    if version != PINNED_VERSION:
-        msg = f"the binary reports {version!r}; the contract was measured on {PINNED_VERSION}"
-        raise InvocationError(msg, reported=version, pinned=PINNED_VERSION)
+    if version not in PINNED_VERSIONS:
+        pinned = ", ".join(sorted(PINNED_VERSIONS))
+        msg = f"the binary reports {version!r}; the contract was measured on {pinned}"
+        raise InvocationError(msg, reported=version, pinned=pinned)
     return version
 
 

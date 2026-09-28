@@ -11,9 +11,11 @@ from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.invocation import decomposition_argv, isolated_env, require_pinned
 
 
-def test_only_the_pinned_version_is_accepted() -> None:
+def test_only_the_pinned_versions_are_accepted() -> None:
     assert require_pinned("2.1.272 (Claude Code)\n") == "2.1.272"
-    for other in ("2.1.271 (Claude Code)", "2.2.0", "", "Claude Code 2.1.272"):
+    assert require_pinned("2.1.283 (Claude Code)\n") == "2.1.283"
+    others = ("2.1.271 (Claude Code)", "2.1.280 (Claude Code)", "2.2.0", "", "Claude Code 2.1.272")
+    for other in others:
         with pytest.raises(InvocationError):
             require_pinned(other)
 
