@@ -49,6 +49,7 @@ REPO_ROOT = HERE.parents[2]
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
+import scripted_endpoint  # noqa: E402
 from gate_fixtures import node  # noqa: E402
 from gate_run import INTERFACE  # noqa: E402
 from git_rig import Reviewer, target_repo  # noqa: E402
@@ -77,8 +78,9 @@ from physgate.orchestrator.invocation import claude_binary  # noqa: E402
 from physgate.orchestrator.run_config import ModelStrings, RunBounds  # noqa: E402
 
 VARIABLE = "CLAUDE_CODE_OAUTH_TOKEN"
-MODEL = "claude-sonnet-5"
-REVIEWER = "claude-opus-5-5"
+#: The evaluation pins: Opus implements and decomposes, Sonnet reviews (here a stub).
+MODEL = "claude-opus-5-5"
+REVIEWER = "claude-sonnet-5"
 SEED = 7
 PRICES = "2026-09-27"
 MODULE_DIR = "modules/power"
@@ -328,6 +330,27 @@ def scan(root: Path, token: str) -> dict[str, int]:
     return counts
 
 
+#: What the binary asked for, per request, on the scripted endpoint: the fields besides the
+#: conversation, and the beta header, so a model's defaults are measured, not assumed.
+SETTINGS: list[dict[str, Any]] = []
+_ANSWER = scripted_endpoint.FakeMessagesApi.answer
+
+
+def _recording(self: Any, path: str, headers: Any, body: dict[str, Any]) -> Any:  # noqa: ANN401
+    SETTINGS.append(
+        {
+            "model": body.get("model"),
+            "max_tokens": body.get("max_tokens"),
+            "thinking": body.get("thinking"),
+            "output_config": body.get("output_config"),
+            "context_management": body.get("context_management"),
+            "sampling": sorted(k for k in ("temperature", "top_p", "top_k") if k in body),
+            "anthropic_beta": sorted((headers.get("anthropic-beta") or "").split(",")),
+        }
+    )
+    return _ANSWER(self, path, headers, body)
+
+
 def dry_script(api: Any) -> None:  # noqa: ANN401
     """The scripted endpoint as the model: the plan to the decomposition, the writes after."""
     plan = tool(
@@ -442,12 +465,15 @@ def main() -> None:
     os.environ["DISABLE_AUTOUPDATER"] = "1"
     try:
         if args.dry_run:
+            scripted_endpoint.FakeMessagesApi.answer = _recording  # type: ignore[method-assign]
             with serving(Script(main=[])) as (api, url):
                 dry_script(api)
                 os.environ["ANTHROPIC_BASE_URL"] = url
                 result = both_runs(root)
                 result["endpoint_failures"] = list(api.failures)
                 result["endpoint_requests"] = len(api.requests)
+            distinct = {json.dumps(s, sort_keys=True) for s in SETTINGS}
+            result["request_settings"] = [json.loads(s) for s in sorted(distinct)]
         else:
             result = both_runs(root)
     finally:
