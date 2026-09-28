@@ -72,6 +72,7 @@ from physgate.orchestrator.events import (  # noqa: E402
     SessionEnded,
     read_events,
 )
+from physgate.orchestrator.install import prepare_install  # noqa: E402
 from physgate.orchestrator.invocation import claude_binary  # noqa: E402
 from physgate.orchestrator.run_config import ModelStrings, RunBounds  # noqa: E402
 
@@ -307,7 +308,11 @@ def summary(run_dir: Path, trend: Path) -> dict[str, Any]:
 
 
 def scan(root: Path, token: str) -> dict[str, int]:
-    """Counts only: files holding the token, ``sk-ant-`` or ``oat01``; emails replaced."""
+    """Counts only: files holding the token, ``sk-ant-`` or ``oat01``; emails replaced.
+
+    Every file is read. Emails are replaced only in the run's own records: the
+    read-only installation is a copy of the package, and is not evidence.
+    """
     files = [p for p in root.rglob("*") if p.is_file() and not p.is_symlink()]
     counts = {"token": 0, "sk-ant-": 0, "oat01": 0, "emails_replaced": 0}
     for path in files:
@@ -316,7 +321,8 @@ def scan(root: Path, token: str) -> dict[str, int]:
         counts["sk-ant-"] += b"sk-ant-" in data
         counts["oat01"] += b"oat01" in data
         found = len(EMAIL.findall(data))
-        if found and path.suffix in (".json", ".jsonl", ".log", ".txt", ".md", ".out"):
+        records = (root / "install") not in path.parents
+        if found and records and path.suffix in (".json", ".jsonl", ".log", ".txt", ".md", ".out"):
             path.write_bytes(EMAIL.sub(b"<email>", data))
             counts["emails_replaced"] += found
     return counts
@@ -345,7 +351,10 @@ def dry_script(api: Any) -> None:  # noqa: ANN401
 
 def both_runs(root: Path) -> dict[str, Any]:
     repo = target_repo(root)
+    # Built before either run, so both check it: a run that built the installation
+    # records "built" where its rerun records "checked", a real difference.
     install = root / "install"
+    prepare_install(install, REPO_ROOT)
     (root / "brief.md").write_text(BRIEF)
     (root / "params.json").write_text(json.dumps(params()))
     log = root / "commands.jsonl"
