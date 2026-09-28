@@ -1,4 +1,4 @@
-"""The ``physgate`` command: the hook layer's, the orchestrator's, observability's and the instrument's commands."""
+"""The ``physgate`` command: the hooks', the orchestrator's, observability's, the instrument's."""
 
 from __future__ import annotations
 
