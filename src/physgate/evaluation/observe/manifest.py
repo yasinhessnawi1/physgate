@@ -82,9 +82,9 @@ BINARY_DEFAULTS: dict[str, BinaryDefaults] = {
         ),
         measured="request bodies at the scripted endpoint, Claude Code 2.1.272, 27.09.2026",
     ),
-    #: Measured separately at the scripted endpoint on 28.09.2026 (T9's binary bump,
-    #: evidence/t9), through the real driver's own dry run (the oauth-shaped
-    #: subscription path, the full hook layer, decomposition and a role session):
+    #: Measured separately at the scripted endpoint on 28.09.2026, through the real
+    #: driver's own dry run (the oauth-shaped subscription path, the full hook
+    #: layer, decomposition and a role session):
     #: ``thinking``, ``context_management``, ``max_tokens``, ``effort`` and
     #: ``sampling`` are identical to 2.1.272's. ``anthropic_beta`` is NOT: 2.1.283
     #: sends one flag 2.1.272 does not, ``per-turn-control-2026-07-01``, confirmed

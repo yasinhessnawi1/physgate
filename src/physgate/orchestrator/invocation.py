@@ -23,9 +23,9 @@ from physgate.orchestrator.managed import TrafficSettings
 
 #: The Claude Code versions the headless contract was measured on: the stream's
 #: shape, the result fields and what a resume replays match on both (measured
-#: 28.09.2026, evidence/t9). One small, reproducible stream-ordering difference
-#: between them, confined to the decomposition-shaped call and not touching
-#: result content or fields, is recorded in MAINTENANCE.md rather than here.
+#: 28.09.2026). One small, reproducible stream-ordering difference between
+#: them, confined to the decomposition-shaped call and not touching result
+#: content or fields, is recorded in MAINTENANCE.md rather than here.
 PINNED_VERSIONS = frozenset({"2.1.272", "2.1.283"})
 _BINARY = "claude"
 
