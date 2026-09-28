@@ -9,13 +9,14 @@ than one request inside it.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 from pathlib import Path
 from typing import Any
 
 import pytest
-from git_rig import config, target_repo
+from git_rig import PARAMS, config, target_repo
 from scripted_endpoint import (  # noqa: E402
     DUMMY_KEY,
     DUMMY_OAUTH_TOKEN,
@@ -170,7 +171,7 @@ def test_the_decompose_command_twice_with_one_seed_gives_one_set_of_ids(
 
     from physgate.cli import main
 
-    params = config().model_dump(include={"auth", "gate_mode", "models", "bounds", "token_ceiling"})
+    params = config().model_dump(include=PARAMS)
     (tmp_path / "params.json").write_text(json.dumps(params))
     (tmp_path / "brief.md").write_text("Build a self-balancing robot.\n")
     printed = []
@@ -352,3 +353,65 @@ def test_remote_settings_found_after_the_one_call_fail_it(tmp_path: Path) -> Non
     _, outcome, run_dir = decompose_once(tmp_path, 7, [tool("StructuredOutput", **PLAN)])
     assert not outcome.ok and outcome.cause == "managed_settings_changed"
     assert "remote managed settings were delivered" in outcome.detail
+
+
+def test_the_policy_limits_the_call_received_are_the_run_s_recorded_baseline(
+    tmp_path: Path,
+) -> None:
+    # As the real API leaves them in the call's configuration directory; the scripted
+    # endpoint never writes them.
+    limits = b'{"restrictions": {}, "compliance_taints": []}'
+    placed = tmp_path / "run" / "decomposition" / "config" / "policy-limits.json"
+    placed.parent.mkdir(parents=True)
+    placed.write_bytes(limits)
+    _, outcome, run_dir = decompose_once(tmp_path, 7, [tool("StructuredOutput", **PLAN)])
+    assert outcome.ok, outcome.detail
+    digest = hashlib.sha256(limits).hexdigest()
+    assert outcome.policy_limits_sha256 == digest
+    (decomposed,) = [e for e in read_events(run_dir / "events.jsonl") if isinstance(e, Decomposed)]
+    assert decomposed.policy_limits_sha256 == digest
+
+
+def test_a_call_that_received_no_policy_limits_records_none(tmp_path: Path) -> None:
+    _, outcome, run_dir = decompose_once(tmp_path, 7, [tool("StructuredOutput", **PLAN)])
+    assert outcome.ok and outcome.policy_limits_sha256 is None
+    (decomposed,) = [e for e in read_events(run_dir / "events.jsonl") if isinstance(e, Decomposed)]
+    assert decomposed.policy_limits_sha256 is None
+
+
+def test_the_call_s_debug_log_is_read_for_the_catalog_and_flags_and_then_removed(
+    tmp_path: Path,
+) -> None:
+    # The real binary's own log, against the scripted endpoint: both off, as measured.
+    _, outcome, run_dir = decompose_once(tmp_path, 7, [tool("StructuredOutput", **PLAN)])
+    assert outcome.ok, outcome.detail
+    seen = outcome.observed_traffic
+    assert seen is not None and seen.all_off()
+    assert seen.served_catalog_reason == "essential_traffic"
+    (decomposed,) = [e for e in read_events(run_dir / "events.jsonl") if isinstance(e, Decomposed)]
+    assert decomposed.observed_traffic == seen
+    assert not (run_dir / "decomposition" / "debug.log").exists()
+    assert not list(run_dir.rglob("debug.log"))
+
+
+def test_a_catalog_or_flags_not_reported_off_fail_the_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import physgate.orchestrator.decompose as decompose_module
+    from physgate.orchestrator.managed import ObservedTraffic
+
+    real = decompose_module.read_debug_log
+
+    def flags_on(path: Path) -> ObservedTraffic:
+        real(path)  # read and removed as usual; then reported as the flags being on
+        return ObservedTraffic(
+            served_catalog="off", served_catalog_reason=None, feature_flags="not reported off"
+        )
+
+    monkeypatch.setattr(decompose_module, "read_debug_log", flags_on)
+    _, outcome, run_dir = decompose_once(tmp_path, 7, [tool("StructuredOutput", **PLAN)])
+    assert not outcome.ok and outcome.cause == "managed_settings_changed"
+    assert "remote feature flags are not reported off" in outcome.detail
+    (halted,) = [e for e in read_events(run_dir / "events.jsonl") if isinstance(e, Halted)]
+    assert halted.reason == "decomposition_failed"
+    assert not (run_dir / "decomposition" / "debug.log").exists()

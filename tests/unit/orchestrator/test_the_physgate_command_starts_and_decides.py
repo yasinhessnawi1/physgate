@@ -27,6 +27,9 @@ PARAMS = {
         "infra_retry_delays_s": [],
     },
     "token_ceiling": 100000,
+    "reportable": False,
+    "effort": "high",
+    "max_output_tokens": 64000,
 }
 
 
@@ -87,7 +90,7 @@ def test_decompose_refuses_to_start_without_the_secret_its_auth_mode_names(
     assert not (tmp_path / "run").exists()
 
 
-@pytest.mark.parametrize("missing", ["auth", "gate_mode", "models", "bounds", "token_ceiling"])
+@pytest.mark.parametrize("missing", sorted(PARAMS))
 def test_decompose_refuses_parameters_missing_any_input(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -243,18 +246,26 @@ def test_both_example_parameters_files_are_complete_configurations() -> None:
                     "claude_version": "2.1.272",
                     "target_head": "b" * 40,
                     "endpoint": "default",
+                    "harness": {"commit": None, "clean": False, "uncommitted_sha256": None},
                 }
             )
         )
         found[config.auth] = config
         text = path.read_text()
-        assert "sk-" not in text and "TOKEN" not in text.upper().replace("TOKEN_CEILING", "")
+        named = text.upper().replace("TOKEN_CEILING", "").replace("OUTPUT_TOKENS", "")
+        assert "sk-" not in text and "TOKEN" not in named
         for role, model in config.models.roles.items():
             assert config.models.reviewers[role] != model  # ARCH-060: another model reviews
     assert set(found) == {"subscription", "api_key"}
-    assert found["subscription"].models.reviewers["electrical"] == "claude-opus-5-5"
+    # The evaluation pins: Opus implements and decomposes, Sonnet reviews. On an API key,
+    # the cheap end: Sonnet implements and Haiku reviews.
+    subscription = found["subscription"].models
+    assert subscription.decomposition == "claude-opus-5-5"
+    assert set(subscription.roles.values()) == {"claude-opus-5-5"}
+    assert set(subscription.reviewers.values()) == {"claude-sonnet-5"}
     assert found["api_key"].models.reviewers["electrical"] == "claude-haiku-4-5-20251001"
-    assert {c.models.roles["electrical"] for c in found.values()} == {"claude-sonnet-5"}
+    assert found["api_key"].models.reviewers["electrical"] == "claude-haiku-4-5-20251001"
+    assert found["api_key"].models.roles["electrical"] == "claude-sonnet-5"
 
 
 def test_run_refuses_a_directory_that_holds_no_run(
@@ -383,10 +394,11 @@ def test_a_run_is_refused_against_another_endpoint_before_any_session(
     assert json.loads(capsys.readouterr().err)["now"] == "default"
     assert (tmp_path / "run" / "events.jsonl").read_bytes() == events
 
-    # The recorded endpoint passes this check; what stops the run then is the missing binary.
+    # The recorded endpoint passes this check; what stops the run then is the next guard in
+    # order, the harness check, which cannot read the checkout with no git on the path.
     monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:53817/")
     assert main(args, registrations) == 2
-    assert "no Claude Code binary" in capsys.readouterr().err
+    assert "git is not available to read the harness" in capsys.readouterr().err
 
 
 def test_a_run_refuses_a_reused_installation_that_is_not_the_source(

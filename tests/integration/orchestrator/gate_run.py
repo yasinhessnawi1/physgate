@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from git_rig import Reviewer, config, target_repo
+from git_rig import PARAMS, Reviewer, config, target_repo
 from scripted_endpoint import DUMMY_KEY, Script, serving, text, tool
 
 from physgate.cli import main
@@ -98,7 +98,7 @@ def drive_run(
     """
     repo = target_repo(tmp_path)
     run_dir = tmp_path / "run"
-    params = config().model_dump(include={"auth", "gate_mode", "models", "bounds", "token_ceiling"})
+    params = config().model_dump(include=PARAMS)
     params["gate_mode"] = gate_mode
     (tmp_path / "params.json").write_text(json.dumps(params))
     (tmp_path / "brief.md").write_text(brief)

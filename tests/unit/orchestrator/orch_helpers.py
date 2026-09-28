@@ -7,6 +7,7 @@ from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from physgate.orchestrator.cli import _harness_root
 from physgate.orchestrator.protocols import (
     CHECK_NUMBERS,
     CheckRecord,
@@ -16,7 +17,13 @@ from physgate.orchestrator.protocols import (
     PowerDetails,
     RunningGateMode,
 )
-from physgate.orchestrator.run_config import ModelStrings, RunBounds, RunConfig
+from physgate.orchestrator.run_config import (
+    HarnessState,
+    ModelStrings,
+    RunBounds,
+    RunConfig,
+    harness_state,
+)
 
 SCRIPTED_BOUNDS = RunBounds(
     binary_max_retries=0,
@@ -24,6 +31,14 @@ SCRIPTED_BOUNDS = RunBounds(
     session_max_turns=20,
     infra_retry_delays_s=(),
 )
+
+#: A clean checkout at a commit, for tests about the harness record itself.
+CLEAN_HARNESS = HarnessState(commit="c" * 40, clean=True, uncommitted_sha256=None)
+
+
+#: The harness as the command measures it, taken once at import (before any test
+#: narrows ``PATH``): a run a test drives under another record is refused.
+MEASURED_HARNESS = harness_state(_harness_root())
 
 
 def make_config(**overrides: Any) -> RunConfig:
@@ -44,6 +59,10 @@ def make_config(**overrides: Any) -> RunConfig:
         "target_head": "b" * 40,
         "endpoint": "default",
         "auth": "api_key",
+        "reportable": False,
+        "harness": MEASURED_HARNESS,
+        "effort": "high",
+        "max_output_tokens": 64000,
     }
     fields.update(overrides)
     return RunConfig(**fields)

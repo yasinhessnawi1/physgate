@@ -25,5 +25,8 @@
    300.0
   ]
  },
- "token_ceiling": 2000000
+ "token_ceiling": 2000000,
+ "reportable": false,
+ "effort": "high",
+ "max_output_tokens": 64000
 }

@@ -1,0 +1,20 @@
+{
+  "date": "2026-09-27",
+  "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+  "retrieved": "2026-09-27T18:14:33.000000Z",
+  "page_sha256": "cd36fcc6d6d9e17ac2a8643a3f769e42ec6cf33a8becdbfd98bc3ba8832f1aee",
+  "note": "Standard first-party prices, global routing, no batch, no fast mode. Model strings from https://platform.claude.com/docs/en/about-claude/models/overview, read the same day. Cache writes are the 5-minute rate: the binary's requests mark their cache breakpoints ephemeral with no time to live.",
+  "cache_write_ttl": "5m",
+  "usd_per_mtok": {
+    "claude-opus-5-5": {"input": "4", "cache_write": "5", "cache_read": "0.20", "output": "20"},
+    "claude-sonnet-5": {"input": "2", "cache_write": "2.50", "cache_read": "0.20", "output": "10"},
+    "claude-haiku-4-5-20251001": {"input": "1", "cache_write": "1.25", "cache_read": "0.10", "output": "5"}
+  },
+  "exchange": {
+    "usd_to_nok": "9.5063",
+    "date": "2026-09-25",
+    "series": "Norges Bank EXR B.USD.NOK.SP, the last business day's spot rate",
+    "source": "https://data.norges-bank.no/api/data/EXR/B.USD.NOK.SP?format=csv&lastNObservations=5&locale=en",
+    "retrieved": "2026-09-27T18:15:08.000000Z"
+  }
+}

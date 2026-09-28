@@ -74,6 +74,10 @@ def test_a_full_model_string_is_accepted(full: str) -> None:
         ("endpoint", ""),
         ("auth", "oauth"),
         ("auth", "subscription-token"),
+        ("effort", "extreme"),
+        ("effort", "High"),
+        ("max_output_tokens", 0),
+        ("reportable", "yes"),
     ],
 )
 def test_a_value_outside_its_domain_is_refused(field: str, value: object) -> None:

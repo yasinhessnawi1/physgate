@@ -67,6 +67,7 @@ from physgate.orchestrator.exceptions import (
     StoreRefusalError,
     TrajectoryTamperedError,
 )
+from physgate.orchestrator.managed import policy_limits_change
 from physgate.orchestrator.merge import merge_message
 from physgate.orchestrator.ports import (
     ChangeChecker,
@@ -452,6 +453,7 @@ class Loop:
                 reading_verified=report.reading_verified,
                 trajectory_seal=report.trajectory_seal,
                 decisions_bytes=self._decisions_bytes(),
+                policy_limits_sha256=report.policy_limits_sha256,
             )
         )
         if report.trajectory_tampered is not None:
@@ -464,12 +466,25 @@ class Loop:
             # session: nothing it did is taken, and a person looks first.
             self._incident(subtask_id, "managed_settings_changed", report.managed_drift)
             return False
+        changed = policy_limits_change(self._policy_baseline(), report.policy_limits_sha256)
+        if changed is not None:
+            # The account's policy limits are applied without a trace the hooks see: the
+            # session ran under other limits than the run began with.
+            self._incident(subtask_id, "managed_settings_changed", changed)
+            return False
         if report.end.outcome != "completed":
             return False
         self._appends = report.hook_journal_appends
         if not self._journal_clean():
             return False
         return not report.node_files_halted or self._repair_node_files(subtask_id, attempt)
+
+    def _policy_baseline(self) -> str | None:
+        """The policy limits the decomposition call received: what every session is held to."""
+        for event in self.log.events:
+            if isinstance(event, Decomposed):
+                return event.policy_limits_sha256
+        return None
 
     def _repair_node_files(self, subtask_id: str, attempt: int) -> bool:
         """Reopen the store so recovery rebuilds node files from the journal, before any read."""

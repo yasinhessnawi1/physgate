@@ -11,9 +11,11 @@ from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.invocation import decomposition_argv, isolated_env, require_pinned
 
 
-def test_only_the_pinned_version_is_accepted() -> None:
+def test_only_the_pinned_versions_are_accepted() -> None:
     assert require_pinned("2.1.272 (Claude Code)\n") == "2.1.272"
-    for other in ("2.1.271 (Claude Code)", "2.2.0", "", "Claude Code 2.1.272"):
+    assert require_pinned("2.1.283 (Claude Code)\n") == "2.1.283"
+    others = ("2.1.271 (Claude Code)", "2.1.280 (Claude Code)", "2.2.0", "", "Claude Code 2.1.272")
+    for other in others:
         with pytest.raises(InvocationError):
             require_pinned(other)
 
@@ -26,6 +28,8 @@ def test_the_decomposition_call_offers_no_tool_and_one_turn(tmp_path: Path) -> N
         model="claude-sonnet-5",
         session_id="abc",
         settings=tmp_path / "settings.json",
+        effort="low",
+        debug_file=tmp_path / "debug.log",
     )
     pairs = {argv[i]: argv[i + 1] for i in range(1, len(argv) - 1) if argv[i].startswith("--")}
     assert pairs["--setting-sources"] == ""
@@ -35,6 +39,8 @@ def test_the_decomposition_call_offers_no_tool_and_one_turn(tmp_path: Path) -> N
     assert pairs["--model"] == "claude-sonnet-5"
     assert pairs["--session-id"] == "abc"
     assert pairs["--json-schema"] == "{}"
+    assert pairs["--effort"] == "low"  # the run's level, not the binary's catalog default
+    assert argv[argv.index("--debug-file") + 1] == str(tmp_path / "debug.log")
     assert "--include-partial-messages" in argv  # each message's final usage
     assert "--resume" not in argv
 
@@ -48,11 +54,13 @@ def test_the_environment_is_built_from_nothing(
         config_dir=tmp_path / "c",
         binary="/opt/bin/claude",
         max_retries=0,
+        max_output_tokens=64000,
         base_url=None,
         api_key=None,
     )
     assert "PHYSGATE_LEAK_PROBE" not in env
     assert env["CLAUDE_CODE_MAX_RETRIES"] == "0"
+    assert env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] == "64000"
     assert env["HOME"] == str(tmp_path / "h") and env["CLAUDE_CONFIG_DIR"] == str(tmp_path / "c")
     assert env["PATH"].startswith("/opt/bin:")
     assert "ANTHROPIC_BASE_URL" not in env and "ANTHROPIC_API_KEY" not in env
@@ -61,11 +69,13 @@ def test_the_environment_is_built_from_nothing(
         config_dir=tmp_path,
         binary="claude",
         max_retries=2,
+        max_output_tokens=1000,
         base_url="http://127.0.0.1:1",
         api_key="k",
     )
     assert with_endpoint["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:1"
     assert with_endpoint["CLAUDE_CODE_MAX_RETRIES"] == "2"
+    assert with_endpoint["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] == "1000"
 
 
 def _binary(tmp_path: Path, version: str) -> Path:

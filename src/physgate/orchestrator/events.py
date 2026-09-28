@@ -43,6 +43,7 @@ from physgate.orchestrator.common import (
 )
 from physgate.orchestrator.exceptions import CorruptEventLogError, RunConfigError
 from physgate.orchestrator.install import InstallFacts
+from physgate.orchestrator.managed import ObservedTraffic
 from physgate.orchestrator.protocols import GateResult, ReviewResult, Usage
 from physgate.orchestrator.repair import Finding
 from physgate.orchestrator.trajectory import Seal
@@ -56,6 +57,7 @@ Stage = Literal[
 #: attempt cannot even be written down.
 Attempt = Annotated[int, Field(ge=1, le=REPAIR_BUDGET)]
 Sha = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
+Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 
 #: What an incident is about. Each halts the run; none spends from the repair budget.
 IncidentCause = Literal[
@@ -254,6 +256,9 @@ class SessionEnded(_Event):
     decisions_bytes: Annotated[int, Field(ge=0)] | None = None
     worktree: NonEmptyStr | None
     reading_verified: bool
+    #: The digest of the policy limits the session's invocation received, ``None`` if
+    #: none: held to the decomposition call's.
+    policy_limits_sha256: Sha256 | None = None
 
     @model_validator(mode="after")
     def _completed_names_its_work(self) -> SessionEnded:
@@ -370,6 +375,12 @@ class Decomposed(_Event):
     interface_nodes: Annotated[tuple[NonEmptyStr, ...], Field(min_length=1)]
     spec_commit: Sha
     head_revision: Annotated[int, Field(ge=1)]
+    #: The digest of the policy limits the call received, ``None`` if none: the
+    #: baseline every session of the run is held to.
+    policy_limits_sha256: Sha256 | None = None
+    #: The binary's served catalog and remote feature flags as the call's debug log
+    #: showed them; ``None`` for a run started with no call.
+    observed_traffic: ObservedTraffic | None = None
 
 
 class WriteIntended(_Event):
@@ -422,6 +433,20 @@ class EnvironmentRecorded(_Event):
 
     kind: Literal["environment_recorded"] = "environment_recorded"
     facts: InstallFacts
+
+
+class InstallChecked(_Event):
+    """The hooks' installation was checked against its build, or built, and how long it took.
+
+    Checked at every run and resume before anything is spawned; the time is the
+    run's, not a session's. ``entries`` is the size of the manifest it was held to.
+    """
+
+    kind: Literal["install_checked"] = "install_checked"
+    path: NonEmptyStr
+    action: Literal["checked", "built"]
+    seconds: Annotated[float, Field(ge=0)]
+    entries: Annotated[int, Field(ge=0)]
 
 
 class LeftoverStopped(_Event):
@@ -507,6 +532,7 @@ Event = Annotated[
     | Resumed
     | Decomposed
     | EnvironmentRecorded
+    | InstallChecked
     | LeftoverStopped
     | LeftoverRead
     | WorktreeRemoved

@@ -62,6 +62,8 @@ class FakeDispatcher:
     drift: dict[int, str] = field(default_factory=dict)
     #: Per call: why the stream is not the runtime's alone (a forged tail).
     tampered: dict[int, str] = field(default_factory=dict)
+    #: Per call: the digest of the policy limits the session's invocation received.
+    policy: dict[int, str] = field(default_factory=dict)
     #: Where to write real, sealed trajectory files; None keeps them notional.
     trajectories: Path | None = None
     #: Per call: something done while the session runs.
@@ -111,6 +113,7 @@ class FakeDispatcher:
             reading_verified=call not in self.unread,
             node_files_halted=call in self.halted,
             managed_drift=self.drift.get(call),
+            policy_limits_sha256=self.policy.get(call),
             usage=(
                 MessageUsage(message_id=f"m{call}a", usage=usage(10)),
                 MessageUsage(message_id=f"m{call}a", usage=usage(10)),

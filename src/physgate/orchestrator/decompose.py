@@ -45,7 +45,13 @@ from physgate.orchestrator.invocation import (
     require_pinned,
     version_argv,
 )
-from physgate.orchestrator.managed import drift, system_managed_facts
+from physgate.orchestrator.managed import (
+    ObservedTraffic,
+    drift,
+    observe_traffic,
+    policy_limits_digest,
+    system_managed_facts,
+)
 from physgate.orchestrator.merge import RunGit
 from physgate.orchestrator.protocols import MessageUsage, Usage
 from physgate.orchestrator.record import (
@@ -177,6 +183,10 @@ def prompt_for(brief: str, roles: Sequence[str]) -> str:
     )
 
 
+#: The decomposition call's debug log, read for the catalog and flag state, then removed.
+DEBUG_LOG = "debug.log"
+
+
 def mint_id(seed: int, index: int, name: str) -> str:
     """A subtask id from the run's seed: the orchestrator's choice, not the model's."""
     digest = hashlib.sha256(f"{seed}:{index}:{name}".encode()).hexdigest()[:6]
@@ -194,6 +204,10 @@ class Outcome(_Frozen):
     usage: tuple[MessageUsage, ...]
     model: str | None
     num_turns: int
+    #: The digest of the policy limits the call received, ``None`` if none (or no call).
+    policy_limits_sha256: str | None = None
+    #: The served catalog and feature flags as the call's debug log showed them.
+    observed_traffic: ObservedTraffic | None = None
 
 
 def read_stream(
@@ -348,12 +362,15 @@ def call(
         model=config.models.decomposition,
         session_id=session_id,
         settings=settings,
+        effort=config.effort,
+        debug_file=workdir / DEBUG_LOG,
     )
     env = isolated_env(
         home=workdir / "home",
         config_dir=workdir / "config",
         binary=binary,
         max_retries=config.bounds.binary_max_retries,
+        max_output_tokens=config.max_output_tokens,
         base_url=base_url,
         api_key=credential.secret if credential.mode == "api_key" else None,
     )
@@ -378,6 +395,7 @@ def call(
         exit_code, timed_out = None, True
     finally:
         remove_secrets(workdir / "state", workdir / "config")
+        observed = read_debug_log(workdir / DEBUG_LOG)
     (workdir / "stdout.jsonl").write_text(stdout.replace(credential.secret, REDACTED_TEXT))
     result, usage, answered = read_stream(stdout)
     require_matching_totals(result, usage)
@@ -391,6 +409,12 @@ def call(
         refused=schema_refusal(stdout),
     )
     changed = drift(workdir / "config", system_before)
+    if not observed.all_off():
+        seen = (
+            f"the binary's served model catalog is {observed.served_catalog} and its remote "
+            f"feature flags are {observed.feature_flags}"
+        )
+        changed = f"{changed}; {seen}" if changed else seen
     if changed is not None:
         cause, detail, plan = "managed_settings_changed", changed, None
     return Outcome(
@@ -402,7 +426,25 @@ def call(
         usage=usage,
         model=model,
         num_turns=turns,
+        policy_limits_sha256=policy_limits_digest(workdir / "config"),
+        observed_traffic=observed,
     )
+
+
+def read_debug_log(path: Path) -> ObservedTraffic:
+    """What the call's debug log says about the catalog and the flags; the log is removed.
+
+    The log is the binary's own and may hold anything the call saw, a credential
+    included, so it never stays in the run directory: only the closed-vocabulary
+    reading of it is kept. A log that is missing reads as nothing reported off.
+    """
+    try:
+        text = path.read_text(errors="replace")
+    except FileNotFoundError:
+        text = ""
+    finally:
+        path.unlink(missing_ok=True)
+    return observe_traffic(text)
 
 
 def require_fresh(run_dir: Path) -> None:
@@ -480,6 +522,8 @@ def start_run(
             interface_nodes=tuple(n.id for n in plan.interface_nodes),
             spec_commit=spec_commit,
             head_revision=head,
+            policy_limits_sha256=outcome.policy_limits_sha256,
+            observed_traffic=outcome.observed_traffic,
         ),
     )
     return record

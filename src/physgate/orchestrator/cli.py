@@ -23,9 +23,11 @@ import hashlib
 import json
 import os
 import sys
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 from pydantic import ValidationError
 
@@ -39,6 +41,7 @@ from physgate.orchestrator.decompose import binary_version, call, require_fresh,
 from physgate.orchestrator.dispatch import ClaudeDispatcher
 from physgate.orchestrator.events import (
     EnvironmentRecorded,
+    InstallChecked,
     LeftoverRead,
     SessionEnded,
     StageEntered,
@@ -49,6 +52,7 @@ from physgate.orchestrator.exceptions import InvocationError, OrchestratorError,
 from physgate.orchestrator.gate_events import gate_events
 from physgate.orchestrator.git import head_of
 from physgate.orchestrator.install import (
+    manifest_entries,
     prepare_install,
     require_current,
     require_recorded_manifest,
@@ -61,8 +65,11 @@ from physgate.orchestrator.queue import ApprovalQueue
 from physgate.orchestrator.run_config import (
     RunConfig,
     endpoint_of,
+    harness_state,
     load_run_config,
     require_endpoint,
+    require_harness,
+    require_reportable,
 )
 
 #: Example parameters files, one per auth mode.
@@ -189,6 +196,9 @@ def _fail(message: str, **context: str) -> int:
 
 def _config(args: argparse.Namespace) -> RunConfig:
     params = json.loads(args.params.read_text())
+    # Measured, never chosen: a parameters file that names the harness is overruled.
+    harness = harness_state(_harness_root())
+    require_reportable(harness, reportable=params.get("reportable") is True)
     fields = {
         **params,
         "run_id": args.run_id,
@@ -197,8 +207,15 @@ def _config(args: argparse.Namespace) -> RunConfig:
         "target_head": head_of(args.target.resolve(), "HEAD"),
         "claude_version": binary_version(),
         "endpoint": endpoint_of(os.environ.get("ANTHROPIC_BASE_URL")),
+        "harness": harness.model_dump(),
     }
     return RunConfig.model_validate_json(json.dumps(fields))
+
+
+def _harness_root() -> Path | None:
+    """The source checkout this orchestrator runs from, or ``None`` if it runs from none."""
+    root = Path(physgate.__file__).resolve().parents[2]
+    return root if (root / "pyproject.toml").exists() else None
 
 
 def _decompose(args: argparse.Namespace) -> int:
@@ -282,16 +299,21 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
         refuse_unregistered(config, registrations.gate, registrations.reviewers)
         # The same provider, or the run's numbers would mean something else.
         require_endpoint(config, os.environ.get("ANTHROPIC_BASE_URL"))
+        # The same code: a run continued on other code is two runs under one name.
+        require_harness(config, harness_state(_harness_root()))
         if not (run_dir / "events.jsonl").exists():
             msg = "the run was never started; decompose it first"
             raise RunStateError(msg, run_dir=str(run_dir))
         install = args.install.resolve()
-        if install.exists():
+        started = time.monotonic()
+        action: Literal["checked", "built"] = "checked" if install.exists() else "built"
+        if action == "checked":
             require_current(install, _project_root())
             require_recorded_manifest(install, _recorded_manifest(run_dir, install))
             install_bin = install / "bin" / "physgate"
         else:
             install_bin = prepare_install(install, _project_root())
+        checked_in = time.monotonic() - started
         run = RunGit(repo=args.target.resolve(), run_dir=run_dir, run_id=config.run_id)
         store_root = run_dir / "store"
         plan = [e for e in read_events(run_dir / "events.jsonl") if isinstance(e, SubtaskPlanned)]
@@ -317,6 +339,16 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
     except OrchestratorError as exc:
         return _fail(str(exc), **exc.context)
     try:
+        # The check ran before the log was open; it is recorded now, before any spawn.
+        loop.record.emit(
+            InstallChecked(
+                **loop.record.envelope(),
+                path=str(install),
+                action=action,
+                seconds=checked_in,
+                entries=manifest_entries(install),
+            )
+        )
         step = loop.resume() if resume else loop.run()
         account = TokenAccount.from_events(loop.log.events)
         account.assert_no_routing()
@@ -328,6 +360,9 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
     _print(
         {
             "run_id": config.run_id,
+            # Every number printed here names the record it came from: the run
+            # configuration's digest, which the run's first line also carries.
+            "manifest_id": config.sha256(),
             "step": step.kind,
             "subtasks": {k: v.status for k, v in loop.state.subtasks.items()},
             "open_queue_items": [item.item_id for item in loop.queue.open_items()],

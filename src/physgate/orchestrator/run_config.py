@@ -14,7 +14,7 @@ import hashlib
 import os
 import re
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import (
     BaseModel,
@@ -22,6 +22,7 @@ from pydantic import (
     Field,
     StringConstraints,
     ValidationError,
+    model_validator,
 )
 
 from physgate.orchestrator.common import (
@@ -31,7 +32,8 @@ from physgate.orchestrator.common import (
     NonEmptyStr,
     first_problem,
 )
-from physgate.orchestrator.exceptions import RunConfigError
+from physgate.orchestrator.exceptions import GitError, RunConfigError
+from physgate.orchestrator.git import git
 
 
 class _Frozen(BaseModel):
@@ -116,20 +118,104 @@ def require_endpoint(config: RunConfig, base_url: str | None) -> None:
         raise RunConfigError(msg, recorded=config.endpoint, now=now)
 
 
+Sha1 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
+Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+
+#: The effort levels the pinned binary's ``--effort`` accepts. The binary sends
+#: the level it resolves in every request (``output_config.effort``); left
+#: unset it takes a default from a model catalog that can change without the
+#: binary's version changing, so a run names its level and passes it.
+Effort = Literal["low", "medium", "high", "xhigh", "max"]
+
+
+class HarnessState(_Frozen):
+    """The source checkout the orchestrator ran from, as it was when the run was recorded.
+
+    A number is only as reproducible as the code that produced it: the commit, whether
+    the tree held anything uncommitted, and a digest of what it held. ``commit`` is
+    ``None`` only when there is no git checkout at all, which is never clean.
+    """
+
+    commit: Sha1 | None
+    clean: bool
+    #: A digest of the uncommitted changes (the diff against the commit and every
+    #: untracked file not ignored, by path and content); ``None`` on a clean tree.
+    uncommitted_sha256: Sha256 | None
+
+    @model_validator(mode="after")
+    def _clean_means_nothing_uncommitted(self) -> HarnessState:
+        if self.commit is None and (self.clean or self.uncommitted_sha256 is not None):
+            msg = "a harness with no checkout is recorded as not clean, with no digest"
+            raise ValueError(msg)
+        if self.commit is not None and self.clean != (self.uncommitted_sha256 is None):
+            msg = "a clean tree has no uncommitted digest, and a dirty one has one"
+            raise ValueError(msg)
+        return self
+
+
+def harness_state(root: Path | None) -> HarnessState:
+    """What the checkout at ``root`` is now: its commit, and anything not committed.
+
+    ``root`` is ``None`` when the orchestrator does not run from a source checkout.
+
+    Raises:
+        RunConfigError: git failed on a checkout that exists.
+    """
+    try:
+        inside = root is not None and git(root, "rev-parse", "--is-inside-work-tree", check=False)
+    except OSError as exc:  # no git on this machine: the checkout cannot be read at all
+        msg = "git is not available to read the harness checkout"
+        raise RunConfigError(msg, root=str(root), reason=str(exc)) from None
+    if root is None or not inside:
+        return HarnessState(commit=None, clean=False, uncommitted_sha256=None)
+    try:
+        commit = git(root, "rev-parse", "HEAD").strip()
+        diff = git(root, "diff", "--binary", "HEAD")
+        untracked = git(root, "ls-files", "--others", "--exclude-standard", "-z").split("\0")
+    except GitError as exc:
+        msg = "the harness checkout could not be read"
+        raise RunConfigError(msg, root=str(root), reason=str(exc)) from None
+    digest = hashlib.sha256(diff.encode())
+    files = sorted(name for name in untracked if name)
+    for name in files:
+        digest.update(b"\0" + name.encode() + b"\0")
+        digest.update(hashlib.sha256((root / name).read_bytes()).digest())
+    clean = not diff and not files
+    return HarnessState(
+        commit=commit, clean=clean, uncommitted_sha256=None if clean else digest.hexdigest()
+    )
+
+
 class RunConfig(_Frozen):
     """Everything a run is reproduced from."""
 
     run_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,64}$")]
     seed: int
-    brief_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+    brief_sha256: Sha256
     gate_mode: GateMode
     models: ModelStrings
     bounds: RunBounds
     token_ceiling: Annotated[int, Field(gt=0)]
     claude_version: NonEmptyStr
-    target_head: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
+    target_head: Sha1
     endpoint: Endpoint
     auth: AuthMode
+    #: Whether this run's numbers may be reported. A reportable run starts only from
+    #: a clean checkout with a commit, so every number it produces names the code.
+    reportable: bool
+    harness: HarnessState
+    #: Passed to every invocation as ``--effort``.
+    effort: Effort
+    #: Passed to every invocation as ``CLAUDE_CODE_MAX_OUTPUT_TOKENS``: the request's
+    #: ``max_tokens``, otherwise a catalog default like the effort level.
+    max_output_tokens: Annotated[int, Field(gt=0)]
+
+    @model_validator(mode="after")
+    def _reportable_needs_a_clean_commit(self) -> RunConfig:
+        if self.reportable and (self.harness.commit is None or not self.harness.clean):
+            msg = "a reportable run starts only from a clean checkout with a commit"
+            raise ValueError(msg)
+        return self
 
     def canonical_bytes(self) -> bytes:
         """The recorded form: stable key order, so equal configs are equal bytes."""
@@ -138,6 +224,38 @@ class RunConfig(_Frozen):
     def sha256(self) -> str:
         """Digest of the recorded form, carried on the run's first event."""
         return hashlib.sha256(self.canonical_bytes()).hexdigest()
+
+
+def require_reportable(harness: HarnessState, *, reportable: bool) -> None:
+    """Refuse a reportable run from a checkout that is dirty or has no commit.
+
+    Called before the configuration is built, so the refusal says what is wrong
+    with the checkout rather than which field failed validation.
+
+    Raises:
+        RunConfigError: the run is reportable and the checkout cannot back its numbers.
+    """
+    if not reportable:
+        return
+    if harness.commit is None:
+        msg = "a reportable run needs the harness to run from a git checkout with a commit"
+        raise RunConfigError(msg)
+    if not harness.clean:
+        msg = "a reportable run starts only from a clean checkout; commit the changes first"
+        raise RunConfigError(msg, uncommitted_sha256=str(harness.uncommitted_sha256))
+
+
+def require_harness(config: RunConfig, now: HarnessState) -> None:
+    """Refuse to drive a run on code other than the code it recorded.
+
+    Raises:
+        RunConfigError: the checkout's commit, cleanliness or uncommitted changes differ.
+    """
+    if now != config.harness:
+        mine, theirs = now.model_dump(), config.harness.model_dump()
+        changed = sorted(key for key in theirs if theirs[key] != mine[key])
+        msg = "the harness checkout differs from the one this run recorded"
+        raise RunConfigError(msg, changed=",".join(changed))
 
 
 def write_run_config(path: Path, config: RunConfig) -> None:

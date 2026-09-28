@@ -78,6 +78,10 @@ class Recorded:
     served: dict[str, Any] | None
     #: The input schema of the StructuredOutput tool, if one was offered.
     structured_schema: dict[str, Any] | None = None
+    #: The request's generation settings, as the binary sent them.
+    effort: str | None = None
+    max_tokens: int | None = None
+    thinking: dict[str, Any] | None = None
 
 
 def _text_of(content: Any) -> str:  # noqa: ANN401 - the Messages API's own content shape
@@ -312,6 +316,9 @@ class FakeMessagesApi:
                         ),
                         None,
                     ),
+                    effort=(body.get("output_config") or {}).get("effort"),
+                    max_tokens=body.get("max_tokens"),
+                    thinking=body.get("thinking"),
                 )
             )
         model = self.script.answer_as or body.get("model", "fake")

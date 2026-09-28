@@ -15,7 +15,10 @@ session two ways, and neither is written by the agent under test:
 
 What this package does is detect: every session starts from a fresh
 configuration directory, and after every invocation a non-empty remote-settings
-cache, or a system managed path that changed, is drift, which halts the run.
+cache, or a system managed path that changed, is drift, which halts the run. So
+are policy limits that differ from the ones the run's decomposition call received:
+the account's side can change them, and they are applied without a trace in any
+file the hooks see.
 The harness cannot stop a managed-policy change pushed from outside; it halts on
 one.
 """
@@ -26,14 +29,22 @@ import getpass
 import hashlib
 import json
 import os
+import re
 import stat
 import sys
 from pathlib import Path
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, StringConstraints
 
 #: Where the binary caches fetched remote settings, inside its configuration directory.
 REMOTE_CACHE = "remote-settings.json"
+
+#: Where the binary writes the account's policy limits it fetched and applied. Measured
+#: on the real API (2.1.272): fetched and applied on every invocation from a fresh
+#: configuration directory, non-essential traffic off or not; never written against a
+#: third-party endpoint. The stamp file beside it carries a timestamp and is not read.
+POLICY_LIMITS = "policy-limits.json"
 
 
 class SystemManagedFile(BaseModel):
@@ -99,6 +110,88 @@ def system_managed_facts(
             )
         )
     return tuple(facts)
+
+
+class TrafficSettings(BaseModel):
+    """The session-environment settings that keep the binary's remote catalog and flags off.
+
+    Measured on the real subscription path (2.1.272, 27.09.2026): with non-essential
+    traffic disabled the served model catalog stays off, and with telemetry disabled so
+    do the remote feature flags. Either could otherwise change what a request carries
+    while the binary's version stays the same.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    nonessential_traffic: Literal["disabled", "enabled"]
+    telemetry: Literal["disabled", "enabled"]
+    measured: str = (
+        "served model catalog and remote feature flags measured off under these settings on "
+        "Claude Code 2.1.272, 27.09.2026, on the real subscription path"
+    )
+
+
+#: What the decomposition call's own debug log says; a closed vocabulary, so nothing the
+#: log holds besides these words (a credential included) can reach the record.
+Observed = Literal["off", "not reported off"]
+
+
+class ObservedTraffic(BaseModel):
+    """The state of the binary's served model catalog and remote feature flags, as observed."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    served_catalog: Observed
+    #: The reason the log gave for an off catalog (``essential_traffic``), if one.
+    served_catalog_reason: Annotated[str, StringConstraints(pattern=r"^[a-z_]{1,40}$")] | None
+    feature_flags: Observed
+
+    def all_off(self) -> bool:
+        """Whether both are off, the only state a run proceeds under."""
+        return self.served_catalog == "off" and self.feature_flags == "off"
+
+
+_SERVED = re.compile(r"\[servedCatalog\] (\S+)(?: \(([a-z_]{1,40})\))?")
+_FLAGS_OFF = "GrowthBook is off for this session"
+
+
+def observe_traffic(debug_log: str) -> ObservedTraffic:
+    """Read the served-catalog and feature-flag state from one invocation's debug log.
+
+    Either reads ``not reported off`` unless the log says off, and says nothing else:
+    a line in another form, a second line saying anything but off, or no line at all.
+    """
+    served = [m for line in debug_log.splitlines() if (m := _SERVED.search(line))]
+    off = bool(served) and all(m.group(1) == "off" for m in served)
+    reasons = {m.group(2) for m in served if m.group(2)}
+    return ObservedTraffic(
+        served_catalog="off" if off else "not reported off",
+        served_catalog_reason=reasons.pop() if off and len(reasons) == 1 else None,
+        feature_flags="off" if _FLAGS_OFF in debug_log else "not reported off",
+    )
+
+
+def policy_limits_digest(config_dir: Path) -> str | None:
+    """The sha256 of the policy limits an invocation left, or ``None`` if it left none."""
+    path = Path(config_dir) / POLICY_LIMITS
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+
+
+def policy_limits_change(baseline: str | None, now: str | None) -> str | None:
+    """How an invocation's policy limits differ from the run's first, or ``None``.
+
+    Every invocation starts from an empty configuration directory, so the limits
+    are fetched afresh each time, and the run's decomposition call is the first
+    one: what it received is what every later session must receive. A file that
+    appears or disappears is a change like any other.
+    """
+    if now == baseline:
+        return None
+    if baseline is None:
+        return f"policy limits appeared ({now}) where the decomposition call received none"
+    if now is None:
+        return f"no policy limits arrived where the decomposition call received {baseline}"
+    return f"the policy limits changed from {baseline} to {now}"
 
 
 def drift(config_dir: Path, system_before: tuple[SystemManagedFile, ...]) -> str | None:

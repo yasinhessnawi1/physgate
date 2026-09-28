@@ -175,6 +175,9 @@ def test_a_session_reads_works_and_proposes_under_the_generated_settings(
     assert facts.owner_is_session_user  # the same user could make it writable again
     # The system tier is recorded as it is.
     assert [f.path for f in facts.system_managed] == [str(p) for p in system_managed_paths()]
+    # The settings that keep the binary's served catalog and remote flags off, as recorded.
+    assert facts.traffic is not None
+    assert (facts.traffic.nonessential_traffic, facts.traffic.telemetry) == ("disabled", "disabled")
     assert report.managed_drift is None
 
 
@@ -431,6 +434,38 @@ def test_remote_settings_delivered_during_a_session_are_reported_as_drift(
     _, (report, _), _ = dispatch(tmp_path, install_bin, steps)
     assert report.managed_drift is not None
     assert "remote managed settings were delivered" in report.managed_drift
+
+
+def test_the_policy_limits_a_session_received_are_reported_by_their_digest(
+    tmp_path: Path, install_bin: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The real API writes the account's policy limits into the session's configuration
+    # directory; the scripted endpoint never does, so they are placed there as a fetch
+    # would leave them.
+    real = ClaudeDispatcher._install
+    limits = b'{"restrictions": {"enforce_web_search_mcp_isolation": {"allowed": false}}}'
+
+    def fetching(self: Any, request: Any, worktree: Path, sdir: Path) -> Any:  # noqa: ANN401
+        installed = real(self, request, worktree, sdir)
+        (sdir / "config").mkdir(parents=True, exist_ok=True)
+        (sdir / "config" / "policy-limits.json").write_bytes(limits)
+        return installed
+
+    monkeypatch.setattr(ClaudeDispatcher, "_install", fetching)
+    worktree = tmp_path / "run" / "worktrees" / "s1"
+    steps = [tool("Read", file_path=str(worktree / SPEC)), text("done")]
+    _, (report, _), _ = dispatch(tmp_path, install_bin, steps)
+    assert report.policy_limits_sha256 == hashlib.sha256(limits).hexdigest()
+    assert report.managed_drift is None  # the watch holds it to the run's baseline, not here
+
+
+def test_a_session_that_received_no_policy_limits_reports_none(
+    tmp_path: Path, install_bin: Path
+) -> None:
+    worktree = tmp_path / "run" / "worktrees" / "s1"
+    steps = [tool("Read", file_path=str(worktree / SPEC)), text("done")]
+    _, (report, _), _ = dispatch(tmp_path, install_bin, steps)
+    assert report.policy_limits_sha256 is None
 
 
 def test_the_hook_installation_is_the_source_as_it_is_now(install_bin: Path) -> None:

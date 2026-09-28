@@ -10,6 +10,7 @@ routing is zero.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -17,14 +18,20 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from git_rig import Gate, Reviewer, config, target_repo
+from git_rig import PARAMS, Gate, Reviewer, config, target_repo
 from scripted_endpoint import DUMMY_KEY, Script, serving, text, tool
 
 from physgate.cli import main
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.cli import Registrations
 from physgate.orchestrator.decompose import mint_id
-from physgate.orchestrator.events import Merged, TokensUsed, WorktreeRemoved, read_events
+from physgate.orchestrator.events import (
+    InstallChecked,
+    Merged,
+    TokensUsed,
+    WorktreeRemoved,
+    read_events,
+)
 from physgate.orchestrator.install import prepare_install
 from physgate.orchestrator.protocols import MessageUsage, ReviewResult, Usage
 from physgate.state.store import Store
@@ -80,7 +87,7 @@ def test_decompose_run_and_resume_through_the_command_with_routing_at_zero(
     run_dir = tmp_path / "run"
     install = tmp_path / "install"
     prepare_install(install, Path(__file__).resolve().parents[3])
-    params = config().model_dump(include={"auth", "gate_mode", "models", "bounds", "token_ceiling"})
+    params = config().model_dump(include=PARAMS)
     (tmp_path / "params.json").write_text(json.dumps(params))
     (tmp_path / "brief.md").write_text("Build a self-balancing robot.\n")
     monkeypatch.setenv("ANTHROPIC_API_KEY", DUMMY_KEY)
@@ -136,8 +143,16 @@ def test_decompose_run_and_resume_through_the_command_with_routing_at_zero(
     assert code == 0, again.err
 
     assert printed["step"] == "done" and printed["subtasks"] == {subtask: "done"}
+    # The numbers name their record: the recorded configuration's digest, run and resume alike.
+    manifest_id = hashlib.sha256((run_dir / "run.json").read_bytes()).hexdigest()
+    assert printed["manifest_id"] == json.loads(again.out)["manifest_id"] == manifest_id
     assert printed["tokens"]["routing"] == 0 and printed["tokens"]["session"] > 0
     events = read_events(run_dir / "events.jsonl")
+    # The installation was checked at the run and again at the resume, each on the record.
+    assert events[0].kind == "run_started" and events[0].config_sha256 == manifest_id
+    checks = [e for e in events if isinstance(e, InstallChecked)]
+    assert [(c.path, c.action) for c in checks] == [(str(install), "checked")] * 2
+    assert all(c.entries > 1000 and 0 <= c.seconds < 60 for c in checks)
     account = TokenAccount.from_events(events)
     account.assert_no_routing()
     assert account.decomposition_invocations() == 1
