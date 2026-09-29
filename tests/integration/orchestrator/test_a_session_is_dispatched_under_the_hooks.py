@@ -30,6 +30,7 @@ from scripted_endpoint import (  # noqa: E402
     tool,
 )
 
+from physgate.knowledge import loader  # noqa: E402
 from physgate.orchestrator.credentials import Credential  # noqa: E402
 from physgate.orchestrator.dispatch import RUN_RECORDS, ClaudeDispatcher  # noqa: E402
 from physgate.orchestrator.exceptions import InvocationError  # noqa: E402
@@ -75,15 +76,30 @@ def install_bin(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return prepare_install(tmp_path_factory.mktemp("install") / "hooks", root)
 
 
+#: Everything `dispatch()`'s `request()` role (``electrical``) must now read before any
+#: other tool (ARCH-020, ARCH-023) — real fixture content, not the curated library, since
+#: this file tests dispatch mechanics and only control and firmware have curated content.
+ALWAYS_LOADED = loader.always_loaded("electrical")
+
+
 def layout(root: Path) -> tuple[RunGit, Path]:
     run = run_layout(root)
     (run.integration / ".physgate" / "specs").mkdir(parents=True)
     (run.integration / SPEC).write_text("Size the driver.\n")
+    for relative in ALWAYS_LOADED:
+        path = run.integration / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"# {relative.name}\n\nFixture content for the dispatch tests.\n")
     commit_all(run.integration, "specifications\n")
     store_root = run.run_dir / "store"
     store = Store(store_root)
     store.close()
     return run, store_root
+
+
+def knowledge_reads(worktree: Path) -> list[dict[str, Any]]:
+    """Read steps for every file `ALWAYS_LOADED` now requires, in the scripted session."""
+    return [tool("Read", file_path=str(worktree / relative)) for relative in ALWAYS_LOADED]
 
 
 def request(cfg: RunConfig) -> SessionRequest:
@@ -136,6 +152,7 @@ def test_a_session_reads_works_and_proposes_under_the_generated_settings(
 ) -> None:
     worktree = tmp_path / "run" / "worktrees" / "s1"
     steps = [
+        *knowledge_reads(worktree),
         tool("Read", file_path=str(worktree / SPEC)),
         tool("Bash", command="env > modules/power/env.txt; echo 'x = 2' > modules/power/a.py"),
         tool(
@@ -187,6 +204,7 @@ def test_the_first_tool_but_read_is_refused_until_the_reading_is_done(
     worktree = tmp_path / "run" / "worktrees" / "s1"
     steps = [
         tool("Bash", command="echo early > modules/power/early.py"),
+        *knowledge_reads(worktree),
         tool("Read", file_path=str(worktree / SPEC)),
         text("done"),
     ]
@@ -211,6 +229,7 @@ def test_the_wall_clock_stops_a_session_and_is_its_cause(tmp_path: Path, install
     worktree = tmp_path / "run" / "worktrees" / "s1"
     marker = f"sleep 31.{os.getpid()}"
     steps = [
+        *knowledge_reads(worktree),
         tool("Read", file_path=str(worktree / SPEC)),
         tool("Bash", command=marker),
         text("x"),
@@ -225,7 +244,7 @@ def test_the_turn_limit_is_an_infrastructure_outcome(tmp_path: Path, install_bin
     cfg = config()
     cfg = cfg.model_copy(update={"bounds": cfg.bounds.model_copy(update={"session_max_turns": 1})})
     worktree = tmp_path / "run" / "worktrees" / "s1"
-    steps = [tool("Read", file_path=str(worktree / SPEC)), text("x")]
+    steps = [*knowledge_reads(worktree), tool("Read", file_path=str(worktree / SPEC)), text("x")]
     _, (report, _), _ = dispatch(tmp_path, install_bin, steps, cfg)
     assert report.end.cause == "turn_limit"
 
@@ -248,7 +267,11 @@ def test_a_credential_that_reaches_the_stream_anyway_is_redacted_before_anything
     # the model's words.
     secret = DUMMY_KEY if mode == "api_key" else DUMMY_OAUTH_TOKEN
     worktree = tmp_path / "run" / "worktrees" / "s1"
-    steps = [tool("Read", file_path=str(worktree / SPEC)), text(f"the secret is {secret}")]
+    steps = [
+        *knowledge_reads(worktree),
+        tool("Read", file_path=str(worktree / SPEC)),
+        text(f"the secret is {secret}"),
+    ]
     credential = Credential(mode, secret)  # type: ignore[arg-type]
     _, (report, _), _ = dispatch(tmp_path, install_bin, steps, credential=credential)
     captured = Path(str(report.trajectory)).read_text()
@@ -259,7 +282,7 @@ def test_a_session_answered_by_a_model_other_than_the_pinned_one_is_refused(
     tmp_path: Path, install_bin: Path
 ) -> None:
     worktree = tmp_path / "run" / "worktrees" / "s1"
-    steps = [tool("Read", file_path=str(worktree / SPEC)), text("done")]
+    steps = [*knowledge_reads(worktree), tool("Read", file_path=str(worktree / SPEC)), text("done")]
     with pytest.raises(InvocationError, match="other than the pinned one") as caught:
         dispatch(tmp_path, install_bin, steps, answer_as="claude-haiku-4-5-20251001")
     assert caught.value.context == {
@@ -287,6 +310,7 @@ def test_a_session_left_running_by_a_killed_orchestrator_is_stopped_with_its_too
     marker = f"sleep 23.{os.getpid()}"
     late = worktree / "modules" / "power" / "late.py"
     steps = [
+        *knowledge_reads(worktree),
         tool("Read", file_path=str(worktree / SPEC)),
         tool("Bash", command=f"{marker} ; echo late > modules/power/late.py"),
         text("done"),
@@ -360,6 +384,7 @@ def test_a_subscription_token_reaches_the_binary_as_a_login_and_nothing_else_hol
 ) -> None:
     worktree = tmp_path / "run" / "worktrees" / "s1"
     steps = [
+        *knowledge_reads(worktree),
         tool("Read", file_path=str(worktree / SPEC)),
         tool("Bash", command="env > modules/power/env.txt; echo 'x = 2' > modules/power/a.py"),
         text("done"),
@@ -389,7 +414,9 @@ def test_each_message_is_counted_once_at_its_final_usage_and_matches_the_binary(
     worktree = tmp_path / "run" / "worktrees" / "s1"
     reading = tool("Read", file_path=str(worktree / SPEC))
     reading["pre_text"] = "I will read the specification."
-    api, (report, _), _ = dispatch(tmp_path, install_bin, [reading, text("done")])
+    api, (report, _), _ = dispatch(
+        tmp_path, install_bin, [*knowledge_reads(worktree), reading, text("done")]
+    )
     assert report.end.outcome == "completed", report
     events = [json.loads(line) for line in Path(str(report.trajectory)).read_text().splitlines()]
     per_event = [e["message"]["id"] for e in events if e.get("type") == "assistant"]
@@ -412,7 +439,7 @@ def test_an_account_that_differs_from_the_binary_s_totals_is_an_error(
 
     monkeypatch.setattr(dispatch_module, "read_stream", losing_a_message)
     worktree = tmp_path / "run" / "worktrees" / "s1"
-    steps = [tool("Read", file_path=str(worktree / SPEC)), text("done")]
+    steps = [*knowledge_reads(worktree), tool("Read", file_path=str(worktree / SPEC)), text("done")]
     with pytest.raises(AccountingError, match="differs from the binary's own totals"):
         dispatch(tmp_path, install_bin, steps)
 
@@ -430,7 +457,7 @@ def test_remote_settings_delivered_during_a_session_are_reported_as_drift(
 
     monkeypatch.setattr(ClaudeDispatcher, "_install", delivering)
     worktree = tmp_path / "run" / "worktrees" / "s1"
-    steps = [tool("Read", file_path=str(worktree / SPEC)), text("done")]
+    steps = [*knowledge_reads(worktree), tool("Read", file_path=str(worktree / SPEC)), text("done")]
     _, (report, _), _ = dispatch(tmp_path, install_bin, steps)
     assert report.managed_drift is not None
     assert "remote managed settings were delivered" in report.managed_drift
@@ -453,7 +480,7 @@ def test_the_policy_limits_a_session_received_are_reported_by_their_digest(
 
     monkeypatch.setattr(ClaudeDispatcher, "_install", fetching)
     worktree = tmp_path / "run" / "worktrees" / "s1"
-    steps = [tool("Read", file_path=str(worktree / SPEC)), text("done")]
+    steps = [*knowledge_reads(worktree), tool("Read", file_path=str(worktree / SPEC)), text("done")]
     _, (report, _), _ = dispatch(tmp_path, install_bin, steps)
     assert report.policy_limits_sha256 == hashlib.sha256(limits).hexdigest()
     assert report.managed_drift is None  # the watch holds it to the run's baseline, not here
@@ -463,7 +490,7 @@ def test_a_session_that_received_no_policy_limits_reports_none(
     tmp_path: Path, install_bin: Path
 ) -> None:
     worktree = tmp_path / "run" / "worktrees" / "s1"
-    steps = [tool("Read", file_path=str(worktree / SPEC)), text("done")]
+    steps = [*knowledge_reads(worktree), tool("Read", file_path=str(worktree / SPEC)), text("done")]
     _, (report, _), _ = dispatch(tmp_path, install_bin, steps)
     assert report.policy_limits_sha256 is None
 
@@ -496,7 +523,13 @@ def test_a_session_cannot_write_the_run_s_records_streams_integration_worktree_o
     worktree = run_dir / "worktrees" / "s1"
     integration = run_dir / "worktrees" / "_integration"
     ref = repo / ".git" / "refs" / "heads" / "physgate" / "run-1" / "run"
-    steps = [tool("Read", file_path=str(worktree / SPEC))]
+    # Every reading step (the curated files, then the spec) plus one, since the
+    # scripted endpoint answers request N from N accumulated tool results, so
+    # request[k]'s own last_user reports step[k-1]'s outcome — the first attack's
+    # own refusal only shows up one request after it runs.
+    read_steps = [*knowledge_reads(worktree), tool("Read", file_path=str(worktree / SPEC))]
+    first_attack_reply_at = len(read_steps) + 1
+    steps = list(read_steps)
     for name in RECORD_FILES:
         steps.append(tool("Bash", command=f"echo forged >> {run_dir / name}"))
         steps.append(tool("Bash", command=f"echo forged >> ../../{name}"))
@@ -527,10 +560,11 @@ def test_a_session_cannot_write_the_run_s_records_streams_integration_worktree_o
     assert "forged" not in stream
     refusals = [
         r.last_user
-        for r in api.requests[2:]
+        for r in api.requests[first_attack_reply_at:]
         if "protected" in r.last_user or "put back" in r.last_user
     ]
-    assert len(refusals) == len(steps) - 2  # every write after the reading, refused or put back
+    # every write after the reading, refused or put back
+    assert len(refusals) == len(steps) - len(read_steps) - 1
 
 
 def test_an_installation_that_is_not_the_source_is_refused_whatever_the_cache(
@@ -587,7 +621,7 @@ def test_a_tail_after_the_runtime_s_result_is_found_and_not_read(
 
     monkeypatch.setattr(dispatch_module, "redact", redact_then_append)
     worktree = tmp_path / "run" / "worktrees" / "s1"
-    steps = [tool("Read", file_path=str(worktree / SPEC)), text("done")]
+    steps = [*knowledge_reads(worktree), tool("Read", file_path=str(worktree / SPEC)), text("done")]
     _, (report, _), _ = dispatch(tmp_path, install_bin, steps)
     stream = Path(str(report.trajectory)).read_bytes()
     assert report.trajectory_tampered is not None, "the tail was not found"
@@ -603,7 +637,7 @@ def test_a_tail_after_the_runtime_s_result_is_found_and_not_read(
 
 def test_a_clean_stream_is_sealed_as_it_is_on_disk(tmp_path: Path, install_bin: Path) -> None:
     worktree = tmp_path / "run" / "worktrees" / "s1"
-    steps = [tool("Read", file_path=str(worktree / SPEC)), text("done")]
+    steps = [*knowledge_reads(worktree), tool("Read", file_path=str(worktree / SPEC)), text("done")]
     _, (report, _), _ = dispatch(tmp_path, install_bin, steps)
     stream = Path(str(report.trajectory)).read_bytes()
     assert report.trajectory_tampered is None
