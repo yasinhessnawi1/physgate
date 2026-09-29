@@ -75,6 +75,7 @@ from scripted_endpoint import DUMMY_KEY, Script, serving, text, tool  # noqa: E4
 
 import physgate.orchestrator.cli as orchestrator_cli  # noqa: E402
 from physgate.cli import main as physgate_main  # noqa: E402
+from physgate.knowledge import loader  # noqa: E402
 from physgate.orchestrator.budget import SessionEnd  # noqa: E402
 from physgate.orchestrator.decompose import (  # noqa: E402
     Outcome,
@@ -84,7 +85,7 @@ from physgate.orchestrator.decompose import (  # noqa: E402
     start_run,
 )
 from physgate.orchestrator.events import read_events  # noqa: E402
-from physgate.orchestrator.git import head_of  # noqa: E402
+from physgate.orchestrator.git import commit_all, head_of  # noqa: E402
 from physgate.orchestrator.install import prepare_install  # noqa: E402
 from physgate.orchestrator.merge import RunGit, commit_attempt  # noqa: E402
 from physgate.orchestrator.ports import SessionReport, SessionRequest  # noqa: E402
@@ -124,6 +125,10 @@ def session_script() -> Script:
     """What every real session does, in whichever worktree it runs."""
     return Script(
         main=[
+            *(
+                tool("Read", file_path=f"{{cwd}}/{relative.as_posix()}")
+                for relative in loader.always_loaded("electrical")
+            ),
             tool("Read", file_path="{cwd}/.physgate/specs/{cwd_name}.md"),
             tool(
                 "Bash",
@@ -143,6 +148,11 @@ def session_script() -> Script:
 def build(root: Path, url: str) -> None:
     """A fresh target repository and a run started from a fixed plan, as decomposition starts it."""
     repo = target_repo(root)
+    for relative in loader.always_loaded("electrical"):
+        path = repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"# {relative.name}\n\nFixture content for the kill-cycle tests.\n")
+    commit_all(repo, "curated knowledge fixture\n")
     cfg = config().model_copy(
         update={"target_head": head_of(repo, "master"), "endpoint": endpoint_of(url)}
     )

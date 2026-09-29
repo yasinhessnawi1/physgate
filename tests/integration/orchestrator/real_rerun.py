@@ -65,6 +65,7 @@ from physgate.evaluation.observe.manifest import read_manifest  # noqa: E402
 from physgate.evaluation.observe.rerun import rerun, through_the_command  # noqa: E402
 from physgate.evaluation.observe.trace import read_traces  # noqa: E402
 from physgate.gate.runner import PhysicsGate  # noqa: E402
+from physgate.knowledge import loader  # noqa: E402
 from physgate.orchestrator.cli import Registrations  # noqa: E402
 from physgate.orchestrator.decompose import binary_version  # noqa: E402
 from physgate.orchestrator.events import (  # noqa: E402
@@ -73,6 +74,7 @@ from physgate.orchestrator.events import (  # noqa: E402
     SessionEnded,
     read_events,
 )
+from physgate.orchestrator.git import commit_all  # noqa: E402
 from physgate.orchestrator.install import prepare_install  # noqa: E402
 from physgate.orchestrator.invocation import claude_binary  # noqa: E402
 from physgate.orchestrator.run_config import ModelStrings, RunBounds  # noqa: E402
@@ -364,8 +366,17 @@ def dry_script(api: Any) -> None:  # noqa: ANN401
         )
         for p in PROPOSALS
     ]
+    reads = [
+        tool("Read", file_path=f"{{cwd}}/{relative.as_posix()}")
+        for relative in loader.always_loaded("electrical")
+    ]
     api.script = Script(
-        main=[tool("Read", file_path="{cwd}/.physgate/specs/{cwd_name}.md"), *writes, text("done")]
+        main=[
+            *reads,
+            tool("Read", file_path="{cwd}/.physgate/specs/{cwd_name}.md"),
+            *writes,
+            text("done"),
+        ]
     )
     api.on_request = lambda thread, cwd, done: (
         plan if cwd.endswith("/decomposition/cwd") and done == 0 else None
@@ -374,6 +385,11 @@ def dry_script(api: Any) -> None:  # noqa: ANN401
 
 def both_runs(root: Path) -> dict[str, Any]:
     repo = target_repo(root)
+    for relative in loader.always_loaded("electrical"):
+        path = repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"# {relative.name}\n\nFixture content for the real-rerun driver.\n")
+    commit_all(repo, "curated knowledge fixture\n")
     # Built before either run, so both check it: a run that built the installation
     # records "built" where its rerun records "checked", a real difference.
     install = root / "install"

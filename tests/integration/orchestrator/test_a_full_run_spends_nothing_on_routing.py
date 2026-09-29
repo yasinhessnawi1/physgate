@@ -22,6 +22,7 @@ from git_rig import PARAMS, Gate, Reviewer, config, target_repo
 from scripted_endpoint import DUMMY_KEY, Script, serving, text, tool
 
 from physgate.cli import main
+from physgate.knowledge import loader
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.cli import Registrations
 from physgate.orchestrator.decompose import mint_id
@@ -32,6 +33,7 @@ from physgate.orchestrator.events import (
     WorktreeRemoved,
     read_events,
 )
+from physgate.orchestrator.git import commit_all
 from physgate.orchestrator.install import prepare_install
 from physgate.orchestrator.protocols import MessageUsage, ReviewResult, Usage
 from physgate.state.store import Store
@@ -84,6 +86,11 @@ def test_decompose_run_and_resume_through_the_command_with_routing_at_zero(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     repo = target_repo(tmp_path)
+    for relative in loader.always_loaded("electrical"):
+        path = repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"# {relative.name}\n\nFixture content for the routing-cost test.\n")
+    commit_all(repo, "curated knowledge fixture\n")
     run_dir = tmp_path / "run"
     install = tmp_path / "install"
     prepare_install(install, Path(__file__).resolve().parents[3])
@@ -123,6 +130,10 @@ def test_decompose_run_and_resume_through_the_command_with_routing_at_zero(
         worktree = run_dir / "worktrees" / subtask
         api.script = Script(
             main=[
+                *(
+                    tool("Read", file_path=str(worktree / relative))
+                    for relative in loader.always_loaded("electrical")
+                ),
                 tool("Read", file_path=str(worktree / ".physgate" / "specs" / f"{subtask}.md")),
                 tool("Bash", command="echo 'x = 1' > modules/power/driver.py"),
                 tool(

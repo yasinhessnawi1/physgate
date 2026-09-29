@@ -414,14 +414,14 @@ def test_each_message_is_counted_once_at_its_final_usage_and_matches_the_binary(
     worktree = tmp_path / "run" / "worktrees" / "s1"
     reading = tool("Read", file_path=str(worktree / SPEC))
     reading["pre_text"] = "I will read the specification."
-    api, (report, _), _ = dispatch(
-        tmp_path, install_bin, [*knowledge_reads(worktree), reading, text("done")]
-    )
+    reads = knowledge_reads(worktree)
+    api, (report, _), _ = dispatch(tmp_path, install_bin, [*reads, reading, text("done")])
     assert report.end.outcome == "completed", report
     events = [json.loads(line) for line in Path(str(report.trajectory)).read_text().splitlines()]
     per_event = [e["message"]["id"] for e in events if e.get("type") == "assistant"]
     assert len(per_event) == len(api.requests) + 1  # the two-block message twice
-    assert len(report.usage) == len(api.requests) == 2
+    expected = len(reads) + 2  # every read, the pre-text-and-tool-call turn, and "done"
+    assert len(report.usage) == len(api.requests) == expected
     assert all(u.usage.output_tokens == 9 and u.usage.input_tokens == 5 for u in report.usage)
 
 
@@ -621,7 +621,8 @@ def test_a_tail_after_the_runtime_s_result_is_found_and_not_read(
 
     monkeypatch.setattr(dispatch_module, "redact", redact_then_append)
     worktree = tmp_path / "run" / "worktrees" / "s1"
-    steps = [*knowledge_reads(worktree), tool("Read", file_path=str(worktree / SPEC)), text("done")]
+    reads = knowledge_reads(worktree)
+    steps = [*reads, tool("Read", file_path=str(worktree / SPEC)), text("done")]
     _, (report, _), _ = dispatch(tmp_path, install_bin, steps)
     stream = Path(str(report.trajectory)).read_bytes()
     assert report.trajectory_tampered is not None, "the tail was not found"
@@ -632,7 +633,7 @@ def test_a_tail_after_the_runtime_s_result_is_found_and_not_read(
     )
     # What was read ends at the runtime's own result: the account took no tail line.
     assert "msg_forged" not in {u.message_id for u in report.usage}
-    assert len(report.usage) == 2
+    assert len(report.usage) == len(reads) + 2  # every read, the spec read, and "done"
 
 
 def test_a_clean_stream_is_sealed_as_it_is_on_disk(tmp_path: Path, install_bin: Path) -> None:

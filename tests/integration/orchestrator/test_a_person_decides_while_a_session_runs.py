@@ -22,6 +22,7 @@ from kill_cycles import SUBTASKS, build
 from scripted_endpoint import DUMMY_KEY, Script, serving, text, tool
 
 from physgate.cli import main
+from physgate.knowledge import loader
 from physgate.orchestrator.cli import Registrations
 from physgate.orchestrator.events import WorktreeRemoved, read_events
 from physgate.orchestrator.install import prepare_install
@@ -46,6 +47,10 @@ def test_a_decision_made_during_a_session_stands_and_the_session_cannot_write_on
     prepare_install(install, Path(__file__).resolve().parents[3])
     session = Script(
         main=[
+            *(
+                tool("Read", file_path=f"{{cwd}}/{relative.as_posix()}")
+                for relative in loader.always_loaded("electrical")
+            ),
             tool("Read", file_path="{cwd}/.physgate/specs/{cwd_name}.md"),
             tool("Bash", command=f"sleep 2; echo forged >> ../../{DECISIONS_NAME}"),
             text("done"),

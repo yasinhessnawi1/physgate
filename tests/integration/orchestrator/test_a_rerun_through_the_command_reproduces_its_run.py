@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from gate_run import INTERFACE, PayingReviewer, build_install, session
+from gate_run import INTERFACE, PayingReviewer, build_install, seed_knowledge, session
 from git_rig import PARAMS, config, target_repo
 from scripted_endpoint import DUMMY_KEY, FakeMessagesApi, Script, serving, tool
 from test_the_three_gate_modes_on_a_stand_in_brief import DRIVE_MODULE, STAND_IN_BRIEF
@@ -123,6 +123,7 @@ def test_a_scripted_run_rerun_through_the_command_reproduces_every_record(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     repo = target_repo(tmp_path)
+    seed_knowledge(repo)
     (tmp_path / "brief.md").write_text(STAND_IN_BRIEF)
     monkeypatch.setenv("ANTHROPIC_API_KEY", DUMMY_KEY)
     with serving(Script(main=[])) as (api, url):
