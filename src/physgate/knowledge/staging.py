@@ -1,9 +1,16 @@
-"""``staging.append``: one write path for a subtask's outcome (ARCH-100).
+"""``staging.append``: one write path for a subtask's outcome, and for a drafted file (ARCH-100).
 
 A successful episode's candidate skill and a failed one's candidate
 antipattern both come through here, and only here — nothing in this module
 ever touches ``standards.md`` or ``skill.md``. ``promote.py`` is the library's
 only writer, and it is a human, run interactively.
+
+A third kind, ``standards``, covers the case ARCH-101 itself does not emit
+from an episode: a domain's first standards or skill file, researched and
+drafted whole rather than accumulated one finding at a time. It goes through
+the same staging-then-promotion shape because the promotion gate — a human,
+run interactively — is the property that matters, not which kind of writing
+produced the candidate.
 
 Emission is the orchestrator's, not a role session's: nothing in the harness
 wires a role session's tool calls to this module, so ``staging/`` needs none of
@@ -22,7 +29,7 @@ from pydantic import BaseModel, ConfigDict, StringConstraints, ValidationError
 
 from physgate.knowledge.exceptions import StagingError
 
-Kind = Literal["skill", "antipattern"]
+Kind = Literal["skill", "antipattern", "standards"]
 
 #: Where a candidate lands unless the caller names another directory: a
 #: subtree of the tracked `knowledge/` directory, sibling to the promoted
@@ -31,6 +38,7 @@ Kind = Literal["skill", "antipattern"]
 STAGING_ROOT = Path("knowledge/staging")
 
 _ID_PATTERN = r"^[A-Za-z0-9_-]{1,128}$"
+_DOMAIN_PATTERN = r"^[a-z][a-z0-9_]*$"
 
 
 class Candidate(BaseModel):
@@ -39,6 +47,11 @@ class Candidate(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     kind: Kind
+    #: The domain directory under `knowledge/` this candidate is destined for
+    #: (`loader.py`'s own role/domain naming: a safe, lower-case directory
+    #: name), so a human reviewer and `promote.py` both know where it goes
+    #: without parsing `content` for it.
+    domain: Annotated[str, StringConstraints(pattern=_DOMAIN_PATTERN)]
     content: Annotated[str, StringConstraints(min_length=1)]
     episode_id: Annotated[str, StringConstraints(pattern=_ID_PATTERN)]
     candidate_id: Annotated[str, StringConstraints(pattern=_ID_PATTERN)]
@@ -51,13 +64,14 @@ def append(
     content: str,
     episode_id: str,
     *,
+    domain: str,
     staging_root: Path = STAGING_ROOT,
 ) -> Path:
     """Write one candidate under ``staging_root``; never reads or writes the library.
 
     Raises:
         StagingError: ``content`` is empty or whitespace-only, or ``episode_id``
-            is not a safe identifier.
+            or ``domain`` is not a safe identifier.
     """
     if not content.strip():
         msg = "a candidate's content must not be empty"
@@ -66,6 +80,7 @@ def append(
     try:
         record = Candidate(
             kind=kind,
+            domain=domain,
             content=content,
             episode_id=episode_id,
             candidate_id=candidate_id,
