@@ -19,7 +19,12 @@ from pathlib import Path
 
 import pytest
 from scripted_endpoint import text, tool
-from test_a_session_is_dispatched_under_the_hooks import SPEC, dispatch, install_bin  # noqa: F401
+from test_a_session_is_dispatched_under_the_hooks import (  # noqa: F401
+    SPEC,
+    dispatch,
+    install_bin,
+    knowledge_reads,
+)
 
 from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.install import (
@@ -51,15 +56,21 @@ def test_a_dispatched_role_session_cannot_write_the_gate_in_its_installation(
     install_bin: Path,  # noqa: F811 - the fixture, imported
 ) -> None:
     gate = installed_gate(install_bin)
-    runner, table = gate / "runner.py", gate / "bounds" / "electrical.toml"
-    before = {p: digest(p) for p in (runner, table)}
+    runner, exceptions_file = gate / "runner.py", gate / "exceptions.py"
+    before = {p: digest(p) for p in (runner, exceptions_file)}
     worktree = tmp_path / "run" / "worktrees" / "s1"
     steps = [
+        *knowledge_reads(worktree),
         tool("Read", file_path=str(worktree / SPEC)),
         tool("Read", file_path=str(runner)),
         tool("Write", file_path=str(runner), content="# every check passes\n"),
-        tool("Read", file_path=str(table)),
-        tool("Edit", file_path=str(table), old_string="high = 6.5", new_string="high = 300"),
+        tool("Read", file_path=str(exceptions_file)),
+        tool(
+            "Edit",
+            file_path=str(exceptions_file),
+            old_string="class GateError(Exception):",
+            new_string="class GateError(RuntimeError):",
+        ),
         tool("Bash", command=f"echo 'PASS = True' >> {runner}"),
         tool("Bash", command=f"echo 'PASS = True' > {gate / 'check_pass.py'}"),
         text("done"),
@@ -83,13 +94,17 @@ def test_an_installed_gate_file_that_differs_from_the_source_refuses_the_run(
     install = tmp_path / "install"
     prepare_install(install, ROOT)
     require_current(install, ROOT)
-    table = installed_gate(install / "bin" / "physgate") / "bounds" / "electrical.toml"
-    _writable(table.parent)
-    _writable(table)
-    table.write_text(table.read_text().replace("high = 6.5", "high = 300", 1))
+    exceptions_file = installed_gate(install / "bin" / "physgate") / "exceptions.py"
+    _writable(exceptions_file.parent)
+    _writable(exceptions_file)
+    exceptions_file.write_text(
+        exceptions_file.read_text().replace(
+            "class GateError(Exception):", "class GateError(RuntimeError):", 1
+        )
+    )
     with pytest.raises(InvocationError, match="not the source as it is now") as caught:
         require_current(install, ROOT)
-    assert caught.value.context["differs"] == "gate/bounds/electrical.toml"
+    assert caught.value.context["differs"] == "gate/exceptions.py"
 
 
 def test_a_file_planted_in_the_installed_gate_refuses_the_run(tmp_path: Path) -> None:
@@ -167,6 +182,7 @@ def test_a_dispatched_role_session_cannot_rewrite_the_installation_s_build_recor
     before = record.read_bytes()
     worktree = tmp_path / "run" / "worktrees" / "s1"
     steps = [
+        *knowledge_reads(worktree),
         tool("Read", file_path=str(worktree / SPEC)),
         tool("Bash", command=f"chmod u+w {record} && echo '{{}}' > {record}"),
         tool("Write", file_path=str(record), content="{}\n"),
@@ -188,8 +204,10 @@ def test_a_run_s_recorded_manifest_refuses_a_same_user_rewrite_of_both(
     # fooled, exactly as in the case above with no session at all. What the run
     # recorded when it first used the installation is not.
     install = install_bin.parent.parent
+    worktree = tmp_path / "run" / "worktrees" / "s1"
     steps = [
-        tool("Read", file_path=str(tmp_path / "run" / "worktrees" / "s1" / SPEC)),
+        *knowledge_reads(worktree),
+        tool("Read", file_path=str(worktree / SPEC)),
         text("done"),
     ]
     _, (report, facts), _ = dispatch(tmp_path, install_bin, steps)

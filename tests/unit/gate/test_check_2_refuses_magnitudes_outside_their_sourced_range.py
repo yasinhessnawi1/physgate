@@ -10,20 +10,26 @@ import pytest
 from gate_fixtures import graph, node
 
 from physgate.gate import check_magnitude
-from physgate.gate.bounds_table import BOUNDS_DIR, BoundsTableError, load_bounds, load_table
+from physgate.gate.bounds_table import (
+    BOUNDS_NAME,
+    KNOWLEDGE_DIR,
+    BoundsTableError,
+    load_bounds,
+    load_table,
+)
 from physgate.gate.context import CheckContext
 from physgate.gate.graph import GraphView
 from physgate.gate.runner import PhysicsGate
 from physgate.orchestrator.protocols import MagnitudeDetails, UncheckedDetails
 
-TABLE = BOUNDS_DIR / "electrical.toml"
+TABLE = KNOWLEDGE_DIR / "electrical" / BOUNDS_NAME
 
 
 def motor(value: float | int, unit: str = "A", domain: str = "electrical") -> dict[str, Any]:
     return node(f"{domain}.motor_left", domain=domain, quantities={"stall_current": (value, unit)})
 
 
-def check(tmp_path: Path, *payloads: dict[str, Any], bounds_dir: Path = BOUNDS_DIR) -> Any:
+def check(tmp_path: Path, *payloads: dict[str, Any], bounds_dir: Path = KNOWLEDGE_DIR) -> Any:
     graph(tmp_path / "g", *payloads)
     view = GraphView.read(tmp_path / "g", base_revision=0)
     ctx = CheckContext(view=view, scope="subtask", bounds=load_bounds(bounds_dir))
@@ -74,10 +80,10 @@ def test_a_quantity_with_no_range_in_its_domain_is_unchecked_never_passed(tmp_pa
 
 def test_the_range_comes_from_the_table_file_not_the_code(tmp_path: Path) -> None:
     widened = tmp_path / "tables"
-    widened.mkdir()
+    (widened / "electrical").mkdir(parents=True)
     text = TABLE.read_text().replace("high = 6.5\n", "high = 300\n", 1)
     assert text != TABLE.read_text()
-    (widened / "electrical.toml").write_text(text)
+    (widened / "electrical" / BOUNDS_NAME).write_text(text)
     assert check(tmp_path / "g", motor(240), bounds_dir=widened).observations == ()
 
 
@@ -107,8 +113,11 @@ note = "a note"
 """
 
 
-def write(tmp_path: Path, text: str, name: str = "electrical.toml") -> Path:
-    path = tmp_path / name
+def write(tmp_path: Path, text: str, domain: str = "electrical") -> Path:
+    """Write ``text`` as ``<tmp_path>/<domain>/bounds.toml``, one domain directory per call."""
+    directory = tmp_path / domain
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / BOUNDS_NAME
     path.write_text(text)
     return path
 
@@ -164,7 +173,7 @@ def test_a_table_named_for_another_domain_or_repeating_a_quantity_does_not_load(
     tmp_path: Path,
 ) -> None:
     with pytest.raises(BoundsTableError, match="another domain"):
-        load_table(write(tmp_path, GOOD, "mechanical.toml"))
+        load_table(write(tmp_path, GOOD, "mechanical"))
     doubled = GOOD + GOOD.split("[meta]")[1].split("\n\n", 1)[1]
     with pytest.raises(BoundsTableError, match="two ranges"):
         load_table(write(tmp_path, doubled))

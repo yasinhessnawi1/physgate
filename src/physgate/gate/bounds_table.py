@@ -1,8 +1,12 @@
 """The bounds table: sourced ranges for magnitudes, per domain, read from protected files.
 
-The table lives inside the gate's directory, so no agent session can widen a
-range to make its own number pass, and it travels into the read-only
-installation the sessions run from. Each file is one domain, named for it. Each
+Each domain has its own directory under the tracked ``knowledge/`` tree, and
+its bounds table is the one file in it named ``bounds.toml``. No agent session
+can widen a range to make its own number pass: the physics gate always builds
+in the orchestrator's own live process, from whatever checkout is driving the
+run, never through the read-only installation copy a role session's hooks run
+from, and a role or reviewer session's own hooks protect every curated domain
+directory under ``knowledge/`` the same way they protect the gate itself. Each
 range names the quantity, the bounds and their unit, the class of component it
 is for, its source, the date the source was read, and a note on what the range
 is and is not.
@@ -37,8 +41,17 @@ from physgate.gate.exceptions import GateError
 from physgate.gate.units import PINT_ERRORS, UnitRefusedError, measure
 from physgate.state.schema import DomainKind
 
-#: Where the tables are: beside this module, inside the protected gate.
-BOUNDS_DIR = Path(__file__).parent / "bounds"  # a directory, beside this module
+#: One file name, one per domain directory.
+BOUNDS_NAME = "bounds.toml"
+
+#: Where the domain directories are: the tracked ``knowledge/`` tree, beside
+#: ``src/`` at the repository root (gate -> physgate -> src -> the repository
+#: root, four parents up from this module). This only resolves inside a live
+#: checkout, which is exactly where the gate always builds: in the
+#: orchestrator's own process, never through the read-only installation copy
+#: a role session's hooks run from (verified: that copy is invoked only for
+#: ``hooks install``, never to run a gate check).
+KNOWLEDGE_DIR = Path(__file__).resolve().parents[3] / "knowledge"
 
 _Text = Annotated[str, StringConstraints(min_length=1, strip_whitespace=True)]
 
@@ -120,9 +133,9 @@ def load_table(path: Path) -> BoundsTable:
     """Load one domain's table.
 
     Raises:
-        BoundsTableError: the file is not TOML, is not named for its domain, or a
-            range lacks a field, a source, a date, a sound interval or a unit its
-            quantity's kind accepts.
+        BoundsTableError: the file is not TOML, its directory is not named for
+            its domain, or a range lacks a field, a source, a date, a sound
+            interval or a unit its quantity's kind accepts.
     """
     raw = Path(path).read_bytes()
     try:
@@ -135,8 +148,8 @@ def load_table(path: Path) -> BoundsTable:
         where = ".".join(str(p) for p in first["loc"])
         msg = "a bounds table does not load"
         raise BoundsTableError(msg, path=str(path), where=where, reason=first["msg"]) from None
-    if parsed.meta.domain != Path(path).stem:
-        msg = "a bounds table is named for another domain than it declares"
+    if parsed.meta.domain != Path(path).parent.name:
+        msg = "a bounds table's directory is named for another domain than it declares"
         raise BoundsTableError(msg, path=str(path), declared=parsed.meta.domain)
     names = [r.quantity for r in parsed.range]
     if len(set(names)) != len(names):
@@ -150,13 +163,13 @@ def load_table(path: Path) -> BoundsTable:
     )
 
 
-def load_bounds(directory: Path = BOUNDS_DIR) -> Bounds:
-    """Load every domain's table in ``directory``.
+def load_bounds(directory: Path = KNOWLEDGE_DIR) -> Bounds:
+    """Load every domain's ``bounds.toml`` found one level under ``directory``.
 
     Raises:
         BoundsTableError: any table does not load, or there is none.
     """
-    paths = sorted(Path(directory).glob("*.toml"))
+    paths = sorted(Path(directory).glob(f"*/{BOUNDS_NAME}"))
     if not paths:
         msg = "no bounds table was found"
         raise BoundsTableError(msg, directory=str(directory))

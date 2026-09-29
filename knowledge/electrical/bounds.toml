@@ -2,10 +2,12 @@
 # magnitude check. Every range carries its source, the date it was read and a
 # note on what the range is and is not; a range without them does not load.
 # Changing a range is a change to what the gate accepts, and is recorded as one.
+# Relocated from inside the gate's own directory to sit beside the domain's
+# other curated content; the ranges and their sources are unchanged by the move.
 
 [meta]
 domain = "electrical"
-curated_by = "the physics gate, until the knowledge layer takes this table over"
+curated_by = "the physics gate's own build; not yet reviewed through the knowledge layer's promotion step"
 
 [[range]]
 quantity = "stall_current"
