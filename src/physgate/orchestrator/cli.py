@@ -191,18 +191,31 @@ def add_parsers(
 
 
 def _gate_events(args: argparse.Namespace) -> int:
-    """Print every gate check the run recorded, one JSON line each, in log order."""
+    """Print every gate check the run recorded, one JSON line each, in log order.
+
+    Every line carries the run's manifest id (``RunConfig.sha256()``), the same
+    digest ``run``/``resume`` print, so a reader can tie a line back to the run
+    it came from.
+    """
+    run_dir = args.run_dir.resolve()
     try:
-        events = read_events(args.run_dir.resolve() / "events.jsonl")
+        events = read_events(run_dir / "events.jsonl")
+        manifest_id = load_run_config(run_dir / "run.json").sha256()
     except OrchestratorError as exc:
         return _fail(str(exc), **exc.context)
-    for event in gate_events(events):
+    for event in gate_events(events, manifest_id):
         print(event.model_dump_json())
     return 0
 
 
 def _catches(args: argparse.Namespace) -> int:
-    """Print the catch count over every run named, in the window, one JSON line per row."""
+    """Print the catch count over every run named, in the window, one JSON line per row.
+
+    A row is aggregated over every run named, per gate mode and check, so unlike
+    ``gate-events`` it names no single run's manifest id: an artefact is already
+    kept distinct by its own run id (``artefact()`` in ``catches.py``), and a row
+    spanning several runs has no one id to attribute to.
+    """
     try:
         since = parse_time(args.since) if args.since else None
         until = parse_time(args.until) if args.until else None
@@ -210,11 +223,13 @@ def _catches(args: argparse.Namespace) -> int:
         return _fail(f"the window is not a UTC date or time: {exc}")
     found: list[GateEvent] = []
     for run_dir in args.run_dirs:
-        path = run_dir.resolve() / "events.jsonl"
+        resolved = run_dir.resolve()
+        path = resolved / "events.jsonl"
         if not path.is_file():
             return _fail("no run-event log in the run directory", run_dir=str(run_dir))
         try:
-            found.extend(gate_events(read_events(path)))
+            manifest_id = load_run_config(resolved / "run.json").sha256()
+            found.extend(gate_events(read_events(path), manifest_id))
         except OrchestratorError as exc:
             return _fail(str(exc), **exc.context)
     for row in catches(found, since=since, until=until):

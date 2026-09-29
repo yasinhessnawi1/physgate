@@ -21,7 +21,10 @@ from physgate.orchestrator.protocols import CheckRecord, Verdict
 
 
 def stamps(log: Log) -> list[tuple[bool | None, str | None, int | None]]:
-    return [(e.reviewer_had_passed, e.reviewer_basis, e.review_seq) for e in gate_events(log.lines)]
+    return [
+        (e.reviewer_had_passed, e.reviewer_basis, e.review_seq)
+        for e in gate_events(log.lines, log.manifest_id)
+    ]
 
 
 # --- one attempt, the loop's order: gate, then review -----------------------------------------
@@ -125,7 +128,7 @@ def test_an_integration_failure_is_stamped_from_the_review_that_approved_the_las
     log.review("s2", 1, "pass")
     log.wrote("s2", 1, "power.budget", 4)
     log.integration(record("fail", "motor.left", "propagation"))
-    (event,) = [e for e in gate_events(log.lines) if e.subtask_id == "integration"]
+    (event,) = [e for e in gate_events(log.lines, log.manifest_id) if e.subtask_id == "integration"]
     assert (event.reviewer_had_passed, event.reviewer_basis, event.review_seq) == (
         True,
         "last_writer_of_node",
@@ -141,7 +144,7 @@ def test_a_node_written_twice_is_stamped_from_the_later_writer() -> None:
     later = log.review("s2", 1, "pass")
     log.wrote("s2", 1, "motor.left", 4)
     log.integration(record("fail", "motor.left", "propagation"))
-    (event,) = gate_events(log.lines)
+    (event,) = gate_events(log.lines, log.manifest_id)
     assert (event.review_seq, event.reviewed_subtask) == (later.seq, "s2")
 
 
@@ -160,6 +163,35 @@ def test_an_integration_record_with_no_writer_has_no_verdict(
     assert stamps(log) == [(None, None, None)]
 
 
+# --- the manifest id, the same on every event of one call ------------------------------
+
+
+def test_every_event_of_one_call_carries_the_manifest_id_it_was_given() -> None:
+    log = Log(manifest_id="1" * 64)
+    log.session("s1", 1)
+    log.gate("s1", 1)
+    log.review("s1", 1, "pass")
+    log.integration(record("pass", None))
+    found = gate_events(log.lines, "1" * 64)
+    assert len(found) == 2  # the subtask gate line and the integration line
+    assert all(e.manifest_id == "1" * 64 for e in found)
+
+
+def test_a_different_manifest_id_changes_every_event_s_stamp_and_nothing_else() -> None:
+    log = Log()
+    log.session("s1", 1)
+    log.gate("s1", 1)
+    log.review("s1", 1, "pass")
+    one = gate_events(log.lines, "1" * 64)
+    two = gate_events(log.lines, "2" * 64)
+    assert [e.manifest_id for e in one] == ["1" * 64]
+    assert [e.manifest_id for e in two] == ["2" * 64]
+    # Nothing else about the derived event moves with the manifest id.
+    assert [e.model_dump(exclude={"manifest_id"}) for e in one] == [
+        e.model_dump(exclude={"manifest_id"}) for e in two
+    ]
+
+
 # --- the event's shape ------------------------------------------------------------------
 
 
@@ -167,7 +199,7 @@ def test_a_verdict_without_its_review_or_a_review_without_its_verdict_is_refused
     log = Log()
     log.gate("s1", 1)
     log.review("s1", 1, "pass")
-    (event,) = gate_events(log.lines)
+    (event,) = gate_events(log.lines, log.manifest_id)
     fields = event.model_dump()
     for broken in (
         {"reviewer_had_passed": None},

@@ -26,6 +26,14 @@ the same run, and every event says which one (``review_seq``) and on what basis:
 
 A record that names no node, a node only the given design wrote, or an attempt
 no reviewer ran on, is ``None``, with no basis.
+
+**Every event also carries the run's manifest id.** A log's lines carry their
+own ``run_id``, but not the digest of the configuration the run started under;
+that digest is ``RunConfig.sha256()``, the same one ``physgate run``/``resume``
+print and the evaluation layer's ``manifest_id_of`` holds every number to. The
+caller passes it in rather than this module recomputing it a second way, so a
+line printed here ties back to the run it came from exactly as every other
+number in this codebase already does.
 """
 
 from __future__ import annotations
@@ -66,6 +74,9 @@ class GateEvent(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     run_id: NonEmptyStr
+    #: The run's manifest id (``RunConfig.sha256()``): ties this line back to the
+    #: run it came from, the same digest every other command's printed number does.
+    manifest_id: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
     #: The sequence number of the gate line this event came from.
     seq: Annotated[int, Field(ge=0)]
     ts: Timestamp
@@ -105,8 +116,12 @@ class GateEvent(BaseModel):
         raise ValueError(msg)
 
 
-def gate_events(events: Iterable[Event]) -> list[GateEvent]:
-    """One event per check record in every gate line of ``events``, in log order."""
+def gate_events(events: Iterable[Event], manifest_id: str) -> list[GateEvent]:
+    """One event per check record in every gate line of ``events``, in log order.
+
+    ``manifest_id`` is the run's manifest id (``RunConfig.sha256()``), stamped
+    onto every event returned so a reader can tie a line back to its run.
+    """
     log = list(events)
     found: list[GateEvent] = []
     for index, event in enumerate(log):
@@ -126,6 +141,7 @@ def gate_events(events: Iterable[Event]) -> list[GateEvent]:
             found.append(
                 GateEvent(
                     run_id=event.run_id,
+                    manifest_id=manifest_id,
                     seq=event.seq,
                     ts=event.ts,
                     gate_mode=event.result.mode,

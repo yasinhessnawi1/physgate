@@ -27,7 +27,7 @@ from instrument_corpus import (
     write_corpus,
 )
 
-from physgate.evaluation.inject.corpus import Corpus, load_corpus, strings_of, telltales
+from physgate.evaluation.inject.corpus import Corpus, digest, load_corpus, strings_of, telltales
 from physgate.evaluation.inject.exceptions import (
     BlindnessError,
     ReviewerRefusedError,
@@ -43,9 +43,9 @@ from physgate.evaluation.inject.runner import (
     run_instrument,
 )
 from physgate.orchestrator.catches import catches
-from physgate.orchestrator.events import GateRan, ReviewRan, SubtaskPlanned, read_events
+from physgate.orchestrator.events import GateRan, ReviewRan, RunStarted, SubtaskPlanned, read_events
 from physgate.orchestrator.exceptions import ModelSeparationError
-from physgate.orchestrator.gate_events import gate_events
+from physgate.orchestrator.gate_events import GateEvent, gate_events
 from physgate.orchestrator.protocols import Artefact
 
 SEED = 11
@@ -56,6 +56,18 @@ FAKE_SEED = 1
 @pytest.fixture
 def corpus(tmp_path: Path) -> Corpus:
     return load_corpus(write_corpus(tmp_path / "corpus"))
+
+
+def derived_events(path: Path) -> list[GateEvent]:
+    """The gate events of the log at ``path``, stamped with its own manifest id.
+
+    The instrument's log carries the id the same way any run's does: on its
+    first line (``RunStarted.config_sha256``), the digest of ``instrument.json``
+    as ``run_instrument`` wrote it.
+    """
+    log = read_events(path)
+    (started,) = [e for e in log if isinstance(e, RunStarted)]
+    return gate_events(log, started.config_sha256)
 
 
 def _run(corpus: Corpus, root: Path, reviewer: SeededFakeReviewer) -> tuple[ResultRow, ...]:
@@ -107,7 +119,7 @@ def test_what_is_shown_holds_no_gate_result_nor_anything_telling_and_is_judged_f
     reviews = [e for e in log if isinstance(e, ReviewRan)]
     gates = [e for e in log if isinstance(e, GateRan)]
     assert max(r.seq for r in reviews) < min(g.seq for g in gates)
-    events = gate_events(log)
+    events = derived_events(run_dir / "events.jsonl")
     assert events
     for event in events:
         assert event.reviewer_basis == "same_attempt"
@@ -135,19 +147,17 @@ def test_each_row_is_one_artefact_and_the_catch_count_is_what_the_rows_add_up_to
     ]
     assert tuple(on_disk) == rows
 
-    counted = {
-        row.name: row
-        for row in catches(gate_events(read_events(tmp_path / "out" / "run" / "events.jsonl")))
-    }
+    events = derived_events(tmp_path / "out" / "run" / "events.jsonl")
+    manifest_id = digest(tmp_path / "out" / "run" / CONFIG_NAME)
+    assert events and all(e.manifest_id == manifest_id for e in events)
+    counted = {row.name: row for row in catches(events)}
     for name in ("magnitude", "propagation", "all"):
         caught = [r for r in rows if name == "all" or name in r.gate_blocking]
         assert counted[name].artefacts_caught == len(caught)
         assert counted[name].caught_after_reviewer_passed == sum(
             r.reviewer_verdict == "pass" for r in caught
         )
-    controls = catches(
-        gate_events(read_events(tmp_path / "out" / "run" / "controls" / "events.jsonl"))
-    )
+    controls = catches(derived_events(tmp_path / "out" / "run" / "controls" / "events.jsonl"))
     assert [c.artefacts_caught for c in controls if c.name == "all"] == [0]
 
 
@@ -188,7 +198,8 @@ def test_the_clean_twins_are_reviewed_only_when_asked_and_blind_and_first(
     assert max(r.seq for r in reviews) < min(g.seq for g in gates)
     main = read_events(tmp_path / "on" / "run" / "events.jsonl")
     assert not twins & {e.subtask_id for e in main if isinstance(e, ReviewRan)}
-    for event in gate_events(controls):
+    (controls_started,) = [e for e in controls if isinstance(e, RunStarted)]
+    for event in gate_events(controls, controls_started.config_sha256):
         assert event.reviewer_had_passed is coin(FAKE_SEED, event.subtask_id)
     assert json.loads((tmp_path / "on" / "run" / CONFIG_NAME).read_text())["review_clean_twins"]
 

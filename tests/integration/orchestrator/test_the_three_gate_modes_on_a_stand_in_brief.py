@@ -142,6 +142,8 @@ def test_on_the_gate_refuses_the_module_and_the_reviewer_never_sees_it(
     assert skipped.reason == "not_all_merged"
     assert {e.gate_mode for e in events} == {"on"}
     assert {x["gate_mode"] for x in gate_lines} == {"on"}
+    # Every gate-events line ties back to this run by the same digest ``run`` printed.
+    assert {x["manifest_id"] for x in gate_lines} == {printed["manifest_id"]}
     assert printed["tokens"]["routing"] == 0
 
 

@@ -38,10 +38,15 @@ class Log:
     """A run-event log built line by line, each with the next sequence number."""
 
     def __init__(
-        self, run_id: str = "run-1", mode: RunningGateMode = "observe", ts: str = TS
+        self,
+        run_id: str = "run-1",
+        mode: RunningGateMode = "observe",
+        ts: str = TS,
+        manifest_id: str = "e" * 64,
     ) -> None:
         self.lines: list[Event] = []
         self.run_id, self.mode, self.ts = run_id, mode, ts
+        self.manifest_id = manifest_id
 
     def env(self) -> dict[str, Any]:
         return {

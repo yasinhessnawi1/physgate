@@ -129,9 +129,11 @@ def test_a_session_left_behind_is_traced_with_its_partial_usage(tmp_path: Path) 
 
 def test_every_gate_check_is_in_the_trace_through_the_gate_s_own_reader(run: Path) -> None:
     trace = read_traces(run)
-    assert trace.gate_checks == tuple(gate_events(read_events(run / "events.jsonl")))
+    events = gate_events(read_events(run / "events.jsonl"), trace.manifest_id)
+    assert trace.gate_checks == tuple(events)
     assert [c.subtask_id for c in trace.gate_checks][-1] == "integration"
     assert len(trace.gate_checks) == 3  # one per subtask, one at integration
+    assert all(c.manifest_id == trace.manifest_id for c in trace.gate_checks)
 
 
 def test_a_directory_with_no_run_is_a_domain_error(tmp_path: Path) -> None:
