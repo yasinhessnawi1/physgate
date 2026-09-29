@@ -142,6 +142,8 @@ def test_on_the_gate_refuses_the_module_and_the_reviewer_never_sees_it(
     assert skipped.reason == "not_all_merged"
     assert {e.gate_mode for e in events} == {"on"}
     assert {x["gate_mode"] for x in gate_lines} == {"on"}
+    # Every gate-events line ties back to this run by the same digest ``run`` printed.
+    assert {x["manifest_id"] for x in gate_lines} == {printed["manifest_id"]}
     assert printed["tokens"]["routing"] == 0
 
 
@@ -187,5 +189,15 @@ def test_observe_every_check_runs_every_line_says_observe_and_nothing_is_refused
     assert printed["step"] == "done" and printed["open_queue_items"] == []
     assert {e.gate_mode for e in events} == {"observe"}
     assert gate_lines and {x["gate_mode"] for x in gate_lines} == {"observe"}
-    assert all(x["reviewer_had_passed"] is None for x in gate_lines)
+    # Under observe the reviewer runs after the failed gate and passes the module,
+    # so every failure is stamped: the attempt's by its own review, the integration
+    # call's by the review of the attempt that last wrote the failing node.
+    (review,) = [e for e in events if isinstance(e, ReviewRan)]
+    failures = [x for x in gate_lines if x["outcome"] in ("fail", "warn")]
+    assert failures and {(x["reviewer_had_passed"], x["review_seq"]) for x in failures} == {
+        (review.result.verdict == "pass", review.seq)
+    }
+    assert {x["reviewer_basis"] for x in failures if x["subtask_id"] == "integration"} == {
+        "last_writer_of_node"
+    }
     assert printed["tokens"]["routing"] == 0

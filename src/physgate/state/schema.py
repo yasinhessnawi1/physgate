@@ -23,7 +23,7 @@ from __future__ import annotations
 import re
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints
 
 from physgate.state.exceptions import MalformedNodeIdError, MissingUnitError
 
@@ -42,6 +42,22 @@ NodeKind = Literal["component", "module", "requirement", "interface"]
 DomainKind = Literal["mechanical", "electrical", "control", "firmware", "cross"]
 
 NonEmptyStr = Annotated[str, StringConstraints(min_length=1)]
+
+
+def _says_something(reason: str) -> str:
+    if not reason.strip():
+        msg = "a justification gives its reason; blank text is not one"
+        raise ValueError(msg)
+    return reason
+
+
+#: Why a node was left as it is although a node constraining it changed: its
+#: owner's explicit claim, which the propagation check records and never verifies.
+Justification = Annotated[str, AfterValidator(_says_something)]
+#: A node id used as a key: the same whitelist, and the same bound, as a node's own id.
+NodeIdKey = Annotated[
+    str, StringConstraints(pattern=NODE_ID_PATTERN.pattern, max_length=NODE_ID_MAX_LENGTH)
+]
 
 
 class Quantity(BaseModel):
@@ -73,6 +89,12 @@ class Node(BaseModel):
     model: str | None = None
     geometry_hash: NonEmptyStr
     updated: NonEmptyStr
+    #: For a node other nodes constrain: which of their changes this node was
+    #: deliberately left unchanged for, and why, keyed by the constraining node's
+    #: id. A changed quantity must reach every node it constrains or be excused
+    #: here, by that node's own owner (ARCH-082); an excuse written on the node
+    #: that changed would be the changer excusing itself.
+    no_change_justified: dict[NodeIdKey, Justification] = Field(default_factory=dict)
 
 
 def validate_node_id(node_id: object) -> str:

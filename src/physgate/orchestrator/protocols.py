@@ -107,6 +107,22 @@ class Artefact(_Frozen):
         return self
 
 
+Revision = Annotated[int, Field(ge=1)]
+
+
+class ChangeSet(_Frozen):
+    """The journal revisions one merged attempt wrote: one "commit" of the design.
+
+    A role writes only the nodes it owns, so a change and the nodes it constrains
+    in other domains can never land in the same attempt. What changed together,
+    and in what order, is therefore the unit the propagation check judges in.
+    """
+
+    subtask_id: NonEmptyStr
+    attempt: Annotated[int, Field(ge=1, le=3)]
+    revisions: Annotated[tuple[Revision, ...], Field(min_length=1)]
+
+
 class IntegrationArtefact(_Frozen):
     """The whole design once every planned subtask has merged, as the gate checks it."""
 
@@ -115,6 +131,24 @@ class IntegrationArtefact(_Frozen):
     graph_root: NonEmptyStr
     #: The run branch's head: the design the integration call judges.
     run_head: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
+    #: The journal's head when the run's design began: what decomposition wrote.
+    #: Nodes at or below it are the given design; nothing in them was changed by
+    #: the run, so nothing in them owes propagation.
+    baseline_revision: Annotated[int, Field(ge=0)]
+    #: Every revision above the baseline, grouped by the attempt that wrote it, in
+    #: the order the attempts were applied.
+    change_sets: tuple[ChangeSet, ...]
+
+    @model_validator(mode="after")
+    def _revisions_follow_the_baseline_in_order(self) -> IntegrationArtefact:
+        revisions = [r for change in self.change_sets for r in change.revisions]
+        if any(r <= self.baseline_revision for r in revisions):
+            msg = "a change set names a revision at or below the baseline"
+            raise ValueError(msg)
+        if any(later <= earlier for earlier, later in zip(revisions, revisions[1:], strict=False)):
+            msg = "change sets name each revision once, in the order it was written"
+            raise ValueError(msg)
+        return self
 
 
 #: The architecture's physics checks, by name, with their numbers (ARCH-080).

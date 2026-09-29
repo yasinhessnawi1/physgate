@@ -19,6 +19,7 @@ import pytest
 from git_rig import DispatchPort, Gate, GitDispatcher, Reviewer, config, run_layout, sh
 
 from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper
+from physgate.orchestrator.change_sets import change_history
 from physgate.orchestrator.events import (
     AttemptRejected,
     Incident,
@@ -355,3 +356,81 @@ def test_a_module_rewritten_as_a_component_is_refused_at_apply(tmp_path: Path) -
         first.finding.text
     )
     assert rig.canonical() == before
+
+
+def test_a_justification_in_a_proposal_is_applied_and_journalled(tmp_path: Path) -> None:
+    """The excuse is on the durable record, applied like every other field of the node."""
+    rig = Rig(tmp_path)
+    reason = "the driver keeps 3 A of headroom above the motor's new stall current"
+    excused = {**node("electrical.motor"), "no_change_justified": {"electrical.driver": reason}}
+    dispatcher = GitDispatcher(rig.run, proposals={1: {"electrical.motor": excused}})
+    loop = rig.loop(dispatcher)
+    assert loop.run().kind == "done"
+    loop.close()
+    rig.keeper.close()
+    assert rig.canonical()["electrical.motor"]["no_change_justified"] == {
+        "electrical.driver": reason
+    }
+
+
+def test_a_justification_without_a_reason_rejects_the_attempt_at_apply(tmp_path: Path) -> None:
+    rig = Rig(tmp_path)
+    before = rig.canonical()
+    blank = {**node("electrical.motor"), "no_change_justified": {"electrical.driver": " "}}
+
+    def withdraw(worktree: Path) -> None:
+        for path in (worktree / ".physgate" / "proposals").iterdir():
+            path.unlink()
+
+    dispatcher = GitDispatcher(
+        rig.run, proposals={1: {"electrical.motor": blank}}, during={2: withdraw}
+    )
+    loop = rig.loop(dispatcher)
+    loop.run()
+    loop.close()
+    rig.keeper.close()
+    (first, *_) = [e for e in rig.events() if isinstance(e, AttemptRejected)]
+    assert first.finding.source == "proposal" and "no_change_justified" in first.finding.text
+    assert rig.canonical() == before
+
+
+def test_the_integration_call_names_what_changed_together_from_the_log(tmp_path: Path) -> None:
+    """The baseline is decomposition's head; the attempt's writes are one change set."""
+    rig = Rig(tmp_path)
+    driver, cable = node("electrical.driver"), node("electrical.cable", amps=1.0)
+    dispatcher = GitDispatcher(
+        rig.run, proposals={1: {"electrical.driver": driver, "electrical.cable": cable}}
+    )
+    loop = rig.loop(dispatcher)
+    assert loop.run().kind == "done"
+    loop.close()
+    rig.keeper.close()
+    (called,) = rig.gate.integrated
+    assert called.baseline_revision == 2  # the motor and the interface, before the run
+    assert [(c.subtask_id, c.attempt, c.revisions) for c in called.change_sets] == [
+        ("s1", 1, (3, 4))
+    ]
+    assert (called.baseline_revision, called.change_sets) == change_history(rig.events())
+
+
+@pytest.mark.parametrize("after_append", [False, True], ids=["before the append", "after it"])
+def test_a_process_killed_around_a_write_names_the_same_history_after_resume(
+    tmp_path: Path, after_append: bool
+) -> None:
+    rig = Rig(tmp_path)
+    dispatcher = GitDispatcher(
+        rig.run, proposals={1: {"electrical.driver": node("electrical.driver")}}
+    )
+    crashing = _Crash(rig.run, rig.store_root, after_append=after_append)
+    loop = rig.loop(dispatcher, crashing)
+    with pytest.raises(KeyboardInterrupt):
+        loop.run()
+    loop.close()
+    crashing.close()
+    again = rig.loop(dispatcher, StoreKeeper(rig.run, rig.store_root))
+    assert again.resume().kind == "done"
+    again.close()
+    (called,) = rig.gate.integrated
+    assert [(c.subtask_id, c.attempt, c.revisions) for c in called.change_sets] == [("s1", 1, (3,))]
+    # A fresh process reading the durable log derives exactly what the resumed loop sent.
+    assert (called.baseline_revision, called.change_sets) == change_history(rig.events())

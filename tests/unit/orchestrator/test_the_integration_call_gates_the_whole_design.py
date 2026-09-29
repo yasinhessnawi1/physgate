@@ -16,6 +16,7 @@ from physgate.orchestrator.events import (
     IntegrationGateRan,
     IntegrationGateSkipped,
     Merged,
+    ReviewRan,
     RunStarted,
     StageEntered,
     SubtaskPlanned,
@@ -301,18 +302,28 @@ def test_a_later_subtask_taken_out_of_the_plan_does_not_hold_its_module_open(
 # --- the derived catch-accounting events ------------------------------------------------
 
 
-def test_every_gate_check_becomes_one_event_with_the_reviewer_field_empty(tmp_path: Path) -> None:
+def test_every_gate_check_becomes_one_event_stamped_with_the_review_of_its_artefact(
+    tmp_path: Path,
+) -> None:
     rig = Rig(tmp_path, gate_mode="observe", gate=FakeGate(verdicts=["fail"]))
     loop = rig.open()
     loop.start(plan("s1"))
     loop.run()
     loop.close()
-    found = gate_events(events_of(tmp_path))
+    manifest_id = loop.config.sha256()
+    found = gate_events(events_of(tmp_path), manifest_id)
     assert [(e.subtask_id, e.attempt, e.outcome) for e in found] == [
         ("s1", 1, "fail"),
         ("integration", None, "pass"),
     ]
-    assert all(e.reviewer_had_passed is None for e in found)
+    assert all(e.manifest_id == manifest_id for e in found)
+    # Under observe the reviewer runs after the failed gate: the failure is stamped
+    # with its verdict. The integration pass names no node, so no review is its.
+    review = next(e for e in events_of(tmp_path) if isinstance(e, ReviewRan))
+    assert [(e.reviewer_had_passed, e.reviewer_basis, e.review_seq) for e in found] == [
+        (True, "same_attempt", review.seq),
+        (None, None, None),
+    ]
     assert all(e.gate_mode == "observe" for e in found)
     assert all(e.catalogue_sha256 == "c" * 64 for e in found)
     dumped = found[0].model_dump()
@@ -330,13 +341,17 @@ def test_the_gate_events_command_prints_one_line_per_check(
     loop = rig.open()
     loop.start(plan("s1"))
     loop.run()
+    manifest_id = loop.config.sha256()
     loop.close()
     capsys.readouterr()
     assert main(["gate-events", "--run-dir", str(tmp_path / "run")]) == 0
     lines = [json.loads(x) for x in capsys.readouterr().out.splitlines()]
     assert [x["subtask_id"] for x in lines] == ["s1", "integration"]
-    assert all(x["reviewer_had_passed"] is None for x in lines)
+    assert [x["reviewer_had_passed"] for x in lines] == [True, None]
+    assert [x["reviewer_basis"] for x in lines] == ["same_attempt", None]
     assert [x["evaluated"] for x in lines] == [1, 1]
+    # Every line ties back to this run by the same digest ``run``/``resume`` print.
+    assert [x["manifest_id"] for x in lines] == [manifest_id, manifest_id]
 
 
 def test_an_attempt_carries_the_journal_head_it_started_from(tmp_path: Path) -> None:

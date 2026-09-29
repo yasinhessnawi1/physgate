@@ -85,6 +85,9 @@ class ConfigView(Protocol):
     def held_out(self) -> Sequence[str]: ...  # noqa: D102
 
     @property
+    def answer_keys(self) -> Sequence[str]: ...  # noqa: D102
+
+    @property
     def required_reading(self) -> Sequence[str]: ...  # noqa: D102
 
     @property

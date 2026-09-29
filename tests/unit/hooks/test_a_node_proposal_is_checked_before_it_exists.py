@@ -114,6 +114,24 @@ def test_keeping_the_owner_while_changing_the_node_is_allowed(config: SessionCon
     assert _write(config, "electrical.motor.json", changed) == "allow"
 
 
+def test_a_justification_on_ones_own_node_is_allowed(config: SessionConfig) -> None:
+    """The excuse the propagation check accepts is part of the node, written by its owner."""
+    excused = node(
+        "electrical.motor",
+        "electrical",
+        no_change_justified={"control.loop": "the loop gain is set by the wheel, not the motor"},
+    )
+    assert _write(config, "electrical.motor.json", excused) == "allow"
+
+
+def test_a_justification_without_a_reason_is_refused_with_the_schemas_words(
+    config: SessionConfig,
+) -> None:
+    blank = node("electrical.motor", "electrical", no_change_justified={"control.loop": "  "})
+    told = _write(config, "electrical.motor.json", blank)
+    assert told.startswith("This node proposal is refused") and "no_change_justified" in told
+
+
 def test_an_existing_interface_node_is_refused(config: SessionConfig) -> None:
     told = _write(config, f"{INTERFACE}.json", node(INTERFACE, kind="interface", quantities={}))
     assert REJECT_INTERFACE_IMMUTABLE in told

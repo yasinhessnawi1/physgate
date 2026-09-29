@@ -62,14 +62,24 @@ class _PayingReviewer(Reviewer):
 
 
 def run_loop(
-    root: Path, subtasks: dict[str, str], proposals: dict[int, dict[str, dict[str, Any]]]
+    root: Path,
+    subtasks: dict[str, str],
+    proposals: dict[int, dict[str, dict[str, Any]]],
+    given: tuple[dict[str, Any], ...] = (),
+    gate_mode: str = "on",
 ) -> tuple[list[Any], _PayingReviewer, str]:
-    """Start a decomposed run over ``subtasks`` (id to module directory) and drive it."""
+    """Start a decomposed run over ``subtasks`` (id to module directory) and drive it.
+
+    ``given`` is design that exists before the run, beside the interface node:
+    what the run starts from, so a change to it is a change the run made.
+    """
     run = run_layout(root)
     store_root = run.run_dir / "store"
     # The decomposition writes the interface nodes first, as a real run's does.
-    head = graph(store_root, node("iface.power_bus", kind="interface", quantities={"v": (12, "V")}))
-    record = RunRecord(config(), run.run_dir)
+    bus = node("iface.power_bus", kind="interface", quantities={"v": (12, "V")})
+    head = graph(store_root, bus, *given)
+    cfg = config().model_copy(update={"gate_mode": gate_mode})
+    record = RunRecord(cfg, run.run_dir)
     record.start(
         [plan_entry(s, d) for s, d in subtasks.items()],
         call=DecompositionCall(session_id="decomp", usage=()),
@@ -87,7 +97,7 @@ def run_loop(
     reviewer = _PayingReviewer()
     keeper = StoreKeeper(run, store_root)
     loop = Loop(
-        config=config(),
+        config=cfg,
         run_dir=run.run_dir,
         gate=default_registrations().gate,
         reviewers={"electrical": reviewer},
@@ -166,3 +176,68 @@ def test_a_joint_power_deficit_is_refused_at_the_integration_call(tmp_path: Path
     assert len(reviews) == 2 and all(r.seq < integrated.seq for r in reviews)
     assert reviewer.calls == 2 and reviewer_tokens(events) == 2 * 49
     assert escalated.seq > integrated.seq
+
+
+MOTOR_SWAP_GIVEN = (
+    node(
+        "electrical.motor",
+        quantities={"stall_current": (2.4, "A")},
+        constrains=["electrical.budget"],
+    ),
+    node("electrical.budget", kind="module", quantities={"current_limit": (5.0, "A")}),
+)
+SWAPPED = node(
+    "electrical.motor", quantities={"stall_current": (3.1, "A")}, constrains=["electrical.budget"]
+)
+
+
+def test_a_motor_swapped_without_its_budget_following_is_refused_at_the_integration_call(
+    tmp_path: Path,
+) -> None:
+    """The swap passes its own attempt and its review; integration refuses it (ARCH-082)."""
+    events, reviewer, step = run_loop(
+        tmp_path,
+        {"s1": "modules/power", "s2": "modules/control"},
+        {1: by_id((SWAPPED,)), 2: {}},
+        given=MOTOR_SWAP_GIVEN,
+    )
+    assert step == "escalated"
+    assert [g.result.verdict for g in events if isinstance(g, GateRan)] == ["pass", "pass"]
+    (integrated,) = [e for e in events if isinstance(e, IntegrationGateRan)]
+    assert (integrated.result.verdict, integrated.result.failing_check) == ("fail", "propagation")
+    (failure,) = [
+        r for r in integrated.result.checks if r.name == "propagation" and r.outcome == "fail"
+    ]
+    assert failure.node == "electrical.motor"
+    assert failure.details.unwritten == ("electrical.motor->electrical.budget",)  # type: ignore[union-attr]
+    assert reviewer.calls == 2 and any(isinstance(e, IntegrationEscalated) for e in events)
+
+
+def test_the_same_swap_passes_when_the_budget_follows_in_a_later_subtask(tmp_path: Path) -> None:
+    followed = node("electrical.budget", kind="module", quantities={"current_limit": (6.0, "A")})
+    events, _, step = run_loop(
+        tmp_path,
+        {"s1": "modules/power", "s2": "modules/control"},
+        {1: by_id((SWAPPED,)), 2: by_id((followed,))},
+        given=MOTOR_SWAP_GIVEN,
+    )
+    (integrated,) = [e for e in events if isinstance(e, IntegrationGateRan)]
+    assert integrated.result.verdict == "pass" and step == "done"
+    (passed,) = [r for r in integrated.result.checks if r.name == "propagation"]
+    assert passed.outcome == "pass" and passed.details.evaluated == 1  # type: ignore[union-attr]
+
+
+def test_under_observe_the_unpropagated_swap_is_recorded_and_the_run_completes(
+    tmp_path: Path,
+) -> None:
+    events, _, step = run_loop(
+        tmp_path,
+        {"s1": "modules/power", "s2": "modules/control"},
+        {1: by_id((SWAPPED,)), 2: {}},
+        given=MOTOR_SWAP_GIVEN,
+        gate_mode="observe",
+    )
+    assert step == "done"
+    (integrated,) = [e for e in events if isinstance(e, IntegrationGateRan)]
+    assert integrated.result.mode == "observe" and integrated.result.failing_check == "propagation"
+    assert not any(isinstance(e, IntegrationEscalated) for e in events)

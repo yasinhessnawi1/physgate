@@ -7,16 +7,19 @@ from pathlib import Path
 from typing import Any
 
 from physgate.gate.context import CheckContext
+from physgate.gate.graph import ChangeHistory
 from physgate.gate.registry import RegisteredCheck
 from physgate.gate.result import CheckRun, Observation
 from physgate.orchestrator.protocols import (
+    ChangeSet,
     CheckName,
+    IntegrationArtefact,
     NumericOutput,
     QuantityRef,
     ThermalDetails,
     UncheckedDetails,
 )
-from physgate.state.store import Store
+from physgate.state.store import Store, journal_records_after
 
 OWNER = {"electrical": "electrical", "mechanical": "mechanical", "cross": "integration"}
 
@@ -58,6 +61,58 @@ def graph(root: Path, *payloads: dict[str, Any]) -> int:
         return store.head_revision()
     finally:
         store.close()
+
+
+def changed(
+    root: Path, base: Sequence[dict[str, Any]], *change_sets: Sequence[dict[str, Any]]
+) -> ChangeHistory:
+    """Write ``base`` as the given design, then each change set in order; return the history.
+
+    Each change set stands for one merged attempt. Its subtask is named for its
+    position, and it may write nodes of any owner, as a test needs to.
+    """
+    graph(root, *base)
+    store = Store(root)
+    sets: list[ChangeSet] = []
+    try:
+        baseline = store.head_revision()
+        for position, payloads in enumerate(change_sets, start=1):
+            revisions = []
+            for payload in payloads:
+                result = store.write_node(payload, str(payload["owner_role"]))
+                assert result.accepted and result.revision is not None, result
+                revisions.append(result.revision)
+            sets.append(ChangeSet(subtask_id=f"s{position}", attempt=1, revisions=tuple(revisions)))
+    finally:
+        store.close()
+    return ChangeHistory(baseline=baseline, change_sets=tuple(sets))
+
+
+def integrated(root: Path, history: ChangeHistory) -> IntegrationArtefact:
+    """The integration call the loop makes over ``root``, carrying ``history``."""
+    return IntegrationArtefact(
+        run_id="run-1",
+        graph_root=str(root),
+        run_head="b" * 40,
+        baseline_revision=history.baseline,
+        change_sets=history.change_sets,
+    )
+
+
+def given(root: Path) -> IntegrationArtefact:
+    """The integration call over a graph that is all given design: nothing changed in it.
+
+    For the checks that judge the design as it stands. Every revision is at or
+    below the baseline, so the propagation check has no change to follow.
+    """
+    head = max((line.rev for line in journal_records_after(root, 0)), default=0)
+    return IntegrationArtefact(
+        run_id="run-1",
+        graph_root=str(root),
+        run_head="b" * 40,
+        baseline_revision=head,
+        change_sets=(),
+    )
 
 
 # One wrong artefact per check, each otherwise sound: the unit, the range, the

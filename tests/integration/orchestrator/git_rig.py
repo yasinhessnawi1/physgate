@@ -167,11 +167,13 @@ class Gate:
     verdicts: list[str] = field(default_factory=list)
     calls: int = 0
     integrations: int = 0
+    integrated: list[IntegrationArtefact] = field(default_factory=list)
 
     def check_integration(
         self, artefact: IntegrationArtefact, *, mode: RunningGateMode
     ) -> GateResult:
         self.integrations += 1
+        self.integrated.append(artefact)
         return GateResult(
             verdict="pass",
             mode=mode,

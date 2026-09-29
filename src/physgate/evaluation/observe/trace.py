@@ -179,5 +179,5 @@ def read_traces(run_dir: Path) -> RunTrace:
             a.split(":", 1)[1]: u for a, u in by_attribution.items() if a.startswith("reviewer:")
         },
         routing_tokens=kinds["routing"],
-        gate_checks=tuple(gate_events(events)),
+        gate_checks=tuple(gate_events(events, manifest_id)),
     )

@@ -36,6 +36,7 @@ def config_dict(tmp: Path, **overrides: Any) -> dict[str, Any]:  # noqa: ANN401 
         ],
         "experiments": [],
         "held_out": [],
+        "answer_keys": [],
         "required_reading": [],
         "always_loaded": [],
         "token_ceiling": 1000,

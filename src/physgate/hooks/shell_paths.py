@@ -11,7 +11,8 @@ What this layer refuses, for every profile that has a shell:
 
 - a command that **names** a protected path anywhere in it, unless the command
   only reads (``cat``, ``grep``, ``ls``, ``diff``, ``git diff`` and the like),
-  and a command of any kind that names the held-out tier, which nothing reads;
+  and a command of any kind that names the held-out tier, which nothing reads, or
+  that a reviewer runs naming a corpus that carries its own answers;
 - any output redirection into a protected path, whatever the command;
 - running anything in the background: a write that lands after the call has
   returned lands after every check that could see it;
@@ -180,6 +181,7 @@ def _protected_names(config: ConfigView) -> set[str]:
     """The last component of every protected root and rule name, folded."""
     names = {os.path.basename(r.path.rstrip("/")).casefold() for r in config.protected_roots}
     names |= {os.path.basename(h.rstrip("/")).casefold() for h in config.held_out}
+    names |= {os.path.basename(k.rstrip("/")).casefold() for k in config.answer_keys}
     for rule in config.experiments:
         names |= {
             os.path.basename(rule.root.rstrip("/")).casefold(),

@@ -1,0 +1,260 @@
+{
+ "id": "a29",
+ "error_class": "unit",
+ "expected_check": "units",
+ "assigned_role": "electrical",
+ "description": "The battery pack's energy_capacity is written as 15.8 with the unit W, a power, in place of W*h, an energy. Its derivation [R5.03] * [R5.06] = 7.2 V x 2200 mAh gives 15.8 W*h. Labelled W, the pack's stored energy reads as a power that can be set directly against the regulator's new 15.0 W rating, which is dimensionally meaningless.",
+ "edge": null,
+ "clean": {
+  "nodes": [
+   {
+    "id": "electrical.regulator_5v",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 5,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "current_limit": {
+      "value": 3,
+      "unit": "A",
+      "source": "https://xonstorage.z8.web.core.windows.net/pdf/monolithicpowersystems_mp4423hgqz_apr22_xonlink.pdf",
+      "written_by": "electrical"
+     },
+     "max_input_voltage": {
+      "value": 36,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.battery_pack",
+     "electrical.power_module"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "electrical.battery_pack",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 7.2,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "cell_count": {
+      "value": 6,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/product/3575",
+      "written_by": "electrical"
+     },
+     "energy_capacity": {
+      "value": 15.8,
+      "unit": "W*h",
+      "source": "derived: [R5.03] * [R5.06]",
+      "written_by": "electrical"
+     },
+     "mass": {
+      "value": 165,
+      "unit": "g",
+      "source": "derived: [R5.07] * [R5.10]",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [
+     "electrical.req_board_input_voltage"
+    ],
+    "constrains": [
+     "electrical.power_module",
+     "mechanical.battery_holder",
+     "firmware.motor_pwm"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.regulator_5v": "Only the regulator's rated capacity changes; the load it draws from the pack, and the pack itself, are unchanged."
+    }
+   },
+   {
+    "id": "electrical.power_module",
+    "kind": "module",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 7.2,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "current_draw": {
+      "value": 2.5,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.04] * [R1.25] / [R5.03]",
+      "written_by": "electrical"
+     },
+     "power_draw": {
+      "value": 18.0,
+      "unit": "W",
+      "source": "derived: [R1.02] * [R1.04] * [R1.25]",
+      "written_by": "electrical"
+     },
+     "energy_capacity": {
+      "value": 15.8,
+      "unit": "W*h",
+      "source": "derived: [R5.03] * [R5.06]",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [
+     "electrical.req_board_input_voltage"
+    ],
+    "constrains": [],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.regulator_5v": "The module records the loads on the pack and the 5 V rail, which do not change with the regulator's rated capacity."
+    }
+   }
+  ]
+ },
+ "injected": {
+  "nodes": [
+   {
+    "id": "electrical.regulator_5v",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 5,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "current_limit": {
+      "value": 3,
+      "unit": "A",
+      "source": "https://xonstorage.z8.web.core.windows.net/pdf/monolithicpowersystems_mp4423hgqz_apr22_xonlink.pdf",
+      "written_by": "electrical"
+     },
+     "max_input_voltage": {
+      "value": 36,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.battery_pack",
+     "electrical.power_module"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "electrical.battery_pack",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 7.2,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "cell_count": {
+      "value": 6,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/product/3575",
+      "written_by": "electrical"
+     },
+     "energy_capacity": {
+      "value": 15.8,
+      "unit": "W",
+      "source": "derived: [R5.03] * [R5.06]",
+      "written_by": "electrical"
+     },
+     "mass": {
+      "value": 165,
+      "unit": "g",
+      "source": "derived: [R5.07] * [R5.10]",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [
+     "electrical.req_board_input_voltage"
+    ],
+    "constrains": [
+     "electrical.power_module",
+     "mechanical.battery_holder",
+     "firmware.motor_pwm"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.regulator_5v": "Only the regulator's rated capacity changes; the load it draws from the pack, and the pack itself, are unchanged."
+    }
+   },
+   {
+    "id": "electrical.power_module",
+    "kind": "module",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 7.2,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "current_draw": {
+      "value": 2.5,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.04] * [R1.25] / [R5.03]",
+      "written_by": "electrical"
+     },
+     "power_draw": {
+      "value": 18.0,
+      "unit": "W",
+      "source": "derived: [R1.02] * [R1.04] * [R1.25]",
+      "written_by": "electrical"
+     },
+     "energy_capacity": {
+      "value": 15.8,
+      "unit": "W*h",
+      "source": "derived: [R5.03] * [R5.06]",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [
+     "electrical.req_board_input_voltage"
+    ],
+    "constrains": [],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.regulator_5v": "The module records the loads on the pack and the 5 V rail, which do not change with the regulator's rated capacity."
+    }
+   }
+  ]
+ }
+}

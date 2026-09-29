@@ -102,6 +102,9 @@ class SessionConfig(BaseModel):
     protected_roots: tuple[ProtectedRoot, ...]
     experiments: tuple[ExperimentRule, ...]
     held_out: tuple[AbsolutePath, ...]
+    #: Evaluation corpora that carry their own answers: no session writes them, and
+    #: a reviewer does not read them.
+    answer_keys: tuple[AbsolutePath, ...]
     required_reading: tuple[AbsolutePath, ...]
     always_loaded: tuple[AbsolutePath, ...]
     token_ceiling: Annotated[int, Field(gt=0)]

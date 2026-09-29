@@ -22,12 +22,16 @@ from gate_fixtures import (
     POWER,
     THERMAL,
     UNITS,
+    changed,
+    given,
     graph,
+    integrated,
+    node,
 )
 
 from physgate.gate.graph import GraphView
 from physgate.orchestrator.cli import default_registrations
-from physgate.orchestrator.protocols import GateResult, IntegrationArtefact, Scope
+from physgate.orchestrator.protocols import GateResult, Scope
 
 pytestmark = pytest.mark.injected
 
@@ -56,7 +60,7 @@ def at(root: Path, scope: Scope) -> GateResult:
     gate = default_registrations().gate
     assert gate is not None
     if scope == "system":
-        artefact = IntegrationArtefact(run_id="run-1", graph_root=str(root), run_head="b" * 40)
+        artefact = given(root)
         return gate.check_integration(artefact, mode="on")
     scopes: list[Scope] = ["subtask"] if scope == "subtask" else ["subtask", "module"]
     return gate.run(GraphView.read(root, base_revision=0), scopes, "on")  # type: ignore[attr-defined, no-any-return]
@@ -86,3 +90,30 @@ def test_a_thermal_margin_is_a_warning_at_module_scope_before_it_is_refused(
     assert [(r.name, r.outcome) for r in module.checks if r.outcome == "warn"] == [
         ("thermal", "warn")
     ]
+
+
+def test_an_unpropagated_motor_swap_passes_its_attempt_and_is_refused_at_integration(
+    tmp_path: Path,
+) -> None:
+    """Check 7: every module consistent on its own, and the change never followed."""
+    root = tmp_path / "g"
+    given_design = (
+        node(
+            "electrical.motor",
+            quantities={"stall_current": (2.4, "A")},
+            constrains=["electrical.budget"],
+        ),
+        node("electrical.budget", kind="module", quantities={"current_limit": (5.0, "A")}),
+    )
+    swapped = node(
+        "electrical.motor",
+        quantities={"stall_current": (3.1, "A")},
+        constrains=["electrical.budget"],
+    )
+    history = changed(root, given_design, [swapped])
+    gate = default_registrations().gate
+    assert gate is not None
+    attempt = gate.run(GraphView.read(root, history.baseline), ["subtask", "module"], "on")  # type: ignore[attr-defined]
+    assert attempt.verdict == "pass", attempt.finding
+    refused = gate.check_integration(integrated(root, history), mode="on")
+    assert refused.verdict == "fail" and refused.failing_check == "propagation", refused.finding

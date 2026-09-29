@@ -1,10 +1,11 @@
-"""The ``physgate`` command: the hooks', the orchestrator's and observability's subcommands."""
+"""The ``physgate`` command: the hooks', the orchestrator's, observability's, the instrument's."""
 
 from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
 
+from physgate.evaluation.inject import cli as inject_cli
 from physgate.evaluation.observe import cli as observe_cli
 from physgate.hooks import cli as hooks_cli
 from physgate.orchestrator import cli as orchestrator_cli
@@ -24,6 +25,7 @@ def main(
     hooks_cli.add_parser(subparsers)
     orchestrator_cli.add_parsers(subparsers, registrations)
     observe_cli.add_parsers(subparsers, registrations)
+    inject_cli.add_parser(subparsers, registrations)
     args = parser.parse_args(argv)
     result: int = args.func(args)
     return result

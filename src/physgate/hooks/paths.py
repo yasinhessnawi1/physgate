@@ -2,7 +2,8 @@
 
 This hook covers the tools that name a file: Write, Edit and NotebookEdit, and
 Read for the held-out tier, which nothing may read before measurement
-(ARCH-141). Shell commands are a separate check, and a sentinel behind both
+(ARCH-141), and for an evaluation corpus that carries its own answers, which no
+reviewer may read. Shell commands are a separate check, and a sentinel behind both
 catches what either misses.
 
 **What is protected is data, not code.** The session configuration lists
@@ -39,7 +40,7 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
-from physgate.hooks.reasons import HELD_OUT_REASON
+from physgate.hooks.reasons import ANSWER_KEY_REASON, HELD_OUT_REASON
 from physgate.hooks.runtime import ALLOW, Decision, HookSpec, refuse
 
 if TYPE_CHECKING:
@@ -160,6 +161,11 @@ def protection(path: str, cwd: str, config: ConfigView, *, writing: bool) -> str
     for held in config.held_out:
         if _reaches(absolute, held, chain) and (writing or config.profile in ("role", "reviewer")):
             return HELD_OUT_REASON
+    # A corpus that carries its own answers: written by no session, and read by no
+    # reviewer, which is judged on the errors in it.
+    for key in config.answer_keys:
+        if _reaches(absolute, key, chain) and (writing or config.profile == "reviewer"):
+            return ANSWER_KEY_REASON
     if not writing:
         return None
     for root in config.protected_roots:
