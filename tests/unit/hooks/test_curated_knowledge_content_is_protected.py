@@ -1,4 +1,4 @@
-"""Every curated domain directory under ``knowledge/`` is protected; ``staging/`` is not (D-K0-5).
+"""Every curated domain directory under ``knowledge/`` is protected; ``staging/`` is not.
 
 The bypass suite (``tests/integration/hooks``) proves this against the real
 binary through the shell and tool layers; this is the fast, direct check of
