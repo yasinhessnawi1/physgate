@@ -57,6 +57,7 @@ FILES = {
     "src/physgate/electrical/driver.py": "x = 1\n",
     "experiments/R-OP-01/CRITERIA.md": "frozen criteria\n",
     "experiments/R-OP-01/RESULT.md": "published result\n",
+    "knowledge/control/standards.md": "curated control standards\n",
 }
 GIT_ENV = {
     "PATH": "/usr/bin:/bin",
@@ -93,6 +94,7 @@ def _protected_trees(root: Path) -> list[Path]:
         w / "experiments" / "R-OP-01",
         w / ".claude",
         w / "src" / "physgate" / "hooks",
+        w / "knowledge" / "control",
         o / "store",
         o / "heldout",
     ]
@@ -436,6 +438,25 @@ ATTEMPTS = [
         [bash("tar -xf payload.tar && echo ran > ran.txt; false")],
         "sentinel",
         runs=True,
+    ),
+    Attempt(
+        "redirect-knowledge",
+        "> over curated knowledge content",
+        [bash("echo 'a wider bound' > knowledge/control/standards.md")],
+        "shell_paths",
+    ),
+    Attempt(
+        "write-knowledge",
+        "the Write tool into curated knowledge content, after reading it",
+        [
+            tool("Read", file_path="@W/knowledge/control/standards.md"),
+            tool(
+                "Write",
+                file_path="@W/knowledge/control/standards.md",
+                content="a wider bound\n",
+            ),
+        ],
+        "paths",
     ),
 ]
 

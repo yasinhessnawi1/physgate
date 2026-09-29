@@ -45,6 +45,7 @@ from physgate.hooks.config import (
 from physgate.hooks.reasons import ANSWER_KEY_REASON as ANSWER_KEY_REASON
 from physgate.hooks.reasons import GATE_REASON as GATE_REASON
 from physgate.hooks.reasons import HELD_OUT_REASON as HELD_OUT_REASON
+from physgate.hooks.reasons import KNOWLEDGE_REASON as KNOWLEDGE_REASON
 from physgate.hooks.reasons import STORE_REASON as STORE_REASON
 from physgate.hooks.runtime import EVENTS, HookSpec
 
@@ -126,6 +127,32 @@ def _inside(path: str, root: str) -> bool:
     return Path(path).resolve().is_relative_to(Path(root).resolve())
 
 
+#: The tracked directory holding curated standards, skill and bounds content, and
+#: the one subdirectory beneath it a session may still write: a subtask's own
+#: outcome leaves a candidate there, and nothing promotes it into the library but
+#: the human-run promotion command.
+KNOWLEDGE_DIR_NAME = "knowledge"
+KNOWLEDGE_STAGING_NAME = "staging"
+
+
+def _knowledge_roots(worktree: Path) -> dict[str, tuple[str, Watch]]:
+    """Every curated domain directory under the worktree's knowledge tree, protected whole.
+
+    Discovered rather than named, so a later domain's content is protected from
+    the day it lands, with no further change here. A domain with no curated
+    content yet has no directory to find, which is not a gap: the reading hook
+    already refuses to dispatch a role whose standards file does not exist.
+    """
+    root = worktree / KNOWLEDGE_DIR_NAME
+    if not root.is_dir():
+        return {}
+    return {
+        str(entry): (KNOWLEDGE_REASON, "revert")
+        for entry in sorted(root.iterdir())
+        if entry.is_dir() and entry.name != KNOWLEDGE_STAGING_NAME
+    }
+
+
 def build_config(request: InstallRequest, installation: Installation) -> SessionConfig:
     """The session configuration for ``request``.
 
@@ -177,6 +204,7 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
             "it is the user's Claude Code state, which later sessions read",
             "log",
         ),
+        **_knowledge_roots(worktree),
     }
     for path in request.extra_protected:
         protected.setdefault(path, ("the orchestrator protects it for this session", "revert"))
