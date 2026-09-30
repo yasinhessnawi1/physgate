@@ -1,6 +1,6 @@
 # Cross-domain standards
 
-> **Status: DRAFT candidate, staged for review — not promoted.** Researched and drafted by the
+> Researched and drafted by the
 > implementing agent per the spec's content-authorship correction (Yasin, 29.09.2026): grounded in
 > this project's own already-built and already-cited enforcement, reviewed and iterated by Yasin
 > before any promotion. Every rule below names what enforces it; none is invented to fill a gap.

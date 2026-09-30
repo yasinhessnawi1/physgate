@@ -1,6 +1,6 @@
 # Control — skill
 
-> **Status: DRAFT candidate, staged for review — not promoted.** Procedures and antipatterns,
+> Procedures and antipatterns,
 > reusable across control tasks; every numbered standard it cites lives in
 > `knowledge/control/standards.md`, drafted alongside this file and under the same review.
 

@@ -1,6 +1,6 @@
 # Firmware — skill
 
-> **Status: DRAFT candidate, staged for review — not promoted.** Procedures and antipatterns,
+> Procedures and antipatterns,
 > reusable across firmware tasks; every numbered standard it cites lives in
 > `knowledge/firmware/standards.md`, drafted alongside this file and under the same review.
 

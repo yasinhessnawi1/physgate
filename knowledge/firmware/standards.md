@@ -1,6 +1,6 @@
 # Firmware — standards
 
-> **Status: DRAFT candidate, staged for review — not promoted.** Researched and drafted by the
+> Researched and drafted by the
 > implementing agent (Yasin's content-authorship correction, 29.09.2026). Read
 > `knowledge/cross/standards.md` first. Almost every rule here is **judgement-only**: the physics
 > gate checks declared physical quantities, not code style or scheduling behaviour, so this domain's

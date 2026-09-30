@@ -1,6 +1,6 @@
 # Control — standards
 
-> **Status: DRAFT candidate, staged for review — not promoted.** Researched and drafted by the
+> Researched and drafted by the
 > implementing agent (Yasin's content-authorship correction, 29.09.2026): every numeric threshold
 > below is a widely corroborated convention or a provable result from the published control-systems
 > literature, cited at first use, never a value chosen to make a fixture pass. Read
