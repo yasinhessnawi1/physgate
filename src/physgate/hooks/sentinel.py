@@ -80,6 +80,25 @@ def _roots(config: ConfigView, watch: str) -> list[str]:
     return [root.path for root in config.protected_roots if root.watch == watch]
 
 
+def _exceptions(config: ConfigView, watch: str) -> list[str]:
+    """Every path a root of this ``watch`` kind excludes from its own protection.
+
+    Matches ``paths.py``'s ``protection()``, which already treats a root's own
+    ``exceptions`` as not protected by that root: this is the same carve-out,
+    applied to what the sentinel snapshots and reverts rather than to what it
+    refuses before a write. Without it, a legitimate write inside the
+    exception (``knowledge/staging/`` inside ``knowledge/``) would succeed at
+    the first layer and then be silently put back by this one, the very next
+    hook event.
+    """
+    return [
+        exception
+        for root in config.protected_roots
+        if root.watch == watch
+        for exception in root.exceptions
+    ]
+
+
 def _frozen_experiment_paths(config: ConfigView) -> list[str]:
     """Every frozen experiment directory and every criteria file, as revert roots."""
     out: list[str] = []
@@ -250,9 +269,11 @@ def _journal_state(root: str, blobs: BlobStore) -> dict[str, Any] | None:
 
 def _baseline(config: ConfigView, state: _State) -> dict[str, Any]:
     revert_roots = sorted(set(_roots(config, "revert") + _frozen_experiment_paths(config)))
-    entries = record(revert_roots, state.blobs)
+    revert_exceptions = sorted(set(_exceptions(config, "revert")))
+    entries = record(revert_roots, state.blobs, revert_exceptions)
     return {
         "revert_roots": revert_roots,
+        "revert_exceptions": revert_exceptions,
         "revert": {p: _entry_json(e) for p, e in entries.items()},
         "journal": {r: _journal_state(r, state.blobs) for r in _roots(config, "journal")},
         "halt": _halt_record(config),
@@ -280,7 +301,8 @@ def _restore_entry(path: str, entry: Entry, state: _State) -> None:
 
 def _revert(base: dict[str, Any], state: _State) -> tuple[list[str], list[str]]:
     """Put the revert roots back. Returns (paths put back, paths that could not be)."""
-    current = take_signatures(base["revert_roots"])
+    exclude = base.get("revert_exceptions", [])
+    current = take_signatures(base["revert_roots"], exclude)
     if current == {p: tuple(raw[0]) for p, raw in base["revert"].items()}:
         # Every path is where it was, with the signature it had: nothing moved,
         # so there is nothing to put back and nothing to verify. That is every
@@ -318,12 +340,14 @@ def _revert(base: dict[str, Any], state: _State) -> tuple[list[str], list[str]]:
             quarantine(path, state.quarantine)
             _restore_entry(path, was, state)
             touched.append(path)
-    for path in sorted(set(recorded) - set(take_signatures(base["revert_roots"])), key=_depth):
+    for path in sorted(
+        set(recorded) - set(take_signatures(base["revert_roots"], exclude)), key=_depth
+    ):
         _restore_entry(path, recorded[path], state)
         touched.append(path)
     # Verify, and take the restored files' new signatures as the baseline: a
     # replaced file has a new inode, with the content it had before.
-    after = take_signatures(base["revert_roots"])
+    after = take_signatures(base["revert_roots"], exclude)
     failed = sorted(set(after) ^ set(recorded))
     for path, entry in recorded.items():
         if (
