@@ -111,13 +111,18 @@ def _strings(value: object, where: str, check: Any) -> tuple[Any, ...]:  # noqa:
 class LeanRoot:
     """A protected root."""
 
-    __slots__ = ("path", "reason", "watch")
+    __slots__ = ("exceptions", "path", "reason", "watch")
 
     def __init__(self, raw: object, where: str) -> None:
-        """Validate one root."""
-        data = _object(raw, where, ("path", "reason", "watch"))
+        """Validate one root. ``exceptions`` may be omitted; it then defaults to none."""
+        data = _object(raw, where, ("path", "reason", "watch"), optional=("exceptions",))
         self.path: str = _absolute(data["path"], f"{where}.path")
         self.reason: str = _string(data["reason"], f"{where}.reason", min_length=1)
+        self.exceptions: tuple[str, ...] = (
+            _strings(data["exceptions"], f"{where}.exceptions", _absolute)
+            if "exceptions" in data
+            else ()
+        )
         self.watch: str = _choice(data["watch"], f"{where}.watch", WATCHES)
 
 

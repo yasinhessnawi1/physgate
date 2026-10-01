@@ -33,6 +33,16 @@ either of which protects:
 An existing file with more than one link is refused as well. A hard link gives
 a protected file a second name anywhere on the volume, and nothing in the name
 being written says so.
+
+**A root may carry its own exceptions** — paths beneath it that this root does
+not protect after all. This exists for exactly one real case: `knowledge/` is
+protected whole, including every domain that does not have a directory yet
+(discovering only what already exists at settings-build time left a
+not-yet-existing domain's standards file completely unprotected, so a role
+session could plant one, found live against the real binary), with
+`knowledge/staging/` named as the one path beneath it a session may still
+write. A path reaching both the root and one of its exceptions is not
+protected by that root; it may still be protected by another one.
 """
 
 from __future__ import annotations
@@ -169,7 +179,9 @@ def protection(path: str, cwd: str, config: ConfigView, *, writing: bool) -> str
     if not writing:
         return None
     for root in config.protected_roots:
-        if _reaches(absolute, root.path, chain):
+        if _reaches(absolute, root.path, chain) and not any(
+            _reaches(absolute, exception, chain) for exception in root.exceptions
+        ):
             return root.reason
     for rule in config.experiments:
         reason = _experiment_reason(

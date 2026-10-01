@@ -24,6 +24,9 @@ class RootView(Protocol):
     @property
     def watch(self) -> str: ...  # noqa: D102
 
+    @property
+    def exceptions(self) -> Sequence[str]: ...  # noqa: D102
+
 
 class ExperimentView(Protocol):
     """The frozen-experiment rule."""

@@ -135,22 +135,29 @@ KNOWLEDGE_DIR_NAME = "knowledge"
 KNOWLEDGE_STAGING_NAME = "staging"
 
 
-def _knowledge_roots(worktree: Path) -> dict[str, tuple[str, Watch]]:
-    """Every curated domain directory under the worktree's knowledge tree, protected whole.
+def _knowledge_root(worktree: Path) -> str:
+    """The whole curated-knowledge tree under ``worktree``, as one path.
 
-    Discovered rather than named, so a later domain's content is protected from
-    the day it lands, with no further change here. A domain with no curated
-    content yet has no directory to find, which is not a gap: the reading hook
-    already refuses to dispatch a role whose standards file does not exist.
+    Protected whole, whether or not the tree or any domain beneath it exists
+    yet on disk — the string test in ``paths.py`` works for a root that does
+    not exist yet, the same way the gate directory is protected before its
+    first file. Protecting only the domains discovered at settings-build time
+    left a not-yet-existing domain's standards file completely unprotected (a
+    role session could plant one with an ordinary Write call, found live
+    against the real binary): a domain before its first promotion is exactly
+    the case needing protection most, not the one a discover-what-exists
+    approach skips.
     """
-    root = worktree / KNOWLEDGE_DIR_NAME
-    if not root.is_dir():
-        return {}
-    return {
-        str(entry): (KNOWLEDGE_REASON, "revert")
-        for entry in sorted(root.iterdir())
-        if entry.is_dir() and entry.name != KNOWLEDGE_STAGING_NAME
-    }
+    return str(worktree / KNOWLEDGE_DIR_NAME)
+
+
+def _knowledge_staging(worktree: Path) -> str:
+    """The one path beneath the knowledge tree a session may still write.
+
+    A subtask's own outcome leaves a candidate here, and nothing promotes it
+    into the library but the human-run promotion command.
+    """
+    return str(worktree / KNOWLEDGE_DIR_NAME / KNOWLEDGE_STAGING_NAME)
 
 
 def build_config(request: InstallRequest, installation: Installation) -> SessionConfig:
@@ -204,7 +211,12 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
             "it is the user's Claude Code state, which later sessions read",
             "log",
         ),
-        **_knowledge_roots(worktree),
+        _knowledge_root(worktree): (KNOWLEDGE_REASON, "revert"),
+    }
+    #: Paths that are not protected by the root they sit under, despite the
+    #: string/inode tests otherwise reaching it. Only one root needs this today.
+    root_exceptions: dict[str, tuple[str, ...]] = {
+        _knowledge_root(worktree): (_knowledge_staging(worktree),),
     }
     for path in request.extra_protected:
         protected.setdefault(path, ("the orchestrator protects it for this session", "revert"))
@@ -238,7 +250,9 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         store_root=request.store_root,
         state_dir=request.state_dir,
         protected_roots=tuple(
-            ProtectedRoot(path=path, reason=reason, watch=watch)
+            ProtectedRoot(
+                path=path, reason=reason, watch=watch, exceptions=root_exceptions.get(path, ())
+            )
             for path, (reason, watch) in sorted(protected.items())
         ),
         experiments=(
