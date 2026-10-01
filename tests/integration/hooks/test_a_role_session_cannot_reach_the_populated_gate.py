@@ -3,10 +3,13 @@
 The hook layer's own suite proved the gate's directory protected while it held a
 stand-in file. This runs the same isolated harness (a role session, the real
 binary, the scripted endpoint, a dummy key) against the populated gate: the
-worktree carries the gate's real files, checks and bounds table included, and the
-hooks run from the package that holds the real gate. Every attempt reads its
-target first, so a refusal is the hook's and not the binary's rule about unread
-files, and every case asserts the hook layer's log and the bytes afterwards.
+worktree carries the gate's real files and checks, and the hooks run from the
+package that holds the real gate. Every attempt reads its target first, so a
+refusal is the hook's and not the binary's rule about unread files, and every
+case asserts the hook layer's log and the bytes afterwards. (The curated
+bounds table lives under ``knowledge/`` now, protected by its own reason and
+its own bypass-suite coverage; ``EXCEPTIONS`` here stands in for a second real
+file that stays inside the gate.)
 """
 
 from __future__ import annotations
@@ -32,7 +35,7 @@ GATE_FILES = {
     if p.is_file() and "__pycache__" not in p.parts
 }
 RUNNER = "src/physgate/gate/runner.py"
-TABLE = "src/physgate/gate/bounds/electrical.toml"
+EXCEPTIONS = "src/physgate/gate/exceptions.py"
 
 
 def _digest(path: Path) -> str:
@@ -56,7 +59,7 @@ def _refusals(run: SessionRun) -> list[tuple[str, str]]:
 
 
 def test_the_worktree_holds_the_populated_gate() -> None:
-    assert RUNNER in GATE_FILES and TABLE in GATE_FILES
+    assert RUNNER in GATE_FILES and EXCEPTIONS in GATE_FILES
     assert len(GATE_FILES) >= 15
 
 
@@ -67,16 +70,25 @@ def test_a_write_edit_or_shell_write_to_the_gate_in_the_worktree_is_refused(
         tmp_path,
         tool("Read", file_path=f"@W/{RUNNER}"),
         tool("Write", file_path=f"@W/{RUNNER}", content="# every check passes\n"),
-        tool("Read", file_path=f"@W/{TABLE}"),
-        tool("Edit", file_path=f"@W/{TABLE}", old_string="high = 6.5", new_string="high = 300"),
-        tool("Bash", command=f"sed -i.bak 's/high = 6.5/high = 300/' {TABLE}"),
+        tool("Read", file_path=f"@W/{EXCEPTIONS}"),
+        tool(
+            "Edit",
+            file_path=f"@W/{EXCEPTIONS}",
+            old_string="class GateError(Exception):",
+            new_string="class GateError(RuntimeError):",
+        ),
+        tool(
+            "Bash",
+            command=f"sed -i.bak 's/class GateError(Exception)/class GateError(RuntimeError)/' "
+            f"{EXCEPTIONS}",
+        ),
         tool("Bash", command=f"echo 'PASS = True' >> {RUNNER}"),
         tool("Write", file_path="@W/src/physgate/gate/check_pass.py", content="PASS = True\n"),
     )
-    for rel in (RUNNER, TABLE):
+    for rel in (RUNNER, EXCEPTIONS):
         assert (run.worktree / rel).read_text() == GATE_FILES[rel], rel
     assert not (run.worktree / "src/physgate/gate/check_pass.py").exists()
-    assert not (run.worktree / f"{TABLE}.bak").exists()
+    assert not (run.worktree / f"{EXCEPTIONS}.bak").exists()
     refused = _refusals(run)
     assert len(refused) == 5, refused
     assert all(GATE_REASON in reason for _, reason in refused)
@@ -84,15 +96,18 @@ def test_a_write_edit_or_shell_write_to_the_gate_in_the_worktree_is_refused(
 
 def test_the_gate_in_the_installation_the_hooks_run_from_is_refused(tmp_path: Path) -> None:
     installed_runner = GATE_SOURCE / "runner.py"
-    installed_table = GATE_SOURCE / "bounds" / "electrical.toml"
-    before = {p: _digest(p) for p in (installed_runner, installed_table)}
+    installed_exceptions = GATE_SOURCE / "exceptions.py"
+    before = {p: _digest(p) for p in (installed_runner, installed_exceptions)}
     run = _session(
         tmp_path,
         tool("Read", file_path=str(installed_runner)),
         tool("Write", file_path=str(installed_runner), content="# every check passes\n"),
-        tool("Read", file_path=str(installed_table)),
+        tool("Read", file_path=str(installed_exceptions)),
         tool(
-            "Edit", file_path=str(installed_table), old_string="high = 6.5", new_string="high = 300"
+            "Edit",
+            file_path=str(installed_exceptions),
+            old_string="class GateError(Exception):",
+            new_string="class GateError(RuntimeError):",
         ),
         tool("Bash", command=f"echo 'PASS = True' >> {installed_runner}"),
     )

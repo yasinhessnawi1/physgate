@@ -19,7 +19,7 @@ read-only installation the sessions run from (ARCH-081).
 | `relations.py` | The catalogue's relations instantiated over the graph, shared by the unit check and the check that judges each relation |
 | `symbolic.py` | The one module that imports sympy: a balance built as an expression and evaluated exactly with one substitution pass |
 | `tolerances.py` | What an equality between separately declared numbers may miss: half a unit in each term's third significant figure. Inequalities get no allowance |
-| `bounds_table.py`, `bounds/` | The sourced bounds table, one TOML file per domain; a range without its source, date, note or class does not load, and the gate is not built |
+| `bounds_table.py` | Loads the sourced bounds table from the tracked `knowledge/<domain>/bounds.toml` files, one per domain directory; a range without its source, date, note or class does not load, and the gate is not built. The table itself is curated content, not part of this package — protected under `knowledge/` the same way this directory is, and moved there so it sits beside the standards and skill files it is curated alongside |
 | `equilibrium.py` | The equilibrium solver boundary (a Protocol), the closed form for statically determinate mounts, and what an indeterminate mount gets (`INDETERMINATE_MOUNTS`) |
 | `check_units.py` … `check_thermal.py` | Checks 1 to 6: units, magnitude, equilibrium, power, conservation, thermal |
 | `check_propagation.py` | Check 7, at the integration call: every node whose quantities changed above the given design (created, or a value that is physically different) owes a change to every node its `constrains` edges name, before or after the change, in the same change set or a later one; or that node's owner says why not in `no_change_justified`, which is recorded as unchecked, never passed. A change set is one merged attempt, from the history the loop recorded. It fails naming each unwritten edge; an edge into an interface node or into no node, and a graph with no history, are recorded as unchecked |
@@ -32,8 +32,10 @@ read-only installation the sessions run from (ARCH-081).
   it when it derives the per-check events from the run's log.
 - **What a change set is.** The loop derives it from its own log and hands it to
   the integration call; the gate only checks that it describes the journal.
-- **The bounds table's curation.** The ranges here are the ones the fixtures
-  need, each sourced and dated; widening or narrowing one is a curation event.
+- **The bounds table's curation.** The ranges are the ones the fixtures need,
+  each sourced and dated, and live under `knowledge/<domain>/bounds.toml`, not
+  in this directory; widening or narrowing one is a curation event, promoted
+  the same way any other curated content is.
 - **A finite-element solver.** The Protocol exists; the closed form is what runs.
 - **Writing anything.** The gate reads the graph and returns records. Warnings
   live in the records, not in the graph.

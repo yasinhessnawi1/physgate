@@ -45,6 +45,7 @@ from physgate.hooks.config import (
 from physgate.hooks.reasons import ANSWER_KEY_REASON as ANSWER_KEY_REASON
 from physgate.hooks.reasons import GATE_REASON as GATE_REASON
 from physgate.hooks.reasons import HELD_OUT_REASON as HELD_OUT_REASON
+from physgate.hooks.reasons import KNOWLEDGE_REASON as KNOWLEDGE_REASON
 from physgate.hooks.reasons import STORE_REASON as STORE_REASON
 from physgate.hooks.runtime import EVENTS, HookSpec
 
@@ -126,6 +127,39 @@ def _inside(path: str, root: str) -> bool:
     return Path(path).resolve().is_relative_to(Path(root).resolve())
 
 
+#: The tracked directory holding curated standards, skill and bounds content, and
+#: the one subdirectory beneath it a session may still write: a subtask's own
+#: outcome leaves a candidate there, and nothing promotes it into the library but
+#: the human-run promotion command.
+KNOWLEDGE_DIR_NAME = "knowledge"
+KNOWLEDGE_STAGING_NAME = "staging"
+
+
+def _knowledge_root(worktree: Path) -> str:
+    """The whole curated-knowledge tree under ``worktree``, as one path.
+
+    Protected whole, whether or not the tree or any domain beneath it exists
+    yet on disk — the string test in ``paths.py`` works for a root that does
+    not exist yet, the same way the gate directory is protected before its
+    first file. Protecting only the domains discovered at settings-build time
+    left a not-yet-existing domain's standards file completely unprotected (a
+    role session could plant one with an ordinary Write call, found live
+    against the real binary): a domain before its first promotion is exactly
+    the case needing protection most, not the one a discover-what-exists
+    approach skips.
+    """
+    return str(worktree / KNOWLEDGE_DIR_NAME)
+
+
+def _knowledge_staging(worktree: Path) -> str:
+    """The one path beneath the knowledge tree a session may still write.
+
+    A subtask's own outcome leaves a candidate here, and nothing promotes it
+    into the library but the human-run promotion command.
+    """
+    return str(worktree / KNOWLEDGE_DIR_NAME / KNOWLEDGE_STAGING_NAME)
+
+
 def build_config(request: InstallRequest, installation: Installation) -> SessionConfig:
     """The session configuration for ``request``.
 
@@ -177,6 +211,12 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
             "it is the user's Claude Code state, which later sessions read",
             "log",
         ),
+        _knowledge_root(worktree): (KNOWLEDGE_REASON, "revert"),
+    }
+    #: Paths that are not protected by the root they sit under, despite the
+    #: string/inode tests otherwise reaching it. Only one root needs this today.
+    root_exceptions: dict[str, tuple[str, ...]] = {
+        _knowledge_root(worktree): (_knowledge_staging(worktree),),
     }
     for path in request.extra_protected:
         protected.setdefault(path, ("the orchestrator protects it for this session", "revert"))
@@ -210,7 +250,9 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         store_root=request.store_root,
         state_dir=request.state_dir,
         protected_roots=tuple(
-            ProtectedRoot(path=path, reason=reason, watch=watch)
+            ProtectedRoot(
+                path=path, reason=reason, watch=watch, exceptions=root_exceptions.get(path, ())
+            )
             for path, (reason, watch) in sorted(protected.items())
         ),
         experiments=(

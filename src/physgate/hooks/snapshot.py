@@ -18,6 +18,14 @@ it a new inode and breaks the alias.
 **Nothing is deleted.** Something new inside a protected tree, or something of
 the wrong type where a file was, is moved into the session's quarantine under a
 name that is never reused, so what an agent planted is kept as evidence.
+
+**A root may name its own exclusions.** A root's caller may pass paths beneath
+it that this walk does not enter and does not record — the same carve-out
+``paths.py``'s ``protection()`` already honours for a root's own
+``exceptions`` (``knowledge/staging/`` inside the otherwise wholly protected
+``knowledge/``). An excluded path is skipped whole, directory or file: nothing
+beneath it is walked, signed, recorded, or restored, so a legitimate write
+there is invisible to this module, not merely untouched by it.
 """
 
 from __future__ import annotations
@@ -29,7 +37,7 @@ import stat
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Sequence
     from typing import Any
 
 Signature = tuple[str, int, int, int, int, int, int, int]
@@ -70,18 +78,28 @@ def signature(st: os.stat_result) -> Signature:
     )
 
 
-def walk(root: str) -> Iterator[tuple[str, os.stat_result]]:
-    """``root`` and everything beneath it, by ``lstat``, never following a link."""
+def _excluded(path: str, exclude: Sequence[str]) -> bool:
+    return any(path == e or path.startswith(e.rstrip("/") + "/") for e in exclude)
+
+
+def walk(root: str, exclude: Sequence[str] = ()) -> Iterator[tuple[str, os.stat_result]]:
+    """``root`` and everything beneath it, by ``lstat``, never following a link.
+
+    A path equal to, or beneath, one of ``exclude`` is skipped whole: not
+    yielded, and not descended into.
+    """
+    if _excluded(root, exclude):
+        return
     try:
         st = os.lstat(root)
     except FileNotFoundError:
         return
     yield root, st
     if stat.S_ISDIR(st.st_mode):
-        yield from _below(root)
+        yield from _below(root, exclude)
 
 
-def _below(directory: str) -> Iterator[tuple[str, os.stat_result]]:
+def _below(directory: str, exclude: Sequence[str] = ()) -> Iterator[tuple[str, os.stat_result]]:
     # One listing that hands back each entry's joined path, then the same
     # ``lstat`` per entry as ever: the sentinel walks every protected tree at
     # every hook, so the path building happens in C rather than here.
@@ -91,18 +109,20 @@ def _below(directory: str) -> Iterator[tuple[str, os.stat_result]]:
     except OSError:
         return
     for entry in entries:
+        if _excluded(entry.path, exclude):
+            continue
         try:
             st = entry.stat(follow_symlinks=False)
         except FileNotFoundError:
             continue
         yield entry.path, st
         if stat.S_ISDIR(st.st_mode):
-            yield from _below(entry.path)
+            yield from _below(entry.path, exclude)
 
 
-def signatures(roots: list[str]) -> dict[str, Signature]:
-    """The signature of every path under ``roots``."""
-    return {path: signature(st) for root in roots for path, st in walk(root)}
+def signatures(roots: list[str], exclude: Sequence[str] = ()) -> dict[str, Signature]:
+    """The signature of every path under ``roots``, except anything under ``exclude``."""
+    return {path: signature(st) for root in roots for path, st in walk(root, exclude)}
 
 
 def file_digest(path: str) -> str:
@@ -208,11 +228,11 @@ class BlobStore:
         os.replace(tmp, path)
 
 
-def record(roots: list[str], blobs: BlobStore) -> dict[str, Entry]:
-    """Everything under ``roots``, with the bytes of every regular file kept in one pack."""
+def record(roots: list[str], blobs: BlobStore, exclude: Sequence[str] = ()) -> dict[str, Entry]:
+    """Everything under ``roots`` except ``exclude``, every file's bytes kept in one pack."""
     found: dict[str, tuple[Signature, str | None]] = {}
     for root in roots:
-        for path, st in walk(root):
+        for path, st in walk(root, exclude):
             sig = signature(st)
             found[path] = (sig, os.readlink(path) if sig[0] == "link" else None)
     digests = blobs.keep_all([p for p, (sig, _) in found.items() if sig[0] == "file"])

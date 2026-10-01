@@ -63,13 +63,22 @@ Watch = Literal["revert", "journal", "halt", "log", "none"]
 
 
 class ProtectedRoot(BaseModel):
-    """A path no agent tool may write, the reason the agent is given, and how it is watched."""
+    """A path no agent tool may write, the reason the agent is given, and how it is watched.
+
+    ``exceptions`` names paths beneath ``path`` that are not protected by this
+    root after all — the one case this needs is a writable subdirectory inside
+    an otherwise wholly protected tree (``knowledge/staging/`` inside
+    ``knowledge/``), so a session can still write there without the matcher
+    needing to enumerate every other, currently-existing entry instead. Empty
+    by default: most roots have none.
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     path: AbsolutePath
     reason: Annotated[str, StringConstraints(min_length=1)]
     watch: Watch
+    exceptions: tuple[AbsolutePath, ...] = ()
 
 
 class ExperimentRule(BaseModel):

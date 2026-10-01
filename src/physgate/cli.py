@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from physgate.evaluation.inject import cli as inject_cli
 from physgate.evaluation.observe import cli as observe_cli
 from physgate.hooks import cli as hooks_cli
+from physgate.knowledge import cli as knowledge_cli
 from physgate.orchestrator import cli as orchestrator_cli
 
 
@@ -23,6 +24,7 @@ def main(
     parser = argparse.ArgumentParser(prog="physgate")
     subparsers = parser.add_subparsers(dest="command", required=True)
     hooks_cli.add_parser(subparsers)
+    knowledge_cli.add_parser(subparsers)
     orchestrator_cli.add_parsers(subparsers, registrations)
     observe_cli.add_parsers(subparsers, registrations)
     inject_cli.add_parser(subparsers, registrations)

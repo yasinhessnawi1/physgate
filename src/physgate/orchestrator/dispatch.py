@@ -32,6 +32,7 @@ from pydantic import BaseModel, ConfigDict
 
 from physgate.hooks.config import SessionConfig
 from physgate.hooks.reading import outstanding
+from physgate.knowledge import loader
 from physgate.orchestrator.accounting import require_matching_totals
 from physgate.orchestrator.budget import classify_session_end
 from physgate.orchestrator.credentials import (
@@ -209,6 +210,19 @@ class ClaudeDispatcher:
         reverted = (*reverted, build_record_path(self._install_bin.parent.parent))
         protect = [arg for root in reverted for arg in ("--protect", str(root))]
         protect += [arg for root in refused for arg in ("--protect-refuse-only", str(root))]
+        # The always-loaded set (cross's standards, the role's own standards and
+        # skill) is a subset of required reading, which adds the module spec.
+        # loader.py names both relative to the worktree being dispatched to, never
+        # the orchestrator's own checkout — that is where this session's Read
+        # tool actually operates.
+        reading_paths = loader.required_reading(request.assigned_role, Path(request.spec_path))
+        always_loaded_paths = loader.always_loaded(request.assigned_role)
+        reading_args = [
+            arg for path in reading_paths for arg in ("--reading", str(worktree / path))
+        ]
+        always_loaded_args = [
+            arg for path in always_loaded_paths for arg in ("--always-loaded", str(worktree / path))
+        ]
         argv = [
             str(self._install_bin),
             "hooks",
@@ -233,8 +247,8 @@ class ClaudeDispatcher:
             str(sdir / "home"),
             "--ceiling",
             str(self._config.token_ceiling),
-            "--reading",
-            str(worktree / request.spec_path),
+            *reading_args,
+            *always_loaded_args,
             *helper,
             *protect,
         ]

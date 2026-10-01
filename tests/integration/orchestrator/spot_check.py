@@ -48,6 +48,7 @@ from scripted_endpoint import DUMMY_OAUTH_TOKEN, Script, serving, text, tool  # 
 
 import physgate.orchestrator.cli as orchestrator_cli  # noqa: E402
 from physgate.cli import main as physgate_main  # noqa: E402
+from physgate.knowledge import loader  # noqa: E402
 from physgate.orchestrator.accounting import TokenAccount  # noqa: E402
 from physgate.orchestrator.decompose import (  # noqa: E402
     Outcome,
@@ -58,7 +59,7 @@ from physgate.orchestrator.decompose import (  # noqa: E402
     start_run,
 )
 from physgate.orchestrator.events import read_events  # noqa: E402
-from physgate.orchestrator.git import head_of  # noqa: E402
+from physgate.orchestrator.git import commit_all, head_of  # noqa: E402
 from physgate.orchestrator.install import prepare_install  # noqa: E402
 from physgate.orchestrator.processes import started_at, tree  # noqa: E402
 from physgate.orchestrator.run_config import (  # noqa: E402
@@ -187,6 +188,7 @@ def params() -> dict[str, Any]:
 def start_fixed(root: Path, endpoint: str, version: str) -> None:
     """Variant (a): the run started from the fixed plan, with no model call."""
     repo = target_repo(root)
+    seed_knowledge(repo)
     cfg = RunConfig.model_validate_json(
         json.dumps(
             {
@@ -305,10 +307,27 @@ def files_holding(root: Path, secret: str) -> int:
     return sum(1 for p in root.rglob("*") if p.is_file() and needle in p.read_bytes())
 
 
+def seed_knowledge(repo: Path) -> None:
+    """Commit fixture-only curated content for the ``electrical`` role into ``repo``.
+
+    The reading hook now requires it before any other tool, for a real session
+    as much as a scripted one.
+    """
+    for relative in loader.always_loaded("electrical"):
+        path = repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"# {relative.name}\n\nFixture content for the spot-check driver.\n")
+    commit_all(repo, "curated knowledge fixture\n")
+
+
 def session_script() -> Script:
     """The dry run's stand-in for the model: what the specification asks, with a pause."""
     return Script(
         main=[
+            *(
+                tool("Read", file_path=f"{{cwd}}/{relative.as_posix()}")
+                for relative in loader.always_loaded("electrical")
+            ),
             tool("Read", file_path="{cwd}/.physgate/specs/{cwd_name}.md"),
             tool(
                 "Bash",
@@ -336,7 +355,7 @@ def run_cycle(
     run_dir = root / "run"
     decomposition: dict[str, Any] | None = None
     if variant == "b":
-        target_repo(root)
+        seed_knowledge(target_repo(root))
         (root / "brief.md").write_text(BRIEF)
         (root / "params.json").write_text(json.dumps(params()))
         code = spawn(root, "decompose", env, install).wait(timeout=900)

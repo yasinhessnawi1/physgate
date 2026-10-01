@@ -22,11 +22,39 @@ from scripted_endpoint import DUMMY_KEY, Script, serving, text, tool
 
 from physgate.cli import main
 from physgate.gate.runner import PhysicsGate
+from physgate.knowledge import loader
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.cli import Registrations
 from physgate.orchestrator.events import read_events
+from physgate.orchestrator.git import commit_all
 from physgate.orchestrator.install import prepare_install
 from physgate.orchestrator.protocols import MessageUsage, ReviewResult, Usage
+
+#: Every module this file plans is role ``electrical`` (below); the reading
+#: hook now requires that role's curated content before any other tool, so a
+#: worktree derived from ``target_repo`` needs it committed, and every session
+#: script needs to read it (ARCH-020, ARCH-023).
+_KNOWLEDGE_READS = [
+    tool("Read", file_path=f"{{cwd}}/{relative.as_posix()}")
+    for relative in loader.always_loaded("electrical")
+]
+
+
+def seed_knowledge(repo: Path) -> None:
+    """Commit fixture-only curated content for the ``electrical`` role into ``repo``.
+
+    Exported: every test that builds its own ``target_repo`` rather than going
+    through ``drive_run`` (below) needs this too, since any role it dispatches
+    is now held to the same required reading a real session is.
+    """
+    for relative in loader.always_loaded("electrical"):
+        path = repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            f"# {relative.name}\n\nFixture content for the gate's command-level tests.\n"
+        )
+    commit_all(repo, "curated knowledge fixture\n")
+
 
 BRIEF = "Build a self-balancing robot; start with its power.\n"
 
@@ -67,7 +95,7 @@ def build_install(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 def session(*payloads: dict[str, Any]) -> Script:
-    """What every session does: read its specification, write its proposals, stop."""
+    """What every session does: read its curated content and spec, write its proposals, stop."""
     writes = [
         tool(
             "Write",
@@ -77,7 +105,12 @@ def session(*payloads: dict[str, Any]) -> Script:
         for p in payloads
     ]
     return Script(
-        main=[tool("Read", file_path="{cwd}/.physgate/specs/{cwd_name}.md"), *writes, text("done")]
+        main=[
+            *_KNOWLEDGE_READS,
+            tool("Read", file_path="{cwd}/.physgate/specs/{cwd_name}.md"),
+            *writes,
+            text("done"),
+        ]
     )
 
 
@@ -97,6 +130,7 @@ def drive_run(
     Returns the printed outcome, the events, the reviewer and the gate events.
     """
     repo = target_repo(tmp_path)
+    seed_knowledge(repo)
     run_dir = tmp_path / "run"
     params = config().model_dump(include=PARAMS)
     params["gate_mode"] = gate_mode
