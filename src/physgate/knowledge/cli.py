@@ -12,16 +12,26 @@ import argparse
 import getpass
 
 from physgate.knowledge.promote import PromotionError, promote
+from physgate.knowledge.standards_lint import main as _lint_main
 
 
 def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    """Register ``knowledge promote`` on the top-level command."""
+    """Register ``knowledge promote``/``knowledge list-unmarked-rules`` on the top-level command."""
     knowledge = subparsers.add_parser("knowledge", help="the knowledge layer")
     actions = knowledge.add_subparsers(dest="action", required=True)
     p = actions.add_parser("promote", help="move one staged candidate into the library")
     p.add_argument("candidate_id", help="the candidate's id, as staged under knowledge/staging/")
     p.add_argument("--by", help="who is approving this; defaults to the current OS user")
     p.set_defaults(func=_promote)
+    lint = actions.add_parser(
+        "list-unmarked-rules",
+        help="list every numbered rule in a promoted standards.md naming no enforcement",
+    )
+    lint.set_defaults(func=_list_unmarked_rules)
+
+
+def _list_unmarked_rules(args: argparse.Namespace) -> int:  # noqa: ARG001
+    return _lint_main([])
 
 
 def _promote(args: argparse.Namespace) -> int:

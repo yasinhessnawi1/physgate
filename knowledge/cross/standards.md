@@ -78,3 +78,7 @@ supply, an unpropagated change, and a mount or thermal path with no margin. It d
 physics reasoning, a bad topology choice, or a plausible-looking number that is still wrong for the
 application. That is what the reviewer is for, and what your own domain standards file exists to
 reduce the odds of — read it next.
+
+**Judgement-only** — this rule is the stated limit of everything enforced above, not itself a
+further gate check; nothing in the gate verifies that a reviewer actually catches what this section
+says the gate cannot.

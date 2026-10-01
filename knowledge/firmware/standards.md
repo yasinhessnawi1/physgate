@@ -160,3 +160,6 @@ allocation, scope discipline, preprocessor and pointer restriction, warning/anal
 ISR hygiene, watchdog design, and schedulability — is judged by the on-target test, the firmware
 toolchain, and the reviewer reading the trajectory, until or unless a future spec adds a
 corresponding gate check.
+
+**Judgement-only** — this rule states what rules 1–10 are each already marked as, individually; it
+adds no enforcement of its own beyond naming the pattern plainly.

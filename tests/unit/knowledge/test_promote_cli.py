@@ -62,3 +62,12 @@ def test_promote_through_the_command_refuses_non_interactively_and_prints_why(
     assert code == 1
     assert "refused" in capsys.readouterr().out
     assert staging.candidates("skill") != ()  # still staged, nothing promoted
+
+
+def test_list_unmarked_rules_is_registered_and_reports_clean_on_an_empty_tree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.chdir(tmp_path)  # no knowledge/ directory at all here
+    code = main(["knowledge", "list-unmarked-rules"])
+    assert code == 0
+    assert "No unmarked rules found." in capsys.readouterr().out
