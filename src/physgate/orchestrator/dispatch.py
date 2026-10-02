@@ -53,7 +53,7 @@ from physgate.orchestrator.ports import Leftover, SessionReport, SessionRequest
 from physgate.orchestrator.processes import is_session, started_at, stop_tree
 from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.queue import DECISIONS_NAME
-from physgate.orchestrator.run_config import RunConfig
+from physgate.orchestrator.run_config import RunConfig, harness_root
 from physgate.orchestrator.trajectory import Seal, forged_tail, seal, through_first_result
 
 REDACTED = REDACTED_TEXT.encode()
@@ -210,6 +210,12 @@ class ClaudeDispatcher:
         reverted = (*reverted, build_record_path(self._install_bin.parent.parent))
         protect = [arg for root in reverted for arg in ("--protect", str(root))]
         protect += [arg for root in refused for arg in ("--protect-refuse-only", str(root))]
+        # The checkout this orchestrator runs from: its gate source, its curated library
+        # and bounds tables, its frozen experiments. A session in the target's worktree
+        # has nothing of its own there, and the live gate reads from it.
+        harness = harness_root()
+        if harness is not None:
+            protect += ["--harness", str(harness)]
         # The always-loaded set (cross's standards, the role's own standards and
         # skill) is a subset of required reading, which adds the module spec.
         # loader.py names both relative to the worktree being dispatched to, never

@@ -66,6 +66,7 @@ from physgate.orchestrator.queue import ApprovalQueue
 from physgate.orchestrator.run_config import (
     RunConfig,
     endpoint_of,
+    harness_root,
     harness_state,
     load_run_config,
     require_endpoint,
@@ -266,8 +267,7 @@ def _config(args: argparse.Namespace) -> RunConfig:
 
 def _harness_root() -> Path | None:
     """The source checkout this orchestrator runs from, or ``None`` if it runs from none."""
-    root = Path(physgate.__file__).resolve().parents[2]
-    return root if (root / "pyproject.toml").exists() else None
+    return harness_root()
 
 
 def _decompose(args: argparse.Namespace) -> int:
