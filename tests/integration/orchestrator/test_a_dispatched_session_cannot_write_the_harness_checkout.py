@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import sysconfig
 import uuid
@@ -63,10 +64,19 @@ def test_a_dispatched_session_plants_nothing_in_the_harness(
     tag = uuid.uuid4().hex[:12]
     by_tool = HARNESS / "knowledge" / "electrical" / f"zz_probe_tool_{tag}.md"
     by_interpreter = HARNESS / "knowledge" / "electrical" / f"zz_probe_built_{tag}.md"
-    # The interpreter's path, reversed, so no literal in the command names it. (The
-    # session's environment is the dispatcher's isolated one, so it cannot be passed
-    # in a variable.)
-    built = f"import os; open({str(by_interpreter)[::-1]!r}[::-1], 'w').write('planted')"
+    # A write the first layer cannot see, so the sentinel's put-back is what must catch
+    # it. The target's absolute path is assembled from two halves in shell variables,
+    # split inside the harness root so no protected path appears as a contiguous literal
+    # in the command (the first layer scans the text; it does not evaluate the
+    # concatenation — the hook suite's own "variable"/"substitution" cases establish
+    # this). This uses only the shell and `echo`, so it needs no external interpreter:
+    # the dispatcher builds the session's environment from nothing, a bare `python3` is
+    # not on its PATH (exit 127 on the server), and the test's own interpreter sits
+    # under a protected root (the venv, or the installation's base prefix), which the
+    # first layer would refuse by its literal path.
+    target = str(by_interpreter)
+    cut = len(str(HARNESS)) // 2  # inside the harness root, so neither half is a protected path
+    head, tail = shlex.quote(target[:cut]), shlex.quote(target[cut:])
     reads = [
         tool("Read", file_path=f"{{cwd}}/{relative.as_posix()}")
         for relative in loader.always_loaded("electrical")
@@ -76,7 +86,11 @@ def test_a_dispatched_session_plants_nothing_in_the_harness(
             *reads,
             tool("Read", file_path="{cwd}/.physgate/specs/{cwd_name}.md"),
             tool("Write", file_path=str(by_tool), content="planted\n"),
-            tool("Bash", command=f'python3 -c "{built}" && echo ran > ran.txt', description="x"),
+            tool(
+                "Bash",
+                command=f'a={head}; b={tail}; echo planted > "$a$b" && echo ran > ran.txt',
+                description="x",
+            ),
             text("done"),
         ]
     )
