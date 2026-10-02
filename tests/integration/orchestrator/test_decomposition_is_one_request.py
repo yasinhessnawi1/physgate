@@ -17,6 +17,7 @@ from typing import Any
 
 import pytest
 from git_rig import PARAMS, config, target_repo
+from knowledge_fixture import build_fixture_library
 from scripted_endpoint import (  # noqa: E402
     DUMMY_KEY,
     DUMMY_OAUTH_TOKEN,
@@ -92,7 +93,13 @@ def decompose_once(
             base_url=url,
             credential=credential or Credential("api_key", DUMMY_KEY),
         )
-    record = start_run(outcome, config=cfg, run_dir=root / "run", target_repo=repo)
+    record = start_run(
+        outcome,
+        config=cfg,
+        run_dir=root / "run",
+        target_repo=repo,
+        library=build_fixture_library(root / "library"),
+    )
     record.close()
     return api, outcome, root / "run"
 

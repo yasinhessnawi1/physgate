@@ -175,7 +175,9 @@ def build(root: Path, url: str) -> None:
         model="claude-sonnet-5",
         num_turns=1,
     )
-    start_run(outcome, config=cfg, run_dir=root / "run", target_repo=repo).close()
+    # The stand-in library is the fixture content just committed to the target, so
+    # the copy at decomposition finds it identical and leaves it.
+    start_run(outcome, config=cfg, run_dir=root / "run", target_repo=repo, library=repo).close()
 
 
 class SlowFakeSession:

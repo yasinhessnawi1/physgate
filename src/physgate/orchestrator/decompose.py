@@ -21,12 +21,13 @@ import hashlib
 import json
 import subprocess
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 
+from physgate.knowledge.library import LibraryError, put_into, read_library
 from physgate.orchestrator.accounting import require_matching_totals
 from physgate.orchestrator.budget import classify_session_end
 from physgate.orchestrator.common import NonEmptyStr, first_problem
@@ -37,7 +38,7 @@ from physgate.orchestrator.credentials import (
     write_login,
 )
 from physgate.orchestrator.exceptions import DecompositionError, InvocationError, RunStateError
-from physgate.orchestrator.git import commit_all, init_repo
+from physgate.orchestrator.git import commit_all, git, init_repo
 from physgate.orchestrator.invocation import (
     claude_binary,
     decomposition_argv,
@@ -462,16 +463,82 @@ def require_fresh(run_dir: Path) -> None:
         raise RunStateError(msg, run_dir=str(run_dir))
 
 
+def _blob_id(data: bytes, object_format: str) -> str:
+    """The id git gives ``data`` as a file's content, in the repository's object format."""
+    header = f"blob {len(data)}\0".encode()
+    digest = hashlib.sha256 if object_format == "sha256" else hashlib.sha1
+    return digest(header + data).hexdigest()
+
+
+def _require_library_fits(repo: Path, commit: str, curated: Mapping[Path, bytes]) -> None:
+    """Refuse a target whose ``commit`` holds other content where the curated library goes.
+
+    Read from git, not from any working tree, so it judges exactly the commit the
+    run branch starts from. Identical bytes in an ordinary file pass, and the copy
+    then leaves them as they are; anything else is refused, never overwritten.
+
+    Raises:
+        DecompositionError: a file with other bytes, a link or a directory where a
+            curated file goes, or a file or link where one of its directories goes.
+    """
+    if not curated:
+        return
+    listing = git(repo, "ls-tree", "-r", "-z", "--full-tree", commit)
+    entries: dict[str, tuple[str, str]] = {}
+    for item in listing.split("\0"):
+        if item:
+            meta, name = item.split("\t", 1)
+            mode, _, oid = meta.split()
+            entries[name] = (mode, oid)
+    object_format = git(repo, "rev-parse", "--show-object-format").strip()
+    for relative, data in sorted(curated.items()):
+        name = relative.as_posix()
+        parts = name.split("/")
+        for depth in range(1, len(parts)):
+            above = "/".join(parts[:depth])
+            if above in entries:
+                msg = "the target holds something other than a directory where the library goes"
+                raise DecompositionError(msg, path=above)
+        if any(other.startswith(name + "/") for other in entries):
+            msg = "the target already holds a different file where the curated library goes"
+            raise DecompositionError(msg, path=name)
+        if name in entries:
+            mode, oid = entries[name]
+            if mode not in ("100644", "100755") or oid != _blob_id(data, object_format):
+                msg = "the target already holds a different file where the curated library goes"
+                raise DecompositionError(msg, path=name)
+
+
 def start_run(
-    outcome: Outcome, *, config: RunConfig, run_dir: Path, target_repo: Path
+    outcome: Outcome,
+    *,
+    config: RunConfig,
+    run_dir: Path,
+    target_repo: Path,
+    library: Path | None,
 ) -> RunRecord:
     """Start the run from the call's outcome: record a failure, or write the plan.
 
+    With the module specifications, the run branch gets the curated library every
+    planned role reads, copied from ``library`` (the checkout the orchestrator runs
+    from) byte for byte, in the same commit.
+
     Raises:
         RunStateError: the run directory already holds a run.
-        DecompositionError: the store refused an interface node the plan validated.
+        DecompositionError: the store refused an interface node the plan validated,
+            or the curated library cannot be put into the target: a planned role's
+            file missing or empty, or the target holding other bytes where it goes.
     """
     require_fresh(run_dir)
+    curated: dict[Path, bytes] = {}
+    if outcome.ok and outcome.plan is not None:
+        # Before anything is written: a refusal here leaves no run record, no run
+        # branch and no worktree behind, so the same run directory can be used again.
+        try:
+            curated = read_library(library, (module.role for module in outcome.plan.modules))
+        except LibraryError as exc:
+            raise DecompositionError(str(exc), **exc.context) from None
+        _require_library_fits(target_repo, config.target_head, curated)
     store_root = run_dir / "store"
     record = RunRecord(config, run_dir)
     spent = DecompositionCall(session_id=outcome.session_id, usage=outcome.usage)
@@ -482,6 +549,10 @@ def start_run(
     entries: list[PlanEntry] = []
     run = RunGit(repo=target_repo, run_dir=run_dir, run_id=config.run_id)
     run.open_run_branch(config.target_head)
+    try:
+        put_into(run.integration, curated)
+    except LibraryError as exc:
+        raise DecompositionError(str(exc), **exc.context) from None
     for index, module in enumerate(plan.modules):
         subtask_id = mint_id(config.seed, index, module.name)
         spec_path = f".physgate/specs/{subtask_id}.md"
@@ -496,7 +567,9 @@ def start_run(
             )
         )
     spec_commit = commit_all(
-        run.integration, f"Specifications for run {config.run_id}\n\nWritten at decomposition.\n"
+        run.integration,
+        f"Specifications for run {config.run_id}\n\n"
+        "Written at decomposition, with the curated library each planned role reads.\n",
     )
     store = Store(store_root)
     try:

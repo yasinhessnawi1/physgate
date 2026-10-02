@@ -21,6 +21,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from knowledge_fixture import build_fixture_library
+
 from physgate.evaluation.observe.rerun import MEASURED, RerunPlan
 from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper
 from physgate.orchestrator.budget import SessionEnd
@@ -301,7 +303,13 @@ def start(root: Path, run_id: str, repo: Path, **overrides: Any) -> RunConfig:  
         model="claude-sonnet-5",
         num_turns=1,
     )
-    start_run(outcome, config=cfg, run_dir=root / run_id, target_repo=repo).close()
+    start_run(
+        outcome,
+        config=cfg,
+        run_dir=root / run_id,
+        target_repo=repo,
+        library=build_fixture_library(root / "library"),
+    ).close()
     return cfg
 
 

@@ -216,12 +216,18 @@ def start_fixed(root: Path, endpoint: str, version: str) -> None:
         model=MODEL,
         num_turns=1,
     )
-    start_run(outcome, config=cfg, run_dir=root / "run", target_repo=repo).close()
+    # The stand-in library is the fixture content just committed to the target, so
+    # the copy at decomposition finds it identical and leaves it.
+    start_run(outcome, config=cfg, run_dir=root / "run", target_repo=repo, library=repo).close()
 
 
 def child(root: Path, mode: str, install: str) -> int:
     """One orchestrator process: ``physgate decompose``, ``run`` or ``resume``."""
     if mode == "decompose":
+        # The real library carries no ``electrical`` content: the stand-in library is
+        # the fixture content committed to the target, so the copy leaves it as it is.
+        target = root / "target"
+        orchestrator_cli._library_root = lambda: target
         return physgate_main(
             [
                 "decompose",
