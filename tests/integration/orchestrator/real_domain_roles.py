@@ -67,6 +67,7 @@ from physgate.orchestrator.events import (  # noqa: E402
     GateRan,
     IntegrationGateRan,
     Merged,
+    ReviewRan,
     read_events,
 )
 from physgate.orchestrator.git import commit_all  # noqa: E402
@@ -396,11 +397,21 @@ def check_criteria(run_dir: Path, repo: Path, store_root: Path) -> dict[str, Any
         store.close()
 
     grep = grep_proof(repo, store_root)
-    reviewer_tokens = read_traces(run_dir).reviewer_tokens
+    # A review stage really ran for both subtasks (never skipped), its pinned stub model
+    # string is the one recorded in the event, and it spent nothing — the observable signal
+    # that a ledger line's review is the stub, not a widening of the frozen outcome literal.
+    review_ran = {
+        subtask: next(
+            (e.result for e in events if isinstance(e, ReviewRan) and e.subtask_id == subtask),
+            None,
+        )
+        for subtask in (FIRMWARE_ID, CONTROL_ID)
+    }
+    reviewer_model_pins = {s: (r.reviewer_model if r else None) for s, r in review_ran.items()}
+    reviewer_zero = all(r is not None and len(r.usage) == 0 for r in review_ran.values())
 
     constrains_edge = "firmware.main_loop" in control_node.get("constrains", [])
     gates_pass = all(v == ["pass"] for v in gate_verdicts.values())
-    reviewer_zero = all(v.total() == 0 for v in reviewer_tokens.values())
 
     return {
         "firmware_subtask_id": FIRMWARE_ID,
@@ -419,9 +430,10 @@ def check_criteria(run_dir: Path, repo: Path, store_root: Path) -> dict[str, Any
         "handoff_edge_on_graph": constrains_edge,
         "handoff_traversal_includes_firmware": "firmware.main_loop" in traversal,
         "handoff_grep": grep,
-        "reviewer_tokens": {k: v.total() for k, v in reviewer_tokens.items()},
+        "review_ran_for_both": all(r is not None for r in review_ran.values()),
         "reviewer_tokens_zero": reviewer_zero,
-        "reviewer_model_pins": {"firmware": REVIEWER, "control": REVIEWER},
+        "reviewer_model_pins": reviewer_model_pins,
+        "reviewer_model_pins_expected": REVIEWER,
         # Scores only what the dispatch, handoff and review criteria actually ask for; the
         # integration gate's own verdict above is reported, not a condition of this.
         "all_pass": (
@@ -431,6 +443,8 @@ def check_criteria(run_dir: Path, repo: Path, store_root: Path) -> dict[str, Any
             and constrains_edge
             and "firmware.main_loop" in traversal
             and grep["pass"]
+            and all(r is not None for r in review_ran.values())
+            and all(p == REVIEWER for p in reviewer_model_pins.values())
             and reviewer_zero
         ),
     }
