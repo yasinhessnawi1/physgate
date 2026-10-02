@@ -13,13 +13,26 @@ source), plus the one interface node ``decompose.py``'s ``Plan`` requires. Both 
 interface node are written exactly as sourced, byte for byte — this driver does not re-derive or
 rephrase a word of them.
 
-**What it does.** One ``physgate decompose`` call plans both modules, firmware listed first; one
-``physgate run`` dispatches both, firmware's subtask before control's, so control's ``constrains``
-edge names a node that already exists when it writes. The gate is the real registered one; the
-reviewers are a stub, one per role, so a review stage runs, spends nothing, and a ledger line
-never claims a review that did not happen. Handoff happens only by the graph: control's node
-``constrains`` firmware's, and nothing says so anywhere in prose — proved by an automated grep
-over the whole target repository's history, not eyeballed.
+**What it does.** One ``physgate decompose`` call plans both modules, control listed first; one
+``physgate run`` dispatches both, control's subtask before firmware's.
+- **Why control first:** the controller's design sets the loop rate firmware must meet, so control
+  writes the edge that constrains firmware's node, and firmware's node follows it.
+- **Why that order matters to the gate:** the propagation check counts a node's creation as a
+  change, so a change owes every node it constrains a later rewrite. Written firmware first, the
+  firmware node would precede the edge and never be rewritten after it, and the run would
+  escalate at integration. Written control first, firmware's node is the rewrite the edge asks
+  for.
+- An edge may name a node that does not exist yet: nothing checks a target's existence at write
+  time.
+
+The gate is the real registered one. The reviewers are a stub, one per role, so a review stage
+runs, spends nothing, and a ledger line never claims a review that did not happen. Handoff happens
+only by the graph: control's node ``constrains`` firmware's, and nothing says so anywhere in prose
+— proved by an automated grep over the whole target repository's history, not eyeballed.
+
+**What passes.** The run must end ``done`` with the integration gate's verdict ``pass``, on top of
+the dispatch, handoff and review checks. A run that ends any other way still writes its full
+record, and every check still runs against it, so a failure is reported, not hidden.
 
 **The token.** With ``--real``, read from the comment in ``real_rerun.py`` — unchanged here:
 ``CLAUDE_CODE_OAUTH_TOKEN`` from the env file, held only in memory, never printed. At the end,
@@ -65,6 +78,7 @@ from physgate.orchestrator.cli import Registrations  # noqa: E402
 from physgate.orchestrator.decompose import binary_version, mint_id  # noqa: E402
 from physgate.orchestrator.events import (  # noqa: E402
     GateRan,
+    IntegrationEscalated,
     IntegrationGateRan,
     Merged,
     ReviewRan,
@@ -74,6 +88,7 @@ from physgate.orchestrator.git import commit_all  # noqa: E402
 from physgate.orchestrator.install import prepare_install  # noqa: E402
 from physgate.orchestrator.invocation import claude_binary  # noqa: E402
 from physgate.orchestrator.run_config import ModelStrings, RunBounds  # noqa: E402
+from physgate.state.protocol import NodeNotFoundError  # noqa: E402
 from physgate.state.store import Store  # noqa: E402
 
 VARIABLE = "CLAUDE_CODE_OAUTH_TOKEN"
@@ -88,8 +103,8 @@ FIRMWARE_DIR = "modules/firmware"
 CONTROL_DIR = "modules/control"
 #: Minted the same way the orchestrator mints them, so the dry run can address each
 #: session's own worktree by name before either one is dispatched.
-FIRMWARE_ID = mint_id(SEED, 0, "firmware")
-CONTROL_ID = mint_id(SEED, 1, "control")
+CONTROL_ID = mint_id(SEED, 0, "control")
+FIRMWARE_ID = mint_id(SEED, 1, "firmware")
 EMAIL = re.compile(rb"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 
 #: The sourced stand-in node proposal, verbatim — not re-derived, not rephrased.
@@ -177,19 +192,21 @@ CONTROL_SPEC = (
     f"{json.dumps(CONTROL_PROPOSAL)}"
     "\n\nWhen the file is written, reply with the single word done.\n"
 )
-#: The decomposition brief: names both modules, firmware first, and the one interface node,
-#: verbatim.
+#: The decomposition brief: names both modules, control first and why, and the one interface
+#: node, verbatim. A real decomposition model reads this; the scripted endpoint does not.
 BRIEF = (
-    "STAND-IN BRIEF for A0's first control and firmware subtasks, not the reference design's "
+    "STAND-IN BRIEF for the first control and firmware subtasks, not the reference design's "
     "brief.\n\n"
-    "Plan exactly two modules, firmware first so control's constrains edge names a node that "
-    "already exists when it writes:\n"
-    "1. name 'firmware', role 'firmware', module_dir 'modules/firmware', using the text "
-    "between the markers below, verbatim, as its specification.\n<<<\n"
-    f"{FIRMWARE_SPEC}>>>\n"
-    "2. name 'control', role 'control', module_dir 'modules/control', using the text between "
+    "Plan exactly two modules, in this order: control first, firmware second. The controller's "
+    "design sets the loop rate the firmware must meet, so control writes the node whose "
+    "constrains edge names firmware's node, and firmware's node is written after it, following "
+    "the edge that constrains it.\n"
+    "1. name 'control', role 'control', module_dir 'modules/control', using the text between "
     "the markers below, verbatim, as its specification.\n<<<\n"
     f"{CONTROL_SPEC}>>>\n"
+    "2. name 'firmware', role 'firmware', module_dir 'modules/firmware', using the text "
+    "between the markers below, verbatim, as its specification.\n<<<\n"
+    f"{FIRMWARE_SPEC}>>>\n"
     "Plan exactly one interface node, this one, verbatim:\n"
     f"{json.dumps(INTERFACE)}\n"
 )
@@ -274,28 +291,34 @@ def command(argv: list[str], log: Path) -> int:
     return code
 
 
+def tokens(run_dir: Path) -> dict[str, Any]:
+    """The run's token account from its own trace: decomposition, each session, reviewers."""
+    trace = read_traces(run_dir)
+    return {
+        "decomposition": trace.decomposition_tokens.model_dump(),
+        "sessions": [
+            {
+                "session_id": s.session_id,
+                **s.tokens.model_dump(),
+                "wall_clock_s_incl_setup": s.wall_clock_s,
+            }
+            for s in trace.sessions
+        ],
+        "reviewer_stub": {k: v.total() for k, v in trace.reviewer_tokens.items()},
+        "routing": trace.routing_tokens.total(),
+    }
+
+
 def summary(run_dir: Path, trend: Path) -> dict[str, Any]:
+    """The finished run's manifest, tokens and priced cost line."""
     manifest = read_manifest(run_dir)
     line = price_run(run_dir, load_price_sheet(PRICES))
     append_cost_line(trend, line)
-    trace = read_traces(run_dir)
     return {
         "manifest_id": manifest.manifest_id,
         "run_id": manifest.config.run_id,
         "endpoint": manifest.config.endpoint,
-        "tokens": {
-            "decomposition": trace.decomposition_tokens.model_dump(),
-            "sessions": [
-                {
-                    "session_id": s.session_id,
-                    **s.tokens.model_dump(),
-                    "wall_clock_s_incl_setup": s.wall_clock_s,
-                }
-                for s in trace.sessions
-            ],
-            "reviewer_stub": {k: v.total() for k, v in trace.reviewer_tokens.items()},
-            "routing": trace.routing_tokens.total(),
-        },
+        "tokens": tokens(run_dir),
         "cost": {
             "basis": line.basis,
             "usd": str(line.usd),
@@ -304,6 +327,19 @@ def summary(run_dir: Path, trend: Path) -> dict[str, Any]:
         },
         "reviewer_stub_model_pins": {"firmware": REVIEWER, "control": REVIEWER},
     }
+
+
+def printed_outcome(log: Path) -> dict[str, Any] | None:
+    """What the last ``physgate run`` printed, as JSON, or ``None`` if it printed none."""
+    for raw in reversed(log.read_text().splitlines()):
+        entry = json.loads(raw)
+        if entry["argv"] == ["run"]:
+            with contextlib.suppress(json.JSONDecodeError):
+                printed = json.loads(entry["out"])
+                if isinstance(printed, dict):
+                    return printed
+            return None
+    return None
 
 
 def grep_proof(repo: Path, store_root: Path) -> dict[str, Any]:
@@ -361,38 +397,54 @@ def grep_proof(repo: Path, store_root: Path) -> dict[str, Any]:
     }
 
 
-def check_criteria(run_dir: Path, repo: Path, store_root: Path) -> dict[str, Any]:
-    """Automated proof, against this run's own records: dispatch, merge, handoff, review."""
+def _node(store: Store, node_id: str) -> dict[str, Any] | None:
+    """A node's payload, or ``None`` if the run never wrote it: a failed run is still reported."""
+    try:
+        return store.read_node(node_id)
+    except NodeNotFoundError:
+        return None
+
+
+def check_criteria(
+    run_dir: Path, repo: Path, store_root: Path, run_exit: int, outcome: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Automated proof, against this run's own records: dispatch, merge, handoff, review, end.
+
+    Every check runs whatever the run's ending, so a run that escalates or stops early still
+    reports which checks held and which did not.
+    """
     events = read_events(run_dir / "events.jsonl")
     seen_order: list[str] = []
     for event in events:
         subtask_id = getattr(event, "subtask_id", None)
         if subtask_id and subtask_id not in seen_order:
             seen_order.append(subtask_id)
-    dispatch_order = [s for s in seen_order if s in (FIRMWARE_ID, CONTROL_ID)]
+    dispatch_order = [s for s in seen_order if s in (CONTROL_ID, FIRMWARE_ID)]
 
     gate_verdicts = {
         subtask: [
             e.result.verdict for e in events if isinstance(e, GateRan) and e.subtask_id == subtask
         ]
-        for subtask in (FIRMWARE_ID, CONTROL_ID)
+        for subtask in (CONTROL_ID, FIRMWARE_ID)
     }
     merged = {
         subtask: any(isinstance(e, Merged) and e.subtask_id == subtask for e in events)
-        for subtask in (FIRMWARE_ID, CONTROL_ID)
+        for subtask in (CONTROL_ID, FIRMWARE_ID)
     }
     integration = next((e for e in events if isinstance(e, IntegrationGateRan)), None)
-    # Not part of the pass/fail rule below: a two-subtask stand-in where one node constrains
-    # another, pre-existing one can correctly fail the integration gate's propagation check
-    # (nothing ever rewrites the constrained node afterward, by this design's own narrow
-    # construction) and escalate to a person instead of merging clean. That is the real system
-    # behaving correctly on an intentionally incomplete design, reported here, not scored.
+    escalated = [e.item_id for e in events if isinstance(e, IntegrationEscalated)]
+    step = None if outcome is None else outcome.get("step")
+    open_items = None if outcome is None else outcome.get("open_queue_items")
+    ended_done = run_exit == 0 and step == "done" and open_items == [] and not escalated
+    integration_pass = integration is not None and integration.result.verdict == "pass"
 
     store = Store(store_root)
     try:
-        firmware_node = store.read_node("firmware.main_loop")
-        control_node = store.read_node("control.loop_gain")
-        traversal = store.traverse_constrains("control.loop_gain")
+        firmware_node = _node(store, "firmware.main_loop")
+        control_node = _node(store, "control.loop_gain")
+        traversal = (
+            store.traverse_constrains("control.loop_gain") if control_node is not None else []
+        )
     finally:
         store.close()
 
@@ -405,46 +457,65 @@ def check_criteria(run_dir: Path, repo: Path, store_root: Path) -> dict[str, Any
             (e.result for e in events if isinstance(e, ReviewRan) and e.subtask_id == subtask),
             None,
         )
-        for subtask in (FIRMWARE_ID, CONTROL_ID)
+        for subtask in (CONTROL_ID, FIRMWARE_ID)
     }
     reviewer_model_pins = {s: (r.reviewer_model if r else None) for s, r in review_ran.items()}
     reviewer_zero = all(r is not None and len(r.usage) == 0 for r in review_ran.values())
 
-    constrains_edge = "firmware.main_loop" in control_node.get("constrains", [])
+    written_by = (
+        None
+        if firmware_node is None
+        else firmware_node["quantities"].get("sample_rate", {}).get("written_by")
+    )
+    constrains_edge = control_node is not None and "firmware.main_loop" in control_node.get(
+        "constrains", []
+    )
     gates_pass = all(v == ["pass"] for v in gate_verdicts.values())
+    review_ran_for_both = all(r is not None for r in review_ran.values())
+    pins_hold = all(p == REVIEWER for p in reviewer_model_pins.values())
 
     return {
-        "firmware_subtask_id": FIRMWARE_ID,
         "control_subtask_id": CONTROL_ID,
+        "firmware_subtask_id": FIRMWARE_ID,
         "dispatch_order": dispatch_order,
-        "firmware_then_control_dispatched": dispatch_order == [FIRMWARE_ID, CONTROL_ID],
+        "control_then_firmware_dispatched": dispatch_order == [CONTROL_ID, FIRMWARE_ID],
         "gate_verdicts": gate_verdicts,
         "both_gates_pass": gates_pass,
         "merged": merged,
         "both_merged": all(merged.values()),
+        "run_exit": run_exit,
+        "run_step": step,
+        "open_queue_items": open_items,
+        "integration_escalated": escalated,
+        "ended_done": ended_done,
         "integration_gate_verdict": integration.result.verdict if integration else None,
         "integration_gate_finding": integration.result.finding if integration else None,
-        "handoff_firmware_node_written_by": firmware_node["quantities"]["sample_rate"][
-            "written_by"
-        ],
+        "integration_gate_pass": integration_pass,
+        "handoff_firmware_node_present": firmware_node is not None,
+        "handoff_control_node_present": control_node is not None,
+        "handoff_firmware_node_written_by": written_by,
         "handoff_edge_on_graph": constrains_edge,
         "handoff_traversal_includes_firmware": "firmware.main_loop" in traversal,
         "handoff_grep": grep,
-        "review_ran_for_both": all(r is not None for r in review_ran.values()),
+        "review_ran_for_both": review_ran_for_both,
         "reviewer_tokens_zero": reviewer_zero,
         "reviewer_model_pins": reviewer_model_pins,
         "reviewer_model_pins_expected": REVIEWER,
-        # Scores only what the dispatch, handoff and review criteria actually ask for; the
-        # integration gate's own verdict above is reported, not a condition of this.
+        # The run passes only if it ends done with the integration gate passing, on top of the
+        # dispatch, handoff and review checks: control first is known to merge clean, so an
+        # escalation here would be something unexpected, never a pass.
         "all_pass": (
-            dispatch_order == [FIRMWARE_ID, CONTROL_ID]
+            dispatch_order == [CONTROL_ID, FIRMWARE_ID]
             and gates_pass
             and all(merged.values())
+            and ended_done
+            and integration_pass
+            and written_by == "firmware"
             and constrains_edge
             and "firmware.main_loop" in traversal
             and grep["pass"]
-            and all(r is not None for r in review_ran.values())
-            and all(p == REVIEWER for p in reviewer_model_pins.values())
+            and review_ran_for_both
+            and pins_hold
             and reviewer_zero
         ),
     }
@@ -472,13 +543,13 @@ def dry_script(api: Any) -> None:  # noqa: ANN401
     plan = tool(
         "StructuredOutput",
         modules=[
+            {"name": "control", "role": "control", "module_dir": CONTROL_DIR, "spec": CONTROL_SPEC},
             {
                 "name": "firmware",
                 "role": "firmware",
                 "module_dir": FIRMWARE_DIR,
                 "spec": FIRMWARE_SPEC,
             },
-            {"name": "control", "role": "control", "module_dir": CONTROL_DIR, "spec": CONTROL_SPEC},
         ],
         interface_nodes=[INTERFACE],
     )
@@ -562,20 +633,26 @@ def one_run(root: Path) -> dict[str, Any]:
     result["run_exit"] = command(
         ["run", "--run-dir", str(run_dir), *common, "--install", str(install)], log
     )
-    # A nonzero exit here is not necessarily "nothing happened": a two-subtask stand-in with
-    # one node constraining another, pre-existing one can reach the real integration gate with
-    # its propagation check correctly unsatisfied (nothing ever rewrites the constrained node
-    # afterward, by this design's own construction) and escalate to a person. Both subtasks'
-    # own gate runs and the handoff edge are still fully on the graph in that case, so criteria
-    # are evaluated from the run's own records regardless of this exit code — the exit code and
-    # the command's own printed outcome (commands.jsonl) say which kind of ending it was.
+    outcome = printed_outcome(log)
+    result["run_outcome"] = outcome
+    # Whatever the ending — done, escalated, or stopped — the run's own records are read and
+    # every check runs against them, so a failed real run still produces a full report. Only a
+    # run that left no event log at all has nothing to read.
     if not (run_dir / "events.jsonl").exists():
         result["stopped"] = "the run left no event log; nothing more could be checked"
         return result
-    result["summary"] = (
-        summary(run_dir, root / "cost_trend.jsonl") if result["run_exit"] == 0 else None
+    if result["run_exit"] == 0:
+        result["summary"] = summary(run_dir, root / "cost_trend.jsonl")
+    else:
+        # No manifest is written for a run that did not finish, so no priced cost line; the
+        # token account is read from the trace instead, and a failure to read it is recorded.
+        try:
+            result["tokens_unfinished_run"] = tokens(run_dir)
+        except Exception as exc:  # recorded, never hidden: the report must still be written
+            result["tokens_unfinished_run"] = f"{type(exc).__name__}: {exc}"
+    result["criteria"] = check_criteria(
+        run_dir, repo, run_dir / "store", result["run_exit"], outcome
     )
-    result["criteria"] = check_criteria(run_dir, repo, run_dir / "store")
     return result
 
 
@@ -633,6 +710,11 @@ def main() -> None:
         json.dumps(
             {
                 "scan": result["scan"],
+                "run_exit": result.get("run_exit"),
+                "ended_done": result.get("criteria", {}).get("ended_done"),
+                "integration_gate_verdict": result.get("criteria", {}).get(
+                    "integration_gate_verdict"
+                ),
                 "all_pass": result.get("criteria", {}).get("all_pass"),
             }
         ),
