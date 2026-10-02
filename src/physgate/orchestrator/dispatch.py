@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sysconfig
 import time
 import uuid
 from dataclasses import dataclass
@@ -216,6 +217,11 @@ class ClaudeDispatcher:
         harness = harness_root()
         if harness is not None:
             protect += ["--harness", str(harness)]
+            # And the startup files of the interpreter this process runs on, wherever its
+            # environment lives: a .pth planted there runs at the orchestrator's next start.
+            paths = sysconfig.get_paths()
+            for site_packages in sorted({paths["purelib"], paths["platlib"]}):
+                protect += ["--harness-site-packages", site_packages]
         # The always-loaded set (cross's standards, the role's own standards and
         # skill) is a subset of required reading, which adds the module spec.
         # loader.py names both relative to the worktree being dispatched to, never

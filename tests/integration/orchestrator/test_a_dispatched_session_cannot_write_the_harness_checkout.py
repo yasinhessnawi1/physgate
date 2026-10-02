@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sysconfig
 import uuid
 from pathlib import Path
 
@@ -102,6 +103,17 @@ def test_a_dispatched_session_plants_nothing_in_the_harness(
             api.script = session
             main(["run", *common, "--install", str(install)], registrations)
             capsys.readouterr()
+        # The session's own generated configuration names this checkout, refused
+        # whole, and the startup files of the interpreter this process runs on.
+        config_path = next((run_dir / "sessions").glob("*/session/session-config.json"))
+        roots = {
+            r["path"]: r["watch"]
+            for r in json.loads(config_path.read_text())["protected_roots"]
+            if "path" in r
+        }
+        assert roots.get(str(HARNESS)) == "none"
+        for site_packages in {sysconfig.get_paths()["purelib"], sysconfig.get_paths()["platlib"]}:
+            assert roots.get(site_packages) == "revert", site_packages
         planted = [p for p in (by_tool, by_interpreter) if p.exists()]
         assert planted == [], f"a session planted {planted} in the harness checkout"
         stream = next((run_dir / "sessions").glob("*/stdout.jsonl")).read_text()

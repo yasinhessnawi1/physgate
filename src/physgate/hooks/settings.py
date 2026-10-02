@@ -102,6 +102,10 @@ class InstallRequest(BaseModel):
     #: gate's source, the curated library and the frozen experiments the run is
     #: judged by. A session in any other worktree may write none of it.
     harness_root: AbsolutePath | None = None
+    #: The ``site-packages`` of the interpreter the orchestrator runs on. A ``.pth`` file
+    #: or a customize module at its top level runs inside the orchestrator's next
+    #: start, the process that imports the gate.
+    harness_site_packages: tuple[AbsolutePath, ...] = ()
     #: A script that prints the API key, named in the settings file so the key is
     #: never in the session's environment, where every tool call could print it.
     #: It must live in the session's own files or its state directory, both
@@ -197,6 +201,30 @@ def _harness_roots(harness: Path) -> dict[str, tuple[str, Watch]]:
     return roots
 
 
+#: The entries at the top of an environment's ``site-packages`` that Python runs on its
+#: own at start: every ``*.pth`` file, and the two customize modules.
+STARTUP_MODULES = ("sitecustomize.py", "usercustomize.py")
+
+
+def _startup_watch(site_packages: Path) -> tuple[str, ...]:
+    """Every top-level entry of ``site-packages`` the sentinel need not watch.
+
+    What is left watched is each ``*.pth`` file and customize module there now, and
+    anything new at the top level, of any name, which is moved aside. Not a walk of
+    the environment: measured 02.10.2026 at 2 to 4 watched entries, a 0.3 to 6.6 ms
+    walk and 8 KB kept, against 38 MB kept if every top-level file were watched.
+    """
+    try:
+        entries = list(os.scandir(site_packages))
+    except OSError:
+        return ()
+    return tuple(
+        sorted(
+            e.path for e in entries if not (e.name.endswith(".pth") or e.name in STARTUP_MODULES)
+        )
+    )
+
+
 def build_config(request: InstallRequest, installation: Installation) -> SessionConfig:
     """The session configuration for ``request``.
 
@@ -258,6 +286,9 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
     if request.harness_root is not None:
         for path, entry in _harness_roots(Path(request.harness_root)).items():
             protected.setdefault(path, entry)
+    for site_packages in request.harness_site_packages:
+        protected.setdefault(site_packages, (HARNESS_REASON, "revert"))
+        root_exceptions[site_packages] = _startup_watch(Path(site_packages))
     for path in request.extra_protected:
         protected.setdefault(path, ("the orchestrator protects it for this session", "revert"))
     for path in request.extra_protected_refuse_only:

@@ -174,3 +174,58 @@ def test_the_documented_residual_an_untrusted_harness_file_written_unseen_is_not
     assert (run.worktree / "ran.txt").read_text() == "ran\n", "the command did not run"
     assert (tmp_path / HARNESS_REL / UNTRUSTED).read_text() == HARNESS_FILES[UNTRUSTED] + "tampered"
     _unchanged(tmp_path, *TRUSTED)
+
+
+#: A stand-in for the orchestrator's environment, inside the stand-in checkout.
+SITE_PACKAGES = ".venv/lib/python3.12/site-packages"
+VENV_FILES = {
+    f"{SITE_PACKAGES}/_editable_impl_physgate.pth": "/somewhere/src\n",
+    f"{SITE_PACKAGES}/typing_extensions.py": "X = 1\n",
+    f"{SITE_PACKAGES}/pkg/__init__.py": "Y = 1\n",
+}
+
+
+def _venv_session(root: Path, command: str) -> SessionRun:
+    harness = root / HARNESS_REL
+    return run_session(
+        root,
+        Script(main=[tool("Bash", command=command, description="x"), text("end")]),
+        outside_files={
+            f"harness/{rel}": content for rel, content in {**HARNESS_FILES, **VENV_FILES}.items()
+        },
+        profile="role",
+        role="control",
+        harness_root=str(harness),
+        harness_site_packages=(str(harness / SITE_PACKAGES),),
+    )
+
+
+def test_a_startup_file_planted_in_the_orchestrators_environment_is_moved_aside(
+    tmp_path: Path,
+) -> None:
+    planted = (f"{SITE_PACKAGES}/zz_planted.pth", f"{SITE_PACKAGES}/sitecustomize.py")
+    existing = f"{SITE_PACKAGES}/_editable_impl_physgate.pth"
+    script = _built(*planted, existing)
+    run = _venv_session(tmp_path, f'python3 -c "{script}" && echo ran > ran.txt')
+    assert (run.worktree / "ran.txt").read_text() == "ran\n", "the command did not run"
+    harness = tmp_path / HARNESS_REL
+    for rel in planted:
+        assert not (harness / rel).exists(), rel
+    assert (harness / existing).read_text() == VENV_FILES[existing]
+    events = [e for e in run.hook_log if e.get("hook") == "sentinel"]
+    assert [e["decision"] for e in events] == ["put back", "refuse"], run.hook_log
+    put_back = {str(p) for p in events[0]["paths"]}
+    for rel in (*planted, existing):
+        assert str(harness / rel) in put_back, (rel, put_back)
+
+
+def test_the_documented_residual_installed_package_code_written_unseen_is_not_put_back(
+    tmp_path: Path,
+) -> None:
+    # Pinned on purpose, like the residual above: only the environment's startup
+    # files are watched, not the code of the packages installed in it, which runs
+    # when imported. Watching that is a walk of the whole environment.
+    rel = f"{SITE_PACKAGES}/pkg/__init__.py"
+    run = _venv_session(tmp_path, f'python3 -c "{_built(rel)}" && echo ran > ran.txt')
+    assert (run.worktree / "ran.txt").read_text() == "ran\n", "the command did not run"
+    assert (tmp_path / HARNESS_REL / rel).read_text() == VENV_FILES[rel] + "tampered"

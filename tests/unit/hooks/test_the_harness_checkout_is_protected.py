@@ -141,3 +141,26 @@ def test_a_worktree_inside_the_checkout_is_refused_at_install(tmp_path: Path) ->
             _request(tmp_path, worktree=str(inside), harness_root=str(harness)),
             current_installation(),
         )
+
+
+def test_the_orchestrators_startup_files_are_watched_and_nothing_else_in_its_environment(
+    tmp_path: Path,
+) -> None:
+    from physgate.hooks.settings import _startup_watch
+
+    harness = _harness(tmp_path)
+    site = harness / ".venv/lib/python3.12/site-packages"
+    for rel in ("_editable.pth", "typing_extensions.py", "pkg/__init__.py", "big.so"):
+        (site / rel).parent.mkdir(parents=True, exist_ok=True)
+        (site / rel).write_text("x\n")
+    config = build_config(
+        _request(tmp_path, harness_root=str(harness), harness_site_packages=(str(site),)),
+        current_installation(),
+    )
+    reason, watch, exceptions = _roots(config)[str(site)]
+    assert (reason, watch) == (HARNESS_REASON, "revert")
+    assert exceptions == _startup_watch(site)
+    assert {Path(e).name for e in exceptions} == {"typing_extensions.py", "pkg", "big.so"}
+    # A new startup file of any name, and an existing one, are refused before a write.
+    for rel in ("zz_new.pth", "sitecustomize.py", "usercustomize.py", "x.pth"):
+        assert protection(str(site / rel), str(tmp_path / "worktree"), config, writing=True)
