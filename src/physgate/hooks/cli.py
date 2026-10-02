@@ -46,6 +46,17 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
         default=[],
         help="a path no tool may write that the runtime writes during the session (not reverted)",
     )
+    p.add_argument(
+        "--harness",
+        help="the source checkout the orchestrator runs from: refused whole, its trusted trees "
+        "put back",
+    )
+    p.add_argument(
+        "--harness-site-packages",
+        action="append",
+        default=[],
+        help="the orchestrator's interpreter's site-packages: its startup files are put back",
+    )
     p.add_argument("--api-key-helper", help="a script printing the API key, named in the settings")
     p.set_defaults(func=_install)
 
@@ -73,6 +84,8 @@ def _install(args: argparse.Namespace) -> int:
         extra_protected=tuple(_abs(p) for p in args.protect),
         extra_protected_refuse_only=tuple(_abs(p) for p in args.protect_refuse_only),
         api_key_helper=_abs(args.api_key_helper) if args.api_key_helper else None,
+        harness_root=_abs(args.harness) if args.harness else None,
+        harness_site_packages=tuple(_abs(p) for p in args.harness_site_packages),
     )
     done = install(request, REGISTRY)
     print(

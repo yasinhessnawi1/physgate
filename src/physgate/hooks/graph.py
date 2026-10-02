@@ -63,7 +63,9 @@ MISNAMED = "a proposal file is named after the node it proposes: {name} holds {n
 NOTEBOOK = "a proposal is a JSON file, not a notebook"
 SHELL_WRITE = (
     "Node proposals are written with the Write or Edit tool, so that the node can be checked "
-    "before the file exists. A shell command may read them but not write them."
+    "before the file exists. A shell command may read a proposal only with a recognised "
+    "read-only program (cat, head, grep, ls and the like, or git diff/log/show); any other "
+    "command that names a proposal path is refused, whether or not it would in fact only read."
 )
 UNCHECKABLE = (
     "This command could not be split into the commands it would run ({detail}), so whether it "

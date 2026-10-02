@@ -33,6 +33,7 @@ from pydantic import ValidationError
 
 import physgate
 from physgate.gate.exceptions import GateError
+from physgate.knowledge.library import LibraryError, read_library
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper
 from physgate.orchestrator.catches import catches, parse_time
@@ -66,6 +67,7 @@ from physgate.orchestrator.queue import ApprovalQueue
 from physgate.orchestrator.run_config import (
     RunConfig,
     endpoint_of,
+    harness_root,
     harness_state,
     load_run_config,
     require_endpoint,
@@ -266,8 +268,16 @@ def _config(args: argparse.Namespace) -> RunConfig:
 
 def _harness_root() -> Path | None:
     """The source checkout this orchestrator runs from, or ``None`` if it runs from none."""
-    root = Path(physgate.__file__).resolve().parents[2]
-    return root if (root / "pyproject.toml").exists() else None
+    return harness_root()
+
+
+def _library_root() -> Path | None:
+    """Where the curated library is copied from: the checkout this orchestrator runs from.
+
+    Its own function so a test can name a fixture library; nothing a run is given
+    on its command line or in its parameters can point it elsewhere.
+    """
+    return harness_root()
 
 
 def _decompose(args: argparse.Namespace) -> int:
@@ -288,6 +298,12 @@ def _decompose(args: argparse.Namespace) -> int:
         return _fail("the run parameters name no auth mode")
     run_dir = args.run_dir.resolve()
     try:
+        # Every role the run can plan must have its curated content, before the one
+        # model call is spent: a role without it could never be dispatched.
+        read_library(_library_root(), config.models.roles)
+    except LibraryError as exc:
+        return _fail(str(exc), **exc.context)
+    try:
         require_fresh(run_dir)
         outcome = call(
             args.brief.read_text(),
@@ -297,7 +313,11 @@ def _decompose(args: argparse.Namespace) -> int:
             credential=credential,
         )
         record = start_run(
-            outcome, config=config, run_dir=run_dir, target_repo=args.target.resolve()
+            outcome,
+            config=config,
+            run_dir=run_dir,
+            target_repo=args.target.resolve(),
+            library=_library_root(),
         )
     except OrchestratorError as exc:
         return _fail(str(exc), **exc.context)

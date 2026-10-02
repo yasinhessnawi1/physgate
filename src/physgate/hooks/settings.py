@@ -23,6 +23,7 @@ session is, would not be judged at all.
 from __future__ import annotations
 
 import json
+import os
 import shlex
 import sys
 from collections.abc import Mapping
@@ -44,6 +45,7 @@ from physgate.hooks.config import (
 )
 from physgate.hooks.reasons import ANSWER_KEY_REASON as ANSWER_KEY_REASON
 from physgate.hooks.reasons import GATE_REASON as GATE_REASON
+from physgate.hooks.reasons import HARNESS_REASON as HARNESS_REASON
 from physgate.hooks.reasons import HELD_OUT_REASON as HELD_OUT_REASON
 from physgate.hooks.reasons import KNOWLEDGE_REASON as KNOWLEDGE_REASON
 from physgate.hooks.reasons import STORE_REASON as STORE_REASON
@@ -96,6 +98,14 @@ class InstallRequest(BaseModel):
     #: sentinel must not put them back. Only the layers that refuse a write before
     #: it happens protect them.
     extra_protected_refuse_only: tuple[AbsolutePath, ...] = ()
+    #: The source checkout the orchestrator runs from, when it runs from one: the
+    #: gate's source, the curated library and the frozen experiments the run is
+    #: judged by. A session in any other worktree may write none of it.
+    harness_root: AbsolutePath | None = None
+    #: The ``site-packages`` of the interpreter the orchestrator runs on. A ``.pth`` file
+    #: or a customize module at its top level runs inside the orchestrator's next
+    #: start, the process that imports the gate.
+    harness_site_packages: tuple[AbsolutePath, ...] = ()
     #: A script that prints the API key, named in the settings file so the key is
     #: never in the session's environment, where every tool call could print it.
     #: It must live in the session's own files or its state directory, both
@@ -160,6 +170,61 @@ def _knowledge_staging(worktree: Path) -> str:
     return str(worktree / KNOWLEDGE_DIR_NAME / KNOWLEDGE_STAGING_NAME)
 
 
+#: Beneath the harness checkout, what the sentinel also puts back if it changes: the
+#: trees whose bytes a run trusts, small enough to walk at every hook. Measured
+#: 02.10.2026: ``src`` and ``knowledge`` together are about 270 entries, a 1.6 ms
+#: walk and a 30 ms record at session start. The whole checkout is not: its
+#: environment and frozen experiments are 6,500 to 49,000 entries, a 2 s walk at
+#: every hook and 200 MB to 1.3 GB copied at every session's start. So the rest of
+#: the checkout is refused before a write and not put back after one.
+HARNESS_REVERTED = ("src", "knowledge", "scripts", "pyproject.toml", "uv.lock")
+#: The frozen records of every experiment in the harness checkout, put back by name
+#: rather than with their whole directories, for the same reason.
+HARNESS_EVIDENCE = ("CRITERIA.md", "RESULT.md")
+
+
+def _harness_roots(harness: Path) -> dict[str, tuple[str, Watch]]:
+    """The harness checkout, refused whole; what in it a run trusts, also put back.
+
+    No exception beneath it, at either layer: a session whose worktree is not this
+    checkout has nothing of its own to write here (its own ``knowledge/staging/`` is
+    in its own worktree).
+    """
+    roots: dict[str, tuple[str, Watch]] = {str(harness): (HARNESS_REASON, "none")}
+    for name in HARNESS_REVERTED:
+        roots[str(harness / name)] = (HARNESS_REASON, "revert")
+    evidence = {name.casefold() for name in HARNESS_EVIDENCE}
+    for directory, _, files in os.walk(harness / "experiments"):
+        for name in files:
+            if name.casefold() in evidence:
+                roots[os.path.join(directory, name)] = (HARNESS_REASON, "revert")
+    return roots
+
+
+#: The entries at the top of an environment's ``site-packages`` that Python runs on its
+#: own at start: every ``*.pth`` file, and the two customize modules.
+STARTUP_MODULES = ("sitecustomize.py", "usercustomize.py")
+
+
+def _startup_watch(site_packages: Path) -> tuple[str, ...]:
+    """Every top-level entry of ``site-packages`` the sentinel need not watch.
+
+    What is left watched is each ``*.pth`` file and customize module there now, and
+    anything new at the top level, of any name, which is moved aside. Not a walk of
+    the environment: measured 02.10.2026 at 2 to 4 watched entries, a 0.3 to 6.6 ms
+    walk and 8 KB kept, against 38 MB kept if every top-level file were watched.
+    """
+    try:
+        entries = list(os.scandir(site_packages))
+    except OSError:
+        return ()
+    return tuple(
+        sorted(
+            e.path for e in entries if not (e.name.endswith(".pth") or e.name in STARTUP_MODULES)
+        )
+    )
+
+
 def build_config(request: InstallRequest, installation: Installation) -> SessionConfig:
     """The session configuration for ``request``.
 
@@ -218,6 +283,12 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
     root_exceptions: dict[str, tuple[str, ...]] = {
         _knowledge_root(worktree): (_knowledge_staging(worktree),),
     }
+    if request.harness_root is not None:
+        for path, entry in _harness_roots(Path(request.harness_root)).items():
+            protected.setdefault(path, entry)
+    for site_packages in request.harness_site_packages:
+        protected.setdefault(site_packages, (HARNESS_REASON, "revert"))
+        root_exceptions[site_packages] = _startup_watch(Path(site_packages))
     for path in request.extra_protected:
         protected.setdefault(path, ("the orchestrator protects it for this session", "revert"))
     for path in request.extra_protected_refuse_only:

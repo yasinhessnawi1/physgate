@@ -13,6 +13,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from knowledge_fixture import build_fixture_library
 
 from physgate.state.store import Store
 
@@ -23,3 +24,21 @@ def store(tmp_path: Path) -> Iterator[Store]:
     opened = Store(tmp_path / "graph")
     yield opened
     opened.close()
+
+
+@pytest.fixture(scope="session")
+def fixture_library(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The fixture curated library, built once."""
+    return build_fixture_library(tmp_path_factory.mktemp("library"))
+
+
+@pytest.fixture(autouse=True)
+def _decompose_against_the_fixture_library(
+    fixture_library: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every decomposition in the suite copies from the fixture library, not this checkout.
+
+    The real library carries no ``electrical`` content yet, and the suite plans
+    that role throughout. A test of the real library asks for it explicitly.
+    """
+    monkeypatch.setattr("physgate.orchestrator.cli._library_root", lambda: fixture_library)

@@ -55,6 +55,7 @@ from gate_run import INTERFACE  # noqa: E402
 from git_rig import Reviewer, target_repo  # noqa: E402
 from scripted_endpoint import DUMMY_OAUTH_TOKEN, Script, serving, text, tool  # noqa: E402
 
+import physgate.orchestrator.cli as orchestrator_cli  # noqa: E402
 from physgate.cli import main as physgate_main  # noqa: E402
 from physgate.evaluation.observe.cost import (  # noqa: E402
     append_cost_line,
@@ -390,6 +391,11 @@ def both_runs(root: Path) -> dict[str, Any]:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(f"# {relative.name}\n\nFixture content for the real-rerun driver.\n")
     commit_all(repo, "curated knowledge fixture\n")
+    # The orchestrator copies each planned role's curated files into the target at
+    # decomposition, and the real library carries no ``electrical`` content. This
+    # stand-in's library is the fixture content just committed to the target, so
+    # the copy finds it identical and leaves it.
+    orchestrator_cli._library_root = lambda: repo
     # Built before either run, so both check it: a run that built the installation
     # records "built" where its rerun records "checked", a real difference.
     install = root / "install"

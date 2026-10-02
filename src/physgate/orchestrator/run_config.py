@@ -25,6 +25,7 @@ from pydantic import (
     model_validator,
 )
 
+import physgate
 from physgate.orchestrator.common import (
     AuthMode,
     GateMode,
@@ -151,6 +152,16 @@ class HarnessState(_Frozen):
             msg = "a clean tree has no uncommitted digest, and a dirty one has one"
             raise ValueError(msg)
         return self
+
+
+def harness_root() -> Path | None:
+    """The source checkout this orchestrator runs from, or ``None`` if it runs from none.
+
+    Read from where the running package itself lives, so it names the checkout whose
+    gate, curated library and experiments this run is judged by.
+    """
+    root = Path(physgate.__file__).resolve().parents[2]
+    return root if (root / "pyproject.toml").exists() else None
 
 
 def harness_state(root: Path | None) -> HarnessState:

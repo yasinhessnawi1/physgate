@@ -25,3 +25,8 @@ STORE_REASON = (
     "it is the design-state graph's own store: its journal is the only authority, and a "
     "line appended to it is replayed as genuine, so no agent tool writes any file in it"
 )
+HARNESS_REASON = (
+    "it is the checkout the orchestrator runs from: the physics gate's source, the curated "
+    "library and its bounds tables, and the frozen experiments a run is judged by, which no "
+    "session in another worktree writes"
+)

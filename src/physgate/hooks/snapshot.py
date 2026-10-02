@@ -78,17 +78,56 @@ def signature(st: os.stat_result) -> Signature:
     )
 
 
-def _excluded(path: str, exclude: Sequence[str]) -> bool:
-    return any(path == e or path.startswith(e.rstrip("/") + "/") for e in exclude)
+#: ``exclude`` prepared once per walk: the paths as given, matched exactly, and each
+#: without a trailing separator, matched as an ancestor.
+Exclusions = tuple[frozenset[str], frozenset[str]]
 
 
-def walk(root: str, exclude: Sequence[str] = ()) -> Iterator[tuple[str, os.stat_result]]:
+def _exclusions(exclude: Sequence[str] | Exclusions) -> Exclusions:
+    """``exclude`` as two sets, built once per walk rather than once per entry."""
+    if isinstance(exclude, tuple) and len(exclude) == 2 and isinstance(exclude[0], frozenset):
+        return exclude
+    paths = [str(e) for e in exclude]
+    return frozenset(paths), frozenset(e.rstrip("/") for e in paths)
+
+
+def _excluded(path: str, exclude: Exclusions) -> bool:
+    """Whether ``path`` is one of ``exclude`` or lies beneath one.
+
+    The same test as ``path == e or path.startswith(e.rstrip("/") + "/")`` over
+    every ``e``, by set lookups on ``path`` and each of its proper ancestors, so the
+    cost follows the path's depth, not the number of exclusions. A root may exclude
+    hundreds of entries (every non-executing entry at the top of an environment's
+    ``site-packages``), and this runs for every entry of every protected tree at
+    every hook.
+    """
+    exact, bases = exclude
+    if not exact:
+        return False
+    if path in exact:
+        return True
+    current = path
+    while "/" in current:
+        parent = current.rpartition("/")[0]
+        if not parent:
+            # The root, which an absolute path has and a relative one does not.
+            return "" in bases and path.startswith("/")
+        if parent in bases:
+            return True
+        current = parent
+    return False
+
+
+def walk(
+    root: str, exclude: Sequence[str] | Exclusions = ()
+) -> Iterator[tuple[str, os.stat_result]]:
     """``root`` and everything beneath it, by ``lstat``, never following a link.
 
     A path equal to, or beneath, one of ``exclude`` is skipped whole: not
     yielded, and not descended into.
     """
-    if _excluded(root, exclude):
+    excluded = _exclusions(exclude)
+    if _excluded(root, excluded):
         return
     try:
         st = os.lstat(root)
@@ -96,10 +135,13 @@ def walk(root: str, exclude: Sequence[str] = ()) -> Iterator[tuple[str, os.stat_
         return
     yield root, st
     if stat.S_ISDIR(st.st_mode):
-        yield from _below(root, exclude)
+        yield from _below(root, excluded)
 
 
-def _below(directory: str, exclude: Sequence[str] = ()) -> Iterator[tuple[str, os.stat_result]]:
+_NOTHING: Exclusions = (frozenset(), frozenset())
+
+
+def _below(directory: str, exclude: Exclusions = _NOTHING) -> Iterator[tuple[str, os.stat_result]]:
     # One listing that hands back each entry's joined path, then the same
     # ``lstat`` per entry as ever: the sentinel walks every protected tree at
     # every hook, so the path building happens in C rather than here.
@@ -122,7 +164,8 @@ def _below(directory: str, exclude: Sequence[str] = ()) -> Iterator[tuple[str, o
 
 def signatures(roots: list[str], exclude: Sequence[str] = ()) -> dict[str, Signature]:
     """The signature of every path under ``roots``, except anything under ``exclude``."""
-    return {path: signature(st) for root in roots for path, st in walk(root, exclude)}
+    excluded = _exclusions(exclude)
+    return {path: signature(st) for root in roots for path, st in walk(root, excluded)}
 
 
 def file_digest(path: str) -> str:
@@ -231,8 +274,9 @@ class BlobStore:
 def record(roots: list[str], blobs: BlobStore, exclude: Sequence[str] = ()) -> dict[str, Entry]:
     """Everything under ``roots`` except ``exclude``, every file's bytes kept in one pack."""
     found: dict[str, tuple[Signature, str | None]] = {}
+    excluded = _exclusions(exclude)
     for root in roots:
-        for path, st in walk(root, exclude):
+        for path, st in walk(root, excluded):
             sig = signature(st)
             found[path] = (sig, os.readlink(path) if sig[0] == "link" else None)
     digests = blobs.keep_all([p for p, (sig, _) in found.items() if sig[0] == "file"])

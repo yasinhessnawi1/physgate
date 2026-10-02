@@ -19,6 +19,7 @@ from typing import Any
 
 import pytest
 from git_rig import PARAMS, Gate, Reviewer, config, target_repo
+from knowledge_fixture import fixture_text
 from scripted_endpoint import DUMMY_KEY, Script, serving, text, tool
 
 from physgate.cli import main
@@ -89,7 +90,7 @@ def test_decompose_run_and_resume_through_the_command_with_routing_at_zero(
     for relative in loader.always_loaded("electrical"):
         path = repo / relative
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(f"# {relative.name}\n\nFixture content for the routing-cost test.\n")
+        path.write_text(fixture_text(relative))
     commit_all(repo, "curated knowledge fixture\n")
     run_dir = tmp_path / "run"
     install = tmp_path / "install"
