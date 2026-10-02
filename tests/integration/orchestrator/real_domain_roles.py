@@ -25,6 +25,10 @@ rephrase a word of them.
 - An edge may name a node that does not exist yet: nothing checks a target's existence at write
   time.
 
+**The curated content is real.** Nothing is seeded into the target: at decomposition the
+orchestrator copies each planned role's curated files from this checkout into the run branch, byte
+for byte, and the sessions read those.
+
 The gate is the real registered one. The reviewers are a stub, one per role, so a review stage
 runs, spends nothing, and a ledger line never claims a review that did not happen. Handoff happens
 only by the graph: control's node ``constrains`` firmware's, and nothing says so anywhere in prose
@@ -84,10 +88,9 @@ from physgate.orchestrator.events import (  # noqa: E402
     ReviewRan,
     read_events,
 )
-from physgate.orchestrator.git import commit_all  # noqa: E402
 from physgate.orchestrator.install import prepare_install  # noqa: E402
 from physgate.orchestrator.invocation import claude_binary  # noqa: E402
-from physgate.orchestrator.run_config import ModelStrings, RunBounds  # noqa: E402
+from physgate.orchestrator.run_config import ModelStrings, RunBounds, harness_root  # noqa: E402
 from physgate.state.protocol import NodeNotFoundError  # noqa: E402
 from physgate.state.store import Store  # noqa: E402
 
@@ -342,14 +345,28 @@ def printed_outcome(log: Path) -> dict[str, Any] | None:
     return None
 
 
+def _library_bytes() -> dict[str, bytes]:
+    """This checkout's curated files for both roles, by the path the copy gives them."""
+    harness = harness_root()
+    if harness is None:
+        return {}
+    relatives = {p for role in ("control", "firmware") for p in loader.always_loaded(role)}
+    return {r.as_posix(): (harness / r).read_bytes() for r in sorted(relatives)}
+
+
 def grep_proof(repo: Path, store_root: Path) -> dict[str, Any]:
     """Criterion 4's own proof, run for real: the loop-period value lives only on the graph.
 
     Greps every file of every commit reachable from any ref of ``repo`` — every subtask
     attempt, the run branch, master — plus every commit message, for ``GREP_PATTERNS``,
-    excluding ``_NOT_A_HANDOFF``. Then confirms the value is present in the merged store,
-    which is the one place it is allowed to be.
+    excluding ``_NOT_A_HANDOFF``, and the curated files the orchestrator copied in at
+    decomposition wherever their bytes are exactly the library's (a curated file may well
+    mention a sample rate; it is not a role's prose). A curated path holding anything
+    else counts like any other file. Then confirms the value is present in the merged
+    store, which is the one place it is allowed to be.
     """
+    library = _library_bytes()
+    library_skipped: list[str] = []
     commits = subprocess.run(
         ["git", "-C", str(repo), "log", "--all", "--format=%H"],
         capture_output=True,
@@ -373,12 +390,15 @@ def grep_proof(repo: Path, store_root: Path) -> dict[str, Any]:
         for path in paths:
             if any(path.startswith(prefix) for prefix in _NOT_A_HANDOFF):
                 continue
-            content = subprocess.run(
+            raw = subprocess.run(
                 ["git", "-C", str(repo), "show", f"{commit}:{path}"],
                 capture_output=True,
-                text=True,
                 check=True,
             ).stdout
+            if path in library and raw == library[path]:
+                library_skipped.append(f"{path} @ {commit[:8]}")
+                continue
+            content = raw.decode(errors="replace")
             for pattern in GREP_PATTERNS:
                 if pattern in content:
                     prose_hits.append(f"{path} @ {commit[:8]}: {pattern!r}")
@@ -391,9 +411,37 @@ def grep_proof(repo: Path, store_root: Path) -> dict[str, Any]:
     ]
     return {
         "commits_searched": len(commits),
+        "curated_copies_not_searched": library_skipped,
         "prose_hits": prose_hits,
         "node_hits": node_hits,
         "pass": not prose_hits and bool(node_hits),
+    }
+
+
+def curated_proof(repo: Path) -> dict[str, Any]:
+    """The curated files the sessions read are the real library, not a fixture.
+
+    Every always-loaded file of both roles, as the run branch holds it (which is
+    where each session's worktree branched from), against this checkout's own
+    library, byte for byte; a fixture is a few dozen bytes, a curated file
+    thousands.
+    """
+    harness = harness_root()
+    branch = f"physgate/{RUN_ID}/run"
+    files: dict[str, dict[str, Any]] = {}
+    relatives = {p for role in ("control", "firmware") for p in loader.always_loaded(role)}
+    for relative in sorted(relatives):
+        shown = subprocess.run(
+            ["git", "-C", str(repo), "show", f"{branch}:{relative.as_posix()}"],
+            capture_output=True,
+            check=False,
+        ).stdout
+        real = (harness / relative).read_bytes() if harness is not None else None
+        files[relative.as_posix()] = {"bytes": len(shown), "equals_library": shown == real}
+    return {
+        "files": files,
+        "pass": bool(files)
+        and all(f["equals_library"] and f["bytes"] > 1000 for f in files.values()),
     }
 
 
@@ -449,6 +497,7 @@ def check_criteria(
         store.close()
 
     grep = grep_proof(repo, store_root)
+    curated = curated_proof(repo)
     # A review stage really ran for both subtasks (never skipped), its pinned stub model
     # string is the one recorded in the event, and it spent nothing — the observable signal
     # that a ledger line's review is the stub, not a widening of the frozen outcome literal.
@@ -497,6 +546,7 @@ def check_criteria(
         "handoff_edge_on_graph": constrains_edge,
         "handoff_traversal_includes_firmware": "firmware.main_loop" in traversal,
         "handoff_grep": grep,
+        "curated_content": curated,
         "review_ran_for_both": review_ran_for_both,
         "reviewer_tokens_zero": reviewer_zero,
         "reviewer_model_pins": reviewer_model_pins,
@@ -514,6 +564,7 @@ def check_criteria(
             and constrains_edge
             and "firmware.main_loop" in traversal
             and grep["pass"]
+            and curated["pass"]
             and review_ran_for_both
             and pins_hold
             and reviewer_zero
@@ -596,13 +647,10 @@ def dry_script(api: Any) -> None:  # noqa: ANN401
 
 
 def one_run(root: Path) -> dict[str, Any]:
+    # Nothing curated is seeded here: at decomposition the orchestrator copies each
+    # planned role's real curated files from this checkout into the run branch, and
+    # the sessions read those.
     repo = target_repo(root)
-    for role in ("firmware", "control"):
-        for relative in loader.always_loaded(role):
-            path = repo / relative
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(f"# {relative.name}\n\nFixture content for the domain-roles driver.\n")
-    commit_all(repo, "curated knowledge fixture\n")
     install = root / "install"
     prepare_install(install, REPO_ROOT)
     (root / "brief.md").write_text(BRIEF)
