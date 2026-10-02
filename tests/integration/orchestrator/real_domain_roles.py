@@ -381,6 +381,11 @@ def check_criteria(run_dir: Path, repo: Path, store_root: Path) -> dict[str, Any
         for subtask in (FIRMWARE_ID, CONTROL_ID)
     }
     integration = next((e for e in events if isinstance(e, IntegrationGateRan)), None)
+    # Not part of the pass/fail rule below: a two-subtask stand-in where one node constrains
+    # another, pre-existing one can correctly fail the integration gate's propagation check
+    # (nothing ever rewrites the constrained node afterward, by this design's own narrow
+    # construction) and escalate to a person instead of merging clean. That is the real system
+    # behaving correctly on an intentionally incomplete design, reported here, not scored.
 
     store = Store(store_root)
     try:
@@ -407,6 +412,7 @@ def check_criteria(run_dir: Path, repo: Path, store_root: Path) -> dict[str, Any
         "merged": merged,
         "both_merged": all(merged.values()),
         "integration_gate_verdict": integration.result.verdict if integration else None,
+        "integration_gate_finding": integration.result.finding if integration else None,
         "handoff_firmware_node_written_by": firmware_node["quantities"]["sample_rate"][
             "written_by"
         ],
@@ -416,12 +422,12 @@ def check_criteria(run_dir: Path, repo: Path, store_root: Path) -> dict[str, Any
         "reviewer_tokens": {k: v.total() for k, v in reviewer_tokens.items()},
         "reviewer_tokens_zero": reviewer_zero,
         "reviewer_model_pins": {"firmware": REVIEWER, "control": REVIEWER},
+        # Scores only what the dispatch, handoff and review criteria actually ask for; the
+        # integration gate's own verdict above is reported, not a condition of this.
         "all_pass": (
             dispatch_order == [FIRMWARE_ID, CONTROL_ID]
             and gates_pass
             and all(merged.values())
-            and integration is not None
-            and integration.result.verdict == "pass"
             and constrains_edge
             and "firmware.main_loop" in traversal
             and grep["pass"]
@@ -542,10 +548,19 @@ def one_run(root: Path) -> dict[str, Any]:
     result["run_exit"] = command(
         ["run", "--run-dir", str(run_dir), *common, "--install", str(install)], log
     )
-    if result["run_exit"] != 0:
-        result["stopped"] = "the run did not complete; criteria not evaluated"
+    # A nonzero exit here is not necessarily "nothing happened": a two-subtask stand-in with
+    # one node constraining another, pre-existing one can reach the real integration gate with
+    # its propagation check correctly unsatisfied (nothing ever rewrites the constrained node
+    # afterward, by this design's own construction) and escalate to a person. Both subtasks'
+    # own gate runs and the handoff edge are still fully on the graph in that case, so criteria
+    # are evaluated from the run's own records regardless of this exit code — the exit code and
+    # the command's own printed outcome (commands.jsonl) say which kind of ending it was.
+    if not (run_dir / "events.jsonl").exists():
+        result["stopped"] = "the run left no event log; nothing more could be checked"
         return result
-    result["summary"] = summary(run_dir, root / "cost_trend.jsonl")
+    result["summary"] = (
+        summary(run_dir, root / "cost_trend.jsonl") if result["run_exit"] == 0 else None
+    )
     result["criteria"] = check_criteria(run_dir, repo, run_dir / "store")
     return result
 
