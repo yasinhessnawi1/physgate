@@ -8,7 +8,7 @@ Run as a script, never collected as a test, and never without saying which kind:
 **A labelled stand-in, not the reference design.** No reference design exists yet for either
 module, so this driver uses a narrow, sourced stand-in instead: firmware's ``sample_rate`` and
 control's ``loop_gain``, sourced from the Pololu Balboa 32U4 reference firmware's own balance
-loop (full citations kept with the rest of this spec's working notes, not repeated in tracked
+loop (full citations kept in the private working notes, not repeated in tracked
 source), plus the one interface node ``decompose.py``'s ``Plan`` requires. Both proposals and the
 interface node are written exactly as sourced, byte for byte — this driver does not re-derive or
 rephrase a word of them.
@@ -355,7 +355,7 @@ def _library_bytes() -> dict[str, bytes]:
 
 
 def grep_proof(repo: Path, store_root: Path) -> dict[str, Any]:
-    """Criterion 4's own proof, run for real: the loop-period value lives only on the graph.
+    """The handoff-by-graph proof, run for real: the loop-period value lives only on the graph.
 
     Greps every file of every commit reachable from any ref of ``repo`` — every subtask
     attempt, the run branch, master — plus every commit message, for ``GREP_PATTERNS``,
