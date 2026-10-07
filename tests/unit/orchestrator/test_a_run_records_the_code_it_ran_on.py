@@ -242,7 +242,13 @@ def test_run_and_resume_refuse_a_harness_that_moved_since_the_run_was_recorded(
         gate=FakeGate(), reviewers={"electrical": FakeReviewer()}
     )
     args = [command, "--run-dir", str(run_dir), "--target", str(tmp_path / "t")]
-    assert main([*args, "--install", str(tmp_path / "install")], registrations) == 2
+    assert (
+        main(
+            [*args, "--install", str(tmp_path / "install"), "--review-root", str(tmp_path / "rs")],
+            registrations,
+        )
+        == 2
+    )
     error = json.loads(capsys.readouterr().err)
     assert error["error"] == "the harness checkout differs from the one this run recorded"
     assert error["changed"] == "clean,uncommitted_sha256"

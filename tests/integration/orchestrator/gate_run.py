@@ -162,7 +162,16 @@ def drive_run(
         assert code == 0, capsys.readouterr().err
         capsys.readouterr()
         api.script = session(*payloads)
-        common = ["--run-dir", str(run_dir), "--target", str(repo), "--install", str(install)]
+        common = [
+            "--run-dir",
+            str(run_dir),
+            "--target",
+            str(repo),
+            "--install",
+            str(install),
+            "--review-root",
+            str(tmp_path / "rs"),
+        ]
         main(["run", *common], registrations)
         out = capsys.readouterr()
     printed = json.loads(out.out) if out.out.strip() else {"error": out.err}

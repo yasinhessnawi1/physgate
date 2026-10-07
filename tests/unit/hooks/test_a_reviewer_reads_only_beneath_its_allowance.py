@@ -230,3 +230,31 @@ def test_an_incoherent_allowance_is_refused_at_install(
         fields["read_roots"] = tuple(str(r).replace("@", str(root)) for r in fields["read_roots"])  # type: ignore[attr-defined]
     with pytest.raises(ValueError, match=match):
         build_config(_request(root, **fields), installation())
+
+
+def test_the_review_root_is_withheld_from_every_other_session(root: Path) -> None:
+    """Every packet under it holds a copy of a rubric, so no role reads or writes it."""
+    review_root = root / "review"
+    request = InstallRequest(
+        profile="role",
+        role="control",
+        worktree=str(root / "target"),
+        own_branch=None,
+        store_root=None,
+        state_dir=str(root / "outside" / "state"),
+        target_dir=str(root / "outside" / "settings"),
+        claude_config_dir=str(root / "outside" / "config"),
+        user_home=str(root / "outside" / "home"),
+        token_ceiling=1000,
+        harness_root=str(root / "harness"),
+        extra_review_material=(str(review_root),),
+    )
+    config = build_config(request, installation())
+    assert str(review_root) in config.review_material
+    packet_rubric = str(review_root / "read" / "worktree" / "design" / "node.json")
+    assert REVIEW_MATERIAL_REASON in _read(config, packet_rubric, root / "target")
+    assert REVIEW_MATERIAL_REASON in _shell(config, f"cat {packet_rubric}", root / "target")
+    hook_input = HookInput.model_validate(
+        event(tool_name="Write", cwd=str(root / "target"), tool_input={"file_path": packet_rubric})
+    )
+    assert not paths.pre_tool_use(hook_input, config).allow

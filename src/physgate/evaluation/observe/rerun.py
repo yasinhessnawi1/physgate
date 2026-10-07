@@ -174,6 +174,8 @@ class RerunPlan:
     run_dir: Path
     target: Path
     install: Path
+    #: Where the rerun's reviews are prepared.
+    review_root: Path
 
     def params(self) -> dict[str, Any]:
         """The parameters file ``decompose`` takes, as the recorded run had it."""
@@ -230,6 +232,8 @@ def through_the_command(registrations: Registrations | None = None) -> Driver:
                         str(plan.target),
                         "--install",
                         str(plan.install),
+                        "--review-root",
+                        str(plan.review_root),
                     ],
                 ),
             )
@@ -254,6 +258,7 @@ def rerun(
     run_dir: Path,
     target: Path,
     install: Path,
+    review_root: Path,
     driver: Driver | None = None,
 ) -> Comparison:
     """Make the recorded run again under ``run_id`` and compare the two.
@@ -288,6 +293,7 @@ def rerun(
         run_dir=Path(run_dir).resolve(),
         target=Path(target).resolve(),
         install=Path(install).resolve(),
+        review_root=Path(review_root).expanduser().resolve(),
     )
     (driver or through_the_command())(plan)
     return compare_runs(recorded_dir, plan.run_dir)

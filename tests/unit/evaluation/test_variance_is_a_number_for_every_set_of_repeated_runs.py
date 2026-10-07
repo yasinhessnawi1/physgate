@@ -45,6 +45,7 @@ def test_five_repeats_of_one_fake_run_vary_by_exactly_zero(tmp_path: Path) -> No
         brief=brief,
         target=repo,
         install=tmp_path / "install",
+        review_root=tmp_path / "review-scratch",
         runs_dir=runs_dir,
         driver=fake_driver(runs_dir, repo),
     )
@@ -108,4 +109,12 @@ def test_a_run_given_twice_or_no_run_at_all_is_refused(tmp_path: Path) -> None:
 def test_repeating_a_run_fewer_than_twice_is_refused(tmp_path: Path) -> None:
     run = recorded(tmp_path, target_repo(tmp_path), "run-a")
     with pytest.raises(VarianceError, match="at least two"):
-        repeat_run(run, n=1, brief=tmp_path, target=tmp_path, install=tmp_path, runs_dir=tmp_path)
+        repeat_run(
+            run,
+            n=1,
+            brief=tmp_path,
+            target=tmp_path,
+            install=tmp_path,
+            runs_dir=tmp_path,
+            review_root=tmp_path,
+        )

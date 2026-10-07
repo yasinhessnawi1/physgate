@@ -137,6 +137,7 @@ def dispatch(
             binary=claude_binary(),
             base_url=url,
             credential=credential or Credential("api_key", DUMMY_KEY),
+            review_root=Path("/nonexistent/review-scratch"),
         )
         report = dispatcher.run(request(cfg))
         facts = dispatcher.environment()
@@ -355,6 +356,7 @@ def test_a_session_left_running_by_a_killed_orchestrator_is_stopped_with_its_too
             binary=claude_binary(),
             base_url=url,
             credential=Credential("api_key", DUMMY_KEY),
+            review_root=Path("/nonexistent/review-scratch"),
         )
         assert (record_path.parent / "state" / "key").exists()
         stopped = dispatcher.stop_leftovers()

@@ -195,6 +195,8 @@ def _run_args(tmp_path: Path) -> list[str]:
         str(tmp_path),
         "--install",
         str(tmp_path / "install"),
+        "--review-root",
+        str(tmp_path / "review-scratch"),
     ]
 
 

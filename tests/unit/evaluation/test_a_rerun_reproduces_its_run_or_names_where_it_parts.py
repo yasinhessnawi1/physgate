@@ -67,6 +67,7 @@ def do_rerun(tmp_path: Path, run: Path, repo: Path, brief: Path, **drive_kwargs:
         run_dir=tmp_path / ELSEWHERE / "run-r",
         target=repo,
         install=tmp_path / "install",
+        review_root=tmp_path / "review-scratch",
         driver=fake_driver(tmp_path / ELSEWHERE, repo, **drive_kwargs),
     )
 
@@ -347,6 +348,7 @@ def refused(tmp_path: Path, run: Path, repo: Path, given: Path, **changes: Any) 
         "run_dir": tmp_path / "run-r",
         "target": repo,
         "install": tmp_path / "install",
+        "review_root": tmp_path / "review-scratch",
         "driver": calls.append,
     } | changes
     with pytest.raises(RerunError) as refusal:
@@ -443,6 +445,7 @@ def plan_of(tmp_path: Path, run: Path, repo: Path, brief: Path) -> RerunPlan:
         run_dir=tmp_path / "run-r",
         target=repo,
         install=tmp_path / "install",
+        review_root=tmp_path / "review-scratch",
     )
 
 

@@ -97,7 +97,17 @@ def record_a_run(tmp_path: Path, repo: Path, install: Path, api: FakeMessagesApi
     )
     assert code == 0
     code = main(
-        ["run", "--run-dir", str(run_dir), "--target", str(repo), "--install", str(install)],
+        [
+            "run",
+            "--run-dir",
+            str(run_dir),
+            "--target",
+            str(repo),
+            "--install",
+            str(install),
+            "--review-root",
+            str(tmp_path / "rs"),
+        ],
         registrations(),
     )
     assert code == 0
@@ -112,6 +122,7 @@ def rerun_of(run: Path, tmp_path: Path, repo: Path, install: Path, run_id: str) 
         run_dir=tmp_path / run_id,
         target=repo,
         install=install,
+        review_root=tmp_path / "rs",
         driver=through_the_command(registrations()),
     )
 
@@ -145,7 +156,10 @@ def test_a_scripted_run_rerun_through_the_command_reproduces_every_record(
         capsys.readouterr()
         argv = ["rerun", str(run), "--brief", str(tmp_path / "brief.md"), "--run-id", "run-d"]
         where = ["--run-dir", str(tmp_path / "run-d"), "--target", str(repo)]
-        code = main([*argv, *where, "--install", str(install)], registrations())
+        code = main(
+            [*argv, *where, "--install", str(install), "--review-root", str(tmp_path / "rs")],
+            registrations(),
+        )
         out = capsys.readouterr()
         assert code == 0, out.out[-4000:] + out.err
         shown = json.loads(out.out[out.out.rindex("\n{\n") + 1 :])

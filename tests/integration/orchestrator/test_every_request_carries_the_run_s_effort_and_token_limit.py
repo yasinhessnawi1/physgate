@@ -78,7 +78,16 @@ def test_the_decomposition_and_every_session_request_carry_the_recorded_pins(
         subtask = mint_id(7, 0, "power")
         spec = run_dir / "worktrees" / subtask / ".physgate" / "specs" / f"{subtask}.md"
         api.script = Script(main=[tool("Read", file_path=str(spec)), text("done")])
-        common = ["--run-dir", str(run_dir), "--target", str(repo), "--install", str(install)]
+        common = [
+            "--run-dir",
+            str(run_dir),
+            "--target",
+            str(repo),
+            "--install",
+            str(install),
+            "--review-root",
+            str(tmp_path / "rs"),
+        ]
         registrations = Registrations(gate=Gate(), reviewers={"electrical": Reviewer()})
         main(["run", *common], registrations)
         capsys.readouterr()

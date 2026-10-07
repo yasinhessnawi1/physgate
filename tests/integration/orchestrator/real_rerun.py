@@ -428,7 +428,17 @@ def both_runs(root: Path) -> dict[str, Any]:
         )
         return result
     result["run_exit"] = command(
-        ["run", "--run-dir", str(root / "e1-real-a"), *common, "--install", str(install)], log
+        [
+            "run",
+            "--run-dir",
+            str(root / "e1-real-a"),
+            *common,
+            "--install",
+            str(install),
+            "--review-root",
+            str(root / "review-scratch"),
+        ],
+        log,
     )
     result["rerun_started_utc"] = utc()
     comparison = rerun(
@@ -438,6 +448,7 @@ def both_runs(root: Path) -> dict[str, Any]:
         run_dir=root / "e1-real-b",
         target=repo,
         install=install,
+        review_root=root / "review-scratch",
         driver=through_the_command(registrations()),
     )
     first = comparison.first

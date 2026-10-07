@@ -195,8 +195,13 @@ class ClaudeDispatcher:
         binary: str,
         base_url: str | None,
         credential: Credential,
+        review_root: Path,
     ) -> None:
-        """Dispatch attempts of ``run`` with the hooks from ``install_bin``'s installation."""
+        """Dispatch attempts of ``run`` with the hooks from ``install_bin``'s installation.
+
+        ``review_root`` is where reviews are prepared, every packet with its copy of a
+        rubric; no role session may read or write anything beneath it.
+        """
         self._config = config
         self._run = run
         self._store_root = store_root
@@ -204,6 +209,7 @@ class ClaudeDispatcher:
         self._binary = binary
         self._base_url = base_url
         self._credential = credential
+        self._review_root = Path(review_root)
         self._facts: InstallFacts | None = None
         harness = harness_root()
         #: Every canary the harness's rubric promotions recorded, read once.
@@ -244,6 +250,9 @@ class ClaudeDispatcher:
             paths = sysconfig.get_paths()
             for site_packages in sorted({paths["purelib"], paths["platlib"]}):
                 protect += ["--harness-site-packages", site_packages]
+        # Where reviews are prepared, each packet with its copy of a rubric: withheld
+        # from the role session like the library's reviewer tree.
+        protect += ["--review-material", str(self._review_root)]
         # The always-loaded set (cross's standards, the role's own standards and
         # skill) is a subset of required reading, which adds the module spec.
         # loader.py names both relative to the worktree being dispatched to, never

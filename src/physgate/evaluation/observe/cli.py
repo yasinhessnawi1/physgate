@@ -84,6 +84,7 @@ def _rerun(args: argparse.Namespace, *, registrations: Registrations | None) -> 
         run_dir=args.run_dir,
         target=args.target,
         install=args.install,
+        review_root=args.review_root,
         driver=through_the_command(registrations),
     )
     first = result.first
@@ -101,10 +102,15 @@ def _variance(args: argparse.Namespace, *, registrations: Registrations | None) 
         report = measure_variance(args.runs)
     else:
         missing = [
-            n for n in ("n", "brief", "target", "install", "runs_dir") if not getattr(args, n)
+            n
+            for n in ("n", "brief", "target", "install", "runs_dir", "review_root")
+            if not getattr(args, n)
         ]
         if missing:
-            msg = "repeating a run needs -n, --brief, --target, --install and --runs-dir"
+            msg = (
+                "repeating a run needs -n, --brief, --target, --install, --runs-dir and "
+                "--review-root"
+            )
             raise ObserveError(msg, missing=",".join(missing))
         report = repeat_run(
             args.repeat,
@@ -113,6 +119,7 @@ def _variance(args: argparse.Namespace, *, registrations: Registrations | None) 
             target=args.target,
             install=args.install,
             runs_dir=args.runs_dir,
+            review_root=args.review_root,
             driver=through_the_command(registrations),
         )
     _print(report)
@@ -154,6 +161,7 @@ def add_parsers(
     r.add_argument("--run-dir", required=True, type=Path, help="the rerun's run directory")
     r.add_argument("--target", required=True, type=Path, help="the target repository")
     r.add_argument("--install", required=True, type=Path, help="the hooks' installation")
+    r.add_argument("--review-root", required=True, type=Path, help="where reviews are prepared")
     r.set_defaults(func=_guarded(functools.partial(_rerun, registrations=registrations)))
 
     v = subparsers.add_parser(
@@ -167,6 +175,7 @@ def add_parsers(
     v.add_argument("--target", type=Path, help="with --repeat: the target repository")
     v.add_argument("--install", type=Path, help="with --repeat: the hooks' installation")
     v.add_argument("--runs-dir", type=Path, help="with --repeat: where the repeats are made")
+    v.add_argument("--review-root", type=Path, help="with --repeat: where reviews are prepared")
     v.set_defaults(func=_guarded(functools.partial(_variance, registrations=registrations)))
 
     p = subparsers.add_parser(

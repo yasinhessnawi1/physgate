@@ -27,6 +27,7 @@ def main() -> None:
         binary=claude_binary(),
         base_url=spec["base_url"],
         credential=Credential(**spec["credential"]),
+        review_root=Path("/nonexistent/review-scratch"),
     )
     dispatcher.run(SessionRequest.model_validate_json(json.dumps(spec["request"])))
 

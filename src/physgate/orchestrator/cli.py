@@ -136,6 +136,15 @@ def add_parsers(
             type=Path,
             help="the hooks' read-only installation; built there if it does not exist",
         )
+        command.add_argument(
+            "--review-root",
+            required=True,
+            type=Path,
+            help=(
+                "where reviews are prepared (by convention ~/review-scratch): outside every "
+                "checkout, and named so that no path in it says what is measured"
+            ),
+        )
         command.set_defaults(
             func=functools.partial(_drive, resume=resume, registrations=registrations)
         )
@@ -403,6 +412,7 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
                 binary=claude_binary(),
                 base_url=os.environ.get("ANTHROPIC_BASE_URL"),
                 credential=credential,
+                review_root=args.review_root.expanduser().resolve(),
             ),
             changes=GitChangeChecker(run, store_root, {e.subtask_id: e.module_dir for e in plan}),
             merger=GitMerger(run, removal_timeout_s=REMOVAL_TIMEOUT_S),

@@ -73,7 +73,10 @@ def test_a_decision_made_during_a_session_stands_and_the_session_cannot_write_on
         gate = Gate(verdicts=["fail", "fail", "fail", "pass"])
         registrations = Registrations(gate=gate, reviewers={"electrical": Reviewer()})
         args = ["--run-dir", str(run_dir), "--target", str(tmp_path / "target")]
-        code = main(["run", *args, "--install", str(install)], registrations)
+        code = main(
+            ["run", *args, "--install", str(install), "--review-root", str(tmp_path / "rs")],
+            registrations,
+        )
     out = capsys.readouterr()
     assert code == 0, out.err
     assert decided == [0], "the person's decision was recorded while the session ran"

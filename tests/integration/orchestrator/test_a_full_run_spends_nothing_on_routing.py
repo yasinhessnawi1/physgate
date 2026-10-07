@@ -145,7 +145,16 @@ def test_decompose_run_and_resume_through_the_command_with_routing_at_zero(
                 text("done"),
             ]
         )
-        common = ["--run-dir", str(run_dir), "--target", str(repo), "--install", str(install)]
+        common = [
+            "--run-dir",
+            str(run_dir),
+            "--target",
+            str(repo),
+            "--install",
+            str(install),
+            "--review-root",
+            str(tmp_path / "rs"),
+        ]
         code = main(["run", *common], registrations)
         out = capsys.readouterr()
         assert code == 0, out.err

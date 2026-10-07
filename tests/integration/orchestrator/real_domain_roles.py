@@ -680,7 +680,17 @@ def one_run(root: Path) -> dict[str, Any]:
         result["stopped"] = "decomposition did not start a run; nothing more was called"
         return result
     result["run_exit"] = command(
-        ["run", "--run-dir", str(run_dir), *common, "--install", str(install)], log
+        [
+            "run",
+            "--run-dir",
+            str(run_dir),
+            *common,
+            "--install",
+            str(install),
+            "--review-root",
+            str(root / "review-scratch"),
+        ],
+        log,
     )
     outcome = printed_outcome(log)
     result["run_outcome"] = outcome

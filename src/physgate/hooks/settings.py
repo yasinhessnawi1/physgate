@@ -111,6 +111,9 @@ class InstallRequest(BaseModel):
     #: A reviewer's read allowance: the directories it may read, and nothing else.
     #: Required for a reviewer, refused for every other profile.
     read_roots: tuple[AbsolutePath, ...] = ()
+    #: Further places only reviewers read, withheld from every other session like the
+    #: library's reviewer tree: the directory reviews are prepared in.
+    extra_review_material: tuple[AbsolutePath, ...] = ()
     #: A script that prints the API key, named in the settings file so the key is
     #: never in the session's environment, where every tool call could print it.
     #: It must live in the session's own files or its state directory, both
@@ -376,8 +379,15 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         review_material=(
             ()
             if request.profile == "reviewer"
-            else review_material(
-                worktree, Path(request.harness_root) if request.harness_root else None
+            else tuple(
+                sorted(
+                    {
+                        *review_material(
+                            worktree, Path(request.harness_root) if request.harness_root else None
+                        ),
+                        *request.extra_review_material,
+                    }
+                )
             )
         ),
         required_reading=tuple(sorted(request.required_reading)),

@@ -115,7 +115,10 @@ def test_a_dispatched_session_plants_nothing_in_the_harness(
             assert main(["decompose", str(tmp_path / "brief.md"), *args, *common]) == 0
             capsys.readouterr()
             api.script = session
-            main(["run", *common, "--install", str(install)], registrations)
+            main(
+                ["run", *common, "--install", str(install), "--review-root", str(tmp_path / "rs")],
+                registrations,
+            )
             capsys.readouterr()
         # The session's own generated configuration names this checkout, refused
         # whole, and the startup files of the interpreter this process runs on.
