@@ -120,4 +120,9 @@ def test_the_decomposition_and_every_session_request_carry_the_recorded_pins(
     ended = [e for e in events if isinstance(e, SessionEnded)]
     assert ended and all(e.issued_spec_sha256 == hashlib.sha256(issued).hexdigest() for e in ended)
     assert "StructuredOutput" in decomposition[0].offered_tools
+    # Where reviews are prepared is withheld from every role session the run spawns.
+    configs = sorted((run_dir / "sessions").glob("*/session/session-config.json"))
+    assert configs
+    review_root = str((tmp_path / "rs").resolve())
+    assert all(review_root in json.loads(c.read_text())["review_material"] for c in configs)
     assert all("Read" in r.offered_tools for r in session)
