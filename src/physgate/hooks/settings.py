@@ -266,6 +266,10 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         if _inside(path, request.worktree):
             msg = f"{what} ({path}) is inside the worktree, where the session could change it"
             raise ValueError(msg)
+    for root in request.read_roots:
+        if not root.strip("/"):
+            msg = f"the read root {root!r} names the whole filesystem"
+            raise ValueError(msg)
     if (request.profile == "reviewer") != bool(request.read_roots):
         msg = "a reviewer reads only beneath its read roots, and only a reviewer has them"
         raise ValueError(msg)

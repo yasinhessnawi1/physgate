@@ -209,9 +209,17 @@ def _experiment_reason(
     return None
 
 
-def protection(path: str, cwd: str, config: ConfigView, *, writing: bool) -> str | None:
-    """Why ``path`` may not be touched this way, or ``None`` if it may."""
-    absolute = _absolute(path, cwd)
+def _resolved(path: str, cwd: str) -> str:
+    """``path`` as the operating system resolves it: every symlink, then each ``..`` after it.
+
+    Not :func:`_absolute`'s spelling: normalisation reads ``link/..`` as the directory
+    holding ``link``, the kernel as the parent of wherever ``link`` points.
+    """
+    return os.path.realpath(path if os.path.isabs(path) else os.path.join(cwd, path))
+
+
+def _rules(absolute: str, config: ConfigView, *, writing: bool) -> str | None:
+    """Why the one spelling ``absolute`` may not be touched this way, by the listed rules."""
     chain = _chain_ids(absolute)
     for held in config.held_out:
         if _reaches(absolute, held, chain) and (writing or config.profile in ("role", "reviewer")):
@@ -225,11 +233,6 @@ def protection(path: str, cwd: str, config: ConfigView, *, writing: bool) -> str
         for material in config.review_material:
             if _reaches(absolute, material, chain):
                 return REVIEW_MATERIAL_REASON
-    elif not writing:
-        if not any(_within(absolute, root) for root in config.read_roots):
-            return OUTSIDE_REVIEW_REASON
-        if _hard_linked(absolute):
-            return HARD_LINKED
     if not writing:
         return None
     for root in config.protected_roots:
@@ -249,6 +252,33 @@ def protection(path: str, cwd: str, config: ConfigView, *, writing: bool) -> str
         return None
     if os.path.isfile(absolute) and st.st_nlink > 1:
         return HARD_LINKED
+    return None
+
+
+def protection(path: str, cwd: str, config: ConfigView, *, writing: bool) -> str | None:
+    """Why ``path`` may not be touched this way, or ``None`` if it may.
+
+    Judged on two spellings: the path normalised, and the path as the operating
+    system resolves it. They differ exactly when a symlink is followed by ``..``,
+    and a tool may open either: the shell opens the second, and a check of the
+    first alone let ``link/../file`` reach a file elsewhere. A rule refuses if it
+    refuses either spelling; a reviewer's allowance holds only if both are inside.
+    """
+    lexical = _absolute(path, cwd)
+    physical = _resolved(path, cwd)
+    # Every rule already tries the normalised spelling's own resolution, so the
+    # resolved spelling is judged on its own only where the two readings part.
+    parted = os.path.realpath(lexical) != physical
+    spellings = (lexical, physical) if parted else (lexical,)
+    for spelling in spellings:
+        reason = _rules(spelling, config, writing=writing)
+        if reason is not None:
+            return reason
+    if config.profile == "reviewer" and not writing:
+        if not all(any(_within(s, root) for root in config.read_roots) for s in spellings):
+            return OUTSIDE_REVIEW_REASON
+        if _hard_linked(physical):
+            return HARD_LINKED
     return None
 
 

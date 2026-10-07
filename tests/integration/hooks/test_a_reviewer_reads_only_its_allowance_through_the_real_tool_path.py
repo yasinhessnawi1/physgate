@@ -92,3 +92,56 @@ def test_a_role_session_is_refused_its_reviewer_s_rubric(tmp_path: Path) -> None
     assert REVIEW_MATERIAL_REASON in told[0] and REVIEW_MATERIAL_REASON in told[1], told[:2]
     assert STANDARDS_MARKER in told[2], "the control read was refused too"
     assert _refused_by(run, "paths") == 1 and _refused_by(run, "shell_paths") == 1
+
+
+#: What the binary itself answers for a Read of a missing file, before any hook runs.
+MISSING = "File does not exist"
+DECOY = "a decoy at the path as written"
+
+
+@pytest.mark.parametrize(
+    "decoy", [False, True], ids=["written-path-missing", "written-path-exists"]
+)
+def test_a_link_followed_by_dot_dot_reaches_nothing_through_the_read_tool(
+    tmp_path: Path, decoy: bool
+) -> None:
+    """``alias/../set/a01.json``: written, a file in the allowance; resolved, the corpus.
+
+    Measured on 2.1.272: the Read tool normalises the path as written before
+    anything else, hands the hook that normalised path, and opens it. With nothing
+    there it answers that the file does not exist; with a decoy there it reads the
+    decoy. The corpus is reached in neither case, so through the Read tool the two
+    readings never part: the shell is where they did (the next test).
+    """
+
+    def plant(worktree: Path) -> None:
+        (worktree / "alias").symlink_to(tmp_path / "harness" / "corpora" / "set")
+        if decoy:
+            (worktree / "set").mkdir()
+            (worktree / "set" / "a01.json").write_text(DECOY + "\n")
+
+    path = str(tmp_path / "worktree" / "alias" / ".." / "set" / "a01.json")
+    run = _session(tmp_path, "reviewer", [tool("Read", file_path=path)], prepare=plant)
+    told = run.told_after(1)
+    assert CORPUS_MARKER not in told, "the reviewer was shown the corpus"
+    assert (DECOY in told) if decoy else (MISSING in told), told
+
+
+def test_a_role_cannot_reach_a_rubric_through_a_link_and_dot_dot(tmp_path: Path) -> None:
+    def plant(worktree: Path) -> None:
+        (worktree / "y").symlink_to(tmp_path / "harness" / "knowledge" / "reviewers" / "control")
+        (worktree / "control").mkdir()
+        (worktree / "control" / "rubric.md").write_text(DECOY + "\n")
+
+    steps = [
+        tool("Read", file_path=str(tmp_path / "worktree" / "y" / ".." / "control" / "rubric.md")),
+        tool("Bash", command="cat y/../control/rubric.md", description="attempt"),
+        tool("Bash", command="cd -P y/.. && cat control/rubric.md", description="attempt"),
+    ]
+    run = _session(tmp_path, "role", steps, prepare=plant)
+    told = [run.told_after(n) for n in range(1, len(steps) + 1)]
+    assert all(RUBRIC_MARKER not in t for t in told), "the role session was shown the rubric"
+    # The Read tool opens the path as written (the decoy); the shell resolves it, and
+    # is refused both ways in.
+    assert DECOY in told[0], told[0]
+    assert _refused_by(run, "shell_paths") == 2, told
