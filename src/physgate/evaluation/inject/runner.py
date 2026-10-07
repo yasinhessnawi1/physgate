@@ -74,6 +74,8 @@ from physgate.orchestrator.protocols import (
     Verdict,
     require_separate_models,
 )
+from physgate.reviewers.exceptions import ReviewRootError
+from physgate.reviewers.places import require_review_root
 
 #: One gate call per artefact, at every scope: for a design written as one change
 #: set these are exactly the scopes the loop's two calls cover.
@@ -171,7 +173,9 @@ def require_places(corpus_root: Path, run_dir: Path, scratch: Path) -> None:
     so its own worktree may not be inside either.
 
     Raises:
-        RunDirectoryError: one exists and is not empty, or one is inside another.
+        RunDirectoryError: one exists and is not empty, one is inside another, or the
+            scratch directory is not a review root (its path names what is measured, or
+            it lies inside a git checkout).
     """
     places = {
         "corpus": corpus_root.resolve(),
@@ -193,6 +197,13 @@ def require_places(corpus_root: Path, run_dir: Path, scratch: Path) -> None:
         if path.exists() and (not path.is_dir() or any(path.iterdir())):
             msg = "the instrument writes into directories that are new or empty"
             raise RunDirectoryError(msg, **{name: str(path)})
+    # Every path a reviewer is shown begins with the scratch directory's, so a scratch
+    # path that names the harness would be refused at the first artefact. It is refused
+    # here instead, before anything is written.
+    try:
+        require_review_root(places["scratch"])
+    except ReviewRootError as exc:
+        raise RunDirectoryError(str(exc), **exc.context) from None
 
 
 def _gate(gate: PhysicsGate, made: Materialised, subtask: str) -> GateResult:

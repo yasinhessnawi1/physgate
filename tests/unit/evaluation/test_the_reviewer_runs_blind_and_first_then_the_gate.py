@@ -307,8 +307,11 @@ def test_an_artefact_whose_description_the_design_spells_out_is_never_shown(tmp_
 
 
 def test_a_scratch_path_that_names_an_answer_is_never_shown(corpus: Corpus, tmp_path: Path) -> None:
+    # Refused before anything is written, not at the first artefact: the scratch
+    # directory is checked as a review root at the start. The per-artefact guard
+    # still refuses such a path on its own; its test calls it directly.
     reviewer = SeededFakeReviewer()
-    with pytest.raises(BlindnessError, match="paths"):
+    with pytest.raises(RunDirectoryError, match="review root"):
         run_instrument(
             corpus,
             {"electrical": reviewer},
@@ -318,6 +321,7 @@ def test_a_scratch_path_that_names_an_answer_is_never_shown(corpus: Corpus, tmp_
             seed=1,
         )
     assert reviewer.seen == []
+    assert not (tmp_path / "run").exists()
 
 
 def test_the_base_alone_is_gated_as_one_change_over_nothing(corpus: Corpus, tmp_path: Path) -> None:
