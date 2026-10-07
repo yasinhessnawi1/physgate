@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
+from pydantic import ValidationError
+
 from physgate.orchestrator.budget import REPAIR_BUDGET, after_rejection
 from physgate.orchestrator.common import GateMode
 from physgate.orchestrator.events import (
@@ -57,8 +59,9 @@ from physgate.orchestrator.events import (
     WriteDone,
     WriteIntended,
 )
-from physgate.orchestrator.exceptions import MergePreconditionError
+from physgate.orchestrator.exceptions import MergePreconditionError, RunConfigError
 from physgate.orchestrator.repair import FindingSource
+from physgate.orchestrator.run_config import load_run_config
 from physgate.state.task_ledger import TaskLedger, TaskLine
 
 
@@ -534,3 +537,44 @@ def require_mergeable(ledger_path: Path, subtask_id: str, gate_mode: GateMode) -
             gate_mode=gate_mode,
         )
     return line
+
+
+def recorded_implementer(run_dir: Path, subtask_id: str) -> str:
+    """The model string the run recorded for the role that implements ``subtask_id``.
+
+    Read from the durable record, never from a parameter: the subtask's role from its
+    task-ledger line, read back from disk, and that role's model from the run's
+    configuration file, held to the digest the run's first event line carries. A
+    caller holding a configuration object that says something else changes nothing.
+    The model that actually answered each session was already held to this string
+    when the session ended, so the record is the implementer's model.
+
+    Raises:
+        MergePreconditionError: the subtask has no ledger line.
+        RunConfigError: the configuration is not the one the run started with, or
+            names no model for the line's role.
+    """
+    run_dir = Path(run_dir)
+    ledger = TaskLedger(run_dir / "ledger.jsonl")
+    try:
+        line = ledger.find(subtask_id)
+    finally:
+        ledger.close()
+    if line is None:
+        msg = "a subtask with no ledger line has no recorded implementer"
+        raise MergePreconditionError(msg, subtask=subtask_id)
+    config = load_run_config(run_dir / "run.json")
+    with (run_dir / "events.jsonl").open("rb") as log:
+        first = log.readline()
+    try:
+        started = RunStarted.model_validate_json(first) if first.endswith(b"\n") else None
+    except ValidationError:
+        started = None
+    if started is None or started.config_sha256 != config.sha256():
+        msg = "the run's configuration is not the one its first event line recorded"
+        raise RunConfigError(msg, run_dir=str(run_dir))
+    model = config.models.roles.get(line.assigned_role)
+    if model is None:
+        msg = "the run recorded no model for the role on the ledger line"
+        raise RunConfigError(msg, role=line.assigned_role)
+    return model

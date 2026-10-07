@@ -89,7 +89,12 @@ from physgate.orchestrator.protocols import (
 from physgate.orchestrator.queue import INTEGRATION, escalation_item, integration_item
 from physgate.orchestrator.record import PlanEntry, RunRecord
 from physgate.orchestrator.repair import Finding, repair_instruction
-from physgate.orchestrator.replay import AttemptState, Step, require_mergeable
+from physgate.orchestrator.replay import (
+    AttemptState,
+    Step,
+    recorded_implementer,
+    require_mergeable,
+)
 from physgate.orchestrator.run_config import RunConfig
 from physgate.orchestrator.trajectory import read_sealed
 from physgate.state.exceptions import DesignStateError, StoreStaleError
@@ -682,7 +687,12 @@ class Loop:
             return False
         self._stage(subtask_id, attempt, "review")
         reviewer = self._reviewers[role]
-        require_separate_models(implementer=self.config.models.roles[role], reviewer=reviewer.model)
+        # The implementer's model is read from the run's record on disk, never from the
+        # configuration object this loop was handed: what the check compares must be
+        # what the run recorded, whatever a caller holds.
+        require_separate_models(
+            implementer=recorded_implementer(self.run_dir, subtask_id), reviewer=reviewer.model
+        )
         review = reviewer.review(artefact)
         if review.reviewer_model != reviewer.model:
             msg = "a reviewer reported a model other than the one it is pinned to"
