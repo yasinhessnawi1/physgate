@@ -19,7 +19,8 @@ what is still pending, and a candidate id cannot be promoted twice.
 
 A `kind: "rubric"` candidate is staged under `knowledge/reviewers/staging/` and
 replaces `knowledge/reviewers/<role>/rubric.md` whole, inside the tree only a
-reviewer reads.
+reviewer reads. Promotion appends one opaque canary line to it and records the
+canary in the promotion line; see :func:`canaries`.
 
 Every promotion appends one line to `knowledge/promotions.jsonl`: which
 candidate, which kind and domain, which destination, who approved it, when,
@@ -38,6 +39,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import stat
 import sys
 import time
@@ -307,6 +309,13 @@ def _apply(
     # descriptors opened without following links, at the moment of writing.
     _refuse_links(destination, Path(knowledge_root))
     text = (candidate.content.rstrip() + "\n").encode("utf-8")
+    canary = None
+    if kind == "rubric":
+        # An opaque line only this version of this rubric holds. A session that reads
+        # the rubric by a path no hook can judge shows it in its own stream, where the
+        # dispatcher looks for it: detection after the fact, not prevention.
+        canary = secrets.token_hex(16)
+        text += f"\n<!-- {canary} -->\n".encode()
     before = None if kind in ("standards", "rubric") else _existing(destination, knowledge_root)
     data = text if before is None else before + b"\n---\n\n" + text
     _replace(destination, Path(knowledge_root), data)
@@ -321,6 +330,8 @@ def _apply(
         # The digest of the bytes written, never of a later read of the path.
         "sha256": hashlib.sha256(data).hexdigest(),
     }
+    if canary is not None:
+        event["canary"] = canary
     _append_record(Path(promotions_path), json.dumps(event, sort_keys=True) + "\n")
     candidate_path.unlink()
     return destination
@@ -368,3 +379,17 @@ def promotions(
     if not path.is_file():
         return ()
     return tuple(json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line)
+
+
+def canaries(promotions_path: Path = KNOWLEDGE_ROOT / PROMOTIONS_NAME) -> frozenset[str]:
+    """Every canary a rubric promotion ever recorded: each marks reviewer material.
+
+    A superseded version's canary still marks it, since an old version is still in
+    the repository's history for a session to read.
+    """
+    found = set()
+    for event in promotions(promotions_path):
+        canary = event.get("canary")
+        if event.get("kind") == "rubric" and isinstance(canary, str) and canary:
+            found.add(canary)
+    return frozenset(found)

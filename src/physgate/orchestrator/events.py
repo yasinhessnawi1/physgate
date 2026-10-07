@@ -70,6 +70,7 @@ IncidentCause = Literal[
     "managed_settings_changed",
     "run_branch_moved",
     "trajectory_tampered",
+    "review_material_read",
 ]
 
 #: Why a run stopped short of the end of its plan.

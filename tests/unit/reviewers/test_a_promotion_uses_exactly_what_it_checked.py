@@ -112,7 +112,7 @@ def test_the_digest_is_of_the_bytes_written_not_of_a_later_read(
     monkeypatch.setattr(Path, "read_bytes", racing_read_bytes)
     _apply_in(tmp_path, staged.stem)
     line: dict[str, Any] = json.loads((tmp_path / "knowledge" / "promotions.jsonl").read_text())
-    written = (PLACEHOLDER.rstrip() + "\n").encode()
+    written = (PLACEHOLDER.rstrip() + "\n" + f"\n<!-- {line['canary']} -->\n").encode()
     assert line["sha256"] == hashlib.sha256(written).hexdigest()
 
 

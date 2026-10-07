@@ -65,6 +65,9 @@ class SessionReport(_Frozen):
     trajectory_tampered: NonEmptyStr | None = None
     #: The digest of the policy limits the invocation received, if it received any.
     policy_limits_sha256: NonEmptyStr | None = None
+    #: A canary of reviewer material found in the session's own stream, if one was:
+    #: the session read what only reviewers read, by a path no hook could judge.
+    review_material_seen: NonEmptyStr | None = None
 
 
 class Leftover(_Frozen):

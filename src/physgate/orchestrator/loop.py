@@ -467,6 +467,13 @@ class Loop:
             # nothing the session did is taken, and a person looks first.
             self._incident(subtask_id, "trajectory_tampered", report.trajectory_tampered)
             return False
+        if report.review_material_seen is not None:
+            # The session read what only its reviewer reads, by a path no hook could
+            # judge: its work is not taken, and a person looks first.
+            # The canary itself is not written into the record a later session can read.
+            detail = f"reviewer material in the stream of session {report.session_id}"
+            self._incident(subtask_id, "review_material_read", detail)
+            return False
         if report.managed_drift is not None:
             # Settings above every source the hooks were installed in changed under the
             # session: nothing it did is taken, and a person looks first.

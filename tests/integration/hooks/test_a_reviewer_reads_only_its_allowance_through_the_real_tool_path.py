@@ -15,6 +15,7 @@ control.
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -145,3 +146,28 @@ def test_a_role_cannot_reach_a_rubric_through_a_link_and_dot_dot(tmp_path: Path)
     # is refused both ways in.
     assert DECOY in told[0], told[0]
     assert _refused_by(run, "shell_paths") == 2, told
+
+
+def test_a_rubric_read_by_a_path_built_at_run_time_shows_its_canary(tmp_path: Path) -> None:
+    """The open class the hooks cannot judge, against the real binary, and what catches it.
+
+    A variable the hook cannot know builds the rubric's path, so the read runs; the
+    rubric's canary then appears in the session's own stream, where the
+    dispatcher's check finds it.
+    """
+    from physgate.orchestrator.dispatch import review_material_seen
+
+    canary = "c0ffee" * 5 + "ab"
+    rubric = tmp_path / RUBRIC
+    command = (
+        "d=view; cat " + str(tmp_path / "harness" / "knowledge") + "/re${d}ers/control/rubric.md"
+    )
+
+    def plant(_: Path) -> None:
+        rubric.write_text(rubric.read_text() + f"<!-- {canary} -->\n")
+
+    run = _session(tmp_path, "role", [tool("Bash", command=command, description="attempt")], plant)
+    assert RUBRIC_MARKER in run.told_after(1), "the run-time-built read was refused after all"
+    stream = tmp_path / "stream.jsonl"
+    stream.write_text("".join(json.dumps(e) + "\n" for e in run.stream))
+    assert review_material_seen(stream, frozenset({canary})) == canary

@@ -34,6 +34,7 @@ from pydantic import BaseModel, ConfigDict
 from physgate.hooks.config import SessionConfig
 from physgate.hooks.reading import outstanding
 from physgate.knowledge import loader
+from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, canaries
 from physgate.orchestrator.accounting import require_matching_totals
 from physgate.orchestrator.budget import classify_session_end
 from physgate.orchestrator.credentials import (
@@ -118,6 +119,21 @@ def read_captured(stream: Path) -> Captured:
     )
 
 
+def review_material_seen(stream: Path, live: frozenset[str]) -> str | None:
+    """The first canary of reviewer material in a session's stream, if any is there.
+
+    Detection, not prevention: the hook layer refuses every read of the reviewer
+    tree it can judge, and a read whose path the session builds while its command
+    runs is judged by nothing. Such a read that reaches a rubric shows the rubric's
+    canary in the session's own stream, as a tool's output. A read that never shows
+    the canary verbatim (a part of the file, or the file transformed) is not found.
+    """
+    if not live or not stream.exists():
+        return None
+    data = stream.read_bytes()
+    return next((c for c in sorted(live) if c.encode() in data), None)
+
+
 def role_prompt(request: SessionRequest) -> str:
     """What a role session is told: a template, with the repair instruction if any."""
     text = (
@@ -188,6 +204,11 @@ class ClaudeDispatcher:
         self._base_url = base_url
         self._credential = credential
         self._facts: InstallFacts | None = None
+        harness = harness_root()
+        #: Every canary the harness's rubric promotions recorded, read once.
+        self._canaries = (
+            canaries(harness / KNOWLEDGE_ROOT / PROMOTIONS_NAME) if harness else frozenset()
+        )
 
     def environment(self) -> InstallFacts:
         """The installation's and the session directories' facts, taken once."""
@@ -336,6 +357,7 @@ class ClaudeDispatcher:
         remove_secrets(sdir / "state", sdir / "config")
         redact(stdout, self._credential.secret)
         captured = read_captured(stdout)
+        seen = review_material_seen(stdout, self._canaries)
         sealed, tampered = captured.seal, captured.tampered
         result, usage, answered = captured.result, captured.usage, captured.answered
         require_matching_totals(result, usage)
@@ -366,6 +388,7 @@ class ClaudeDispatcher:
             policy_limits_sha256=policy_limits_digest(sdir / "config"),
             trajectory_seal=sealed,
             trajectory_tampered=tampered,
+            review_material_seen=seen,
         )
 
     def stop_leftovers(self) -> list[Leftover]:
