@@ -34,6 +34,7 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+import unicodedata
 from pathlib import Path
 from typing import Annotated
 
@@ -47,7 +48,7 @@ from physgate.orchestrator.trajectory import Seal, read_sealed
 from physgate.reviewers.exceptions import ReviewError
 from physgate.reviewers.places import READ_DIRNAME
 from physgate.reviewers.rubric import Rubric
-from physgate.reviewers.scan import ScanHit, scan
+from physgate.reviewers.scan import ScanHit, ScanUnreadableError, scan
 from physgate.reviewers.transcript import render
 
 TRANSCRIPT_NAME = "transcript.md"
@@ -109,7 +110,16 @@ _GIT_ENV = {
     "GIT_CONFIG_GLOBAL": "/dev/null",
     "GIT_ATTR_NOSYSTEM": "1",
 }
-_GIT_FLAGS = ("-c", "core.attributesFile=/dev/null", "-c", "core.quotePath=false")
+_GIT_FLAGS = (
+    "-c",
+    "core.attributesFile=/dev/null",
+    "-c",
+    "core.fsmonitor=false",
+    "-c",
+    "core.hooksPath=/dev/null",
+    "-c",
+    "core.quotePath=false",
+)
 
 
 class IssuedSpec(BaseModel):
@@ -161,15 +171,17 @@ def _export(repo: Path, commit: str, into: Path) -> int:
         PacketError: git cannot list or read the tree, or a path leaves the export.
     """
     listing = _git_bytes(repo, "ls-tree", "-r", "-z", "--full-tree", commit)
-    into.mkdir()
-    count = 0
-    root = into.resolve()
+    entries = []
     for entry in listing.split(b"\0"):
-        if not entry:
-            continue
-        meta, _, raw_path = entry.partition(b"\t")
-        mode, kind, oid = meta.decode().split()
-        relative = raw_path.decode("utf-8")
+        if entry:
+            meta, _, raw_path = entry.partition(b"\t")
+            mode, kind, oid = meta.decode().split()
+            entries.append((mode, kind, oid, raw_path.decode("utf-8")))
+    _refuse_merging_paths([relative for _, _, _, relative in entries])
+    into.mkdir()
+    root = into.resolve()
+    written: dict[Path, bytes] = {}
+    for mode, kind, oid, relative in entries:
         target = (into / relative).resolve()
         if (
             relative.startswith("/")
@@ -180,14 +192,54 @@ def _export(repo: Path, commit: str, into: Path) -> int:
             raise PacketError(msg, path=relative)
         target.parent.mkdir(parents=True, exist_ok=True)
         if kind == "commit":
-            target.write_text(f"[a submodule at commit {oid}]\n")
+            body = f"[a submodule at commit {oid}]\n".encode()
         elif mode == "120000":
             link = _git_bytes(repo, "cat-file", "blob", oid).decode("utf-8", errors="replace")
-            target.write_text(f"[a symbolic link to: {link}]\n")
+            body = f"[a symbolic link to: {link}]\n".encode()
         else:
-            target.write_bytes(_git_bytes(repo, "cat-file", "blob", oid))
-        count += 1
-    return count
+            body = _git_bytes(repo, "cat-file", "blob", oid)
+        target.write_bytes(body)
+        written[target] = body
+    # Held to the tree's own listing after the fact: every path it lists is a file
+    # here holding exactly what was written for it, and nothing else is here.
+    on_disk = {p.resolve() for p in into.rglob("*") if p.is_file() or p.is_symlink()}
+    if on_disk != set(written) or any(p.read_bytes() != body for p, body in written.items()):
+        msg = "the export does not hold exactly what the commit's tree lists"
+        raise PacketError(msg, commit=commit)
+    return len(written)
+
+
+def _refuse_merging_paths(paths: list[str]) -> None:
+    """Refuse a tree whose paths a case-insensitive, normalising volume would merge.
+
+    On such a volume, the development machine's, two paths differing only in case
+    or in Unicode normalisation are one file, so the second would be written over the
+    first; a file and a directory spelt alike collide the same way; and two spellings
+    of one directory merge their contents. A name ending in a dot or a space is
+    refused too: some volumes drop it, and the file would be read under another name.
+
+    Raises:
+        PacketError: any of these.
+    """
+    spelling: dict[str, str] = {}
+    files: set[str] = set()
+    directories: set[str] = set()
+    for path in paths:
+        parts = path.split("/")
+        if any(part != part.rstrip(". ") for part in parts):
+            msg = "a path in the commit has an unsafe name: it ends in a dot or a space"
+            raise PacketError(msg, path=path)
+        for depth in range(1, len(parts) + 1):
+            prefix = "/".join(parts[:depth])
+            key = unicodedata.normalize("NFD", prefix).casefold()
+            if spelling.setdefault(key, prefix) != prefix:
+                msg = "two paths in the commit are one file on a case-insensitive volume"
+                raise PacketError(msg, first=spelling[key], second=prefix)
+            (files if depth == len(parts) else directories).add(key)
+    if files & directories:
+        clash = sorted(files & directories)[0]
+        msg = "two paths in the commit are one file on a case-insensitive volume"
+        raise PacketError(msg, first=spelling[clash], second=f"{spelling[clash]}/")
 
 
 def _diff(repo: Path, base: str, commit: str) -> bytes:
@@ -248,9 +300,12 @@ def build_packet(
         raise PacketError(msg, trajectory=artefact.trajectory) from None
     nonce = None
     if artefact.trajectory_form == "session_stream":
+        try:
+            indicators = scan(stream)
+        except ScanUnreadableError as exc:
+            raise PacketError(str(exc), trajectory=artefact.trajectory) from None
         rendered, nonce = render(stream)
         transcript = rendered.encode("utf-8")
-        indicators = scan(stream)
     else:
         transcript, indicators = data, ()
     (read / TRANSCRIPT_NAME).write_bytes(transcript)

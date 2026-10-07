@@ -29,14 +29,14 @@ from rubric_fixture import PLACEHOLDER
 from physgate.reviewers.packet import (
     DIFF_NAME,
     SPEC_AS_ISSUED_NAME,
-    TRANSCRIPT_NAME,
     WORKTREE_NAME,
     IssuedSpec,
     PacketError,
     build_packet,
 )
 from physgate.reviewers.rubric import Rubric
-from physgate.reviewers.scan import scan
+from physgate.reviewers.scan import ScanUnreadableError, scan
+from physgate.reviewers.transcript import render
 
 RUBRIC = Rubric(
     role="control", text=PLACEHOLDER, sha256=hashlib.sha256(PLACEHOLDER.encode()).hexdigest()
@@ -175,10 +175,111 @@ DUPLICATED = (
 )
 
 
-def test_a_line_with_a_key_given_twice_is_no_event_to_anyone(tmp_path: Path) -> None:
+def test_a_line_with_a_key_given_twice_is_no_event_and_stops_the_review(tmp_path: Path) -> None:
     text = stream(with_checks_off=False) + DUPLICATED
-    assert scan(text) == ()
-    attempt = make_attempt(tmp_path, text)
+    with pytest.raises(ScanUnreadableError):
+        scan(text)
+    rendered, _ = render(text)
+    assert rendered.count("## a line that is not an event") == 2
+    with pytest.raises(PacketError, match="not one event"):
+        _build(tmp_path, make_attempt(tmp_path, text))
+
+
+def _add_blob(repo: Path, path: str, body: bytes) -> None:
+    oid = _git(repo, "hash-object", "-w", "--stdin", stdin=body)
+    # Git on this platform would fold a decomposed name into its composed form on
+    # the way in; a commit can hold both, so the index is written without folding.
+    _git(
+        repo,
+        "-c",
+        "core.precomposeUnicode=false",
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        f"100644,{oid},{path}",
+    )
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        ("m/Main.c", "m/main.c"),
+        ("m/café.c", "m/café.c"),
+        ("m/lib", "m/LIB/x.c"),
+        ("m/Dir/a.c", "m/dir/b.c"),
+        ("m/x.c.", "m/y.c"),
+        ("m/z.c ", "m/w.c"),
+    ],
+    ids=[
+        "case",
+        "unicode normalisation",
+        "a file and a directory",
+        "two spellings of one directory",
+        "a trailing dot",
+        "a trailing space",
+    ],
+)
+def test_a_tree_whose_paths_a_volume_would_merge_is_refused(
+    tmp_path: Path, first: str, second: str
+) -> None:
+    """Two tree paths a case-insensitive, normalising volume reads as one, or an unsafe name.
+
+    Written into the index directly, because such a volume cannot hold both in a
+    worktree; the attempt's commit can.
+    """
+    attempt = make_attempt(tmp_path, stream())
+    _add_blob(attempt.worktree, first, b"int gain = 1;\n")
+    _add_blob(attempt.worktree, second, b"int gain = 40;\n")
+    _git(attempt.worktree, "commit", "-q", "--amend", "--no-edit")
+    head = _git(attempt.worktree, "rev-parse", "HEAD")
+    collided = Attempt(attempt.worktree, attempt.spec_commit, head, attempt.trajectory)
+    with pytest.raises(PacketError, match="one file on a case-insensitive volume|unsafe name"):
+        _build(tmp_path, collided)
+
+
+def test_the_export_is_held_to_the_tree_after_it_is_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A write that lands somewhere other than its path says is caught after the export."""
+    from physgate.reviewers import packet
+
+    real = packet._refuse_merging_paths
+    monkeypatch.setattr(packet, "_refuse_merging_paths", lambda paths: None)
+    attempt = make_attempt(tmp_path, stream())
+    _add_blob(attempt.worktree, "m/Main.c", b"int gain = 1;\n")
+    _add_blob(attempt.worktree, "m/main.c", b"int gain = 40;\n")
+    _git(attempt.worktree, "commit", "-q", "--amend", "--no-edit")
+    head = _git(attempt.worktree, "rev-parse", "HEAD")
+    collided = Attempt(attempt.worktree, attempt.spec_commit, head, attempt.trajectory)
+    with pytest.raises(PacketError, match="does not hold exactly what the commit's tree lists"):
+        _build(tmp_path, collided)
+    assert real is not None
+
+
+def test_repository_configuration_runs_nothing_and_changes_nothing(tmp_path: Path) -> None:
+    """A text conversion driver, a filter and a file-system monitor, as a session could set them.
+
+    Each would run a program of the session's choosing, and the first would change
+    what the diff shows. None runs, and the diff and the export hold the commit.
+    """
+    attempt = _amend(
+        make_attempt(tmp_path, stream()),
+        {".gitattributes": "*.py diff=quiet filter=clean\n", "m/ctl.py": "gain = 40\n"},
+    )
+    # Configured after the commit, as a session would leave it for whatever reads next.
+    marker = tmp_path / "ran"
+    program = tmp_path / "program.sh"
+    program.write_text(f"#!/bin/sh\ntouch {marker}\necho 'nothing changed here'\n")
+    program.chmod(0o755)
+    config = attempt.worktree / ".git" / "config"
+    config.write_text(
+        config.read_text()
+        + f'[diff "quiet"]\n\ttextconv = {program}\n'
+        + f"[core]\n\tfsmonitor = {program}\n\thooksPath = {tmp_path}\n"
+        + f'[filter "clean"]\n\tsmudge = {program}\n\tclean = {program}\n'
+    )
     _build(tmp_path, attempt)
-    rendered = (_read(tmp_path) / TRANSCRIPT_NAME).read_text()
-    assert rendered.count("## a line that is not an event") == 3
+    assert not marker.exists(), "a program the repository configured was run"
+    diff = (_read(tmp_path) / DIFF_NAME).read_text()
+    assert "+gain = 40" in diff and "nothing changed here" not in diff
+    assert (_read(tmp_path) / WORKTREE_NAME / "m" / "ctl.py").read_text() == "gain = 40\n"
