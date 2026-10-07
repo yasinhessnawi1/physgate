@@ -13,10 +13,12 @@ from typing import Any
 import pytest
 
 from physgate.reviewers import verdict as verdicts
+from physgate.reviewers.rubric import RubricItem
 from physgate.reviewers.scan import ScanHit
 from physgate.reviewers.verdict import Answered, Unavailable, judge
 
 HIT = ScanHit(kind="disabled_checks", evidence="t2", what="a lint rule suppressed")
+RUBRIC = (RubricItem(id="AC-1", section="acceptance_criteria", title="t"),)
 
 
 def good() -> dict[str, Any]:
@@ -104,13 +106,13 @@ MALFORMED: list[tuple[str, object]] = [
 
 @pytest.mark.parametrize("answer", [a for _, a in MALFORMED], ids=[n for n, _ in MALFORMED])
 def test_every_malformed_answer_takes_the_invalid_path(answer: object) -> None:
-    outcome = judge(answer, (HIT,))
+    outcome = judge(answer, (HIT,), RUBRIC)
     assert isinstance(outcome, Unavailable), outcome
     assert outcome.cause == "invalid_verdict"
 
 
 def test_the_well_formed_answer_is_an_accept_so_the_table_tests_something() -> None:
-    outcome = judge(good(), (HIT,))
+    outcome = judge(good(), (HIT,), RUBRIC)
     assert isinstance(outcome, Answered) and outcome.answer.verdict == "accept"
 
 
@@ -119,12 +121,12 @@ def test_a_failure_inside_validation_is_no_verdict(monkeypatch: pytest.MonkeyPat
         raise RuntimeError
 
     monkeypatch.setattr(verdicts, "_inconsistency", broken)
-    outcome = judge(good(), (HIT,))
+    outcome = judge(good(), (HIT,), RUBRIC)
     assert isinstance(outcome, Unavailable) and outcome.cause == "invalid_verdict"
 
 
 def test_the_raw_answer_is_not_read_after_validation() -> None:
     answer = good()
-    outcome = judge(answer, (HIT,))
+    outcome = judge(answer, (HIT,), RUBRIC)
     answer["verdict"] = "reject"
     assert isinstance(outcome, Answered) and outcome.answer.verdict == "accept"

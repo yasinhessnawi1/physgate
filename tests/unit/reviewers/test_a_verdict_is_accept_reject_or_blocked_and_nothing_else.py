@@ -17,6 +17,7 @@ import pytest
 
 from physgate.orchestrator.protocols import ReviewResult
 from physgate.orchestrator.repair import Finding, repair_instruction
+from physgate.reviewers.rubric import RubricItem
 from physgate.reviewers.scan import ScanHit
 from physgate.reviewers.verdict import (
     VERDICT_SCHEMA,
@@ -83,8 +84,20 @@ REJECT = {
 }
 
 
+def _items_answered(given: dict[str, Any]) -> tuple[RubricItem, ...]:
+    """A rubric of exactly the items an answer gives, so each test isolates its own rule."""
+    found = []
+    for raw in given.get("items") or []:
+        try:
+            found.append(RubricItem(id=raw["item"], section=raw["section"], title="t"))
+        except (TypeError, KeyError, ValueError):
+            continue
+    return tuple(found) or (RubricItem(id="AC-1", section="acceptance_criteria", title="t"),)
+
+
 def _outcome(**fields: Any) -> Answered | Unavailable:  # noqa: ANN401
-    return judge(answer(**fields), (HIT,))
+    given = answer(**fields)
+    return judge(given, (HIT,), _items_answered(given))
 
 
 # -- the valid combinations ---------------------------------------------------------
@@ -131,7 +144,7 @@ def test_reject_on_a_confirmed_indicator_alone() -> None:
     outcome = _outcome(
         verdict="reject",
         finding="a check is switched off",
-        failing_item="RH-3",
+        failing_item="RH-1",
         indicators=[confirmed],
     )
     assert isinstance(outcome, Answered) and outcome.answer.verdict == "reject"
@@ -174,7 +187,7 @@ def test_an_acceptance_criterion_not_evaluable_is_blocked_too() -> None:
         ({"spec_defects": [BLOCKING]}, "accept carries no rejecting"),
         ({"verdict": "reject", "failing_item": "AC-1"}, "names at least one unmet"),
         ({**REJECT, "failing_item": None}, "names the rubric item"),
-        ({**REJECT, "failing_item": "DS-4"}, "not one the verdict found unmet"),
+        ({**REJECT, "failing_item": "RH-1"}, "not one the verdict found unmet"),
         ({"verdict": "blocked"}, "blocked is a blocking"),
         (
             {"verdict": "blocked", "items": [UNMET_AC], "spec_defects": [BLOCKING]},
@@ -246,7 +259,7 @@ def test_a_malformed_answer_is_no_verdict(fields: dict[str, Any], why: str) -> N
 
 
 def test_no_answer_is_no_verdict() -> None:
-    outcome = judge(None, ())
+    outcome = judge(None, (), _items_answered({}))
     assert isinstance(outcome, Unavailable) and outcome.cause == "no_verdict"
 
 
@@ -311,3 +324,50 @@ def test_the_schema_offered_is_the_model_validated() -> None:
         "n/a",
         "not evaluable",
     ]
+
+
+RUBRIC = (
+    RubricItem(id="AC-1", section="acceptance_criteria", title="t"),
+    RubricItem(id="DS-4", section="domain_standards", title="t"),
+    RubricItem(id="AP-2", section="antipatterns", title="t"),
+    RubricItem(id="RH-1", section="reward_hacking", title="t"),
+)
+
+
+def test_every_rubric_item_is_answered_and_nothing_else() -> None:
+    assert isinstance(judge(answer(), (HIT,), RUBRIC), Answered)
+    extra = (*RUBRIC, RubricItem(id="DS-5", section="domain_standards", title="t"))
+    cases = [
+        (judge(answer(), (HIT,), extra), "unanswered: DS-5"),
+        (judge(answer(items=answer()["items"][:3]), (HIT,), RUBRIC), "unanswered: RH-1"),
+        (
+            judge(
+                answer(items=[*answer()["items"], item("X-9", "antipatterns", "met")]),
+                (HIT,),
+                RUBRIC,
+            ),
+            "does not have: X-9",
+        ),
+        (
+            judge(
+                answer(items=[*answer()["items"], item("AC-1", "acceptance_criteria", "met")]),
+                (HIT,),
+                RUBRIC,
+            ),
+            "answered twice: AC-1",
+        ),
+        (
+            judge(
+                answer(
+                    items=[item("AC-1", "domain_standards", "n/a", "none"), *answer()["items"][1:]]
+                ),
+                (HIT,),
+                RUBRIC,
+            ),
+            "under another section",
+        ),
+        (judge(answer(), (HIT,), ()), "no rubric item"),
+    ]
+    for outcome, why in cases:
+        assert isinstance(outcome, Unavailable) and outcome.cause == "invalid_verdict", why
+        assert why in outcome.detail, (why, outcome.detail)

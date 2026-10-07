@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 
 import pytest
-from rubric_fixture import PLACEHOLDER
+from rubric_fixture import PLACEHOLDER, PLACEHOLDER_IDS
 
 from physgate.evaluation.inject.corpus import TELLTALES
 from physgate.hooks.settings import review_material
@@ -46,33 +46,53 @@ def _promote(root: Path, text: str, role: str = "control") -> Path:
 
 
 def test_the_placeholder_has_the_form() -> None:
-    check_rubric(PLACEHOLDER)
-
-
-def _without(heading: str) -> str:
-    head, _, rest = PLACEHOLDER.partition(f"## {heading}\n")
-    return head + rest.partition("\n## ")[1].lstrip("\n") + rest.partition("\n## ")[2]
+    items = check_rubric(PLACEHOLDER)
+    assert tuple(i.id for i in items) == PLACEHOLDER_IDS
+    assert [i.section for i in items] == [
+        "acceptance_criteria",
+        "domain_standards",
+        "domain_standards",
+        "antipatterns",
+        "reward_hacking",
+        "reward_hacking",
+        "reward_hacking",
+    ]
 
 
 @pytest.mark.parametrize(
     ("text", "match"),
     [
-        (PLACEHOLDER.replace("## Domain standard violations", "## Domain rules"), "four sections"),
-        (PLACEHOLDER + "\n## Notes\n\nmore\n", "four sections"),
-        (PLACEHOLDER + "\n## Acceptance criteria\n\nagain\n", "twice"),
+        (
+            PLACEHOLDER.replace("## 2. Domain standard violations", "## 2. Domain rules"),
+            "no other second-level section",
+        ),
+        (PLACEHOLDER + "\n## Notes\n\nmore\n", "no other second-level section"),
+        (PLACEHOLDER.replace("## Verdict policy", "## 1. Acceptance criteria"), "four"),
         (
             PLACEHOLDER.replace(
-                "## Skill-file antipatterns\n\n- An antipattern the domain's skill file names, "
-                "found in the change.\n",
-                "## Skill-file antipatterns\n\n",
+                "- **AP-1. An antipattern is present.** One the skill file names.", ""
             ),
-            "empty",
+            "holds no item",
         ),
-        (PLACEHOLDER.replace("- Hard-coded values:", "- Fixed numbers:"), "leaves an indicator"),
+        (PLACEHOLDER.replace("**DS-2.", "**DS-1."), "appears twice"),
+        (PLACEHOLDER.replace("RH-2. Hard-coded values", "RH-2. Fixed numbers"), "indicator out"),
+        (PLACEHOLDER.replace("RH-1. Feature isolation", "RH-1. Narrow features"), "indicator out"),
+        (PLACEHOLDER.replace("RH-3. Disabled, skipped", "RH-3. Skipped"), "indicator out"),
         (PLACEHOLDER + "\nKeep the answer key in mind.\n", "being evaluated"),
         (PLACEHOLDER + "\nThe physics gate ran first.\n", "being evaluated"),
     ],
-    ids=["renamed", "extra", "repeated", "empty", "indicator", "answer", "harness name"],
+    ids=[
+        "renamed",
+        "after the required",
+        "required in the preamble",
+        "empty section",
+        "repeated id",
+        "no hard-coded values",
+        "no feature isolation",
+        "no disabled checks",
+        "answer",
+        "harness name",
+    ],
 )
 def test_a_malformed_rubric_is_refused(text: str, match: str) -> None:
     with pytest.raises(RubricError, match=match):
@@ -80,19 +100,17 @@ def test_a_malformed_rubric_is_refused(text: str, match: str) -> None:
 
 
 def test_the_sections_are_the_architecture_s_four_in_order() -> None:
-    assert SECTIONS == (
+    assert [title for title, _ in SECTIONS] == [
         "Acceptance criteria",
         "Domain standard violations",
         "Skill-file antipatterns",
         "Reward-hacking indicators",
+    ]
+    swapped = PLACEHOLDER.replace("## 1. Acceptance criteria", "## X").replace(
+        "## 2. Domain standard violations", "## 1. Acceptance criteria"
     )
-    reordered = (
-        PLACEHOLDER.replace("## Acceptance criteria", "## X")
-        .replace("## Domain standard violations", "## Acceptance criteria")
-        .replace("## X", "## Domain standard violations")
-    )
-    with pytest.raises(RubricError, match="in order"):
-        check_rubric(reordered)
+    with pytest.raises(RubricError):
+        check_rubric(swapped.replace("## X", "## 2. Domain standard violations"))
 
 
 def test_the_review_vocabulary_is_allowed() -> None:

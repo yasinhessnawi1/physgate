@@ -1,10 +1,18 @@
 """A paired reviewer's rubric: four sections, one promoted version, and its digest on every review.
 
-**What a rubric holds (ARCH-062).** Four sections, as second-level headings, each
-once, in this order, none empty: the spec's acceptance criteria, the domain's
-standard violations, the skill file's antipatterns, and the reward-hacking
-indicators to report. The last names all three indicators the architecture
-lists: feature isolation, hard-coded values and disabled checks.
+**What a rubric holds (ARCH-062).** A title, then any number of preamble sections
+(a verdict policy, a verdict format, notation), then the four required sections,
+each once, in this order: the spec's acceptance criteria, the domain's standard
+violations, the skill file's antipatterns, and the reward-hacking indicators to
+report. A required section's heading may carry a number (``## 1. Acceptance
+criteria``), and may hold third-level subheadings. Every section holds items,
+each a list line opening with its bold id: ``- **<ID>. <title>**``, where the id
+is one or two capitals and a number, with or without a hyphen (``A1``, ``DS-15``).
+The reward-hacking section names, in its item titles, the three indicators the
+architecture lists: feature isolation, hard-coded values and disabled checks.
+
+Every item id is what a verdict must answer: a verdict that leaves one out is not
+a verdict.
 
 **Where it lives, and who may read it.** ``knowledge/reviewers/<role>/rubric.md``,
 in the one tree beneath the library that every session but a reviewer is refused
@@ -42,17 +50,19 @@ from pydantic import BaseModel, ConfigDict, StringConstraints
 
 from physgate.evaluation.inject.corpus import fold
 from physgate.knowledge.promote import PROMOTIONS_NAME, rubric_path
+from physgate.orchestrator.protocols import RubricSection
 from physgate.reviewers.exceptions import ReviewError
 
-#: The four sections, in order, as their second-level headings read.
-SECTIONS: tuple[str, ...] = (
-    "Acceptance criteria",
-    "Domain standard violations",
-    "Skill-file antipatterns",
-    "Reward-hacking indicators",
+#: The four sections, in order, as their second-level headings read, and the name a
+#: verdict gives each.
+SECTIONS: tuple[tuple[str, RubricSection], ...] = (
+    ("Acceptance criteria", "acceptance_criteria"),
+    ("Domain standard violations", "domain_standards"),
+    ("Skill-file antipatterns", "antipatterns"),
+    ("Reward-hacking indicators", "reward_hacking"),
 )
-#: The reward-hacking indicators every rubric names (ARCH-062), as folded text.
-INDICATORS: tuple[str, ...] = ("feature isolation", "hard coded values", "disabled checks")
+_NUMBERED = re.compile(r"^\d+\.\s+")
+_ITEM = re.compile(r"^- \*\*(?P<id>[A-Z]{1,2}-?[0-9]+)\.\s*(?P<rest>.*)$")
 #: The words that would tell a reviewer it is being evaluated, or by what. A subset
 #: of the instrument's telltale list, matched the same way; a test holds it to that
 #: list, so the two cannot drift apart.
@@ -78,14 +88,25 @@ class RubricError(ReviewError):
     """A rubric is missing, malformed, says what is measured, or is not its promoted version."""
 
 
+class RubricItem(BaseModel):
+    """One item of a rubric: its id, the section it sits in, and its title."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    id: Annotated[str, StringConstraints(pattern=r"^[A-Z]{1,2}-?[0-9]+$")]
+    section: RubricSection
+    title: str
+
+
 class Rubric(BaseModel):
-    """One role's rubric as loaded: its text, and the digest every review carries."""
+    """One role's rubric as loaded: its text, its items, and the digest every review carries."""
 
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     role: Annotated[str, StringConstraints(pattern=_ROLE.pattern)]
     text: Annotated[str, StringConstraints(min_length=1)]
     sha256: Sha256
+    items: tuple[RubricItem, ...] = ()
 
 
 def evaluation_words(text: str) -> list[str]:
@@ -93,51 +114,83 @@ def evaluation_words(text: str) -> list[str]:
     return sorted({m.group(0) for m in _EVALUATION.finditer(fold(text))})
 
 
-def sections(text: str) -> dict[str, str]:
-    """The body under each second-level heading, by heading.
+def _title(rest: str, lines: list[str], index: int) -> str:
+    """An item's bold title: up to its closing ``**``, which may fall on a later line."""
+    parts = [rest]
+    following = index + 1
+    while "**" not in parts[-1] and following < len(lines) and lines[following].strip():
+        parts.append(lines[following].strip())
+        following += 1
+    return " ".join(parts).split("**", 1)[0].strip()
+
+
+def parse_rubric(text: str) -> tuple[RubricItem, ...]:
+    """Every item of the rubric ``text``, in order, each with its section.
 
     Raises:
-        RubricError: a heading appears twice.
+        RubricError: the required sections are not each present once, in order and
+            after any preamble; a required section holds no item, or another
+            second-level section follows them; an item id appears twice; or the
+            reward-hacking items leave an indicator out.
     """
-    found: dict[str, list[str]] = {}
-    current: list[str] | None = None
-    for line in text.splitlines():
+    names = {title: name for title, name in SECTIONS}
+    order = [title for title, _ in SECTIONS]
+    seen: list[str] = []
+    current: RubricSection | None = None
+    items: list[RubricItem] = []
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
         if line.startswith("## "):
-            heading = line[3:].strip()
-            if heading in found:
-                msg = "a rubric names a section twice"
-                raise RubricError(msg, section=heading)
-            current = found.setdefault(heading, [])
-        elif current is not None:
-            current.append(line)
-    return {heading: "\n".join(body) for heading, body in found.items()}
+            title = _NUMBERED.sub("", line[3:].strip())
+            if title in names:
+                seen.append(title)
+                current = names[title]
+            elif seen:
+                msg = "no other second-level section follows the required ones"
+                raise RubricError(msg, section=title)
+            continue
+        found = _ITEM.match(line)
+        if found and current is not None:
+            title = _title(found["rest"], lines, index)
+            items.append(RubricItem(id=found["id"], section=current, title=title))
+    if seen != order:
+        msg = "a rubric has the four required sections, each once, in order"
+        raise RubricError(msg, found=" | ".join(seen), expected=" | ".join(order))
+    for _, name in SECTIONS:
+        if not any(i.section == name for i in items):
+            msg = "a required section holds no item"
+            raise RubricError(msg, section=name)
+    ids = [i.id for i in items]
+    if len(ids) != len(set(ids)):
+        twice = sorted({i for i in ids if ids.count(i) > 1})
+        msg = "an item id appears twice"
+        raise RubricError(msg, ids=",".join(twice))
+    titles = [fold(i.title) for i in items if i.section == "reward_hacking"]
+    named = {
+        "feature isolation": any("feature isolation" in t for t in titles),
+        "hard-coded values": any("hard coded values" in t for t in titles),
+        "disabled checks": any("disabled" in t and "check" in t for t in titles),
+    }
+    missing = [name for name, present in named.items() if not present]
+    if missing:
+        msg = "the reward-hacking items leave an indicator out"
+        raise RubricError(msg, missing=",".join(missing))
+    return tuple(items)
 
 
-def check_rubric(text: str) -> None:
-    """Refuse a rubric that is not the four sections ARCH-062 lists, or that says what is measured.
+def check_rubric(text: str) -> tuple[RubricItem, ...]:
+    """The items of ``text``, if it is a rubric ARCH-062 describes and says nothing it must not.
 
     Raises:
-        RubricError: a section is missing, out of order, empty or unknown; the
-            reward-hacking section leaves an indicator out; or the text holds an
+        RubricError: as :func:`parse_rubric`, or the text holds an
             evaluation-revealing word.
     """
-    found = sections(text)
-    if tuple(found) != SECTIONS:
-        msg = "a rubric has exactly the four sections, in order"
-        raise RubricError(msg, found=" | ".join(found), expected=" | ".join(SECTIONS))
-    for heading, body in found.items():
-        if not body.strip():
-            msg = "a rubric section is empty"
-            raise RubricError(msg, section=heading)
-    indicators = fold(found["Reward-hacking indicators"])
-    missing = [name for name in INDICATORS if name not in indicators]
-    if missing:
-        msg = "the reward-hacking section leaves an indicator out"
-        raise RubricError(msg, missing=",".join(missing))
+    items = parse_rubric(text)
     words = evaluation_words(text)
     if words:
         msg = "a rubric holds a word that would tell a reviewer it is being evaluated"
         raise RubricError(msg, found=",".join(words))
+    return items
 
 
 def promoted_digest(promotions_path: Path, role: str) -> str | None:
@@ -184,10 +237,10 @@ def load_rubric(knowledge_root: Path, role: str) -> Rubric:
     with os.fdopen(fd, "rb") as handle:
         data = handle.read()
     text = data.decode("utf-8")
-    check_rubric(text)
+    items = check_rubric(text)
     digest = hashlib.sha256(data).hexdigest()
     promoted = promoted_digest(Path(knowledge_root) / PROMOTIONS_NAME, role)
     if promoted != digest:
         msg = "the rubric is not the version its last promotion recorded"
         raise RubricError(msg, role=role, found=digest, promoted=str(promoted))
-    return Rubric(role=role, text=text, sha256=digest)
+    return Rubric(role=role, text=text, sha256=digest, items=items)

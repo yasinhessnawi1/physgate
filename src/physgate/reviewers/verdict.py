@@ -17,6 +17,9 @@ unavailable and escalated, never read as a pass or a fail.
   specification lacks its input; only the decomposition can fix that, so the
   subtask goes to a person and no repair attempt is spent.
 
+Every item of the rubric is answered, each under its own section, and nothing else
+is: a verdict that leaves an item out, or answers one twice, is not a verdict.
+
 A rejecting finding is an item ``unmet`` (an acceptance criterion included) or a
 reward-hacking indicator ``confirmed``. An item ``not evaluable`` must be named by
 a blocking defect. ``n/a`` is allowed only for a domain standard or an antipattern,
@@ -42,6 +45,7 @@ from physgate.orchestrator.protocols import (
     SpecDefect,
     UnavailableCause,
 )
+from physgate.reviewers.rubric import RubricItem
 from physgate.reviewers.scan import ScanHit
 
 #: The model's words for its verdict. ``accept`` and ``reject`` become the review's
@@ -172,7 +176,9 @@ class Unavailable(BaseModel):
     spec_defects: tuple[SpecDefect, ...] = ()
 
 
-def judge(structured: object, scan_hits: tuple[ScanHit, ...]) -> Answered | Unavailable:
+def judge(
+    structured: object, scan_hits: tuple[ScanHit, ...], rubric_items: tuple[RubricItem, ...]
+) -> Answered | Unavailable:
     """What the reviewer's structured answer ``structured`` amounts to.
 
     Fails closed. Whatever the model wrote, and whatever goes wrong while reading
@@ -183,13 +189,15 @@ def judge(structured: object, scan_hits: tuple[ScanHit, ...]) -> Answered | Unav
     copy, never from the raw answer.
     """
     try:
-        return _judge(structured, scan_hits)
+        return _judge(structured, scan_hits, rubric_items)
     except Exception as exc:  # noqa: BLE001 - every failure of reading an answer is no verdict
         detail = f"the answer could not be read: {type(exc).__name__}"
         return Unavailable(cause="invalid_verdict", detail=detail)
 
 
-def _judge(structured: object, scan_hits: tuple[ScanHit, ...]) -> Answered | Unavailable:
+def _judge(
+    structured: object, scan_hits: tuple[ScanHit, ...], rubric_items: tuple[RubricItem, ...]
+) -> Answered | Unavailable:
     if structured is None:
         return Unavailable(cause="no_verdict", detail="the review ended without a verdict")
     try:
@@ -200,7 +208,7 @@ def _judge(structured: object, scan_hits: tuple[ScanHit, ...]) -> Answered | Una
         problem = exc.errors()[0]
         where = ".".join(str(part) for part in problem["loc"]) or "the answer"
         return Unavailable(cause="invalid_verdict", detail=f"{where}: {problem['msg']}")
-    problem_text = _inconsistency(answer, scan_hits)
+    problem_text = _unanswered(answer, rubric_items) or _inconsistency(answer, scan_hits)
     if problem_text is not None:
         return Unavailable(cause="invalid_verdict", detail=problem_text)
     if answer.verdict == "blocked":
@@ -212,6 +220,29 @@ def _judge(structured: object, scan_hits: tuple[ScanHit, ...]) -> Answered | Una
     if answer.verdict not in ("accept", "reject"):  # pragma: no cover - the type allows no other
         return Unavailable(cause="invalid_verdict", detail="an unknown verdict")
     return Answered(answer=answer)
+
+
+def _unanswered(answer: ModelVerdict, rubric_items: tuple[RubricItem, ...]) -> str | None:
+    """Why the answer does not answer exactly the rubric's items, each in its own section."""
+    expected = {item.id: item.section for item in rubric_items}
+    if not expected:
+        return "there is no rubric item to answer, so no verdict can be checked"
+    given = [i.item for i in answer.items]
+    twice = sorted({i for i in given if given.count(i) > 1})
+    if twice:
+        return "an item is answered twice: " + ", ".join(twice)
+    missing = [i for i in expected if i not in given]
+    if missing:
+        return "the verdict leaves rubric items unanswered: " + ", ".join(missing)
+    unknown = sorted(set(given) - set(expected))
+    if unknown:
+        return "the verdict answers items the rubric does not have: " + ", ".join(unknown)
+    moved = sorted(i.item for i in answer.items if expected[i.item] != i.section)
+    if moved:
+        return "an item is answered under another section than its own: " + ", ".join(moved)
+    if answer.failing_item is not None and answer.failing_item not in expected:
+        return "the failing item is not an item of the rubric"
+    return None
 
 
 def _inconsistency(answer: ModelVerdict, scan_hits: tuple[ScanHit, ...]) -> str | None:

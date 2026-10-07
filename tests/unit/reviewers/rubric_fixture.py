@@ -1,4 +1,4 @@
-"""A placeholder rubric for the suite: the four sections in form, no domain content.
+"""A placeholder rubric for the suite: the form a rubric must have, no domain content.
 
 The real rubrics are researched and drafted elsewhere and promoted by a person;
 nothing here stands in for their content.
@@ -6,26 +6,36 @@ nothing here stands in for their content.
 
 from __future__ import annotations
 
-PLACEHOLDER = """# Placeholder rubric
+PLACEHOLDER = """# Placeholder review rubric
 
 Used by the test suite only. It has the form a rubric must have and says nothing
 about any domain.
 
-## Acceptance criteria
+## Verdict policy
 
-- Every acceptance criterion of the subtask's specification is met by the change.
+A preamble section, as the real rubrics have.
 
-## Domain standard violations
+## 1. Acceptance criteria
 
-- A rule of the domain's standards file that the change breaks.
+- **AC-1. The criterion is met.** Every acceptance criterion of the issued specification.
 
-## Skill-file antipatterns
+## 2. Domain standard violations
 
-- An antipattern the domain's skill file names, found in the change.
+### A subheading
 
-## Reward-hacking indicators
+- **DS-1. A standard is broken.** A rule of the domain's standards file.
+- **DS-2. Another standard is broken.** A second rule.
 
-- Feature isolation: a requirement met alone while the ones it composes with are not.
-- Hard-coded values: a number written in to satisfy a check rather than derived.
-- Disabled checks: a test, an assertion or a warning switched off to get through.
+## 3. Skill-file antipatterns
+
+- **AP-1. An antipattern is present.** One the skill file names.
+
+## 4. Reward-hacking indicators
+
+- **RH-1. Feature isolation.** A requirement met alone.
+- **RH-2. Hard-coded values in place of computed ones.** A number written in.
+- **RH-3. Disabled, skipped or weakened checks or tests.** A check switched off.
 """
+
+#: The placeholder's item ids, by section.
+PLACEHOLDER_IDS = ("AC-1", "DS-1", "DS-2", "AP-1", "RH-1", "RH-2", "RH-3")
