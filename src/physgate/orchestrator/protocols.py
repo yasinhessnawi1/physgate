@@ -367,14 +367,121 @@ class GateResult(_Frozen):
         return self
 
 
+#: The rubric's four sections, as a verdict names them (ARCH-062).
+RubricSection = Literal["acceptance_criteria", "domain_standards", "antipatterns", "reward_hacking"]
+#: What a verdict says of one rubric item. ``unmet`` rejects. ``noted`` is a
+#: reward-hacking indicator only suggested. ``n/a`` is an item whose trigger the
+#: change lacks. ``not evaluable`` is an item the issued specification gives no input
+#: for, which a blocking specification defect must name.
+ItemResult = Literal["met", "unmet", "noted", "n/a", "not evaluable"]
+IndicatorKind = Literal["feature_isolation", "hard_coded_values", "disabled_checks"]
+#: Confirmed rejects; noted is reported and does not; dismissed says why it is not one.
+IndicatorDisposition = Literal["confirmed", "noted", "dismissed"]
+
+
+class ItemVerdict(_Frozen):
+    """What the review found for one rubric item."""
+
+    item: NonEmptyStr
+    section: RubricSection
+    result: ItemResult
+    #: Where in the diff, the worktree or the trajectory: file and line, or a tool call.
+    evidence: str
+
+    @model_validator(mode="after")
+    def _no_item_is_skipped(self) -> ItemVerdict:
+        if self.result == "n/a" and self.section not in ("domain_standards", "antipatterns"):
+            msg = "an acceptance criterion or a reward-hacking indicator is never not applicable"
+            raise ValueError(msg)
+        if self.result == "n/a" and not self.evidence.strip():
+            msg = "not applicable names the evidence that the item's trigger is absent"
+            raise ValueError(msg)
+        if self.result == "noted" and self.section != "reward_hacking":
+            msg = "only a reward-hacking indicator is noted rather than confirmed"
+            raise ValueError(msg)
+        if self.result == "not evaluable" and self.section == "reward_hacking":
+            msg = "a reward-hacking indicator is judged from the trajectory, never left unevaluated"
+            raise ValueError(msg)
+        return self
+
+
+class IndicatorReport(_Frozen):
+    """One reward-hacking indicator: raised by the review, or shown to it by the scan."""
+
+    kind: IndicatorKind
+    evidence: NonEmptyStr
+    disposition: IndicatorDisposition
+    reason: NonEmptyStr
+
+
+class SpecDefect(_Frozen):
+    """A finding against the specification as issued, not against the attempt.
+
+    It goes to the approval queue as a note on the decomposition. A non-blocking one
+    never changes the verdict. A blocking one is a safety-critical check that cannot
+    be decided because the issued specification lacks its input: alone, it makes the
+    review ``blocked``, which only the decomposition can resolve; beside a rejecting
+    finding, the review is a reject that also names it.
+    """
+
+    finding: NonEmptyStr
+    blocking: bool
+    item: NonEmptyStr | None = None
+
+
+#: Why a review that ran is not a verdict.
+UnavailableCause = Literal[
+    "infrastructure",
+    "refused",
+    "no_verdict",
+    "invalid_verdict",
+    "reading_incomplete",
+    "compacted",
+    "context_exceeded",
+    "blocking_spec_defect",
+]
+
+
 class ReviewResult(_Frozen):
-    """What a reviewer hands back, with the tokens it spent doing it."""
+    """What a reviewer hands back, with the tokens it spent doing it.
+
+    The fields after ``usage`` were added with the paired reviewers and are optional,
+    so a review line written before them still reads. A verdict carries only
+    non-blocking specification defects: one with a blocking defect is not a verdict.
+    """
 
     verdict: Verdict
     finding: NonEmptyStr
     reviewer_model: ModelString
     session_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
     usage: tuple[MessageUsage, ...]
+    #: The rubric item that rejects, on a fail.
+    failing_item: NonEmptyStr | None = None
+    subject: NonEmptyStr | None = None
+    numeric_output: NumericOutput | None = None
+    items: tuple[ItemVerdict, ...] = ()
+    indicators: tuple[IndicatorReport, ...] = ()
+    spec_defects: tuple[SpecDefect, ...] = ()
+    rubric_sha256: Sha256 | None = None
+    rubric_kind: Literal["paired", "generalist"] | None = None
+    packet_sha256: Sha256 | None = None
+    reading_verified: bool | None = None
+    #: The largest context any of the review's model messages had, in tokens.
+    peak_context_tokens: Count | None = None
+
+    @model_validator(mode="after")
+    def _a_verdict_is_consistent(self) -> ReviewResult:
+        rejecting = any(i.result == "unmet" for i in self.items) or any(
+            r.disposition == "confirmed" for r in self.indicators
+        )
+        blocking = any(d.blocking for d in self.spec_defects)
+        if self.verdict == "pass" and (rejecting or blocking):
+            msg = "a pass carries no rejecting finding and no blocking specification defect"
+            raise ValueError(msg)
+        if self.verdict == "fail" and blocking and not rejecting:
+            msg = "a review whose only obstacle is a blocking defect is blocked, not a fail"
+            raise ValueError(msg)
+        return self
 
 
 @runtime_checkable

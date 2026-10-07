@@ -61,8 +61,28 @@ class Finding(BaseModel):
 
     @classmethod
     def from_review(cls, result: ReviewResult) -> Finding:
-        """The finding a rejecting reviewer carries."""
-        return cls(source="review", text=result.finding)
+        """The finding a rejecting reviewer carries: the rubric item as its failing check.
+
+        A blocking defect of the issued specification found beside the rejection is
+        named too, so the next attempt knows what it cannot settle on its own.
+        """
+        blocking = [d.finding for d in result.spec_defects if d.blocking]
+        text = result.finding
+        if blocking:
+            text += (
+                " The issued specification also lacks what a check needs: "
+                + "; ".join(blocking)
+                + ". Do not supply the missing input yourself, for example by inventing a "
+                "value the specification does not give: it goes to a person, with the "
+                "decomposition."
+            )
+        return cls(
+            source="review",
+            text=text,
+            subject=result.subject,
+            failing_check=result.failing_item,
+            numeric_output=result.numeric_output,
+        )
 
     def key(self) -> str:
         """A stable key for what was found: who refused, about what, by which check.

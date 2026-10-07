@@ -29,11 +29,11 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, StringConstraints
 
-IndicatorKind = Literal["feature_isolation", "hard_coded_values", "disabled_checks"]
+from physgate.orchestrator.protocols import IndicatorKind
 
 #: A marker that switches a check off where it is written, and what it does.
 _MARKERS: tuple[tuple[str, str], ...] = (
