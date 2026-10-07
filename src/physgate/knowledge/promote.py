@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -90,17 +91,65 @@ def _destination(domain: str, kind: Kind, root: Path) -> Path:
     return Path(root) / domain / name
 
 
+#: A candidate id as staging writes it: a plain identifier, never a path.
+_CANDIDATE_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+
+
 def _find(
-    candidate_id: str, staging_roots: tuple[Path, ...]
+    candidate_id: str, staging_root: Path, rubric_staging_root: Path
 ) -> tuple[Kind, Candidate, Path] | None:
-    kinds: tuple[Kind, ...] = ("standards", "skill", "antipattern", "rubric")
-    for staging_root in staging_roots:
-        for kind in kinds:
-            path = Path(staging_root) / kind / f"{candidate_id}.json"
-            if path.is_file():
-                candidate = Candidate.model_validate_json(path.read_text(encoding="utf-8"))
-                return kind, candidate, path
+    """The staged candidate ``candidate_id``, looked for only where its kind is staged.
+
+    A rubric is looked for only under the rubric staging directory, inside the tree
+    only reviewers read, and every other kind only under the general one, which a
+    session may write. So a rubric written where a session may write is never
+    found, and a candidate is promoted as the kind it says it is, never as the
+    kind of the directory it was moved into.
+
+    Raises:
+        PromotionError: the id is not a plain id; the staged file is a link; or the
+            candidate's own kind is not its directory's.
+    """
+    if not _CANDIDATE_ID.fullmatch(candidate_id):
+        msg = "a candidate is named by a plain id, as staging wrote it"
+        raise PromotionError(msg, candidate_id=candidate_id)
+    places: tuple[tuple[Kind, Path], ...] = (
+        ("standards", Path(staging_root)),
+        ("skill", Path(staging_root)),
+        ("antipattern", Path(staging_root)),
+        ("rubric", Path(rubric_staging_root)),
+    )
+    for kind, root in places:
+        path = root / kind / f"{candidate_id}.json"
+        if path.is_symlink():
+            msg = "a staged candidate is a link, so what it holds is somewhere else"
+            raise PromotionError(msg, candidate_id=candidate_id, path=str(path))
+        if path.is_file():
+            candidate = Candidate.model_validate_json(path.read_text(encoding="utf-8"))
+            if candidate.kind != kind:
+                msg = "a candidate's own kind is not the kind of the directory it is staged in"
+                raise PromotionError(
+                    msg, candidate_id=candidate_id, kind=candidate.kind, directory=kind
+                )
+            return kind, candidate, path
     return None
+
+
+def _refuse_links(destination: Path, knowledge_root: Path) -> None:
+    """Refuse a destination that is, or sits beneath, a link inside the library.
+
+    Raises:
+        PromotionError: the write would be redirected somewhere else.
+    """
+    root = Path(knowledge_root)
+    current = destination
+    while True:
+        if current.is_symlink():
+            msg = "a promotion's destination is a link, so the write would land elsewhere"
+            raise PromotionError(msg, destination=str(destination), link=str(current))
+        if current == root or current.parent == current:
+            return
+        current = current.parent
 
 
 def _apply(
@@ -118,18 +167,20 @@ def _apply(
     caller's job, always run first for a real promotion.
 
     Raises:
-        PromotionError: ``by`` is empty, or no candidate with ``candidate_id``
-            is staged.
+        PromotionError: ``by`` is empty; no candidate with ``candidate_id`` is
+            staged where its kind is staged; the id, the staged file or the
+            destination is refused (:func:`_find`, :func:`_refuse_links`).
     """
     if not by.strip():
         msg = "promotion needs the name of the human approving it"
         raise PromotionError(msg, candidate_id=candidate_id)
-    found = _find(candidate_id, (Path(staging_root), Path(rubric_staging_root)))
+    found = _find(candidate_id, Path(staging_root), Path(rubric_staging_root))
     if found is None:
         msg = "no staged candidate has this id"
         raise PromotionError(msg, candidate_id=candidate_id)
     kind, candidate, candidate_path = found
     destination = _destination(candidate.domain, kind, knowledge_root)
+    _refuse_links(destination, Path(knowledge_root))
     destination.parent.mkdir(parents=True, exist_ok=True)
     text = candidate.content.rstrip() + "\n"
     if kind in ("standards", "rubric") or not destination.exists():
