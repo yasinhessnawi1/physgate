@@ -12,6 +12,12 @@ the same staging-then-promotion shape because the promotion gate — a human,
 run interactively — is the property that matters, not which kind of writing
 produced the candidate.
 
+A fourth kind, ``rubric``, is a paired reviewer's rubric (ARCH-062). It is
+staged apart, under ``knowledge/reviewers/staging/``, inside the tree no session
+but a reviewer reads, because an implementing session that could read a draft of
+its reviewer's rubric could steer around it as well as one that read the promoted
+file. Promotion writes it whole to ``knowledge/reviewers/<role>/rubric.md``.
+
 Emission is the orchestrator's, not a role session's: nothing in the harness
 wires a role session's tool calls to this module, so ``staging/`` needs none of
 the protection `standards.md`/`skill.md` get from `hooks/settings.py` — a role
@@ -29,13 +35,22 @@ from pydantic import BaseModel, ConfigDict, StringConstraints, ValidationError
 
 from physgate.knowledge.exceptions import StagingError
 
-Kind = Literal["skill", "antipattern", "standards"]
+Kind = Literal["skill", "antipattern", "standards", "rubric"]
 
 #: Where a candidate lands unless the caller names another directory: a
 #: subtree of the tracked `knowledge/` directory, sibling to the promoted
 #: content a candidate might become, so a reviewer finds it beside what it
 #: would turn into.
 STAGING_ROOT = Path("knowledge/staging")
+#: Where a rubric candidate lands: inside the reviewer tree, which every session
+#: but a reviewer is refused.
+RUBRIC_STAGING_ROOT = Path("knowledge/reviewers/staging")
+
+
+def staging_root_for(kind: Kind) -> Path:
+    """The staging directory a candidate of ``kind`` belongs under by default."""
+    return RUBRIC_STAGING_ROOT if kind == "rubric" else STAGING_ROOT
+
 
 _ID_PATTERN = r"^[A-Za-z0-9_-]{1,128}$"
 _DOMAIN_PATTERN = r"^[a-z][a-z0-9_]*$"
@@ -65,7 +80,7 @@ def append(
     episode_id: str,
     *,
     domain: str,
-    staging_root: Path = STAGING_ROOT,
+    staging_root: Path | None = None,
 ) -> Path:
     """Write one candidate under ``staging_root``; never reads or writes the library.
 
@@ -89,20 +104,22 @@ def append(
     except ValidationError as exc:
         msg = "a candidate did not validate"
         raise StagingError(msg, reason=str(exc), episode_id=episode_id) from None
-    directory = Path(staging_root) / kind
+    root = staging_root_for(kind) if staging_root is None else Path(staging_root)
+    directory = root / kind
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{candidate_id}.json"
     path.write_text(record.model_dump_json(indent=2) + "\n", encoding="utf-8")
     return path
 
 
-def candidates(kind: Kind, *, staging_root: Path = STAGING_ROOT) -> tuple[Candidate, ...]:
+def candidates(kind: Kind, *, staging_root: Path | None = None) -> tuple[Candidate, ...]:
     """Every candidate of ``kind`` currently staged, in path order.
 
     An empty tuple when ``staging_root / kind`` does not exist yet — no
     candidate has ever been written, not an error.
     """
-    directory = Path(staging_root) / kind
+    root = staging_root_for(kind) if staging_root is None else Path(staging_root)
+    directory = root / kind
     if not directory.is_dir():
         return ()
     return tuple(

@@ -17,21 +17,29 @@ file accumulating from many episodes over time. Either way the candidate is
 removed from `staging/` once promoted, so `staging/` always reflects exactly
 what is still pending, and a candidate id cannot be promoted twice.
 
+A `kind: "rubric"` candidate is staged under `knowledge/reviewers/staging/` and
+replaces `knowledge/reviewers/<role>/rubric.md` whole, inside the tree only a
+reviewer reads.
+
 Every promotion appends one line to `knowledge/promotions.jsonl`: which
-candidate, which kind and domain, which destination, who approved it, and
-when. This is the record ARCH-100's own acceptance test reads: the library's
-content, minus what this file's writes account for, is empty.
+candidate, which kind and domain, which destination, who approved it, when,
+and the sha256 of the destination as written. For a rubric that line is the
+ledger event ARCH-062 asks for, and the digest is what every later reader holds
+the file to: a rubric edited without a promotion no longer matches its line.
+This is the record ARCH-100's own acceptance test reads: the library's content,
+minus what this file's writes account for, is empty.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import time
 from pathlib import Path
 
 from physgate.knowledge.exceptions import KnowledgeError
-from physgate.knowledge.staging import STAGING_ROOT, Candidate, Kind
+from physgate.knowledge.staging import RUBRIC_STAGING_ROOT, STAGING_ROOT, Candidate, Kind
 
 #: Where the library lives, relative to a worktree root — the same convention
 #: `loader.py` and `hooks/settings.py`'s knowledge-root discovery already use.
@@ -42,6 +50,9 @@ PROMOTIONS_NAME = "promotions.jsonl"
 
 STANDARDS_NAME = "standards.md"
 SKILL_NAME = "skill.md"
+RUBRIC_NAME = "rubric.md"
+#: The tree beneath the library that only reviewers read.
+REVIEWERS_NAME = "reviewers"
 
 
 class PromotionError(KnowledgeError):
@@ -67,17 +78,28 @@ def require_interactive() -> None:
         raise PromotionError(msg)
 
 
+def rubric_path(knowledge_root: Path, role: str) -> Path:
+    """Where ``role``'s reviewer rubric lives under ``knowledge_root``."""
+    return Path(knowledge_root) / REVIEWERS_NAME / role / RUBRIC_NAME
+
+
 def _destination(domain: str, kind: Kind, root: Path) -> Path:
+    if kind == "rubric":
+        return rubric_path(root, domain)
     name = STANDARDS_NAME if kind == "standards" else SKILL_NAME
     return Path(root) / domain / name
 
 
-def _find(candidate_id: str, staging_root: Path) -> tuple[Kind, Candidate, Path] | None:
-    kinds: tuple[Kind, ...] = ("standards", "skill", "antipattern")
-    for kind in kinds:
-        path = Path(staging_root) / kind / f"{candidate_id}.json"
-        if path.is_file():
-            return kind, Candidate.model_validate_json(path.read_text(encoding="utf-8")), path
+def _find(
+    candidate_id: str, staging_roots: tuple[Path, ...]
+) -> tuple[Kind, Candidate, Path] | None:
+    kinds: tuple[Kind, ...] = ("standards", "skill", "antipattern", "rubric")
+    for staging_root in staging_roots:
+        for kind in kinds:
+            path = Path(staging_root) / kind / f"{candidate_id}.json"
+            if path.is_file():
+                candidate = Candidate.model_validate_json(path.read_text(encoding="utf-8"))
+                return kind, candidate, path
     return None
 
 
@@ -88,6 +110,7 @@ def _apply(
     staging_root: Path,
     knowledge_root: Path,
     promotions_path: Path,
+    rubric_staging_root: Path = RUBRIC_STAGING_ROOT,
 ) -> Path:
     """Write the candidate into the library, log the promotion, remove it from staging.
 
@@ -101,7 +124,7 @@ def _apply(
     if not by.strip():
         msg = "promotion needs the name of the human approving it"
         raise PromotionError(msg, candidate_id=candidate_id)
-    found = _find(candidate_id, staging_root)
+    found = _find(candidate_id, (Path(staging_root), Path(rubric_staging_root)))
     if found is None:
         msg = "no staged candidate has this id"
         raise PromotionError(msg, candidate_id=candidate_id)
@@ -109,7 +132,7 @@ def _apply(
     destination = _destination(candidate.domain, kind, knowledge_root)
     destination.parent.mkdir(parents=True, exist_ok=True)
     text = candidate.content.rstrip() + "\n"
-    if kind == "standards" or not destination.exists():
+    if kind in ("standards", "rubric") or not destination.exists():
         destination.write_text(text, encoding="utf-8")
     else:
         with destination.open("a", encoding="utf-8") as appended:
@@ -122,6 +145,7 @@ def _apply(
         "destination": str(destination),
         "promoted_by": by,
         "promoted": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "sha256": hashlib.sha256(destination.read_bytes()).hexdigest(),
     }
     promotions_path.parent.mkdir(parents=True, exist_ok=True)
     with promotions_path.open("a", encoding="utf-8") as log:
@@ -137,6 +161,7 @@ def promote(
     staging_root: Path = STAGING_ROOT,
     knowledge_root: Path = KNOWLEDGE_ROOT,
     promotions_path: Path | None = None,
+    rubric_staging_root: Path = RUBRIC_STAGING_ROOT,
 ) -> Path:
     """Refuse unless interactive, then move one staged candidate into the library.
 
@@ -159,6 +184,7 @@ def promote(
         staging_root=staging_root,
         knowledge_root=knowledge_root,
         promotions_path=resolved_promotions,
+        rubric_staging_root=rubric_staging_root,
     )
 
 
