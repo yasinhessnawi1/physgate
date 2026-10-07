@@ -43,3 +43,24 @@ def test_the_two_displays_are_two_runs() -> None:
     summarized = make_config(thinking_display="summarized")
     omitted = make_config(thinking_display="omitted")
     assert summarized.sha256() != omitted.sha256()
+
+
+def test_a_reviewer_session_keeps_the_binary_s_display_reads_only_and_never_compacts() -> None:
+    """A reviewer's reasoning is read by nobody: no display is asked for its session."""
+    from physgate.orchestrator.invocation import REVIEWER_ENV, reviewer_argv
+
+    argv = reviewer_argv(
+        "claude",
+        prompt="p",
+        spawn_args=(),
+        schema="{}",
+        model="m",
+        session_id="s",
+        max_turns=2,
+        effort="low",
+    )
+    assert "--thinking-display" not in argv
+    assert argv[argv.index("--tools") + 1] == "Read"
+    assert argv[argv.index("--json-schema") + 1] == "{}"
+    assert "--resume" not in argv and "--continue" not in argv
+    assert REVIEWER_ENV == {"DISABLE_COMPACT": "1"}
