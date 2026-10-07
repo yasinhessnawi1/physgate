@@ -174,6 +174,7 @@ def role_argv(
     session_id: str,
     max_turns: int,
     effort: str,
+    thinking_display: str,
 ) -> list[str]:
     """A role session: the hook layer's spawn arguments, the stream the trajectory is.
 
@@ -195,6 +196,10 @@ def role_argv(
         model,
         "--effort",
         effort,
+        # Measured on both pinned binaries: an option they accept without listing it.
+        # A test runs each pinned binary with it and fails if one stops accepting it.
+        "--thinking-display",
+        thinking_display,
         "--session-id",
         session_id,
         "--max-turns",

@@ -30,6 +30,7 @@ PARAMS = {
     "reportable": False,
     "effort": "high",
     "max_output_tokens": 64000,
+    "thinking_display": "summarized",
 }
 
 

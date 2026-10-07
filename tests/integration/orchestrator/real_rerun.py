@@ -159,6 +159,7 @@ def params() -> dict[str, Any]:
         "reportable": True,
         "effort": "high",
         "max_output_tokens": 64000,
+        "thinking_display": "summarized",
     }
 
 

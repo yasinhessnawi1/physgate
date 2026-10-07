@@ -302,6 +302,7 @@ class ClaudeDispatcher:
             session_id=session_id,
             max_turns=request.bounds.session_max_turns,
             effort=self._config.effort,
+            thinking_display=self._config.thinking_display,
         )
         stdout = sdir / "stdout.jsonl"
         with stdout.open("wb") as out, (sdir / "stderr.txt").open("wb") as err:

@@ -54,6 +54,7 @@ def models(**changes: Any) -> ModelStrings:  # noqa: ANN401
         ),
         ({"effort": "low"}, "effort"),
         ({"max_output_tokens": 32000}, "max_output_tokens"),
+        ({"thinking_display": "omitted"}, "thinking_display"),
         ({"claude_version": "2.1.273"}, "claude_version"),
         ({"endpoint": "default"}, "endpoint"),
     ],

@@ -4,8 +4,10 @@ A comparison across a changed model means nothing: a baseline measured on one
 model and a candidate on another differ for a reason neither run can show. So
 ``compare`` refuses, and does not warn, when any pinned model string differs
 (the decomposition model, any role's, any reviewer's, or a role present in one
-run only), when a pinned model setting differs (the effort level and the
-output-token limit, which set what every request asks the model for), when the
+run only), when a pinned model setting differs (the effort level, the
+output-token limit and whether role sessions' reasoning is summarized into their
+trajectories, which set what every request asks the model for; a run recorded
+before the last existed reads as not summarized), when the
 binary's version differs, or when the endpoint differs. The way past the
 refusal is a fresh baseline under the candidate's pins.
 
@@ -56,6 +58,7 @@ class RunNumbers(_Frozen):
     auth: str
     effort: str
     max_output_tokens: int
+    thinking_display: str
     harness_commit: str | None
     harness_clean: bool
     reportable: bool
@@ -95,6 +98,8 @@ def drift(baseline: RunConfig, candidate: RunConfig) -> list[str]:
         drifted.append("effort")
     if baseline.max_output_tokens != candidate.max_output_tokens:
         drifted.append("max_output_tokens")
+    if baseline.thinking_display != candidate.thinking_display:
+        drifted.append("thinking_display")
     if baseline.claude_version != candidate.claude_version:
         drifted.append("claude_version")
     if baseline.endpoint != candidate.endpoint:
@@ -120,6 +125,7 @@ def _numbers(run_dir: Path, config: RunConfig) -> RunNumbers:
         auth=config.auth,
         effort=config.effort,
         max_output_tokens=config.max_output_tokens,
+        thinking_display=config.thinking_display,
         harness_commit=config.harness.commit,
         harness_clean=config.harness.clean,
         reportable=config.reportable,

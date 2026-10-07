@@ -3,7 +3,8 @@
 The binary puts an effort level and a ``max_tokens`` in every request. Left to
 itself it takes both from a model catalog that can change while its version
 stays the same, so the run names them, records them, and passes them to every
-invocation: the decomposition call and every role session. Measured here at the
+invocation: the decomposition call and every role session. The same holds for the display of
+a role session's reasoning, which only role sessions are given. Measured here at the
 scripted endpoint, which sees each request as the binary sent it, with values
 that differ from the binary's own defaults (``high`` and 64000), so a value that
 only happened to match could not pass.
@@ -85,5 +86,12 @@ def test_the_decomposition_and_every_session_request_carry_the_recorded_pins(
     assert len(decomposition) == 1 and len(session) >= 2  # the call, then a read and an answer
     for request in [*decomposition, *session]:
         assert (request.effort, request.max_tokens) == ("low", 1000), request.path
+    # Every role session request carries the run's thinking display; the one
+    # decomposition call is not a role session and keeps the binary's own.
+    assert recorded["thinking_display"] == "summarized"
+    assert all((r.thinking or {}).get("display") == "summarized" for r in session), [
+        r.thinking for r in session
+    ]
+    assert (decomposition[0].thinking or {}).get("display") != "summarized"
     assert "StructuredOutput" in decomposition[0].offered_tools
     assert all("Read" in r.offered_tools for r in session)

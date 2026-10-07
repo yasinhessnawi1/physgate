@@ -106,6 +106,7 @@ def config(run_id: str, repo: Path, **overrides: Any) -> RunConfig:  # noqa: ANN
         "harness": HARNESS,
         "effort": "high",
         "max_output_tokens": 64000,
+        "thinking_display": "summarized",
     }
     fields.update(overrides)
     return RunConfig(**fields)
