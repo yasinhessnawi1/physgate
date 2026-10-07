@@ -32,9 +32,13 @@ minus what this file's writes account for, is empty.
 
 from __future__ import annotations
 
+import contextlib
+import errno
 import hashlib
 import json
+import os
 import re
+import stat
 import sys
 import time
 from pathlib import Path
@@ -125,7 +129,7 @@ def _find(
             msg = "a staged candidate is a link, so what it holds is somewhere else"
             raise PromotionError(msg, candidate_id=candidate_id, path=str(path))
         if path.is_file():
-            candidate = Candidate.model_validate_json(path.read_text(encoding="utf-8"))
+            candidate = Candidate.model_validate_json(_read_no_follow(path).decode("utf-8"))
             if candidate.kind != kind:
                 msg = "a candidate's own kind is not the kind of the directory it is staged in"
                 raise PromotionError(
@@ -133,6 +137,125 @@ def _find(
                 )
             return kind, candidate, path
     return None
+
+
+_NO_FOLLOW = os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+
+
+def _link_refused(path: Path) -> PromotionError:
+    msg = "a path a promotion reads or writes is a link, so it would reach somewhere else"
+    return PromotionError(msg, path=str(path))
+
+
+def _read_no_follow(path: Path) -> bytes:
+    """``path``'s bytes, read through a descriptor that refuses to follow a link.
+
+    The check and the read are one system call, so nothing can be swapped in
+    between them.
+
+    Raises:
+        PromotionError: ``path`` is a link, or not a regular file.
+    """
+    try:
+        fd = os.open(path, os.O_RDONLY | _NO_FOLLOW)
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise _link_refused(path) from None
+        raise
+    with os.fdopen(fd, "rb") as handle:
+        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+            msg = "a staged candidate is not a regular file"
+            raise PromotionError(msg, path=str(path))
+        return handle.read()
+
+
+def _open_dir(root: Path, parts: tuple[str, ...]) -> int:
+    """A descriptor of ``root``/``parts``, each component opened without following a link.
+
+    Missing directories are made, each beside the descriptor of its parent.
+
+    Raises:
+        PromotionError: a component is a link.
+    """
+    # The library root is the caller's, and trusted; everything beneath it is not.
+    root.mkdir(parents=True, exist_ok=True)
+    fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_CLOEXEC", 0))
+    try:
+        for part in parts:
+            with contextlib.suppress(FileExistsError):
+                os.mkdir(part, dir_fd=fd)
+            try:
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | _NO_FOLLOW, dir_fd=fd)
+            except OSError as exc:
+                if exc.errno in (errno.ELOOP, errno.ENOTDIR):
+                    raise _link_refused(root.joinpath(*parts)) from None
+                raise
+            os.close(fd)
+            fd = child
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+def _replace(destination: Path, knowledge_root: Path, data: bytes) -> None:
+    """Make ``destination`` hold exactly ``data``, never writing through a link.
+
+    Written to a new file beside it, opened by descriptor, then renamed over it: a
+    rename replaces a link at the destination rather than following it, and every
+    directory on the way is held open by descriptor, so none can be swapped.
+
+    Raises:
+        PromotionError: a directory between the library and the destination is a link.
+    """
+    root = Path(knowledge_root)
+    parts = destination.parent.relative_to(root).parts
+    dir_fd = _open_dir(root, parts)
+    temporary = f".{destination.name}.{os.getpid()}.promoting"
+    try:
+        fd = os.open(
+            temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NO_FOLLOW, 0o644, dir_fd=dir_fd
+        )
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, destination.name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+    finally:
+        os.close(dir_fd)
+
+
+def _existing(destination: Path, knowledge_root: Path) -> bytes | None:
+    """What ``destination`` holds now, read without following a link; ``None`` if nothing."""
+    root = Path(knowledge_root)
+    dir_fd = _open_dir(root, destination.parent.relative_to(root).parts)
+    try:
+        fd = os.open(destination.name, os.O_RDONLY | _NO_FOLLOW, dir_fd=dir_fd)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise _link_refused(destination) from None
+        raise
+    finally:
+        os.close(dir_fd)
+    with os.fdopen(fd, "rb") as handle:
+        return handle.read()
+
+
+def _append_record(promotions_path: Path, line: str) -> None:
+    """Append ``line`` to the promotion record, refusing a record that is a link."""
+    promotions_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(promotions_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | _NO_FOLLOW, 0o644)
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise _link_refused(promotions_path) from None
+        raise
+    with os.fdopen(fd, "a", encoding="utf-8") as log:
+        log.write(line)
+        log.flush()
+        os.fsync(log.fileno())
 
 
 def _refuse_links(destination: Path, knowledge_root: Path) -> None:
@@ -180,14 +303,13 @@ def _apply(
         raise PromotionError(msg, candidate_id=candidate_id)
     kind, candidate, candidate_path = found
     destination = _destination(candidate.domain, kind, knowledge_root)
+    # An early, readable refusal; what makes the write safe is that it goes through
+    # descriptors opened without following links, at the moment of writing.
     _refuse_links(destination, Path(knowledge_root))
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    text = candidate.content.rstrip() + "\n"
-    if kind in ("standards", "rubric") or not destination.exists():
-        destination.write_text(text, encoding="utf-8")
-    else:
-        with destination.open("a", encoding="utf-8") as appended:
-            appended.write("\n---\n\n" + text)
+    text = (candidate.content.rstrip() + "\n").encode("utf-8")
+    before = None if kind in ("standards", "rubric") else _existing(destination, knowledge_root)
+    data = text if before is None else before + b"\n---\n\n" + text
+    _replace(destination, Path(knowledge_root), data)
     event = {
         "candidate_id": candidate.candidate_id,
         "kind": kind,
@@ -196,11 +318,10 @@ def _apply(
         "destination": str(destination),
         "promoted_by": by,
         "promoted": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "sha256": hashlib.sha256(destination.read_bytes()).hexdigest(),
+        # The digest of the bytes written, never of a later read of the path.
+        "sha256": hashlib.sha256(data).hexdigest(),
     }
-    promotions_path.parent.mkdir(parents=True, exist_ok=True)
-    with promotions_path.open("a", encoding="utf-8") as log:
-        log.write(json.dumps(event, sort_keys=True) + "\n")
+    _append_record(Path(promotions_path), json.dumps(event, sort_keys=True) + "\n")
     candidate_path.unlink()
     return destination
 

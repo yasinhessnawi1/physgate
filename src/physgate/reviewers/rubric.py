@@ -30,8 +30,10 @@ one of them.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
+import os
 import re
 from pathlib import Path
 from typing import Annotated
@@ -166,11 +168,21 @@ def load_rubric(knowledge_root: Path, role: str) -> Rubric:
         msg = "a role name is a plain lower-case identifier"
         raise RubricError(msg, role=role)
     path = rubric_path(Path(knowledge_root), role)
+    if path.is_symlink():
+        msg = "the rubric is a link, so what is read is somewhere else than what was promoted"
+        raise RubricError(msg, role=role, path=str(path))
     try:
-        data = path.read_bytes()
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     except FileNotFoundError:
         msg = "the role has no rubric"
         raise RubricError(msg, role=role, path=str(path)) from None
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            msg = "the rubric is a link, so what is read is somewhere else than what was promoted"
+            raise RubricError(msg, role=role, path=str(path)) from None
+        raise
+    with os.fdopen(fd, "rb") as handle:
+        data = handle.read()
     text = data.decode("utf-8")
     check_rubric(text)
     digest = hashlib.sha256(data).hexdigest()
