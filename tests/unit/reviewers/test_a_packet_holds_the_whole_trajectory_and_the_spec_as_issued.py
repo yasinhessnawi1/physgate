@@ -26,6 +26,7 @@ from physgate.reviewers.packet import (
     SPEC_AS_ISSUED_NAME,
     TRANSCRIPT_NAME,
     WORKTREE_NAME,
+    IssuedSpec,
     Packet,
     PacketError,
     build_packet,
@@ -33,6 +34,7 @@ from physgate.reviewers.packet import (
 from physgate.reviewers.rubric import Rubric
 from physgate.reviewers.transcript import CONTINUED, WIDTH, joined
 
+ISSUED_SHA = hashlib.sha256(ISSUED.encode()).hexdigest()
 RUBRIC = Rubric(
     role="control", text=PLACEHOLDER, sha256=hashlib.sha256(PLACEHOLDER.encode()).hexdigest()
 )
@@ -46,10 +48,11 @@ def _build(tmp_path: Path, text: str | None = None, **overrides: object) -> tupl
     packet = build_packet(
         review,
         artefact_of(attempt, **overrides),
+        repo=attempt.worktree,
         base_commit=attempt.spec_commit,
         rubric=RUBRIC,
         library=library,
-        spec=(attempt.spec_commit, SPEC),
+        spec=IssuedSpec(commit=attempt.spec_commit, path=SPEC, sha256=ISSUED_SHA),
     )
     return packet, review / "read"
 
@@ -135,10 +138,11 @@ def test_a_trajectory_changed_after_its_seal_is_refused(tmp_path: Path) -> None:
         build_packet(
             tmp_path / "r",
             artefact,
+            repo=attempt.worktree,
             base_commit=attempt.spec_commit,
             rubric=RUBRIC,
             library=tmp_path,
-            spec=(attempt.spec_commit, SPEC),
+            spec=IssuedSpec(commit=attempt.spec_commit, path=SPEC, sha256=ISSUED_SHA),
         )
     assert not (tmp_path / "r").exists()
 
@@ -151,6 +155,7 @@ def test_a_missing_trajectory_is_refused(tmp_path: Path) -> None:
         build_packet(
             tmp_path / "r",
             artefact,
+            repo=attempt.worktree,
             base_commit=attempt.spec_commit,
             rubric=RUBRIC,
             library=tmp_path,
@@ -172,6 +177,7 @@ def test_a_rubric_not_as_loaded_is_refused(tmp_path: Path) -> None:
         build_packet(
             tmp_path / "r",
             artefact_of(attempt),
+            repo=attempt.worktree,
             base_commit=attempt.spec_commit,
             rubric=changed,
             library=library,
@@ -196,6 +202,7 @@ def test_a_packet_is_prepared_once(tmp_path: Path) -> None:
         build_packet(
             review,
             artefact_of(attempt),
+            repo=attempt.worktree,
             base_commit=attempt.spec_commit,
             rubric=RUBRIC,
             library=library,

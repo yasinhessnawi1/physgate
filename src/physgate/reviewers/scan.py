@@ -34,6 +34,7 @@ from typing import Annotated, Any
 from pydantic import BaseModel, ConfigDict, StringConstraints
 
 from physgate.orchestrator.protocols import IndicatorKind
+from physgate.reviewers.transcript import parse_event
 
 #: A marker that switches a check off where it is written, and what it does.
 _MARKERS: tuple[tuple[str, str], ...] = (
@@ -83,11 +84,8 @@ def scan(stream: str) -> tuple[ScanHit, ...]:
     """Every observable disabled check in ``stream``, a session's events one per line."""
     hits: list[ScanHit] = []
     for line in stream.splitlines():
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(event, dict) or not isinstance(event.get("message"), dict):
+        event = parse_event(line)
+        if event is None or not isinstance(event.get("message"), dict):
             continue
         content = event["message"].get("content")
         if not isinstance(content, list):
