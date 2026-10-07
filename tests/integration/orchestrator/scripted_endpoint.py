@@ -38,6 +38,8 @@ DUMMY_KEY = "sk-ant-test-dummy-not-a-credential"
 #: Shaped like the long-lived token ``claude setup-token`` prints; not one.
 DUMMY_OAUTH_TOKEN = "sk-ant-oat01-test-dummy-not-a-credential"
 SUBAGENT_MARKER = "SUBAGENT-MARKER"
+#: What the binary's compaction request tells the model (measured on 2.1.272).
+COMPACTION_MARKER = "CRITICAL: Respond with TEXT ONLY"
 
 
 def tool(name: str, **tool_input: Any) -> dict[str, Any]:  # noqa: ANN401 - a tool's own input
@@ -48,6 +50,11 @@ def tool(name: str, **tool_input: Any) -> dict[str, Any]:  # noqa: ANN401 - a to
 def text(message: str) -> dict[str, Any]:
     """A scripted step: the model answers with text and stops."""
     return {"text": message}
+
+
+def failure(status: int, kind: str, message: str) -> dict[str, Any]:
+    """A scripted step: the API answers with an error, as the real one shapes it."""
+    return {"error": {"status": status, "type": kind, "message": message}}
 
 
 @dataclass
@@ -132,7 +139,9 @@ FINAL_USAGE = {**START_USAGE, "output_tokens": 9}
 
 
 def _events(step: dict[str, Any], model: str, n: int) -> bytes:
-    usage = dict(START_USAGE)
+    # A step may name its own input figures (``usage``), as a message with a large
+    # context would report them.
+    usage = {**START_USAGE, **step.get("usage", {})}
     if "tool" in step:
         start = {"type": "tool_use", "id": f"toolu_fake_{n}", "name": step["tool"], "input": {}}
         delta = {"type": "input_json_delta", "partial_json": json.dumps(step["input"])}
@@ -141,6 +150,7 @@ def _events(step: dict[str, Any], model: str, n: int) -> bytes:
         start = {"type": "text", "text": ""}
         delta = {"type": "text_delta", "text": step["text"]}
         stop = "end_turn"
+    stop = step.get("stop_reason", stop)
     message: dict[str, Any] = {
         "id": f"msg_fake_{n}",
         "type": "message",
@@ -180,7 +190,7 @@ def _events(step: dict[str, Any], model: str, n: int) -> bytes:
             {
                 "type": "message_delta",
                 "delta": {"stop_reason": stop, "stop_sequence": None},
-                "usage": dict(FINAL_USAGE),
+                "usage": {**FINAL_USAGE, **step.get("usage", {})},
             },
         ),
         ("message_stop", {"type": "message_stop"}),
@@ -277,7 +287,11 @@ class FakeMessagesApi:
         steps = self.script.sub if thread == "sub" else self.script.main
         if not offered:
             step: dict[str, Any] | None = None
-            reply = {"text": "ok"}
+            reply: dict[str, Any] = {"text": "ok"}
+        elif COMPACTION_MARKER in _last_user(messages):
+            # The binary's own request to summarise the conversation, which offers the
+            # session's tools and asks for text: answered as a model would, with text.
+            step, reply = None, {"text": "<summary>The session so far.</summary>"}
         else:
             step = steps[done] if done < len(steps) else {"text": "done"}
             cwd = _working_directory(messages)
@@ -321,6 +335,11 @@ class FakeMessagesApi:
                     thinking=body.get("thinking"),
                 )
             )
+        if "error" in reply:
+            error = dict(reply["error"])
+            status = error.pop("status")
+            shaped = {"type": "error", "error": error, "status": status}
+            return json.dumps(shaped).encode(), "application/json"
         model = self.script.answer_as or body.get("model", "fake")
         return _events(reply, model, n), "text/event-stream"
 
@@ -336,6 +355,7 @@ def serving(script: Script) -> Iterator[tuple[FakeMessagesApi, str]]:
 
         def do_POST(self) -> None:  # noqa: N802 - the name http.server calls
             raw = self.rfile.read(int(self.headers.get("content-length", 0)))
+            status = 200
             if "count_tokens" in self.path:
                 body, ctype = b'{"input_tokens": 1}', "application/json"
             else:
@@ -353,7 +373,11 @@ def serving(script: Script) -> Iterator[tuple[FakeMessagesApi, str]]:
                     self.end_headers()
                     self.wfile.write(body)
                     return
-            self.send_response(200)
+                if ctype == "application/json":  # a scripted error, its status beside it
+                    shaped = json.loads(body)
+                    status = int(shaped.pop("status"))
+                    body = json.dumps(shaped).encode()
+            self.send_response(status)
             self.send_header("content-type", ctype)
             self.send_header("content-length", str(len(body)))
             self.end_headers()

@@ -325,7 +325,7 @@ class Loop:
                 self._emit(
                     TokensUsed(
                         **self._env(),
-                        attribution=f"session:{left.session_id}",
+                        attribution=f"{left.kind}:{left.session_id}",
                         message_id=message.message_id,
                         usage=message.usage,
                         partial=not left.complete,

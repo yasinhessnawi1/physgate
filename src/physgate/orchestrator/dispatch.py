@@ -51,15 +51,20 @@ from physgate.orchestrator.install import InstallFacts, build_record_path, insta
 from physgate.orchestrator.invocation import isolated_env, role_argv
 from physgate.orchestrator.managed import drift, policy_limits_digest
 from physgate.orchestrator.merge import RunGit, commit_attempt
-from physgate.orchestrator.ports import Leftover, SessionReport, SessionRequest
+from physgate.orchestrator.ports import Leftover, SessionKind, SessionReport, SessionRequest
 from physgate.orchestrator.processes import is_session, started_at, stop_tree
 from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.queue import DECISIONS_NAME
 from physgate.orchestrator.run_config import RunConfig, harness_root
 from physgate.orchestrator.trajectory import Seal, forged_tail, seal, through_first_result
 from physgate.reviewers.packet import issued_spec_sha256
+from physgate.reviewers.places import SESSION_DIRNAME
 
 REDACTED = REDACTED_TEXT.encode()
+
+#: The record a review's session directory gets first, before anything that holds a
+#: credential: which run it belongs to, so that run's resume finds it.
+OWNER_NAME = "owner.json"
 
 
 #: The run's own records, in the run directory. The session's working directory is
@@ -162,7 +167,31 @@ class _Input:
     agent_id: str | None = None
 
 
-class _Installed(BaseModel):
+def read_in_full(config_path: Path, session_id: str) -> bool:
+    """The hook layer's own answer: is every required file read in full, as it is now?"""
+    config = SessionConfig.model_validate_json(config_path.read_bytes())
+    return not outstanding(config, _Input(session_id=session_id))
+
+
+def harness_protection() -> list[str]:
+    """The installer's arguments that put the harness checkout out of a session's reach.
+
+    The checkout this orchestrator runs from (its gate source, its curated library
+    and bounds tables, its frozen experiments), and the startup files of the
+    interpreter this process runs on, wherever its environment lives: a ``.pth``
+    planted there runs at the orchestrator's next start.
+    """
+    harness = harness_root()
+    if harness is None:
+        return []
+    args = ["--harness", str(harness)]
+    paths = sysconfig.get_paths()
+    for site_packages in sorted({paths["purelib"], paths["platlib"]}):
+        args += ["--harness-site-packages", site_packages]
+    return args
+
+
+class Installed(BaseModel):
     """What the hook layer's installer prints: its files and how to spawn the session."""
 
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
@@ -225,7 +254,7 @@ class ClaudeDispatcher:
             )
         return self._facts
 
-    def _install(self, request: SessionRequest, worktree: Path, sdir: Path) -> _Installed:
+    def _install(self, request: SessionRequest, worktree: Path, sdir: Path) -> Installed:
         state = sdir / "state"
         state.mkdir(parents=True)
         helper: list[str] = []
@@ -239,17 +268,9 @@ class ClaudeDispatcher:
         reverted = (*reverted, build_record_path(self._install_bin.parent.parent))
         protect = [arg for root in reverted for arg in ("--protect", str(root))]
         protect += [arg for root in refused for arg in ("--protect-refuse-only", str(root))]
-        # The checkout this orchestrator runs from: its gate source, its curated library
-        # and bounds tables, its frozen experiments. A session in the target's worktree
-        # has nothing of its own there, and the live gate reads from it.
-        harness = harness_root()
-        if harness is not None:
-            protect += ["--harness", str(harness)]
-            # And the startup files of the interpreter this process runs on, wherever its
-            # environment lives: a .pth planted there runs at the orchestrator's next start.
-            paths = sysconfig.get_paths()
-            for site_packages in sorted({paths["purelib"], paths["platlib"]}):
-                protect += ["--harness-site-packages", site_packages]
+        # A session in the target's worktree has nothing of its own in the harness
+        # checkout, and the live gate reads from it.
+        protect += harness_protection()
         # Where reviews are prepared, each packet with its copy of a rubric: withheld
         # from the role session like the library's reviewer tree.
         protect += ["--review-material", str(self._review_root)]
@@ -301,7 +322,7 @@ class ClaudeDispatcher:
             raise InvocationError(msg, stderr=done.stderr[-600:])
         if self._credential.mode == "subscription":
             write_login(sdir / "config", self._credential.secret)
-        return _Installed.model_validate_json(done.stdout)
+        return Installed.model_validate_json(done.stdout)
 
     def run(self, request: SessionRequest) -> SessionReport:
         """Run one attempt in a fresh session and report what it left."""
@@ -418,27 +439,29 @@ class ClaudeDispatcher:
         that, and nothing else will. Every session's credential files are then
         removed and its stream redacted, before the stream is read.
         """
-        found: list[tuple[Path, str, int, int, bool]] = []
-        for record_path in sorted((self._run.run_dir / "sessions").glob("*/process.json")):
-            ended = record_path.parent / "ended.json"
-            if ended.exists():
+        found: list[tuple[Path, str, int, int, bool, SessionKind]] = []
+        session_dirs = self._session_dirs()
+        for sdir in session_dirs:
+            record_path, ended = sdir / "process.json", sdir / "ended.json"
+            if ended.exists() or not record_path.exists():
                 continue
             record = json.loads(record_path.read_text())
             pid, started = int(record["pid"]), record.get("started")
+            kind: SessionKind = "reviewer" if record.get("kind") == "reviewer" else "session"
             if is_session(pid, started, str(record["session_id"])):
                 killed = stop_tree(pid, started)
                 ended.write_text(json.dumps({"stopped_at_resume": True, "killed": killed}))
-                found.append((record_path.parent, str(record["session_id"]), pid, killed, True))
+                found.append((sdir, str(record["session_id"]), pid, killed, True, kind))
             else:
                 ended.write_text(json.dumps({"not_running_at_resume": True}))
-                found.append((record_path.parent, str(record["session_id"]), pid, 0, False))
+                found.append((sdir, str(record["session_id"]), pid, 0, False, kind))
         # Nothing of this run is running now, so no session still needs its credential.
         # A killed orchestrator never removed it; its stream was never redacted either.
-        for sdir in sorted(p for p in (self._run.run_dir / "sessions").glob("*") if p.is_dir()):
+        for sdir in session_dirs:
             remove_secrets(sdir / "state", sdir / "config")
             redact(sdir / "stdout.jsonl", self._credential.secret)
         leftovers = []
-        for sdir, session_id, pid, killed, stopped in found:
+        for sdir, session_id, pid, killed, stopped, kind in found:
             # The same read as a session that ended under its orchestrator: sealed as
             # read, a tail after the runtime's result not taken, and a stream with a
             # result held to the runtime's own totals.
@@ -459,15 +482,30 @@ class ClaudeDispatcher:
                     complete=captured.result is not None,
                     seal=captured.seal,
                     tampered=tampered,
+                    kind=kind,
                 )
             )
         return leftovers
 
+    def _session_dirs(self) -> list[Path]:
+        """Every session directory of this run: its role sessions', then its reviews'.
+
+        A review's session lives beneath the review root, which no role session may
+        reach, and is this run's if its owner record names this run.
+        """
+        dirs = sorted(p for p in (self._run.run_dir / "sessions").glob("*") if p.is_dir())
+        for owner in sorted(self._review_root.glob(f"*/{SESSION_DIRNAME}/{OWNER_NAME}")):
+            try:
+                run_id = json.loads(owner.read_text()).get("run_id")
+            except (OSError, ValueError, AttributeError):
+                continue
+            if run_id == self._run.run_id:
+                dirs.append(owner.parent)
+        return dirs
+
     @staticmethod
     def _read_in_full(config_path: Path, session_id: str) -> bool:
-        """The hook layer's own answer: is every required file read in full, as it is now?"""
-        config = SessionConfig.model_validate_json(config_path.read_bytes())
-        return not outstanding(config, _Input(session_id=session_id))
+        return read_in_full(config_path, session_id)
 
     @staticmethod
     def _hook_log(state: Path, session_id: str) -> tuple[bool, tuple[str, ...]]:

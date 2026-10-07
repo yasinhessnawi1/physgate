@@ -16,7 +16,9 @@ instrument's ``r`` and twelve hex digits, or a session's uuid.
 **The layout.** ``<root>/<id>/read/`` holds everything the reviewer may read, and is
 the one directory its hooks allow it to read. ``<root>/<id>/session/`` holds the
 session's own files (settings, hook state, configuration, scratch home, the stream
-it writes), which it may not read.
+it writes), which it may not read. That directory names its run before anything in
+it holds a credential, so the run's resume finds a review session left running,
+stops it, and removes its credential, as it does a role session's.
 """
 
 from __future__ import annotations

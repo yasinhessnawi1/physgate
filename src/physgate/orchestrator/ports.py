@@ -74,6 +74,10 @@ class SessionReport(_Frozen):
     issued_spec_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")] | None = None
 
 
+#: Whose session a leftover was, as its tokens are attributed: ``session`` or ``reviewer``.
+SessionKind = Literal["session", "reviewer"]
+
+
 class Leftover(_Frozen):
     """A session a previous orchestrator left without an end, found at a resume.
 
@@ -94,6 +98,8 @@ class Leftover(_Frozen):
     #: Why the stream is not the runtime's alone (a tail, or an account the result
     #: does not bear out), if it is not. Then its usage ends at the runtime's result.
     tampered: NonEmptyStr | None = None
+    #: Whose session it was: a role's, or a reviewer's, which its tokens are put to.
+    kind: SessionKind = "session"
 
 
 class ChangeCheck(_Frozen):
