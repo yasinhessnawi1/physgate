@@ -29,7 +29,7 @@ from physgate.evaluation.observe.cost import (
 )
 from physgate.evaluation.observe.exceptions import ManifestError, PriceSheetError, TrendError
 from physgate.evaluation.observe.manifest import read_manifest
-from physgate.orchestrator.events import LeftoverRead, TokensUsed
+from physgate.orchestrator.events import LeftoverRead, ReviewUnavailable, TokensUsed
 from physgate.orchestrator.protocols import Usage
 from physgate.orchestrator.record import RunRecord
 from physgate.orchestrator.run_config import ModelStrings
@@ -78,6 +78,15 @@ def test_cost_is_each_model_s_tokens_times_its_price_per_class(
     assert line.usd == Decimal("0.000825")
     assert line.nok == Decimal("0.000825") * Decimal("9.5063")
     assert (line.prices_date, line.prices_sha256) == (DATE, KNOWN_SHEETS[DATE])
+    # What reviewing spent, by subtask: every subtask's reviews, summed, and nothing else.
+    assert line.review_tokens and "(left over)" not in line.review_tokens
+    reviewed = Usage(
+        input_tokens=sum(u.input_tokens for u in line.review_tokens.values()),
+        output_tokens=sum(u.output_tokens for u in line.review_tokens.values()),
+        cache_read_input_tokens=0,
+        cache_creation_input_tokens=0,
+    )
+    assert reviewed == rows["claude-opus-5-5"].tokens
     assert line.manifest_id == read_manifest(run).manifest_id
     assert (line.basis, line.auth, line.partial) == ("list_price", "api_key", False)
 
@@ -247,4 +256,78 @@ def test_a_leftover_whose_role_the_log_cannot_name_is_refused(
     )
     record.close()
     with pytest.raises(ManifestError, match="which role"):
+        price_run(run, sheet)
+
+
+def _spend(record: RunRecord, attribution: str, input_tokens: int) -> None:
+    record.emit(
+        TokensUsed(
+            **record.envelope(),
+            attribution=attribution,
+            message_id=f"m-{attribution}",
+            usage=Usage(
+                input_tokens=input_tokens,
+                output_tokens=0,
+                cache_read_input_tokens=0,
+                cache_creation_input_tokens=0,
+            ),
+        )
+    )
+
+
+def test_a_review_with_no_verdict_is_priced_at_the_model_it_ran_on(tmp_path: Path) -> None:
+    """Read from the log as the loop writes it: the unavailable review names its model."""
+    from physgate.evaluation.observe.cost import _model_of
+
+    unavailable = ReviewUnavailable(
+        seq=9,
+        ts="2026-10-08T00:00:00.000000Z",
+        run_id="run-a",
+        gate_mode="on",
+        subtask_id="s1",
+        attempt=1,
+        cause="no_verdict",
+        detail="the session ran out of turns before a verdict",
+        retry=False,
+        session_id="rev-none",
+        reviewer_model="claude-opus-5-5",
+    )
+    cfg = config("run-a", target_repo(tmp_path))
+    assert _model_of("reviewer:rev-none", cfg, [unavailable]) == "claude-opus-5-5"
+    with pytest.raises(ManifestError, match="no review for"):
+        _model_of("reviewer:rev-other", cfg, [unavailable])
+
+
+def test_a_left_over_review_is_priced_at_the_one_reviewer_model(
+    tmp_path: Path, sheet: DatedSheet
+) -> None:
+    repo = target_repo(tmp_path)
+    run = fake_run(tmp_path, "run-a", repo)
+    before = price_run(run, sheet)
+    record = RunRecord(config("run-a", repo), run)
+    record.emit(
+        LeftoverRead(
+            **record.envelope(),
+            session_id="rev-left",
+            stopped=True,
+            complete=False,
+            trajectory_seal=None,
+        )
+    )
+    _spend(record, "reviewer:rev-left", 1_000_000)
+    record.close()
+    after = price_run(run, sheet)
+    assert after.usd - before.usd == Decimal(4)
+    assert after.review_tokens["(left over)"].input_tokens == 1_000_000
+
+
+def test_reviewer_tokens_no_review_or_leftover_accounts_for_are_refused(
+    tmp_path: Path, sheet: DatedSheet
+) -> None:
+    repo = target_repo(tmp_path)
+    run = fake_run(tmp_path, "run-a", repo)
+    record = RunRecord(config("run-a", repo), run)
+    _spend(record, "reviewer:nobody", 1)
+    record.close()
+    with pytest.raises(ManifestError, match="no review for"):
         price_run(run, sheet)

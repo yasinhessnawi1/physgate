@@ -50,7 +50,9 @@ from physgate.orchestrator.common import (
 )
 from physgate.orchestrator.events import (
     Event,
+    LeftoverRead,
     ReviewRan,
+    ReviewUnavailable,
     SessionEnded,
     SubtaskPlanned,
     TokensUsed,
@@ -194,6 +196,10 @@ class CostLine(_Frozen):
     #: Some of the run's usage was read from a stream with no result: the figure may
     #: be short of what was spent.
     partial: bool
+    #: What reviewing spent, by subtask: every review of its attempts, verdict or not.
+    #: A review left over from a killed orchestrator names no subtask, and is under
+    #: ``(left over)``. Absent from lines written before reviews were real.
+    review_tokens: dict[NonEmptyStr, Usage] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _basis_follows_auth(self) -> CostLine:
@@ -220,6 +226,17 @@ def _model_of(attribution: str, config: RunConfig, events: list[Event]) -> str:
         for e in events:
             if isinstance(e, ReviewRan) and e.result.session_id == who:
                 return e.result.reviewer_model
+            if isinstance(e, ReviewUnavailable) and e.session_id == who and e.reviewer_model:
+                return e.reviewer_model
+        # A review whose orchestrator died before it recorded anything: found at the
+        # resume, it names no role, so it is priced at the one reviewer model if the
+        # run pinned only one.
+        if any(isinstance(e, LeftoverRead) and e.session_id == who for e in events):
+            models = set(config.models.reviewers.values())
+            if len(models) == 1:
+                return models.pop()
+            msg = "the log does not say which role a left-over review was for, and they differ"
+            raise ManifestError(msg, attribution=attribution)
         msg = "a reviewer spent tokens the log records no review for"
         raise ManifestError(msg, attribution=attribution)
     if kind == "session":
@@ -230,6 +247,20 @@ def _model_of(attribution: str, config: RunConfig, events: list[Event]) -> str:
         return _role_model(config, who)
     msg = "tokens attributed to routing have no model to price them at"
     raise ManifestError(msg, attribution=attribution)
+
+
+#: Where a review's tokens go when the log names no subtask for it.
+LEFT_OVER = "(left over)"
+
+
+def _reviewed_subtask(session_id: str, events: list[Event]) -> str:
+    """The subtask a review session judged, as its review line or its unavailable line says."""
+    for e in events:
+        if isinstance(e, ReviewRan) and e.result.session_id == session_id:
+            return e.subtask_id
+        if isinstance(e, ReviewUnavailable) and e.session_id == session_id:
+            return e.subtask_id
+    return LEFT_OVER
 
 
 def _plus(left: Usage, right: Usage) -> Usage:
@@ -248,9 +279,13 @@ def price_run(run_dir: Path, prices: DatedSheet) -> CostLine:
     config = manifest.config
     events = read_run_events(run_dir)
     by_model: dict[str, Usage] = {}
+    reviews: dict[str, Usage] = {}
     for attribution, usage in TokenAccount.from_events(events).by_attribution().items():
         model = _model_of(attribution, config, events)
         by_model[model] = _plus(by_model.get(model, _ZERO), usage)
+        if attribution.startswith("reviewer:"):
+            subtask = _reviewed_subtask(attribution.split(":", 1)[1], events)
+            reviews[subtask] = _plus(reviews.get(subtask, _ZERO), usage)
     rows = []
     for model, usage in sorted(by_model.items()):
         price = prices.sheet.usd_per_mtok.get(model)
@@ -275,6 +310,7 @@ def price_run(run_dir: Path, prices: DatedSheet) -> CostLine:
         usd=usd,
         nok=usd * rate.usd_to_nok,
         partial=any(isinstance(e, TokensUsed) and e.partial for e in events),
+        review_tokens=dict(sorted(reviews.items())),
     )
 
 
