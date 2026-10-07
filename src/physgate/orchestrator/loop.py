@@ -126,6 +126,21 @@ def run_head_of(events: Sequence[Event]) -> str | None:
     return head
 
 
+def require_gate(config: RunConfig, gate: Gate | None) -> None:
+    """Refuse a run whose gate mode needs a gate, with none registered.
+
+    Raises:
+        GateNotRegisteredError: the gate mode is ``on`` or ``observe`` and no gate
+            is registered. There is no pass-through gate to fall back on.
+    """
+    if config.gate_mode != "off" and gate is None:
+        msg = (
+            f"the gate stage cannot pass: gate mode is {config.gate_mode!r} and no gate is "
+            "registered"
+        )
+        raise GateNotRegisteredError(msg, gate_mode=config.gate_mode)
+
+
 def refuse_unregistered(
     config: RunConfig, gate: Gate | None, reviewers: Mapping[str, Reviewer]
 ) -> None:
@@ -137,12 +152,7 @@ def refuse_unregistered(
         ReviewerNotRegisteredError: a role has no reviewer, or its reviewer is not on
             the model string the run pinned for it.
     """
-    if config.gate_mode != "off" and gate is None:
-        msg = (
-            f"the gate stage cannot pass: gate mode is {config.gate_mode!r} and no gate is "
-            "registered"
-        )
-        raise GateNotRegisteredError(msg, gate_mode=config.gate_mode)
+    require_gate(config, gate)
     for role, implementer in config.models.roles.items():
         reviewer = reviewers.get(role)
         pinned = config.models.reviewers.get(role)

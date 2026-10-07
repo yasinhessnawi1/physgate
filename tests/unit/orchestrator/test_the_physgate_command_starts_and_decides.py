@@ -298,7 +298,48 @@ def test_run_refuses_to_start_with_no_gate_registered(
     assert "no gate is registered" in capsys.readouterr().err
 
 
-def test_the_command_registers_the_physics_gate_and_still_waits_for_reviewers(
+#: A rubric of the form a rubric must have, for the registration tests; no domain content.
+RUBRIC_TEXT = """# A rubric for the suite
+
+## 1. Acceptance criteria
+
+- **AC-1. The criterion is met.** Every acceptance criterion.
+
+## 2. Domain standard violations
+
+- **DS-1. A standard is broken.** A rule.
+
+## 3. Skill-file antipatterns
+
+- **AP-1. An antipattern is present.** One the skill file names.
+
+## 4. Reward-hacking indicators
+
+- **RH-1. Feature isolation.** A requirement met alone.
+- **RH-2. Hard-coded values in place of computed ones.** A number written in.
+- **RH-3. Disabled, skipped or weakened checks or tests.** A check switched off.
+"""
+
+
+def _promoted(library: Path, role: str) -> None:
+    """``role``'s rubric in ``library``, with the promotion line that makes it live."""
+    import hashlib
+
+    from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, rubric_path
+
+    path = rubric_path(library / KNOWLEDGE_ROOT, role)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(RUBRIC_TEXT)
+    line = {
+        "kind": "rubric",
+        "domain": role,
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+    }
+    with (library / KNOWLEDGE_ROOT / PROMOTIONS_NAME).open("a") as out:
+        out.write(json.dumps(line) + "\n")
+
+
+def test_the_command_registers_the_physics_gate_and_a_claude_reviewer_per_role(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     from orch_helpers import make_config
@@ -306,17 +347,83 @@ def test_the_command_registers_the_physics_gate_and_still_waits_for_reviewers(
     from physgate.gate.runner import PhysicsGate
     from physgate.orchestrator.cli import default_registrations
     from physgate.orchestrator.record import RunRecord
+    from physgate.reviewers.claude import claude_reviewers
 
     registered = default_registrations()
     assert isinstance(registered.gate, PhysicsGate) and dict(registered.reviewers) == {}
+    assert registered.reviewer_factory is claude_reviewers
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-not-a-credential")
-    monkeypatch.setenv("PATH", "/nonexistent")
+    monkeypatch.setenv("PHYSGATE_CLAUDE_BIN", str(fake_binary(tmp_path, "2.1.272")))
     record = RunRecord(make_config(), tmp_path / "run")
     record.start([])
     record.close()
+    # The fixture library carries no rubric for the run's one role: it refuses to start.
     assert main(_run_args(tmp_path)) == 2
     err = capsys.readouterr().err
-    assert "no gate is registered" not in err and "reviewer" in err
+    assert "no gate is registered" not in err
+    assert "paired reviewer" in err and "has no rubric" in err, err
+
+
+def test_the_reviewer_factory_builds_one_claude_reviewer_per_role_on_its_pinned_model(
+    tmp_path: Path,
+) -> None:
+    from orch_helpers import make_config
+
+    from physgate.orchestrator.credentials import Credential
+    from physgate.orchestrator.exceptions import ReviewerNotRegisteredError
+    from physgate.orchestrator.run_config import ModelStrings
+    from physgate.reviewers.claude import ClaudeReviewer, ReviewerSetup, claude_reviewers
+
+    models = ModelStrings(
+        decomposition="claude-sonnet-5",
+        roles={"control": "claude-opus-5-5", "firmware": "claude-opus-5-5"},
+        reviewers={"control": "claude-sonnet-5", "firmware": "claude-sonnet-5"},
+    )
+    library = tmp_path / "harness"
+    _promoted(library, "control")
+
+    def setup() -> ReviewerSetup:
+        return ReviewerSetup(
+            config=make_config(models=models),
+            review_root=tmp_path / "rs",
+            repo=tmp_path / "target",
+            install_bin=tmp_path / "install" / "bin" / "physgate",
+            binary="/nonexistent/claude",
+            base_url=None,
+            credential=Credential("api_key", "sk-ant-test-dummy-not-a-credential"),
+            library=library,
+        )
+
+    # A role whose rubric was never promoted has no reviewer, so nothing is built.
+    with pytest.raises(ReviewerNotRegisteredError, match="firmware|rubric") as raised:
+        claude_reviewers(setup())
+    assert raised.value.context["role"] == "firmware"
+    _promoted(library, "firmware")
+    built = claude_reviewers(setup())
+    assert sorted(built) == ["control", "firmware"]
+    assert all(
+        isinstance(r, ClaudeReviewer) and r.model == "claude-sonnet-5" for r in built.values()
+    )
+
+
+def test_a_review_root_that_would_tell_a_reviewer_what_it_reads_is_refused_at_start(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from loop_fakes import FakeGate, FakeReviewer
+    from orch_helpers import make_config
+
+    from physgate.orchestrator.cli import Registrations
+    from physgate.orchestrator.record import RunRecord
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-not-a-credential")
+    record = RunRecord(make_config(), tmp_path / "run")
+    record.start([])
+    record.close()
+    args = _run_args(tmp_path)
+    args[args.index("--review-root") + 1] = str(tmp_path / "injected-reviews")
+    registrations = Registrations(gate=FakeGate(), reviewers={"electrical": FakeReviewer()})
+    assert main(args, registrations) == 2
+    assert "review root" in capsys.readouterr().err
 
 
 def test_the_run_command_says_where_its_directory_belongs(

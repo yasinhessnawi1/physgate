@@ -1,9 +1,10 @@
 """``physgate inject``: run the injected-error instrument over a complete corpus.
 
-The command takes the reviewers the ``physgate`` command is registered with,
-and there are none yet, so today it refuses to start, naming the first role
-without one. A reviewer is registered where the loop's are; the instrument then
-runs without any change here. It refuses a corpus that is not complete (ten
+The command takes the reviewers the ``physgate`` command is registered with, as
+built reviewers. The default registrations give the Claude reviewer as a factory
+that a run calls with its own binary, credential, installation and parameters,
+which this command does not have yet, so today it refuses to start, naming the
+first role without a reviewer. It refuses a corpus that is not complete (ten
 artefacts of each class, ten distinct cross-domain propagation edges), so the measurement
 never runs on a partial one.
 """

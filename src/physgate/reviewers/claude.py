@@ -43,9 +43,11 @@ import json
 import subprocess
 import time
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from physgate.knowledge.promote import KNOWLEDGE_ROOT
 from physgate.orchestrator.accounting import require_matching_totals
 from physgate.orchestrator.budget import classify_session_end
 from physgate.orchestrator.credentials import (
@@ -63,12 +65,17 @@ from physgate.orchestrator.dispatch import (
     read_in_full,
     redact,
 )
-from physgate.orchestrator.exceptions import InvocationError, ReviewUnavailableError
+from physgate.orchestrator.exceptions import (
+    InvocationError,
+    ReviewerNotRegisteredError,
+    ReviewUnavailableError,
+)
 from physgate.orchestrator.invocation import REVIEWER_ENV, isolated_env, reviewer_argv
 from physgate.orchestrator.processes import started_at, stop_tree
 from physgate.orchestrator.protocols import (
     Artefact,
     MessageUsage,
+    Reviewer,
     ReviewResult,
     SpecDefect,
     UnavailableCause,
@@ -86,7 +93,7 @@ from physgate.reviewers.packet import (
     build_packet,
 )
 from physgate.reviewers.places import SESSION_DIRNAME, review_dir
-from physgate.reviewers.rubric import Rubric
+from physgate.reviewers.rubric import Rubric, load_rubric
 from physgate.reviewers.verdict import VERDICT_SCHEMA, Unavailable, judge, to_result
 
 #: The model name the binary gives the messages it writes itself, for an error or a
@@ -456,3 +463,55 @@ class ClaudeReviewer:
                 exit_code, timed_out = process.wait(), True
         (sdir / "ended.json").write_text(json.dumps({"exit": exit_code, "timed_out": timed_out}))
         return stdout, exit_code, timed_out
+
+
+@dataclass(frozen=True)
+class ReviewerSetup:
+    """What a driven run's reviewers are built from, once the run's facts are known."""
+
+    config: RunConfig
+    #: Already checked (``places.require_review_root``).
+    review_root: Path
+    #: The run's target repository.
+    repo: Path
+    install_bin: Path
+    binary: str
+    base_url: str | None
+    credential: Credential
+    #: The harness checkout: its ``knowledge/`` holds the curated files and the rubrics.
+    library: Path
+
+
+def claude_reviewers(setup: ReviewerSetup) -> dict[str, Reviewer]:
+    """A Claude reviewer for every role the run plans that has a pinned reviewer model.
+
+    Each with its role's rubric, loaded once, here, before anything is dispatched:
+    a rubric that is missing, malformed, or not its last promoted version stops the
+    run before it starts. A role with no pinned reviewer model gets none, and the
+    run's own check of its registrations refuses it.
+
+    Raises:
+        ReviewerNotRegisteredError: a role's rubric does not load.
+    """
+    reviewers: dict[str, Reviewer] = {}
+    for role in sorted(setup.config.models.roles):
+        if role not in setup.config.models.reviewers:
+            continue
+        try:
+            rubric = load_rubric(setup.library / KNOWLEDGE_ROOT, role)
+        except ReviewError as exc:
+            msg = f"every role needs a paired reviewer, and this one's rubric does not load: {exc}"
+            raise ReviewerNotRegisteredError(msg, **{**exc.context, "role": role}) from None
+        reviewers[role] = ClaudeReviewer(
+            role=role,
+            config=setup.config,
+            rubric=rubric,
+            library=setup.library,
+            review_root=setup.review_root,
+            repo=setup.repo,
+            install_bin=setup.install_bin,
+            binary=setup.binary,
+            base_url=setup.base_url,
+            credential=setup.credential,
+        )
+    return reviewers
