@@ -231,3 +231,30 @@ def test_the_documented_residual_a_read_whose_path_is_built_at_run_time_is_not_s
     pins the open class, so closing it is noticed.
     """
     assert _shell(_role(root), command.replace("@", str(root)), root / "target") == "allow"
+
+
+def test_a_physical_cd_cannot_move_the_judged_directory_away_from_the_real_one(
+    root: Path,
+) -> None:
+    """``cd -P z/..`` lands in ``sub`` while a lexical reading stays in the worktree.
+
+    From ``sub``, ``../knowledge/reviewers/...`` is the worktree's own rubric; judged
+    from the worktree it names nothing. No word in either command reaches anything
+    protected on its own, so only refusing the ambiguous ``cd`` stops it.
+    """
+    worktree = root / "target"
+    (worktree / "sub" / "inner").mkdir(parents=True)
+    (worktree / "z").symlink_to(worktree / "sub" / "inner")
+    rubric = worktree / "knowledge" / "reviewers" / "control" / "rubric.md"
+    rubric.parent.mkdir(parents=True)
+    rubric.write_text("# rubric\n")
+    command = "cd -P z/.. && cat ../knowledge/reviewers/control/rubric.md"
+    told = _shell(_role(root), command, worktree)
+    assert "depending on whether the shell reads" in told
+
+
+def test_a_withheld_tree_named_by_its_bare_name_is_refused(root: Path) -> None:
+    """From inside the library, the tree is a plain word, which the shell layer must not skip."""
+    library = root / "harness" / "knowledge"
+    told = _shell(_role(root), "ls reviewers", library)
+    assert REVIEW_MATERIAL_REASON in told
