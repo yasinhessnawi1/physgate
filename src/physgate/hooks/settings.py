@@ -62,7 +62,9 @@ CONFIG_NAME = "session-config.json"
 _TASK_LIST = ("TaskCreate", "TaskGet", "TaskList", "TaskUpdate")
 PROFILE_TOOLS: Mapping[Profile, tuple[str, ...]] = {
     "role": ("Bash", "Edit", "NotebookEdit", "Read", "Write", *_TASK_LIST),
-    "reviewer": ("Read", *_TASK_LIST),
+    # A reviewer reads, and answers once through the structured verdict tool. It writes
+    # no file, so no tool that writes is on its list.
+    "reviewer": ("Read", "StructuredOutput"),
     "orchestrator": ("Bash", "Edit", "NotebookEdit", "Read", "Write", *_TASK_LIST),
 }
 
@@ -106,6 +108,9 @@ class InstallRequest(BaseModel):
     #: or a customize module at its top level runs inside the orchestrator's next
     #: start, the process that imports the gate.
     harness_site_packages: tuple[AbsolutePath, ...] = ()
+    #: A reviewer's read allowance: the directories it may read, and nothing else.
+    #: Required for a reviewer, refused for every other profile.
+    read_roots: tuple[AbsolutePath, ...] = ()
     #: A script that prints the API key, named in the settings file so the key is
     #: never in the session's environment, where every tool call could print it.
     #: It must live in the session's own files or its state directory, both
@@ -159,6 +164,23 @@ def _knowledge_root(worktree: Path) -> str:
     approach skips.
     """
     return str(worktree / KNOWLEDGE_DIR_NAME)
+
+
+#: The tree beneath ``knowledge/`` holding what only reviewers read: each role's
+#: rubric. One directory for all of it, so withholding it from every other session
+#: is one rule that covers rubrics not yet written, not a list of files.
+REVIEWERS_DIR_NAME = "reviewers"
+
+
+def review_material(worktree: Path, harness: Path | None) -> tuple[str, ...]:
+    """Where reviewer-only material can be, for a session in ``worktree``.
+
+    Its own checkout's reviewer tree, and the harness checkout's when there is one.
+    """
+    found = {str(worktree / KNOWLEDGE_DIR_NAME / REVIEWERS_DIR_NAME)}
+    if harness is not None:
+        found.add(str(harness / KNOWLEDGE_DIR_NAME / REVIEWERS_DIR_NAME))
+    return tuple(sorted(found))
 
 
 def _knowledge_staging(worktree: Path) -> str:
@@ -243,6 +265,17 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
     for what, path in outside.items():
         if _inside(path, request.worktree):
             msg = f"{what} ({path}) is inside the worktree, where the session could change it"
+            raise ValueError(msg)
+    if (request.profile == "reviewer") != bool(request.read_roots):
+        msg = "a reviewer reads only beneath its read roots, and only a reviewer has them"
+        raise ValueError(msg)
+    for what, path in (
+        ("the settings directory", request.target_dir),
+        ("the state directory", request.state_dir),
+        ("the Claude configuration directory", request.claude_config_dir),
+    ):
+        if any(_inside(path, root) for root in request.read_roots):
+            msg = f"{what} ({path}) is inside a reviewer's read allowance"
             raise ValueError(msg)
     worktree = Path(request.worktree)
     home = Path(request.user_home)
@@ -335,6 +368,14 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         ),
         held_out=tuple(sorted(request.held_out)),
         answer_keys=tuple(answer_keys),
+        read_roots=tuple(sorted(request.read_roots)),
+        review_material=(
+            ()
+            if request.profile == "reviewer"
+            else review_material(
+                worktree, Path(request.harness_root) if request.harness_root else None
+            )
+        ),
         required_reading=tuple(sorted(request.required_reading)),
         always_loaded=tuple(sorted(request.always_loaded)),
         token_ceiling=request.token_ceiling,

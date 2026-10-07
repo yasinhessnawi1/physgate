@@ -43,6 +43,25 @@ session could plant one, found live against the real binary), with
 `knowledge/staging/` named as the one path beneath it a session may still
 write. A path reaching both the root and one of its exceptions is not
 protected by that root; it may still be protected by another one.
+
+**A reviewer reads from an allowance, not around a list.** Every other rule here
+names what may not be touched. A reviewer's reads are the other way round: its
+configuration names the directories it may read (``read_roots``), and a read of
+anything else is refused, whatever it is. A list of what not to read can only
+name the copies someone thought of; another checkout of the same corpus, a run's
+records or the harness itself would each have needed an entry. The allowance is
+judged on the path **as resolved**: a symlink inside the allowance that points
+outside it is outside, and a file with a second name elsewhere on the volume is
+refused, since its content is reachable from somewhere the allowance does not
+cover. The allowance names no part of the Claude Code installation: the binary
+reads its own files when it starts, and those reads are not tool calls, so no
+hook sees them and there is nothing for an allowance to allow.
+
+**What only a reviewer reads is withheld from every other session**
+(``review_material``): an implementing session that read its reviewer's rubric
+could steer its work around what the reviewer looks for. Like the held-out tier,
+a read leaves no trace a later check could see, so this layer and the shell
+layer's use of it are the protection.
 """
 
 from __future__ import annotations
@@ -50,7 +69,12 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
-from physgate.hooks.reasons import ANSWER_KEY_REASON, HELD_OUT_REASON
+from physgate.hooks.reasons import (
+    ANSWER_KEY_REASON,
+    HELD_OUT_REASON,
+    OUTSIDE_REVIEW_REASON,
+    REVIEW_MATERIAL_REASON,
+)
 from physgate.hooks.runtime import ALLOW, Decision, HookSpec, refuse
 
 if TYPE_CHECKING:
@@ -126,6 +150,27 @@ def _reaches(path: str, root: str, chain: frozenset[tuple[int, int]]) -> bool:
     return (root_stat.st_dev, root_stat.st_ino) in chain
 
 
+def _within(path: str, root: str) -> bool:
+    """True if ``path``, resolved through every symlink, is ``root`` or lies beneath it."""
+    resolved = os.path.realpath(path)
+    for root_spelling in _spellings(root):
+        if _folded_under(resolved, root_spelling):
+            return True
+    try:
+        root_stat = os.stat(root)
+    except OSError:
+        return False
+    return (root_stat.st_dev, root_stat.st_ino) in _chain_ids(resolved)
+
+
+def _hard_linked(path: str) -> bool:
+    try:
+        st = os.stat(path)
+    except OSError:
+        return False
+    return os.path.isfile(path) and st.st_nlink > 1
+
+
 def _experiment_reason(
     path: str, root: str, marker: str, always: str, chain: frozenset[tuple[int, int]]
 ) -> str | None:
@@ -176,6 +221,15 @@ def protection(path: str, cwd: str, config: ConfigView, *, writing: bool) -> str
     for key in config.answer_keys:
         if _reaches(absolute, key, chain) and (writing or config.profile == "reviewer"):
             return ANSWER_KEY_REASON
+    if config.profile != "reviewer":
+        for material in config.review_material:
+            if _reaches(absolute, material, chain):
+                return REVIEW_MATERIAL_REASON
+    elif not writing:
+        if not any(_within(absolute, root) for root in config.read_roots):
+            return OUTSIDE_REVIEW_REASON
+        if _hard_linked(absolute):
+            return HARD_LINKED
     if not writing:
         return None
     for root in config.protected_roots:

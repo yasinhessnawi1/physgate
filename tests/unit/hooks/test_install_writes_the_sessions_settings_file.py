@@ -54,6 +54,8 @@ def _request(tmp: Path, **overrides: Any) -> InstallRequest:  # noqa: ANN401 - t
         "token_ceiling": 4000,
     }
     fields.update(overrides)
+    if fields["profile"] == "reviewer" and "read_roots" not in overrides:
+        fields["read_roots"] = (str(worktree),)
     return InstallRequest(**fields)
 
 

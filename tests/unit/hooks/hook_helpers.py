@@ -37,6 +37,8 @@ def config_dict(tmp: Path, **overrides: Any) -> dict[str, Any]:  # noqa: ANN401 
         "experiments": [],
         "held_out": [],
         "answer_keys": [],
+        "read_roots": [],
+        "review_material": [],
         "required_reading": [],
         "always_loaded": [],
         "token_ceiling": 1000,
@@ -51,6 +53,10 @@ def config_dict(tmp: Path, **overrides: Any) -> dict[str, Any]:  # noqa: ANN401 
         "hook_timeout_seconds": 30,
     }
     base.update(overrides)
+    # A reviewer reads only beneath its allowance, so a reviewer built here gets one
+    # unless the test names its own: the whole test directory.
+    if base["profile"] == "reviewer" and "read_roots" not in overrides:
+        base["read_roots"] = [str(tmp)]
     return base
 
 

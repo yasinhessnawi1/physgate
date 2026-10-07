@@ -91,6 +91,12 @@ class ConfigView(Protocol):
     def answer_keys(self) -> Sequence[str]: ...  # noqa: D102
 
     @property
+    def read_roots(self) -> Sequence[str]: ...  # noqa: D102
+
+    @property
+    def review_material(self) -> Sequence[str]: ...  # noqa: D102
+
+    @property
     def required_reading(self) -> Sequence[str]: ...  # noqa: D102
 
     @property

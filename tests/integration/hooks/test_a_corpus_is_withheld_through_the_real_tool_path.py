@@ -125,6 +125,9 @@ def _run(
     if profile != "role":
         fields["role"] = None
         fields["own_branch"] = None
+    if profile == "reviewer":
+        # Wide enough that the answer-key rule, not the reviewer's allowance, decides.
+        fields["read_roots"] = (str(tmp_path / "worktree"), str(tmp_path / "outside" / "corpus"))
     run = run_session(
         tmp_path,
         Script(main=[*_place(steps, tmp_path), text("end")]),

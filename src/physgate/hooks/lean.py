@@ -162,7 +162,8 @@ class LeanInstallation:
 
 _CONFIG_FIELDS = (
     "profile", "role", "worktree", "own_branch", "store_root", "state_dir", "protected_roots",
-    "experiments", "held_out", "answer_keys", "required_reading", "always_loaded", "token_ceiling",
+    "experiments", "held_out", "answer_keys", "read_roots", "review_material", "required_reading",
+    "always_loaded", "token_ceiling",
     "tools_allowed", "installation", "watchdog_seconds", "hook_timeout_seconds",
 )  # fmt: skip
 
@@ -189,6 +190,10 @@ class LeanConfig:
         )
         self.held_out: tuple[str, ...] = _strings(data["held_out"], "held_out", _absolute)
         self.answer_keys: tuple[str, ...] = _strings(data["answer_keys"], "answer_keys", _absolute)
+        self.read_roots: tuple[str, ...] = _strings(data["read_roots"], "read_roots", _absolute)
+        self.review_material: tuple[str, ...] = _strings(
+            data["review_material"], "review_material", _absolute
+        )
         self.required_reading: tuple[str, ...] = _strings(
             data["required_reading"], "required_reading", _absolute
         )
@@ -206,6 +211,13 @@ class LeanConfig:
         )
         if self.profile == "role" and not self.role:
             raise _fail("role", "a role session must name its role")
+        if (self.profile == "reviewer") != bool(self.read_roots):
+            raise _fail(
+                "read_roots",
+                "a reviewer reads only beneath its read roots, and only a reviewer has them",
+            )
+        if self.profile == "reviewer" and self.review_material:
+            raise _fail("review_material", "a reviewer is not withheld what it reviews with")
         if self.watchdog_seconds + WATCHDOG_MARGIN_SECONDS > self.hook_timeout_seconds:
             raise _fail(
                 "watchdog_seconds",

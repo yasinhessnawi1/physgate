@@ -64,6 +64,10 @@ def _config(root: Path, profile: str = "role") -> SessionConfig:
             user_home=str(root / "outside" / "home"),
             token_ceiling=1000,
             held_out=(str(root / "heldout"),),
+            # A reviewer's allowance wide enough that the rule under test decides.
+            read_roots=(str(root / "worktree"), str(root / "heldout"))
+            if profile == "reviewer"
+            else (),
         ),
         installation(),
     )
@@ -213,8 +217,13 @@ def test_a_protected_root_that_contains_the_worktree_is_refused_at_install(layou
         ("role", "mcp__server__write_file", False),
         ("role", "SomeToolFromTheFuture", False),
         ("reviewer", "Read", True),
+        ("reviewer", "StructuredOutput", True),
         ("reviewer", "Write", False),
+        ("reviewer", "Edit", False),
         ("reviewer", "Bash", False),
+        ("reviewer", "Glob", False),
+        ("reviewer", "Grep", False),
+        ("reviewer", "TaskCreate", False),
         ("orchestrator", "Bash", True),
     ],
 )
