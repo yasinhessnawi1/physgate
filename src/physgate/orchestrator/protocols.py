@@ -74,6 +74,9 @@ class MessageUsage(_Frozen):
     usage: Usage
 
 
+#: A session's captured stream of events, or a written account of a revision.
+TrajectoryForm = Literal["session_stream", "account"]
+
 #: Where the gate checks one attempt. System scope is the integration call's alone.
 AttemptScope = Literal["subtask", "module"]
 
@@ -98,6 +101,9 @@ class Artefact(_Frozen):
     #: The trajectory's seal from the end of its session, for a reader to hold it to.
     trajectory_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")] | None = None
     trajectory_length: Annotated[int, Field(ge=0)] | None = None
+    #: What the trajectory file is: a session's captured event stream, or, for an
+    #: artefact no session produced, a written account of the revision.
+    trajectory_form: TrajectoryForm = "session_stream"
 
     @model_validator(mode="after")
     def _own_nodes_always(self) -> Artefact:

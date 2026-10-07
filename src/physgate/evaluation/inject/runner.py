@@ -74,6 +74,7 @@ from physgate.orchestrator.protocols import (
     Verdict,
     require_separate_models,
 )
+from physgate.orchestrator.trajectory import seal
 from physgate.reviewers.exceptions import ReviewRootError
 from physgate.reviewers.places import require_review_root
 
@@ -261,6 +262,8 @@ def _review(
     made = materialise(base, patch, place)
     try:
         require_blind(made, (artefact.id, artefact.description))
+        # Sealed as written, so the reviewer holds its own read to these bytes.
+        sealed = seal(made.trajectory.read_bytes())
         result = reviewer.review(
             Artefact(
                 subtask_id=subtask,
@@ -270,6 +273,9 @@ def _review(
                 worktree=str(made.worktree),
                 graph_root=str(made.graph_root),
                 trajectory=str(made.trajectory),
+                trajectory_sha256=sealed.sha256,
+                trajectory_length=sealed.length,
+                trajectory_form="account",
                 scopes=("subtask", "module"),
                 base_revision=made.baseline,
             )
