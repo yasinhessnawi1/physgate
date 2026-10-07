@@ -93,5 +93,22 @@ def test_the_decomposition_and_every_session_request_carry_the_recorded_pins(
         r.thinking for r in session
     ]
     assert (decomposition[0].thinking or {}).get("display") != "summarized"
+    # The specification as issued is digested at dispatch, before the session runs.
+    import hashlib
+    import subprocess
+
+    from physgate.orchestrator.events import Decomposed, SessionEnded, read_events
+
+    events = read_events(run_dir / "events.jsonl")
+    issued_by = next(e.spec_commit for e in events if isinstance(e, Decomposed))
+    spec_path = f".physgate/specs/{subtask}.md"
+    issued = subprocess.run(
+        ["git", "cat-file", "blob", f"{issued_by}:{spec_path}"],
+        cwd=repo,
+        capture_output=True,
+        check=True,
+    ).stdout
+    ended = [e for e in events if isinstance(e, SessionEnded)]
+    assert ended and all(e.issued_spec_sha256 == hashlib.sha256(issued).hexdigest() for e in ended)
     assert "StructuredOutput" in decomposition[0].offered_tools
     assert all("Read" in r.offered_tools for r in session)

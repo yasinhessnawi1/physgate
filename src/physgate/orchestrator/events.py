@@ -44,7 +44,13 @@ from physgate.orchestrator.common import (
 from physgate.orchestrator.exceptions import CorruptEventLogError, RunConfigError
 from physgate.orchestrator.install import InstallFacts
 from physgate.orchestrator.managed import ObservedTraffic
-from physgate.orchestrator.protocols import GateResult, ReviewResult, Usage
+from physgate.orchestrator.protocols import (
+    GateResult,
+    ReviewResult,
+    SpecDefect,
+    UnavailableCause,
+    Usage,
+)
 from physgate.orchestrator.repair import Finding
 from physgate.orchestrator.trajectory import Seal
 
@@ -222,6 +228,34 @@ class ReviewRan(_Event):
     result: ReviewResult
 
 
+class ReviewUnavailable(_Event):
+    """A review that is not a verdict, and why.
+
+    ``retry`` is true once per attempt, for an infrastructure cause only: the review
+    runs again. Otherwise the subtask goes to the approval queue with no repair
+    attempt spent, and no gate event is stamped from it: catch accounting records
+    no reviewer verdict for the attempt, never a pass or a fail.
+    """
+
+    kind: Literal["review_unavailable"] = "review_unavailable"
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    cause: UnavailableCause
+    detail: NonEmptyStr
+    retry: bool
+    session_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")] | None
+    reviewer_model: NonEmptyStr | None
+    #: The specification defects the reviewer recorded, carried to the queue item.
+    spec_defects: tuple[SpecDefect, ...] = ()
+
+    @model_validator(mode="after")
+    def _only_infrastructure_is_retried(self) -> ReviewUnavailable:
+        if self.retry and self.cause != "infrastructure":
+            msg = "only an infrastructure failure of a review is retried"
+            raise ValueError(msg)
+        return self
+
+
 class TokensUsed(_Event):
     """One model message's usage, attributed to the one thing that spent it.
 
@@ -260,6 +294,9 @@ class SessionEnded(_Event):
     #: The digest of the policy limits the session's invocation received, ``None`` if
     #: none: held to the decomposition call's.
     policy_limits_sha256: Sha256 | None = None
+    #: The digest of the session's specification as the decomposition issued it,
+    #: taken before the session was spawned; ``None`` for a plan given directly.
+    issued_spec_sha256: Sha256 | None = None
 
     @model_validator(mode="after")
     def _completed_names_its_work(self) -> SessionEnded:
@@ -521,6 +558,7 @@ Event = Annotated[
     | IntegrationGateSkipped
     | IntegrationEscalated
     | ReviewRan
+    | ReviewUnavailable
     | TokensUsed
     | SessionEnded
     | InfraRetryScheduled

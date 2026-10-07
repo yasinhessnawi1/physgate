@@ -43,7 +43,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from physgate.knowledge import loader
 from physgate.knowledge.library import LibraryError, read_library
 from physgate.orchestrator.exceptions import TrajectoryTamperedError
-from physgate.orchestrator.protocols import Artefact
+from physgate.orchestrator.protocols import Artefact, IssuedSpec
 from physgate.orchestrator.trajectory import Seal, read_sealed
 from physgate.reviewers.exceptions import ReviewError
 from physgate.reviewers.places import READ_DIRNAME
@@ -122,17 +122,6 @@ _GIT_FLAGS = (
 )
 
 
-class IssuedSpec(BaseModel):
-    """The module specification as the decomposition issued it, and its digest then."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
-
-    commit: Commit
-    path: Annotated[str, StringConstraints(min_length=1)]
-    #: Recorded before the attempt was dispatched; the bytes read now must match it.
-    sha256: Sha256
-
-
 def _git_bytes(repo: Path, *args: str) -> bytes:
     done = subprocess.run(
         ["git", *_GIT_FLAGS, *args], cwd=repo, capture_output=True, check=False, env=_GIT_ENV
@@ -141,6 +130,18 @@ def _git_bytes(repo: Path, *args: str) -> bytes:
         msg = "git could not produce what the review is shown"
         raise PacketError(msg, command=" ".join(args[:2]), stderr=done.stderr.decode()[-300:])
     return done.stdout
+
+
+def issued_spec_sha256(repo: Path, commit: str, path: str) -> str:
+    """The digest of the specification ``commit`` issued at ``path``, read from git's objects.
+
+    Taken before the session is spawned, so the review can hold the bytes it reads
+    to it.
+
+    Raises:
+        PacketError: git cannot read it.
+    """
+    return _digest(_git_bytes(Path(repo), "cat-file", "blob", f"{commit}:{path}"))
 
 
 def _sealed(artefact: Artefact) -> tuple[bytes, Seal]:

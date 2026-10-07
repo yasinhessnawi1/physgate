@@ -57,6 +57,7 @@ from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.queue import DECISIONS_NAME
 from physgate.orchestrator.run_config import RunConfig, harness_root
 from physgate.orchestrator.trajectory import Seal, forged_tail, seal, through_first_result
+from physgate.reviewers.packet import issued_spec_sha256
 
 REDACTED = REDACTED_TEXT.encode()
 
@@ -300,6 +301,12 @@ class ClaudeDispatcher:
             msg = "the binary is not the version this run recorded"
             raise InvocationError(msg, reported=reported, recorded=self._config.claude_version)
         worktree = self._run.open_subtask(request.subtask_id)
+        # The specification as issued, digested before the session can touch anything.
+        issued = (
+            issued_spec_sha256(self._run.repo, request.spec_commit, request.spec_path)
+            if request.spec_commit is not None
+            else None
+        )
         session_id = str(uuid.uuid4())
         sdir = self._run.run_dir / "sessions" / session_id
         system_before = self.environment().system_managed
@@ -389,6 +396,7 @@ class ClaudeDispatcher:
             trajectory_seal=sealed,
             trajectory_tampered=tampered,
             review_material_seen=seen,
+            issued_spec_sha256=issued,
         )
 
     def stop_leftovers(self) -> list[Leftover]:

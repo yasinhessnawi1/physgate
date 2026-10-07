@@ -8,6 +8,11 @@ next is decided by code or by a person.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from physgate.orchestrator.protocols import MessageUsage, SpecDefect, UnavailableCause
+
 
 class OrchestratorError(Exception):
     """Base for every error this package raises."""
@@ -102,3 +107,32 @@ class StoreRefusalError(OrchestratorError):
 
 class TrajectoryTamperedError(OrchestratorError):
     """A session's captured stream is not what the runtime wrote, or not what was sealed."""
+
+
+class ReviewUnavailableError(OrchestratorError):
+    """A review ran, or was to run, and is not a verdict.
+
+    Carries why (``cause``, one of the protocol's unavailable causes), what the
+    review spent, the session that spent it, and any specification defects the
+    reviewer recorded. The loop records it and escalates, or retries once for an
+    infrastructure cause; it never reads it as a pass or a fail.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        cause: UnavailableCause,
+        session_id: str | None = None,
+        reviewer_model: str | None = None,
+        usage: tuple[MessageUsage, ...] = (),
+        spec_defects: tuple[SpecDefect, ...] = (),
+        **context: str,
+    ) -> None:
+        """Store the cause and what the review spent beside the message."""
+        super().__init__(message, cause=cause, **context)
+        self.cause = cause
+        self.session_id = session_id
+        self.reviewer_model = reviewer_model
+        self.usage = usage
+        self.spec_defects = spec_defects

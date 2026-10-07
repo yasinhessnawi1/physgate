@@ -12,6 +12,7 @@ from orch_helpers import gate_records, make_config, ticking_clock
 
 from physgate.orchestrator.budget import InfraCause, SessionEnd
 from physgate.orchestrator.common import GateMode
+from physgate.orchestrator.exceptions import ReviewUnavailableError
 from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.ports import (
     ChangeCheck,
@@ -197,12 +198,20 @@ class FakeReviewer:
     verdicts: list[str] = field(default_factory=list)
     seen: list[Artefact] = field(default_factory=list)
     kill_on: int | None = None
+    #: Per call: a review that is not a verdict, raised instead of answering.
+    unavailable: dict[int, ReviewUnavailableError] = field(default_factory=dict)
+    #: Per call: the whole result to answer with, in place of the verdict list's.
+    results: dict[int, ReviewResult] = field(default_factory=dict)
 
     def review(self, artefact: Artefact) -> ReviewResult:
         self.seen.append(artefact)
         if len(self.seen) == self.kill_on:
             raise KilledError
         n = len(self.seen)
+        if n in self.unavailable:
+            raise self.unavailable[n]
+        if n in self.results:
+            return self.results[n]
         verdict = self.verdicts[n - 1] if n <= len(self.verdicts) else "pass"
         return ReviewResult(
             verdict=verdict,  # type: ignore[arg-type]
@@ -233,6 +242,9 @@ class FakeMerger:
 
     def run_branch_moved(self, expected: str, pending: str | None) -> str | None:
         return None
+
+    def review_base(self, attempt_commit: str) -> str:
+        return "0" * 40
 
     def artefact_diff(self, attempt_commit: str) -> str:
         return f"diff --git a/x b/x\n+ attempt {attempt_commit[:8]}\n"

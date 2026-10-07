@@ -19,6 +19,7 @@ from knowledge_fixture import write_fixture
 from packet_fixture import CONTENT, EDITED, ISSUED, SPEC, artefact_of, make_attempt, stream
 from rubric_fixture import PLACEHOLDER
 
+from physgate.orchestrator.protocols import IssuedSpec
 from physgate.reviewers.packet import (
     DIFF_NAME,
     RECORD_NAME,
@@ -26,7 +27,6 @@ from physgate.reviewers.packet import (
     SPEC_AS_ISSUED_NAME,
     TRANSCRIPT_NAME,
     WORKTREE_NAME,
-    IssuedSpec,
     Packet,
     PacketError,
     build_packet,

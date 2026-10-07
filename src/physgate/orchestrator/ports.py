@@ -42,6 +42,8 @@ class SessionRequest(_Frozen):
     model: NonEmptyStr
     repair_instruction: NonEmptyStr | None
     bounds: RunBounds
+    #: The commit that issued the specification, when a decomposition issued it.
+    spec_commit: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")] | None = None
 
 
 class SessionReport(_Frozen):
@@ -68,6 +70,8 @@ class SessionReport(_Frozen):
     #: A canary of reviewer material found in the session's own stream, if one was:
     #: the session read what only reviewers read, by a path no hook could judge.
     review_material_seen: NonEmptyStr | None = None
+    #: The issued specification's digest, read before the session was spawned.
+    issued_spec_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")] | None = None
 
 
 class Leftover(_Frozen):
@@ -148,6 +152,10 @@ class Merger(Protocol):
 
     def artefact_diff(self, attempt_commit: str) -> str:
         """The attempt's diff against where it started, for a person to read."""
+        ...
+
+    def review_base(self, attempt_commit: str) -> str:
+        """Where the attempt left the run branch: the commit its review diffs against."""
         ...
 
     def run_branch_moved(self, expected: str, pending: str | None) -> str | None:

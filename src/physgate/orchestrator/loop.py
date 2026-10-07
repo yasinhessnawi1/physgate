@@ -51,6 +51,7 @@ from physgate.orchestrator.events import (
     ProposalsChecked,
     Resumed,
     ReviewRan,
+    ReviewUnavailable,
     SessionEnded,
     Stage,
     StageEntered,
@@ -64,6 +65,7 @@ from physgate.orchestrator.exceptions import (
     MergeConflictError,
     MergeRefusedError,
     ReviewerNotRegisteredError,
+    ReviewUnavailableError,
     RunStateError,
     StoreRefusalError,
     TrajectoryTamperedError,
@@ -82,11 +84,18 @@ from physgate.orchestrator.protocols import (
     AttemptScope,
     Gate,
     IntegrationArtefact,
+    IssuedSpec,
     Reviewer,
+    ReviewResult,
     require_mode,
     require_separate_models,
 )
-from physgate.orchestrator.queue import INTEGRATION, escalation_item, integration_item
+from physgate.orchestrator.queue import (
+    INTEGRATION,
+    escalation_item,
+    integration_item,
+    unavailable_item,
+)
 from physgate.orchestrator.record import PlanEntry, RunRecord
 from physgate.orchestrator.repair import Finding, repair_instruction
 from physgate.orchestrator.replay import (
@@ -377,7 +386,11 @@ class Loop:
                 msg = "a step with no subtask or attempt"
                 raise RunStateError(msg, step=step.kind)
             if step.kind == "escalate":
-                self._escalate(step.subtask_id)
+                unavailable = self.state.subtasks[step.subtask_id].attempts[-1].unavailable_final
+                if unavailable is not None:
+                    self._escalate_unavailable(step.subtask_id, unavailable)
+                else:
+                    self._escalate(step.subtask_id)
             elif step.kind == "infra_failed":
                 self._infra_failed(step.subtask_id, step.attempt)
             else:
@@ -434,6 +447,7 @@ class Loop:
             model=self.config.models.roles[sub.plan.assigned_role],
             repair_instruction=repair_instruction(attempt - 1, before.finding) if before else None,
             bounds=self.config.bounds,
+            spec_commit=self._spec_commit(),
         )
         report = self._dispatcher.run(request)
         for message in report.usage:
@@ -460,6 +474,7 @@ class Loop:
                 trajectory_seal=report.trajectory_seal,
                 decisions_bytes=self._decisions_bytes(),
                 policy_limits_sha256=report.policy_limits_sha256,
+                issued_spec_sha256=report.issued_spec_sha256,
             )
         )
         if report.trajectory_tampered is not None:
@@ -491,6 +506,10 @@ class Loop:
         if not self._journal_clean():
             return False
         return not report.node_files_halted or self._repair_node_files(subtask_id, attempt)
+
+    def _spec_commit(self) -> str | None:
+        """The commit that issued every subtask's specification: the decomposition's."""
+        return next((e.spec_commit for e in self.log.events if isinstance(e, Decomposed)), None)
 
     def _policy_baseline(self) -> str | None:
         """The policy limits the decomposition call received: what every session is held to."""
@@ -669,6 +688,8 @@ class Loop:
             trajectory_length=session.trajectory_seal.length if session.trajectory_seal else None,
             scopes=self._scopes(subtask_id),
             base_revision=self.state.journal_head,
+            base_commit=self._merger.review_base(session.attempt_commit),
+            issued_spec=self._issued_spec(sub.plan.spec_path, session),
         )
         self._stage(subtask_id, attempt, "gate")
         mode = self.config.gate_mode
@@ -700,7 +721,9 @@ class Loop:
         require_separate_models(
             implementer=recorded_implementer(self.run_dir, subtask_id), reviewer=reviewer.model
         )
-        review = reviewer.review(artefact)
+        review = self._review(reviewer, artefact)
+        if review is None:
+            return False  # no verdict: the subtask goes to a person, no attempt spent
         if review.reviewer_model != reviewer.model:
             msg = "a reviewer reported a model other than the one it is pinned to"
             raise ReviewerNotRegisteredError(msg, role=role, reported=review.reviewer_model)
@@ -749,6 +772,52 @@ class Loop:
             )
         )
         return True
+
+    def _issued_spec(self, spec_path: str, session: SessionEnded) -> IssuedSpec | None:
+        """The attempt's specification as issued, with the digest its dispatch recorded."""
+        commit = self._spec_commit()
+        if commit is None or session.issued_spec_sha256 is None:
+            return None
+        return IssuedSpec(commit=commit, path=spec_path, sha256=session.issued_spec_sha256)
+
+    def _review(self, reviewer: Reviewer, artefact: Artefact) -> ReviewResult | None:
+        """The review's verdict, or ``None`` when there is none and the attempt escalates.
+
+        An infrastructure failure is retried once; any other cause, or a second
+        failure, is final. What every try spent is attributed to the reviewer.
+        """
+        subtask_id, attempt = artefact.subtask_id, artefact.attempt
+        retried = False
+        while True:
+            try:
+                return reviewer.review(artefact)
+            except ReviewUnavailableError as exc:
+                for message in exc.usage:
+                    self._emit(
+                        TokensUsed(
+                            **self._env(),
+                            attribution=f"reviewer:{exc.session_id or 'none'}",
+                            message_id=message.message_id,
+                            usage=message.usage,
+                        )
+                    )
+                retry = exc.cause == "infrastructure" and not retried
+                self._emit(
+                    ReviewUnavailable(
+                        **self._env(),
+                        subtask_id=subtask_id,
+                        attempt=attempt,
+                        cause=exc.cause,
+                        detail=str(exc) or exc.cause,
+                        retry=retry,
+                        session_id=exc.session_id,
+                        reviewer_model=exc.reviewer_model,
+                        spec_defects=exc.spec_defects,
+                    )
+                )
+                if not retry:
+                    return None
+                retried = True
 
     def _scopes(self, subtask_id: str) -> tuple[AttemptScope, ...]:
         """Subtask scope always; module scope when this completes its module.
@@ -898,6 +967,32 @@ class Loop:
                 self._incident(subtask_id, "trajectory_tampered", f"{exc}: {exc.context}")
                 return False
         return True
+
+    def _escalate_unavailable(self, subtask_id: str, unavailable: ReviewUnavailable) -> None:
+        """Send a subtask whose review reached no verdict to a person, spending no attempt."""
+        session = self.state.subtasks[subtask_id].attempts[-1].session
+        if session is None or session.trajectory is None or session.attempt_commit is None:
+            msg = "an unavailable review with no completed session behind it"
+            raise RunStateError(msg, subtask=subtask_id)
+        if not self._trajectories_hold(subtask_id, [session]):
+            return
+        item_id = f"{self.config.run_id}-{subtask_id}"
+        if item_id not in {item.item_id for item in self.queue.items()}:
+            self.queue.add(
+                unavailable_item(
+                    item_id=item_id,
+                    run_id=self.config.run_id,
+                    subtask_id=subtask_id,
+                    attempt=unavailable.attempt,
+                    cause=unavailable.cause,
+                    detail=unavailable.detail,
+                    spec_defects=unavailable.spec_defects,
+                    artefact_diff=self._merger.artefact_diff(session.attempt_commit),
+                    trajectory=session.trajectory,
+                    ts=self.log.events[-1].ts,
+                )
+            )
+        self._emit(Escalated(**self._env(), subtask_id=subtask_id, item_id=item_id))
 
     def _escalate(self, subtask_id: str) -> None:
         attempts = self.state.subtasks[subtask_id].attempts

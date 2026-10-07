@@ -77,6 +77,19 @@ class MessageUsage(_Frozen):
 #: A session's captured stream of events, or a written account of a revision.
 TrajectoryForm = Literal["session_stream", "account"]
 
+
+class IssuedSpec(_Frozen):
+    """A module specification as the decomposition issued it, and its digest then.
+
+    ``commit`` is the commit that issued it; ``sha256`` was taken before the attempt
+    was dispatched, so the bytes read at review must still be these.
+    """
+
+    commit: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
+    path: NonEmptyStr
+    sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+
+
 #: Where the gate checks one attempt. System scope is the integration call's alone.
 AttemptScope = Literal["subtask", "module"]
 
@@ -104,6 +117,12 @@ class Artefact(_Frozen):
     #: What the trajectory file is: a session's captured event stream, or, for an
     #: artefact no session produced, a written account of the revision.
     trajectory_form: TrajectoryForm = "session_stream"
+    #: The commit the attempt's change is read against: where it left the run branch.
+    base_commit: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")] | None = None
+    #: The specification the attempt was issued, when a decomposition issued one.
+    issued_spec: IssuedSpec | None = None
+    #: The repository holding the attempt's commit, when it is not the run's own.
+    repository: NonEmptyStr | None = None
 
     @model_validator(mode="after")
     def _own_nodes_always(self) -> Artefact:
@@ -439,6 +458,7 @@ UnavailableCause = Literal[
     "compacted",
     "context_exceeded",
     "blocking_spec_defect",
+    "unprepared",
 ]
 
 

@@ -48,6 +48,7 @@ from physgate.orchestrator.events import (
     ProposalsChecked,
     Resumed,
     ReviewRan,
+    ReviewUnavailable,
     RunStarted,
     SessionEnded,
     Stage,
@@ -76,6 +77,8 @@ class AttemptState:
     changes: ProposalsChecked | None = None
     gate: GateRan | GateSkipped | None = None
     review: ReviewRan | None = None
+    #: A review that was not a verdict: retried once for infrastructure, otherwise final.
+    unavailable: list[ReviewUnavailable] = field(default_factory=list)
     rejected: AttemptRejected | None = None
     merged: Merged | None = None
     diff: DiffChecked | None = None
@@ -90,7 +93,14 @@ class AttemptState:
         if order.index(cursor) < order.index("spawn"):
             self.session = None
         self.changes = self.gate = self.review = None
+        self.unavailable = []
         self.cursor = cursor
+
+    @property
+    def unavailable_final(self) -> ReviewUnavailable | None:
+        """The review outcome that sends the attempt to a person, if there is one."""
+        last = self.unavailable[-1] if self.unavailable else None
+        return last if last is not None and not last.retry else None
 
 
 @dataclass
@@ -235,9 +245,16 @@ class RunState:
             verdict = event.result.verdict if isinstance(event, GateRan) else "skipped"
             self._ledger(sub.plan.subtask_id, gate_result=verdict)
         elif isinstance(event, ReviewRan):
-            self._expect(now.cursor == "review" and now.review is None, "a review line")
+            done = now.cursor == "review" and now.review is None
+            self._expect(done and now.unavailable_final is None, "a review line")
             now.review = event
             self._ledger(sub.plan.subtask_id, review_result=event.result.verdict)
+        elif isinstance(event, ReviewUnavailable):
+            open_ = now.cursor == "review" and now.review is None
+            self._expect(open_ and now.unavailable_final is None, "an unavailable review")
+            retried = any(u.retry for u in now.unavailable)
+            self._expect(not (event.retry and retried), "a second retry of a review")
+            now.unavailable.append(event)
         elif isinstance(event, AttemptRejected):
             basis = self.rejection_basis(now)
             self._expect(now.cursor == "decide" and basis == event.finding.source, "a rejection")
@@ -284,7 +301,7 @@ class RunState:
                 sub.status = "done"
         elif isinstance(event, Escalated):
             last = now.number == REPAIR_BUDGET and now.rejected is not None
-            self._expect(last, "an escalation")
+            self._expect(last or now.unavailable_final is not None, "an escalation")
             sub.status = "escalated"
             sub.queue_item = event.item_id
         elif isinstance(event, Incident):
@@ -448,6 +465,9 @@ class RunState:
             if sub.status == "planned":
                 return Step("attempt", subtask_id, 1, "resolve")
             now = sub.attempts[-1]
+            if now.unavailable_final is not None:
+                # No verdict: a person decides, and no repair attempt is spent.
+                return Step("escalate", subtask_id, now.number)
             if now.rejected is not None:
                 if sub.next_resolve is None:
                     return Step("escalate", subtask_id, now.number)
@@ -485,7 +505,8 @@ class RunState:
             failed = now.session is not None and now.session.outcome == "infrastructure"
             # An infrastructure failure not yet answered is answered by the retry
             # schedule, not by a resume, so a crash there cannot reset the count.
-            if not clean and not failed and now.rejected is None and now.diff is None:
+            final = now.unavailable_final is not None
+            if not clean and not failed and not final and now.rejected is None and now.diff is None:
                 return sub
         return None
 
