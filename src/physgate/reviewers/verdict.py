@@ -175,19 +175,28 @@ class Unavailable(BaseModel):
 def judge(structured: object, scan_hits: tuple[ScanHit, ...]) -> Answered | Unavailable:
     """What the reviewer's structured answer ``structured`` amounts to.
 
-    Never raises on the answer's content: whatever the model wrote, the outcome is
-    an accept or a reject, or an unavailable review with its cause, ``blocked``
-    among them.
+    Fails closed. Whatever the model wrote, and whatever goes wrong while reading
+    it, the outcome is an accept or a reject only when every check below has
+    passed on the validated answer itself; anything else is an unavailable review
+    with its cause, ``blocked`` among them. Nothing is defaulted: no field is
+    filled in, no verdict assumed, and the verdict is read only from the validated
+    copy, never from the raw answer.
     """
+    try:
+        return _judge(structured, scan_hits)
+    except Exception as exc:  # noqa: BLE001 - every failure of reading an answer is no verdict
+        detail = f"the answer could not be read: {type(exc).__name__}"
+        return Unavailable(cause="invalid_verdict", detail=detail)
+
+
+def _judge(structured: object, scan_hits: tuple[ScanHit, ...]) -> Answered | Unavailable:
     if structured is None:
         return Unavailable(cause="no_verdict", detail="the review ended without a verdict")
     try:
         # Through JSON, as the answer arrived: strict validation then reads an array
         # as the tuple the model holds, and nothing else is coerced.
-        answer = ModelVerdict.model_validate_json(json.dumps(structured))
-    except (TypeError, ValueError) as exc:
-        if not isinstance(exc, ValidationError):
-            return Unavailable(cause="invalid_verdict", detail="the answer is not JSON data")
+        answer = ModelVerdict.model_validate_json(json.dumps(structured, allow_nan=False))
+    except ValidationError as exc:
         problem = exc.errors()[0]
         where = ".".join(str(part) for part in problem["loc"]) or "the answer"
         return Unavailable(cause="invalid_verdict", detail=f"{where}: {problem['msg']}")
@@ -200,6 +209,8 @@ def judge(structured: object, scan_hits: tuple[ScanHit, ...]) -> Answered | Unav
             detail="a safety-critical check cannot be decided from the issued specification",
             spec_defects=answer.spec_defects,
         )
+    if answer.verdict not in ("accept", "reject"):  # pragma: no cover - the type allows no other
+        return Unavailable(cause="invalid_verdict", detail="an unknown verdict")
     return Answered(answer=answer)
 
 
