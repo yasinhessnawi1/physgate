@@ -150,11 +150,23 @@ def _reaches(path: str, root: str, chain: frozenset[tuple[int, int]]) -> bool:
     return (root_stat.st_dev, root_stat.st_ino) in chain
 
 
+def _under(path: str, root: str) -> bool:
+    r = root.rstrip("/")
+    return path == r or path.startswith(r + "/")
+
+
 def _within(path: str, root: str) -> bool:
-    """True if ``path``, resolved through every symlink, is ``root`` or lies beneath it."""
+    """True if ``path``, resolved through every symlink, is ``root`` or lies beneath it.
+
+    Spellings are compared exactly, never case-folded: folding widens what it
+    matches, which is safe for a list of what is refused and unsafe for an
+    allowance, since on a case-sensitive volume a case variant is another
+    directory. A case variant is left to the inode test, which finds the same
+    directory on a case-insensitive volume and another, or none, on a sensitive one.
+    """
     resolved = os.path.realpath(path)
     for root_spelling in _spellings(root):
-        if _folded_under(resolved, root_spelling):
+        if _under(resolved, root_spelling):
             return True
     try:
         root_stat = os.stat(root)

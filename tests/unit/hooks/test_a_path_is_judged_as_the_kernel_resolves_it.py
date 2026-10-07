@@ -190,3 +190,44 @@ def test_a_link_that_resolves_inside_stays_allowed(root: Path) -> None:
     worktree = root / "review" / "read" / "worktree"
     (worktree / "inner").symlink_to(worktree / "design")
     assert _tool(_reviewer(root), "Read", "inner/../design/node.json", worktree) == "allow"
+
+
+def test_the_allowance_never_widens_by_case(root: Path) -> None:
+    """Folding case makes a list of what is refused wider, and an allowance wider too.
+
+    On a case-sensitive volume ``READ`` is another directory than ``read``. The
+    allowance therefore compares spellings exactly, and leaves a case variant to
+    the inode test, which on a case-insensitive volume finds the same directory and
+    on a case-sensitive one finds another or none.
+    """
+    config = _reviewer(root, str(root / "review" / "read"))
+    # A variant that names no directory on this volume, as a variant does on a
+    # case-sensitive one: nothing existing vouches for it, so it is outside.
+    told = _tool(config, "Read", str(root / "review" / "READ-variant-nowhere" / "x"), root)
+    assert OUTSIDE_REVIEW_REASON in told
+    ghost = str(root / "review" / "read").replace("/review/read", "/review/REad") + "/new.md"
+    if not Path(ghost).parent.exists():  # a case-sensitive volume: another directory
+        assert OUTSIDE_REVIEW_REASON in _tool(config, "Read", ghost, root)
+    assert not paths._within(str(root / "missing" / "READ" / "x"), str(root / "missing" / "read"))
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "d=view; cat ../harness/kno''wledge/re${d}ers/control/rubric.md",
+        "d=view; cd ../harness/kno''wledge/re${d}ers/control && cat rubric.md",
+        "python3 -c \"import os; print(open(os.path.join('..', 'harness', 'kno' + 'wledge', "
+        "'re' + 'viewers', 'control', 'rubric.md')).read())\"",
+    ],
+    ids=["a variable", "cd to a variable", "interpreter-built path"],
+)
+def test_the_documented_residual_a_read_whose_path_is_built_at_run_time_is_not_seen(
+    root: Path, command: str
+) -> None:
+    """A path built when the command runs cannot be judged before it runs.
+
+    Writes built this way are put back by the sentinel; a read leaves nothing
+    behind for any later check to see, the held-out tier's reads included. This
+    pins the open class, so closing it is noticed.
+    """
+    assert _shell(_role(root), command.replace("@", str(root)), root / "target") == "allow"
