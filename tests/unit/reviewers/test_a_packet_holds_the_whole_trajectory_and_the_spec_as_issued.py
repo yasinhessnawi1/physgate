@@ -71,7 +71,6 @@ def test_every_piece_of_the_session_s_content_is_in_the_transcript(tmp_path: Pat
     whole = joined(rendered)
     for piece in CONTENT:
         assert piece in whole, piece
-    assert "this line is not an event" in whole
     assert '"hook_name": "SessionStart"' not in whole  # a hook beginning: no content
     assert "content_block_delta" not in whole and "rate_limit" not in whole
 
@@ -208,3 +207,8 @@ def test_a_packet_is_prepared_once(tmp_path: Path) -> None:
             library=library,
             spec=None,
         )
+
+
+def test_a_stream_line_the_scan_cannot_read_stops_the_review(tmp_path: Path) -> None:
+    with pytest.raises(PacketError, match="not one event"):
+        _build(tmp_path, stream() + "this line is not an event\n")

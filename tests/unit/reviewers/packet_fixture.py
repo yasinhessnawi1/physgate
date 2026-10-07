@@ -109,7 +109,6 @@ def stream(*, with_checks_off: bool = True) -> str:
     lines += [
         event("assistant", message={"id": "m9", "content": [{"type": "text", "text": CONTENT[6]}]}),
         event("result", subtype="success", is_error=False, num_turns=4, result=CONTENT[6]),
-        "this line is not an event",
     ]
     return "\n".join(lines) + "\n"
 

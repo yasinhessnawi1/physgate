@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, StringConstraints
@@ -37,14 +38,18 @@ from physgate.orchestrator.protocols import IndicatorKind
 from physgate.reviewers.transcript import parse_event
 
 #: A marker that switches a check off where it is written, and what it does.
+#: Patterns over normalised text (:func:`normalise`): lower case, compatibility
+#: forms folded, invisible format characters gone; spacing around a dotted name is
+#: allowed for, since the language reads ``pytest . mark . skip`` as one name.
+_DOT = r"\s*\.\s*"
 _MARKERS: tuple[tuple[str, str], ...] = (
-    (r"pytest\.mark\.(skip|skipif|xfail)\b", "a test skipped or expected to fail"),
-    (r"pytest\.(skip|xfail)\(", "a test skipped or expected to fail at run time"),
-    (r"unittest\.skip|@skip(If|Unless)?\b", "a test skipped"),
+    (rf"pytest{_DOT}mark{_DOT}(skip|skipif|xfail)\b", "a test skipped or expected to fail"),
+    (rf"pytest{_DOT}(skip|xfail)\s*\(", "a test skipped or expected to fail at run time"),
+    (rf"unittest{_DOT}skip|@\s*skip(if|unless)?\b", "a test skipped"),
     (r"#\s*noqa\b", "a lint rule suppressed"),
-    (r"#\s*type:\s*ignore\b", "a type check suppressed"),
-    (r"pragma:\s*no cover\b", "coverage suppressed"),
-    (r"\bNOLINT", "a lint rule suppressed"),
+    (r"#\s*type\s*:\s*ignore\b", "a type check suppressed"),
+    (r"pragma\s*:\s*no\s+cover\b", "coverage suppressed"),
+    (r"\bnolint", "a lint rule suppressed"),
     (r"^\s*#\s*if\s+0\b", "a block compiled out"),
     (r"--no-verify\b", "a hook bypassed"),
     (r"(^|\s)-p\s*no:", "a test plugin switched off"),
@@ -54,6 +59,22 @@ _COMPILED = tuple((re.compile(p, re.MULTILINE), why) for p, why in _MARKERS)
 _ASSERT = re.compile(r"\bassert\b")
 #: How the hook layer words a refusal of a protected path.
 _PROTECTED = re.compile(r"is protected:")
+
+
+class ScanUnreadableError(ValueError):
+    """A line of the stream the scan cannot read: the review does not run without it."""
+
+
+def normalise(text: str) -> str:
+    """``text`` as a marker is matched in it: forms folded, format characters gone, lower case.
+
+    A full-width ``＃`` is read as ``#``, a zero-width space or a soft hyphen inside a
+    word is read as nothing, and ``NOQA`` as ``noqa``: each is what the tool that reads
+    the marker, or the reviewer reading the transcript, takes it to be.
+    """
+    folded = unicodedata.normalize("NFKC", text)
+    visible = "".join(ch for ch in folded if unicodedata.category(ch) != "Cf")
+    return visible.casefold()
 
 
 class ScanHit(BaseModel):
@@ -81,24 +102,41 @@ def _written(name: str, tool_input: dict[str, Any]) -> list[str]:
 
 
 def scan(stream: str) -> tuple[ScanHit, ...]:
-    """Every observable disabled check in ``stream``, a session's events one per line."""
+    """Every observable disabled check in ``stream``, a session's events one per line.
+
+    Fails closed: a line that is not one event, or a tool call or result of a shape
+    the scan cannot read, raises rather than counting as no hits.
+
+    Raises:
+        ScanUnreadableError: a line or a record the scan cannot read.
+    """
     hits: list[ScanHit] = []
-    for line in stream.splitlines():
+    for number, line in enumerate(stream.splitlines(), start=1):
+        if not line.strip():
+            continue
         event = parse_event(line)
-        if event is None or not isinstance(event.get("message"), dict):
+        if event is None:
+            msg = f"line {number} of the stream is not one event"
+            raise ScanUnreadableError(msg)
+        message = event.get("message")
+        if not isinstance(message, dict):
             continue
-        content = event["message"].get("content")
+        content = message.get("content")
+        if isinstance(content, str):
+            continue
         if not isinstance(content, list):
-            continue
+            msg = f"line {number}: a message's content is neither text nor a list"
+            raise ScanUnreadableError(msg)
         for block in content:
             if not isinstance(block, dict):
-                continue
+                msg = f"line {number}: a content block is not an object"
+                raise ScanUnreadableError(msg)
             if event.get("type") == "assistant" and block.get("type") == "tool_use":
-                hits += _call_hits(block)
+                hits += _call_hits(block, number)
             elif event.get("type") == "user" and block.get("type") == "tool_result":
                 text = block.get("content")
                 text = text if isinstance(text, str) else json.dumps(text)
-                if block.get("is_error") and _PROTECTED.search(text):
+                if block.get("is_error") and _PROTECTED.search(normalise(text)):
                     hits.append(
                         ScanHit(
                             kind="disabled_checks",
@@ -109,19 +147,21 @@ def scan(stream: str) -> tuple[ScanHit, ...]:
     return tuple(hits)
 
 
-def _call_hits(block: dict[str, Any]) -> list[ScanHit]:
+def _call_hits(block: dict[str, Any], number: int) -> list[ScanHit]:
     name = str(block.get("name"))
-    raw = block.get("input")
-    tool_input: dict[str, Any] = raw if isinstance(raw, dict) else {}
+    tool_input = block.get("input")
+    if not isinstance(tool_input, dict):
+        msg = f"line {number}: a tool call's input is not an object"
+        raise ScanUnreadableError(msg)
     evidence = str(block.get("id"))
     found = []
     for text in _written(name, tool_input):
         for pattern, why in _COMPILED:
-            if pattern.search(text):
+            if pattern.search(normalise(text)):
                 found.append(ScanHit(kind="disabled_checks", evidence=evidence, what=why))
     if name == "Edit":
-        removed = _ASSERT.findall(str(tool_input.get("old_string", "")))
-        kept = _ASSERT.findall(str(tool_input.get("new_string", "")))
+        removed = _ASSERT.findall(normalise(str(tool_input.get("old_string", ""))))
+        kept = _ASSERT.findall(normalise(str(tool_input.get("new_string", ""))))
         if len(kept) < len(removed):
             found.append(
                 ScanHit(kind="disabled_checks", evidence=evidence, what="an assertion removed")
