@@ -217,3 +217,13 @@ def test_the_command_says_how_many_came_to_each_and_exits_1_if_any_came_to_neith
     argv[argv.index(str(tmp_path / "run"))] = str(tmp_path / "run2")
     argv[argv.index(str(tmp_path / "scratch"))] = str(tmp_path / "scratch2")
     assert main(argv, Registrations(reviewers={"electrical": SeededFakeReviewer()})) == 0
+
+
+def test_the_instrument_cannot_write_a_blocked_review_as_one_with_no_verdict(
+    tmp_path: Path,
+) -> None:
+    """The legacy cause is only read: raised by a reviewer, the log refuses it unwritten."""
+    with pytest.raises(ValueError, match="written as a review line"):
+        _run(tmp_path, ScriptedReviewer(["blocking_spec_defect", None]))
+    events = read_events(tmp_path / "run" / "events.jsonl")
+    assert not [e for e in events if isinstance(e, ReviewUnavailable)]

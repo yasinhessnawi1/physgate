@@ -46,9 +46,9 @@ from physgate.orchestrator.install import InstallFacts
 from physgate.orchestrator.managed import ObservedTraffic
 from physgate.orchestrator.protocols import (
     GateResult,
+    RecordedUnavailableCause,
     ReviewResult,
     SpecDefect,
-    UnavailableCause,
     Usage,
 )
 from physgate.orchestrator.repair import Finding
@@ -240,7 +240,10 @@ class ReviewUnavailable(_Event):
     kind: Literal["review_unavailable"] = "review_unavailable"
     subtask_id: NonEmptyStr
     attempt: Attempt
-    cause: UnavailableCause
+    #: A cause from :data:`UnavailableCause`. A log written before a blocked review was
+    #: a review line may also hold ``blocking_spec_defect``; it is read as written, and
+    #: :meth:`EventLog.append` refuses to write it.
+    cause: RecordedUnavailableCause
     detail: NonEmptyStr
     retry: bool
     session_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")] | None
@@ -800,8 +803,12 @@ class EventLog:
 
         Raises:
             ValueError: the event does not follow from the log, including a
-                sequence number that is not the next one.
+                sequence number that is not the next one; or it is a review with
+                no verdict carrying the legacy blocked cause, which is only read.
         """
+        if isinstance(event, ReviewUnavailable) and event.cause == "blocking_spec_defect":
+            msg = "a blocked review is written as a review line, never as one with no verdict"
+            raise ValueError(msg)
         self._context.check(event)
         admitted = cast("Event", event)
         if self._state is not None:

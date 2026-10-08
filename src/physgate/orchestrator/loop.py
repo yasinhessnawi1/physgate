@@ -988,6 +988,7 @@ class Loop:
         self._to_a_person(
             subtask_id,
             attempt=unavailable.attempt,
+            source="review_unavailable",
             cause=unavailable.cause,
             detail=unavailable.detail,
             spec_defects=unavailable.spec_defects,
@@ -1002,6 +1003,7 @@ class Loop:
         self._to_a_person(
             subtask_id,
             attempt=blocked.attempt,
+            source="review_blocked",
             cause="blocking_spec_defect",
             detail=blocked.result.finding,
             spec_defects=blocked.result.spec_defects,
@@ -1012,6 +1014,7 @@ class Loop:
         subtask_id: str,
         *,
         attempt: int,
+        source: Literal["review_unavailable", "review_blocked"],
         cause: str,
         detail: str,
         spec_defects: tuple[SpecDefect, ...],
@@ -1030,6 +1033,7 @@ class Loop:
                     run_id=self.config.run_id,
                     subtask_id=subtask_id,
                     attempt=attempt,
+                    source=source,
                     cause=cause,
                     detail=detail,
                     spec_defects=spec_defects,

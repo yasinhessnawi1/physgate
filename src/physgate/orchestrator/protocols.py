@@ -497,6 +497,13 @@ UnavailableCause = Literal[
     "unprepared",
 ]
 
+#: A cause logs written before a blocked review became a review line carry: a blocked
+#: review recorded as one with no verdict. It is read as written, never reinterpreted,
+#: and nothing writes it any more.
+LegacyUnavailableCause = Literal["blocking_spec_defect"]
+#: Every cause a recorded no-verdict line may carry, the legacy one included.
+RecordedUnavailableCause = UnavailableCause | LegacyUnavailableCause
+
 
 class ReviewResult(_Frozen):
     """What a reviewer hands back, with the tokens it spent doing it.

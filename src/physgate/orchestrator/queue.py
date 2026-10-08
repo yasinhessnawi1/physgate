@@ -132,6 +132,7 @@ def unavailable_item(
     run_id: str,
     subtask_id: str,
     attempt: int,
+    source: Literal["review_unavailable", "review_blocked"],
     cause: str,
     detail: str,
     spec_defects: tuple[SpecDefect, ...],
@@ -142,7 +143,9 @@ def unavailable_item(
     """The item for a subtask whose review blocked it or reached no verdict; no attempt spent.
 
     A blocked review names what the issued specification lacks, which only the
-    decomposition can supply; any other cause names why no verdict was reached.
+    decomposition can supply; any other cause names why no verdict was reached. The
+    source is the caller's, from the line it escalates, so a no-verdict line a log
+    recorded with the legacy blocked cause stays a ``review_unavailable`` item.
     """
     if cause == "blocking_spec_defect":
         lacking = "; ".join(d.finding for d in spec_defects if d.blocking) or detail
@@ -164,7 +167,7 @@ def unavailable_item(
         ts=ts,
         run_id=run_id,
         subtask_id=subtask_id,
-        source="review_blocked" if cause == "blocking_spec_defect" else "review_unavailable",
+        source=source,
         decision_required=decision if not notes else decision + " Notes: " + "; ".join(notes),
         artefact_diff=artefact_diff,
         triggering_finding=detail,

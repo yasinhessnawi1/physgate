@@ -88,10 +88,10 @@ from physgate.orchestrator.protocols import (
     ChangeSet,
     CheckName,
     GateResult,
+    RecordedUnavailableCause,
     Reviewer,
     ReviewResult,
     Scope,
-    UnavailableCause,
     Verdict,
     require_separate_models,
 )
@@ -162,7 +162,7 @@ ReviewOutcome = Literal["pass", "fail", "blocked", "review_unavailable"]
 
 #: Why a review came to neither a pass nor a fail: a blocked verdict's one reason, or
 #: why a review reached no verdict.
-ReviewCause = UnavailableCause | Literal["blocking_spec_defect"]
+ReviewCause = RecordedUnavailableCause
 
 
 class ResultRow(_Frozen):
