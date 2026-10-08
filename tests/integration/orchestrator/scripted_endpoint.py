@@ -345,8 +345,12 @@ class FakeMessagesApi:
 
 
 @contextmanager
-def serving(script: Script) -> Iterator[tuple[FakeMessagesApi, str]]:
-    """Run the fake API on a free local port; yield it and its base URL."""
+def serving(script: Script, port: int = 0) -> Iterator[tuple[FakeMessagesApi, str]]:
+    """Run the fake API on ``port`` (a free one if 0); yield it and its base URL.
+
+    A port is named only to serve a later command of the same run, which the run's
+    recorded endpoint holds to the same address.
+    """
     api = FakeMessagesApi(script)
 
     class Handler(BaseHTTPRequestHandler):
@@ -383,7 +387,7 @@ def serving(script: Script) -> Iterator[tuple[FakeMessagesApi, str]]:
             self.end_headers()
             self.wfile.write(body)
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
