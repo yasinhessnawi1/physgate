@@ -43,9 +43,10 @@ import json
 import subprocess
 import time
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from physgate.knowledge.promote import KNOWLEDGE_ROOT
 from physgate.orchestrator.accounting import require_matching_totals
@@ -80,7 +81,7 @@ from physgate.orchestrator.protocols import (
     SpecDefect,
     UnavailableCause,
 )
-from physgate.orchestrator.run_config import RunConfig
+from physgate.orchestrator.run_config import Effort, RunBounds, RunConfig
 from physgate.reviewers.exceptions import ReviewError
 from physgate.reviewers.packet import (
     DIFF_NAME,
@@ -93,7 +94,7 @@ from physgate.reviewers.packet import (
     build_packet,
 )
 from physgate.reviewers.places import SESSION_DIRNAME, review_dir
-from physgate.reviewers.rubric import Rubric, load_rubric
+from physgate.reviewers.rubric import Rubric, RubricKind, load_rubric
 from physgate.reviewers.verdict import VERDICT_SCHEMA, Unavailable, judge, to_result
 
 #: The model name the binary gives the messages it writes itself, for an error or a
@@ -105,13 +106,18 @@ COMPACT_BOUNDARY = "compact_boundary"
 PROMPT_TOO_LONG = "prompt_too_long"
 
 
-def review_prompt(role: str, packet: Packet) -> str:
+def review_prompt(role: str, packet: Packet, kind: RubricKind = "paired") -> str:
     """What a reviewer is told: where its material is, what it must read, how it replies.
 
     Written to hold none of the words that would tell a reader it is being
     evaluated, or by what; a test holds it to the rubric's list.
     """
     read = Path(packet.read_root)
+    shown_knowledge = (
+        "the standards every role reads"
+        if kind == "generalist"
+        else f"the {role} role's standards and skill files"
+    )
     issued = (
         f"- {read / SPEC_AS_ISSUED_NAME}: the subtask's specification exactly as it was "
         "issued. If the attempt changed its own copy, the diff shows it; this one counts.\n"
@@ -137,7 +143,7 @@ def review_prompt(role: str, packet: Packet) -> str:
         f"- {read / RUBRIC_NAME}: the rubric you judge the attempt against.\n"
         f"- {read / DIFF_NAME}: the attempt's change.\n"
         f"- {read / WORKTREE_NAME}/: the files as the attempt committed them.\n"
-        f"- {read / KNOWLEDGE_NAME}/: the {role} role's standards and skill files.\n\n"
+        f"- {read / KNOWLEDGE_NAME}/: {shown_knowledge}.\n\n"
         "Before anything else, read each of these files in full with the Read tool; your "
         "verdict is refused until you have:\n"
         f"{reading}\n"
@@ -159,6 +165,22 @@ def peak_context_tokens(usage: tuple[MessageUsage, ...]) -> int:
         ),
         default=0,
     )
+
+
+def context_window(result: dict[str, Any] | None, model: str) -> int | None:
+    """The context window the binary reported for ``model`` in its result, if it reported one.
+
+    Measured on both pinned binaries: the result's ``modelUsage`` names each model's
+    ``contextWindow``. The window a session is kept within is that, less the output
+    limit up to a cap (the binary's own log: 199,000 with an output limit of 1,000,
+    180,000 with its default), so the review line carries both.
+    """
+    usage = (result or {}).get("modelUsage")
+    entry = usage.get(model) if isinstance(usage, dict) else None
+    window = entry.get("contextWindow") if isinstance(entry, dict) else None
+    if isinstance(window, bool) or not isinstance(window, int) or window <= 0:
+        return None
+    return window
 
 
 def _events(stream: str) -> list[dict[str, Any]]:
@@ -214,32 +236,14 @@ def unavailable_end(
 class ClaudeReviewer:
     """One role's paired reviewer, as a hooked Claude Code session per review."""
 
-    def __init__(
-        self,
-        *,
-        role: str,
-        config: RunConfig,
-        rubric: Rubric,
-        library: Path,
-        review_root: Path,
-        repo: Path,
-        install_bin: Path,
-        binary: str,
-        base_url: str | None,
-        credential: Credential,
-        rubric_kind: Literal["paired", "generalist"] = "paired",
-    ) -> None:
-        """Review ``role``'s attempts on the reviewer model ``config`` pins for it.
-
-        ``review_root`` must already be checked (``places.require_review_root``);
-        ``repo`` is the run's target repository, whose objects hold every attempt's
-        commit; ``library`` is the harness checkout holding the curated files.
+    def __init__(self, *, role: str, setup: ReviewerSetup, rubric: Rubric) -> None:
+        """Review ``role``'s attempts on the reviewer model ``setup`` pins for it, with ``rubric``.
 
         Raises:
-            ReviewError: the run pins no reviewer model for ``role``, or ``rubric``
+            ReviewError: ``setup`` pins no reviewer model for ``role``, or ``rubric``
                 is another role's.
         """
-        model = config.models.reviewers.get(role)
+        model = setup.models.get(role)
         if model is None:
             msg = "the run pins no reviewer model for this role"
             raise ReviewError(msg, role=role)
@@ -248,16 +252,9 @@ class ClaudeReviewer:
             raise ReviewError(msg, role=role, rubric=rubric.role)
         self._role = role
         self._model = model
-        self._config = config
+        self._setup = setup
         self._rubric = rubric
-        self._library = Path(library)
-        self._root = Path(review_root)
-        self._repo = Path(repo)
-        self._install_bin = Path(install_bin)
-        self._binary = binary
-        self._base_url = base_url
-        self._credential = credential
-        self._kind: Literal["paired", "generalist"] = rubric_kind
+        self._root = Path(setup.review_root)
 
     @property
     def model(self) -> str:
@@ -278,20 +275,20 @@ class ClaudeReviewer:
                 installer refused the session, or a model other than the pinned one
                 answered.
         """
-        reported = binary_version(self._binary)
-        if reported != self._config.claude_version:
+        reported = binary_version(self._setup.binary)
+        if reported != self._setup.claude_version:
             msg = "the binary is not the version this run recorded"
-            raise InvocationError(msg, reported=reported, recorded=self._config.claude_version)
+            raise InvocationError(msg, reported=reported, recorded=self._setup.claude_version)
         session_id = str(uuid.uuid4())
         review = review_dir(self._root, session_id)
         packet = self._prepare(review, artefact, session_id)
         sdir = review / SESSION_DIRNAME
         sdir.mkdir(parents=True)
-        (sdir / OWNER_NAME).write_text(json.dumps({"run_id": self._config.run_id}))
+        (sdir / OWNER_NAME).write_text(json.dumps({"run_id": self._setup.run_id}))
         installed = self._install(packet, sdir)
         stdout, exit_code, timed_out = self._spawn(packet, sdir, installed, session_id)
         remove_secrets(sdir / "state", sdir / "config")
-        redact(stdout, self._credential.secret)
+        redact(stdout, self._setup.credential.secret)
         captured = read_captured(stdout)
         result, usage = captured.result, captured.usage
         require_matching_totals(result, usage)
@@ -334,10 +331,12 @@ class ClaudeReviewer:
             session_id=session_id,
             usage=usage,
             rubric_sha256=self._rubric.sha256,
-            rubric_kind=self._kind,
+            rubric_kind=self._rubric.kind,
             packet_sha256=packet.sha256(),
             reading_verified=True,
             peak_context_tokens=peak_context_tokens(usage),
+            max_output_tokens=self._setup.max_output_tokens,
+            context_window=context_window(result, self._model),
         )
 
     def _prepare(self, review: Path, artefact: Artefact, session_id: str) -> Packet:
@@ -347,14 +346,20 @@ class ClaudeReviewer:
             raise ReviewUnavailableError(
                 f"{msg} (review {session_id})", cause="unprepared", reviewer_model=self._model
             )
+        repo = Path(artefact.repository) if artefact.repository else self._setup.repo
+        if repo is None:
+            msg = "a review reads the attempt's commit, and no repository holds it"
+            raise ReviewUnavailableError(
+                f"{msg} (review {session_id})", cause="unprepared", reviewer_model=self._model
+            )
         try:
             return build_packet(
                 review,
                 artefact,
-                repo=Path(artefact.repository) if artefact.repository else self._repo,
+                repo=repo,
                 base_commit=artefact.base_commit,
                 rubric=self._rubric,
-                library=self._library,
+                library=self._setup.library,
                 spec=artefact.issued_spec,
             )
         except ReviewError as exc:
@@ -370,12 +375,13 @@ class ClaudeReviewer:
         state = sdir / "state"
         state.mkdir()
         helper: list[str] = []
-        if self._credential.mode == "api_key":
-            helper = ["--api-key-helper", str(write_key_helper(state, self._credential.secret))]
+        if self._setup.credential.mode == "api_key":
+            helper_path = write_key_helper(state, self._setup.credential.secret)
+            helper = ["--api-key-helper", str(helper_path)]
         read = Path(packet.read_root)
         reading = [arg for path in packet.required_reading for arg in ("--reading", path)]
         argv = [
-            str(self._install_bin),
+            str(self._setup.install_bin),
             "hooks",
             "install",
             "--profile",
@@ -393,7 +399,7 @@ class ClaudeReviewer:
             "--user-home",
             str(sdir / "home"),
             "--ceiling",
-            str(self._config.token_ceiling),
+            str(self._setup.token_ceiling),
             *reading,
             *helper,
             *harness_protection(),
@@ -403,35 +409,35 @@ class ClaudeReviewer:
             remove_secrets(state, sdir / "config")
             msg = "the hook layer's installer refused the review session"
             raise InvocationError(msg, stderr=done.stderr[-600:])
-        if self._credential.mode == "subscription":
-            write_login(sdir / "config", self._credential.secret)
+        if self._setup.credential.mode == "subscription":
+            write_login(sdir / "config", self._setup.credential.secret)
         return Installed.model_validate_json(done.stdout)
 
     def _spawn(
         self, packet: Packet, sdir: Path, installed: Installed, session_id: str
     ) -> tuple[Path, int | None, bool]:
         (sdir / "home").mkdir(exist_ok=True)
-        bounds = self._config.bounds
+        bounds = self._setup.bounds
         env = isolated_env(
             home=sdir / "home",
             config_dir=sdir / "config",
-            binary=self._binary,
+            binary=self._setup.binary,
             max_retries=bounds.binary_max_retries,
-            max_output_tokens=self._config.max_output_tokens,
-            base_url=self._base_url,
+            max_output_tokens=self._setup.max_output_tokens,
+            base_url=self._setup.base_url,
             api_key=None,
         )
         env.update(installed.spawn_env)
         env.update(REVIEWER_ENV)
         argv = reviewer_argv(
-            self._binary,
-            prompt=review_prompt(self._role, packet),
+            self._setup.binary,
+            prompt=review_prompt(self._role, packet, self._rubric.kind),
             spawn_args=installed.spawn_args,
             schema=json.dumps(VERDICT_SCHEMA, sort_keys=True, separators=(",", ":")),
             model=self._model,
             session_id=session_id,
             max_turns=bounds.session_max_turns,
-            effort=self._config.effort,
+            effort=self._setup.effort,
         )
         stdout = sdir / "stdout.jsonl"
         with stdout.open("wb") as out, (sdir / "stderr.txt").open("wb") as err:
@@ -450,7 +456,7 @@ class ClaudeReviewer:
                 "spawned_at": time.time(),
                 "session_id": session_id,
                 "kind": "reviewer",
-                "run_id": self._config.run_id,
+                "run_id": self._setup.run_id,
                 "argv": argv,
                 "env_added": sorted(REVIEWER_ENV),
             }
@@ -467,13 +473,25 @@ class ClaudeReviewer:
 
 @dataclass(frozen=True)
 class ReviewerSetup:
-    """What a driven run's reviewers are built from, once the run's facts are known."""
+    """What reviewers are built from: the run's pins and bounds, and where they work.
 
-    config: RunConfig
+    A driven run builds it from its recorded configuration (:meth:`of_run`); the
+    injected-error command from its own parameters file.
+    """
+
+    #: The run the review sessions belong to: a resume of it finds them.
+    run_id: str
+    #: The roles to review, and the reviewer model each is pinned to.
+    models: Mapping[str, str]
+    claude_version: str
+    bounds: RunBounds
+    effort: Effort
+    max_output_tokens: int
+    token_ceiling: int
     #: Already checked (``places.require_review_root``).
     review_root: Path
-    #: The run's target repository.
-    repo: Path
+    #: The repository holding the attempts' commits, for an artefact that names none.
+    repo: Path | None
     install_bin: Path
     binary: str
     base_url: str | None
@@ -481,12 +499,48 @@ class ReviewerSetup:
     #: The harness checkout: its ``knowledge/`` holds the curated files and the rubrics.
     library: Path
 
+    @classmethod
+    def of_run(
+        cls,
+        config: RunConfig,
+        *,
+        review_root: Path,
+        repo: Path,
+        install_bin: Path,
+        binary: str,
+        base_url: str | None,
+        credential: Credential,
+        library: Path,
+    ) -> ReviewerSetup:
+        """A driven run's setup: a reviewer for every planned role that has a pinned one."""
+        models = {
+            role: config.models.reviewers[role]
+            for role in sorted(config.models.roles)
+            if role in config.models.reviewers
+        }
+        return cls(
+            run_id=config.run_id,
+            models=models,
+            claude_version=config.claude_version,
+            bounds=config.bounds,
+            effort=config.effort,
+            max_output_tokens=config.max_output_tokens,
+            token_ceiling=config.token_ceiling,
+            review_root=review_root,
+            repo=repo,
+            install_bin=install_bin,
+            binary=binary,
+            base_url=base_url,
+            credential=credential,
+            library=library,
+        )
+
 
 def claude_reviewers(setup: ReviewerSetup) -> dict[str, Reviewer]:
-    """A Claude reviewer for every role the run plans that has a pinned reviewer model.
+    """A Claude reviewer for every role ``setup`` pins a reviewer model for.
 
-    Each with its role's rubric, loaded once, here, before anything is dispatched:
-    a rubric that is missing, malformed, or not its last promoted version stops the
+    Each with its role's rubric, loaded once, here, before anything is reviewed: a
+    rubric that is missing, malformed, or not its last promoted version stops the
     run before it starts. A role with no pinned reviewer model gets none, and the
     run's own check of its registrations refuses it.
 
@@ -494,24 +548,11 @@ def claude_reviewers(setup: ReviewerSetup) -> dict[str, Reviewer]:
         ReviewerNotRegisteredError: a role's rubric does not load.
     """
     reviewers: dict[str, Reviewer] = {}
-    for role in sorted(setup.config.models.roles):
-        if role not in setup.config.models.reviewers:
-            continue
+    for role in sorted(setup.models):
         try:
             rubric = load_rubric(setup.library / KNOWLEDGE_ROOT, role)
         except ReviewError as exc:
             msg = f"every role needs a paired reviewer, and this one's rubric does not load: {exc}"
             raise ReviewerNotRegisteredError(msg, **{**exc.context, "role": role}) from None
-        reviewers[role] = ClaudeReviewer(
-            role=role,
-            config=setup.config,
-            rubric=rubric,
-            library=setup.library,
-            review_root=setup.review_root,
-            repo=setup.repo,
-            install_bin=setup.install_bin,
-            binary=setup.binary,
-            base_url=setup.base_url,
-            credential=setup.credential,
-        )
+        reviewers[role] = ClaudeReviewer(role=role, setup=setup, rubric=rubric)
     return reviewers

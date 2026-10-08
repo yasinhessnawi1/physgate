@@ -488,6 +488,11 @@ class ReviewResult(_Frozen):
     reading_verified: bool | None = None
     #: The largest context any of the review's model messages had, in tokens.
     peak_context_tokens: Count | None = None
+    #: The output-token limit the review ran with. The window the binary keeps a
+    #: session within depends on it, so a peak is read against both.
+    max_output_tokens: Count | None = None
+    #: The context window the binary reported for the review's model, if it did.
+    context_window: Count | None = None
 
     @model_validator(mode="after")
     def _a_verdict_is_consistent(self) -> ReviewResult:

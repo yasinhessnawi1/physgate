@@ -32,6 +32,8 @@ from physgate.orchestrator.protocols import IssuedSpec, MessageUsage, Usage
 from physgate.orchestrator.run_config import HarnessState, ModelStrings, RunBounds, RunConfig
 from physgate.reviewers.claude import (
     ClaudeReviewer,
+    ReviewerSetup,
+    context_window,
     peak_context_tokens,
     review_prompt,
     unavailable_end,
@@ -226,7 +228,8 @@ def _reviewer(tmp_path: Path, binary: Path, **overrides: Any) -> ClaudeReviewer:
         "credential": Credential(mode="api_key", secret="sk-test-not-a-key"),
     }
     fields.update(overrides)
-    return ClaudeReviewer(**fields)
+    role, rubric, config = fields.pop("role"), fields.pop("rubric"), fields.pop("config")
+    return ClaudeReviewer(role=role, rubric=rubric, setup=ReviewerSetup.of_run(config, **fields))
 
 
 @pytest.mark.parametrize(
@@ -264,3 +267,12 @@ def test_a_reviewer_runs_only_on_its_pinned_model_with_its_own_rubric(tmp_path: 
     other = RUBRIC.model_copy(update={"role": "firmware"})
     with pytest.raises(ReviewError, match="its own role's rubric"):
         _reviewer(tmp_path, binary, rubric=other)
+
+
+def test_the_window_is_the_one_the_binary_reported_for_the_review_s_model() -> None:
+    usage = {"claude-sonnet-5": {"contextWindow": 200000, "maxOutputTokens": 64000}}
+    assert context_window({"modelUsage": usage}, "claude-sonnet-5") == 200000
+    assert context_window({"modelUsage": usage}, "claude-opus-5-5") is None
+    flag = {"modelUsage": {"claude-sonnet-5": {"contextWindow": True}}}
+    assert context_window(flag, "claude-sonnet-5") is None
+    assert context_window(None, "claude-sonnet-5") is None

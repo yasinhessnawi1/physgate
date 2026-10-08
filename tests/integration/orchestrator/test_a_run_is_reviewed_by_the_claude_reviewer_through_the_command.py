@@ -20,6 +20,7 @@ import hashlib
 import json
 import os
 import shutil
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -33,9 +34,10 @@ from physgate.cli import main
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, rubric_path
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.cli import Registrations
-from physgate.orchestrator.events import ReviewRan, SessionEnded, read_events
+from physgate.orchestrator.events import ReviewRan, SessionEnded, SubtaskPlanned, read_events
 from physgate.reviewers.claude import claude_reviewers
 from physgate.reviewers.packet import DIFF_NAME, RECORD_NAME, WORKTREE_NAME
+from physgate.reviewers.rubric import NOT_IN_REVIEW
 
 pytestmark = [
     pytest.mark.integration,
@@ -145,8 +147,13 @@ def test_a_run_through_the_command_is_reviewed_rejected_repaired_and_accepted(
         if cwd not in reviews:
             reviews.append(cwd)
         word = "reject" if reviews.index(cwd) < 2 else "accept"
+        verdict = _verdict(word)
+        if NOT_IN_REVIEW in (Path(cwd).parent / "rubric.md").read_text():
+            # The generalist rubric: its domain items are not answered.
+            kept = ("acceptance_criteria", "reward_hacking")
+            verdict["items"] = [i for i in verdict["items"] if i["section"] in kept]
         steps = [tool("Read", file_path=p) for p in _reading(cwd)]
-        steps.append(tool("StructuredOutput", **_verdict(word)))
+        steps.append(tool("StructuredOutput", **verdict))
         return steps[done] if done < len(steps) else text("done")
 
     with serving(Script(main=[tool("StructuredOutput", **plan)])) as (api, url):
@@ -161,7 +168,44 @@ def test_a_run_through_the_command_is_reviewed_rejected_repaired_and_accepted(
         registrations = Registrations(gate=Gate(), reviewer_factory=claude_reviewers)
         code = main(["run", *common], registrations)
         out = capsys.readouterr()
-    assert code == 0, out.err
+        assert code == 0, out.err
+        # The generalist baseline of the accepted attempt, through its own command.
+        planned = read_events(run_dir / "events.jsonl")
+        subtask = next(e.subtask_id for e in planned if isinstance(e, SubtaskPlanned))
+        baseline = tmp_path / "generalist"
+        generalist = [
+            "generalist",
+            *common,
+            "--subtask",
+            subtask,
+            "--attempt",
+            "3",
+            "--out",
+            str(baseline),
+            "--run-id",
+            "run-1-generalist",
+            "--prices",
+            "2026-09-27",
+        ]
+        generalist_code = main(generalist)
+        printed = capsys.readouterr()
+    assert generalist_code == 0, printed.err
+    ratio = json.loads((baseline / "baseline.json").read_text())
+    assert ratio == json.loads(printed.out)
+    assert (ratio["n"], ratio["attempt"], ratio["subtask_id"]) == (1, 3, subtask)
+    assert ratio["paired"]["rubric_kind"] == "paired"
+    assert ratio["generalist"]["rubric_kind"] == "generalist"
+    assert Decimal(ratio["token_ratio"]) > 0 and Decimal(ratio["usd_ratio"]) > 0
+    gen_events = read_events(baseline / "events.jsonl")
+    (gen_review,) = [e for e in gen_events if isinstance(e, ReviewRan)]
+    assert gen_review.result.rubric_kind == "generalist" and gen_review.result.verdict == "pass"
+    assert (
+        gen_review.result.rubric_sha256
+        == json.loads((baseline / "generalist.json").read_text())["generalist_rubric_sha256"]
+    )
+    gen_record = tmp_path / "rs" / gen_review.result.session_id / RECORD_NAME
+    gen_packet = json.loads(gen_record.read_text())
+    assert sorted(gen_packet["knowledge_sha256"]) == ["knowledge/cross/standards.md"]
     assert json.loads(out.out)["step"] == "done"
     events = read_events(run_dir / "events.jsonl")
     ran = [e for e in events if isinstance(e, ReviewRan)]

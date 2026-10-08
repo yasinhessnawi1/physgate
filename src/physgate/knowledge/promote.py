@@ -311,6 +311,11 @@ def _apply(
     text = (candidate.content.rstrip() + "\n").encode("utf-8")
     canary = None
     if kind == "rubric":
+        # Only a paired rubric of the required form becomes a role's rubric: one that
+        # would not load is refused here, by the person promoting it, not at a run's start.
+        from physgate.reviewers.rubric import check_rubric  # the reviewers import this module
+
+        check_rubric(text.decode("utf-8"))
         # An opaque line only this version of this rubric holds. A session that reads
         # the rubric by a path no hook can judge shows it in its own stream, where the
         # dispatcher looks for it: detection after the fact, not prevention.

@@ -14,6 +14,16 @@ architecture lists: feature isolation, hard-coded values and disabled checks.
 Every item id is what a verdict must answer: a verdict that leaves one out is not
 a verdict.
 
+**The generalist rubric (ARCH-063's baseline).** The cost of pairing is measured
+against a generalist review of the same artefact: the reviewed role's promoted
+rubric with its two domain sections removed by code (:func:`generalist_of`). Their
+headings stay, each followed by one fixed line saying the section is not part of
+this review; every other byte is the promoted rubric's, its canary line included.
+The four-section rule takes the kind: a ``paired`` rubric has items in all four
+sections, a ``generalist`` one in the first and the fourth and none under the
+other two. A role's rubric is always loaded as ``paired``, so a generalist text
+promoted in a role's place is refused.
+
 **Where it lives, and who may read it.** ``knowledge/reviewers/<role>/rubric.md``,
 in the one tree beneath the library that every session but a reviewer is refused
 (the hook layer withholds the whole tree, rubrics not yet written included). It is
@@ -44,7 +54,7 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, StringConstraints
 
@@ -61,6 +71,11 @@ SECTIONS: tuple[tuple[str, RubricSection], ...] = (
     ("Skill-file antipatterns", "antipatterns"),
     ("Reward-hacking indicators", "reward_hacking"),
 )
+#: The two sections a generalist review leaves out: the domain's own.
+DOMAIN_SECTIONS: tuple[RubricSection, ...] = ("domain_standards", "antipatterns")
+#: The line that stands under each left-out section's heading in a generalist rubric.
+NOT_IN_REVIEW = "This section is not part of this review."
+RubricKind = Literal["paired", "generalist"]
 _NUMBERED = re.compile(r"^\d+\.\s+")
 _ITEM = re.compile(r"^- \*\*(?P<id>[A-Z]{1,2}-?[0-9]+)\.\s*(?P<rest>.*)$")
 #: The words that would tell a reviewer it is being evaluated, or by what. A subset
@@ -107,6 +122,7 @@ class Rubric(BaseModel):
     text: Annotated[str, StringConstraints(min_length=1)]
     sha256: Sha256
     items: tuple[RubricItem, ...] = ()
+    kind: RubricKind = "paired"
 
 
 def evaluation_words(text: str) -> list[str]:
@@ -124,12 +140,14 @@ def _title(rest: str, lines: list[str], index: int) -> str:
     return " ".join(parts).split("**", 1)[0].strip()
 
 
-def parse_rubric(text: str) -> tuple[RubricItem, ...]:
+def parse_rubric(text: str, kind: RubricKind = "paired") -> tuple[RubricItem, ...]:
     """Every item of the rubric ``text``, in order, each with its section.
 
     Raises:
         RubricError: the required sections are not each present once, in order and
-            after any preamble; a required section holds no item, or another
+            after any preamble; a section the kind needs items in holds none (all
+            four for ``paired``, the first and the fourth for ``generalist``), a
+            generalist holds an item under a domain section, or another
             second-level section follows them; an item id appears twice; or the
             reward-hacking items leave an indicator out.
     """
@@ -157,9 +175,14 @@ def parse_rubric(text: str) -> tuple[RubricItem, ...]:
         msg = "a rubric has the four required sections, each once, in order"
         raise RubricError(msg, found=" | ".join(seen), expected=" | ".join(order))
     for _, name in SECTIONS:
-        if not any(i.section == name for i in items):
+        held = any(i.section == name for i in items)
+        if kind == "generalist" and name in DOMAIN_SECTIONS:
+            if held:
+                msg = "a generalist rubric holds no item under a domain section"
+                raise RubricError(msg, section=name)
+        elif not held:
             msg = "a required section holds no item"
-            raise RubricError(msg, section=name)
+            raise RubricError(msg, section=name, kind=kind)
     ids = [i.id for i in items]
     if len(ids) != len(set(ids)):
         twice = sorted({i for i in ids if ids.count(i) > 1})
@@ -178,14 +201,14 @@ def parse_rubric(text: str) -> tuple[RubricItem, ...]:
     return tuple(items)
 
 
-def check_rubric(text: str) -> tuple[RubricItem, ...]:
+def check_rubric(text: str, kind: RubricKind = "paired") -> tuple[RubricItem, ...]:
     """The items of ``text``, if it is a rubric ARCH-062 describes and says nothing it must not.
 
     Raises:
         RubricError: as :func:`parse_rubric`, or the text holds an
             evaluation-revealing word.
     """
-    items = parse_rubric(text)
+    items = parse_rubric(text, kind)
     words = evaluation_words(text)
     if words:
         msg = "a rubric holds a word that would tell a reviewer it is being evaluated"
@@ -244,3 +267,37 @@ def load_rubric(knowledge_root: Path, role: str) -> Rubric:
         msg = "the rubric is not the version its last promotion recorded"
         raise RubricError(msg, role=role, found=digest, promoted=str(promoted))
     return Rubric(role=role, text=text, sha256=digest, items=items)
+
+
+def generalist_of(rubric: Rubric) -> Rubric:
+    """The generalist rubric for ``rubric``'s role: its two domain sections left out, by code.
+
+    Each domain section's heading stays, followed by a blank line, :data:`NOT_IN_REVIEW`
+    and a blank line; everything from the heading to the next second-level heading is
+    dropped. Every other line is the paired rubric's, byte for byte, its canary line
+    included. The same paired rubric always gives the same bytes.
+
+    Raises:
+        RubricError: ``rubric`` is not a paired rubric, or what is left is not a
+            generalist rubric.
+    """
+    if rubric.kind != "paired":
+        msg = "a generalist rubric is made from a role's paired rubric"
+        raise RubricError(msg, role=rubric.role, kind=rubric.kind)
+    names = {title: name for title, name in SECTIONS}
+    kept: list[str] = []
+    skipping = False
+    for line in rubric.text.splitlines(keepends=True):
+        if line.startswith("## "):
+            title = _NUMBERED.sub("", line[3:].strip())
+            skipping = names.get(title) in DOMAIN_SECTIONS
+            kept.append(line)
+            if skipping:
+                kept.append(f"\n{NOT_IN_REVIEW}\n\n")
+            continue
+        if not skipping:
+            kept.append(line)
+    text = "".join(kept)
+    items = check_rubric(text, "generalist")
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return Rubric(role=rubric.role, text=text, sha256=digest, items=items, kind="generalist")

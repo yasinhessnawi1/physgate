@@ -19,7 +19,7 @@ from orch_helpers import make_config
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.events import ReviewRan, ReviewUnavailable, read_events
-from physgate.reviewers.claude import ClaudeReviewer
+from physgate.reviewers.claude import ClaudeReviewer, ReviewerSetup
 from physgate.reviewers.rubric import Rubric
 
 pytestmark = pytest.mark.injected
@@ -33,15 +33,17 @@ def _reviewer(tmp_path: Path) -> tuple[ClaudeReviewer, Path]:
     binary.chmod(binary.stat().st_mode | stat.S_IXUSR)
     reviewer = ClaudeReviewer(
         role="electrical",
-        config=make_config(),
         rubric=Rubric(role="electrical", text="r", sha256="0" * 64),
-        library=tmp_path / "harness",
-        review_root=tmp_path / "rs",
-        repo=tmp_path / "target",
-        install_bin=tmp_path / "install" / "bin" / "physgate",
-        binary=str(binary),
-        base_url=None,
-        credential=Credential(mode="api_key", secret="not-a-key"),
+        setup=ReviewerSetup.of_run(
+            make_config(),
+            review_root=tmp_path / "rs",
+            repo=tmp_path / "target",
+            install_bin=tmp_path / "install" / "bin" / "physgate",
+            binary=str(binary),
+            base_url=None,
+            credential=Credential(mode="api_key", secret="not-a-key"),
+            library=tmp_path / "harness",
+        ),
     )
     return reviewer, calls
 

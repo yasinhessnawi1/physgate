@@ -406,8 +406,8 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
                 msg = "the reviewers' rubrics are read from a source checkout, and there is none"
                 raise ReviewerNotRegisteredError(msg)
             reviewers = registrations.reviewer_factory(
-                ReviewerSetup(
-                    config=config,
+                ReviewerSetup.of_run(
+                    config,
                     review_root=review_root,
                     repo=args.target.resolve(),
                     install_bin=install / "bin" / "physgate",

@@ -17,7 +17,8 @@ A review's directory (``places.review_dir``) gets a ``read/`` directory holding:
   only the issued one counts, and the diff shows any edit.
 - ``rubric.md``: the role's rubric, its digest checked again against the one it
   was loaded with.
-- ``knowledge/``: the role's curated library files, copied from the harness.
+- ``knowledge/``: the role's curated library files, copied from the harness; for a
+  generalist review, only the standards every role reads.
 
 What a review must read in full before it may answer is listed in
 :attr:`Packet.required_reading`, and the hook layer refuses the verdict until it
@@ -87,6 +88,9 @@ class Packet(BaseModel):
     worktree_files: Annotated[int, Field(ge=0)]
     indicators: tuple[ScanHit, ...]
     required_reading: Annotated[tuple[str, ...], Field(min_length=2)]
+    #: The attempt as the review was given it, so the same attempt can be reviewed
+    #: again (the generalist baseline) and held to the same seal and commit.
+    artefact: Artefact | None = None
 
     def sha256(self) -> str:
         """The digest of this record: what a review line carries to name its packet."""
@@ -330,7 +334,9 @@ def build_packet(
     (read / RUBRIC_NAME).write_bytes(text)
     knowledge: dict[str, str] = {}
     try:
-        curated = read_library(Path(library), [rubric.role])
+        # A generalist review is shown what every role reads, not the role's own files.
+        roles = [loader.CROSS] if rubric.kind == "generalist" else [rubric.role]
+        curated = read_library(Path(library), roles)
     except LibraryError as exc:
         raise PacketError(str(exc), **exc.context) from None
     for relative, body in sorted(curated.items()):
@@ -351,6 +357,7 @@ def build_packet(
         worktree_files=files,
         indicators=indicators,
         required_reading=tuple(str(p) for p in reading),
+        artefact=artefact,
     )
     (Path(review) / RECORD_NAME).write_text(packet.model_dump_json(indent=1) + "\n")
     return packet

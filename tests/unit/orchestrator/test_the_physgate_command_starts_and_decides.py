@@ -383,8 +383,8 @@ def test_the_reviewer_factory_builds_one_claude_reviewer_per_role_on_its_pinned_
     _promoted(library, "control")
 
     def setup() -> ReviewerSetup:
-        return ReviewerSetup(
-            config=make_config(models=models),
+        return ReviewerSetup.of_run(
+            make_config(models=models),
             review_root=tmp_path / "rs",
             repo=tmp_path / "target",
             install_bin=tmp_path / "install" / "bin" / "physgate",

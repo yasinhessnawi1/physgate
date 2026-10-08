@@ -27,7 +27,7 @@ from physgate.gate.runner import PhysicsGate
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.exceptions import ReviewUnavailableError
 from physgate.orchestrator.protocols import Artefact
-from physgate.reviewers.claude import ClaudeReviewer
+from physgate.reviewers.claude import ClaudeReviewer, ReviewerSetup
 from physgate.reviewers.rubric import Rubric
 
 SRC = Path(physgate.__file__).parent
@@ -87,15 +87,17 @@ def test_the_claude_reviewer_gives_no_verdict_on_a_trajectory_it_cannot_read_who
     binary.chmod(binary.stat().st_mode | stat.S_IXUSR)
     reviewer = ClaudeReviewer(
         role="electrical",
-        config=make_config(),
         rubric=Rubric(role="electrical", text="r", sha256="0" * 64),
-        library=tmp_path,
-        review_root=tmp_path / "rs",
-        repo=tmp_path,
-        install_bin=tmp_path / "physgate",
-        binary=str(binary),
-        base_url=None,
-        credential=Credential(mode="api_key", secret="not-a-key"),
+        setup=ReviewerSetup.of_run(
+            make_config(),
+            review_root=tmp_path / "rs",
+            repo=tmp_path,
+            install_bin=tmp_path / "physgate",
+            binary=str(binary),
+            base_url=None,
+            credential=Credential(mode="api_key", secret="not-a-key"),
+            library=tmp_path,
+        ),
     )
     unsealed = Artefact(
         subtask_id="s1",

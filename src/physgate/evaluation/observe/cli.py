@@ -184,3 +184,79 @@ def add_parsers(
     p.add_argument("baseline", type=Path)
     p.add_argument("candidate", type=Path)
     p.set_defaults(func=_guarded(_compare))
+
+    g = subparsers.add_parser(
+        "generalist",
+        help="review one reviewed attempt again with the generalist rubric, and print the ratio",
+        description=(
+            "Review a finished run's attempt again, as its paired review read it, with the "
+            "role's rubric less its domain sections, and print paired over generalist tokens "
+            "and cost (n = 1)."
+        ),
+    )
+    g.add_argument("--run-dir", required=True, type=Path, help="the finished run")
+    g.add_argument("--subtask", required=True)
+    g.add_argument("--attempt", required=True, type=int)
+    g.add_argument("--target", required=True, type=Path, help="the run's target repository")
+    g.add_argument("--install", required=True, type=Path, help="the hooks' installation")
+    g.add_argument("--review-root", required=True, type=Path, help="the run's review root")
+    g.add_argument("--out", required=True, type=Path, help="a new directory for the review")
+    g.add_argument("--run-id", required=True, help="the generalist review's own run id")
+    g.add_argument("--prices", required=True, help="the price sheet's date, e.g. 2026-09-27")
+    g.set_defaults(func=_guarded(_generalist))
+
+
+def _generalist(args: argparse.Namespace) -> int:
+    import os
+
+    from physgate.evaluation.observe.generalist import (
+        BASELINE_NAME,
+        paired_review,
+        read_packet,
+        review_ratio,
+        run_generalist,
+    )
+    from physgate.orchestrator.cli import _library_root
+    from physgate.orchestrator.credentials import credential_for
+    from physgate.orchestrator.exceptions import ReviewerNotRegisteredError
+    from physgate.orchestrator.invocation import claude_binary
+    from physgate.orchestrator.run_config import load_run_config, require_endpoint
+    from physgate.reviewers.exceptions import ReviewError
+    from physgate.reviewers.places import require_review_root
+
+    run_dir = args.run_dir.resolve()
+    config = load_run_config(run_dir / "run.json")
+    base_url = os.environ.get("ANTHROPIC_BASE_URL")
+    require_endpoint(config, base_url)
+    prices = load_price_sheet(args.prices)
+    library = _library_root()
+    if library is None:
+        msg = "the rubrics are read from a source checkout, and there is none"
+        raise ReviewerNotRegisteredError(msg)
+    try:
+        review_root = require_review_root(args.review_root)
+        install_bin = args.install.resolve() / "bin" / "physgate"
+        ran, packet = run_generalist(
+            run_dir=run_dir,
+            subtask_id=args.subtask,
+            attempt=args.attempt,
+            out=args.out.resolve(),
+            run_id=args.run_id,
+            review_root=review_root,
+            target=args.target.resolve(),
+            install_bin=install_bin,
+            binary=claude_binary(),
+            base_url=base_url,
+            credential=credential_for(config.auth, os.environ),
+            library=library,
+        )
+    except ReviewError as exc:
+        print(json.dumps({"error": str(exc), **exc.context}, sort_keys=True), file=sys.stderr)
+        return 2
+    paired, _ = paired_review(run_dir, args.subtask, args.attempt)
+    ratio = review_ratio(
+        (paired.result, read_packet(review_root, paired.result)), (ran.result, packet), prices
+    )
+    (args.out.resolve() / BASELINE_NAME).write_text(ratio.model_dump_json(indent=1) + "\n")
+    _print(ratio)
+    return 0

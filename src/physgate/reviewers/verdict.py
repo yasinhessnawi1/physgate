@@ -284,6 +284,8 @@ def to_result(
     packet_sha256: str,
     reading_verified: bool,
     peak_context_tokens: int,
+    max_output_tokens: int | None = None,
+    context_window: int | None = None,
 ) -> ReviewResult:
     """The review result an accept or a reject becomes: the answer as given, and the record.
 
@@ -308,4 +310,6 @@ def to_result(
         packet_sha256=packet_sha256,
         reading_verified=reading_verified,
         peak_context_tokens=peak_context_tokens,
+        max_output_tokens=max_output_tokens,
+        context_window=context_window,
     )

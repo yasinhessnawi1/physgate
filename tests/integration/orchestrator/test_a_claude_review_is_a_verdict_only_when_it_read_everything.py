@@ -49,7 +49,7 @@ from physgate.orchestrator.install import prepare_install
 from physgate.orchestrator.protocols import Artefact, IssuedSpec, ReviewResult
 from physgate.orchestrator.run_config import HarnessState, ModelStrings, RunBounds, RunConfig
 from physgate.orchestrator.trajectory import seal
-from physgate.reviewers.claude import ClaudeReviewer
+from physgate.reviewers.claude import ClaudeReviewer, ReviewerSetup
 from physgate.reviewers.packet import DIFF_NAME, WORKTREE_NAME
 from physgate.reviewers.rubric import Rubric, parse_rubric
 from physgate.reviewers.verdict import VERDICT_SCHEMA
@@ -279,15 +279,17 @@ def run_review(tmp_path: Path, install: Path, binary: str) -> Iterator[Any]:
         with serving(Script(main=[], answer_as=answer_as)) as (api, url):
             reviewer = ClaudeReviewer(
                 role="control",
-                config=_config(binary_version(binary)),
                 rubric=RUBRIC,
-                library=library,
-                review_root=tmp_path / "rs",
-                repo=Path(attempt.worktree),
-                install_bin=install,
-                binary=binary,
-                base_url=url,
-                credential=Credential(mode="api_key", secret=DUMMY_KEY),
+                setup=ReviewerSetup.of_run(
+                    _config(binary_version(binary)),
+                    review_root=tmp_path / "rs",
+                    repo=Path(attempt.worktree),
+                    install_bin=install,
+                    binary=binary,
+                    base_url=url,
+                    credential=Credential(mode="api_key", secret=DUMMY_KEY),
+                    library=library,
+                ),
             )
 
             def step(_thread: str, cwd: str, done: int) -> dict[str, Any]:
@@ -321,6 +323,9 @@ def test_a_review_that_reads_everything_and_accepts_is_a_pass(
     assert result.reading_verified is True and result.rubric_sha256 == RUBRIC.sha256
     assert result.rubric_kind == "paired" and result.packet_sha256 is not None
     assert result.peak_context_tokens == 10 and result.usage  # the endpoint's 5 + 3 + 2
+    # The peak is read against the output limit it ran with and the window the binary reported.
+    assert result.max_output_tokens == 1000
+    assert result.context_window is not None and result.context_window > 0
     # Offered exactly the Read tool and the verdict tool, held to the verdict schema.
     assert all(set(r.offered_tools) == {"Read", "StructuredOutput"} for r in review.api.requests)
     assert all(r.structured_schema == VERDICT_SCHEMA for r in review.api.requests)
