@@ -97,6 +97,12 @@ class AttemptState:
         self.cursor = cursor
 
     @property
+    def blocked(self) -> ReviewRan | None:
+        """The review that blocked the attempt, if one did: a person decides, no attempt spent."""
+        review = self.review
+        return review if review is not None and review.result.verdict == "blocked" else None
+
+    @property
     def unavailable_final(self) -> ReviewUnavailable | None:
         """The review outcome that sends the attempt to a person, if there is one."""
         last = self.unavailable[-1] if self.unavailable else None
@@ -301,7 +307,8 @@ class RunState:
                 sub.status = "done"
         elif isinstance(event, Escalated):
             last = now.number == REPAIR_BUDGET and now.rejected is not None
-            self._expect(last or now.unavailable_final is not None, "an escalation")
+            to_a_person = now.unavailable_final is not None or now.blocked is not None
+            self._expect(last or to_a_person, "an escalation")
             sub.status = "escalated"
             sub.queue_item = event.item_id
         elif isinstance(event, Incident):
@@ -465,8 +472,9 @@ class RunState:
             if sub.status == "planned":
                 return Step("attempt", subtask_id, 1, "resolve")
             now = sub.attempts[-1]
-            if now.unavailable_final is not None:
-                # No verdict: a person decides, and no repair attempt is spent.
+            if now.unavailable_final is not None or now.blocked is not None:
+                # No verdict, or a blocked one: a person decides, and no repair attempt
+                # is spent.
                 return Step("escalate", subtask_id, now.number)
             if now.rejected is not None:
                 if sub.next_resolve is None:
@@ -505,7 +513,7 @@ class RunState:
             failed = now.session is not None and now.session.outcome == "infrastructure"
             # An infrastructure failure not yet answered is answered by the retry
             # schedule, not by a resume, so a crash there cannot reset the count.
-            final = now.unavailable_final is not None
+            final = now.unavailable_final is not None or now.blocked is not None
             if not clean and not failed and not final and now.rejected is None and now.diff is None:
                 return sub
         return None

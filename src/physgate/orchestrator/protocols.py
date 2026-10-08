@@ -27,6 +27,9 @@ Count = Annotated[int, Field(ge=0)]
 #: exists at all; the loop records that the stage was skipped and why.
 RunningGateMode = Literal["on", "observe"]
 Verdict = Literal["pass", "fail"]
+#: What a review comes to: a pass, a fail, or blocked (the issued specification lacks
+#: what a safety-critical check needs; a person decides, and no attempt is spent).
+ReviewVerdict = Literal["pass", "fail", "blocked"]
 
 
 class _Frozen(BaseModel):
@@ -482,7 +485,7 @@ class SpecDefect(_Frozen):
     item: NonEmptyStr | None = None
 
 
-#: Why a review that ran is not a verdict.
+#: Why a review that ran is not a verdict. A blocked review is a verdict, so it has none.
 UnavailableCause = Literal[
     "infrastructure",
     "refused",
@@ -491,7 +494,6 @@ UnavailableCause = Literal[
     "reading_incomplete",
     "compacted",
     "context_exceeded",
-    "blocking_spec_defect",
     "unprepared",
 ]
 
@@ -500,11 +502,12 @@ class ReviewResult(_Frozen):
     """What a reviewer hands back, with the tokens it spent doing it.
 
     The fields after ``usage`` were added with the paired reviewers and are optional,
-    so a review line written before them still reads. A verdict carries only
-    non-blocking specification defects: one with a blocking defect is not a verdict.
+    so a review line written before them still reads. ``blocked`` is a verdict: no
+    rejecting finding and at least one blocking specification defect. It is not a
+    pass or a fail; the attempt goes to a person, spending no repair attempt.
     """
 
-    verdict: Verdict
+    verdict: ReviewVerdict
     finding: NonEmptyStr
     reviewer_model: ModelString
     session_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
@@ -546,6 +549,9 @@ class ReviewResult(_Frozen):
             raise ValueError(msg)
         if self.verdict == "fail" and blocking and not rejecting:
             msg = "a review whose only obstacle is a blocking defect is blocked, not a fail"
+            raise ValueError(msg)
+        if self.verdict == "blocked" and (rejecting or not blocking):
+            msg = "blocked is a blocking specification defect and no rejecting finding"
             raise ValueError(msg)
         return self
 

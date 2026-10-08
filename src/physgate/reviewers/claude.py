@@ -21,7 +21,7 @@ verdict that :func:`verdict.judge` accepts. Everything else raises
 - ``context_exceeded``: the request outgrew the model's window;
 - ``refused``: the model declined;
 - ``no_verdict``: the session ran out of turns, or completed with no verdict;
-- ``invalid_verdict``, ``blocking_spec_defect``: as :func:`verdict.judge` decides;
+- ``invalid_verdict``: as :func:`verdict.judge` decides;
 - ``reading_incomplete``: the hook layer's records say a required file is unread;
 - ``infrastructure``: the session ended for any other reason (wall clock, an API
   error, no result, an unexpected exit).

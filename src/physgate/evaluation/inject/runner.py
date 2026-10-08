@@ -27,9 +27,10 @@ resumed: a killed run is started again into new directories.
 
 A review that is not a verdict never stops the run and is never a pass or a fail.
 An infrastructure failure is retried once; after that, the review is recorded in
-the log as unavailable and in its row as ``review_unavailable`` with its cause, or
-as ``blocked`` when a blocking defect of the issued specification was the reason.
-Every artefact gets its row.
+the log as unavailable and in its row as ``review_unavailable`` with its cause. A
+review that blocked, on a blocking defect of the issued specification, is a verdict:
+it is in the log as a review and in its row as ``blocked``. Every artefact gets its
+row.
 
 Artefacts run under an id derived from the seed and the corpus id, in the
 order those ids sort, so the log shows no corpus id and no class order. The
@@ -159,6 +160,10 @@ class InstrumentConfig(_Frozen):
 #: What one artefact's review came to, as its row records it.
 ReviewOutcome = Literal["pass", "fail", "blocked", "review_unavailable"]
 
+#: Why a review came to neither a pass nor a fail: a blocked verdict's one reason, or
+#: why a review reached no verdict.
+ReviewCause = UnavailableCause | Literal["blocking_spec_defect"]
+
 
 class ResultRow(_Frozen):
     """One artefact: what it is, what its reviewer said, and what the gate said after."""
@@ -173,7 +178,7 @@ class ResultRow(_Frozen):
     #: retry an infrastructure failure gets. Neither of the last two is a pass or a fail.
     reviewer_verdict: ReviewOutcome
     #: Why the review gave no pass or fail, for ``blocked`` and ``review_unavailable``.
-    review_cause: UnavailableCause | None
+    review_cause: ReviewCause | None
     #: ``None`` only for a review that never reached its model.
     reviewer_model: ModelString | None
     #: Every token the artefact's review spent, a retried try included.
@@ -355,11 +360,13 @@ class _Reviewed:
     def outcome(self) -> ReviewOutcome:
         if isinstance(self.line, ReviewRan):
             return self.line.result.verdict
-        return "blocked" if self.line.cause == "blocking_spec_defect" else "review_unavailable"
+        return "review_unavailable"
 
     @property
-    def cause(self) -> UnavailableCause | None:
-        return None if isinstance(self.line, ReviewRan) else self.line.cause
+    def cause(self) -> ReviewCause | None:
+        if isinstance(self.line, ReviewRan):
+            return "blocking_spec_defect" if self.line.result.verdict == "blocked" else None
+        return self.line.cause
 
     @property
     def model(self) -> str | None:

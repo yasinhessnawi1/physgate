@@ -87,6 +87,7 @@ from physgate.orchestrator.protocols import (
     IssuedSpec,
     Reviewer,
     ReviewResult,
+    SpecDefect,
     require_mode,
     require_separate_models,
 )
@@ -396,9 +397,11 @@ class Loop:
                 msg = "a step with no subtask or attempt"
                 raise RunStateError(msg, step=step.kind)
             if step.kind == "escalate":
-                unavailable = self.state.subtasks[step.subtask_id].attempts[-1].unavailable_final
-                if unavailable is not None:
-                    self._escalate_unavailable(step.subtask_id, unavailable)
+                now = self.state.subtasks[step.subtask_id].attempts[-1]
+                if now.unavailable_final is not None:
+                    self._escalate_unavailable(step.subtask_id, now.unavailable_final)
+                elif now.blocked is not None:
+                    self._escalate_blocked(step.subtask_id, now.blocked)
                 else:
                     self._escalate(step.subtask_id)
             elif step.kind == "infra_failed":
@@ -747,6 +750,8 @@ class Loop:
                 )
             )
         self._emit(ReviewRan(**self._env(), subtask_id=subtask_id, attempt=attempt, result=review))
+        if review.verdict == "blocked":
+            return False  # a person decides; the issued specification lacks an input
         if review.verdict == "fail":
             self._reject(subtask_id, attempt, Finding.from_review(review))
             return False
@@ -980,9 +985,40 @@ class Loop:
 
     def _escalate_unavailable(self, subtask_id: str, unavailable: ReviewUnavailable) -> None:
         """Send a subtask whose review reached no verdict to a person, spending no attempt."""
+        self._to_a_person(
+            subtask_id,
+            attempt=unavailable.attempt,
+            cause=unavailable.cause,
+            detail=unavailable.detail,
+            spec_defects=unavailable.spec_defects,
+        )
+
+    def _escalate_blocked(self, subtask_id: str, blocked: ReviewRan) -> None:
+        """Send a subtask whose review blocked it to a person, spending no attempt.
+
+        The review is on the record as a review; only the routing is shared with a
+        review that reached no verdict.
+        """
+        self._to_a_person(
+            subtask_id,
+            attempt=blocked.attempt,
+            cause="blocking_spec_defect",
+            detail=blocked.result.finding,
+            spec_defects=blocked.result.spec_defects,
+        )
+
+    def _to_a_person(
+        self,
+        subtask_id: str,
+        *,
+        attempt: int,
+        cause: str,
+        detail: str,
+        spec_defects: tuple[SpecDefect, ...],
+    ) -> None:
         session = self.state.subtasks[subtask_id].attempts[-1].session
         if session is None or session.trajectory is None or session.attempt_commit is None:
-            msg = "an unavailable review with no completed session behind it"
+            msg = "a review sent to a person with no completed session behind it"
             raise RunStateError(msg, subtask=subtask_id)
         if not self._trajectories_hold(subtask_id, [session]):
             return
@@ -993,10 +1029,10 @@ class Loop:
                     item_id=item_id,
                     run_id=self.config.run_id,
                     subtask_id=subtask_id,
-                    attempt=unavailable.attempt,
-                    cause=unavailable.cause,
-                    detail=unavailable.detail,
-                    spec_defects=unavailable.spec_defects,
+                    attempt=attempt,
+                    cause=cause,
+                    detail=detail,
+                    spec_defects=spec_defects,
                     artefact_diff=self._merger.artefact_diff(session.attempt_commit),
                     trajectory=session.trajectory,
                     ts=self.log.events[-1].ts,

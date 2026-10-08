@@ -16,7 +16,8 @@ unavailable and escalated, never read as a pass or a fail.
 - ``blocked``: at least one blocking specification defect and no rejecting
   finding. A safety-critical check cannot be decided because the issued
   specification lacks its input; only the decomposition can fix that, so the
-  subtask goes to a person and no repair attempt is spent.
+  subtask goes to a person and no repair attempt is spent. It is a verdict, recorded
+  as a review like the other two; it is not a pass or a fail.
 
 Every item of the rubric is answered, each under its own section, and nothing else
 is: a verdict that leaves an item out, or answers one twice, is not a verdict.
@@ -50,6 +51,7 @@ from physgate.orchestrator.protocols import (
     MessageUsage,
     NumericOutput,
     ReviewResult,
+    ReviewVerdict,
     SpecDefect,
     UnavailableCause,
 )
@@ -58,8 +60,14 @@ from physgate.reviewers.rubric import NotEvaluableNeeds, RubricItem
 from physgate.reviewers.scan import ScanHit
 
 #: The model's words for its verdict. ``accept`` and ``reject`` become the review's
-#: pass and fail; ``blocked`` is not a verdict on the attempt.
+#: pass and fail; ``blocked`` stays blocked, a verdict that is neither.
 ModelVerdictWord = Literal["accept", "reject", "blocked"]
+#: What each of the model's words becomes on the review line.
+REVIEW_VERDICT: dict[str, ReviewVerdict] = {
+    "accept": "pass",
+    "reject": "fail",
+    "blocked": "blocked",
+}
 
 
 class ModelVerdict(BaseModel):
@@ -95,7 +103,7 @@ class Unavailable(BaseModel):
     kind: Literal["unavailable"] = "unavailable"
     cause: UnavailableCause
     detail: NonEmptyStr
-    #: A blocking defect's findings, carried to the approval queue.
+    #: Any specification defects the answer recorded, carried to the approval queue.
     spec_defects: tuple[SpecDefect, ...] = ()
 
 
@@ -110,11 +118,11 @@ def judge(
     """What the reviewer's structured answer ``structured`` amounts to.
 
     Fails closed. Whatever the model wrote, and whatever goes wrong while reading
-    it, the outcome is an accept or a reject only when every check below has
-    passed on the validated answer itself; anything else is an unavailable review
-    with its cause, ``blocked`` among them. Nothing is defaulted: no field is
-    filled in, no verdict assumed, and the verdict is read only from the validated
-    copy, never from the raw answer.
+    it, the outcome is an accept, a reject or a blocked only when every check below
+    has passed on the validated answer itself; anything else is an unavailable
+    review with its cause. Nothing is defaulted: no field is filled in, no verdict
+    assumed, and the verdict is read only from the validated copy, never from the
+    raw answer.
     """
     try:
         return _judge(structured, scan_hits, rubric_items, criteria, not_evaluable)
@@ -153,13 +161,7 @@ def _judge(
     )
     if problem_text is not None:
         return Unavailable(cause="invalid_verdict", detail=problem_text)
-    if answer.verdict == "blocked":
-        return Unavailable(
-            cause="blocking_spec_defect",
-            detail="a safety-critical check cannot be decided from the issued specification",
-            spec_defects=answer.spec_defects,
-        )
-    if answer.verdict not in ("accept", "reject"):  # pragma: no cover - the type allows no other
+    if answer.verdict not in REVIEW_VERDICT:  # pragma: no cover - the type allows no other
         return Unavailable(cause="invalid_verdict", detail="an unknown verdict")
     return Answered(answer=answer)
 
@@ -259,14 +261,14 @@ def to_result(
     max_output_tokens: int | None = None,
     context_window: int | None = None,
 ) -> ReviewResult:
-    """The review result an accept or a reject becomes: the answer as given, and the record.
+    """The review result a verdict becomes: the answer as given, and the record.
 
-    ``accept`` is the review's pass and ``reject`` its fail; nothing here changes
-    which, specification defects included.
+    ``accept`` is the review's pass, ``reject`` its fail and ``blocked`` stays blocked;
+    nothing here changes which, specification defects included.
     """
     answer = answered.answer
     return ReviewResult(
-        verdict="pass" if answer.verdict == "accept" else "fail",
+        verdict=REVIEW_VERDICT[answer.verdict],
         finding=answer.finding,
         reviewer_model=reviewer_model,
         session_id=session_id,

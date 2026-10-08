@@ -3,7 +3,8 @@
 Holding everything but the domain sections fixed is the whole point of the ratio,
 so if the role's rubric was promoted again after the paired review, the generalist
 command refuses before any session is spawned, naming both digests. With the same
-rubric it gets as far as preparing the review.
+rubric it gets as far as preparing the review. A paired review that blocked is a
+review, and serves as the baseline as a pass or a fail does.
 """
 
 from __future__ import annotations
@@ -16,11 +17,11 @@ import pytest
 from observe_rig import config, target_repo
 
 from physgate.evaluation.observe.exceptions import ManifestError
-from physgate.evaluation.observe.generalist import run_generalist
+from physgate.evaluation.observe.generalist import paired_review, run_generalist
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, rubric_path
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.events import EventLog, ReviewRan, RunStarted, SubtaskPlanned
-from physgate.orchestrator.protocols import Artefact, ReviewResult
+from physgate.orchestrator.protocols import Artefact, ReviewResult, ReviewVerdict, SpecDefect
 from physgate.orchestrator.run_config import write_run_config
 from physgate.orchestrator.trajectory import Seal
 from physgate.reviewers.packet import RECORD_NAME, Packet
@@ -59,7 +60,7 @@ def _promoted(library: Path, text: str) -> str:
     return digest
 
 
-def _paired_run(tmp_path: Path, rubric_sha256: str) -> Path:
+def _paired_run(tmp_path: Path, rubric_sha256: str, verdict: ReviewVerdict = "pass") -> Path:
     """A finished run holding one paired review, its packet record beside it."""
     repo = target_repo(tmp_path)
     run_dir = tmp_path / "run"
@@ -97,9 +98,11 @@ def _paired_run(tmp_path: Path, rubric_sha256: str) -> Path:
     record = tmp_path / "rs" / SESSION / RECORD_NAME
     record.parent.mkdir(parents=True)
     record.write_text(packet.model_dump_json())
+    blocking = (SpecDefect(finding="no load is given", blocking=True),)
     result = ReviewResult(
-        verdict="pass",
-        finding="every item is met",
+        verdict=verdict,
+        finding="every item is met" if verdict == "pass" else "a check cannot be decided",
+        spec_defects=blocking if verdict == "blocked" else (),
         reviewer_model=cfg.models.reviewers["electrical"],
         session_id=SESSION,
         usage=(),
@@ -157,4 +160,15 @@ def test_with_the_same_rubric_it_goes_on_to_the_review(tmp_path: Path) -> None:
     with pytest.raises(Exception) as raised:  # noqa: PT011 - any failure past the check will do
         _generalist(tmp_path, run_dir, library)
     assert "paired review judged with" not in str(raised.value)
+    assert (tmp_path / "out" / "generalist.json").exists()
+
+
+def test_a_blocked_paired_review_is_the_baseline_too(tmp_path: Path) -> None:
+    library = tmp_path / "lib"
+    run_dir = _paired_run(tmp_path, _promoted(library, RUBRIC), verdict="blocked")
+    found, _ = paired_review(run_dir, "s1", 1)
+    assert found.result.verdict == "blocked" and found.result.session_id == SESSION
+    with pytest.raises(Exception) as raised:  # noqa: PT011 - any failure past the check will do
+        _generalist(tmp_path, run_dir, library)
+    assert "no paired review" not in str(raised.value)
     assert (tmp_path / "out" / "generalist.json").exists()

@@ -34,9 +34,13 @@ from physgate.orchestrator.exceptions import QueueError
 from physgate.orchestrator.protocols import GateResult, QuantityRef, SpecDefect
 from physgate.orchestrator.repair import Finding
 
-#: The queue's three sources (ARCH-130).
+#: The queue's sources (ARCH-130); a blocked review and one with no verdict are kept apart.
 QueueSource = Literal[
-    "gate_escalation", "repair_budget_exhausted", "review_unavailable", "arbitration"
+    "gate_escalation",
+    "repair_budget_exhausted",
+    "review_unavailable",
+    "review_blocked",
+    "arbitration",
 ]
 
 
@@ -135,7 +139,7 @@ def unavailable_item(
     trajectory: str,
     ts: str,
 ) -> QueueItem:
-    """The item for a subtask whose attempt got no verdict, with no repair attempt spent.
+    """The item for a subtask whose review blocked it or reached no verdict; no attempt spent.
 
     A blocked review names what the issued specification lacks, which only the
     decomposition can supply; any other cause names why no verdict was reached.
@@ -143,8 +147,8 @@ def unavailable_item(
     if cause == "blocking_spec_defect":
         lacking = "; ".join(d.finding for d in spec_defects if d.blocking) or detail
         decision = (
-            f"The review of subtask {subtask_id}, attempt {attempt}, could not decide a "
-            f"safety-critical check because the issued specification lacks its input: "
+            f"The review of subtask {subtask_id}, attempt {attempt}, was blocked: it could "
+            f"not decide a safety-critical check because the issued specification lacks its input: "
             f"{lacking}. Decide whether to revise the specification and dispatch again, or "
             "to decide the check yourself. No repair attempt was spent."
         )
@@ -160,7 +164,7 @@ def unavailable_item(
         ts=ts,
         run_id=run_id,
         subtask_id=subtask_id,
-        source="review_unavailable",
+        source="review_blocked" if cause == "blocking_spec_defect" else "review_unavailable",
         decision_required=decision if not notes else decision + " Notes: " + "; ".join(notes),
         artefact_diff=artefact_diff,
         triggering_finding=detail,

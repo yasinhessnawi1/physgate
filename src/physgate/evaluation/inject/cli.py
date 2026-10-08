@@ -12,9 +12,10 @@ and the scratch directory is its review root.
 
 Every artefact gets its row. A review that gave no verdict (after the one retry an
 infrastructure failure gets) is recorded as ``review_unavailable`` with its cause,
-and one that found a blocking defect of the issued specification as ``blocked``;
-neither is a pass or a fail, and the run goes on. The command prints how many
-reviews came to each, and exits 1 if any came to neither a pass nor a fail.
+and one that blocked on a blocking defect of the issued specification is a review
+recorded as ``blocked``; neither is a pass or a fail, and the run goes on. The
+command prints how many reviews came to each, and exits 1 if any came to neither a
+pass nor a fail.
 
 It refuses a corpus that is not complete (ten artefacts of each class, ten distinct
 cross-domain propagation edges), so the measurement never runs on a partial one.

@@ -25,7 +25,8 @@ whatever its ending:
   reviewer model, with the promoted rubric's digest, its packet's digest, its reading verified,
   and its output limit and peak context recorded; the reviewer model is never the implementer's;
 - each such review is on the task ledger (``review_result``), and the gate events of the same
-  attempt carry the reviewer's verdict (``reviewer_had_passed``);
+  attempt carry the reviewer's verdict (``reviewer_had_passed``), or none for a blocked review,
+  which is a verdict but neither a pass nor a fail; a blocked review counts as a review;
 - an attempt a review rejected was followed by one whose instruction carries that review's
   finding; a run in which no review rejects says so, rather than passing that check.
 
@@ -36,8 +37,9 @@ cost line, with what reviewing spent by subtask, is written beside it.
 
 The dry run serves every session from the scripted endpoint. Its reviewer reads every file it
 must and gives a verdict on the role's real rubric, every item answered; the control subtask's
-first review rejects, so the repair path runs. The baseline's dry run serves on the address the
-paired dry run recorded, which the run holds every later command to.
+first review rejects, so the repair path runs, or with ``--dry-control blocked`` submits the
+third real control review's blocked verdict, so the blocked path runs. The baseline's dry run
+serves on the address the paired dry run recorded, which the run holds every later command to.
 
 **The token.** With ``--real``, ``CLAUDE_CODE_OAUTH_TOKEN`` is read from the env file by this
 script, held only in memory and never printed. At the end every file under the output directory
@@ -134,6 +136,11 @@ def promoted_rubrics() -> dict[str, str]:
     return found
 
 
+def _stamp(review: ReviewRan) -> bool | None:
+    """What the gate events of a review's attempt say of it: nothing, for a blocked one."""
+    return None if review.result.verdict == "blocked" else review.result.verdict == "pass"
+
+
 def check_paired(run_dir: Path, review_root: Path) -> dict[str, Any]:
     """The paired reviews, against the run's own records, whatever its ending."""
     events = read_events(run_dir / "events.jsonl")
@@ -176,7 +183,7 @@ def check_paired(run_dir: Path, review_root: Path) -> dict[str, Any]:
         any(
             g.subtask_id == r.subtask_id
             and g.attempt == r.attempt
-            and g.reviewer_had_passed == (r.result.verdict == "pass")
+            and g.reviewer_had_passed == _stamp(r)
             for g in stamped
         )
         for r in reviews
@@ -300,8 +307,18 @@ def _verdict(cwd: str, reject: bool) -> dict[str, Any]:
     }
 
 
-def dry_reviews(api: Any) -> None:  # noqa: ANN401
-    """Wrap the first run's scripted sessions with a scripted reviewer for every review."""
+#: The third real control review's submission, a blocked verdict, as the model sent it.
+BLOCKED_SUBMISSION = (
+    Path(__file__).resolve().parent / "replayed" / "review_submission_v3_control.json"
+)
+
+
+def dry_reviews(api: Any, control: str = "reject") -> None:  # noqa: ANN401
+    """Wrap the first run's scripted sessions with a scripted reviewer for every review.
+
+    ``control`` is what the control subtask's first paired review submits: a reject, so the
+    repair path runs, or the real blocked submission, so the blocked path does.
+    """
     roles = api.on_request
     reviewed: list[str] = []
 
@@ -315,7 +332,11 @@ def dry_reviews(api: Any) -> None:  # noqa: ANN401
         rubric = (Path(cwd).parent / "rubric.md").read_text()
         first_control = bool(reviewed) and reviewed[0] == cwd and NOT_IN_REVIEW not in rubric
         steps = [tool("Read", file_path=p) for p in _reading(cwd)]
-        steps.append(tool("StructuredOutput", review=_verdict(cwd, reject=first_control)))
+        if first_control and control == "blocked":
+            submitted = json.loads(BLOCKED_SUBMISSION.read_text())
+        else:
+            submitted = _verdict(cwd, reject=first_control)
+        steps.append(tool("StructuredOutput", review=submitted))
         return steps[done] if done < len(steps) else text("done")
 
     api.on_request = on_request
@@ -445,6 +466,12 @@ def main() -> None:
     parser.add_argument("--criteria", type=Path, required=True, help="the criteria stamped first")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--paired", type=Path, help="generalist: the paired run's --out")
+    parser.add_argument(
+        "--dry-control",
+        choices=["reject", "blocked"],
+        default="reject",
+        help="dry run: the control subtask's first paired review rejects, or is blocked",
+    )
     parser.add_argument("--env-file", type=Path, default=Path.home() / "dev" / "physgate" / ".env")
     args = parser.parse_args()
     if args.phase == "generalist" and args.paired is None:
@@ -497,7 +524,7 @@ def main() -> None:
             if args.dry_run:
                 with serving(Script(main=[])) as (api, url):
                     base.dry_script(api)
-                    dry_reviews(api)
+                    dry_reviews(api, args.dry_control)
                     os.environ["ANTHROPIC_BASE_URL"] = url
                     result = paired(root)
                     result["endpoint_failures"] = list(api.failures)

@@ -1,8 +1,8 @@
 """A review with no verdict goes to a person, spends no repair attempt, and is never a pass.
 
-Blocked (a safety-critical check the issued specification gives no input for), an
-invalid or missing verdict, unfinished reading, a compacted or overflowing
-session: each escalates at once. An infrastructure failure is retried once, and
+An invalid or missing verdict, unfinished reading, a compacted or overflowing
+session: each escalates at once. (A blocked review is a verdict, not one of these;
+it goes to a person the same way, as a review.) An infrastructure failure is retried once, and
 escalates if the retry fails too. In every case catch accounting records no
 reviewer verdict for the attempt. A reject that also carries a blocking defect is
 an ordinary reject, whose repair instruction names the defect.
@@ -77,7 +77,6 @@ rig_requests: list[int] = []
 @pytest.mark.parametrize(
     "cause",
     [
-        "blocking_spec_defect",
         "invalid_verdict",
         "no_verdict",
         "reading_incomplete",
@@ -88,8 +87,7 @@ rig_requests: list[int] = []
     ],
 )
 def test_a_final_cause_escalates_at_once_and_spends_no_attempt(tmp_path: Path, cause: str) -> None:
-    extra = {"spec_defects": (BLOCKING,)} if cause == "blocking_spec_defect" else {}
-    reviewer = FakeReviewer(unavailable={1: _unavailable(cause, **extra)})
+    reviewer = FakeReviewer(unavailable={1: _unavailable(cause)})
     events = _run(tmp_path, reviewer)
     unavailable = [e for e in events if isinstance(e, ReviewUnavailable)]
     assert [(u.cause, u.retry) for u in unavailable] == [(cause, False)]
@@ -102,10 +100,8 @@ def test_a_final_cause_escalates_at_once_and_spends_no_attempt(tmp_path: Path, c
     assert [e.message_id for e in spent] == [f"u-{cause}"]
 
 
-def test_the_queue_item_names_what_the_issued_specification_lacks(tmp_path: Path) -> None:
-    reviewer = FakeReviewer(
-        unavailable={1: _unavailable("blocking_spec_defect", spec_defects=(BLOCKING,))}
-    )
+def test_the_queue_item_says_why_no_verdict_was_reached(tmp_path: Path) -> None:
+    reviewer = FakeReviewer(unavailable={1: _unavailable("no_verdict")})
     rig = Rig(tmp_path, reviewer=reviewer)
     loop = rig.open()
     loop.start(plan("s1"))
@@ -113,7 +109,7 @@ def test_the_queue_item_names_what_the_issued_specification_lacks(tmp_path: Path
     (item,) = loop.queue.open_items()
     loop.close()
     assert item.source == "review_unavailable"
-    assert "no unstable pole is given" in item.decision_required
+    assert "reached no verdict (no_verdict" in item.decision_required
     assert "No repair attempt was spent" in item.decision_required
     assert loop.state.subtasks["s1"].status == "escalated"
 
@@ -142,9 +138,7 @@ def test_infrastructure_twice_escalates(tmp_path: Path) -> None:
 
 
 def test_catch_accounting_records_no_reviewer_verdict_for_it(tmp_path: Path) -> None:
-    reviewer = FakeReviewer(
-        unavailable={1: _unavailable("blocking_spec_defect", spec_defects=(BLOCKING,))}
-    )
+    reviewer = FakeReviewer(unavailable={1: _unavailable("invalid_verdict")})
     rig = Rig(tmp_path, reviewer=reviewer, gate_mode="observe")
     rig.gate = FakeGate(verdicts=["fail"])
     loop = rig.open()

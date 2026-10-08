@@ -254,7 +254,7 @@ def test_control_s_reviewer_may_judge_it_safety_critical_and_block() -> None:
     items = _rubric("control")
     found, outcome = _both(_not_evaluable("control", blocking=True), items, None, "defect")
     assert found == []
-    assert isinstance(outcome, Unavailable) and outcome.cause == "blocking_spec_defect"
+    assert isinstance(outcome, Answered) and outcome.answer.verdict == "blocked"
 
 
 def test_firmware_follows_its_rubric_an_unevaluable_criterion_needs_a_blocking_defect() -> None:
@@ -263,7 +263,7 @@ def test_firmware_follows_its_rubric_an_unevaluable_criterion_needs_a_blocking_d
     assert isinstance(outcome, Unavailable) and outcome.cause == "invalid_verdict"
     assert "blocking defect" in outcome.detail
     _, blocked = _both(_not_evaluable("firmware", blocking=True), items, None, "blocking")
-    assert isinstance(blocked, Unavailable) and blocked.cause == "blocking_spec_defect"
+    assert isinstance(blocked, Answered) and blocked.answer.verdict == "blocked"
 
 
 def test_an_unevaluable_rubric_item_takes_the_same_rule_and_the_schema_says_so() -> None:
@@ -325,8 +325,8 @@ def test_a_numbered_criterion_not_evaluable_carries_its_own_defect_in_the_schema
     answer["verdict"] = "blocked"
     found, outcome = _both(answer, items, criteria, "blocking")
     assert found == []
-    assert isinstance(outcome, Unavailable) and outcome.cause == "blocking_spec_defect"
-    assert outcome.spec_defects[0].item == "2"
+    assert isinstance(outcome, Answered) and outcome.answer.verdict == "blocked"
+    assert outcome.answer.spec_defects[0].item == "2"
 
 
 def test_each_role_takes_its_own_rubric_s_rule_and_a_role_with_none_the_stricter() -> None:

@@ -3,9 +3,10 @@
 The reviewer's answer is untrusted input. Every combination that would let a model
 pass work it found wrong, skip an item, or ignore a check the trajectory shows
 switched off is refused as no verdict. A blocking defect of the issued
-specification alone makes the review blocked, which goes to a person without
-spending a repair attempt; beside a rejecting finding it rides along on the reject.
-A non-blocking defect changes nothing.
+specification alone makes the review blocked, a verdict that is neither a pass
+nor a fail, which goes to a person without spending a repair attempt; beside a
+rejecting finding it rides along on the reject. A non-blocking defect changes
+nothing.
 """
 
 from __future__ import annotations
@@ -163,10 +164,12 @@ def test_blocked_with_an_item_not_evaluable() -> None:
     outcome = _outcome(
         verdict="blocked", finding="DS-4(c) cannot be decided", items=items, spec_defects=[BLOCKING]
     )
-    assert isinstance(outcome, Unavailable) and outcome.cause == "blocking_spec_defect"
-    assert outcome.spec_defects == (
+    assert isinstance(outcome, Answered) and outcome.answer.verdict == "blocked"
+    assert outcome.answer.spec_defects == (
         ModelVerdict.model_validate_json(json.dumps(answer(spec_defects=[BLOCKING]))).spec_defects
     )
+    result = _result(outcome)
+    assert result.verdict == "blocked" and result.spec_defects == outcome.answer.spec_defects
 
 
 def test_an_acceptance_criterion_not_evaluable_is_blocked_too() -> None:
@@ -178,7 +181,8 @@ def test_an_acceptance_criterion_not_evaluable_is_blocked_too() -> None:
     outcome = _outcome(
         verdict="blocked", finding="AC-2 cannot be decided", items=items, spec_defects=[defect]
     )
-    assert isinstance(outcome, Unavailable) and outcome.cause == "blocking_spec_defect"
+    assert isinstance(outcome, Answered) and outcome.answer.verdict == "blocked"
+    assert _result(outcome).verdict == "blocked"
 
 
 # -- the invalid ones: each escalates as no verdict -----------------------------------
@@ -290,6 +294,17 @@ def _result(outcome: Answered | Unavailable) -> ReviewResult:
 def test_accept_is_a_pass_and_reject_a_fail_whatever_the_non_blocking_defects() -> None:
     assert _result(_outcome(spec_defects=[NONBLOCKING])).verdict == "pass"
     assert _result(_outcome(**REJECT, spec_defects=[NONBLOCKING])).verdict == "fail"
+    blocked = _outcome(
+        verdict="blocked",
+        finding="DS-4(c) cannot be decided",
+        items=[
+            item("AC-1", "acceptance_criteria", "met"),
+            UNEVALUABLE_DS,
+            item("RH-1", "reward_hacking", "not observed"),
+        ],
+        spec_defects=[BLOCKING, NONBLOCKING],
+    )
+    assert _result(blocked).verdict == "blocked"
 
 
 def test_a_reject_carries_its_item_and_number_into_the_second_repair_instruction() -> None:

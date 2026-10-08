@@ -2,8 +2,9 @@
 
 A review that fails for infrastructure is retried once. One that still gives no
 verdict, or gives none for another reason, is recorded in the log as unavailable
-and in its row as ``review_unavailable`` with its cause; a blocking defect of the
-issued specification is recorded as ``blocked``. The run goes on to the next
+and in its row as ``review_unavailable`` with its cause. A review that blocked on a
+blocking defect of the issued specification is a verdict: it is in the log as a
+review and in its row as ``blocked``. The run goes on to the next
 artefact and to the gate, and the command's exit status and summary give the
 counts. The reviewer here is a stand-in that answers from a script; nothing is
 called.
@@ -29,7 +30,13 @@ from physgate.orchestrator.events import (
 )
 from physgate.orchestrator.exceptions import ReviewUnavailableError
 from physgate.orchestrator.gate_events import gate_events
-from physgate.orchestrator.protocols import Artefact, MessageUsage, ReviewResult, Usage
+from physgate.orchestrator.protocols import (
+    Artefact,
+    MessageUsage,
+    ReviewResult,
+    SpecDefect,
+    Usage,
+)
 
 SEED = 11
 
@@ -43,7 +50,10 @@ def _usage(n: int) -> tuple[MessageUsage, ...]:
 
 @dataclass
 class ScriptedReviewer:
-    """Answers each review from a script of causes, in order; ``None`` is a pass."""
+    """Answers each review from a script of causes, in order; ``None`` is a pass.
+
+    ``"blocked"`` is a blocked verdict, which is a review, not a cause.
+    """
 
     script: list[str | None]
     model: str = REVIEWER
@@ -52,6 +62,15 @@ class ScriptedReviewer:
     def review(self, artefact: Artefact) -> ReviewResult:
         self.seen.append(artefact)
         cause = self.script.pop(0)
+        if cause == "blocked":
+            return ReviewResult(
+                verdict="blocked",
+                finding="the issued specification gives no load for the safety check",
+                reviewer_model=self.model,
+                session_id=f"s{len(self.seen)}",
+                usage=_usage(7),
+                spec_defects=(SpecDefect(finding="no load is given", blocking=True),),
+            )
         if cause is not None:
             raise ReviewUnavailableError(
                 f"scripted {cause}",
@@ -106,9 +125,8 @@ def test_an_infrastructure_failure_is_retried_once_and_its_tokens_are_counted(
         (["infrastructure", "infrastructure", None], "review_unavailable", "infrastructure"),
         (["no_verdict", None], "review_unavailable", "no_verdict"),
         (["compacted", None], "review_unavailable", "compacted"),
-        (["blocking_spec_defect", None], "blocked", "blocking_spec_defect"),
     ],
-    ids=["infrastructure-twice", "no-verdict", "compacted", "blocked"],
+    ids=["infrastructure-twice", "no-verdict", "compacted"],
 )
 def test_a_review_with_no_verdict_is_a_row_of_its_own_and_the_run_goes_on(
     tmp_path: Path, script: list[str | None], outcome: str, cause: str
@@ -126,6 +144,31 @@ def test_a_review_with_no_verdict_is_a_row_of_its_own_and_the_run_goes_on(
     assert max(e.seq for e in reviews) < min(g.seq for g in gates)
     final = [e for e in events if isinstance(e, ReviewUnavailable) and not e.retry]
     assert len(final) == 1 and final[0].cause == cause
+
+
+def test_a_blocked_review_is_a_review_and_its_row_says_blocked(tmp_path: Path) -> None:
+    """Blocked is on the log as a review line with its model and tokens, never as unavailable."""
+    rows, events = _run(tmp_path, ScriptedReviewer(["blocked", None]))
+    assert len(rows) == 2
+    first, second = _by_seq(rows)
+    assert (first["reviewer_verdict"], first["review_cause"]) == ("blocked", "blocking_spec_defect")
+    assert first["reviewer_model"] == REVIEWER and first["reviewer_tokens"] == 7
+    assert (second["reviewer_verdict"], second["review_cause"]) == ("pass", None)
+    assert not [e for e in events if isinstance(e, ReviewUnavailable)]
+    ran = [e for e in events if isinstance(e, ReviewRan)]
+    assert [e.result.verdict for e in ran] == ["blocked", "pass"]
+    assert ran[0].seq == first["review_seq"]
+    assert [d.blocking for d in ran[0].result.spec_defects] == [True]
+    # Catch accounting records no reviewer verdict for it, never a pass or a fail.
+    (started,) = [e for e in events if isinstance(e, RunStarted)]
+    stamped = gate_events(events, started.config_sha256)  # type: ignore[arg-type]
+    blocked = {
+        (e.reviewer_had_passed, e.reviewer_basis, e.review_seq)
+        for e in stamped
+        if e.subtask_id == first["review_id"]
+    }
+    passed = {e.reviewer_had_passed for e in stamped if e.subtask_id == second["review_id"]}
+    assert blocked == {(None, None, None)} and passed == {True}
 
 
 def test_a_review_with_no_verdict_stamps_no_reviewer_verdict_on_its_gate_events(
@@ -160,6 +203,16 @@ def test_the_command_says_how_many_came_to_each_and_exits_1_if_any_came_to_neith
     assert main(argv, Registrations(reviewers={"electrical": reviewer})) == 1
     printed = json.loads(capsys.readouterr().out)
     assert printed["reviews"] == {"pass": 1, "fail": 0, "blocked": 0, "review_unavailable": 1}
+    argv[argv.index("rows-2")] = "rows-4"
+    argv[argv.index(str(tmp_path / "run"))] = str(tmp_path / "run4")
+    argv[argv.index(str(tmp_path / "scratch"))] = str(tmp_path / "scratch4")
+    blocked = ScriptedReviewer(["blocked", None])
+    assert main(argv, Registrations(reviewers={"electrical": blocked})) == 1
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["reviews"] == {"pass": 1, "fail": 0, "blocked": 1, "review_unavailable": 0}
+    argv[argv.index("rows-4")] = "rows-2"
+    argv[argv.index(str(tmp_path / "run4"))] = str(tmp_path / "run")
+    argv[argv.index(str(tmp_path / "scratch4"))] = str(tmp_path / "scratch")
     argv[argv.index("rows-2")] = "rows-3"
     argv[argv.index(str(tmp_path / "run"))] = str(tmp_path / "run2")
     argv[argv.index(str(tmp_path / "scratch"))] = str(tmp_path / "scratch2")
