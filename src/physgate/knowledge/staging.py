@@ -31,7 +31,7 @@ import uuid
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, StringConstraints, ValidationError
+from pydantic import BaseModel, ConfigDict, StringConstraints, ValidationError, model_validator
 
 from physgate.knowledge.exceptions import StagingError
 
@@ -72,6 +72,16 @@ class Candidate(BaseModel):
     candidate_id: Annotated[str, StringConstraints(pattern=_ID_PATTERN)]
     #: Informational only — nothing in this package reads it to decide anything.
     written: Annotated[str, StringConstraints(min_length=1)]
+    #: A corrected whole skill file, which replaces the promoted one rather than
+    #: adding to it. Only a skill is ever staged as one.
+    replaces: bool = False
+
+    @model_validator(mode="after")
+    def _only_a_skill_replaces(self) -> Candidate:
+        if self.replaces and self.kind != "skill":
+            msg = "only a skill candidate is staged as a replacement; the others replace by kind"
+            raise ValueError(msg)
+        return self
 
 
 def append(
@@ -81,6 +91,7 @@ def append(
     *,
     domain: str,
     staging_root: Path | None = None,
+    replaces: bool = False,
 ) -> Path:
     """Write one candidate under ``staging_root``; never reads or writes the library.
 
@@ -100,6 +111,7 @@ def append(
             episode_id=episode_id,
             candidate_id=candidate_id,
             written=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            replaces=replaces,
         )
     except ValidationError as exc:
         msg = "a candidate did not validate"

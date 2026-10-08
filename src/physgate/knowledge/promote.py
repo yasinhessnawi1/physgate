@@ -13,7 +13,9 @@ A promoted candidate is written whole into its destination — a `kind:
 human's explicit act of replacing it); a `kind: "skill"` or `"antipattern"`
 candidate creates `knowledge/<domain>/skill.md` if none exists yet, or is
 appended to it if one already does, matching ARCH-100's own model of a skill
-file accumulating from many episodes over time. Either way the candidate is
+file accumulating from many episodes over time. A skill candidate staged as a
+correction of the whole file (``replaces``) is written whole instead, like a
+standards file, and its promotion line says so. Either way the candidate is
 removed from `staging/` once promoted, so `staging/` always reflects exactly
 what is still pending, and a candidate id cannot be promoted twice.
 
@@ -313,18 +315,24 @@ def _apply(
     if kind == "rubric":
         # Only a paired rubric of the required form becomes a role's rubric: one that
         # would not load is refused here, by the person promoting it, not at a run's start.
-        from physgate.reviewers.rubric import check_rubric  # the reviewers import this module
+        from physgate.reviewers.exceptions import ReviewError  # they import this module
+        from physgate.reviewers.rubric import check_rubric
 
-        check_rubric(text.decode("utf-8"))
+        try:
+            check_rubric(text.decode("utf-8"))
+        except ReviewError as exc:
+            msg = f"the staged rubric would not load as a role's rubric: {exc}"
+            raise PromotionError(msg, candidate_id=candidate_id, **exc.context) from None
         # An opaque line only this version of this rubric holds. A session that reads
         # the rubric by a path no hook can judge shows it in its own stream, where the
         # dispatcher looks for it: detection after the fact, not prevention.
         canary = secrets.token_hex(16)
         text += f"\n<!-- {canary} -->\n".encode()
-    before = None if kind in ("standards", "rubric") else _existing(destination, knowledge_root)
+    whole = kind in ("standards", "rubric") or candidate.replaces
+    before = None if whole else _existing(destination, knowledge_root)
     data = text if before is None else before + b"\n---\n\n" + text
     _replace(destination, Path(knowledge_root), data)
-    event = {
+    event: dict[str, object] = {
         "candidate_id": candidate.candidate_id,
         "kind": kind,
         "domain": candidate.domain,
@@ -337,6 +345,8 @@ def _apply(
     }
     if canary is not None:
         event["canary"] = canary
+    if candidate.replaces:
+        event["replaces"] = True
     _append_record(Path(promotions_path), json.dumps(event, sort_keys=True) + "\n")
     candidate_path.unlink()
     return destination
