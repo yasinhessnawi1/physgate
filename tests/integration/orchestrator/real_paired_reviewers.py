@@ -661,6 +661,17 @@ PREFLIGHT_PROMPT = "Reply by calling the StructuredOutput tool once, with any va
 PREFLIGHT_OUTPUT_TOKENS = 2000
 
 
+def preflight_schema(role: str) -> tuple[tuple[str, ...] | None, dict[str, Any]]:
+    """The criteria ``role``'s issued specification numbers, and the schema its reviews get."""
+    issued = {"control": base.CONTROL_SPEC, "firmware": base.FIRMWARE_SPEC}
+    rubric = load_rubric(base.REPO_ROOT / KNOWLEDGE_ROOT, role)
+    criteria = issued_criteria(issued[role])
+    schema = verdict_schema(
+        rubric.items, criteria=criteria, scan_hits=(), not_evaluable=not_evaluable_needs(role)
+    )
+    return criteria, schema
+
+
 def preflight(root: Path, token: str, base_url: str | None) -> dict[str, Any]:
     """One short reviewer session per role, with the schema its reviews will be offered.
 
@@ -670,13 +681,8 @@ def preflight(root: Path, token: str, base_url: str | None) -> dict[str, Any]:
     strict-mode warning. One turn, no file tool, the output limit small.
     """
     found: dict[str, Any] = {}
-    issued = {"control": base.CONTROL_SPEC, "firmware": base.FIRMWARE_SPEC}
     for role in ("control", "firmware"):
-        rubric = load_rubric(base.REPO_ROOT / KNOWLEDGE_ROOT, role)
-        criteria = issued_criteria(issued[role])
-        schema = verdict_schema(
-            rubric.items, criteria=criteria, scan_hits=(), not_evaluable=not_evaluable_needs(role)
-        )
+        criteria, schema = preflight_schema(role)
         sdir = root / "preflight" / role
         (sdir / "home").mkdir(parents=True)
         config_dir = sdir / "config"

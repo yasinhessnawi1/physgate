@@ -110,3 +110,16 @@ def test_an_inexact_copy_is_reported_with_its_diff(tmp_path: Path) -> None:
                 "-# Control module specification: balance loop for the Pololu Balboa 32U4"
                 in (found["diff"])
             )
+
+
+def test_the_pre_flight_offers_control_the_schema_of_its_eleven_criteria(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name in ("CONTROL_SPEC", "BRIEF", "params"):
+        monkeypatch.setattr(base, name, getattr(base, name))
+    paired.use_fixture()
+    criteria, schema = paired.preflight_schema("control")
+    lines = schema["properties"]["review"]["properties"]["acceptance_criteria"]
+    assert criteria == tuple(str(n) for n in range(1, 12))
+    assert lines["minItems"] == lines["maxItems"] == 11
+    assert paired.preflight_schema("firmware")[0] is None
