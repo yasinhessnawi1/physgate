@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -84,3 +86,27 @@ def test_the_node_template_filled_with_placeholders_is_a_valid_node() -> None:
     for name, (_, unit) in paired.DRY_NODE_UNITS.items():
         assert f'"{name}": {{"unit": "{unit}", ...}}' in spec, name
     assert spec.count('{"unit": ') == len(paired.DRY_NODE_UNITS)
+
+
+def test_an_inexact_copy_is_reported_with_its_diff(tmp_path: Path) -> None:
+    repo = tmp_path / "target"
+    branch = f"physgate/{base.RUN_ID}/run"
+    spec = paired.control_fixture_spec()
+    for text, exact in ((spec, True), (spec.replace("Balboa 32U4", "Balboa  32U4", 1), False)):
+        if repo.exists():
+            shutil.rmtree(repo)
+        path = repo / ".physgate" / "specs" / f"{base.CONTROL_ID}.md"
+        path.parent.mkdir(parents=True)
+        path.write_text(text)
+        git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+        subprocess.run([*git, "init", "-q", "-b", branch], check=True)
+        subprocess.run([*git, "add", "-A"], check=True)
+        subprocess.run([*git, "commit", "-q", "-m", "issued"], check=True)
+        found = paired.issued_control_spec(repo)
+        assert found["is_the_fixture"] is exact
+        assert (found["diff"] is None) is exact
+        if not exact:
+            assert (
+                "-# Control module specification: balance loop for the Pololu Balboa 32U4"
+                in (found["diff"])
+            )

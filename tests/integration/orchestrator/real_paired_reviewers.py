@@ -59,6 +59,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import difflib
 import hashlib
 import io
 import json
@@ -598,8 +599,9 @@ def paired(root: Path) -> dict[str, Any]:
 def issued_control_spec(repo: Path) -> dict[str, Any]:
     """The control subtask's specification as the run issued it, against the fixture's digest.
 
-    Reported, not scored: the decomposition model copies the specification from the brief,
-    and a copy that is not byte for byte the fixture is seen here.
+    The decomposition model copies the specification from the brief. A copy that is not byte
+    for byte the fixture ends the run's standing: the run is reported as it ended, with the
+    diff recorded here, never scored and never rerun under the same criteria.
     """
     shown = subprocess.run(
         [
@@ -610,13 +612,17 @@ def issued_control_spec(repo: Path) -> dict[str, Any]:
         check=False,
     )
     if shown.returncode != 0:
-        return {"sha256": None, "is_the_fixture": False}
+        return {"sha256": None, "is_the_fixture": False, "diff": None}
     digest = hashlib.sha256(shown.stdout).hexdigest()
-    return {
-        "sha256": digest,
-        "bytes": len(shown.stdout),
-        "is_the_fixture": digest == CONTROL_FIXTURE_SHA256,
-    }
+    exact = digest == CONTROL_FIXTURE_SHA256
+    diff = None
+    if not exact:
+        issued = shown.stdout.decode("utf-8", errors="replace").splitlines(keepends=True)
+        fixture = control_fixture_spec().splitlines(keepends=True)
+        diff = "".join(
+            difflib.unified_diff(fixture, issued, "control_fixture_spec.md", "issued", n=1)
+        )
+    return {"sha256": digest, "bytes": len(shown.stdout), "is_the_fixture": exact, "diff": diff}
 
 
 def generalist(paired_root: Path, out: Path) -> dict[str, Any]:
@@ -832,6 +838,9 @@ def main() -> None:
                 "generalist_exit": result.get("generalist_exit"),
                 "preflight_all_accepted": (result.get("preflight") or {}).get("all_accepted"),
                 "token_ratio": (result.get("baseline") or {}).get("token_ratio"),
+                "control_spec_issued_exactly": (result.get("control_spec_issued") or {}).get(
+                    "is_the_fixture"
+                ),
             }
         ),
         flush=True,
