@@ -74,7 +74,13 @@ from physgate.orchestrator.events import (  # noqa: E402
 from physgate.orchestrator.gate_events import gate_events  # noqa: E402
 from physgate.orchestrator.invocation import claude_binary  # noqa: E402
 from physgate.orchestrator.run_config import load_run_config  # noqa: E402
-from physgate.reviewers.packet import DIFF_NAME, RECORD_NAME, WORKTREE_NAME  # noqa: E402
+from physgate.reviewers.contract import issued_criteria  # noqa: E402
+from physgate.reviewers.packet import (  # noqa: E402
+    DIFF_NAME,
+    RECORD_NAME,
+    SPEC_AS_ISSUED_NAME,
+    WORKTREE_NAME,
+)
 from physgate.reviewers.places import require_review_root  # noqa: E402
 from physgate.reviewers.rubric import NOT_IN_REVIEW, parse_rubric  # noqa: E402
 from physgate.state.task_ledger import TaskLedger  # noqa: E402
@@ -135,6 +141,8 @@ def check_paired(run_dir: Path, review_root: Path) -> dict[str, Any]:
                 "max_output_tokens": result.max_output_tokens,
                 "context_window": result.context_window,
                 "peak_context_tokens": result.peak_context_tokens,
+                "schema_refusals": result.schema_refusals,
+                "criteria_lines": len(result.criteria),
                 "tokens": sum(m.usage.total() for m in result.usage),
             }
         )
@@ -171,7 +179,16 @@ def check_paired(run_dir: Path, review_root: Path) -> dict[str, Any]:
         carries = any(rejected.result.finding in prompts.get(e.session_id, "") for e in nexts)
         repaired.append({"subtask": rejected.subtask_id, "next_attempt_carries_finding": carries})
     subtasks_reviewed = {r.subtask_id for r in reviews}
+    # A review ends in a verdict when its last line for an attempt is a review, not unavailable.
+    last_line: dict[tuple[str, int], str] = {}
+    for event in events:
+        if isinstance(event, ReviewRan | ReviewUnavailable) and not (
+            isinstance(event, ReviewUnavailable) and event.retry
+        ):
+            last_line[(event.subtask_id, event.attempt)] = event.kind
     checks = {
+        "every_review_ends_in_a_verdict": bool(last_line)
+        and all(kind == "review_ran" for kind in last_line.values()),
         "every_subtask_reviewed": subtasks_reviewed == set(ROLES),
         "every_review_well_formed": bool(per_review)
         and all(
@@ -182,6 +199,7 @@ def check_paired(run_dir: Path, review_root: Path) -> dict[str, Any]:
             and r["packet_recorded"]
             and r["reading_verified"]
             and r["max_output_tokens"] == config.max_output_tokens
+            and bool(r["criteria_lines"])
             for r in per_review
         ),
         "every_review_on_the_ledger": bool(reviews) and on_ledger,
@@ -210,6 +228,15 @@ def _reading(cwd: str) -> list[str]:
     return [str(p) for p in files if (read / WORKTREE_NAME) not in p.parents]
 
 
+#: A clean answer in each section's own words.
+CLEAN = {
+    "acceptance_criteria": "met",
+    "domain_standards": "n/a",
+    "antipatterns": "n/a",
+    "reward_hacking": "not observed",
+}
+
+
 def _verdict(cwd: str, reject: bool) -> dict[str, Any]:
     """A verdict on the packet's own rubric: every item answered; the scan's hits dismissed."""
     read = Path(cwd).parent
@@ -218,20 +245,28 @@ def _verdict(cwd: str, reject: bool) -> dict[str, Any]:
     items = parse_rubric(rubric, kind)  # type: ignore[arg-type]
     first = next(i for i in items if i.section == "acceptance_criteria")
     packet = json.loads((read.parent / RECORD_NAME).read_text())
+    issued = read / SPEC_AS_ISSUED_NAME
+    criteria = issued_criteria(issued.read_text() if issued.is_file() else None)
     return {
         "verdict": "reject" if reject else "accept",
         "finding": "the stand-in's gain is not the specified one" if reject else "every item met",
         "failing_item": first.id if reject else None,
         "subject": "control.loop_gain" if reject else None,
         "numeric_output": {"value": 11, "unit": "dimensionless"} if reject else None,
-        "items": [
-            {
-                "item": i.id,
-                "section": i.section,
-                "result": "unmet" if reject and i.id == first.id else "met",
-                "evidence": "diff.patch: 1",
+        "items": {
+            i.id: {
+                "result": "unmet" if reject and i.id == first.id else CLEAN[i.section],
+                "evidence": "diff.patch: the one proposal file it adds",
             }
             for i in items
+        },
+        "acceptance_criteria": [
+            {
+                "criterion": ref,
+                "result": "unmet" if reject else "met",
+                "evidence": "worktree: the proposal file, as specified",
+            }
+            for ref in criteria or ("the node is written exactly as specified",)
         ],
         "indicators": [
             {

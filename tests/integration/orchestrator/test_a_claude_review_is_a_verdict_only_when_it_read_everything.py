@@ -50,9 +50,9 @@ from physgate.orchestrator.protocols import Artefact, IssuedSpec, ReviewResult
 from physgate.orchestrator.run_config import HarnessState, ModelStrings, RunBounds, RunConfig
 from physgate.orchestrator.trajectory import seal
 from physgate.reviewers.claude import ClaudeReviewer, ReviewerSetup
+from physgate.reviewers.contract import verdict_schema
 from physgate.reviewers.packet import DIFF_NAME, WORKTREE_NAME
-from physgate.reviewers.rubric import Rubric, parse_rubric
-from physgate.reviewers.verdict import VERDICT_SCHEMA
+from physgate.reviewers.rubric import Rubric, not_evaluable_needs, parse_rubric
 
 BINARIES = [
     b
@@ -110,12 +110,12 @@ GIT_ENV = {
 LARGE = {"input_tokens": 5, "cache_read_input_tokens": 195_000, "cache_creation_input_tokens": 2}
 
 
-def _item(name: str, section: str, result: str = "met") -> dict[str, str]:
-    return {"item": name, "section": section, "result": result, "evidence": "diff.patch: 1"}
+def _item(result: str = "met") -> dict[str, str]:
+    return {"result": result, "evidence": "diff.patch: 1"}
 
 
 def verdict(word: str = "accept") -> dict[str, Any]:
-    """A verdict answering every item of the suite's rubric."""
+    """A verdict answering every item of the suite's rubric, keyed by id, and its one criterion."""
     unmet = word == "reject"
     return {
         "verdict": word,
@@ -123,13 +123,17 @@ def verdict(word: str = "accept") -> dict[str, Any]:
         "failing_item": "AC-1" if unmet else None,
         "subject": "m/ctl.py" if unmet else None,
         "numeric_output": {"value": 40, "unit": "1"} if unmet else None,
-        "items": [
-            _item("AC-1", "acceptance_criteria", "unmet" if unmet else "met"),
-            _item("DS-1", "domain_standards"),
-            _item("AP-1", "antipatterns"),
-            _item("RH-1", "reward_hacking"),
-            _item("RH-2", "reward_hacking"),
-            _item("RH-3", "reward_hacking"),
+        "items": {
+            "AC-1": _item("unmet" if unmet else "met"),
+            "DS-1": _item(),
+            "AP-1": _item(),
+            "RH-1": _item("not observed"),
+            "RH-2": _item("not observed"),
+            "RH-3": _item("not observed"),
+        },
+        # The issued specification numbers one criterion.
+        "acceptance_criteria": [
+            {"criterion": "1", "result": "unmet" if unmet else "met", "evidence": "m/ctl.py:1"}
         ],
         "indicators": [],
         "spec_defects": [],
@@ -328,7 +332,11 @@ def test_a_review_that_reads_everything_and_accepts_is_a_pass(
     assert result.context_window is not None and result.context_window > 0
     # Offered exactly the Read tool and the verdict tool, held to the verdict schema.
     assert all(set(r.offered_tools) == {"Read", "StructuredOutput"} for r in review.api.requests)
-    assert all(r.structured_schema == VERDICT_SCHEMA for r in review.api.requests)
+    expected = verdict_schema(
+        RUBRIC.items, criteria=("1",), scan_hits=(), not_evaluable=not_evaluable_needs("control")
+    )
+    assert all(r.structured_schema == expected for r in review.api.requests)
+    assert result.schema_refusals == 0 and len(result.criteria) == 1
     assert all(r.carried_dummy_key and not r.carried_other_credential for r in review.api.requests)
     (session,) = _sessions(tmp_path / "rs")
     assert DUMMY_KEY.encode() not in (session / "stdout.jsonl").read_bytes()

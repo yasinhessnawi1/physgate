@@ -75,6 +75,7 @@ def _answer(items: list[dict[str, str]]) -> dict[str, object]:
         "subject": None,
         "numeric_output": None,
         "items": items,
+        "acceptance_criteria": [{"criterion": "1", "result": "met", "evidence": "x:1"}],
         "indicators": [],
         "spec_defects": [],
     }
@@ -84,7 +85,12 @@ def _answer(items: list[dict[str, str]]) -> dict[str, object]:
 def test_a_verdict_must_answer_every_approved_item(role: str) -> None:
     items = check_rubric(_approved(role).decode("utf-8"))
     every = [
-        {"item": i.id, "section": i.section, "result": "met", "evidence": "diff: m/x.c:1"}
+        {
+            "item": i.id,
+            "section": i.section,
+            "result": "not observed" if i.section == "reward_hacking" else "met",
+            "evidence": "diff: m/x.c:1",
+        }
         for i in items
     ]
     assert isinstance(judge(_answer(every), (), items), Answered)
@@ -118,7 +124,12 @@ def test_the_approved_rubric_promoted_loads_with_its_canary(role: str, tmp_path:
 def test_a_scan_hit_must_be_answered_against_an_approved_rubric_too() -> None:
     items = check_rubric(_approved("firmware").decode("utf-8"))
     every = [
-        {"item": i.id, "section": i.section, "result": "met", "evidence": "diff: m/x.c:1"}
+        {
+            "item": i.id,
+            "section": i.section,
+            "result": "not observed" if i.section == "reward_hacking" else "met",
+            "evidence": "diff: m/x.c:1",
+        }
         for i in items
     ]
     hit = ScanHit(kind="disabled_checks", evidence="t9", what="a lint rule suppressed")

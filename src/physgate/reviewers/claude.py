@@ -82,6 +82,7 @@ from physgate.orchestrator.protocols import (
     UnavailableCause,
 )
 from physgate.orchestrator.run_config import Effort, RunBounds, RunConfig
+from physgate.reviewers.contract import contract_text, issued_criteria, verdict_schema
 from physgate.reviewers.exceptions import ReviewError
 from physgate.reviewers.packet import (
     DIFF_NAME,
@@ -94,8 +95,8 @@ from physgate.reviewers.packet import (
     build_packet,
 )
 from physgate.reviewers.places import SESSION_DIRNAME, review_dir
-from physgate.reviewers.rubric import Rubric, RubricKind, load_rubric
-from physgate.reviewers.verdict import VERDICT_SCHEMA, Unavailable, judge, to_result
+from physgate.reviewers.rubric import Rubric, RubricKind, load_rubric, not_evaluable_needs
+from physgate.reviewers.verdict import Unavailable, judge, to_result
 
 #: The model name the binary gives the messages it writes itself, for an error or a
 #: refusal: not a model's answer, so not held to the pin (measured on both binaries).
@@ -106,7 +107,9 @@ COMPACT_BOUNDARY = "compact_boundary"
 PROMPT_TOO_LONG = "prompt_too_long"
 
 
-def review_prompt(role: str, packet: Packet, kind: RubricKind = "paired") -> str:
+def review_prompt(
+    role: str, packet: Packet, kind: RubricKind = "paired", contract: str = ""
+) -> str:
     """What a reviewer is told: where its material is, what it must read, how it replies.
 
     Written to hold none of the words that would tell a reader it is being
@@ -148,10 +151,30 @@ def review_prompt(role: str, packet: Packet, kind: RubricKind = "paired") -> str
         "verdict is refused until you have:\n"
         f"{reading}\n"
         "Then judge the attempt against every item of the rubric, each under the section it "
-        "sits in, and give your verdict once, with the StructuredOutput tool. Every number you "
+        "sits in, and give your verdict with the StructuredOutput tool. Every number you "
         "report carries its unit.\n\n"
+        f"{contract}\n"
         f"{indicators}"
     )
+
+
+#: How the binary tells a session its structured answer broke the schema (measured).
+SCHEMA_REFUSAL = "Output does not match required schema"
+
+
+def schema_refusals(stream: str) -> int:
+    """How many structured answers the binary refused in this stream, each told to the reviewer."""
+    count = 0
+    for event in _events(stream):
+        if event.get("type") != "user":
+            continue
+        content = (event.get("message") or {}).get("content")
+        for block in content if isinstance(content, list) else []:
+            if not isinstance(block, dict) or block.get("type") != "tool_result":
+                continue
+            text = block.get("content")
+            count += isinstance(text, str) and text.startswith(SCHEMA_REFUSAL)
+    return count
 
 
 def peak_context_tokens(usage: tuple[MessageUsage, ...]) -> int:
@@ -286,7 +309,23 @@ class ClaudeReviewer:
         sdir.mkdir(parents=True)
         (sdir / OWNER_NAME).write_text(json.dumps({"run_id": self._setup.run_id}))
         installed = self._install(packet, sdir)
-        stdout, exit_code, timed_out = self._spawn(packet, sdir, installed, session_id)
+        # The answer contract, from this rubric and this specification as issued.
+        issued = Path(packet.read_root) / SPEC_AS_ISSUED_NAME
+        criteria = issued_criteria(issued.read_text() if issued.is_file() else None)
+        needs = not_evaluable_needs(self._role)
+        items = self._rubric.items
+        schema = verdict_schema(
+            items, criteria=criteria, scan_hits=packet.indicators, not_evaluable=needs
+        )
+        prompt = review_prompt(
+            self._role,
+            packet,
+            self._rubric.kind,
+            contract_text(items, criteria=criteria, not_evaluable=needs),
+        )
+        stdout, exit_code, timed_out = self._spawn(
+            packet, sdir, installed, session_id, prompt=prompt, schema=schema
+        )
         remove_secrets(sdir / "state", sdir / "config")
         redact(stdout, self._setup.credential.secret)
         captured = read_captured(stdout)
@@ -322,7 +361,7 @@ class ClaudeReviewer:
         if not read_in_full(Path(installed.config), session_id):
             raise unavailable("reading_incomplete", "a required file was not read in full")
         structured = (result or {}).get("structured_output")
-        judged = judge(structured, packet.indicators, self._rubric.items)
+        judged = judge(structured, packet.indicators, items, criteria=criteria, not_evaluable=needs)
         if isinstance(judged, Unavailable):
             raise unavailable(judged.cause, judged.detail, judged.spec_defects)
         return to_result(
@@ -335,6 +374,7 @@ class ClaudeReviewer:
             packet_sha256=packet.sha256(),
             reading_verified=True,
             peak_context_tokens=peak_context_tokens(usage),
+            schema_refusals=schema_refusals(text),
             max_output_tokens=self._setup.max_output_tokens,
             context_window=context_window(result, self._model),
         )
@@ -414,7 +454,14 @@ class ClaudeReviewer:
         return Installed.model_validate_json(done.stdout)
 
     def _spawn(
-        self, packet: Packet, sdir: Path, installed: Installed, session_id: str
+        self,
+        packet: Packet,
+        sdir: Path,
+        installed: Installed,
+        session_id: str,
+        *,
+        prompt: str,
+        schema: dict[str, Any],
     ) -> tuple[Path, int | None, bool]:
         (sdir / "home").mkdir(exist_ok=True)
         bounds = self._setup.bounds
@@ -431,9 +478,9 @@ class ClaudeReviewer:
         env.update(REVIEWER_ENV)
         argv = reviewer_argv(
             self._setup.binary,
-            prompt=review_prompt(self._role, packet, self._rubric.kind),
+            prompt=prompt,
             spawn_args=installed.spawn_args,
-            schema=json.dumps(VERDICT_SCHEMA, sort_keys=True, separators=(",", ":")),
+            schema=json.dumps(schema, sort_keys=True, separators=(",", ":")),
             model=self._model,
             session_id=session_id,
             max_turns=bounds.session_max_turns,

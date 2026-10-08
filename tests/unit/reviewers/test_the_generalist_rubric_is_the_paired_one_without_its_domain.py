@@ -133,9 +133,15 @@ def test_every_generalist_item_is_answered_and_no_domain_item_is() -> None:
             "subject": None,
             "numeric_output": None,
             "items": [
-                {"item": i, "section": s, "result": "met", "evidence": "diff.patch: 1"}
+                {
+                    "item": i,
+                    "section": s,
+                    "result": "not observed" if s == "reward_hacking" else "met",
+                    "evidence": "diff.patch: 1",
+                }
                 for i, s in ids
             ],
+            "acceptance_criteria": [{"criterion": "1", "result": "met", "evidence": "x:1"}],
             "indicators": [],
             "spec_defects": [],
         }

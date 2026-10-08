@@ -20,7 +20,6 @@ from physgate.orchestrator.repair import Finding, repair_instruction
 from physgate.reviewers.rubric import RubricItem
 from physgate.reviewers.scan import ScanHit
 from physgate.reviewers.verdict import (
-    VERDICT_SCHEMA,
     Answered,
     ModelVerdict,
     Unavailable,
@@ -35,6 +34,10 @@ DISMISSED = {
     "disposition": "dismissed",
     "reason": "the suppressed rule is line length in a generated table",
 }
+
+
+#: One acceptance criterion of the issued specification, met.
+CRITERION = {"criterion": "1", "result": "met", "evidence": "worktree: m/ctl.py:3"}
 
 
 def item(
@@ -54,8 +57,9 @@ def answer(**fields: Any) -> dict[str, Any]:  # noqa: ANN401 - the answer's own 
             item("AC-1", "acceptance_criteria", "met"),
             item("DS-4", "domain_standards", "met"),
             item("AP-2", "antipatterns", "n/a", "the diff touches no interrupt handler"),
-            item("RH-1", "reward_hacking", "met"),
+            item("RH-1", "reward_hacking", "not observed"),
         ],
+        "acceptance_criteria": [CRITERION],
         "indicators": [DISMISSED],
         "spec_defects": [],
     }
@@ -80,7 +84,7 @@ REJECT = {
     "finding": "the gain is outside its range",
     "failing_item": "AC-1",
     "numeric_output": {"value": 40, "unit": "1"},
-    "items": [UNMET_AC, item("RH-1", "reward_hacking", "met")],
+    "items": [UNMET_AC, item("RH-1", "reward_hacking", "not observed")],
 }
 
 
@@ -154,7 +158,7 @@ def test_blocked_with_an_item_not_evaluable() -> None:
     items = [
         item("AC-1", "acceptance_criteria", "met"),
         UNEVALUABLE_DS,
-        item("RH-1", "reward_hacking", "met"),
+        item("RH-1", "reward_hacking", "not observed"),
     ]
     outcome = _outcome(
         verdict="blocked", finding="DS-4(c) cannot be decided", items=items, spec_defects=[BLOCKING]
@@ -168,7 +172,7 @@ def test_blocked_with_an_item_not_evaluable() -> None:
 def test_an_acceptance_criterion_not_evaluable_is_blocked_too() -> None:
     items = [
         item("AC-2", "acceptance_criteria", "not evaluable", ""),
-        item("RH-1", "reward_hacking", "met"),
+        item("RH-1", "reward_hacking", "not observed"),
     ]
     defect = {**BLOCKING, "item": "AC-2", "finding": "the spec gives no settling time to check"}
     outcome = _outcome(
@@ -229,12 +233,13 @@ def test_an_inconsistent_answer_is_no_verdict(fields: dict[str, Any], why: str) 
     [
         (
             {"items": [item("AC-1", "acceptance_criteria", "n/a", "no trigger")]},
-            "never not applicable",
+            "never n/a",
         ),
-        ({"items": [item("RH-1", "reward_hacking", "n/a", "no trigger")]}, "never not applicable"),
+        ({"items": [item("RH-1", "reward_hacking", "n/a", "no trigger")]}, "never n/a"),
         ({"items": [item("DS-1", "domain_standards", "n/a", " ")]}, "names the evidence"),
-        ({"items": [item("DS-1", "domain_standards", "noted")]}, "only a reward-hacking"),
-        ({"items": [item("RH-1", "reward_hacking", "not evaluable")]}, "never left unevaluated"),
+        ({"items": [item("DS-1", "domain_standards", "noted")]}, "never noted"),
+        ({"items": [item("RH-1", "reward_hacking", "not evaluable")]}, "never not evaluable"),
+        ({"items": [item("RH-1", "reward_hacking", "met")]}, "never met"),
         ({"numeric_output": {"value": 40}}, "numeric_output.unit"),
         ({"numeric_output": 40}, "numeric_output"),
         ({"verdict": "pass"}, "verdict"),
@@ -246,6 +251,7 @@ def test_an_inconsistent_answer_is_no_verdict(fields: dict[str, Any], why: str) 
         "n/a without evidence",
         "noted standard",
         "unevaluated indicator",
+        "indicator in a standard's words",
         "number without unit",
         "bare number",
         "old word",
@@ -313,16 +319,18 @@ def test_a_review_result_cannot_hold_a_pass_beside_a_rejecting_finding_or_a_lone
         )
 
 
-def test_the_schema_offered_is_the_model_validated() -> None:
-    props = VERDICT_SCHEMA["properties"]
-    assert set(props) == set(ModelVerdict.model_fields) == set(VERDICT_SCHEMA["required"])
+def test_the_schema_offered_asks_for_exactly_what_the_model_validates() -> None:
+    from physgate.reviewers.contract import verdict_schema
+
+    schema = verdict_schema(RUBRIC, criteria=("1",), scan_hits=(HIT,), not_evaluable="blocking")
+    props = schema["properties"]
+    assert set(props) == set(ModelVerdict.model_fields) == set(schema["required"])
     assert props["verdict"]["enum"] == ["accept", "reject", "blocked"]
-    assert props["items"]["items"]["properties"]["result"]["enum"] == [
-        "met",
-        "unmet",
+    assert set(props["items"]["required"]) == {i.id for i in RUBRIC}
+    assert props["items"]["properties"]["RH-1"]["properties"]["result"]["enum"] == [
+        "not observed",
         "noted",
-        "n/a",
-        "not evaluable",
+        "confirmed",
     ]
 
 

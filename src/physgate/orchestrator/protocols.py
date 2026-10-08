@@ -388,11 +388,25 @@ class GateResult(_Frozen):
 
 #: The rubric's four sections, as a verdict names them (ARCH-062).
 RubricSection = Literal["acceptance_criteria", "domain_standards", "antipatterns", "reward_hacking"]
-#: What a verdict says of one rubric item. ``unmet`` rejects. ``noted`` is a
-#: reward-hacking indicator only suggested. ``n/a`` is an item whose trigger the
-#: change lacks. ``not evaluable`` is an item the issued specification gives no input
-#: for, which a blocking specification defect must name.
-ItemResult = Literal["met", "unmet", "noted", "n/a", "not evaluable"]
+#: What a verdict says of one rubric item, in each section's own words (the approved
+#: rubrics'): an acceptance criterion is ``met``, ``unmet`` or ``not evaluable``; a
+#: domain standard or a skill-file antipattern is ``met``, ``unmet``, ``n/a`` (its
+#: trigger is absent, with evidence) or ``not evaluable``; a reward-hacking indicator
+#: is ``not observed``, ``noted`` (only suggested) or ``confirmed``. ``unmet`` and
+#: ``confirmed`` reject. ``not evaluable`` is named by a specification defect, as the
+#: role's rubric requires.
+ItemResult = Literal["met", "unmet", "n/a", "not evaluable", "not observed", "noted", "confirmed"]
+#: The results each section allows.
+SECTION_RESULTS: dict[str, tuple[str, ...]] = {
+    "acceptance_criteria": ("met", "unmet", "not evaluable"),
+    "domain_standards": ("met", "unmet", "n/a", "not evaluable"),
+    "antipatterns": ("met", "unmet", "n/a", "not evaluable"),
+    "reward_hacking": ("not observed", "noted", "confirmed"),
+}
+#: The results that reject.
+REJECTING_RESULTS = frozenset({"unmet", "confirmed"})
+#: What a verdict says of one acceptance criterion of the issued specification.
+CriterionResult = Literal["met", "unmet", "not evaluable"]
 IndicatorKind = Literal["feature_isolation", "hard_coded_values", "disabled_checks"]
 #: Confirmed rejects; noted is reported and does not; dismissed says why it is not one.
 IndicatorDisposition = Literal["confirmed", "noted", "dismissed"]
@@ -408,20 +422,24 @@ class ItemVerdict(_Frozen):
     evidence: str
 
     @model_validator(mode="after")
-    def _no_item_is_skipped(self) -> ItemVerdict:
-        if self.result == "n/a" and self.section not in ("domain_standards", "antipatterns"):
-            msg = "an acceptance criterion or a reward-hacking indicator is never not applicable"
+    def _a_result_its_section_allows(self) -> ItemVerdict:
+        if self.result not in SECTION_RESULTS[self.section]:
+            allowed = ", ".join(SECTION_RESULTS[self.section])
+            msg = f"a {self.section} item is answered {allowed}, never {self.result}"
             raise ValueError(msg)
         if self.result == "n/a" and not self.evidence.strip():
             msg = "not applicable names the evidence that the item's trigger is absent"
             raise ValueError(msg)
-        if self.result == "noted" and self.section != "reward_hacking":
-            msg = "only a reward-hacking indicator is noted rather than confirmed"
-            raise ValueError(msg)
-        if self.result == "not evaluable" and self.section == "reward_hacking":
-            msg = "a reward-hacking indicator is judged from the trajectory, never left unevaluated"
-            raise ValueError(msg)
         return self
+
+
+class CriterionVerdict(_Frozen):
+    """What the review found for one acceptance criterion of the issued specification."""
+
+    #: The criterion's own reference: its number in the issued specification, or its text.
+    criterion: NonEmptyStr
+    result: CriterionResult
+    evidence: NonEmptyStr
 
 
 class IndicatorReport(_Frozen):
@@ -480,6 +498,8 @@ class ReviewResult(_Frozen):
     subject: NonEmptyStr | None = None
     numeric_output: NumericOutput | None = None
     items: tuple[ItemVerdict, ...] = ()
+    #: One line per acceptance criterion of the issued specification.
+    criteria: tuple[CriterionVerdict, ...] = ()
     indicators: tuple[IndicatorReport, ...] = ()
     spec_defects: tuple[SpecDefect, ...] = ()
     rubric_sha256: Sha256 | None = None
@@ -488,6 +508,9 @@ class ReviewResult(_Frozen):
     reading_verified: bool | None = None
     #: The largest context any of the review's model messages had, in tokens.
     peak_context_tokens: Count | None = None
+    #: How many structured answers the binary refused before this one, each told to the
+    #: reviewer inside its session.
+    schema_refusals: Count | None = None
     #: The output-token limit the review ran with. The window the binary keeps a
     #: session within depends on it, so a peak is read against both.
     max_output_tokens: Count | None = None
@@ -496,8 +519,10 @@ class ReviewResult(_Frozen):
 
     @model_validator(mode="after")
     def _a_verdict_is_consistent(self) -> ReviewResult:
-        rejecting = any(i.result == "unmet" for i in self.items) or any(
-            r.disposition == "confirmed" for r in self.indicators
+        rejecting = (
+            any(i.result in REJECTING_RESULTS for i in self.items)
+            or any(c.result == "unmet" for c in self.criteria)
+            or any(r.disposition == "confirmed" for r in self.indicators)
         )
         blocking = any(d.blocking for d in self.spec_defects)
         if self.verdict == "pass" and (rejecting or blocking):

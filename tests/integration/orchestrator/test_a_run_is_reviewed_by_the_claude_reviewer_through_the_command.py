@@ -73,8 +73,8 @@ FINDING = "the supply voltage is outside its range"
 def _verdict(word: str) -> dict[str, Any]:
     unmet = word == "reject"
 
-    def item(name: str, section: str, result: str = "met") -> dict[str, str]:
-        return {"item": name, "section": section, "result": result, "evidence": "diff.patch: 1"}
+    def item(result: str = "met") -> dict[str, str]:
+        return {"result": result, "evidence": "diff.patch: 1"}
 
     return {
         "verdict": word,
@@ -82,13 +82,17 @@ def _verdict(word: str) -> dict[str, Any]:
         "failing_item": "AC-1" if unmet else None,
         "subject": "iface.power_bus" if unmet else None,
         "numeric_output": {"value": 48, "unit": "V"} if unmet else None,
-        "items": [
-            item("AC-1", "acceptance_criteria", "unmet" if unmet else "met"),
-            item("DS-1", "domain_standards"),
-            item("AP-1", "antipatterns"),
-            item("RH-1", "reward_hacking"),
-            item("RH-2", "reward_hacking"),
-            item("RH-3", "reward_hacking"),
+        "items": {
+            "AC-1": item("unmet" if unmet else "met"),
+            "DS-1": item(),
+            "AP-1": item(),
+            "RH-1": item("not observed"),
+            "RH-2": item("not observed"),
+            "RH-3": item("not observed"),
+        },
+        # The issued specification does not number its criteria: one line, in its words.
+        "acceptance_criteria": [
+            {"criterion": "Size.", "result": "unmet" if unmet else "met", "evidence": "diff"}
         ],
         "indicators": [],
         "spec_defects": [],
@@ -150,8 +154,9 @@ def test_a_run_through_the_command_is_reviewed_rejected_repaired_and_accepted(
         verdict = _verdict(word)
         if NOT_IN_REVIEW in (Path(cwd).parent / "rubric.md").read_text():
             # The generalist rubric: its domain items are not answered.
-            kept = ("acceptance_criteria", "reward_hacking")
-            verdict["items"] = [i for i in verdict["items"] if i["section"] in kept]
+            verdict["items"] = {
+                k: v for k, v in verdict["items"].items() if k.startswith(("AC-", "RH-"))
+            }
         steps = [tool("Read", file_path=p) for p in _reading(cwd)]
         steps.append(tool("StructuredOutput", **verdict))
         return steps[done] if done < len(steps) else text("done")

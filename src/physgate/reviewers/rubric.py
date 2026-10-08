@@ -76,6 +76,24 @@ DOMAIN_SECTIONS: tuple[RubricSection, ...] = ("domain_standards", "antipatterns"
 #: The line that stands under each left-out section's heading in a generalist rubric.
 NOT_IN_REVIEW = "This section is not part of this review."
 RubricKind = Literal["paired", "generalist"]
+#: What a ``not evaluable`` answer needs: a blocking specification defect naming it, or
+#: any specification defect naming it, blocking as the reviewer judges.
+NotEvaluableNeeds = Literal["blocking", "defect"]
+#: Each role's rule, as its approved rubric states it. The code conforms to the rubrics:
+#: - firmware: a criterion that is not evaluable records a blocking specification
+#:   defect (its verdict policy, and AC-1);
+#: - control: a criterion that is not evaluable is a specification defect, blocking when
+#:   the criterion is on its safety-critical list and non-blocking otherwise (rules 3 and
+#:   7, and A6).
+#: A role with no rubric rule of its own takes the stricter: blocking.
+NOT_EVALUABLE_NEEDS: dict[str, NotEvaluableNeeds] = {"control": "defect", "firmware": "blocking"}
+
+
+def not_evaluable_needs(role: str) -> NotEvaluableNeeds:
+    """What a ``not evaluable`` answer needs under ``role``'s rubric."""
+    return NOT_EVALUABLE_NEEDS.get(role, "blocking")
+
+
 _NUMBERED = re.compile(r"^\d+\.\s+")
 _ITEM = re.compile(r"^- \*\*(?P<id>[A-Z]{1,2}-?[0-9]+)\.\s*(?P<rest>.*)$")
 #: The words that would tell a reviewer it is being evaluated, or by what. A subset

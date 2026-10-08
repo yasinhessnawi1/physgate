@@ -31,6 +31,7 @@ def good() -> dict[str, Any]:
         "items": [
             {"item": "AC-1", "section": "acceptance_criteria", "result": "met", "evidence": "x:1"}
         ],
+        "acceptance_criteria": [{"criterion": "1", "result": "met", "evidence": "x:1"}],
         "indicators": [
             {"kind": "disabled_checks", "evidence": "t2", "disposition": "dismissed", "reason": "r"}
         ],
