@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Final
 
 import pytest
-from loop_fakes import FakeReviewer, Rig, plan
+from loop_fakes import FakeReviewer, KilledError, Rig, plan
 
 from physgate.orchestrator.events import (
     EventLog,
@@ -26,6 +26,7 @@ from physgate.orchestrator.events import (
 )
 from physgate.orchestrator.exceptions import ReviewUnavailableError
 from physgate.orchestrator.gate_events import gate_events
+from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.protocols import SpecDefect
 from physgate.orchestrator.replay import RunState
 
@@ -42,13 +43,8 @@ def _no_verdict(cause: str) -> ReviewUnavailableError:
     )
 
 
-def _legacy_log(tmp_path: Path) -> Rig:
-    """A finished run whose no-verdict line is rewritten as an earlier writer wrote it."""
-    rig = Rig(tmp_path, reviewer=FakeReviewer(unavailable={1: _no_verdict("invalid_verdict")}))
-    loop = rig.open()
-    loop.start(plan("s1"))
-    loop.run()
-    loop.close()
+def _rewrite(tmp_path: Path) -> None:
+    """Rewrite the no-verdict line as an earlier writer wrote it."""
     path = tmp_path / "events.jsonl"
     lines = []
     for line in path.read_text().splitlines():
@@ -58,6 +54,16 @@ def _legacy_log(tmp_path: Path) -> Rig:
             record["spec_defects"] = [BLOCKING.model_dump(mode="json")]
         lines.append(json.dumps(record, separators=(",", ":")))
     path.write_text("\n".join(lines) + "\n")
+
+
+def _legacy_log(tmp_path: Path) -> Rig:
+    """A finished run whose no-verdict line an earlier writer wrote."""
+    rig = Rig(tmp_path, reviewer=FakeReviewer(unavailable={1: _no_verdict("invalid_verdict")}))
+    loop = rig.open()
+    loop.start(plan("s1"))
+    loop.run()
+    loop.close()
+    _rewrite(tmp_path)
     return rig
 
 
@@ -126,3 +132,29 @@ def test_a_reviewer_raising_it_cannot_get_it_onto_the_log(tmp_path: Path) -> Non
     loop.close()
     events = read_events(tmp_path / "events.jsonl")
     assert not [e for e in events if isinstance(e, ReviewUnavailable)]
+
+
+def test_a_legacy_line_not_yet_escalated_escalates_as_it_was_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A killed run resumed from such a line sends a no-verdict item, not a blocked one."""
+    rig = Rig(tmp_path, reviewer=FakeReviewer(unavailable={1: _no_verdict("invalid_verdict")}))
+    loop = rig.open()
+    loop.start(plan("s1"))
+
+    def killed(self: Loop, subtask_id: str, unavailable: ReviewUnavailable) -> None:
+        raise KilledError
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Loop, "_escalate_unavailable", killed)
+        with pytest.raises(KilledError):
+            loop.run()
+    loop.close()
+    _rewrite(tmp_path)
+    again = rig.open()
+    again.run()
+    (item,) = again.queue.open_items()
+    again.close()
+    assert item.source == "review_unavailable"
+    assert "no unstable pole is given" in item.decision_required
+    assert len(rig.reviewer.seen) == 1
