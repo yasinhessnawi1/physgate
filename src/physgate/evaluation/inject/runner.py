@@ -33,10 +33,11 @@ what the rows add up to is the experiment's to state.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import shutil
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -51,7 +52,11 @@ from physgate.evaluation.inject.corpus import (
     Patch,
     digest,
 )
-from physgate.evaluation.inject.exceptions import ReviewerRefusedError, RunDirectoryError
+from physgate.evaluation.inject.exceptions import (
+    ReviewerRefusedError,
+    ReviewNotAVerdictError,
+    RunDirectoryError,
+)
 from physgate.evaluation.inject.materialise import (
     DESIGN_DIRNAME,
     Materialised,
@@ -61,8 +66,16 @@ from physgate.evaluation.inject.materialise import (
 from physgate.gate.catalogue import catalogue_digest
 from physgate.gate.graph import ChangeHistory, GraphView
 from physgate.gate.runner import PhysicsGate
-from physgate.orchestrator.common import ModelString, NonEmptyStr
-from physgate.orchestrator.events import EventLog, GateRan, ReviewRan, RunStarted, SubtaskPlanned
+from physgate.orchestrator.common import AuthMode, ModelString, NonEmptyStr
+from physgate.orchestrator.events import (
+    EventLog,
+    GateRan,
+    ReviewRan,
+    ReviewUnavailable,
+    RunStarted,
+    SubtaskPlanned,
+)
+from physgate.orchestrator.exceptions import ReviewUnavailableError
 from physgate.orchestrator.protocols import (
     Artefact,
     ChangeSet,
@@ -74,6 +87,7 @@ from physgate.orchestrator.protocols import (
     Verdict,
     require_separate_models,
 )
+from physgate.orchestrator.run_config import Effort, RunBounds
 from physgate.orchestrator.trajectory import seal
 from physgate.reviewers.exceptions import ReviewRootError
 from physgate.reviewers.places import require_review_root
@@ -94,6 +108,27 @@ class _Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
 
+class InstrumentParams(_Frozen):
+    """What the instrument's real reviewers run under, from a parameters file. No defaults."""
+
+    auth: AuthMode
+    #: The reviewer model of each role the corpus's artefacts go to.
+    reviewers: dict[NonEmptyStr, ModelString]
+    bounds: RunBounds
+    effort: Effort
+    max_output_tokens: Annotated[int, Field(gt=0)]
+    token_ceiling: Annotated[int, Field(gt=0)]
+
+
+class Reviewing(_Frozen):
+    """The real reviewers' run, as ``instrument.json`` records it."""
+
+    params: InstrumentParams
+    claude_version: NonEmptyStr
+    endpoint: NonEmptyStr
+    install: NonEmptyStr
+
+
 class InstrumentConfig(_Frozen):
     """What one run of the instrument was, recorded before its first action."""
 
@@ -109,6 +144,9 @@ class InstrumentConfig(_Frozen):
     gate_mode: Literal["observe"]
     scopes: tuple[Scope, ...]
     catalogue_sha256: Sha256
+    #: How the real reviewers ran: their parameters, the auth mode, the binary's
+    #: version and the endpoint. ``None`` for reviewers given built, as in tests.
+    reviewing: Reviewing | None = None
 
 
 class ResultRow(_Frozen):
@@ -278,12 +316,48 @@ def _review(
                 trajectory_form="account",
                 scopes=("subtask", "module"),
                 base_revision=made.baseline,
+                base_commit=made.base_commit,
+                repository=str(made.worktree),
             )
         )
     finally:
         shutil.rmtree(place)
     require_separate_models(implementer=author, reviewer=result.reviewer_model)
     return result
+
+
+def _verdict(log: EventLog, review: Callable[[], ReviewResult], subtask: str) -> ReviewResult:
+    """A review's verdict, as the loop takes one: an infrastructure failure is retried once.
+
+    Any other review that is not a verdict, or a second failure, is recorded in the
+    log and stops the run: no row is ever written from a review that gave no verdict.
+
+    Raises:
+        ReviewNotAVerdictError: the review gave no verdict.
+    """
+    retried = False
+    while True:
+        try:
+            return review()
+        except ReviewUnavailableError as exc:
+            retry = exc.cause == "infrastructure" and not retried
+            log.append(
+                ReviewUnavailable(
+                    **log.envelope(),
+                    subtask_id=subtask,
+                    attempt=1,
+                    cause=exc.cause,
+                    detail=str(exc) or exc.cause,
+                    retry=retry,
+                    session_id=exc.session_id,
+                    reviewer_model=exc.reviewer_model,
+                    spec_defects=exc.spec_defects,
+                )
+            )
+            if not retry:
+                msg = "a review gave no verdict, so the run stops before any row is written"
+                raise ReviewNotAVerdictError(msg, review_id=subtask, cause=exc.cause) from None
+            retried = True
 
 
 def run_instrument(
@@ -296,6 +370,7 @@ def run_instrument(
     seed: int,
     review_clean_twins: bool = False,
     gate: PhysicsGate | None = None,
+    reviewing: Reviewing | None = None,
 ) -> tuple[ResultRow, ...]:
     """Review every artefact of ``corpus`` blind, then gate each, and write the results.
 
@@ -331,6 +406,7 @@ def run_instrument(
         gate_mode=GATE_MODE,
         scopes=SCOPES,
         catalogue_sha256=catalogue_digest(),
+        reviewing=reviewing,
     )
     run_dir.mkdir(parents=True, exist_ok=True)
     config_path = run_dir / CONFIG_NAME
@@ -353,7 +429,8 @@ def run_instrument(
         if review_clean_twins:
             queue += [(cid, a, a.clean, controls) for cid, a in twins]
         for subtask, artefact, patch, into in sorted(queue, key=lambda q: q[0]):
-            result = _review(
+            review = functools.partial(
+                _review,
                 reviewers[artefact.assigned_role],
                 author,
                 corpus.base,
@@ -362,6 +439,7 @@ def run_instrument(
                 subtask,
                 artefact,
             )
+            result = _verdict(into, review, subtask)
             reviews[subtask] = into.append(
                 ReviewRan(**into.envelope(), subtask_id=subtask, attempt=1, result=result)
             )
