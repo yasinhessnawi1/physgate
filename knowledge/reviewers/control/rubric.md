@@ -147,9 +147,14 @@ List every specification defect and every Section 4 indicator status, even when 
 ## Notation
 
 - `p` is the plant's right-half-plane (unstable) pole, in rad/s.
+- A right-half-plane zero (D29, and D6's zero term) lies in the closed right half-plane: `s = 0`
+  and the rest of the imaginary axis are included (S&P's convention).
 - `ω_gc` is the gain crossover frequency of the delivered loop, in rad/s.
 - `h` is the sample period in s, and `f_s = 1/h` is in samples per second.
 - `τ_total` is computation delay + sensor and filter lag + `h/2` for the hold, in s.
+- `τ_common` is the part of `τ_total` common to every fed-back output: the computation delay,
+  `h/2`, and any sensor or filter lag that every fed-back output has (for pure delays of different
+  lengths, the smallest of them), in s. With one fed-back output, `τ_common = τ_total`.
 - `ϕm_req` is the **required** phase margin: the one the issued specification requires, otherwise
   D8's floor for the design case (as overridden, if it was).
 - **Category tags:**
@@ -218,43 +223,51 @@ The issued specification's acceptance criteria are inserted with each review. Ju
   - all four of `S`, `PS`, `CS` and `T` shown stable;
   - for a low-order PID, a reading check that no root of `Kd·s² + Kp·s + Ki` sits on `p`.
 - **D6. Crossover is fast enough for the unstable pole, for the required margin.**
-  - The work states `ω_gc`, the crossover slope `n_gc`, `τ_total`, and any right-half-plane zero
-    `z` from D29. *Cat. 2* (a stating line). These are owed regardless of [B]. `p`
-    is owed whenever it is derivable (policy rule 7); when it is not, the work must not supply it.
+  - The work states `ω_gc`, the crossover slope `n_gc`, `τ_total`, `τ_common`, and any
+    right-half-plane zero `z` common to every fed-back output, from D29. With one fed-back output,
+    `τ_common = τ_total`, so a single-output design owes nothing new. *Cat. 2* (a stating line).
+    These are owed regardless of [B]. `p` is owed whenever it is derivable (policy rule 7); when it
+    is not, the work must not supply it.
   - **The bound.** [B: `p`, i.e. plant data from which it can be derived.] *Cat. 1.* The all-pass
     lag the plant forces at crossover must fit the budget that the **required** margin leaves.
     Check by reading:
 
-    `2·arctan(p/ω_gc) + ω_gc·τ_total [+ 2·arctan(ω_gc/z) if D29 found a zero] ≤ π − ϕm_req + n_gc·π/2`.
+    `2·arctan(p/ω_gc) + ω_gc·τ_common [+ 2·arctan(ω_gc/z) if D29 found a common zero] ≤ π − ϕm_req + n_gc·π/2`.
     - With no delay and no zero, this reduces to `ω_gc ≥ p / tan(ϕap/2)`, where
       `ϕap = π − ϕm_req + n_gc·π/2`. For example, ϕm_req = 60° with n_gc = −1 gives
       `ω_gc ≥ 3.7p`.
     - The bound assumes a controller with no right-half-plane poles or zeros.
   - **Exact form.** *Alternative route, cat. 1:* the work may use the computed
     `arg(P_mp·C)(iω_gc)` in place of Bode's approximation `n_gc·π/2`, and check
-    `ϕap ≤ π − ϕm_req + arg(P_mp·C)(iω_gc)`. This coincides with the phase margin of the full
-    delivered loop, delay and all-pass factors included, being at least `ϕm_req`. That is, it
-    coincides with D8 on the full loop.
+    `ϕap` (the bound's left side) `≤ π − ϕm_req + arg(P_mp·C)(iω_gc)`. This coincides with the
+    phase margin of the full delivered loop, delay and all-pass factors included, being at least
+    `ϕm_req`. That is, it coincides with D8 on the full loop.
   - **Bandwidth form.** [B: `p`.] *Alternative route, cat. 1:* the work shows the closed-loop
-    bandwidth `ω_BT > p·M_T/(M_T − 1)`, using its own `M_T` (`2p` at `M_T = 2`). This route does not
-    include the delay or the zero; D17 and D29 still apply.
+    bandwidth `ω_BT > p·M_T/(M_T − 1)`, using its own `M_T` on the loop broken at the plant input
+    (`2p` at `M_T = 2`). This route does not include the delay or the zero; D17 and D29 still apply.
   - Meeting none of the bound and its two alternative routes is a violation.
 - **D29. Right-half-plane zeros in the fed-back signals.**
   - *Cat. 2* (a stating line). The work lists the right-half-plane zeros of each transfer function
-    it feeds back.
+    it feeds back, and the right-half-plane zeros common to all of them: the values of `s` at which
+    every fed-back transfer function is zero. With one fed-back output, these are its zeros. The
+    checks below use only the common zeros.
     This is owed regardless of [B]. None found is `met`, not `n/a`.
-  - [B: `p`, as D6.] *Cat. 3.* For each zero, `z/p < 6` is a violation.
+  - [B: `p`, as D6.] *Cat. 3.* For each common zero, `z/p < 6` is a violation.
     - The pole/zero all-pass lag `2·arctan(ω/z) + 2·arctan(p/ω)` has its minimum
       `4·arctan(√(p/z))` at `ω = √(pz)`.
     - Keeping that minimum under a budget `ϕap` needs `z/p > 1/tan²(ϕap/4)`. For the illustrative
       90° budget this is `z/p > 5.83` (= 3 + 2√2), which the source rounds to 6.
     - The override is that formula with the design's own budget from D6, or D6's bound with the
       zero included.
-  - *Cat. 3.* S&P's approximate requirement `z/p > 4` is overridable on the same terms. It is not
-    a necessary condition: in theory any such plant without unstable hidden modes can be
-    stabilised.
-  - [B: `p`, as D6.] *Cat. 1.* If `p > z`, no stable controller can stabilise the loop. Using a
-    stable controller in that case is an error.
+  - *Cat. 3.* S&P's approximate requirement `z/p > 4`, for each common zero, is overridable on the
+    same terms. It is not a necessary condition: in theory any such plant without unstable hidden
+    modes can be stabilised.
+  - [B: `p`, as D6.] *Cat. 1.* If `p > z` for a real zero `z` common to every fed-back output, no
+    stable controller can stabilise the loop (Youla et al. 1974, as stated in S&P §4.8, p. 150, for
+    fed-back transfer functions that are all strictly proper, and no real right-half-plane pole
+    other than `p` above `z`). Using a stable controller in that case is an error. A zero of only
+    some fed-back outputs does not trigger this line (S&P §4.5.2, §6.11.2); if the controller
+    leaves it in the loop as broken, D8 judges that loop's margins.
 - **D30. Actuator, sensor and sampling bandwidth exceed what the unstable pole needs.**
   - *Cat. 2* (a stating line). The work states, with sources: the bandwidth of the motor and
     driver, and the bandwidth of the IMU and its filter.
@@ -302,7 +315,7 @@ The issued specification's acceptance criteria are inserted with each review. Ju
   - *Cat. 1.* Otherwise, `GML` ≤ 1/(1 + s_m), using the work's own `s_m`. That is ≤ 0.67 at
     s_m = 0.5.
 - **D11. Sensitivity peaks reported.** *Cat. 2* (a stating line): the work reports `M_s`
-  (= 1/s_m) and `M_T`.
+  (= 1/s_m) and `M_T`, taken on the loop broken at the plant input.
   - *Cat. 3.* `M_s` > 2 is a violation.
   - *Cat. 3.* `M_T` > 2 is a violation. The typical requirement for stable plants is `M_T` < 1.25;
     unstable plants usually have a larger `M_T`.
@@ -341,12 +354,15 @@ The issued specification's acceptance criteria are inserted with each review. Ju
     discretised controller is the one that runs (as D24).
   - Tustin distorts the frequency scale. Prewarping is exact at one chosen frequency, with
     distortion elsewhere that is small when `ω·h` is small. Check which frequency was chosen.
-- **D17. Loop delay is budgeted against the unstable pole.** The work states `τ_total`. *Cat. 2* (a
-  stating line). This is owed regardless of [B]. Check by reading:
-  - [B: `p`, as D6.] *Cat. 3*, with D6's bound as one possible override. `p·τ_total < 0.5`. At or
-    above it is a violation.
-  - [B: `p`, as D6.] *Cat. 1.* `p·τ_total < 2`. At or above it, no controller without
-    right-half-plane poles and zeros can stabilise the loop; claiming otherwise is an error.
+- **D17. Loop delay is budgeted against the unstable pole.** The work states `τ_total` and
+  `τ_common`; with one fed-back output they are equal, so a single-output design owes nothing new.
+  *Cat. 2* (a stating line). This is owed regardless of [B]. Check by reading:
+  - [B: `p`, as D6.] *Cat. 3*, with D6, by any of its routes, as one possible override.
+    `p·τ_total < 0.5`. At or above it is a violation.
+  - [B: `p`, as D6.] *Cat. 1.* `p·τ_common < 2`. At or above it, no controller without
+    right-half-plane poles and zeros can stabilise the loop; claiming otherwise is an error. A lag
+    of only some fed-back outputs is not in `τ_common`; it still counts in the other lines of this
+    item.
   - *Cat. 1.* `τ_unmodelled < PM/ω_gc`, with PM in radians, from the loop the work computed.
     `τ_unmodelled` is the part of `τ_total` not already in that loop's model. This is owed
     regardless of [B].
@@ -572,4 +588,4 @@ alone hides.
   - *Do:* `noted` when the history reads precede a matching number; confirmed when the trajectory
     shows no derivation of it.
 
-<!-- 6cf50e0b9cb689e0b8b0d4f6d133a1e7 -->
+<!-- e399c100a64eb70734d9f865d4a5766b -->
