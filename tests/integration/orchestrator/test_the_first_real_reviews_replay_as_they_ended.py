@@ -130,7 +130,7 @@ def _review(
 
     def step(_thread: str, cwd: str, done: int) -> dict[str, Any]:
         steps = [tool("Read", file_path=p) for p in _reading(cwd)]
-        steps += [tool("StructuredOutput", **first), tool("StructuredOutput", **corrected)]
+        steps += [tool("StructuredOutput", **first), tool("StructuredOutput", review=corrected)]
         return steps[done] if done < len(steps) else text("done")
 
     with serving(Script(main=[])) as (api, url):
@@ -155,10 +155,11 @@ def test_a_real_submission_is_refused_in_the_session_and_the_corrected_one_stand
     tmp_path: Path, install: Path, binary: str, role: str
 ) -> None:
     submitted = json.loads((REPLAYED / f"review_submission_{role}.json").read_text())
-    result, told = _review(tmp_path, install, binary, role, submitted)
+    # Sent as the contract now asks, inside its wrapper; its content as the model wrote it.
+    result, told = _review(tmp_path, install, binary, role, {"review": submitted})
     refusals = [t for t in told if t.startswith(REFUSED)]
     assert len(refusals) == 1, told[-3:]
-    assert "/items" in refusals[0]  # told what was wrong with its items
+    assert "/review/items" in refusals[0]  # told what was wrong with its items
     assert result.verdict == "pass" and result.schema_refusals == 1
     assert len(result.items) == len(load_rubric(REPO / "knowledge", role).items)
 
@@ -180,6 +181,6 @@ def test_each_breach_is_refused_in_the_session_and_the_reviewer_corrects_it(
     tmp_path: Path, install: Path, binary: str, role: str, name: str
 ) -> None:
     items = load_rubric(REPO / "knowledge", role).items
-    result, told = _review(tmp_path, install, binary, role, breach(name, items))
+    result, told = _review(tmp_path, install, binary, role, {"review": breach(name, items)})
     assert sum(t.startswith(REFUSED) for t in told) == 1, name
     assert result.verdict == "pass" and result.schema_refusals == 1

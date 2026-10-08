@@ -323,7 +323,8 @@ def test_the_schema_offered_asks_for_exactly_what_the_model_validates() -> None:
     from physgate.reviewers.contract import verdict_schema
 
     schema = verdict_schema(RUBRIC, criteria=("1",), scan_hits=(HIT,), not_evaluable="blocking")
-    props = schema["properties"]
+    props = schema["properties"]["review"]["properties"]
+    schema = schema["properties"]["review"]
     assert set(props) == set(ModelVerdict.model_fields) == set(schema["required"])
     assert props["verdict"]["enum"] == ["accept", "reject", "blocked"]
     assert set(props["items"]["required"]) == {i.id for i in RUBRIC}

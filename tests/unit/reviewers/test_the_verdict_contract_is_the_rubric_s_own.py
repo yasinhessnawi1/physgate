@@ -19,7 +19,13 @@ from typing import Any
 import pytest
 from schema_subset import errors
 
-from physgate.reviewers.contract import as_answer, contract_text, issued_criteria, verdict_schema
+from physgate.reviewers.contract import (
+    WRAPPER,
+    as_answer,
+    contract_text,
+    issued_criteria,
+    verdict_schema,
+)
 from physgate.reviewers.rubric import (
     NotEvaluableNeeds,
     RubricItem,
@@ -93,7 +99,7 @@ def _both(
     criteria: tuple[str, ...] | None,
     needs: NotEvaluableNeeds,
 ) -> tuple[list[str], Answered | Unavailable]:
-    found = errors(answer, _schema(items, criteria, needs))
+    found = errors({WRAPPER: answer}, _schema(items, criteria, needs))
     return found, judge(answer, (HIT,), items, criteria=criteria, not_evaluable=needs)
 
 
@@ -124,7 +130,7 @@ def test_the_first_real_submissions_break_the_schema_where_they_broke_the_check(
     real = json.loads((REPLAYED / f"review_submission_{role}.json").read_text())
     entries = {x["item"]: {"result": x["result"], "evidence": x["evidence"]} for x in real["items"]}
     keyed = {**real, "items": entries}
-    found = errors(keyed, _schema(items, None, not_evaluable_needs(role)))
+    found = errors({WRAPPER: keyed}, _schema(items, None, not_evaluable_needs(role)))
     assert any(f"must have required property '{items[0].id}'" in e for e in found)
     assert any("must NOT have additional properties" in e for e in found)
     assert any("acceptance_criteria" in e for e in found)  # its criteria were items instead
@@ -289,7 +295,8 @@ def test_a_generalist_is_held_to_its_own_two_sections() -> None:
     schema = _schema(rubric.items, None, "defect")
     sections = {i.section for i in rubric.items}
     assert sections == {"acceptance_criteria", "reward_hacking"}
-    assert set(schema["properties"]["items"]["required"]) == {i.id for i in rubric.items}
+    verdict = schema["properties"][WRAPPER]
+    assert set(verdict["properties"]["items"]["required"]) == {i.id for i in rubric.items}
     found, outcome = _both(valid(rubric.items, None), rubric.items, None, "defect")
     assert found == [] and isinstance(outcome, Answered)
 
@@ -345,3 +352,50 @@ def test_blocked_needs_a_blocking_defect_not_any_defect() -> None:
     found, outcome = _both(answer, items, None, "defect")
     assert any("must contain" in e for e in found)
     assert isinstance(outcome, Unavailable) and outcome.cause == "invalid_verdict"
+
+
+_OBJECT = ("properties", "required", "additionalProperties")
+_ARRAY = ("items", "contains", "minItems", "maxItems")
+
+
+def _untyped(schema: object, where: str = "#") -> list[str]:
+    """Every subschema using an object or array keyword without its type (strict mode warns)."""
+    if isinstance(schema, list):
+        return [f for i, part in enumerate(schema) for f in _untyped(part, f"{where}/{i}")]
+    if not isinstance(schema, dict):
+        return []
+    found = []
+    if any(k in schema for k in _OBJECT) and schema.get("type") != "object":
+        found.append(f"{where}: object keyword without type object")
+    if any(k in schema for k in _ARRAY) and schema.get("type") != "array":
+        found.append(f"{where}: array keyword without type array")
+    for key, value in schema.items():
+        if key == "properties" and isinstance(value, dict):
+            found += [f for k, v in value.items() for f in _untyped(v, f"{where}/properties/{k}")]
+        elif key not in ("enum", "const", "required") and isinstance(value, dict | list):
+            found += _untyped(value, f"{where}/{key}")
+    return found
+
+
+@pytest.mark.parametrize("role", ["control", "firmware"])
+@pytest.mark.parametrize("criteria", [None, ("1", "2")], ids=["uncounted", "counted"])
+def test_the_schema_has_no_combinator_at_its_top_and_types_every_subschema(
+    role: str, criteria: tuple[str, ...] | None
+) -> None:
+    items = _rubric(role)
+    hits = (HIT,)
+    schema = verdict_schema(
+        items, criteria=criteria, scan_hits=hits, not_evaluable=not_evaluable_needs(role)
+    )
+    assert not {"oneOf", "allOf", "anyOf"} & set(schema)  # what the API refuses
+    assert schema["type"] == "object" and schema["required"] == [WRAPPER]
+    assert _untyped(schema) == []  # what the binary's strict mode warns of
+
+
+def test_a_submission_is_read_from_inside_its_wrapper() -> None:
+    items = _rubric("control")
+    answer = valid(items, None)
+    outcome = judge({WRAPPER: answer}, (HIT,), items, not_evaluable="defect")
+    assert isinstance(outcome, Answered)
+    two = judge({WRAPPER: answer, "extra": 1}, (HIT,), items, not_evaluable="defect")
+    assert isinstance(two, Unavailable)  # anything else beside it is not a verdict

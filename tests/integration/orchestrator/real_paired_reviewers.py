@@ -2,10 +2,17 @@
 
 Run as a script, never collected as a test, and never without saying which kind:
 
+    python real_paired_reviewers.py preflight --dry-run --criteria <stamp> --out <f>
+    python real_paired_reviewers.py preflight --real --criteria <stamp> --out <f>
     python real_paired_reviewers.py paired --dry-run --criteria <stamp> --out <p>
     python real_paired_reviewers.py paired --real --criteria <stamp> --out <p>
     python real_paired_reviewers.py generalist --dry-run --criteria <stamp> --paired <p> --out <g>
     python real_paired_reviewers.py generalist --real --criteria <stamp> --paired <p> --out <g>
+
+**The pre-flight.** Before the paired run: one short session per role, offered the verdict
+schema its reviews will be offered, asked for one call, one turn, with no file tool and a
+small output limit. It shows only that the API takes the schema and that the binary compiles
+it without a strict-mode warning, at a few cents; it scores nothing.
 
 **The paired run.** The same two stand-in subtasks as the first control and firmware run
 (``real_domain_roles.py``: the same brief, specifications, proposals, interface node, pins and
@@ -48,6 +55,7 @@ import os
 import shutil
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -63,7 +71,8 @@ from physgate.cli import main as physgate_main  # noqa: E402
 from physgate.evaluation.observe.cost import load_price_sheet, price_run  # noqa: E402
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME  # noqa: E402
 from physgate.orchestrator.cli import default_registrations  # noqa: E402
-from physgate.orchestrator.decompose import binary_version  # noqa: E402
+from physgate.orchestrator.credentials import remove_secrets, write_login  # noqa: E402
+from physgate.orchestrator.decompose import binary_version, read_stream  # noqa: E402
 from physgate.orchestrator.events import (  # noqa: E402
     ReviewRan,
     ReviewUnavailable,
@@ -72,9 +81,14 @@ from physgate.orchestrator.events import (  # noqa: E402
     read_events,
 )
 from physgate.orchestrator.gate_events import gate_events  # noqa: E402
-from physgate.orchestrator.invocation import claude_binary  # noqa: E402
+from physgate.orchestrator.invocation import (  # noqa: E402
+    REVIEWER_ENV,
+    claude_binary,
+    isolated_env,
+)
 from physgate.orchestrator.run_config import load_run_config  # noqa: E402
-from physgate.reviewers.contract import issued_criteria  # noqa: E402
+from physgate.reviewers.claude import SYNTHETIC_MODEL  # noqa: E402
+from physgate.reviewers.contract import issued_criteria, verdict_schema  # noqa: E402
 from physgate.reviewers.packet import (  # noqa: E402
     DIFF_NAME,
     RECORD_NAME,
@@ -82,7 +96,12 @@ from physgate.reviewers.packet import (  # noqa: E402
     WORKTREE_NAME,
 )
 from physgate.reviewers.places import require_review_root  # noqa: E402
-from physgate.reviewers.rubric import NOT_IN_REVIEW, parse_rubric  # noqa: E402
+from physgate.reviewers.rubric import (  # noqa: E402
+    NOT_IN_REVIEW,
+    load_rubric,
+    not_evaluable_needs,
+    parse_rubric,
+)
 from physgate.state.task_ledger import TaskLedger  # noqa: E402
 
 RUN_ID = "a1-paired-reviewers"
@@ -296,7 +315,7 @@ def dry_reviews(api: Any) -> None:  # noqa: ANN401
         rubric = (Path(cwd).parent / "rubric.md").read_text()
         first_control = bool(reviewed) and reviewed[0] == cwd and NOT_IN_REVIEW not in rubric
         steps = [tool("Read", file_path=p) for p in _reading(cwd)]
-        steps.append(tool("StructuredOutput", **_verdict(cwd, reject=first_control)))
+        steps.append(tool("StructuredOutput", review=_verdict(cwd, reject=first_control)))
         return steps[done] if done < len(steps) else text("done")
 
     api.on_request = on_request
@@ -342,9 +361,84 @@ def generalist(paired_root: Path, out: Path) -> dict[str, Any]:
     return found
 
 
+#: What the pre-flight asks of each reviewer session: one call, any values.
+PREFLIGHT_PROMPT = "Reply by calling the StructuredOutput tool once, with any values it accepts."
+#: The output limit of a pre-flight session: enough for the API to take the request and the
+#: model to begin its answer; the answer itself is not wanted.
+PREFLIGHT_OUTPUT_TOKENS = 2000
+
+
+def preflight(root: Path, token: str, base_url: str | None) -> dict[str, Any]:
+    """One short reviewer session per role, with the schema its reviews will be offered.
+
+    It shows only that the API takes the schema: the session is answered by the pinned
+    reviewer model and not refused with a 400, and the binary compiles the schema with no
+    strict-mode warning. One turn, no file tool, the output limit small.
+    """
+    found: dict[str, Any] = {}
+    for role in ("control", "firmware"):
+        rubric = load_rubric(base.REPO_ROOT / KNOWLEDGE_ROOT, role)
+        schema = verdict_schema(
+            rubric.items, criteria=None, scan_hits=(), not_evaluable=not_evaluable_needs(role)
+        )
+        sdir = root / "preflight" / role
+        (sdir / "home").mkdir(parents=True)
+        config_dir = sdir / "config"
+        write_login(config_dir, token)
+        env = isolated_env(
+            home=sdir / "home",
+            config_dir=config_dir,
+            binary=claude_binary(),
+            max_retries=0,
+            max_output_tokens=PREFLIGHT_OUTPUT_TOKENS,
+            base_url=base_url,
+            api_key=None,
+        )
+        env.update(REVIEWER_ENV)
+        argv = [
+            claude_binary(),
+            *("-p", PREFLIGHT_PROMPT, "--setting-sources", "", "--tools", ""),
+            *("--json-schema", json.dumps(schema, sort_keys=True, separators=(",", ":"))),
+            *("--model", base.REVIEWER, "--effort", "low", "--max-turns", "1"),
+            *("--output-format", "stream-json", "--verbose", "--include-partial-messages"),
+            *("--session-id", str(uuid.uuid4()), "--permission-mode", "bypassPermissions"),
+        ]
+        try:
+            done = subprocess.run(
+                argv,
+                cwd=sdir / "home",
+                env=env,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                timeout=600,
+                check=False,
+            )
+        finally:
+            remove_secrets(sdir, config_dir)
+        (sdir / "stdout.jsonl").write_text(done.stdout)
+        (sdir / "stderr.txt").write_text(done.stderr)
+        result, usage, answered = read_stream(done.stdout)
+        refused = result is not None and result.get("api_error_status") == 400
+        models = sorted(answered - {SYNTHETIC_MODEL})
+        warnings = [line for line in done.stderr.splitlines() if "strict mode" in line]
+        found[role] = {
+            "schema_bytes": len(argv[argv.index("--json-schema") + 1]),
+            "answered_by": models,
+            "refused_400": refused,
+            "api_error": (result or {}).get("result") if refused else None,
+            "strict_mode_warnings": len(warnings),
+            "total_cost_usd": (result or {}).get("total_cost_usd"),
+            "tokens": sum(m.usage.total() for m in usage),
+            "accepted": (not refused) and models == [base.REVIEWER] and not warnings,
+        }
+    found["all_accepted"] = all(found[r]["accepted"] for r in ("control", "firmware"))
+    return found
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("phase", choices=["paired", "generalist"])
+    parser.add_argument("phase", choices=["preflight", "paired", "generalist"])
     kind = parser.add_mutually_exclusive_group(required=True)
     kind.add_argument("--dry-run", action="store_true", help="scripted endpoint, dummy token")
     kind.add_argument("--real", action="store_true", help="the real API, on the subscription")
@@ -389,8 +483,17 @@ def main() -> None:
     # The first run's driver commands, with the shipped registrations in place of its stub.
     base.command = command
     base.RUN_ID = RUN_ID
+    result: dict[str, Any]
     try:
-        if args.phase == "paired":
+        if args.phase == "preflight":
+            if args.dry_run:
+                # The scripted endpoint refuses what the API is known to refuse.
+                with serving(Script(main=[text("done")])) as (api, url):
+                    result = {"preflight": preflight(root, token, url)}
+                    result["endpoint_refusals"] = list(api.refusals)
+            else:
+                result = {"preflight": preflight(root, token, None)}
+        elif args.phase == "paired":
             if args.dry_run:
                 with serving(Script(main=[])) as (api, url):
                     base.dry_script(api)
@@ -427,6 +530,7 @@ def main() -> None:
                 "reviews_all_pass": reviews.get("all_pass") if reviews else None,
                 "repair_path_exercised": reviews.get("repair_path_exercised") if reviews else None,
                 "generalist_exit": result.get("generalist_exit"),
+                "preflight_all_accepted": (result.get("preflight") or {}).get("all_accepted"),
                 "token_ratio": (result.get("baseline") or {}).get("token_ratio"),
             }
         ),

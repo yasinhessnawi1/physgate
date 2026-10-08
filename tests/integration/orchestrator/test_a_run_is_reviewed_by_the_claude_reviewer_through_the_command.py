@@ -158,7 +158,7 @@ def test_a_run_through_the_command_is_reviewed_rejected_repaired_and_accepted(
                 k: v for k, v in verdict["items"].items() if k.startswith(("AC-", "RH-"))
             }
         steps = [tool("Read", file_path=p) for p in _reading(cwd)]
-        steps.append(tool("StructuredOutput", **verdict))
+        steps.append(tool("StructuredOutput", review=verdict))
         return steps[done] if done < len(steps) else text("done")
 
     with serving(Script(main=[tool("StructuredOutput", **plan)])) as (api, url):

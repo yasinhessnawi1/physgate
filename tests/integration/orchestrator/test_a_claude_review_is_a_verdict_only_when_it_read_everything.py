@@ -321,7 +321,7 @@ def test_a_review_that_reads_everything_and_accepts_is_a_pass(
     run_review: Any,  # noqa: ANN401
     tmp_path: Path,
 ) -> None:
-    review = run_review([], [tool("StructuredOutput", **verdict())])
+    review = run_review([], [tool("StructuredOutput", review=verdict())])
     result = review.result
     assert (result.verdict, result.reviewer_model) == ("pass", REVIEWER_MODEL)
     assert result.reading_verified is True and result.rubric_sha256 == RUBRIC.sha256
@@ -341,12 +341,14 @@ def test_a_review_that_reads_everything_and_accepts_is_a_pass(
     (session,) = _sessions(tmp_path / "rs")
     assert DUMMY_KEY.encode() not in (session / "stdout.jsonl").read_bytes()
     assert not list((session / "state").glob("*key*"))
+    # The binary compiled the verdict schema without a strict-mode warning.
+    assert "strict mode" not in (session / "stderr.txt").read_text()
     record = json.loads((session / "process.json").read_text())
     assert record["kind"] == "reviewer" and record["env_added"] == ["DISABLE_COMPACT"]
 
 
 def test_a_review_that_rejects_is_a_fail_naming_its_item_and_number(run_review: Any) -> None:  # noqa: ANN401
-    result = run_review([], [tool("StructuredOutput", **verdict("reject"))]).result
+    result = run_review([], [tool("StructuredOutput", review=verdict("reject"))]).result
     assert (result.verdict, result.failing_item) == ("fail", "AC-1")
     assert result.numeric_output is not None and result.numeric_output.unit == "1"
 
@@ -355,7 +357,8 @@ def test_a_verdict_before_the_reading_is_refused_and_the_one_after_stands(
     run_review: Any,  # noqa: ANN401
 ) -> None:
     review = run_review(
-        [tool("StructuredOutput", **verdict("reject"))], [tool("StructuredOutput", **verdict())]
+        [tool("StructuredOutput", review=verdict("reject"))],
+        [tool("StructuredOutput", review=verdict())],
     )
     assert review.result.verdict == "pass"
     told = review.api.requests[1].last_user
@@ -378,14 +381,15 @@ def test_a_review_the_model_declines_is_refused(run_review: Any) -> None:  # noq
 
 
 def test_a_large_context_does_not_compact_what_the_reviewer_read(run_review: Any) -> None:  # noqa: ANN401
-    review = run_review([], [tool("StructuredOutput", **verdict())], read_usage=LARGE)
+    review = run_review([], [tool("StructuredOutput", review=verdict())], read_usage=LARGE)
     assert not any(COMPACTION_MARKER in r.last_user for r in review.api.requests)
     assert review.result.verdict == "pass"
     assert review.result.peak_context_tokens == 195_007
 
 
 def test_a_review_answered_by_another_model_is_refused_outright(run_review: Any) -> None:  # noqa: ANN401
-    review = run_review([], [tool("StructuredOutput", **verdict())], answer_as="claude-opus-5-5")
+    answer = [tool("StructuredOutput", review=verdict())]
+    review = run_review([], answer, answer_as="claude-opus-5-5")
     assert isinstance(review.outcome, InvocationError), review.outcome
     assert "another" in str(review.outcome) or "other than" in str(review.outcome)
 
@@ -397,7 +401,7 @@ def test_an_attempt_without_its_sealed_trajectory_is_never_reviewed(
     unsealed = _attempt(tmp_path / "a").model_copy(
         update={"trajectory_sha256": None, "trajectory_length": None}
     )
-    review = run_review([], [tool("StructuredOutput", **verdict())], artefact=unsealed)
+    review = run_review([], [tool("StructuredOutput", review=verdict())], artefact=unsealed)
     assert review.unavailable.cause == "unprepared"
     assert review.api.requests == []
     assert _sessions(tmp_path / "rs") == []

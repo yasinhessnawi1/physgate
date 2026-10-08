@@ -7,7 +7,11 @@ session had ended, where the reviewer could neither see why nor try again.
 
 So the schema a review is offered is generated from its own rubric
 (:func:`verdict_schema`). A submission that breaks it is refused by the binary inside
-the session, with the reasons, and the reviewer submits again. It holds:
+the session, with the reasons, and the reviewer submits again. The verdict is the one
+property of the submission (``review``): the API refuses a tool schema with ``allOf``,
+``anyOf`` or ``oneOf`` at its top level, and the verdict's rules relate its fields to one
+another, so they apply to the verdict, one level down. Every subschema states its type.
+It holds:
 
 - ``items``: one entry per rubric item, keyed by the item's own id, every id required and
   no other key allowed, each answered only with a result its section allows
@@ -39,6 +43,8 @@ from physgate.reviewers.scan import ScanHit
 _HEADING = re.compile(r"^#{1,6}\s+(?P<title>.+?)\s*$")
 _NUMBERED = re.compile(r"^\s*(?P<ref>\d+)[.)]\s+\S")
 CRITERION_RESULTS = ("met", "unmet", "not evaluable")
+#: The one property a submission has: the verdict, whose rules cannot sit at the top.
+WRAPPER = "review"
 
 
 def issued_criteria(spec: str | None) -> tuple[str, ...] | None:
@@ -243,7 +249,7 @@ def verdict_schema(
                 "then": _defect_naming(ref, not_evaluable),
             }
         )
-    return {
+    inner = {
         "type": "object",
         "additionalProperties": False,
         "required": [
@@ -308,6 +314,48 @@ def verdict_schema(
         },
         "allOf": rules,
     }
+    # The API refuses a tool input schema with oneOf, allOf or anyOf at its top level
+    # (measured: a 400 on the first request of every review). The verdict's own rules
+    # relate its fields to one another, so they sit on the verdict, one level down.
+    return _typed(
+        {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [WRAPPER],
+            "properties": {WRAPPER: inner},
+        }
+    )
+
+
+_OBJECT_KEYWORDS = ("properties", "required", "additionalProperties")
+_ARRAY_KEYWORDS = ("items", "contains", "minItems", "maxItems")
+_SUBSCHEMA_LISTS = ("allOf", "anyOf", "oneOf")
+_SUBSCHEMAS = ("items", "contains", "not", "if", "then", "else")
+
+
+def _typed(schema: dict[str, Any]) -> dict[str, Any]:
+    """``schema`` with every subschema that uses an object or array keyword typed as such.
+
+    The binary compiles the schema in strict mode and warns of each subschema that uses
+    such a keyword without its type (measured: hundreds of warnings on every review).
+    Every such subschema here constrains a value that is an object or an array anyway,
+    so stating the type changes nothing it accepts.
+    """
+    typed = dict(schema)
+    if "type" not in typed:
+        if any(k in typed for k in _OBJECT_KEYWORDS):
+            typed["type"] = "object"
+        elif any(k in typed for k in _ARRAY_KEYWORDS):
+            typed["type"] = "array"
+    if isinstance(typed.get("properties"), dict):
+        typed["properties"] = {k: _typed(v) for k, v in typed["properties"].items()}
+    for key in _SUBSCHEMAS:
+        if isinstance(typed.get(key), dict):
+            typed[key] = _typed(typed[key])
+    for key in _SUBSCHEMA_LISTS:
+        if isinstance(typed.get(key), list):
+            typed[key] = [_typed(part) for part in typed[key]]
+    return typed
 
 
 def as_answer(structured: object, items: tuple[RubricItem, ...]) -> object:
@@ -316,6 +364,8 @@ def as_answer(structured: object, items: tuple[RubricItem, ...]) -> object:
     A key the rubric does not have is kept, with no section, so the check refuses it; a
     submission not in this shape is returned as it is, for the check to refuse.
     """
+    if isinstance(structured, dict) and set(structured) == {WRAPPER}:
+        structured = structured[WRAPPER]
     if not isinstance(structured, dict) or not isinstance(structured.get("items"), dict):
         return structured
     given: dict[str, Any] = structured["items"]
@@ -352,7 +402,8 @@ def contract_text(
     )
     return (
         "Your verdict is held to a schema built from your rubric, and a verdict that breaks it "
-        "is refused with the reasons; correct it and submit again.\n"
+        "is refused with the reasons; correct it and submit again. Submit it as "
+        f"`{{{WRAPPER}: {{...the verdict...}}}}`.\n"
         f"- `items`: one entry for every one of the rubric's {len(items)} items, keyed by the "
         "item's id exactly as the rubric gives it (for example "
         f"`{items[0].id}`), never grouped, never renamed, nothing else.\n"

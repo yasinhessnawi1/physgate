@@ -176,7 +176,7 @@ def test_every_artefact_is_reviewed_by_the_claude_reviewer_before_the_gate(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     code, err, run_dir = _instrument(
-        tmp_path, install, monkeypatch, capsys, tool("StructuredOutput", **VERDICT)
+        tmp_path, install, monkeypatch, capsys, tool("StructuredOutput", review=VERDICT)
     )
     assert code == 0, err
     events = read_events(run_dir / "events.jsonl")

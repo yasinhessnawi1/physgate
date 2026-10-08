@@ -215,6 +215,74 @@ def _working_directory(messages: list[dict[str, Any]]) -> str:
     return ""
 
 
+#: The JSON Schema keywords strict tool use does not support (the structured outputs
+#: page's "JSON Schema limitations"; "Array constraints beyond minItems of 0 or 1" and the
+#: string and numerical constraints are listed there as not supported).
+_NOT_IN_STRICT = (
+    "if",
+    "then",
+    "else",
+    "not",
+    "contains",
+    "maxItems",
+    "minLength",
+    "maxLength",
+    "minimum",
+    "maximum",
+    "multipleOf",
+)
+
+
+def _strict_problem(schema: object, where: str) -> str | None:
+    if isinstance(schema, list):
+        for index, part in enumerate(schema):
+            found = _strict_problem(part, f"{where}.{index}")
+            if found:
+                return found
+        return None
+    if not isinstance(schema, dict):
+        return None
+    for key in _NOT_IN_STRICT:
+        if key in schema:
+            return f"{where}: '{key}' is not supported with strict tool use"
+    if schema.get("minItems", 0) not in (0, 1):
+        return f"{where}: minItems other than 0 or 1 is not supported with strict tool use"
+    if schema.get("type") == "object" and schema.get("additionalProperties") is not False:
+        return f"{where}: additionalProperties must be false with strict tool use"
+    for key, value in schema.items():
+        if isinstance(value, dict | list):
+            found = _strict_problem(value, f"{where}.{key}")
+            if found:
+                return found
+    return None
+
+
+def refused_tools(tools: list[dict[str, Any]]) -> str | None:
+    """Why the API would refuse this request's tool definitions, if it would.
+
+    Two rules, each the API's own:
+    - a user-defined tool's ``input_schema`` with ``oneOf``, ``allOf`` or ``anyOf`` at its
+      top level is refused with exactly this message (measured on the real API: the first
+      request of every review in the second real paired run);
+    - a tool with ``strict: true`` may use only the JSON Schema the structured outputs
+      page lists as supported.
+    """
+    for index, entry in enumerate(tools):
+        if entry.get("type") not in (None, "custom") or "input_schema" not in entry:
+            continue
+        schema = entry["input_schema"]
+        if isinstance(schema, dict) and any(k in schema for k in ("oneOf", "allOf", "anyOf")):
+            return (
+                f"tools.{index}.custom.input_schema: input_schema does not support oneOf, "
+                "allOf, or anyOf at the top level"
+            )
+        if entry.get("strict") is True:
+            found = _strict_problem(schema, f"tools.{index}.custom.input_schema")
+            if found:
+                return found
+    return None
+
+
 class EmptySubstitutionError(ValueError):
     """A scripted step's placeholder had no value to take."""
 
@@ -266,6 +334,8 @@ class FakeMessagesApi:
         self.requests: list[Recorded] = []
         #: Every step refused before it was sent, with why. A run that has any is broken.
         self.failures: list[str] = []
+        #: Every request refused as the API refuses it (``refused_tools``), with the message.
+        self.refusals: list[str] = []
         #: Called before a scripted tool-offering request is answered, with the thread,
         #: the session's working directory and how many tool results it carries. It may
         #: block: that holds the request open, as a model that has not answered yet. It
@@ -275,7 +345,16 @@ class FakeMessagesApi:
         self._n = 0
 
     def answer(self, path: str, headers: Any, body: dict[str, Any]) -> tuple[bytes, str]:  # noqa: ANN401
-        """The response to one request, recorded."""
+        """The response to one request, recorded; a request the API would refuse, refused."""
+        refused = refused_tools(body.get("tools") or [])
+        if refused is not None:
+            self.refusals.append(refused)
+            shaped = {
+                "type": "error",
+                "error": {"type": "invalid_request_error", "message": refused},
+                "status": 400,
+            }
+            return json.dumps(shaped).encode(), "application/json"
         key = headers.get("x-api-key")
         auth = headers.get("authorization") or ""
         bearer = auth.removeprefix("Bearer ") if auth.startswith("Bearer ") else auth or None
