@@ -19,20 +19,27 @@ used.
 
 ## 2. A closed loop reports its stability margins, not "it converged in simulation"
 
-**For a linear-quadratic regulator with full state feedback**, tolerance to at least a 50% gain
-reduction (−6 dB) with unbounded tolerance to a gain increase, and at least 60° of phase margin in
-either direction, are *provable* properties of the optimal regulator itself, not a design target —
-a mathematical guarantee, not a convention. **This is two separate results, correctly attributed,
-not one paper covering both:** the positive guarantee is Safonov & Athans's extension of the
-original (scalar) result to the multivariable case [M. G. Safonov and M. Athans, "Gain and phase
+**For a continuous-time linear-quadratic regulator with full state feedback** (all states measured,
+`R` diagonal, loop broken at the plant input), tolerance to at least a 50% gain reduction (−6 dB)
+with unbounded tolerance to a gain increase, and at least 60° of phase margin in either direction,
+in each plant input channel, are *provable* properties of the optimal regulator itself, not a design
+target — a mathematical guarantee, not a convention. **This is two separate results, correctly
+attributed, not one paper covering both:** the positive guarantee is Safonov & Athans's extension
+of the original (scalar) result to the multivariable case [M. G. Safonov and M. Athans, "Gain and phase
 margin for multiloop LQG regulators," *IEEE Transactions on Automatic Control*, vol. 22, no. 2,
-pp. 173–179, Apr. 1977]. It is *not* Doyle 1978's own result — Doyle's paper cites it as
-background, verbatim: "the now well-known guarantee of 60° phase and 6 dB gain margin for such
-controllers," crediting Safonov & Athans directly, before proving something else. What Doyle 1978
-actually proves is the negative result this guarantee does **not** extend to: once a state
-estimator (a Kalman filter) closes the loop with output feedback instead of full state feedback,
-**no** margin is guaranteed at all [J. C. Doyle, "Guaranteed margins for LQG regulators," *IEEE
-Transactions on Automatic Control*, vol. 23, no. 4, pp. 756–757, Aug. 1978,
+pp. 173–179, Apr. 1977]. Its conditions are part of the result: it holds for the continuous-time
+loop "if the weight R is chosen to be diagonal", "in each plant input control channel"
+[S. Skogestad and I. Postlethwaite, *Multivariable Feedback Control*, Wiley, 2nd edition, 2005,
+§9.2.2]. **This draft's reading, not the source's:** the result is stated for the continuous-time
+loop, so it covers no sampled implementation; for a discrete-time LQR, or a continuous design behind
+a zero-order hold or a computation delay, measure the margins on the discrete loop. The guarantee is
+*not* Doyle 1978's own result — Doyle's paper cites it as background, verbatim: "the now well-known
+guarantee of 60° phase and 6 dB gain margin for such controllers," crediting Safonov & Athans
+directly, before proving something else. What Doyle 1978 actually proves is the negative result
+this guarantee does **not** extend to: once a state estimator (a Kalman filter) closes the loop with
+output feedback instead of full state feedback, **no** margin is guaranteed at all [J. C. Doyle,
+"Guaranteed margins for LQG regulators," *IEEE Transactions on Automatic Control*, vol. 23, no. 4,
+pp. 756–757, Aug. 1978,
 DOI: 10.1109/TAC.1978.1101812]. That negative result is a worst-case, adversarial construction — a
 noise/weight parameter choice engineered to drive the margin to zero — not a claim that every real
 LQG design has small margins in practice; Doyle's own paper says so directly ("modern LQG designers
@@ -45,7 +52,8 @@ structure), no such guarantee exists either. Read directly from a primary source
 secondary paraphrase: "reasonable values of the margins are phase margin φ_m = 30°–60°, gain margin
 g_m = 2–5, and stability margin s_m = 0.5–0.8" [K. J. Åström and R. M. Murray, *Feedback Systems: An
 Introduction for Scientists and Engineers*, Princeton University Press, 2nd edition, 2021, Chapter
-10 ("Frequency Domain Analysis"), §10.3 "Stability Margins," Example 10.8; freely available at
+10 ("Frequency Domain Analysis"), §10.3 "Stability Margins," p. 10-17, in the text following
+Example 10.8; freely available at
 https://www.cds.caltech.edu/~murray/amwiki]. Note the gain margin `g_m` there is a **ratio**, not
 decibels — 2–5 corresponds to roughly 6–14 dB. The same section is worth reading for **why gain and
 phase margins alone are not sufficient**: it gives a worked example (their Example 10.8) of a system
@@ -72,25 +80,29 @@ by continuous-time arguments — approximating the hold circuit as a half-sample
 budgeting how much phase margin an antialiasing filter and the hold are allowed to cost a loop whose
 crossover frequency is `ω_c` — gives the rule of thumb `h·ω_c = 0.05` to `0.14` (`h` the sampling
 period in seconds, `ω_c` in rad/s), derived from allowing the filter and hold together to cost
-5°–15° of phase margin with a filter damping ratio of 0.707. The authors state directly, a verbatim
-quote and the only figure actually in the source: "this rule gives a Nyquist frequency that is
-about 23 to 70 times higher than the crossover frequency" [B. Wittenmark, K.-E. Årzén, and
-K. J. Åström, "Computer Control: An Overview," IFAC Professional Brief, International Federation of
-Automatic Control, 2002, §"Selection of Sampling Interval and Antialiasing Filters" — freely
-available via Lund University's publication repository]. **The following step is this draft's own
-arithmetic, not the source's:** since the sampling frequency is by definition twice the Nyquist
-frequency, the 23–70× Nyquist-to-crossover ratio implies a sampling-frequency-to-crossover ratio of
-roughly **46 to 140 times** — arithmetically valid, but a number the cited authors never state, so
+5°–15° of phase margin with a filter damping ratio of 0.707 and a filter gain of 0.1 at the Nyquist
+frequency. The band is the source's own eq. (36), and the authors add, verbatim: "this rule gives a
+Nyquist frequency that is about 23 to 70 times higher than the crossover frequency"
+[B. Wittenmark, K.-E. Årzén, and K. J. Åström, "Computer Control: An Overview," IFAC Professional
+Brief, International Federation of Automatic Control, 2002, §"Selection of Sampling Interval and
+Antialiasing Filters", eq. (36) — freely available via Lund University's publication repository].
+**The following step is this draft's own arithmetic, not the source's:** since the sampling
+frequency is by definition twice the Nyquist frequency, the 23–70× Nyquist-to-crossover ratio
+implies a sampling-frequency-to-crossover ratio of roughly **46 to 140 times** — arithmetically valid, but a number the cited authors never state, so
 it is marked here as derived rather than quoted.
 
-This is a *derivation under stated assumptions* (a specific phase-margin budget and filter damping),
-not a universal law — state the assumptions actually used if a different phase-margin budget or
-filter design changes the resulting ratio, rather than quoting 46–140× as if it applies unconditionally.
+This is a *derivation under stated assumptions* (a specific phase-margin budget, filter damping and
+filter gain at the Nyquist frequency), not a universal law — state the assumptions actually used if
+a different phase-margin budget or filter design changes the resulting ratio, rather than quoting
+46–140× as if it applies unconditionally.
 A lower multiple costs tracking performance and disturbance rejection; a higher one costs computation
 without buying anything past what the phase-margin budget already required. The Nyquist rate itself
 (twice the highest frequency of interest) is the theoretical floor below which information is lost
 outright, not a design target on its own — the rule above is already well above it for exactly this
-reason.
+reason. The rule applies when a continuous-time design is translated into a digital controller; for
+a controller designed directly in discrete time, the same brief gives a separate rule from
+experience and simulations, `ω·h = 0.1` to `0.6` with `ω` the desired closed-loop natural frequency [same brief,
+§"Sampling Period Selection"].
 
 **Judgement-only.**
 
@@ -104,6 +116,13 @@ setting `Kp = 0.6 K_u`, integral time `Ti = 0.5 P_u`, derivative time `Td = 0.12
 ASME*, vol. 64, pp. 759–768, 1942]. It is well known to produce an aggressive, oscillatory
 ("quarter-amplitude decay") response and is a documented **starting point**, not a finished tuning —
 state whichever method actually produced the reported gains and why, if it was not this one.
+Neither Ziegler–Nichols experiment is available for a balancing robot's tilt loop: the step method
+needs "the open loop unit step response", which diverges, and the frequency method raises a
+proportional gain "until the system starts to oscillate" [Åström and Murray, *Feedback Systems*,
+2nd edition, §11.3]. **This draft's own derivation, not the source's:** for the normalised inverted
+pendulum `1/(s² − 1)` [same book, Example 10.5], proportional gain `k` gives the closed loop
+`s² + (k − 1)`, which is unstable for k < 1 and undamped for every k > 1, so there is no ultimate
+gain to find. Use Ziegler–Nichols only on a stable inner loop (e.g. motor speed).
 
 **Judgement-only.**
 

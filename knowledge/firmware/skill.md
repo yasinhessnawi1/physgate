@@ -19,7 +19,7 @@ Separate three layers, and do not let a caller reach past the one it needs:
 3. **The application/driver-pattern layer** — a function-pointer-based interface (a `struct` of
    function pointers, or a small vtable) for a peripheral driver is a common, testable way to keep
    drivers swappable and to allow a host-side unit test to substitute a fake driver without touching
-   the application logic that uses it. This is a **named, deliberate exception** to the pointer
+   the application logic that uses it. This is a **named, intended exception** to the pointer
    restriction in standards §6, not an oversight — state it as one where it is used, the way
    standards §6 itself asks.
 
@@ -33,9 +33,13 @@ prevent.
    estimated worst-case execution time `Cᵢ` (not an average — a schedulability argument needs the
    worst case).
 2. Compute `Σ (Cᵢ/Tᵢ)` and compare it against the rate-monotonic sufficient bound
-   `n(2^(1/n) − 1)` (standards §10). Below the bound: provably schedulable under rate-monotonic
-   priority. At or above it: use an exact test (response-time analysis) rather than assuming
-   failure — the bound is sufficient, not necessary.
+   `n(2^(1/n) − 1)` (standards §10), which holds only for independent periodic tasks with priority
+   ordered by period — interrupts included, since they run above every task [the interrupt and
+   resource-sharing conditions: "Rate-monotonic scheduling," Wikipedia]. At or below the bound:
+   provably schedulable under rate-monotonic priority. Above it, or where those conditions do not
+   hold (shared resources, an interrupt out of period order, an aperiodic source without a sourced
+   minimum inter-arrival time to use as its period): use an exact test (response-time analysis)
+   rather than assuming failure — the bound is sufficient, not necessary.
 3. Separately, check the same total against the practitioner CPU-headroom guidance (standards §10)
    and state which of the two comparisons is being reported, since they are different claims.
 4. Record the enumerated tasks, their `Cᵢ`/`Tᵢ`, the utilization total, and which test it was

@@ -6,8 +6,9 @@
 > before any promotion. Every rule below names what enforces it; none is invented to fill a gap.
 
 Read this file first, before any domain's own standards file, on every task regardless of domain.
-It states the rules the physics gate already holds every domain's numbers to, and the minimum
-documentation discipline every role owes every other role, the gate, and the reviewer.
+It states the rules the automated design-quantity checks (the gate) already hold every domain's
+numbers to, and the minimum documentation discipline every role owes every other role, the gate,
+and the reviewer.
 
 ## 1. Every quantity is a `{value, unit, source, written_by}` record
 
@@ -22,18 +23,22 @@ gate's check 1 re-validates unit consistency on every committed expression regar
 ## 2. Units are SI, or an SI-coherent unit, and unit arithmetic is exact
 
 Angles are dimensionless in unit arithmetic but are tracked separately by their radian power (a
-frequency and an angular velocity are not interchangeable even though both reduce to 1/s). An
-absolute temperature and a temperature *difference* are different kinds in the catalogue —
-`temperature` may be written in an offset unit such as Celsius; `temperature_difference` may not,
-always Kelvin — because subtracting two absolute temperatures gives a difference, not another
-absolute temperature, and the offset does not carry over into it
+frequency and an angular velocity are not interchangeable even though both reduce to 1/s)
 [International Bureau of Weights and Measures, *The International System of Units (SI)*, 9th
-edition, 2019 (NIST SP 330-2019), §2.3.4 and the notes to Table 4 — cited exactly as, and with the
-same honesty caveat as, this project's own gate catalogue already carries it: "read via search,
-not in full" (`src/physgate/gate/catalogue.py`, `SI_BROCHURE` constant, 26.09.2026)].
+edition, 2019, §2.3.3 (angles are "quantities with the unit one") and §2.3.4
+("The SI unit of frequency is hertz, the SI unit of angular velocity and angular frequency is
+radian per second"; Table 4, note (b))]. An absolute temperature and a temperature *difference* are
+different kinds in the catalogue — `temperature` may be written in an offset unit such as Celsius;
+`temperature_difference` may not, always Kelvin — because subtracting two absolute temperatures
+gives a difference, not another absolute temperature, and the offset does not carry over into it.
+SI itself allows either unit for a difference ("A difference or interval of temperature may be
+expressed in kelvins or in degrees Celsius" [ibid., §2.3.1, the kelvin; Table 4, note (f)]);
+kelvin-only is the gate's own, stricter convention, so that the Celsius offset can
+never be applied to a difference. The convention's record cites the Brochure at §2.3.4 and the
+notes to Table 4, as read via search, not in full, 26.09.2026.
 
 **Enforced:** gate check 1 (`check_units.py`), which parses every unit against the catalogue's kind
-rules — this is the same rule and the same citation the gate's own catalogue already carries.
+rules — this is the same rule the gate's own catalogue already carries.
 
 ## 3. A magnitude claim is checked against a sourced range, or is recorded as unchecked — never assumed passed
 

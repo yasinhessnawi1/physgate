@@ -3,13 +3,9 @@
 Read from the real ``knowledge/`` tree at the repository root, which is this
 test's working directory under ``scripts/check.sh``.
 
-**A pinned residual, not a pass.** Three promoted library files say "physics
-gate", the harness's name, or "deliberate", each in a legitimate sense (the
-gate's own checks, a code path in a source file's path, a stated exception to a
-rule). A reviewer would be shown them. Their content is curated and promoted by
-a person, so this test does not fix it: it pins exactly what is found today, and
-goes red the moment the set changes in either direction, so the fix is noticed
-and the pin removed, and no new word arrives unnoticed.
+Nothing is pinned: the three promoted library files that once said such a word
+were corrected through the knowledge layer's own staging and promotion, and the
+set is now empty. A word arriving in any file a reviewer is shown turns this red.
 """
 
 from __future__ import annotations
@@ -22,12 +18,8 @@ from physgate.reviewers.rubric import evaluation_words
 LIBRARY = Path("knowledge")
 #: The roles that have a paired reviewer.
 REVIEWED = ("control", "firmware")
-#: What is found today, file by file.
-PINNED = {
-    "knowledge/cross/standards.md": ["physgate", "physics gate"],
-    "knowledge/firmware/skill.md": ["deliberate"],
-    "knowledge/firmware/standards.md": ["deliberate", "physics gate"],
-}
+#: What is found today, file by file: nothing.
+PINNED: dict[str, list[str]] = {}
 
 
 def _shown() -> list[Path]:
