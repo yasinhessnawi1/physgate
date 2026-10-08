@@ -84,13 +84,19 @@ class _Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
 
+#: The longest specification the decomposition may issue a module, in characters.
+SPEC_MAX_CHARS = 32_768
+
+
 class PlannedModule(_Frozen):
     """One module of the design, as the decomposition proposes it."""
 
     name: Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9-]{0,31}$")]
     role: NonEmptyStr
     module_dir: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_][A-Za-z0-9_./-]{0,127}$")]
-    spec: Annotated[str, StringConstraints(min_length=1, max_length=20_000)]
+    #: Long enough for a specification that states its plant, sensors, timing and numbered
+    #: criteria in full (a reviewable one runs past 20,000 characters), and still bounded.
+    spec: Annotated[str, StringConstraints(min_length=1, max_length=SPEC_MAX_CHARS)]
 
 
 class Plan(_Frozen):
