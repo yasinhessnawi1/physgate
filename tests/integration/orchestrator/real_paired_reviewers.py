@@ -334,8 +334,12 @@ READ_CHUNK_BYTES = 60_000
 
 
 def _reads(path: str) -> list[dict[str, Any]]:
-    """The Read calls that show every line of ``path``: one, or pages of whole lines."""
-    lines = Path(path).read_bytes().splitlines(keepends=True)
+    """The Read calls that show every line of ``path``: one, or pages of whole lines.
+
+    Lines are counted as the Read tool counts them: a file ending in a newline has one more,
+    empty, line after it, which a page must reach too.
+    """
+    lines = Path(path).read_bytes().split(b"\n")
     if sum(len(line) for line in lines) <= READ_CHUNK_BYTES:
         return [tool("Read", file_path=path)]
     calls, start, size = [], 0, 0
