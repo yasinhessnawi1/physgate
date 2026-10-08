@@ -85,9 +85,12 @@ def test_the_clean_twin_switch_reaches_the_run_and_is_off_unless_given(
 
     asked: list[bool] = []
     monkeypatch.setattr(inject_cli, "require_complete", lambda corpus: None)
-    monkeypatch.setattr(
-        inject_cli, "run_instrument", lambda *a, **k: asked.append(k["review_clean_twins"])
-    )
+
+    def stand_in(*_: object, **given: object) -> tuple[()]:
+        asked.append(bool(given["review_clean_twins"]))
+        return ()
+
+    monkeypatch.setattr(inject_cli, "run_instrument", stand_in)
     registered = Registrations(reviewers={"electrical": SeededFakeReviewer()})
     assert main([*_argv(tmp_path), *flag], registered) == 0
     assert asked == [expected]

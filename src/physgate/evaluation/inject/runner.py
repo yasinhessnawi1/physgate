@@ -25,6 +25,12 @@ each gate event is the review that came before it on the same artefact. The
 loop's replay would refuse it (a review before a gate), and it is never
 resumed: a killed run is started again into new directories.
 
+A review that is not a verdict never stops the run and is never a pass or a fail.
+An infrastructure failure is retried once; after that, the review is recorded in
+the log as unavailable and in its row as ``review_unavailable`` with its cause, or
+as ``blocked`` when a blocking defect of the issued specification was the reason.
+Every artefact gets its row.
+
 Artefacts run under an id derived from the seed and the corpus id, in the
 order those ids sort, so the log shows no corpus id and no class order. The
 results file has one row per artefact, in corpus id order, and **no total**:
@@ -38,6 +44,7 @@ import hashlib
 import json
 import shutil
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -54,7 +61,6 @@ from physgate.evaluation.inject.corpus import (
 )
 from physgate.evaluation.inject.exceptions import (
     ReviewerRefusedError,
-    ReviewNotAVerdictError,
     RunDirectoryError,
 )
 from physgate.evaluation.inject.materialise import (
@@ -84,6 +90,7 @@ from physgate.orchestrator.protocols import (
     Reviewer,
     ReviewResult,
     Scope,
+    UnavailableCause,
     Verdict,
     require_separate_models,
 )
@@ -149,6 +156,10 @@ class InstrumentConfig(_Frozen):
     reviewing: Reviewing | None = None
 
 
+#: What one artefact's review came to, as its row records it.
+ReviewOutcome = Literal["pass", "fail", "blocked", "review_unavailable"]
+
+
 class ResultRow(_Frozen):
     """One artefact: what it is, what its reviewer said, and what the gate said after."""
 
@@ -157,8 +168,15 @@ class ResultRow(_Frozen):
     review_id: ReviewId
     error_class: ErrorClass
     expected_check: CheckName
-    reviewer_verdict: Verdict
-    reviewer_model: ModelString
+    #: What the review came to: a pass or a fail; ``blocked``, a blocking defect of
+    #: the issued specification; or ``review_unavailable``, no verdict after the one
+    #: retry an infrastructure failure gets. Neither of the last two is a pass or a fail.
+    reviewer_verdict: ReviewOutcome
+    #: Why the review gave no pass or fail, for ``blocked`` and ``review_unavailable``.
+    review_cause: UnavailableCause | None
+    #: ``None`` only for a review that never reached its model.
+    reviewer_model: ModelString | None
+    #: Every token the artefact's review spent, a retried try included.
     reviewer_tokens: Annotated[int, Field(ge=0)]
     review_seq: Annotated[int, Field(ge=0)]
     gate_seq: Annotated[int, Field(ge=0)]
@@ -169,7 +187,7 @@ class ResultRow(_Frozen):
     #: The id the clean twin ran under in the controls log.
     control_id: ReviewId
     #: The clean twin's reviewer verdict, when the twins were reviewed; else ``None``.
-    control_reviewer_verdict: Verdict | None
+    control_reviewer_verdict: ReviewOutcome | None
     #: The gate on the clean patch, the control.
     control_verdict: Verdict
     control_blocking: tuple[CheckName, ...]
@@ -326,22 +344,46 @@ def _review(
     return result
 
 
-def _verdict(log: EventLog, review: Callable[[], ReviewResult], subtask: str) -> ReviewResult:
-    """A review's verdict, as the loop takes one: an infrastructure failure is retried once.
+@dataclass(frozen=True)
+class _Reviewed:
+    """One artefact's review as its log records it, and every token its tries spent."""
 
-    Any other review that is not a verdict, or a second failure, is recorded in the
-    log and stops the run: no row is ever written from a review that gave no verdict.
+    line: ReviewRan | ReviewUnavailable
+    tokens: int
 
-    Raises:
-        ReviewNotAVerdictError: the review gave no verdict.
+    @property
+    def outcome(self) -> ReviewOutcome:
+        if isinstance(self.line, ReviewRan):
+            return self.line.result.verdict
+        return "blocked" if self.line.cause == "blocking_spec_defect" else "review_unavailable"
+
+    @property
+    def cause(self) -> UnavailableCause | None:
+        return None if isinstance(self.line, ReviewRan) else self.line.cause
+
+    @property
+    def model(self) -> str | None:
+        if isinstance(self.line, ReviewRan):
+            return self.line.result.reviewer_model
+        return self.line.reviewer_model
+
+
+def _reviewed(log: EventLog, review: Callable[[], ReviewResult], subtask: str) -> _Reviewed:
+    """Review one artefact and record the outcome; a review that gives no verdict is recorded too.
+
+    An infrastructure failure is retried once, as in the loop. Any other review
+    that is not a verdict, or a second failure, is recorded as such and the run
+    goes on: every artefact gets its row, and a review that gave no verdict is
+    never counted as a pass or a fail.
     """
-    retried = False
+    retried, tokens = False, 0
     while True:
         try:
-            return review()
+            result = review()
         except ReviewUnavailableError as exc:
+            tokens += sum(m.usage.total() for m in exc.usage)
             retry = exc.cause == "infrastructure" and not retried
-            log.append(
+            line = log.append(
                 ReviewUnavailable(
                     **log.envelope(),
                     subtask_id=subtask,
@@ -355,9 +397,12 @@ def _verdict(log: EventLog, review: Callable[[], ReviewResult], subtask: str) ->
                 )
             )
             if not retry:
-                msg = "a review gave no verdict, so the run stops before any row is written"
-                raise ReviewNotAVerdictError(msg, review_id=subtask, cause=exc.cause) from None
+                return _Reviewed(line=line, tokens=tokens)
             retried = True
+            continue
+        tokens += sum(m.usage.total() for m in result.usage)
+        ran = log.append(ReviewRan(**log.envelope(), subtask_id=subtask, attempt=1, result=result))
+        return _Reviewed(line=ran, tokens=tokens)
 
 
 def run_instrument(
@@ -422,7 +467,7 @@ def run_instrument(
     controls = _start(
         run_dir / CONTROLS_DIRNAME / EVENTS_NAME, f"{run_id}-controls", config_sha256, twins
     )
-    reviews: dict[str, ReviewRan] = {}
+    reviews: dict[str, _Reviewed] = {}
     try:
         # Every review first, each on its own copy, before the gate has run on anything.
         queue = [(rid, a, a.injected, log) for rid, a in order]
@@ -439,10 +484,7 @@ def run_instrument(
                 subtask,
                 artefact,
             )
-            result = _verdict(into, review, subtask)
-            reviews[subtask] = into.append(
-                ReviewRan(**into.envelope(), subtask_id=subtask, attempt=1, result=result)
-            )
+            reviews[subtask] = _reviewed(into, review, subtask)
         gated: dict[str, GateRan] = {}
         for rid, artefact in order:
             made = materialise(corpus.base, artefact.injected, scratch / "gate" / rid)
@@ -466,16 +508,17 @@ def run_instrument(
             review_id=rid,
             error_class=artefact.error_class,
             expected_check=artefact.expected_check,
-            reviewer_verdict=reviews[rid].result.verdict,
-            reviewer_model=reviews[rid].result.reviewer_model,
-            reviewer_tokens=sum(m.usage.total() for m in reviews[rid].result.usage),
-            review_seq=reviews[rid].seq,
+            reviewer_verdict=reviews[rid].outcome,
+            review_cause=reviews[rid].cause,
+            reviewer_model=reviews[rid].model,
+            reviewer_tokens=reviews[rid].tokens,
+            review_seq=reviews[rid].line.seq,
             gate_seq=gated[rid].seq,
             gate_verdict=gated[rid].result.verdict,
             gate_blocking=blocking(gated[rid].result),
             control_id=twin_of[artefact.id],
             control_reviewer_verdict=(
-                reviews[twin_of[artefact.id]].result.verdict if review_clean_twins else None
+                reviews[twin_of[artefact.id]].outcome if review_clean_twins else None
             ),
             control_verdict=controlled[twin_of[artefact.id]].verdict,
             control_blocking=blocking(controlled[twin_of[artefact.id]]),

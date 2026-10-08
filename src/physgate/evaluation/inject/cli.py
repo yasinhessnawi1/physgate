@@ -10,6 +10,12 @@ version, the auth mode, the endpoint and those parameters are recorded in the
 run's ``instrument.json``. Each role's reviewer judges with its promoted rubric,
 and the scratch directory is its review root.
 
+Every artefact gets its row. A review that gave no verdict (after the one retry an
+infrastructure failure gets) is recorded as ``review_unavailable`` with its cause,
+and one that found a blocking defect of the issued specification as ``blocked``;
+neither is a pass or a fail, and the run goes on. The command prints how many
+reviews came to each, and exits 1 if any came to neither a pass nor a fail.
+
 It refuses a corpus that is not complete (ten artefacts of each class, ten distinct
 cross-domain propagation edges), so the measurement never runs on a partial one.
 """
@@ -97,7 +103,7 @@ def _inject(args: argparse.Namespace, registrations: Registrations | None) -> in
         # The reviewers first: without them nothing else is worth checking.
         require_reviewers(corpus, reviewers)
         require_complete(corpus)
-        run_instrument(
+        rows = run_instrument(
             corpus,
             reviewers,
             run_dir=args.run_dir.resolve(),
@@ -110,8 +116,15 @@ def _inject(args: argparse.Namespace, registrations: Registrations | None) -> in
     except (InstrumentError, OrchestratorError, GateError, ReviewError) as exc:
         print(json.dumps({"error": str(exc), **exc.context}, sort_keys=True), file=sys.stderr)
         return 2
-    print(json.dumps({"results": str(args.run_dir.resolve() / RESULTS_NAME)}))
-    return 0
+    counts = {o: 0 for o in ("pass", "fail", "blocked", "review_unavailable")}
+    for row in rows:
+        counts[row.reviewer_verdict] += 1
+        if row.control_reviewer_verdict is not None:
+            counts[row.control_reviewer_verdict] += 1
+    results = str(args.run_dir.resolve() / RESULTS_NAME)
+    print(json.dumps({"results": results, "reviews": counts}, sort_keys=True))
+    # Every artefact has its row either way; a review without a pass or a fail says so.
+    return 0 if counts["blocked"] + counts["review_unavailable"] == 0 else 1
 
 
 def _params(args: argparse.Namespace) -> InstrumentParams:
