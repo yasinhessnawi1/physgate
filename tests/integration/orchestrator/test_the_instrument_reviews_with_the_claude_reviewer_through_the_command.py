@@ -11,7 +11,7 @@ verdict. No model is called.
 Every artefact is reviewed before the gate runs on anything; each review line
 carries the rubric's and the packet's digests; ``instrument.json`` records the
 parameters, the auth mode, the binary's version and the endpoint. A review that
-gives no verdict is recorded in the log and stops the run before any row.
+gives no verdict is recorded in the log and in its own row, and the run goes on.
 """
 
 from __future__ import annotations
@@ -201,16 +201,21 @@ def test_every_artefact_is_reviewed_by_the_claude_reviewer_before_the_gate(
     assert len(rows) == 2 and all(r["reviewer_tokens"] > 0 for r in rows)
 
 
-def test_a_review_with_no_verdict_stops_the_run_before_any_row(
+def test_a_review_with_no_verdict_is_a_row_of_its_own_and_the_run_goes_on(
     tmp_path: Path,
     install: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     code, err, run_dir = _instrument(tmp_path, install, monkeypatch, capsys, text("I am done."))
-    assert code == 2 and "no verdict" in err, err
+    assert code == 1, err  # every artefact has its row; some came to no verdict
     events = read_events(run_dir / "events.jsonl")
-    (unavailable,) = [e for e in events if isinstance(e, ReviewUnavailable)]
-    assert unavailable.cause == "no_verdict" and not unavailable.retry
-    assert not [e for e in events if isinstance(e, ReviewRan | GateRan)]
-    assert not (run_dir / RESULTS_NAME).exists()
+    unavailable = [e for e in events if isinstance(e, ReviewUnavailable)]
+    assert len(unavailable) == 2 and {e.cause for e in unavailable} == {"no_verdict"}
+    assert not any(e.retry for e in unavailable)
+    assert not [e for e in events if isinstance(e, ReviewRan)]
+    assert len([e for e in events if isinstance(e, GateRan)]) == 2  # the gate still ran
+    rows = [json.loads(x) for x in (run_dir / RESULTS_NAME).read_text().splitlines()]
+    assert [(r["reviewer_verdict"], r["review_cause"]) for r in rows] == [
+        ("review_unavailable", "no_verdict")
+    ] * 2
