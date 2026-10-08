@@ -11,6 +11,7 @@ verdict for the attempt, never a pass or a fail.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from loop_fakes import FakeGate, FakeReviewer, KilledError, Rig, plan
@@ -200,3 +201,22 @@ def test_a_blocked_result_carries_a_blocking_defect_and_no_rejecting_finding() -
     fields = blocked_review().model_dump(exclude={"usage", "items", "spec_defects"})
     with pytest.raises(ValueError, match="blocked is a blocking specification defect"):
         ReviewResult(**fields, usage=(), items=(unmet,), spec_defects=(BLOCKING,))
+
+
+def test_a_review_with_no_verdict_cannot_say_it_was_blocked() -> None:
+    """``review_unavailable`` is for no verdict at all; blocked has no cause of its own there."""
+    fields: dict[str, Any] = {
+        "seq": 1,
+        "ts": "2026-10-08T00:00:00.000000Z",
+        "run_id": "run-1",
+        "gate_mode": "on",
+        "subtask_id": "s1",
+        "attempt": 1,
+        "detail": "no verdict",
+        "retry": False,
+        "session_id": "rev-1",
+        "reviewer_model": "claude-opus-5-5",
+    }
+    assert ReviewUnavailable(**fields, cause="no_verdict").cause == "no_verdict"
+    with pytest.raises(ValueError, match=r"1 validation error for ReviewUnavailable\ncause"):
+        ReviewUnavailable(**fields, cause="blocking_spec_defect")  # type: ignore[arg-type]
