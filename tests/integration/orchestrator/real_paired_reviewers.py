@@ -14,12 +14,16 @@ schema its reviews will be offered, asked for one call, one turn, with no file t
 small output limit. It shows only that the API takes the schema and that the binary compiles
 it without a strict-mode warning, at a few cents; it scores nothing.
 
-**The paired run.** The same two stand-in subtasks as the first control and firmware run
-(``real_domain_roles.py``: the same brief, specifications, proposals, interface node, pins and
-settings, control first), through ``physgate decompose`` and ``physgate run``, now with the
-registrations the command ships with: the physics gate and a paired Claude reviewer per role,
-each judging with its role's promoted rubric. The checks, run against the run's own records
-whatever its ending:
+**The paired run.** The two subtasks of the first control and firmware run
+(``real_domain_roles.py``: its firmware specification and proposal, interface node, pins and
+settings, control first), with two changes. The control subtask's issued specification is a
+reviewable fixture (``control_fixture_spec.md``, held to its sha256), a balance-loop design task
+drafted from sources and reviewed adversarially, in place of the stand-in that dictated one
+literal node; the decomposition brief embeds it verbatim, as it embedded the stand-in. And the
+session bounds are 40 turns and 4500 s (``SESSION_MAX_TURNS``, ``SESSION_WALL_CLOCK_S``). It runs
+through ``physgate decompose`` and ``physgate run`` with the registrations the command ships with:
+the physics gate and a paired Claude reviewer per role, each judging with its role's promoted
+rubric. The checks, run against the run's own records whatever its ending:
 
 - every subtask's attempts that passed the gate were reviewed, each review on the role's pinned
   reviewer model, with the promoted rubric's digest, its packet's digest, its reading verified,
@@ -35,11 +39,15 @@ finished paired run: the same attempt reviewed again by the same reviewer with t
 less its domain sections, then paired over generalist tokens and cost, n = 1. The paired run's
 cost line, with what reviewing spent by subtask, is written beside it.
 
-The dry run serves every session from the scripted endpoint. Its reviewer reads every file it
-must and gives a verdict on the role's real rubric, every item answered; the control subtask's
-first review rejects, so the repair path runs, or with ``--dry-control blocked`` submits the
-third real control review's blocked verdict, so the blocked path runs. The baseline's dry run
-serves on the address the paired dry run recorded, which the run holds every later command to.
+The dry run serves every session from the scripted endpoint. Its control session does the
+fixture's work at the size the bounds were set for: about thirty-five tool turns of writing,
+running and re-running analysis code whose printed output fills the transcript, then the node
+of the fixture's section 10 with placeholder values. Its reviewer reads every file it must, a
+long one in pieces, and gives a verdict on the role's real rubric, every item and every issued
+criterion answered; the control subtask's first review rejects, so the repair path runs, or with
+``--dry-control blocked`` is blocked on a blocking specification defect, so the blocked path
+runs. The baseline's dry run serves on the address the paired dry run recorded, which the run
+holds every later command to.
 
 **The token.** With ``--real``, ``CLAUDE_CODE_OAUTH_TOKEN`` is read from the env file by this
 script, held only in memory and never printed. At the end every file under the output directory
@@ -51,6 +59,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -71,6 +80,7 @@ from scripted_endpoint import DUMMY_OAUTH_TOKEN, Script, serving, text, tool  # 
 
 from physgate.cli import main as physgate_main  # noqa: E402
 from physgate.evaluation.observe.cost import load_price_sheet, price_run  # noqa: E402
+from physgate.knowledge import loader  # noqa: E402
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME  # noqa: E402
 from physgate.orchestrator.cli import default_registrations  # noqa: E402
 from physgate.orchestrator.credentials import remove_secrets, write_login  # noqa: E402
@@ -88,7 +98,7 @@ from physgate.orchestrator.invocation import (  # noqa: E402
     claude_binary,
     isolated_env,
 )
-from physgate.orchestrator.run_config import load_run_config  # noqa: E402
+from physgate.orchestrator.run_config import RunBounds, load_run_config  # noqa: E402
 from physgate.reviewers.claude import SYNTHETIC_MODEL  # noqa: E402
 from physgate.reviewers.contract import issued_criteria, verdict_schema  # noqa: E402
 from physgate.reviewers.packet import (  # noqa: E402
@@ -113,6 +123,66 @@ ROLES = {base.CONTROL_ID: "control", base.FIRMWARE_ID: "firmware"}
 #: names it; checked before anything runs, so an output path a reviewer could read something
 #: into is refused at once.
 REVIEW_DIRNAME = "review-scratch"
+
+#: The control subtask's issued specification: the reviewable fixture, byte for byte as it was
+#: frozen. It is read from the file beside this driver and held to its digest before use.
+CONTROL_FIXTURE = HERE / "control_fixture_spec.md"
+CONTROL_FIXTURE_SHA256 = "f2a7080355c587a6925c992fdcb377ae20ba3458f6dc41f4d07143c3be16bf88"
+#: The session bounds the fixture was sized for: its upper estimate is 31 turns and 3200 s.
+SESSION_MAX_TURNS = 40
+SESSION_WALL_CLOCK_S = 4500.0
+
+
+def control_fixture_spec() -> str:
+    """The fixture's text, refused unless its bytes are the frozen ones."""
+    data = CONTROL_FIXTURE.read_bytes()
+    found = hashlib.sha256(data).hexdigest()
+    if found != CONTROL_FIXTURE_SHA256:
+        msg = f"the control fixture is not the frozen one: sha256 {found}"
+        raise SystemExit(msg)
+    return data.decode("utf-8")
+
+
+def brief(control_spec: str) -> str:
+    """The decomposition brief: the first run's, with the fixture as control's specification."""
+    return (
+        "BRIEF for the paired-review run's control and firmware subtasks, not the reference "
+        "design's brief. Control's specification is a reviewable fixture; firmware's is a "
+        "labelled stand-in.\n\n"
+        "Plan exactly two modules, in this order: control first, firmware second. The "
+        "controller's design sets the loop rate the firmware must meet, so control writes the "
+        "node whose constrains edge names firmware's node, and firmware's node is written after "
+        "it, following the edge that constrains it.\n"
+        "1. name 'control', role 'control', module_dir 'modules/control', using the text between "
+        "the markers below, verbatim, as its specification.\n<<<\n"
+        f"{control_spec}>>>\n"
+        "2. name 'firmware', role 'firmware', module_dir 'modules/firmware', using the text "
+        "between the markers below, verbatim, as its specification.\n<<<\n"
+        f"{base.FIRMWARE_SPEC}>>>\n"
+        "Plan exactly one interface node, this one, verbatim:\n"
+        f"{json.dumps(base.INTERFACE)}\n"
+    )
+
+
+def params() -> dict[str, Any]:
+    """The first run's parameters, with the session bounds the fixture needs."""
+    found = base.params()
+    found["bounds"] = RunBounds(
+        binary_max_retries=0,
+        session_wall_clock_s=SESSION_WALL_CLOCK_S,
+        session_max_turns=SESSION_MAX_TURNS,
+        infra_retry_delays_s=(),
+    ).model_dump(mode="json")
+    return found
+
+
+def use_fixture() -> str:
+    """Point the first run's driver at the fixture and the bounds; return the fixture's text."""
+    spec = control_fixture_spec()
+    base.CONTROL_SPEC = spec
+    base.BRIEF = brief(spec)
+    base.params = params
+    return spec
 
 
 def command(argv: list[str], log: Path) -> int:
@@ -254,6 +324,26 @@ def _reading(cwd: str) -> list[str]:
     return [str(p) for p in files if (read / WORKTREE_NAME) not in p.parents]
 
 
+#: The most a scripted reviewer asks of one Read: the binary refuses a read whose content is
+#: over its token limit and asks for an offset and a limit instead, as a reviewer then pages.
+READ_CHUNK_BYTES = 60_000
+
+
+def _reads(path: str) -> list[dict[str, Any]]:
+    """The Read calls that show every line of ``path``: one, or pages of whole lines."""
+    lines = Path(path).read_bytes().splitlines(keepends=True)
+    if sum(len(line) for line in lines) <= READ_CHUNK_BYTES:
+        return [tool("Read", file_path=path)]
+    calls, start, size = [], 0, 0
+    for index, line in enumerate(lines):
+        if size and size + len(line) > READ_CHUNK_BYTES:
+            calls.append(tool("Read", file_path=path, offset=start + 1, limit=index - start))
+            start, size = index, 0
+        size += len(line)
+    calls.append(tool("Read", file_path=path, offset=start + 1, limit=len(lines) - start))
+    return calls
+
+
 #: A clean answer in each section's own words.
 CLEAN = {
     "acceptance_criteria": "met",
@@ -263,8 +353,12 @@ CLEAN = {
 }
 
 
-def _verdict(cwd: str, reject: bool) -> dict[str, Any]:
-    """A verdict on the packet's own rubric: every item answered; the scan's hits dismissed."""
+def _verdict(cwd: str, reject: bool, *, blocked: bool = False) -> dict[str, Any]:
+    """A verdict on the packet's own rubric: every item answered; the scan's hits dismissed.
+
+    ``blocked`` answers one domain-standards item not evaluable, with a blocking defect of the
+    issued specification naming it, and nothing rejecting.
+    """
     read = Path(cwd).parent
     rubric = (read / "rubric.md").read_text()
     kind = "generalist" if NOT_IN_REVIEW in rubric else "paired"
@@ -273,6 +367,16 @@ def _verdict(cwd: str, reject: bool) -> dict[str, Any]:
     packet = json.loads((read.parent / RECORD_NAME).read_text())
     issued = read / SPEC_AS_ISSUED_NAME
     criteria = issued_criteria(issued.read_text() if issued.is_file() else None)
+    if blocked:
+        answer = _verdict(cwd, reject=False)
+        held = next(i.id for i in items if i.section == "domain_standards")
+        answer["verdict"] = "blocked"
+        answer["finding"] = f"{held} cannot be decided: the issued specification lacks its input"
+        answer["items"][held] = {"result": "not evaluable", "evidence": "spec_as_issued.md"}
+        answer["spec_defects"] = [
+            {"finding": "the input this check needs is not given", "blocking": True, "item": held}
+        ]
+        return answer
     return {
         "verdict": "reject" if reject else "accept",
         "finding": "the stand-in's gain is not the specified one" if reject else "every item met",
@@ -307,17 +411,148 @@ def _verdict(cwd: str, reject: bool) -> dict[str, Any]:
     }
 
 
-#: The third real control review's submission, a blocked verdict, as the model sent it.
-BLOCKED_SUBMISSION = (
-    Path(__file__).resolve().parent / "replayed" / "review_submission_v3_control.json"
-)
+#: A placeholder a dry run writes, never a design value.
+DRY = "scripted dry run placeholder, not a design: modules/control/results.txt"
+#: The node of the fixture's section 10, as a dry run fills it: every listed quantity with its
+#: listed unit, and placeholder values.
+DRY_NODE_UNITS = {
+    "sample_rate": (100, "Hz"),
+    "sample_period": (0.01, "s"),
+    "unstable_pole": (8.56, "rad/s"),
+    "gain_crossover_frequency": (14.0, "rad/s"),
+    "phase_margin": (0.74, "rad"),
+    "gain_margin_upper": (2.4, "dimensionless"),
+    "gain_margin_lower": (0.42, "dimensionless"),
+    "stability_margin": (0.52, "dimensionless"),
+    "sensitivity_peak": (1.92, "dimensionless"),
+    "complementary_sensitivity_peak": (1.93, "dimensionless"),
+    "loop_delay_total": (0.01545, "s"),
+    "loop_delay_common": (0.008, "s"),
+    "delay_margin": (0.03, "s"),
+    "actuator_voltage_limit": (5.4, "V"),
+    "actuator_voltage_rate_limit": (216000, "V/s"),
+    "available_bandwidth": (33.3, "rad/s"),
+}
+
+
+def dry_node() -> dict[str, Any]:
+    """The fixture's node template with placeholder values, as the dry control session writes it."""
+    return {
+        "id": "control.loop_gain",
+        "kind": "component",
+        "domain": "control",
+        "owner_role": "control",
+        "quantities": {
+            name: {"value": value, "unit": unit, "source": DRY, "written_by": "control"}
+            for name, (value, unit) in DRY_NODE_UNITS.items()
+        },
+        "requirements": ["the balance loop runs every 0.01 s (placeholder)"],
+        "constrains": ["firmware.main_loop"],
+        "model": "scripted dry run placeholder: no plant, estimator or controller is designed",
+        "geometry_hash": "sha256:" + "0" * 64,
+        "updated": "2026-10-08T12:00:00Z",
+    }
+
+
+#: The dry session's analysis script: deterministic tables of about 20 KB per run, so the
+#: transcript grows as a real design session's would; it designs nothing.
+DRY_ANALYSIS = """# Scripted dry run placeholder: tables of the size a real analysis prints.
+import math
+
+WEIGHT = 1.0
+CASES = ("nominal", "l_low", "l_high", "jm_low", "jm_high")
+
+for k, case in enumerate(CASES):
+    p = 7.70 + 0.2 * k
+    print(f"case {case}: p = {p:.4f} rad/s (placeholder)")
+    for i in range(70):
+        w = 0.1 * 1.07 ** i
+        mag = WEIGHT * p / math.hypot(w, p)
+        print(f"  w={w:10.5f} |L|={mag:10.6f} arg={-math.degrees(math.atan2(w, p)):9.4f} deg")
+print(f"weight {WEIGHT}")
+"""
+DRY_SIMULATE = """# Scripted dry run placeholder: one line per edge run, as a simulation reports.
+import random
+
+random.seed(7)
+print("seed 7")
+for case in ("nominal", "l_low", "l_high", "jm_low", "jm_high"):
+    for edge in ("theta+", "theta-", "speed+", "speed-"):
+        for push in ("+", "-"):
+            print(f"{case:8} {edge:7} push{push} recovered t={random.uniform(1, 4):.3f} s")
+"""
+DRY_CONTROLLER = """# Scripted dry run placeholder: the shape of controller.py, no designed values.
+H = 0.01
+LIMIT_COUNTS = 300
+GAINS = (0.0, 0.0, 0.0, 0.0)
+
+
+def step(state, measurement):
+    return 0
+"""
+#: Re-runs of the analysis after an edit, as tuning to the margins takes: eleven cycles.
+DRY_TUNING_CYCLES = 11
+
+
+def dry_fixture_session() -> list[dict[str, Any]]:
+    """The dry control session's steps: the fixture's work at the size the bounds allow for."""
+    mod = "{cwd}/" + base.CONTROL_DIR
+    run = f"cd {{cwd}} && python3 {base.CONTROL_DIR}/analysis.py"
+    steps = [
+        *(
+            tool("Read", file_path=f"{{cwd}}/{relative.as_posix()}")
+            for relative in loader.always_loaded("control")
+        ),
+        tool("Read", file_path="{cwd}/.physgate/specs/{cwd_name}.md"),
+        tool("Write", file_path=f"{mod}/controller.py", content=DRY_CONTROLLER),
+        tool("Write", file_path=f"{mod}/analysis.py", content=DRY_ANALYSIS),
+        tool("Bash", command=run),
+    ]
+    for cycle in range(DRY_TUNING_CYCLES):
+        before, after = f"WEIGHT = 1.{cycle}", f"WEIGHT = 1.{cycle + 1}"
+        steps.append(
+            tool("Edit", file_path=f"{mod}/analysis.py", old_string=before, new_string=after)
+        )
+        steps.append(tool("Bash", command=run))
+    results = f"{base.CONTROL_DIR}/results.txt"
+    steps += [
+        tool("Write", file_path=f"{mod}/simulate.py", content=DRY_SIMULATE),
+        tool("Bash", command=f"cd {{cwd}} && python3 {base.CONTROL_DIR}/simulate.py"),
+        tool(
+            "Bash",
+            command=(
+                f"cd {{cwd}} && python3 {base.CONTROL_DIR}/analysis.py > {results}"
+                f" && python3 {base.CONTROL_DIR}/simulate.py >> {results}"
+            ),
+        ),
+        tool(
+            "Write",
+            file_path="{cwd}/.physgate/proposals/control.loop_gain.json",
+            content=json.dumps(dry_node()),
+        ),
+        text("done: scripted dry run placeholder; no criterion is claimed."),
+    ]
+    return steps
+
+
+def dry_control(api: Any) -> None:  # noqa: ANN401
+    """Serve the control subtask's sessions with the fixture's dry session, every attempt."""
+    inner = api.on_request
+    steps = dry_fixture_session()
+
+    def on_request(thread: str, cwd: str, done: int) -> dict[str, Any] | None:
+        if thread == "main" and cwd.endswith(f"/worktrees/{base.CONTROL_ID}"):
+            return steps[done] if done < len(steps) else text("done")
+        return inner(thread, cwd, done) if inner is not None else None
+
+    api.on_request = on_request
 
 
 def dry_reviews(api: Any, control: str = "reject") -> None:  # noqa: ANN401
     """Wrap the first run's scripted sessions with a scripted reviewer for every review.
 
     ``control`` is what the control subtask's first paired review submits: a reject, so the
-    repair path runs, or the real blocked submission, so the blocked path does.
+    repair path runs, or a blocked verdict, so the blocked path does.
     """
     roles = api.on_request
     reviewed: list[str] = []
@@ -331,11 +566,9 @@ def dry_reviews(api: Any, control: str = "reject") -> None:  # noqa: ANN401
         # The control subtask's first paired review rejects, so the repair path runs.
         rubric = (Path(cwd).parent / "rubric.md").read_text()
         first_control = bool(reviewed) and reviewed[0] == cwd and NOT_IN_REVIEW not in rubric
-        steps = [tool("Read", file_path=p) for p in _reading(cwd)]
-        if first_control and control == "blocked":
-            submitted = json.loads(BLOCKED_SUBMISSION.read_text())
-        else:
-            submitted = _verdict(cwd, reject=first_control)
+        steps = [call for p in _reading(cwd) for call in _reads(p)]
+        blocked = first_control and control == "blocked"
+        submitted = _verdict(cwd, reject=first_control and not blocked, blocked=blocked)
         steps.append(tool("StructuredOutput", review=submitted))
         return steps[done] if done < len(steps) else text("done")
 
@@ -350,7 +583,32 @@ def paired(root: Path) -> dict[str, Any]:
     run_dir = root / base.RUN_ID
     if (run_dir / "events.jsonl").exists():
         result["reviews"] = check_paired(run_dir, root / REVIEW_DIRNAME)
+    result["control_spec_issued"] = issued_control_spec(root / "target")
     return result
+
+
+def issued_control_spec(repo: Path) -> dict[str, Any]:
+    """The control subtask's specification as the run issued it, against the fixture's digest.
+
+    Reported, not scored: the decomposition model copies the specification from the brief,
+    and a copy that is not byte for byte the fixture is seen here.
+    """
+    shown = subprocess.run(
+        [
+            *("git", "-C", str(repo), "show"),
+            f"physgate/{base.RUN_ID}/run:.physgate/specs/{base.CONTROL_ID}.md",
+        ],
+        capture_output=True,
+        check=False,
+    )
+    if shown.returncode != 0:
+        return {"sha256": None, "is_the_fixture": False}
+    digest = hashlib.sha256(shown.stdout).hexdigest()
+    return {
+        "sha256": digest,
+        "bytes": len(shown.stdout),
+        "is_the_fixture": digest == CONTROL_FIXTURE_SHA256,
+    }
 
 
 def generalist(paired_root: Path, out: Path) -> dict[str, Any]:
@@ -392,15 +650,18 @@ PREFLIGHT_OUTPUT_TOKENS = 2000
 def preflight(root: Path, token: str, base_url: str | None) -> dict[str, Any]:
     """One short reviewer session per role, with the schema its reviews will be offered.
 
-    It shows only that the API takes the schema: the session is answered by the pinned
+    Each role's schema counts the criteria its issued specification numbers, as its reviews'
+    will. It shows only that the API takes the schema: the session is answered by the pinned
     reviewer model and not refused with a 400, and the binary compiles the schema with no
     strict-mode warning. One turn, no file tool, the output limit small.
     """
     found: dict[str, Any] = {}
+    issued = {"control": base.CONTROL_SPEC, "firmware": base.FIRMWARE_SPEC}
     for role in ("control", "firmware"):
         rubric = load_rubric(base.REPO_ROOT / KNOWLEDGE_ROOT, role)
+        criteria = issued_criteria(issued[role])
         schema = verdict_schema(
-            rubric.items, criteria=None, scan_hits=(), not_evaluable=not_evaluable_needs(role)
+            rubric.items, criteria=criteria, scan_hits=(), not_evaluable=not_evaluable_needs(role)
         )
         sdir = root / "preflight" / role
         (sdir / "home").mkdir(parents=True)
@@ -445,6 +706,7 @@ def preflight(root: Path, token: str, base_url: str | None) -> dict[str, Any]:
         warnings = [line for line in done.stderr.splitlines() if "strict mode" in line]
         found[role] = {
             "schema_bytes": len(argv[argv.index("--json-schema") + 1]),
+            "issued_criteria": len(criteria) if criteria else None,
             "answered_by": models,
             "refused_400": refused,
             "api_error": (result or {}).get("result") if refused else None,
@@ -499,6 +761,8 @@ def main() -> None:
         "binary_version": version,
         "binary_sha256": base.sha256(Path(shutil.which(claude_binary()) or claude_binary())),
         "promoted_rubrics": promoted_rubrics(),
+        "control_fixture_sha256": hashlib.sha256(use_fixture().encode()).hexdigest(),
+        "session_bounds": {"max_turns": SESSION_MAX_TURNS, "wall_clock_s": SESSION_WALL_CLOCK_S},
         "started_utc": base.utc(),
     }
     print(json.dumps(stamp), flush=True)
@@ -524,6 +788,7 @@ def main() -> None:
             if args.dry_run:
                 with serving(Script(main=[])) as (api, url):
                     base.dry_script(api)
+                    dry_control(api)
                     dry_reviews(api, args.dry_control)
                     os.environ["ANTHROPIC_BASE_URL"] = url
                     result = paired(root)

@@ -1,0 +1,76 @@
+"""The paired run issues the control fixture verbatim, under the bounds it was sized for.
+
+The control subtask's specification is the frozen fixture beside the driver, held to its
+sha256; the decomposition brief carries it between its markers byte for byte, with the first
+run's firmware stand-in and interface node unchanged; the run's parameters set 40 turns and
+4500 s. Its acceptance criteria are numbered, so a review of it is held to exactly that many
+criterion lines. The node its section 10 asks for, filled with placeholders, is a valid node.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+
+import pytest
+import real_domain_roles as base
+import real_paired_reviewers as paired
+
+from physgate.orchestrator.run_config import RunBounds
+from physgate.reviewers.contract import issued_criteria
+from physgate.state.schema import validate_node
+
+FROZEN = "f2a7080355c587a6925c992fdcb377ae20ba3458f6dc41f4d07143c3be16bf88"
+
+
+def test_the_fixture_is_the_frozen_one() -> None:
+    data = paired.CONTROL_FIXTURE.read_bytes()
+    assert hashlib.sha256(data).hexdigest() == FROZEN == paired.CONTROL_FIXTURE_SHA256
+    assert len(data) == 22_285
+    assert paired.control_fixture_spec().encode() == data
+
+
+def test_a_changed_fixture_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    changed = tmp_path / "control_fixture_spec.md"
+    changed.write_bytes(paired.CONTROL_FIXTURE.read_bytes() + b"\n")
+    monkeypatch.setattr(paired, "CONTROL_FIXTURE", changed)
+    with pytest.raises(SystemExit, match="not the frozen one"):
+        paired.control_fixture_spec()
+
+
+def test_the_brief_embeds_it_verbatim_beside_the_unchanged_stand_ins() -> None:
+    spec = paired.control_fixture_spec()
+    brief = paired.brief(spec)
+    control = brief.split("<<<\n", 1)[1].split(">>>\n", 1)[0]
+    assert control == spec
+    firmware = brief.split("<<<\n", 2)[2].split(">>>\n", 1)[0]
+    assert firmware == base.FIRMWARE_SPEC
+    assert brief.endswith(json.dumps(base.INTERFACE) + "\n")
+    assert "control.loop_gain" in spec and "control first" in brief
+
+
+def test_the_run_sets_the_bounds_the_fixture_was_sized_for() -> None:
+    bounds = RunBounds.model_validate_json(json.dumps(paired.params()["bounds"]))
+    assert (bounds.session_max_turns, bounds.session_wall_clock_s) == (40, 4500.0)
+    first = RunBounds.model_validate_json(json.dumps(base.params()["bounds"]))
+    assert bounds.model_dump(exclude={"session_max_turns", "session_wall_clock_s"}) == (
+        first.model_dump(exclude={"session_max_turns", "session_wall_clock_s"})
+    )
+    unchanged = {k: v for k, v in paired.params().items() if k != "bounds"}
+    assert unchanged == {k: v for k, v in base.params().items() if k != "bounds"}
+
+
+def test_its_eleven_criteria_are_counted_for_the_review() -> None:
+    assert issued_criteria(paired.control_fixture_spec()) == tuple(str(n) for n in range(1, 12))
+    assert issued_criteria(base.FIRMWARE_SPEC) is None
+
+
+def test_the_node_template_filled_with_placeholders_is_a_valid_node() -> None:
+    node = paired.dry_node()
+    validate_node(node)
+    assert node["id"] == "control.loop_gain" and node["constrains"] == ["firmware.main_loop"]
+    spec = paired.control_fixture_spec()
+    for name, (_, unit) in paired.DRY_NODE_UNITS.items():
+        assert f'"{name}": {{"unit": "{unit}", ...}}' in spec, name
+    assert spec.count('{"unit": ') == len(paired.DRY_NODE_UNITS)
