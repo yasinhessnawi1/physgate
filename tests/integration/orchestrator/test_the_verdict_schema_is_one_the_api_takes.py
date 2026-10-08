@@ -157,8 +157,19 @@ def test_the_pre_flight_takes_today_s_schema_and_would_have_refused_the_second_r
         today = driver.preflight(tmp_path / "now", DUMMY_OAUTH_TOKEN, url)
         monkeypatch.setattr(driver, "verdict_schema", second_run_s)
         then = driver.preflight(tmp_path / "then", DUMMY_OAUTH_TOKEN, url)
+
+        def nested_but_untyped(items: Any, **kw: Any) -> dict[str, Any]:  # noqa: ANN401
+            inner = second_run_s(items, **kw)
+            return {"type": "object", "required": ["review"], "properties": {"review": inner}}
+
+        monkeypatch.setattr(driver, "verdict_schema", nested_but_untyped)
+        untyped = driver.preflight(tmp_path / "untyped", DUMMY_OAUTH_TOKEN, url)
     assert today["all_accepted"] is True
     assert all(today[r]["strict_mode_warnings"] == 0 for r in ("control", "firmware"))
     assert then["all_accepted"] is False
     assert all(then[r]["refused_400"] for r in ("control", "firmware"))
     assert all("at the top level" in str(then[r]["api_error"]) for r in ("control", "firmware"))
+    # Taken by the API, but compiled with strict-mode warnings: not accepted either.
+    assert untyped["all_accepted"] is False
+    assert all(not untyped[r]["refused_400"] for r in ("control", "firmware"))
+    assert all(untyped[r]["strict_mode_warnings"] > 0 for r in ("control", "firmware"))
