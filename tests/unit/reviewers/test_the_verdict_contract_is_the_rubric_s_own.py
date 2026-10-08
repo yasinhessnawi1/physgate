@@ -307,3 +307,16 @@ def test_a_submission_in_any_other_shape_is_passed_on_for_the_check_to_refuse() 
     assert as_answer(None, ()) is None
     odd = {"items": {"A1": "met"}}
     assert as_answer(copy.deepcopy(odd), _rubric("control")) == odd
+
+
+def test_a_numbered_criterion_not_evaluable_is_named_by_its_defect_in_the_schema_too() -> None:
+    items, criteria = _rubric("firmware"), ("1", "2")
+    answer = valid(items, criteria)
+    answer["acceptance_criteria"][1]["result"] = "not evaluable"
+    found, outcome = _both(answer, items, criteria, "blocking")
+    assert found and isinstance(outcome, Unavailable) and outcome.cause == "invalid_verdict"
+    answer["spec_defects"] = [{"finding": "no settling time given", "blocking": True, "item": "2"}]
+    answer["verdict"] = "blocked"
+    found, outcome = _both(answer, items, criteria, "blocking")
+    assert found == []
+    assert isinstance(outcome, Unavailable) and outcome.cause == "blocking_spec_defect"
