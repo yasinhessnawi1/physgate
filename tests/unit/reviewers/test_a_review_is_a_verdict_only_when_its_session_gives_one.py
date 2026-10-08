@@ -276,3 +276,9 @@ def test_the_window_is_the_one_the_binary_reported_for_the_review_s_model() -> N
     flag = {"modelUsage": {"claude-sonnet-5": {"contextWindow": True}}}
     assert context_window(flag, "claude-sonnet-5") is None
     assert context_window(None, "claude-sonnet-5") is None
+
+
+def test_the_prompt_carries_the_answer_contract(tmp_path: Path) -> None:
+    packet = _packet(tmp_path, checks_off=False)
+    prompt = review_prompt("control", packet, "paired", "THE CONTRACT, AS THE SCHEMA HOLDS IT")
+    assert "THE CONTRACT, AS THE SCHEMA HOLDS IT" in prompt

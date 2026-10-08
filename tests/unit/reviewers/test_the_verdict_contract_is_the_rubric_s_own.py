@@ -320,3 +320,28 @@ def test_a_numbered_criterion_not_evaluable_is_named_by_its_defect_in_the_schema
     found, outcome = _both(answer, items, criteria, "blocking")
     assert found == []
     assert isinstance(outcome, Unavailable) and outcome.cause == "blocking_spec_defect"
+
+
+def test_each_role_takes_its_own_rubric_s_rule_and_a_role_with_none_the_stricter() -> None:
+    assert not_evaluable_needs("control") == "defect"  # control rubric, rules 3 and 7
+    assert not_evaluable_needs("firmware") == "blocking"  # firmware rubric, verdict policy
+    assert not_evaluable_needs("electrical") == "blocking"
+
+
+def test_a_numbered_specification_s_criteria_are_not_answered_more_than_once_each() -> None:
+    items, criteria = _rubric("firmware"), ("1", "2")
+    answer = valid(items, criteria)
+    answer["acceptance_criteria"].append(dict(answer["acceptance_criteria"][1]))
+    found, outcome = _both(answer, items, criteria, "blocking")
+    assert any("more than 2" in e for e in found)
+    assert isinstance(outcome, Unavailable) and outcome.cause == "invalid_verdict"
+
+
+def test_blocked_needs_a_blocking_defect_not_any_defect() -> None:
+    items = _rubric("control")
+    answer = valid(items, None)
+    answer["verdict"] = "blocked"
+    answer["spec_defects"] = [{"finding": "a note", "blocking": False, "item": None}]
+    found, outcome = _both(answer, items, None, "defect")
+    assert any("must contain" in e for e in found)
+    assert isinstance(outcome, Unavailable) and outcome.cause == "invalid_verdict"
