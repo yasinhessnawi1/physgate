@@ -101,6 +101,11 @@ def breach(name: str, items: tuple[RubricItem, ...]) -> dict[str, Any]:
         answer["acceptance_criteria"] = []
     elif name == "not evaluable with no defect":
         entries[ds[0]] = {"result": "not evaluable", "evidence": "no pole given"}
+    elif name == "a criterion not evaluable with no defect":
+        answer["acceptance_criteria"][0]["result"] = "not evaluable"
+    elif name == "a criterion defect that does not block":
+        answer["acceptance_criteria"][0]["result"] = "not evaluable"
+        answer["acceptance_criteria"][0]["defect"] = {"finding": "no limit", "blocking": False}
     return answer
 
 
@@ -175,6 +180,9 @@ def test_a_real_submission_is_refused_in_the_session_and_the_corrected_one_stand
         ("firmware", "accept beside an unmet item"),
         ("control", "no criterion line"),
         ("firmware", "not evaluable with no defect"),
+        ("control", "a criterion not evaluable with no defect"),
+        ("firmware", "a criterion not evaluable with no defect"),
+        ("firmware", "a criterion defect that does not block"),
     ],
 )
 def test_each_breach_is_refused_in_the_session_and_the_reviewer_corrects_it(

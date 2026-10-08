@@ -433,6 +433,13 @@ class ItemVerdict(_Frozen):
         return self
 
 
+class CriterionDefect(_Frozen):
+    """What the issued specification lacks for one criterion, and whether that blocks."""
+
+    finding: NonEmptyStr
+    blocking: bool
+
+
 class CriterionVerdict(_Frozen):
     """What the review found for one acceptance criterion of the issued specification."""
 
@@ -440,6 +447,15 @@ class CriterionVerdict(_Frozen):
     criterion: NonEmptyStr
     result: CriterionResult
     evidence: NonEmptyStr
+    #: The line's own specification defect, which a criterion not evaluable carries.
+    defect: CriterionDefect | None = None
+
+    @model_validator(mode="after")
+    def _not_evaluable_carries_its_defect(self) -> CriterionVerdict:
+        if self.result == "not evaluable" and self.defect is None:
+            msg = "a criterion not evaluable carries its own defect: what the specification lacks"
+            raise ValueError(msg)
+        return self
 
 
 class IndicatorReport(_Frozen):

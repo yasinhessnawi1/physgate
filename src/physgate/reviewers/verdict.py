@@ -141,6 +141,13 @@ def _judge(
         problem = exc.errors()[0]
         where = ".".join(str(part) for part in problem["loc"]) or "the answer"
         return Unavailable(cause="invalid_verdict", detail=f"{where}: {problem['msg']}")
+    # A criterion line's own defect is a specification defect like any other.
+    inline = tuple(
+        SpecDefect(finding=c.defect.finding, blocking=c.defect.blocking, item=c.criterion)
+        for c in answer.acceptance_criteria
+        if c.defect is not None
+    )
+    answer = answer.model_copy(update={"spec_defects": (*answer.spec_defects, *inline)})
     problem_text = _unanswered(answer, rubric_items, criteria) or _inconsistency(
         answer, scan_hits, not_evaluable
     )
@@ -216,9 +223,15 @@ def _inconsistency(
         return "only a reject names a failing item"
     if answer.verdict == "reject" and unmet and answer.failing_item not in unmet:
         return "the failing item is not one the verdict found unmet"
-    unevaluated = {i.item for i in answer.items if i.result == "not evaluable"} | {
-        c.criterion for c in answer.acceptance_criteria if c.result == "not evaluable"
-    }
+    if not_evaluable == "blocking":
+        unblocked = sorted(
+            c.criterion
+            for c in answer.acceptance_criteria
+            if c.result == "not evaluable" and c.defect is not None and not c.defect.blocking
+        )
+        if unblocked:
+            return "a criterion not evaluable carries a blocking defect: " + ", ".join(unblocked)
+    unevaluated = {i.item for i in answer.items if i.result == "not evaluable"}
     named = blocking if not_evaluable == "blocking" else {d.item for d in answer.spec_defects}
     if unevaluated - named:
         missing = ", ".join(sorted(unevaluated - named))

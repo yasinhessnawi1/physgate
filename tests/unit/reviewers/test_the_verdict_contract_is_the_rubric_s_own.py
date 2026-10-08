@@ -230,13 +230,10 @@ def _not_evaluable(role: str, *, blocking: bool) -> dict[str, Any]:
     answer = valid(items, None)
     criterion = answer["acceptance_criteria"][0]
     criterion["result"] = "not evaluable"
-    answer["spec_defects"] = [
-        {
-            "finding": "the issued specification gives no settling time",
-            "blocking": blocking,
-            "item": criterion["criterion"],
-        }
-    ]
+    criterion["defect"] = {
+        "finding": "the issued specification gives no settling time",
+        "blocking": blocking,
+    }
     if blocking:
         answer["verdict"] = "blocked"
     return answer
@@ -248,7 +245,9 @@ def test_control_follows_its_rubric_a_non_blocking_defect_names_an_unevaluable_c
     found, outcome = _both(answer, items, None, "defect")
     assert found == []
     assert isinstance(outcome, Answered) and outcome.answer.verdict == "accept"
-    assert outcome.answer.spec_defects[0].blocking is False  # kept: the ledger shows it
+    # The line's own defect is counted as a specification defect, and kept.
+    (defect,) = outcome.answer.spec_defects
+    assert defect.blocking is False and defect.item == answer["acceptance_criteria"][0]["criterion"]
 
 
 def test_control_s_reviewer_may_judge_it_safety_critical_and_block() -> None:
@@ -262,7 +261,7 @@ def test_firmware_follows_its_rubric_an_unevaluable_criterion_needs_a_blocking_d
     items = _rubric("firmware")
     _, outcome = _both(_not_evaluable("firmware", blocking=False), items, None, "blocking")
     assert isinstance(outcome, Unavailable) and outcome.cause == "invalid_verdict"
-    assert "blocking specification defect" in outcome.detail
+    assert "blocking defect" in outcome.detail
     _, blocked = _both(_not_evaluable("firmware", blocking=True), items, None, "blocking")
     assert isinstance(blocked, Unavailable) and blocked.cause == "blocking_spec_defect"
 
@@ -316,17 +315,18 @@ def test_a_submission_in_any_other_shape_is_passed_on_for_the_check_to_refuse() 
     assert as_answer(copy.deepcopy(odd), _rubric("control")) == odd
 
 
-def test_a_numbered_criterion_not_evaluable_is_named_by_its_defect_in_the_schema_too() -> None:
+def test_a_numbered_criterion_not_evaluable_carries_its_own_defect_in_the_schema_too() -> None:
     items, criteria = _rubric("firmware"), ("1", "2")
     answer = valid(items, criteria)
     answer["acceptance_criteria"][1]["result"] = "not evaluable"
     found, outcome = _both(answer, items, criteria, "blocking")
     assert found and isinstance(outcome, Unavailable) and outcome.cause == "invalid_verdict"
-    answer["spec_defects"] = [{"finding": "no settling time given", "blocking": True, "item": "2"}]
+    answer["acceptance_criteria"][1]["defect"] = {"finding": "no settling time", "blocking": True}
     answer["verdict"] = "blocked"
     found, outcome = _both(answer, items, criteria, "blocking")
     assert found == []
     assert isinstance(outcome, Unavailable) and outcome.cause == "blocking_spec_defect"
+    assert outcome.spec_defects[0].item == "2"
 
 
 def test_each_role_takes_its_own_rubric_s_rule_and_a_role_with_none_the_stricter() -> None:
@@ -350,7 +350,7 @@ def test_blocked_needs_a_blocking_defect_not_any_defect() -> None:
     answer["verdict"] = "blocked"
     answer["spec_defects"] = [{"finding": "a note", "blocking": False, "item": None}]
     found, outcome = _both(answer, items, None, "defect")
-    assert any("must contain" in e for e in found)
+    assert any("must contain" in e or "anyOf" in e for e in found)
     assert isinstance(outcome, Unavailable) and outcome.cause == "invalid_verdict"
 
 
@@ -399,3 +399,36 @@ def test_a_submission_is_read_from_inside_its_wrapper() -> None:
     assert isinstance(outcome, Answered)
     two = judge({WRAPPER: answer, "extra": 1}, (HIT,), items, not_evaluable="defect")
     assert isinstance(two, Unavailable)  # anything else beside it is not a verdict
+
+
+@pytest.mark.parametrize(("role", "needs"), [("control", "defect"), ("firmware", "blocking")])
+def test_a_criterion_not_evaluable_without_its_own_defect_is_refused(
+    role: str, needs: NotEvaluableNeeds
+) -> None:
+    items = _rubric(role)
+    answer = valid(items, None)
+    answer["acceptance_criteria"][0]["result"] = "not evaluable"
+    found, outcome = _both(answer, items, None, needs)
+    assert any("defect" in e for e in found)
+    assert isinstance(outcome, Unavailable) and outcome.cause == "invalid_verdict"
+    # A spec_defects entry naming it does not stand in for the line's own.
+    answer["spec_defects"] = [{"finding": "f", "blocking": True, "item": "x"}]
+    answer["verdict"] = "blocked"
+    found, outcome = _both(answer, items, None, needs)
+    assert found and isinstance(outcome, Unavailable) and outcome.cause == "invalid_verdict"
+
+
+def test_firmware_s_criterion_defect_must_block() -> None:
+    items = _rubric("firmware")
+    found, outcome = _both(_not_evaluable("firmware", blocking=False), items, None, "blocking")
+    assert any("blocking" in e for e in found)
+    assert isinstance(outcome, Unavailable) and "blocking defect" in outcome.detail
+
+
+def test_an_accept_carries_no_line_defect_that_blocks() -> None:
+    items = _rubric("control")
+    answer = _not_evaluable("control", blocking=True)
+    answer["verdict"] = "accept"
+    found, outcome = _both(answer, items, None, "defect")
+    assert found
+    assert isinstance(outcome, Unavailable) and outcome.cause == "invalid_verdict"
