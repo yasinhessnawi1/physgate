@@ -15,7 +15,12 @@ candidate creates `knowledge/<domain>/skill.md` if none exists yet, or is
 appended to it if one already does, matching ARCH-100's own model of a skill
 file accumulating from many episodes over time. A skill candidate staged as a
 correction of the whole file (``replaces``) is written whole instead, like a
-standards file, and its promotion line says so. Either way the candidate is
+standards file, and its promotion line says so.
+
+Before anything is written, the person promoting is told what the write does:
+whether it creates the file, adds to it, or replaces it whole, with the old and
+the new size and sha256. A whole-file write deletes what the file held, and a
+candidate can be staged by more than the person promoting it. Either way the candidate is
 removed from `staging/` once promoted, so `staging/` always reflects exactly
 what is still pending, and a candidate id cannot be promoted twice.
 
@@ -45,6 +50,7 @@ import secrets
 import stat
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from physgate.knowledge.exceptions import KnowledgeError
@@ -229,6 +235,25 @@ def _replace(destination: Path, knowledge_root: Path, data: bytes) -> None:
         os.close(dir_fd)
 
 
+def _fingerprint(data: bytes | None) -> str:
+    if data is None:
+        return "nothing"
+    return f"{len(data)} bytes, sha256 {hashlib.sha256(data).hexdigest()}"
+
+
+def _what_changes(
+    candidate_id: str, destination: Path, current: bytes | None, data: bytes, *, whole: bool
+) -> str:
+    """What promoting ``candidate_id`` does to ``destination``: old and new bytes and digests."""
+    if current is None:
+        verb = "creates"
+    elif whole:
+        verb = "REPLACES WHOLE"
+    else:
+        verb = "adds to"
+    return f"{candidate_id} {verb} {destination}: {_fingerprint(current)} -> {_fingerprint(data)}"
+
+
 def _existing(destination: Path, knowledge_root: Path) -> bytes | None:
     """What ``destination`` holds now, read without following a link; ``None`` if nothing."""
     root = Path(knowledge_root)
@@ -287,11 +312,13 @@ def _apply(
     knowledge_root: Path,
     promotions_path: Path,
     rubric_staging_root: Path = RUBRIC_STAGING_ROOT,
+    notice: Callable[[str], None] | None = None,
 ) -> Path:
     """Write the candidate into the library, log the promotion, remove it from staging.
 
     Carries no interactivity check of its own — ``require_interactive`` is the
-    caller's job, always run first for a real promotion.
+    caller's job, always run first for a real promotion. ``notice``, if given, is
+    told what the write will do (:func:`_what_changes`) before it is made.
 
     Raises:
         PromotionError: ``by`` is empty; no candidate with ``candidate_id`` is
@@ -329,8 +356,13 @@ def _apply(
         canary = secrets.token_hex(16)
         text += f"\n<!-- {canary} -->\n".encode()
     whole = kind in ("standards", "rubric") or candidate.replaces
-    before = None if whole else _existing(destination, knowledge_root)
+    current = _existing(destination, knowledge_root)
+    before = None if whole else current
     data = text if before is None else before + b"\n---\n\n" + text
+    # Said before anything is written: a whole-file write deletes whatever the file
+    # held, and a candidate can be staged by more than the person promoting it.
+    if notice is not None:
+        notice(_what_changes(candidate_id, destination, current, data, whole=whole))
     _replace(destination, Path(knowledge_root), data)
     event: dict[str, object] = {
         "candidate_id": candidate.candidate_id,
@@ -383,6 +415,7 @@ def promote(
         knowledge_root=knowledge_root,
         promotions_path=resolved_promotions,
         rubric_staging_root=rubric_staging_root,
+        notice=print,
     )
 
 
