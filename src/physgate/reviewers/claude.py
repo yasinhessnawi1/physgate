@@ -309,7 +309,7 @@ class ClaudeReviewer:
         sdir.mkdir(parents=True)
         (sdir / OWNER_NAME).write_text(json.dumps({"run_id": self._setup.run_id}))
         installed = self._install(packet, sdir)
-        # The answer contract, from this rubric and this specification as issued.
+        # The answer contract, from the rubric and the specification as issued.
         issued = Path(packet.read_root) / SPEC_AS_ISSUED_NAME
         criteria = issued_criteria(issued.read_text() if issued.is_file() else None)
         needs = not_evaluable_needs(self._role)
