@@ -164,9 +164,13 @@ def brief(control_spec: str) -> str:
     )
 
 
+#: The first run's parameters, kept before ``use_fixture`` points its driver at ours.
+FIRST_RUN_PARAMS = base.params
+
+
 def params() -> dict[str, Any]:
     """The first run's parameters, with the session bounds the fixture needs."""
-    found = base.params()
+    found = FIRST_RUN_PARAMS()
     found["bounds"] = RunBounds(
         binary_max_retries=0,
         session_wall_clock_s=SESSION_WALL_CLOCK_S,

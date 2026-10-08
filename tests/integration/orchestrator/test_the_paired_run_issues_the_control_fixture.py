@@ -61,6 +61,16 @@ def test_the_run_sets_the_bounds_the_fixture_was_sized_for() -> None:
     assert unchanged == {k: v for k, v in base.params().items() if k != "bounds"}
 
 
+def test_pointing_the_first_run_s_driver_at_the_fixture_does_not_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name in ("CONTROL_SPEC", "BRIEF", "params"):
+        monkeypatch.setattr(base, name, getattr(base, name))
+    spec = paired.use_fixture()
+    assert spec == base.CONTROL_SPEC and paired.brief(spec) == base.BRIEF
+    assert base.params()["bounds"]["session_max_turns"] == 40
+
+
 def test_its_eleven_criteria_are_counted_for_the_review() -> None:
     assert issued_criteria(paired.control_fixture_spec()) == tuple(str(n) for n in range(1, 12))
     assert issued_criteria(base.FIRMWARE_SPEC) is None
