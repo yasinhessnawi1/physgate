@@ -240,8 +240,18 @@ def test_a_tree_whose_paths_a_volume_would_merge_is_refused(
 def test_the_export_is_held_to_the_tree_after_it_is_written(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A write that lands somewhere other than its path says is caught after the export."""
+    """A write that lands somewhere other than its path says is caught after the export.
+
+    Only a case-insensitive volume merges the two paths, so a case-sensitive one has
+    nothing to catch and the test does not apply there (the server's volumes).
+    """
     from physgate.reviewers import packet
+
+    probe = tmp_path / "Case"
+    probe.write_text("x")
+    if not (tmp_path / "case").exists():
+        pytest.skip("this volume is case-sensitive: the two paths are two files, nothing collides")
+    probe.unlink()
 
     real = packet._refuse_merging_paths
     monkeypatch.setattr(packet, "_refuse_merging_paths", lambda paths: None)
