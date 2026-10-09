@@ -81,6 +81,7 @@ from scripted_endpoint import DUMMY_OAUTH_TOKEN, Script, serving, text, tool  # 
 
 from physgate.cli import main as physgate_main  # noqa: E402
 from physgate.evaluation.observe.cost import load_price_sheet, price_run  # noqa: E402
+from physgate.hooks.reading import content_lines  # noqa: E402
 from physgate.knowledge import loader  # noqa: E402
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME  # noqa: E402
 from physgate.orchestrator.cli import default_registrations  # noqa: E402
@@ -358,28 +359,21 @@ def _reading(cwd: str) -> list[str]:
     return [str(p) for p in files if (read / WORKTREE_NAME) not in p.parents]
 
 
-#: The most a scripted reviewer asks of one Read: the binary refuses a read whose content is
-#: over its token limit and asks for an offset and a limit instead, as a reviewer then pages.
-READ_CHUNK_BYTES = 60_000
-
-
 def _reads(path: str) -> list[dict[str, Any]]:
-    """The Read calls that show every line of ``path``: one, or pages of whole lines.
+    """The Read calls a careful reader makes of ``path``: two pages, as a real reviewer paged.
 
-    Lines are counted as the Read tool counts them: a file ending in a newline has one more,
-    empty, line after it, which a page must reach too.
+    The second page ends exactly at the file's last line that holds content; the empty
+    line the Read tool counts after a final newline is never asked for, so the reading
+    check is held to the lines the file holds. A one-line file is read whole.
     """
-    lines = Path(path).read_bytes().split(b"\n")
-    if sum(len(line) for line in lines) <= READ_CHUNK_BYTES:
+    lines = content_lines(Path(path).read_bytes())
+    if lines <= 1:
         return [tool("Read", file_path=path)]
-    calls, start, size = [], 0, 0
-    for index, line in enumerate(lines):
-        if size and size + len(line) > READ_CHUNK_BYTES:
-            calls.append(tool("Read", file_path=path, offset=start + 1, limit=index - start))
-            start, size = index, 0
-        size += len(line)
-    calls.append(tool("Read", file_path=path, offset=start + 1, limit=len(lines) - start))
-    return calls
+    half = lines // 2
+    return [
+        tool("Read", file_path=path, offset=1, limit=half),
+        tool("Read", file_path=path, offset=half + 1, limit=lines - half),
+    ]
 
 
 #: A clean answer in each section's own words.
