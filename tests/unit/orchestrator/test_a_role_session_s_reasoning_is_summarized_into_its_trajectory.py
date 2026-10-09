@@ -31,6 +31,7 @@ def test_a_run_recorded_before_the_field_reads_as_omitted_with_its_digest_unchan
     older = make_config(thinking_display="omitted")
     legacy = json.loads(older.model_dump_json())
     del legacy["thinking_display"]
+    del legacy["role_python"]  # recorded before that field existed too
     legacy_bytes = json.dumps(legacy, separators=(",", ":")).encode() + b"\n"
     assert older.canonical_bytes() == legacy_bytes
     (tmp_path / "run.json").write_bytes(legacy_bytes)

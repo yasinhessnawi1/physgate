@@ -40,7 +40,7 @@ from physgate.orchestrator.catches import catches, parse_time
 from physgate.orchestrator.common import first_problem
 from physgate.orchestrator.credentials import SECRET_VARIABLE, credential_for
 from physgate.orchestrator.decompose import binary_version, call, require_fresh, start_run
-from physgate.orchestrator.dispatch import ClaudeDispatcher
+from physgate.orchestrator.dispatch import ClaudeDispatcher, probe_interpreter
 from physgate.orchestrator.events import (
     EnvironmentRecorded,
     InstallChecked,
@@ -54,6 +54,7 @@ from physgate.orchestrator.exceptions import (
     InvocationError,
     OrchestratorError,
     ReviewerNotRegisteredError,
+    RunConfigError,
     RunStateError,
 )
 from physgate.orchestrator.gate_events import GateEvent, gate_events
@@ -69,6 +70,8 @@ from physgate.orchestrator.loop import Loop, refuse_unregistered, require_gate
 from physgate.orchestrator.merge import GitMerger, RunGit
 from physgate.orchestrator.protocols import Gate, Reviewer
 from physgate.orchestrator.queue import ApprovalQueue
+from physgate.orchestrator.role_python import RolePython
+from physgate.orchestrator.role_python import measure as measure_role_python
 from physgate.orchestrator.run_config import (
     RunConfig,
     endpoint_of,
@@ -279,6 +282,14 @@ def _config(args: argparse.Namespace) -> RunConfig:
     # Measured, never chosen: a parameters file that names the harness is overruled.
     harness = harness_state(_harness_root())
     require_reportable(harness, reportable=params.get("reportable") is True)
+    if params.get("role_python") is not None:
+        # Measured, never taken from the parameters: only the path is theirs to name.
+        named = params["role_python"]
+        if not isinstance(named, str):
+            msg = "role_python names the role sessions' interpreter by its path, or is null"
+            raise RunConfigError(msg)
+        measured = measure_role_python(named, probe=probe_interpreter, harness=_harness_root())
+        params = {**params, "role_python": measured}
     fields = {
         **params,
         "run_id": args.run_id,
@@ -289,6 +300,8 @@ def _config(args: argparse.Namespace) -> RunConfig:
         "endpoint": endpoint_of(os.environ.get("ANTHROPIC_BASE_URL")),
         "harness": harness.model_dump(),
     }
+    if isinstance(fields.get("role_python"), RolePython):
+        fields["role_python"] = fields["role_python"].model_dump()
     return RunConfig.model_validate_json(json.dumps(fields))
 
 

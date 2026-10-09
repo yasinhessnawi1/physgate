@@ -55,6 +55,7 @@ from physgate.orchestrator.ports import Leftover, SessionKind, SessionReport, Se
 from physgate.orchestrator.processes import is_session, started_at, stop_tree
 from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.queue import DECISIONS_NAME
+from physgate.orchestrator.role_python import PROBE, require_same, session_bin
 from physgate.orchestrator.run_config import RunConfig, harness_root
 from physgate.orchestrator.trajectory import Seal, forged_tail, seal, through_first_result
 from physgate.reviewers.packet import issued_spec_sha256
@@ -211,6 +212,32 @@ def redact(path: Path, secret: str | None) -> None:
         path.write_bytes(data.replace(secret.encode(), REDACTED))
 
 
+#: How long an interpreter has to answer the probe.
+PROBE_TIMEOUT_S = 60
+
+
+def probe_interpreter(path: Path) -> dict[str, object] | None:
+    """What the interpreter at ``path`` says of itself (``role_python.PROBE``), or ``None``.
+
+    Run from an empty environment and the filesystem root, so nothing of the harness's
+    own environment reaches what it reports.
+    """
+    try:
+        done = subprocess.run(
+            [str(path), "-I", "-c", PROBE],
+            capture_output=True,
+            text=True,
+            timeout=PROBE_TIMEOUT_S,
+            check=False,
+            env={"PATH": "/usr/bin:/bin", "HOME": "/nonexistent"},
+            cwd="/",
+        )
+        found = json.loads(done.stdout) if done.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return None
+    return found if isinstance(found, dict) else None
+
+
 class ClaudeDispatcher:
     """The loop's dispatcher over the Claude Code binary."""
 
@@ -352,6 +379,17 @@ class ClaudeDispatcher:
             api_key=None,
         )
         env.update(installed.spawn_env)
+        recorded_python = self._config.role_python
+        if recorded_python is not None:
+            # The run's named interpreter, measured again, first on the session's PATH as
+            # ``python3``: a directory holding nothing else, so nothing beside it comes too.
+            require_same(
+                recorded_python,
+                probe=probe_interpreter,
+                harness=harness_root(),
+                install=self._install_bin.parent.parent,
+            )
+            env["PATH"] = f"{session_bin(sdir, recorded_python)}:{env['PATH']}"
         argv = role_argv(
             self._binary,
             prompt=role_prompt(request),

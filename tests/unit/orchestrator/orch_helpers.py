@@ -64,6 +64,7 @@ def make_config(**overrides: Any) -> RunConfig:
         "effort": "high",
         "max_output_tokens": 64000,
         "thinking_display": "summarized",
+        "role_python": None,
     }
     fields.update(overrides)
     return RunConfig(**fields)

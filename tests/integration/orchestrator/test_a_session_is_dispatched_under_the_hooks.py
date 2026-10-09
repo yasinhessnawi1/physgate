@@ -646,3 +646,36 @@ def test_a_clean_stream_is_sealed_as_it_is_on_disk(tmp_path: Path, install_bin: 
     assert report.trajectory_tampered is None
     assert report.trajectory_seal is not None
     assert report.trajectory_seal.sha256 == hashlib.sha256(stream).hexdigest()
+
+
+def test_a_role_session_finds_the_run_s_named_python_first_on_its_path(
+    tmp_path: Path, install_bin: Path
+) -> None:
+    """The run's interpreter, as measured, is the session's ``python3``, and nothing else comes."""
+    from physgate.orchestrator.dispatch import probe_interpreter
+    from physgate.orchestrator.role_python import measure
+
+    base = Path(sys.base_prefix) / "bin" / "python3"
+    named = measure(str(base), probe=probe_interpreter, harness=Path(__file__).resolve().parents[3])
+    cfg = config().model_copy(update={"role_python": named})
+    worktree = tmp_path / "run" / "worktrees" / "s1"
+    steps = [
+        *knowledge_reads(worktree),
+        tool("Read", file_path=str(worktree / SPEC)),
+        tool(
+            "Bash",
+            command=(
+                "python3 -c 'import sys; print(sys.version.split()[0])' > modules/power/py.txt;"
+                " command -v python3 >> modules/power/py.txt; echo $PATH >> modules/power/py.txt"
+            ),
+        ),
+        text("done"),
+    ]
+    _, (report, _), _ = dispatch(tmp_path, install_bin, steps, cfg=cfg)
+    assert report.end.outcome == "completed", report
+    version, where, path = (worktree / "modules" / "power" / "py.txt").read_text().split("\n")[:3]
+    assert version == named.version
+    sdir = Path(str(report.trajectory)).parent
+    assert where == str(sdir / "bin" / "python3")
+    assert path.split(":")[0] == str(sdir / "bin")
+    assert [p.name for p in (sdir / "bin").iterdir()] == ["python3"]

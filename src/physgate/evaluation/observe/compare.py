@@ -100,6 +100,8 @@ def drift(baseline: RunConfig, candidate: RunConfig) -> list[str]:
         drifted.append("max_output_tokens")
     if baseline.thinking_display != candidate.thinking_display:
         drifted.append("thinking_display")
+    if baseline.role_python != candidate.role_python:
+        drifted.append("role_python")
     if baseline.claude_version != candidate.claude_version:
         drifted.append("claude_version")
     if baseline.endpoint != candidate.endpoint:

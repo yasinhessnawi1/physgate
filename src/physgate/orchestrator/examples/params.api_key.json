@@ -29,5 +29,6 @@
  "reportable": false,
  "effort": "high",
  "max_output_tokens": 64000,
- "thinking_display": "summarized"
+ "thinking_display": "summarized",
+ "role_python": null
 }

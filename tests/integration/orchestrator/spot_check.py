@@ -183,6 +183,7 @@ def params() -> dict[str, Any]:
         "effort": "high",
         "max_output_tokens": 64000,
         "thinking_display": "summarized",
+        "role_python": None,
     }
 
 

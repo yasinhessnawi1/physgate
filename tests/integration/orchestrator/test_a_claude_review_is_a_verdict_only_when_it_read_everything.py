@@ -226,6 +226,7 @@ def _config(version: str) -> RunConfig:
         effort="low",
         max_output_tokens=1000,
         thinking_display="summarized",
+        role_python=None,
     )
 
 

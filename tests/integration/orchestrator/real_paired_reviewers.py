@@ -86,6 +86,7 @@ from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME  # noqa: 
 from physgate.orchestrator.cli import default_registrations  # noqa: E402
 from physgate.orchestrator.credentials import remove_secrets, write_login  # noqa: E402
 from physgate.orchestrator.decompose import binary_version, read_stream  # noqa: E402
+from physgate.orchestrator.dispatch import probe_interpreter  # noqa: E402
 from physgate.orchestrator.events import (  # noqa: E402
     ReviewRan,
     ReviewUnavailable,
@@ -99,6 +100,7 @@ from physgate.orchestrator.invocation import (  # noqa: E402
     claude_binary,
     isolated_env,
 )
+from physgate.orchestrator.role_python import measure as measure_role_python  # noqa: E402
 from physgate.orchestrator.run_config import RunBounds, load_run_config  # noqa: E402
 from physgate.reviewers.claude import SYNTHETIC_MODEL  # noqa: E402
 from physgate.reviewers.contract import issued_criteria, verdict_schema  # noqa: E402
@@ -187,6 +189,8 @@ def brief(control_spec: str) -> str:
 
 #: The first run's parameters, kept before ``use_fixture`` points its driver at ours.
 FIRST_RUN_PARAMS = base.params
+#: The interpreter role sessions find as ``python3`` (``--role-python``), set by ``main``.
+ROLE_PYTHON: str | None = None
 
 
 def params() -> dict[str, Any]:
@@ -198,6 +202,8 @@ def params() -> dict[str, Any]:
         session_max_turns=SESSION_MAX_TURNS,
         infra_retry_delays_s=INFRA_RETRY_DELAYS_S,
     ).model_dump(mode="json")
+    if ROLE_PYTHON is not None:
+        found["role_python"] = ROLE_PYTHON
     return found
 
 
@@ -778,7 +784,15 @@ def main() -> None:
         help="dry run: the control subtask's first paired review rejects, or is blocked",
     )
     parser.add_argument("--env-file", type=Path, default=Path.home() / "dev" / "physgate" / ".env")
+    parser.add_argument(
+        "--role-python",
+        help="paired: the standard-library interpreter role sessions find as python3",
+    )
     args = parser.parse_args()
+    if args.phase == "paired" and args.role_python is None:
+        parser.error("paired needs --role-python, the interpreter role sessions find as python3")
+    global ROLE_PYTHON  # noqa: PLW0603 - the parameters the first run's driver writes
+    ROLE_PYTHON = args.role_python
     if args.phase == "generalist" and args.paired is None:
         parser.error("generalist needs --paired, the paired run's output directory")
     root = args.out.resolve()
@@ -806,6 +820,13 @@ def main() -> None:
         "promoted_rubrics": promoted_rubrics(),
         "control_fixture_sha256": hashlib.sha256(use_fixture().encode()).hexdigest(),
         "session_bounds": {"max_turns": SESSION_MAX_TURNS, "wall_clock_s": SESSION_WALL_CLOCK_S},
+        "role_python": (
+            measure_role_python(
+                args.role_python, probe=probe_interpreter, harness=base.REPO_ROOT
+            ).model_dump()
+            if args.role_python
+            else None
+        ),
         "started_utc": base.utc(),
     }
     print(json.dumps(stamp), flush=True)
