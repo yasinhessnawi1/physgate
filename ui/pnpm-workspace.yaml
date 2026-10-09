@@ -1,0 +1,9 @@
+# Settings for the operator UI's package manager. They fail closed, so neither is a habit
+# to remember:
+# - No version younger than a week is installed, the same cooldown the Python side keeps.
+#   A newer release is taken on purpose, once the week has passed, not on the day it lands.
+# - No dependency's install script runs. Install fails if a package needs one; adding it
+#   to an allowlist here is a decision with a reason, never a default.
+minimumReleaseAge: 10080
+strictDepBuilds: true
+onlyBuiltDependencies: []

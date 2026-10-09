@@ -1,0 +1,636 @@
+/*
+ * Every value here is a design token (a custom property generated from tokens.json) or a
+ * structural constant (a border width, a flex rule). No colour, size or space is written here
+ * that the tokens do not hold.
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-line);
+}
+
+a {
+  color: var(--color-accent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.mono,
+.quantity,
+code {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.muted {
+  color: var(--color-text-3);
+}
+
+/* -- shell ------------------------------------------------------------------------------- */
+
+.shell {
+  display: grid;
+  grid-template-columns: var(--size-sidebar) minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.sidebar {
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+  padding: var(--space-6) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.sidebar-name {
+  font-size: var(--type-card-title-size);
+  line-height: var(--type-card-title-line);
+  font-weight: var(--type-card-title-weight);
+}
+
+.sidebar-role,
+.sidebar-foot,
+.topbar-area {
+  color: var(--color-text-3);
+  font-size: var(--type-label-size);
+  line-height: var(--type-label-line);
+}
+
+.nav-area-title {
+  display: block;
+  color: var(--color-text-2);
+  font-size: var(--type-label-size);
+  line-height: var(--type-label-line);
+  font-weight: var(--type-badge-weight);
+  text-decoration: none;
+  padding: var(--space-2) 0;
+}
+
+.nav-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  min-height: var(--size-nav-row);
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-control);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.nav-link:hover {
+  background: var(--color-surface-2);
+}
+
+.nav-link-on {
+  background: var(--color-accent-bg);
+  color: var(--color-accent);
+  font-weight: var(--type-card-title-weight);
+}
+
+.sidebar-foot {
+  margin-top: auto;
+}
+
+.main {
+  min-width: 0;
+}
+
+.topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-7);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.topbar-titles {
+  display: flex;
+  flex-direction: column;
+}
+
+.page-title {
+  margin: 0;
+  font-size: var(--type-page-title-size);
+  line-height: var(--type-page-title-line);
+  font-weight: var(--type-page-title-weight);
+}
+
+.topbar-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.content {
+  max-width: var(--size-content-max);
+  padding: var(--space-7);
+}
+
+@media (max-width: 760px) {
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sidebar {
+    border-right: none;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .content,
+  .topbar {
+    padding: var(--space-5);
+  }
+}
+
+/* -- cards and tables -------------------------------------------------------------------- */
+
+.cards {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.card,
+.state {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--elevation-card);
+  padding: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.card-title,
+.state-title {
+  margin: 0;
+  font-size: var(--type-card-title-size);
+  line-height: var(--type-card-title-line);
+  font-weight: var(--type-card-title-weight);
+}
+
+.view-note,
+.state-body {
+  margin: 0;
+  color: var(--color-text-2);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-3) var(--space-5);
+  margin: 0;
+}
+
+.facts dt {
+  color: var(--color-text-3);
+}
+
+.facts dd {
+  margin: 0;
+}
+
+.digest {
+  overflow-wrap: anywhere;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.table th {
+  color: var(--color-text-2);
+  font-size: var(--type-label-size);
+  line-height: var(--type-label-line);
+  font-weight: var(--type-card-title-weight);
+}
+
+.figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+}
+
+.run-records {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.run-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.run-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--size-touch-min);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.run-link-on {
+  border-color: var(--color-accent);
+  background: var(--color-accent-bg);
+}
+
+/* -- quantities, badges, chips ---------------------------------------------------------- */
+
+.quantity {
+  white-space: nowrap;
+  font-size: var(--type-mono-number-size);
+  font-weight: var(--type-mono-number-weight);
+}
+
+.quantity-unit {
+  color: var(--color-text-3);
+  margin-left: var(--space-1);
+}
+
+.figure {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-badge);
+  border: 1px solid transparent;
+  font-size: var(--type-badge-size);
+  line-height: var(--type-badge-line);
+  font-weight: var(--type-badge-weight);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.verdict-pass {
+  color: var(--color-pass);
+  background: var(--color-pass-bg);
+  border-color: var(--color-pass-border);
+}
+
+.verdict-fail {
+  color: var(--color-fail);
+  background: var(--color-fail-bg);
+  border-color: var(--color-fail-border);
+}
+
+.verdict-warn {
+  color: var(--color-warn);
+  background: var(--color-warn-bg);
+  border-color: var(--color-warn-border);
+}
+
+/* Unchecked: outlined and dashed, never filled like a pass. */
+.verdict-unchecked {
+  color: var(--color-unchecked);
+  background: transparent;
+  border: 1px dashed var(--color-unchecked-border);
+}
+
+.gate-mode-on {
+  color: var(--color-gate-on-text);
+  background: var(--color-gate-on-bg);
+}
+
+/* Observe: purple and hatched, and it says it is not gated. */
+.gate-mode-observe {
+  color: var(--color-observe);
+  border-color: var(--color-observe-border);
+  background: repeating-linear-gradient(
+    135deg,
+    var(--color-observe-hatch) 0 4px,
+    var(--color-surface) 4px 8px
+  );
+}
+
+.gate-mode-off {
+  color: var(--color-gate-off);
+  background: var(--color-gate-off-bg);
+  border-color: var(--color-border);
+}
+
+/* An observe-mode result: dashed outline, never a filled pass or fail. */
+.observed {
+  color: var(--color-observe);
+  background: transparent;
+  border: 1px dashed var(--color-observe-border);
+}
+
+.tally {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.tally-evaluated {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.tally-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.tally-total {
+  color: var(--color-text-2);
+}
+
+.tally-separator {
+  align-self: stretch;
+  border-left: 1px solid var(--color-border-strong);
+}
+
+.tally-unchecked {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.source-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-2);
+  color: var(--color-text-2);
+  font-size: var(--type-label-size);
+  line-height: var(--type-badge-line);
+  align-self: flex-start;
+  white-space: nowrap;
+}
+
+.whatif-marker {
+  color: var(--color-whatif);
+  background: var(--color-whatif-bg);
+  border: 1px dashed var(--color-whatif);
+}
+
+.whatif-value .quantity-value,
+.whatif-value .quantity-unit {
+  color: var(--color-whatif);
+}
+
+.in-progress {
+  color: var(--color-live);
+  background: var(--color-live-bg);
+  border-color: var(--color-live-border);
+}
+
+.in-progress-dot {
+  width: var(--space-3);
+  height: var(--space-3);
+  border-radius: 50%;
+  background: var(--color-live);
+}
+
+/* -- buttons and the confirmation ------------------------------------------------------- */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  min-height: var(--size-touch-min);
+  padding: 0 var(--space-5);
+  border-radius: var(--radius-control);
+  font: inherit;
+  font-weight: var(--type-mono-number-weight);
+  cursor: pointer;
+}
+
+.button-browse {
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.button-browse:hover {
+  background: var(--color-surface-2);
+}
+
+.button-act {
+  border: 1px solid var(--color-action);
+  background: var(--color-action);
+  color: var(--color-on-action);
+  font-weight: var(--type-card-title-weight);
+}
+
+.button-act:hover {
+  background: var(--color-action-hover);
+}
+
+.button-reject {
+  border: 1px solid var(--color-fail);
+  background: var(--color-surface);
+  color: var(--color-fail);
+  font-weight: var(--type-card-title-weight);
+}
+
+.button-reject:hover {
+  background: var(--color-fail-bg);
+}
+
+.confirm {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--elevation-dialog);
+  background: var(--color-surface);
+  color: var(--color-text);
+  padding: var(--space-6);
+  max-width: 32rem;
+}
+
+.confirm-title {
+  margin: 0 0 var(--space-4);
+  font-size: var(--type-section-title-size);
+  line-height: var(--type-section-title-line);
+  font-weight: var(--type-section-title-weight);
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+}
+
+/* -- states ------------------------------------------------------------------------------ */
+
+.state-error {
+  border-color: var(--color-fail-border);
+}
+
+.state-error .state-title {
+  color: var(--color-fail);
+}
+
+.state-context {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+}
+
+.state-context-row {
+  display: contents;
+}
+
+.state-context dt {
+  color: var(--color-text-3);
+}
+
+.state-context dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.skeleton {
+  height: var(--space-5);
+  border-radius: var(--radius-badge);
+  background: var(--color-surface-2);
+}
+
+.skeleton-short {
+  width: 40%;
+}
+
+/* -- plot and graph ---------------------------------------------------------------------- */
+
+.plot {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.plot-summary {
+  color: var(--color-text-2);
+}
+
+.graph {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.graph-tools {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.graph-frame {
+  overflow: auto;
+  max-height: 32rem;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+}
+
+.graph-canvas {
+  display: block;
+}
+
+.graph-edge {
+  fill: none;
+  stroke: var(--color-border-strong);
+  stroke-width: 1.5;
+}
+
+.graph-arrow {
+  fill: var(--color-border-strong);
+}
+
+.graph-node rect {
+  fill: var(--color-surface);
+  stroke: var(--color-border-strong);
+}
+
+.graph-node:focus-visible rect {
+  stroke: var(--color-focus);
+  stroke-width: 2;
+}
+
+.graph-node-id {
+  font-family: var(--font-mono);
+  font-size: var(--type-label-size);
+  fill: var(--color-text);
+}
+
+.graph-node-kind {
+  font-size: var(--type-label-size);
+  fill: var(--color-text-3);
+}
+
+.graph-node-control rect {
+  stroke: var(--color-domain-control);
+}
+
+.graph-node-firmware rect {
+  stroke: var(--color-domain-firmware);
+}
+
+.graph-node-mechanical rect {
+  stroke: var(--color-domain-mechanical);
+}
