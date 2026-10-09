@@ -83,6 +83,7 @@ from scripted_endpoint import DUMMY_OAUTH_TOKEN, Script, serving, text, tool  # 
 from physgate.cli import main as physgate_main  # noqa: E402
 from physgate.evaluation.observe.cost import load_price_sheet, price_run  # noqa: E402
 from physgate.hooks.reading import content_lines  # noqa: E402
+from physgate.hooks.verdict_shape import CORRECTION  # noqa: E402
 from physgate.knowledge import loader  # noqa: E402
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME  # noqa: E402
 from physgate.orchestrator.cli import default_registrations  # noqa: E402
@@ -585,11 +586,13 @@ def dry_control(api: Any) -> None:  # noqa: ANN401
     api.on_request = on_request
 
 
-def dry_reviews(api: Any, control: str = "reject") -> None:  # noqa: ANN401
+def dry_reviews(api: Any, control: str = "reject", *, stringify_once: bool = False) -> None:  # noqa: ANN401
     """Wrap the first run's scripted sessions with a scripted reviewer for every review.
 
     ``control`` is what the control subtask's first paired review submits: a reject, so the
-    repair path runs, or a blocked verdict, so the blocked path does.
+    repair path runs, or a blocked verdict, so the blocked path does. With ``stringify_once``
+    every reviewer first sends its verdict as a string of JSON with one closing brace too many,
+    as real reviewers have, and the object after the binary refuses it.
     """
     roles = api.on_request
     reviewed: list[str] = []
@@ -606,6 +609,8 @@ def dry_reviews(api: Any, control: str = "reject") -> None:  # noqa: ANN401
         steps = [call for p in _reading(cwd) for call in _reads(p)]
         blocked = first_control and control == "blocked"
         submitted = _verdict(cwd, reject=first_control and not blocked, blocked=blocked)
+        if stringify_once:
+            steps.append(tool("StructuredOutput", review=json.dumps(submitted) + "}"))
         steps.append(tool("StructuredOutput", review=submitted))
         return steps[done] if done < len(steps) else text("done")
 
@@ -782,6 +787,11 @@ def main() -> None:
         default="reject",
         help="dry run: the control subtask's first paired review rejects, or is blocked",
     )
+    parser.add_argument(
+        "--dry-stringify-once",
+        action="store_true",
+        help="dry run: every reviewer first sends its verdict as a string of JSON, then the object",
+    )
     parser.add_argument("--env-file", type=Path, default=Path.home() / "dev" / "physgate" / ".env")
     parser.add_argument(
         "--role-python",
@@ -852,7 +862,7 @@ def main() -> None:
                 with serving(Script(main=[])) as (api, url):
                     base.dry_script(api)
                     dry_control(api)
-                    dry_reviews(api, args.dry_control)
+                    dry_reviews(api, args.dry_control, stringify_once=args.dry_stringify_once)
                     os.environ["ANTHROPIC_BASE_URL"] = url
                     result = paired(root)
                     result["endpoint_failures"] = list(api.failures)
@@ -865,10 +875,13 @@ def main() -> None:
                 recorded = load_run_config(paired_root / RUN_ID / "run.json").endpoint
                 port = urlparse(recorded).port or 0
                 with serving(Script(main=[]), port=port) as (api, url):
-                    dry_reviews(api)
+                    dry_reviews(api, stringify_once=args.dry_stringify_once)
                     os.environ["ANTHROPIC_BASE_URL"] = url
                     result = generalist(paired_root, root)
                     result["endpoint_failures"] = list(api.failures)
+                    result["endpoint_corrections"] = sum(
+                        CORRECTION in r.after_user for r in api.requests
+                    )
             else:
                 result = generalist(paired_root, root)
     finally:
