@@ -31,6 +31,8 @@ from knowledge_fixture import build_fixture_library
 from scripted_endpoint import DUMMY_KEY, Script, serving, text, tool
 
 from physgate.cli import main
+from physgate.evaluation.observe.cost import CostLine, read_trend_lines
+from physgate.evaluation.observe.ratio import Ratio, RatioLine
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, rubric_path
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.cli import Registrations
@@ -194,7 +196,22 @@ def test_a_run_through_the_command_is_reviewed_rejected_repaired_and_accepted(
         ]
         generalist_code = main(generalist)
         printed = capsys.readouterr()
+        # Both figures reach one trend: the run's cost line, then the ratio from its baseline.
+        trend = tmp_path / "trend.jsonl"
+        prices = ["--prices", "2026-09-27"]
+        cost_code = main(["cost", "--run-dir", str(run_dir), *prices, "--append", str(trend)])
+        ratio_args = ["ratio", "--baseline", str(baseline / "baseline.json")]
+        ratio_code = main([*ratio_args, "--append", str(trend)])
+        again = main([*ratio_args, "--append", str(trend)])
+        trended = capsys.readouterr()
     assert generalist_code == 0, printed.err
+    assert (cost_code, ratio_code, again) == (0, 0, 2), trended.err
+    assert "already holds this ratio" in trended.err
+    cost_line, ratio_line = read_trend_lines(trend)
+    assert isinstance(cost_line, CostLine) and isinstance(ratio_line, RatioLine)
+    assert cost_line.run_id == "run-1" and set(cost_line.review_tokens) == {subtask}
+    assert ratio_line.run_id == "run-1-generalist" and ratio_line.paired_run_id == "run-1"
+    assert ratio_line.ratio == Ratio.model_validate_json((baseline / "baseline.json").read_bytes())
     ratio = json.loads((baseline / "baseline.json").read_text())
     assert ratio == json.loads(printed.out)
     assert (ratio["n"], ratio["attempt"], ratio["subtask_id"]) == (1, 3, subtask)

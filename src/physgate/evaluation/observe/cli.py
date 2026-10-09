@@ -20,7 +20,12 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel
 
 from physgate.evaluation.observe.compare import compare
-from physgate.evaluation.observe.cost import append_cost_line, load_price_sheet, price_run
+from physgate.evaluation.observe.cost import (
+    append_cost_line,
+    append_ratio_line,
+    load_price_sheet,
+    price_run,
+)
 from physgate.evaluation.observe.exceptions import ObserveError
 from physgate.evaluation.observe.manifest import read_manifest
 from physgate.evaluation.observe.rerun import rerun, through_the_command
@@ -73,6 +78,16 @@ def _cost(args: argparse.Namespace) -> int:
     if args.append is not None:
         append_cost_line(args.append, line)
     _print(line, basis_label=BASIS_LABEL[line.basis], appended_to=str(args.append or ""))
+    return 0
+
+
+def _ratio(args: argparse.Namespace) -> int:
+    from physgate.evaluation.observe.generalist import ratio_line_from
+
+    line = ratio_line_from(args.baseline)
+    if args.append is not None:
+        append_ratio_line(args.append, line)
+    _print(line, appended_to=str(args.append or ""))
     return 0
 
 
@@ -204,6 +219,19 @@ def add_parsers(
     g.add_argument("--run-id", required=True, help="the generalist review's own run id")
     g.add_argument("--prices", required=True, help="the price sheet's date, e.g. 2026-09-27")
     g.set_defaults(func=_guarded(_generalist))
+
+    q = subparsers.add_parser(
+        "ratio",
+        help="read a generalist review's ratio as a trend line; optionally append it",
+        description=(
+            "Read the paired-versus-generalist ratio a `physgate generalist` review wrote, "
+            "held to the records beside it, as a line of the cost trend. No model is called "
+            "and nothing is rerun."
+        ),
+    )
+    q.add_argument("--baseline", required=True, type=Path, help="the review's baseline.json")
+    q.add_argument("--append", type=Path, help="the trend file to append the ratio line to")
+    q.set_defaults(func=_guarded(_ratio))
 
 
 def _generalist(args: argparse.Namespace) -> int:

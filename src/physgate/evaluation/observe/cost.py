@@ -24,6 +24,7 @@ does not price is refused, never priced at zero.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from decimal import Decimal
 from pathlib import Path
@@ -40,6 +41,7 @@ from pydantic import (
 
 from physgate.evaluation.observe.exceptions import ManifestError, PriceSheetError, TrendError
 from physgate.evaluation.observe.manifest import Sha256, read_manifest, read_run_events
+from physgate.evaluation.observe.ratio import RATIO_KIND, RatioLine
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.common import (
     AuthMode,
@@ -314,38 +316,69 @@ def price_run(run_dir: Path, prices: DatedSheet) -> CostLine:
     )
 
 
-def _admit(line: CostLine, seen: list[CostLine], known: dict[str, str], where: str) -> None:
-    recorded = known.get(line.prices_date)
-    earlier = {s.prices_date: s.prices_sha256 for s in seen}.get(line.prices_date)
-    for digest in (recorded, earlier):
-        if digest is not None and digest != line.prices_sha256:
+#: A line of the trend: a run's cost, or a paired-versus-generalist ratio.
+TrendLine = CostLine | RatioLine
+
+
+def _identity(line: TrendLine) -> tuple[str, ...]:
+    """What makes two lines the same measurement, at the same sheet's prices."""
+    if isinstance(line, CostLine):
+        return ("cost", line.manifest_id, line.prices_date)
+    ratio = line.ratio
+    return ("ratio", ratio.paired.session_id, ratio.generalist.session_id, ratio.prices_date)
+
+
+def _sheet(line: TrendLine) -> tuple[str, str]:
+    if isinstance(line, CostLine):
+        return line.prices_date, line.prices_sha256
+    return line.ratio.prices_date, line.ratio.prices_sha256
+
+
+def _admit(line: TrendLine, seen: list[TrendLine], known: dict[str, str], where: str) -> None:
+    date, digest = _sheet(line)
+    recorded = known.get(date)
+    earlier = dict(_sheet(s) for s in seen).get(date)
+    for wanted in (recorded, earlier):
+        if wanted is not None and wanted != digest:
             msg = "a price sheet date arrives with another digest than it was recorded with"
-            raise TrendError(msg, line=where, date=line.prices_date, recorded=digest)
-    if any(s.manifest_id == line.manifest_id and s.prices_date == line.prices_date for s in seen):
-        msg = "the trend already holds this run at this sheet's prices"
-        raise TrendError(msg, line=where, manifest_id=line.manifest_id)
+            raise TrendError(msg, line=where, date=date, recorded=wanted)
+    if any(_identity(s) == _identity(line) for s in seen):
+        if isinstance(line, CostLine):
+            msg = "the trend already holds this run at this sheet's prices"
+            raise TrendError(msg, line=where, manifest_id=line.manifest_id)
+        msg = "the trend already holds this ratio at this sheet's prices"
+        raise TrendError(msg, line=where, generalist=line.ratio.generalist.session_id)
 
 
-def read_trend(path: Path, *, known: dict[str, str] | None = None) -> tuple[CostLine, ...]:
-    """The trend file's lines, each checked; the one reader of the format.
+def _parse(raw: str) -> TrendLine:
+    """One line, as the one model its shape names; anything else is refused."""
+    if not raw.endswith("\n"):
+        raise ValueError("the line has no end")
+    shape = json.loads(raw)
+    if isinstance(shape, dict) and shape.get("kind") == RATIO_KIND:
+        return RatioLine.model_validate_json(raw)
+    return CostLine.model_validate_json(raw)
+
+
+def read_trend_lines(path: Path, *, known: dict[str, str] | None = None) -> tuple[TrendLine, ...]:
+    """Every line of the trend file, each checked; the one reader of the format.
 
     A missing file is an empty trend.
 
     Raises:
-        TrendError: a line is not a cost line, cites a sheet date with another digest
-            than recorded, or repeats a run at a sheet's prices.
+        TrendError: a line is neither a cost line nor a ratio line its writer could have
+            written, cites a sheet date with another digest than recorded, or repeats a
+            run, or a ratio, at a sheet's prices.
     """
     known = KNOWN_SHEETS if known is None else known
     try:
         text = Path(path).read_text()
     except FileNotFoundError:
         return ()
-    lines: list[CostLine] = []
+    lines: list[TrendLine] = []
     for number, raw in enumerate(text.splitlines(keepends=True), 1):
         try:
-            if not raw.endswith("\n"):
-                raise ValueError("the line has no end")
-            line = CostLine.model_validate_json(raw)
+            line = _parse(raw)
         except (ValidationError, ValueError) as exc:
             reason = first_problem(exc) if isinstance(exc, ValidationError) else str(exc)
             msg = "the trend holds a line its writer could not have written"
@@ -355,16 +388,38 @@ def read_trend(path: Path, *, known: dict[str, str] | None = None) -> tuple[Cost
     return tuple(lines)
 
 
-def append_cost_line(path: Path, line: CostLine, *, known: dict[str, str] | None = None) -> None:
-    """Append ``line`` to the trend at ``path``, after checking the whole file and it.
+def read_trend(path: Path, *, known: dict[str, str] | None = None) -> tuple[CostLine, ...]:
+    """The trend's cost lines, every line of the file checked (:func:`read_trend_lines`).
 
     Raises:
-        TrendError: the file or the line would break a rule ``read_trend`` holds.
+        TrendError: as :func:`read_trend_lines`.
     """
+    return tuple(line for line in read_trend_lines(path, known=known) if isinstance(line, CostLine))
+
+
+def _append(path: Path, line: TrendLine, known: dict[str, str] | None) -> None:
     known = KNOWN_SHEETS if known is None else known
-    seen = list(read_trend(path, known=known))
+    seen = list(read_trend_lines(path, known=known))
     _admit(line, seen, known, str(len(seen) + 1))
     with Path(path).open("ab") as out:
         out.write(line.model_dump_json().encode() + b"\n")
         out.flush()
         os.fsync(out.fileno())
+
+
+def append_cost_line(path: Path, line: CostLine, *, known: dict[str, str] | None = None) -> None:
+    """Append ``line`` to the trend at ``path``, after checking the whole file and it.
+
+    Raises:
+        TrendError: the file or the line would break a rule ``read_trend_lines`` holds.
+    """
+    _append(path, line, known)
+
+
+def append_ratio_line(path: Path, line: RatioLine, *, known: dict[str, str] | None = None) -> None:
+    """Append a ratio ``line`` to the trend at ``path``, after checking the whole file and it.
+
+    Raises:
+        TrendError: the file or the line would break a rule ``read_trend_lines`` holds.
+    """
+    _append(path, line, known)

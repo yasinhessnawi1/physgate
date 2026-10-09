@@ -23,13 +23,14 @@ import time
 from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from physgate.evaluation.observe.cost import DatedSheet
 from physgate.evaluation.observe.exceptions import ManifestError
 from physgate.evaluation.observe.manifest import Sha256, read_run_events
+from physgate.evaluation.observe.ratio import RATIO_KIND, Ratio, RatioLine, ReviewCost
 from physgate.knowledge.promote import KNOWLEDGE_ROOT
 from physgate.orchestrator.budget import infra_retry_delay
 from physgate.orchestrator.common import ModelString, NonEmptyStr
@@ -45,7 +46,6 @@ from physgate.orchestrator.events import (
 from physgate.orchestrator.exceptions import ReviewUnavailableError
 from physgate.orchestrator.protocols import ReviewResult, Usage
 from physgate.orchestrator.run_config import RunConfig, load_run_config
-from physgate.orchestrator.trajectory import Seal
 from physgate.reviewers.claude import ClaudeReviewer, ReviewerSetup
 from physgate.reviewers.packet import RECORD_NAME, Packet
 from physgate.reviewers.places import review_dir
@@ -80,34 +80,6 @@ class GeneralistConfig(_Frozen):
     claude_version: NonEmptyStr
     effort: NonEmptyStr
     max_output_tokens: Annotated[int, Field(gt=0)]
-
-
-class ReviewCost(_Frozen):
-    """One review's spend, priced."""
-
-    rubric_kind: Literal["paired", "generalist"]
-    session_id: NonEmptyStr
-    tokens: Usage
-    usd: Decimal
-    nok: Decimal
-    peak_context_tokens: Annotated[int, Field(ge=0)] | None
-
-
-class Ratio(_Frozen):
-    """Paired over generalist, on one attempt read under one seal: n = 1."""
-
-    subtask_id: NonEmptyStr
-    attempt: Annotated[int, Field(ge=1, le=3)]
-    trajectory_seal: Seal
-    attempt_commit: NonEmptyStr
-    reviewer_model: ModelString
-    paired: ReviewCost
-    generalist: ReviewCost
-    token_ratio: Decimal
-    usd_ratio: Decimal
-    prices_date: NonEmptyStr
-    prices_sha256: Sha256
-    n: Literal[1] = 1
 
 
 def _sum(result: ReviewResult) -> Usage:
@@ -391,3 +363,53 @@ def run_generalist(
     finally:
         log.close()
     return ran, read_packet(review_root, result)
+
+
+def ratio_line_from(baseline: Path) -> RatioLine:
+    """The cost trend's line for a generalist review's ``baseline.json``, read, not remeasured.
+
+    No model is called and nothing is rerun. The ratio is held to the records written
+    beside it in the same directory: the review's recorded configuration
+    (``generalist.json``) and its own event log, whose one review line must be the
+    generalist review the ratio names, with the very tokens it prices.
+
+    Raises:
+        ManifestError: a record is missing or unreadable, or the ratio is not the one its
+            directory's records describe.
+    """
+    out = Path(baseline).parent
+    try:
+        raw = Path(baseline).read_bytes()
+        ratio = Ratio.model_validate_json(raw)
+        config = GeneralistConfig.model_validate_json((out / CONFIG_NAME).read_bytes())
+    except (OSError, ValueError) as exc:
+        msg = "the baseline or its recorded configuration cannot be read"
+        raise ManifestError(msg, baseline=str(baseline), reason=str(exc)[:300]) from None
+    events = read_run_events(out)
+    ran = [e for e in events if isinstance(e, ReviewRan)]
+    if len(ran) != 1:
+        msg = "a generalist review's log holds exactly one review line"
+        raise ManifestError(msg, out=str(out), found=str(len(ran)))
+    review = ran[0]
+    described = (
+        (config.subtask_id, config.attempt, config.reviewer_model, config.paired_review_session)
+        == (ratio.subtask_id, ratio.attempt, ratio.reviewer_model, ratio.paired.session_id)
+        and (review.subtask_id, review.attempt) == (ratio.subtask_id, ratio.attempt)
+        and review.result.rubric_kind == "generalist"
+        and review.result.session_id == ratio.generalist.session_id
+        and _sum(review.result) == ratio.generalist.tokens
+    )
+    if not described:
+        msg = "the baseline is not the review its directory's records describe"
+        raise ManifestError(msg, baseline=str(baseline))
+    try:
+        return RatioLine(
+            kind=RATIO_KIND,
+            run_id=config.run_id,
+            paired_run_id=config.paired_run_id,
+            baseline_sha256=hashlib.sha256(raw).hexdigest(),
+            ratio=ratio,
+        )
+    except ValueError as exc:
+        msg = "the baseline's ratios are not its two reviews' figures"
+        raise ManifestError(msg, baseline=str(baseline), reason=str(exc)[:300]) from None

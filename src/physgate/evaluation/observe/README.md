@@ -16,7 +16,8 @@ configuration the run did not start under.
 |---|---|
 | `manifest.py` | `read_manifest(run_dir)` → `RunManifest`: the resolved configuration, the request fields the pinned binary sends that no setting pins (thinking, context management, beta list, measured per version), the served catalog and flags the decomposition call observed, the policy-limits digest, the machine each driving process recorded, and every artefact by content hash. The artefacts are the brief, the specification commit and tree, each merged attempt's commit and merge with their trees, the run branch's head and tree, the journal's digest and head revision, the store's last commit and tree, each trajectory's seal, and the installation manifests. A commit git cannot find is an error, never a blank |
 | `trace.py` | `read_traces(run_dir)` → `RunTrace`: per stage of each attempt, when it began and how long it took; per session, how it ended, its tokens, whether any were partial, and its wall clock from the spawn line to its end line. That wall clock **includes the orchestrator's setup for the session**. It also gives decomposition, reviewer and routing tokens, and every gate check through the gate's own reader. Derived from the log, never written beside it |
-| `cost.py` | `load_price_sheet(date)`, `price_run(run_dir, sheet)` → `CostLine`, `append_cost_line(trend, line)`, `read_trend(trend)`. See *Cost* below |
+| `cost.py` | `load_price_sheet(date)`, `price_run(run_dir, sheet)` → `CostLine`, `append_cost_line(trend, line)`, `append_ratio_line(trend, line)`, `read_trend_lines(trend)`, `read_trend(trend)`. See *Cost* below |
+| `ratio.py` | `Ratio`, `ReviewCost`, `RatioLine`: the ratio and its trend line |
 | `sequence.py` | What a rerun compares: the normalisation, the exact records, the decision sequence, `first_divergence`, and `level_of`. See *Reproduction* below |
 | `rerun.py` | `rerun(recorded, …)` makes the run again through `physgate decompose` and `physgate run`, and `compare_runs(a, b)` → `Comparison` |
 | `variance.py` | Ordering and merge-decision variance (definitions in the module docstring): `measure_variance(run_dirs)` over recorded runs, and `repeat_run(recorded, n=…)` to make the repeats as reruns |
@@ -100,11 +101,17 @@ run id.
 - **The auth mode.** A line's `basis` is `list_price` on an API key. On the
   subscription it is `list_price_estimate`: the subscription is not billed per
   token, and the line's own schema ties the basis to the auth mode.
-- **The trend file** is JSON Lines, one `CostLine` per line. It has one writer,
-  `physgate cost --append`, and one reader, `read_trend`. The reader refuses:
-  - a line cut short;
+- **The trend file** is JSON Lines. A line is a run's `CostLine`, or the
+  paired-versus-generalist `RatioLine` (`ratio.py`, `kind: "review_ratio"`). Each
+  has one writer: `physgate cost --append` for a run's cost, and
+  `physgate ratio --baseline <baseline.json> --append` for a ratio, read from an
+  existing generalist review and held to the records beside it (its
+  `generalist.json` and its own review line), with no model call. There is one
+  reader, `read_trend_lines`; `read_trend` is its cost lines. The reader refuses:
+  - a line cut short, or one that is neither line;
+  - a ratio line whose ratios are not its two reviews' figures;
   - a sheet date cited with a second digest;
-  - a run repeated at one sheet's prices.
+  - a run, or a ratio, repeated at one sheet's prices.
 
   The trend file lives outside every run directory, so the hooks' run-directory
   protection does not cover it. Each line can be recomputed from its run's own
@@ -120,7 +127,8 @@ the files.
 | a run's manifest | `RunManifest` | `manifest.read_manifest` |
 | a run's traces | `RunTrace` | `trace.read_traces` |
 | a price sheet | `PriceSheet` in `DatedSheet` | `cost.load_price_sheet` |
-| a cost line and the trend | `CostLine` | `cost.price_run`, `cost.read_trend` |
+| a cost line and the trend | `CostLine`, `RatioLine` | `cost.price_run`, `cost.read_trend_lines` |
+| the paired-versus-generalist ratio | `Ratio` in `RatioLine` | `generalist.ratio_line_from` |
 | a rerun's comparison | `Comparison` | `rerun.compare_runs` |
 | variance over runs | `VarianceReport` | `variance.measure_variance` |
 | two runs side by side | `SideBySide` | `compare.compare` |
