@@ -81,6 +81,9 @@ def test_a_read_route_may_not_start_a_process() -> None:
 
 def test_a_read_route_may_not_connect_off_loopback() -> None:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # Bounded, so that with the guard weakened this fails in seconds rather than waiting
+    # out the kernel's connect timeout to an unroutable address.
+    sock.settimeout(2)
     try:
         with guard.scope("read"), pytest.raises(GuardRefusedError, match="loopback"):
             sock.connect(("192.0.2.1", 9))  # TEST-NET-1: refused before a packet is sent
