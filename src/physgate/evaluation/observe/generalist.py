@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
+from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Literal
@@ -29,6 +31,7 @@ from physgate.evaluation.observe.cost import DatedSheet
 from physgate.evaluation.observe.exceptions import ManifestError
 from physgate.evaluation.observe.manifest import Sha256, read_run_events
 from physgate.knowledge.promote import KNOWLEDGE_ROOT
+from physgate.orchestrator.budget import infra_retry_delay
 from physgate.orchestrator.common import ModelString, NonEmptyStr
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.events import (
@@ -224,6 +227,60 @@ def review_ratio(
     )
 
 
+def review_retried_once(
+    review: Callable[[], ReviewResult],
+    log: EventLog,
+    *,
+    subtask_id: str,
+    attempt: int,
+    delays: tuple[float, ...],
+    sleep: Callable[[float], None],
+) -> ReviewResult:
+    """The review's verdict, with one retry for an infrastructure cause, as the loop's review.
+
+    An infrastructure end (an API error, no result, the wall clock) is retried once, with
+    a fresh session, after ``delays``' first entry (at once if there is none). A refused or
+    invalid verdict, an unfinished reading, a compaction or an overflow is final at once:
+    a fresh session would repeat it. Every try's tokens and its ``review_unavailable``
+    line, with whether it is retried, are logged before anything else happens.
+
+    Raises:
+        ReviewUnavailableError: the last try's, when no verdict came.
+    """
+    retried = False
+    while True:
+        try:
+            return review()
+        except ReviewUnavailableError as exc:
+            for message in exc.usage:
+                log.append(
+                    TokensUsed(
+                        **log.envelope(),
+                        attribution=f"reviewer:{exc.session_id or 'none'}",
+                        message_id=message.message_id,
+                        usage=message.usage,
+                    )
+                )
+            retry = exc.cause == "infrastructure" and not retried
+            log.append(
+                ReviewUnavailable(
+                    **log.envelope(),
+                    subtask_id=subtask_id,
+                    attempt=attempt,
+                    cause=exc.cause,
+                    detail=str(exc) or exc.cause,
+                    retry=retry,
+                    session_id=exc.session_id,
+                    reviewer_model=exc.reviewer_model,
+                    spec_defects=exc.spec_defects,
+                )
+            )
+            if not retry:
+                raise
+            retried = True
+            sleep(infra_retry_delay(delays, 0) or 0.0)
+
+
 def run_generalist(
     *,
     run_dir: Path,
@@ -238,15 +295,21 @@ def run_generalist(
     base_url: str | None,
     credential: Credential,
     library: Path,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> tuple[ReviewRan, Packet]:
     """Review the paired review's attempt again, as a generalist, into ``out``.
+
+    The review is retried once for an infrastructure cause, as the loop's own review is,
+    after the first delay of the paired run's infrastructure retry schedule (at once if
+    the schedule is empty); any other cause is final at once (:func:`review_retried_once`).
 
     Raises:
         ManifestError: as :func:`paired_review` and :func:`read_packet`; the
             packet names no attempt; ``out`` is not new; or the role's promoted
             rubric is not the one the paired review judged with.
-        ReviewUnavailableError: the generalist review is not a verdict; it is
-            recorded in ``out``'s log first.
+        ReviewUnavailableError: the generalist review is not a verdict, after its one
+            retry if its cause was infrastructure; every try is recorded in ``out``'s
+            log first.
     """
     config: RunConfig = load_run_config(run_dir / "run.json")
     paired, config_sha256 = paired_review(run_dir, subtask_id, attempt)
@@ -305,32 +368,14 @@ def run_generalist(
                 module_dir="-",
             )
         )
-        try:
-            result = reviewer.review(artefact)
-        except ReviewUnavailableError as exc:
-            for message in exc.usage:
-                log.append(
-                    TokensUsed(
-                        **log.envelope(),
-                        attribution=f"reviewer:{exc.session_id or 'none'}",
-                        message_id=message.message_id,
-                        usage=message.usage,
-                    )
-                )
-            log.append(
-                ReviewUnavailable(
-                    **log.envelope(),
-                    subtask_id=subtask_id,
-                    attempt=attempt,
-                    cause=exc.cause,
-                    detail=str(exc) or exc.cause,
-                    retry=False,
-                    session_id=exc.session_id,
-                    reviewer_model=exc.reviewer_model,
-                    spec_defects=exc.spec_defects,
-                )
-            )
-            raise
+        result = review_retried_once(
+            lambda: reviewer.review(artefact),
+            log,
+            subtask_id=subtask_id,
+            attempt=attempt,
+            delays=config.bounds.infra_retry_delays_s,
+            sleep=sleep,
+        )
         for message in result.usage:
             log.append(
                 TokensUsed(
