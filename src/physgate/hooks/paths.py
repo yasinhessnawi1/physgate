@@ -183,6 +183,16 @@ def _hard_linked(path: str) -> bool:
     return os.path.isfile(path) and st.st_nlink > 1
 
 
+def reaches(path: str, root: str) -> bool:
+    """True if the absolute ``path`` is ``root`` or lies beneath it, however either is spelt.
+
+    The same test the file-tool hook refuses by, for a reader outside the hooks
+    that must refuse at least as strictly: the operator UI holds the held-out tier
+    and the answer keys to it, so the two cannot disagree about what a path reaches.
+    """
+    return _reaches(path, root, _chain_ids(path))
+
+
 def _experiment_reason(
     path: str, root: str, marker: str, always: str, chain: frozenset[tuple[int, int]]
 ) -> str | None:
