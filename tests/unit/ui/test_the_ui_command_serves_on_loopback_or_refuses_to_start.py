@@ -8,6 +8,7 @@ from __future__ import annotations
 import http.client
 import json
 import signal
+import socketserver
 import subprocess
 import sys
 from pathlib import Path
@@ -35,6 +36,14 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Path]:
     held.mkdir()
     ui = fake_ui(tmp_path / "checkout")
     monkeypatch.setattr(ui_cli, "_ui_root", lambda: ui)
+
+    # A refusal test that starts a server by mistake must fail at once, not serve forever:
+    # a missing refusal would otherwise hang the suite instead of turning it red.
+    def started(self: socketserver.BaseServer, poll_interval: float = 0.5) -> None:
+        msg = "the command started serving where it should have refused"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr(socketserver.BaseServer, "serve_forever", started)
     return {"root": root, "held": held, "ui": ui}
 
 
