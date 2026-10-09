@@ -234,3 +234,25 @@ def test_an_unread_or_missing_part_refuses_the_verdict(tmp_path: Path) -> None:
     assert diff_part in _verdict(config).reason
     Path(diff_part).unlink()
     assert "cannot be read" in _verdict(config).reason
+
+
+def test_a_part_rewritten_with_its_record_is_still_held_to_the_sealed_trajectory(
+    tmp_path: Path,
+) -> None:
+    """A part and its recorded digest changed together still differ from the sealed streams."""
+    attempt = make_attempt(tmp_path, stream())
+    packet, read = _build(tmp_path, artefact_of(attempt), attempt)
+    part = read / packet.transcript_parts[0].name
+    part.write_bytes(part.read_bytes().replace(b"implementing", b"implementinG", 1))
+    rewritten = packet.model_copy(
+        update={
+            "transcript_parts": (
+                packet.transcript_parts[0].model_copy(
+                    update={"sha256": hashlib.sha256(part.read_bytes()).hexdigest()}
+                ),
+                *packet.transcript_parts[1:],
+            )
+        }
+    )
+    with pytest.raises(PacketError, match="transcript's parts joined"):
+        check_parts(rewritten, repo=attempt.worktree, base_commit=attempt.spec_commit)
