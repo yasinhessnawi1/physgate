@@ -7,10 +7,11 @@ Protocols can all use them without importing each other.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 
-from pydantic import AfterValidator, StringConstraints, ValidationError
+from pydantic import AfterValidator, BaseModel, StringConstraints, ValidationError
 
 # The gate mode is defined by the flag register and re-exported here, where the
 # orchestrator's records have always taken it from.
@@ -68,3 +69,12 @@ def utc_stamp(moment: datetime) -> str:
         msg = "record timestamps are UTC"
         raise ValueError(msg)
     return moment.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def render_jsonl(records: Iterable[BaseModel]) -> str:
+    """One JSON line per record, each ending in a newline: what a command prints.
+
+    The command line and the operator UI's server both write a record list through
+    this, so the two cannot serialise the same records differently.
+    """
+    return "".join(record.model_dump_json() + "\n" for record in records)

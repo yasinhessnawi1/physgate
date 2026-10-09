@@ -42,6 +42,57 @@ def _first_validation_problem(exc: ValidationError) -> str:
     return f"{where}: {first['msg']}"
 
 
+def _scan(path: Path) -> tuple[list[TaskLine], int, tuple[int, str] | None]:
+    """Parse every complete line of the ledger at ``path``, opening it for reading only.
+
+    Returns the records, the byte offset where the good records end, and the
+    offset and reason of the first complete line that is not a record, if any. A
+    final line without its terminator is not parsed: it is a write in progress.
+    The one parser of the format: the writer's recovery and the read-only reader
+    both call it, and only the writer acts on what it finds.
+    """
+    lines: list[TaskLine] = []
+    good_end = 0
+    with path.open("rb") as handle:
+        for raw in handle:
+            if not raw.endswith(b"\n"):
+                break
+            try:
+                lines.append(TaskLine.model_validate_json(raw))
+            except ValidationError as exc:
+                return lines, good_end, (good_end, _first_validation_problem(exc))
+            good_end += len(raw)
+    return lines, good_end, None
+
+
+def _corrupt_error(path: Path, corrupt: tuple[int, str]) -> CorruptRecordError:
+    offset, reason = corrupt
+    msg = "the ledger holds a record this class could not have written"
+    return CorruptRecordError(msg, ledger=str(path), offset=str(offset), reason=reason)
+
+
+def read_ledger(path: Path) -> list[TaskLine]:
+    """Every complete line of the ledger at ``path``, read without writing anything.
+
+    Opening a ``TaskLedger`` makes the directory, touches the file and truncates
+    a torn tail, which is right for its one writer and wrong for any reader: a
+    reader would cut a line the writer is still completing. This reads the same
+    lines through the same parser and changes nothing. An unterminated final
+    line is left where it is and not returned; a missing file is an empty ledger.
+
+    Raises:
+        CorruptRecordError: a complete line is not a record this package could
+            have written.
+    """
+    try:
+        lines, _, corrupt = _scan(Path(path))
+    except FileNotFoundError:
+        return []
+    if corrupt is not None:
+        raise _corrupt_error(Path(path), corrupt)
+    return lines
+
+
 class TaskLine(BaseModel):
     """One dispatched subtask, as the architecture's task ledger records it."""
 
@@ -120,27 +171,11 @@ class TaskLedger:
             CorruptRecordError: a complete line is not a valid record and the
                 handle was opened with the default policy.
         """
-        self._lines = []
-        self._by_id = {}
-        good_end = 0
-        corrupt: tuple[int, str] | None = None
-        with self.path.open("rb") as handle:
-            for raw in handle:
-                if not raw.endswith(b"\n"):
-                    break
-                try:
-                    line = TaskLine.model_validate_json(raw)
-                except ValidationError as exc:
-                    corrupt = (good_end, _first_validation_problem(exc))
-                    break
-                self._by_id[line.id] = len(self._lines)
-                self._lines.append(line)
-                good_end += len(raw)
+        self._lines, good_end, corrupt = _scan(self.path)
+        self._by_id = {line.id: index for index, line in enumerate(self._lines)}
         size = self.path.stat().st_size
         if corrupt is not None and self._on_corrupt == "raise":
-            offset, reason = corrupt
-            msg = "the ledger holds a record this class could not have written"
-            raise CorruptRecordError(msg, ledger=str(self.path), offset=str(offset), reason=reason)
+            raise _corrupt_error(self.path, corrupt)
         dropped = size - good_end
         if corrupt is not None:
             self._corrupt_tail_bytes = dropped

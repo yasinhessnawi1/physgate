@@ -278,8 +278,23 @@ def price_run(run_dir: Path, prices: DatedSheet) -> CostLine:
         PriceSheetError: a model the run used has no price on the sheet.
     """
     manifest = read_manifest(run_dir)
-    config = manifest.config
-    events = read_run_events(run_dir)
+    return price_events(manifest.config, manifest.manifest_id, read_run_events(run_dir), prices)
+
+
+def price_events(
+    config: RunConfig, manifest_id: str, events: list[Event], prices: DatedSheet
+) -> CostLine:
+    """The cost of the tokens in ``events`` at ``prices``, from records already read.
+
+    ``price_run`` reads them through the run's manifest, which also checks the
+    commits it names in the run's repositories. This prices the same records without
+    that step, for a reader that may start no process: the operator UI's server,
+    which runs no git.
+
+    Raises:
+        ManifestError: a token's model cannot be told from the records.
+        PriceSheetError: a model the run used has no price on the sheet.
+    """
     by_model: dict[str, Usage] = {}
     reviews: dict[str, Usage] = {}
     for attribution, usage in TokenAccount.from_events(events).by_attribution().items():
@@ -298,7 +313,7 @@ def price_run(run_dir: Path, prices: DatedSheet) -> CostLine:
     usd = sum((r.usd for r in rows), Decimal(0))
     rate = prices.sheet.exchange
     return CostLine(
-        manifest_id=manifest.manifest_id,
+        manifest_id=manifest_id,
         run_id=config.run_id,
         started=events[0].ts,
         auth=config.auth,
