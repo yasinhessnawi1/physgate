@@ -85,14 +85,14 @@ from physgate.orchestrator.run_config import Effort, RunBounds, RunConfig
 from physgate.reviewers.contract import contract_text, issued_criteria, verdict_schema
 from physgate.reviewers.exceptions import ReviewError
 from physgate.reviewers.packet import (
-    DIFF_NAME,
     KNOWLEDGE_NAME,
     RUBRIC_NAME,
     SPEC_AS_ISSUED_NAME,
-    TRANSCRIPT_NAME,
     WORKTREE_NAME,
     Packet,
+    Part,
     build_packet,
+    check_parts,
 )
 from physgate.reviewers.places import SESSION_DIRNAME, review_dir
 from physgate.reviewers.rubric import Rubric, RubricKind, load_rubric, not_evaluable_needs
@@ -105,6 +105,13 @@ SYNTHETIC_MODEL = "<synthetic>"
 COMPACT_BOUNDARY = "compact_boundary"
 #: The result's ``terminal_reason`` when a request outgrew the window (measured).
 PROMPT_TOO_LONG = "prompt_too_long"
+
+
+def _parts(read: Path, parts: tuple[Part, ...]) -> str:
+    """The parts' paths, as the prompt lists them: the one, or the first to the last."""
+    if len(parts) == 1:
+        return str(read / parts[0].name)
+    return f"{read / parts[0].name} to {read / parts[-1].name} ({len(parts)} parts)"
 
 
 def review_prompt(
@@ -141,10 +148,11 @@ def review_prompt(
     return (
         f"You review one attempt at a subtask, made by a session in the {role} role. "
         f"Everything you may read is under {read}/:\n\n"
-        f"- {read / TRANSCRIPT_NAME}: the implementing session's full trajectory, in order.\n"
+        f"- {_parts(read, packet.transcript_parts)}: the attempt's full trajectory, in order, "
+        "every session it ran, in numbered parts read in their order.\n"
         f"{issued}"
         f"- {read / RUBRIC_NAME}: the rubric you judge the attempt against.\n"
-        f"- {read / DIFF_NAME}: the attempt's change.\n"
+        f"- {_parts(read, packet.diff_parts)}: the attempt's change, in numbered parts.\n"
         f"- {read / WORKTREE_NAME}/: the files as the attempt committed them.\n"
         f"- {read / KNOWLEDGE_NAME}/: {shown_knowledge}.\n\n"
         "Before anything else, read each of these files in full with the Read tool; your "
@@ -393,7 +401,7 @@ class ClaudeReviewer:
                 f"{msg} (review {session_id})", cause="unprepared", reviewer_model=self._model
             )
         try:
-            return build_packet(
+            packet = build_packet(
                 review,
                 artefact,
                 repo=repo,
@@ -402,6 +410,8 @@ class ClaudeReviewer:
                 library=self._setup.library,
                 spec=artefact.issued_spec,
             )
+            # Before the review starts: the parts joined are what they were cut from.
+            check_parts(packet, repo=repo, base_commit=artefact.base_commit)
         except ReviewError as exc:
             # No session ran, so none is named; the review's directory is, for a person.
             where = ", ".join(f"{k}={v}" for k, v in sorted(exc.context.items()))
@@ -410,6 +420,7 @@ class ClaudeReviewer:
                 cause="unprepared",
                 reviewer_model=self._model,
             ) from None
+        return packet
 
     def _install(self, packet: Packet, sdir: Path) -> Installed:
         state = sdir / "state"

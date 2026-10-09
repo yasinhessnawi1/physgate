@@ -28,11 +28,11 @@ from rubric_fixture import PLACEHOLDER
 
 from physgate.orchestrator.protocols import IssuedSpec
 from physgate.reviewers.packet import (
-    DIFF_NAME,
     SPEC_AS_ISSUED_NAME,
     WORKTREE_NAME,
     PacketError,
     build_packet,
+    joined_parts,
 )
 from physgate.reviewers.rubric import Rubric
 from physgate.reviewers.scan import ScanUnreadableError, scan
@@ -117,8 +117,8 @@ def test_an_attribute_cannot_hide_a_change_from_the_diff(tmp_path: Path) -> None
         make_attempt(tmp_path, stream()),
         {".gitattributes": "*.py -diff\n", "m/ctl.py": "gain = 40\n"},
     )
-    _build(tmp_path, attempt)
-    diff = (_read(tmp_path) / DIFF_NAME).read_text()
+    packet = _build(tmp_path, attempt)
+    diff = joined_parts(_read(tmp_path), packet.diff_parts).decode()
     assert "+gain = 40" in diff
     assert "Binary files" not in diff
 
@@ -278,8 +278,8 @@ def test_repository_configuration_runs_nothing_and_changes_nothing(tmp_path: Pat
         + f"[core]\n\tfsmonitor = {program}\n\thooksPath = {tmp_path}\n"
         + f'[filter "clean"]\n\tsmudge = {program}\n\tclean = {program}\n'
     )
-    _build(tmp_path, attempt)
+    packet = _build(tmp_path, attempt)
     assert not marker.exists(), "a program the repository configured was run"
-    diff = (_read(tmp_path) / DIFF_NAME).read_text()
+    diff = joined_parts(_read(tmp_path), packet.diff_parts).decode()
     assert "+gain = 40" in diff and "nothing changed here" not in diff
     assert (_read(tmp_path) / WORKTREE_NAME / "m" / "ctl.py").read_text() == "gain = 40\n"
