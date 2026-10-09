@@ -41,6 +41,22 @@ ALLOWED_MODULES = {
     "physgate.orchestrator.credentials",
     "physgate.orchestrator.exceptions",
     "physgate.orchestrator.run_config",
+    # The readers the command line uses, and their exceptions. Each is imported for its
+    # read function only. Two of these modules can start a process elsewhere (the manifest
+    # runs git to check commits, the run configuration measures a checkout); the server
+    # calls neither of those functions, and inside a request the guard refuses a spawn.
+    "physgate.evaluation.observe.cost",
+    "physgate.evaluation.observe.exceptions",
+    "physgate.evaluation.observe.manifest",
+    "physgate.gate.exceptions",
+    "physgate.gate.graph",
+    "physgate.orchestrator.common",
+    "physgate.orchestrator.events",
+    "physgate.orchestrator.gate_events",
+    "physgate.orchestrator.replay",
+    "physgate.orchestrator.trajectory",
+    "physgate.state.exceptions",
+    "physgate.state.store",
 }
 #: Names that load or evaluate code however they are reached.
 FORBIDDEN_NAMES = {"eval", "exec", "compile", "__import__", "import_module", "breakpoint"}

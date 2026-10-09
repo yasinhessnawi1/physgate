@@ -31,18 +31,20 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import ClassVar
 
+from physgate.evaluation.observe.exceptions import ObserveError
+from physgate.gate.exceptions import GateError
 from physgate.orchestrator.exceptions import OrchestratorError
+from physgate.state.exceptions import DesignStateError
 from physgate.ui import guard
-from physgate.ui.exceptions import GuardRefusedError, PathRefusedError, StartupRefusedError, UIError
-from physgate.ui.routes import (
-    ROUTES,
-    Context,
-    Response,
-    Route,
-    error_response,
-    methods,
-    split_target,
+from physgate.ui.exceptions import (
+    GuardRefusedError,
+    NotFoundError,
+    PathRefusedError,
+    StartupRefusedError,
+    UIError,
 )
+from physgate.ui.routes import Context, Response, Route, error_response, split_target
+from physgate.ui.table import ROUTES, methods
 
 #: The only addresses the server binds. A host name is refused without a lookup.
 LOOPBACK = ("127.0.0.1", "::1")
@@ -155,7 +157,10 @@ class Handler(BaseHTTPRequestHandler):
             return error_response(500, exc)
         except PathRefusedError as exc:
             return error_response(403, exc)
-        except (UIError, OrchestratorError) as exc:
+        except NotFoundError as exc:
+            return error_response(404, exc)
+        except (UIError, OrchestratorError, DesignStateError, ObserveError, GateError) as exc:
+            # A record the package's own reader refuses: shown as a refusal with its reason.
             return error_response(422, exc)
         except Exception as exc:  # noqa: BLE001 - a handler's fault is answered, never a traceback
             self.log_error("handler failed: %s", type(exc).__name__)

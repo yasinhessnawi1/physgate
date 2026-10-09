@@ -14,15 +14,24 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from ui_rig import METHODS, RECORDER, context_over, fake_ui, serving, snapshot, write_run
+from ui_rig import (
+    METHODS,
+    RECORDER,
+    context_over,
+    fake_ui,
+    real_runs,
+    sealed_session,
+    serving,
+    snapshot,
+)
 
 from physgate.ui.exceptions import UnregisteredKindError
-from physgate.ui.routes import PARAMETERS, ROUTES, Context, Response, Route, json_response
+from physgate.ui.routes import PARAMETERS, Context, Response, Route, json_response
+from physgate.ui.table import ROUTES
 
 REPO = Path(__file__).resolve().parents[3]
 
-#: A valid value per parameter type, and hostile ones that must match nothing.
-VALID = {"index": "0", "name": "run-1", "asset": "app.js"}
+#: Hostile spellings tried in every parameter slot of every route; each must match nothing.
 HOSTILE = (
     "..",
     "%2e%2e",
@@ -34,32 +43,51 @@ HOSTILE = (
     "%",
     "%ZZ",
 )
+RUNS = ("run-on", "run-observe", "run-clean")
+PRICES = "2026-09-27"
 
 
-def _targets(route: Route) -> list[str]:
-    """The route's path with valid parameters, and with each hostile spelling in each slot."""
+def _valid(world: dict[str, Path], run: str) -> dict[str, str]:
+    """A valid value per parameter type, naming real records of ``run``."""
+    return {
+        "index": "0",
+        "name": run,
+        "asset": "app.js",
+        "session": sealed_session(world["root"] / run),
+        "date": PRICES,
+    }
+
+
+def _targets(route: Route, world: dict[str, Path]) -> list[str]:
+    """The route's path with valid parameters for each run, and each hostile spelling per slot."""
 
     def build(fill: dict[str, str]) -> str:
         parts = [fill.get(name, name) if kind else name for name, kind in route.segments]
         return "/" + "/".join(parts)
 
-    valid = {name: VALID[kind] for name, kind in route.segments if kind}
-    targets = [build(valid)]
+    targets: list[str] = []
+    for run in RUNS:
+        valid = {name: _valid(world, run)[kind] for name, kind in route.segments if kind}
+        targets.append(build(valid))
+    valid = {name: _valid(world, RUNS[0])[kind] for name, kind in route.segments if kind}
     for name, kind in route.segments:
         if kind:
             targets += [build({**valid, name: bad}) for bad in HOSTILE]
-    return targets
+    return list(dict.fromkeys(targets))
 
 
-@pytest.fixture
-def world(tmp_path: Path) -> dict[str, Path]:
-    root = tmp_path / "runs"
-    root.mkdir()
-    write_run(root / "run-1", "run-1")
-    held = tmp_path / "held"
+@pytest.fixture(scope="module")
+def world(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
+    """Real runs, a held-out tier beside them, and a stamped build; built once for the module.
+
+    Nothing in this module may change them: that is what it proves.
+    """
+    base = tmp_path_factory.mktemp("world")
+    root = real_runs(base)
+    held = base / "held"
     held.mkdir()
     (held / "scenario.json").write_text("{}\n")
-    ui = fake_ui(tmp_path / "checkout")
+    ui = fake_ui(base / "checkout")
     return {"root": root, "held": held, "ui": ui}
 
 
@@ -87,7 +115,7 @@ def test_no_route_with_any_method_changes_any_file(world: dict[str, Path]) -> No
     answered = 0
     with serving(_context(world)) as live, RECORDER.recording() as writes:
         for route in ROUTES:
-            for target in _targets(route):
+            for target in _targets(route, world):
                 for method in METHODS:
                     status, _, _ = live.request(method, target)
                     assert status != 500, (method, target)
@@ -111,7 +139,7 @@ def test_a_method_the_table_does_not_name_is_405_with_allow_never_501(
 def test_every_read_route_answers_get_and_head_alike(world: dict[str, Path]) -> None:
     with serving(_context(world)) as live:
         for route in ROUTES:
-            target = _targets(route)[0]
+            target = _targets(route, world)[0]
             get_status, get_headers, body = live.request("GET", target)
             head_status, head_headers, head_body = live.request("HEAD", target)
             assert get_status == head_status == 200, target
@@ -163,7 +191,7 @@ def test_a_planted_route_that_writes_through_get_is_refused_by_the_guard(
 
     The recorder sees the attempted open either way; the snapshot shows the guard stopped it.
     """
-    target = world["root"] / "run-1" / "run.json"
+    target = world["root"] / "run-observe" / "run.json"
 
     def appends(context: Context, params: object) -> Response:
         with open(target, "a"):

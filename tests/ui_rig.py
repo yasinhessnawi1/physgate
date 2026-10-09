@@ -21,6 +21,7 @@ import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 
 from physgate.orchestrator.run_config import (
@@ -34,8 +35,9 @@ from physgate.orchestrator.run_config import (
 from physgate.ui import assets
 from physgate.ui.guard import MUTATING_EVENTS, SPAWN_EVENTS, WRITE_FLAGS
 from physgate.ui.paths import Allowlist
-from physgate.ui.routes import ROUTES, Context, Route
+from physgate.ui.routes import Context, Route
 from physgate.ui.server import make_server
+from physgate.ui.table import ROUTES
 
 #: Every method the sweep sends: the ones a server might serve, and ones nobody does.
 METHODS = ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE", "PROPFIND", "FROB")
@@ -197,3 +199,42 @@ def context_over(*roots: Path, ui_root: Path, held_out: tuple[str, ...] = ()) ->
         [str(r) for r in roots], held_out=held_out, answer_keys=(), harness=None
     )
     return Context(allowlist=allowlist, assets=assets.load(ui_root))
+
+
+#: Where the observability tests keep their real-run rig: the real loop, real git and a real
+#: store, with stand-in sessions and no model. It is put on the path here, once, rather than
+#: copied, so the UI's tests read the same runs the command line's tests are built on.
+EVALUATION_TESTS = Path(__file__).resolve().parent / "unit" / "evaluation"
+
+
+@cache
+def _rig() -> None:
+    if str(EVALUATION_TESTS) not in sys.path:
+        sys.path.insert(0, str(EVALUATION_TESTS))
+
+
+def real_runs(root: Path) -> Path:
+    """Three runs made by the real loop under ``root/runs``: gated on, observed, and clean.
+
+    In the first two the gate fails the first attempt; under ``observe`` the reviewer still
+    reviews and passes it, so a gate event there says a reviewer had passed the work.
+    """
+    _rig()
+    from observe_rig import Gate, fake_run, target_repo
+
+    runs = root / "runs"
+    repo = target_repo(root)
+    fake_run(runs, "run-on", repo, gate=Gate(fail_on={1}))
+    fake_run(runs, "run-observe", repo, gate=Gate(fail_on={1}), overrides={"gate_mode": "observe"})
+    fake_run(runs, "run-clean", repo)
+    return runs
+
+
+def sealed_session(run_dir: Path) -> str:
+    """The id of a session whose trajectory the run sealed."""
+    for raw in (run_dir / "events.jsonl").read_text().splitlines():
+        record = json.loads(raw)
+        if record.get("kind") == "session_ended" and record.get("trajectory_seal"):
+            return str(record["session_id"])
+    msg = "the run sealed no trajectory"
+    raise AssertionError(msg)

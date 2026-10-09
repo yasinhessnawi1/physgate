@@ -30,3 +30,7 @@ class GuardRefusedError(UIError):
 
 class UnregisteredKindError(UIError):
     """A route or a request scope names a kind no policy is registered for."""
+
+
+class NotFoundError(UIError):
+    """A request names a run, a session or a sheet the roots do not hold."""

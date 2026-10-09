@@ -43,6 +43,8 @@ PARAMETERS: Mapping[str, re.Pattern[str]] = {
     "index": re.compile(r"^(0|[1-9][0-9]{0,3})$"),
     "name": re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$"),
     "asset": re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,255}$"),
+    "session": re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_-]{0,127}$"),
+    "date": re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$"),
 }
 
 #: The run's configuration file, whose presence makes a directory a run directory.
@@ -141,11 +143,17 @@ def json_response(payload: object, status: int = 200) -> Response:
     return Response(status=status, body=body, content_type="application/json; charset=utf-8")
 
 
-def error_response(status: int, error: UIError | OrchestratorError | str) -> Response:
-    """The error body every refusal uses: the message and its context, never a traceback."""
+def error_response(status: int, error: Exception | str) -> Response:
+    """The error body every refusal uses: the message and its context, never a traceback.
+
+    The package's domain errors all carry a ``context`` mapping of strings; it is sent as
+    it is, beside the message.
+    """
     if isinstance(error, str):
         return json_response({"error": error}, status)
-    return json_response({"error": str(error), **error.context}, status)
+    context = getattr(error, "context", {})
+    extra = {str(k): str(v) for k, v in context.items()} if isinstance(context, dict) else {}
+    return json_response({"error": str(error), **extra}, status)
 
 
 # -- the handlers ------------------------------------------------------------------
@@ -207,17 +215,3 @@ def runs(context: Context, params: Mapping[str, str]) -> Response:
             }
         listed.append(entry)
     return json_response({"runs": listed})
-
-
-#: Every route the server answers. The enumeration test walks this tuple.
-ROUTES: tuple[Route, ...] = (
-    Route("GET", "/", "read", index),
-    Route("GET", "/assets/{name:asset}", "read", asset),
-    Route("GET", "/api/runs", "read", runs),
-)
-
-
-def methods(routes: tuple[Route, ...]) -> frozenset[str]:
-    """The methods the table names, plus HEAD wherever GET is: everything else is a 405."""
-    named = {route.method for route in routes}
-    return frozenset(named | ({"HEAD"} if "GET" in named else set()))
