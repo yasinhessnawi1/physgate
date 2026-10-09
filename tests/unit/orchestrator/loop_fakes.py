@@ -88,11 +88,19 @@ class FakeDispatcher:
             self.during[call]()
         sid = f"sess-{call}"
         if call in self.infra:
+            infra_trajectory, infra_seal = None, None
+            if self.trajectories is not None:
+                # A session that ran and then ended for infrastructure leaves its stream.
+                path = self.trajectories / sid / "stdout.jsonl"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b'{"type": "result", "session": "' + sid.encode() + b'"}\n')
+                infra_trajectory, infra_seal = str(path), seal(path.read_bytes())
             return SessionReport(
                 session_id=sid,
                 end=SessionEnd(outcome="infrastructure", cause=self.infra[call]),
                 attempt_commit=None,
-                trajectory=None,
+                trajectory=infra_trajectory,
+                trajectory_seal=infra_seal,
                 worktree=None,
                 reading_verified=False,
                 node_files_halted=False,

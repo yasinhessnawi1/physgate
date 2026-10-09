@@ -453,7 +453,9 @@ class ClaudeDispatcher:
             session_id=session_id,
             end=end,
             attempt_commit=commit,
-            trajectory=str(stdout) if end.outcome == "completed" else None,
+            # Any session whose stream was captured and sealed names it: an infrastructure
+            # retry's earlier sessions are part of the attempt its reviewer reads.
+            trajectory=str(stdout) if end.outcome == "completed" or sealed is not None else None,
             worktree=str(worktree) if end.outcome == "completed" else None,
             reading_verified=self._read_in_full(Path(installed.config), session_id),
             node_files_halted=halted,

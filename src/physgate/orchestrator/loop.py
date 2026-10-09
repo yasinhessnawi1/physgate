@@ -87,6 +87,7 @@ from physgate.orchestrator.protocols import (
     IssuedSpec,
     Reviewer,
     ReviewResult,
+    SessionTrajectory,
     SpecDefect,
     require_mode,
     require_separate_models,
@@ -703,6 +704,7 @@ class Loop:
             base_revision=self.state.journal_head,
             base_commit=self._merger.review_base(session.attempt_commit),
             issued_spec=self._issued_spec(sub.plan.spec_path, session),
+            earlier_sessions=self._earlier_sessions(subtask_id, attempt),
         )
         self._stage(subtask_id, attempt, "gate")
         mode = self.config.gate_mode
@@ -970,6 +972,31 @@ class Loop:
             )
         )
         self._sleep(delay)
+
+    def _earlier_sessions(self, subtask_id: str, attempt: int) -> tuple[SessionTrajectory, ...]:
+        """The attempt's sessions before the one that completed it, each with its stream.
+
+        Raises:
+            RunStateError: an earlier session left a sealed stream the log does not name,
+                so the attempt's whole trajectory cannot be shown.
+        """
+        now = self.state.subtasks[subtask_id].attempts[-1]
+        found = []
+        for session in now.ended[:-1]:
+            if session.trajectory_seal is None:
+                continue  # it left no stream: nothing it did is on record to show
+            if session.trajectory is None:
+                msg = "an earlier session of the attempt has a sealed stream the log does not name"
+                raise RunStateError(msg, subtask=subtask_id, attempt=str(attempt))
+            found.append(
+                SessionTrajectory(
+                    session_id=session.session_id,
+                    trajectory=session.trajectory,
+                    trajectory_sha256=session.trajectory_seal.sha256,
+                    trajectory_length=session.trajectory_seal.length,
+                )
+            )
+        return tuple(found)
 
     def _trajectories_hold(self, subtask_id: str, sessions: list[SessionEnded]) -> bool:
         """Every sealed trajectory is still what it was; otherwise an incident."""

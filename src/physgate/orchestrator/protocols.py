@@ -97,6 +97,15 @@ class IssuedSpec(_Frozen):
 AttemptScope = Literal["subtask", "module"]
 
 
+class SessionTrajectory(_Frozen):
+    """One session's captured stream, with the seal taken when the session ended."""
+
+    session_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
+    trajectory: NonEmptyStr
+    trajectory_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+    trajectory_length: Annotated[int, Field(ge=0)]
+
+
 class Artefact(_Frozen):
     """What an attempt produced, as the gate and the reviewer receive it."""
 
@@ -126,6 +135,11 @@ class Artefact(_Frozen):
     issued_spec: IssuedSpec | None = None
     #: The repository holding the attempt's commit, when it is not the run's own.
     repository: NonEmptyStr | None = None
+    #: The sessions of this attempt before the one that completed it, in order: each ended
+    #: for infrastructure (its turn limit, its wall clock, an API error) and was followed by
+    #: a fresh session in the same worktree. The attempt's trajectory is all of them, then
+    #: :attr:`trajectory`.
+    earlier_sessions: tuple[SessionTrajectory, ...] = ()
 
     @model_validator(mode="after")
     def _own_nodes_always(self) -> Artefact:

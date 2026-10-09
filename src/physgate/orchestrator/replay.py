@@ -73,6 +73,9 @@ class AttemptState:
     number: int
     cursor: Stage | None = None
     session: SessionEnded | None = None
+    #: Every session this attempt ran, in order, as each ended. Never forgotten by a
+    #: restart: an infrastructure retry's earlier sessions are part of the attempt.
+    ended: list[SessionEnded] = field(default_factory=list)
     retries_done: int = 0
     changes: ProposalsChecked | None = None
     gate: GateRan | GateSkipped | None = None
@@ -237,6 +240,7 @@ class RunState:
         elif isinstance(event, SessionEnded):
             self._expect(now.cursor == "spawn" and now.session is None, "a session end")
             now.session = event
+            now.ended.append(event)
         elif isinstance(event, InfraRetryScheduled):
             failed = now.session is not None and now.session.outcome == "infrastructure"
             self._expect(failed and event.retries_done == now.retries_done, "a retry")
