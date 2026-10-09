@@ -185,3 +185,5 @@ class HookInput(BaseModel):
     tool_input: dict[str, Any] | None = None
     tool_response: Any = None
     agent_id: str | None = None
+    #: Why a tool call failed, on ``PostToolUseFailure``.
+    error: str | None = None

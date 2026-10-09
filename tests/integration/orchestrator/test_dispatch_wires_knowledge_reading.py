@@ -79,6 +79,7 @@ class _Input:
     tool_input: dict[str, Any] | None = None
     tool_response: Any = None
     agent_id: str | None = None
+    error: str | None = None
 
 
 def test_the_installed_session_config_carries_loaders_full_reading_set(tmp_path: Path) -> None:

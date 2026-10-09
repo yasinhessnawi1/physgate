@@ -419,7 +419,8 @@ def contract_text(
     return (
         "Your verdict is held to a schema built from your rubric, and a verdict that breaks it "
         "is refused with the reasons; correct it and submit again. Submit it as "
-        f"`{{{WRAPPER}: {{...the verdict...}}}}`.\n"
+        f"`{{{WRAPPER}: {{...the verdict...}}}}`: `{WRAPPER}` is an object, never a string "
+        "holding JSON.\n"
         f"- `items`: one entry for every one of the rubric's {len(items)} items, keyed by the "
         "item's id exactly as the rubric gives it (for example "
         f"`{items[0].id}`), never grouped, never renamed, nothing else.\n"

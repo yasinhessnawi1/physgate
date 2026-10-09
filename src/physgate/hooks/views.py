@@ -128,6 +128,9 @@ class InputView(Protocol):
     def cwd(self) -> str: ...  # noqa: D102
 
     @property
+    def error(self) -> str | None: ...  # noqa: D102
+
+    @property
     def hook_event_name(self) -> str: ...  # noqa: D102
 
     @property

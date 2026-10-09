@@ -234,7 +234,7 @@ class LeanInput:
     """
 
     __slots__ = (
-        "agent_id", "cwd", "hook_event_name", "session_id", "tool_input", "tool_name",
+        "agent_id", "cwd", "error", "hook_event_name", "session_id", "tool_input", "tool_name",
         "tool_response",
     )  # fmt: skip
 
@@ -258,6 +258,7 @@ class LeanInput:
         self.tool_input: Mapping[str, Any] | None = tool_input
         self.tool_response: Any = raw.get("tool_response")
         self.agent_id: str | None = _optional(raw.get("agent_id"), "agent_id", _string)
+        self.error: str | None = _optional(raw.get("error"), "error", _string)
 
 
 def _json(data: bytes | str) -> object:

@@ -166,6 +166,7 @@ class _Input:
     tool_input: dict[str, object] | None = None
     tool_response: object = None
     agent_id: str | None = None
+    error: str | None = None
 
 
 def read_in_full(config_path: Path, session_id: str) -> bool:

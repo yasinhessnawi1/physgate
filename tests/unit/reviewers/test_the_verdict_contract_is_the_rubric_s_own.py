@@ -309,6 +309,23 @@ def test_the_contract_the_prompt_states_says_nothing_it_must_not() -> None:
             assert items[0].id in text and "never grouped" in text
 
 
+def test_the_prompt_says_the_verdict_is_an_object_never_a_string_of_json() -> None:
+    items = _rubric("control")
+    text = contract_text(items, criteria=None, not_evaluable=not_evaluable_needs("control"))
+    assert f"`{WRAPPER}` is an object, never a string holding JSON" in text
+
+
+def test_a_verdict_sent_as_a_string_of_json_is_never_read_as_a_verdict() -> None:
+    items = _rubric("control")
+    answer = valid(items, None)
+    for sent in (json.dumps(answer), json.dumps(answer) + "}"):
+        assert errors({WRAPPER: sent}, _schema(items, None, "blocking")) != []
+        passed_on = as_answer({WRAPPER: sent}, items)
+        assert passed_on == sent
+        outcome = judge(passed_on, (HIT,), items, criteria=None, not_evaluable="blocking")
+        assert isinstance(outcome, Unavailable)
+
+
 def test_a_submission_in_any_other_shape_is_passed_on_for_the_check_to_refuse() -> None:
     assert as_answer(None, ()) is None
     odd = {"items": {"A1": "met"}}

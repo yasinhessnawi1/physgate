@@ -89,6 +89,9 @@ class Recorded:
     effort: str | None = None
     max_tokens: int | None = None
     thinking: dict[str, Any] | None = None
+    #: The text of what the binary placed after the last user turn: a hook's context
+    #: after a failed tool call arrives there, as a ``system`` message.
+    after_user: str = ""
 
 
 def _text_of(content: Any) -> str:  # noqa: ANN401 - the Messages API's own content shape
@@ -115,6 +118,12 @@ def _last_user(messages: list[dict[str, Any]]) -> str:
         if message.get("role") == "user":
             return _text_of(message.get("content"))
     return ""
+
+
+def _after_user(messages: list[dict[str, Any]]) -> str:
+    """The text of the messages after the last user turn."""
+    last = max((i for i, m in enumerate(messages) if m.get("role") == "user"), default=-1)
+    return "\n".join(_text_of(m.get("content")) for m in messages[last + 1 :])
 
 
 def _results(messages: list[dict[str, Any]]) -> int:
@@ -400,6 +409,7 @@ class FakeMessagesApi:
                     tool_results=done,
                     offered_tools=offered,
                     last_user=_last_user(messages),
+                    after_user=_after_user(messages),
                     served=step,
                     structured_schema=next(
                         (

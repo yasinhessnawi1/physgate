@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from scripted_endpoint import DUMMY_KEY, Script, serving, text, tool
+from scripted_endpoint import DUMMY_KEY, Recorded, Script, serving, text, tool
 from test_a_claude_review_is_a_verdict_only_when_it_read_everything import (
     _attempt,
     _config,
@@ -123,6 +123,14 @@ def _review(
     tmp_path: Path, install: Path, binary: str, role: str, first: dict[str, Any]
 ) -> tuple[ReviewResult, list[str]]:
     """Read everything, submit ``first``, then the corrected verdict; the result, what was told."""
+    result, requests = review_requests(tmp_path, install, binary, role, first)
+    return result, [r.last_user for r in requests]
+
+
+def review_requests(
+    tmp_path: Path, install: Path, binary: str, role: str, first: dict[str, Any]
+) -> tuple[ReviewResult, list[Recorded]]:
+    """As :func:`_review`, with every request as the endpoint recorded it."""
     rubric = load_rubric(REPO / "knowledge", role)
     attempt = _attempt(tmp_path).model_copy(update={"assigned_role": role})
     pins = ModelStrings(
@@ -151,8 +159,8 @@ def _review(
             library=REPO,
         )
         result = ClaudeReviewer(role=role, setup=setup, rubric=rubric).review(attempt)
-        told = [r.last_user for r in api.requests]
-    return result, told
+        requests = list(api.requests)
+    return result, requests
 
 
 @pytest.mark.parametrize("role", ["control", "firmware"])
