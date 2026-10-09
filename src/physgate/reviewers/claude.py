@@ -105,6 +105,10 @@ SYNTHETIC_MODEL = "<synthetic>"
 COMPACT_BOUNDARY = "compact_boundary"
 #: The result's ``terminal_reason`` when a request outgrew the window (measured).
 PROMPT_TOO_LONG = "prompt_too_long"
+#: The result's ``terminal_reason`` when the binary's own cap on refused structured
+#: answers (five, on both binaries) ended the session: every refusal before it was told
+#: to the reviewer, so a fresh session would repeat it (measured on both binaries).
+STRUCTURED_OUTPUT_EXHAUSTED = "structured_output_retry_exhausted"
 
 
 def _parts(read: Path, parts: tuple[Part, ...]) -> str:
@@ -238,9 +242,10 @@ def unavailable_end(
     Read in this order, so a cause the generic classification would call
     infrastructure, and retry, is named for what it is first: a compaction anywhere
     in the stream, then a request that outgrew the window, then a refusal by the
-    model; then the session's end as every session's is classified, where running
-    out of turns is no verdict (a schema refusal before it, an invalid one) and
-    anything else is infrastructure.
+    model, then the binary's cap on refused structured answers (an invalid verdict,
+    with the last refusal); then the session's end as every session's is classified,
+    where running out of turns is no verdict (a schema refusal before it, an invalid
+    one) and anything else is infrastructure.
     """
     events = _events(stream)
     if any(e.get("type") == "system" and e.get("subtype") == COMPACT_BOUNDARY for e in events):
@@ -253,6 +258,11 @@ def unavailable_end(
     )
     if refusal or (result is not None and result.get("stop_reason") == "refusal"):
         return "refused", "the model declined to review"
+    if result is not None and result.get("terminal_reason") == STRUCTURED_OUTPUT_EXHAUSTED:
+        errors = result.get("errors")
+        told = [e for e in errors if isinstance(e, str)] if isinstance(errors, list) else []
+        last = told[-1] if told else (schema_refusal(stream) or "no refusal was recorded")
+        return "invalid_verdict", f"the binary's cap on refused verdicts ended it: {last}"[:300]
     end = classify_session_end(result, exit_code=exit_code, stopped_at_wall_clock=timed_out)
     if end.outcome == "completed":
         return None

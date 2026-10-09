@@ -128,9 +128,19 @@ def _review(
 
 
 def review_requests(
-    tmp_path: Path, install: Path, binary: str, role: str, first: dict[str, Any]
+    tmp_path: Path,
+    install: Path,
+    binary: str,
+    role: str,
+    first: dict[str, Any],
+    *,
+    then_correct: bool = True,
 ) -> tuple[ReviewResult, list[Recorded]]:
-    """As :func:`_review`, with every request as the endpoint recorded it."""
+    """As :func:`_review`, with every request as the endpoint recorded it.
+
+    With ``then_correct`` false the reviewer sends ``first`` again on every turn, so the
+    session ends however the binary ends one that never corrects.
+    """
     rubric = load_rubric(REPO / "knowledge", role)
     attempt = _attempt(tmp_path).model_copy(update={"assigned_role": role})
     pins = ModelStrings(
@@ -144,6 +154,8 @@ def review_requests(
     def step(_thread: str, cwd: str, done: int) -> dict[str, Any]:
         steps = [tool("Read", file_path=p) for p in _reading(cwd)]
         steps += [tool("StructuredOutput", **first), tool("StructuredOutput", review=corrected)]
+        if not then_correct and done >= len(steps) - 2:
+            return tool("StructuredOutput", **first)
         return steps[done] if done < len(steps) else text("done")
 
     with serving(Script(main=[])) as (api, url):

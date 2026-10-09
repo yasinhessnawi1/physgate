@@ -24,6 +24,7 @@ from test_the_first_real_reviews_replay_as_they_ended import binary as binary  #
 from test_the_first_real_reviews_replay_as_they_ended import install as install  # noqa: F401
 
 from physgate.hooks.verdict_shape import CORRECTION, NOT_AN_OBJECT
+from physgate.orchestrator.exceptions import ReviewUnavailableError
 from physgate.reviewers.rubric import load_rubric
 
 pytestmark = [
@@ -50,3 +51,19 @@ def test_a_review_sent_once_as_a_string_is_corrected_and_ends_in_a_verdict(
     assert [i for i, r in enumerate(requests) if CORRECTION in r.after_user] == refused
     assert result.verdict == "pass" and result.schema_refusals == 1
     assert len(result.items) == len(items)
+
+
+def test_a_reviewer_that_never_corrects_is_an_invalid_verdict_not_infrastructure(
+    tmp_path: Path, install: Path, binary: str
+) -> None:
+    # The binary ends the session at its cap on refused structured answers. That is the
+    # reviewer's verdict refused, which a fresh session would repeat: not infrastructure.
+    items = load_rubric(REPO / "knowledge", "control").items
+    stringified = json.dumps(valid(items)) + "}"
+    with pytest.raises(ReviewUnavailableError) as raised:
+        review_requests(
+            tmp_path, install, binary, "control", {"review": stringified}, then_correct=False
+        )
+    assert raised.value.cause == "invalid_verdict"
+    assert "after 5 attempts" in str(raised.value)
+    assert NOT_AN_OBJECT in str(raised.value)

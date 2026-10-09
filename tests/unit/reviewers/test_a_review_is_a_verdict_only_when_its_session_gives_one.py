@@ -107,6 +107,24 @@ def test_running_out_of_turns_is_no_verdict_and_after_a_schema_refusal_an_invali
     assert cause == "invalid_verdict" and "does not match" in detail
 
 
+def test_the_binary_s_cap_on_refused_verdicts_is_an_invalid_verdict_not_infrastructure() -> None:
+    # The result the binary ends with, as measured on both pinned binaries.
+    last = "Output does not match required schema: /review: must be object"
+    result = {
+        "type": "result",
+        "subtype": "error_max_structured_output_retries",
+        "is_error": True,
+        "terminal_reason": "structured_output_retry_exhausted",
+        "errors": [
+            f"Failed to provide valid structured output after 5 attempts — last "
+            f"StructuredOutput error: {last}"
+        ],
+    }
+    cause, detail = _end(_lines(result), result, exit_code=1)
+    assert cause == "invalid_verdict"
+    assert "after 5 attempts" in detail and "/review: must be object" in detail
+
+
 @pytest.mark.parametrize(
     ("result", "timed_out"),
     [
