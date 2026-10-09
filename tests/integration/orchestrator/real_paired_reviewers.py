@@ -129,8 +129,10 @@ REVIEW_DIRNAME = "review-scratch"
 #: frozen. It is read from the file beside this driver and held to its digest before use.
 CONTROL_FIXTURE = HERE / "control_fixture_spec.md"
 CONTROL_FIXTURE_SHA256 = "f2a7080355c587a6925c992fdcb377ae20ba3458f6dc41f4d07143c3be16bf88"
-#: The session bounds the fixture was sized for: its upper estimate is 31 turns and 3200 s.
-SESSION_MAX_TURNS = 40
+#: The session bounds, for role and reviewer sessions alike. The fixture's design took 80
+#: model requests over two sessions in the first server run, and its review needed about 30
+#: for one session's transcript; the wall clock covers 80 requests at the 38 s each measured.
+SESSION_MAX_TURNS = 80
 SESSION_WALL_CLOCK_S = 4500.0
 #: The delays before each retry of a role session that failed for infrastructure: the value
 #: designed for a real model (two tries over about six minutes, then a halt), where a single
@@ -149,6 +151,19 @@ def control_fixture_spec() -> str:
     return data.decode("utf-8")
 
 
+#: A geometry hash of the form the schema's examples use: "sha256:" and 64 hex digits. The
+#: first run's stand-in wrote 61, a defect every firmware session and reviewer met.
+GEOMETRY_HASH = "sha256:" + "0" * 64
+#: The first run's firmware proposal and interface node, with that hash corrected and
+#: nothing else changed; the first run's own driver keeps its copies.
+FIRMWARE_PROPOSAL: dict[str, Any] = {**base.FIRMWARE_PROPOSAL, "geometry_hash": GEOMETRY_HASH}
+INTERFACE: dict[str, Any] = {**base.INTERFACE, "geometry_hash": GEOMETRY_HASH}
+#: The firmware stand-in specification, worded as the first run's, naming the corrected node.
+FIRMWARE_SPEC = base.FIRMWARE_SPEC.replace(
+    json.dumps(base.FIRMWARE_PROPOSAL), json.dumps(FIRMWARE_PROPOSAL)
+)
+
+
 def brief(control_spec: str) -> str:
     """The decomposition brief: the first run's, with the fixture as control's specification."""
     return (
@@ -164,9 +179,9 @@ def brief(control_spec: str) -> str:
         f"{control_spec}>>>\n"
         "2. name 'firmware', role 'firmware', module_dir 'modules/firmware', using the text "
         "between the markers below, verbatim, as its specification.\n<<<\n"
-        f"{base.FIRMWARE_SPEC}>>>\n"
+        f"{FIRMWARE_SPEC}>>>\n"
         "Plan exactly one interface node, this one, verbatim:\n"
-        f"{json.dumps(base.INTERFACE)}\n"
+        f"{json.dumps(INTERFACE)}\n"
     )
 
 
@@ -190,6 +205,9 @@ def use_fixture() -> str:
     """Point the first run's driver at the fixture and the bounds; return the fixture's text."""
     spec = control_fixture_spec()
     base.CONTROL_SPEC = spec
+    base.FIRMWARE_PROPOSAL = FIRMWARE_PROPOSAL
+    base.FIRMWARE_SPEC = FIRMWARE_SPEC
+    base.INTERFACE = INTERFACE
     base.BRIEF = brief(spec)
     base.params = params
     return spec
@@ -668,7 +686,7 @@ PREFLIGHT_OUTPUT_TOKENS = 2000
 
 def preflight_schema(role: str) -> tuple[tuple[str, ...] | None, dict[str, Any]]:
     """The criteria ``role``'s issued specification numbers, and the schema its reviews get."""
-    issued = {"control": base.CONTROL_SPEC, "firmware": base.FIRMWARE_SPEC}
+    issued = {"control": base.CONTROL_SPEC, "firmware": FIRMWARE_SPEC}
     rubric = load_rubric(base.REPO_ROOT / KNOWLEDGE_ROOT, role)
     criteria = issued_criteria(issued[role])
     schema = verdict_schema(
