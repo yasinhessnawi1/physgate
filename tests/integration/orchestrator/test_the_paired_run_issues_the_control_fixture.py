@@ -56,9 +56,16 @@ def test_the_run_sets_the_bounds_the_fixture_was_sized_for() -> None:
     bounds = RunBounds.model_validate_json(json.dumps(paired.params()["bounds"]))
     assert (bounds.session_max_turns, bounds.session_wall_clock_s) == (40, 4500.0)
     first = RunBounds.model_validate_json(json.dumps(base.params()["bounds"]))
-    assert bounds.model_dump(exclude={"session_max_turns", "session_wall_clock_s"}) == (
-        first.model_dump(exclude={"session_max_turns", "session_wall_clock_s"})
-    )
+    changed = {"session_max_turns", "session_wall_clock_s", "infra_retry_delays_s"}
+    assert bounds.model_dump(exclude=changed) == first.model_dump(exclude=changed)
+    assert bounds.binary_max_retries == 0
+
+
+def test_a_real_role_session_is_retried_for_infrastructure_as_designed() -> None:
+    """One transient API error is retried after 60 s, a second after 300 s, then the run halts."""
+    bounds = RunBounds.model_validate_json(json.dumps(paired.params()["bounds"]))
+    assert bounds.infra_retry_delays_s == (60.0, 300.0)
+    assert bounds.binary_max_retries == 0
     unchanged = {k: v for k, v in paired.params().items() if k != "bounds"}
     assert unchanged == {k: v for k, v in base.params().items() if k != "bounds"}
 

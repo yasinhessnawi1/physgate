@@ -132,6 +132,11 @@ CONTROL_FIXTURE_SHA256 = "f2a7080355c587a6925c992fdcb377ae20ba3458f6dc41f4d07143
 #: The session bounds the fixture was sized for: its upper estimate is 31 turns and 3200 s.
 SESSION_MAX_TURNS = 40
 SESSION_WALL_CLOCK_S = 4500.0
+#: The delays before each retry of a role session that failed for infrastructure: the value
+#: designed for a real model (two tries over about six minutes, then a halt), where a single
+#: transient API error would otherwise end the run. The binary's own retries stay at 0, so
+#: every failed request reaches the orchestrator and is counted.
+INFRA_RETRY_DELAYS_S = (60.0, 300.0)
 
 
 def control_fixture_spec() -> str:
@@ -170,13 +175,13 @@ FIRST_RUN_PARAMS = base.params
 
 
 def params() -> dict[str, Any]:
-    """The first run's parameters, with the session bounds the fixture needs."""
+    """The first run's parameters, with the session bounds and retry delays a real run needs."""
     found = FIRST_RUN_PARAMS()
     found["bounds"] = RunBounds(
         binary_max_retries=0,
         session_wall_clock_s=SESSION_WALL_CLOCK_S,
         session_max_turns=SESSION_MAX_TURNS,
-        infra_retry_delays_s=(),
+        infra_retry_delays_s=INFRA_RETRY_DELAYS_S,
     ).model_dump(mode="json")
     return found
 
