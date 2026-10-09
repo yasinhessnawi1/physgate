@@ -152,6 +152,6 @@ def test_the_stand_in_s_geometry_hash_has_its_64_digits_here_and_only_here() -> 
 def test_the_run_names_the_role_sessions_python_when_given_one(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert "role_python" not in paired.params()
+    assert paired.params()["role_python"] is None  # named explicitly: none
     monkeypatch.setattr(paired, "ROLE_PYTHON", "/opt/python/bin/python3")
     assert paired.params()["role_python"] == "/opt/python/bin/python3"

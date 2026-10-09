@@ -283,3 +283,37 @@ def test_the_prompt_carries_the_answer_contract(tmp_path: Path) -> None:
     packet = _packet(tmp_path, checks_off=False)
     prompt = review_prompt("control", packet, "paired", "THE CONTRACT, AS THE SCHEMA HOLDS IT")
     assert "THE CONTRACT, AS THE SCHEMA HOLDS IT" in prompt
+
+
+def test_a_part_that_is_not_what_was_cut_never_spawns_a_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The parts joined are held to the seal and the diff before the review starts."""
+    import physgate.reviewers.claude as claude
+    from physgate.reviewers.packet import build_packet as built
+
+    attempt = make_attempt(tmp_path, stream())
+    write_fixture(tmp_path / "harness", ("cross", "control"))
+    artefact = artefact_of(attempt, base_commit=attempt.spec_commit)
+
+    def tampered(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        packet = built(*args, **kwargs)
+        part = Path(packet.read_root) / packet.diff_parts[0].name
+        part.write_text("+gain = 0.8\n")
+        return packet.model_copy(
+            update={
+                "diff_parts": (
+                    packet.diff_parts[0].model_copy(
+                        update={"sha256": hashlib.sha256(part.read_bytes()).hexdigest()}
+                    ),
+                    *packet.diff_parts[1:],
+                )
+            }
+        )
+
+    monkeypatch.setattr(claude, "build_packet", tampered)
+    binary, calls = _binary(tmp_path)
+    with pytest.raises(ReviewUnavailableError, match="diff's parts joined") as raised:
+        _reviewer(tmp_path, binary).review(artefact)
+    assert raised.value.cause == "unprepared"
+    assert calls.read_text().split("\n")[:-1] == ["--version"]
