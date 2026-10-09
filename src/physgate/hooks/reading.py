@@ -101,21 +101,26 @@ def _ranges(gaps: list[tuple[int, int]]) -> str:
     return ", ".join(f"{a}" if a == b else f"{a}-{b}" for a, b in gaps)
 
 
-def outstanding(config: ConfigView, hook_input: InputView) -> list[str]:
-    """The required files not read in full at their current content, each with its unread lines."""
+def unread_files(config: ConfigView, hook_input: InputView) -> list[tuple[str, str]]:
+    """Each required file not read in full at its current content, with what is unread."""
     records = read_records(_reads_dir(config, hook_input))
     missing = []
     for path in config.required_reading:
         identity = _identity(path)
         if identity is None:
-            missing.append(f"{path} (cannot be read: it does not exist or is not readable)")
+            missing.append((path, "cannot be read: it does not exist or is not readable"))
             continue
         dev, ino, digest, lines = identity
         mine = [r for r in records if (r["dev"], r["ino"], r["digest"]) == (dev, ino, digest)]
         gaps = unread(mine, lines)
         if gaps:
-            missing.append(f"{path} (lines not yet read: {_ranges(gaps)} of {lines})")
+            missing.append((path, f"lines not yet read: {_ranges(gaps)} of {lines}"))
     return missing
+
+
+def outstanding(config: ConfigView, hook_input: InputView) -> list[str]:
+    """The required files not yet read in full at their current content."""
+    return [path for path, _ in unread_files(config, hook_input)]
 
 
 def session_start(hook_input: InputView, config: ConfigView) -> Decision:
@@ -166,9 +171,10 @@ def pre_tool_use(hook_input: InputView, config: ConfigView) -> Decision:
     """Refuse every tool except Read until the required reading is complete."""
     if hook_input.tool_name == "Read" or not config.required_reading:
         return ALLOW
-    missing = outstanding(config, hook_input)
+    missing = unread_files(config, hook_input)
     if missing:
-        return refuse(NOT_DONE.format(files="\n".join(f"- {m}" for m in missing)))
+        listing = "\n".join(f"- {path} ({why})" for path, why in missing)
+        return refuse(NOT_DONE.format(files=listing))
     return ALLOW
 
 
