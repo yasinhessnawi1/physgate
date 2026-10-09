@@ -51,8 +51,9 @@ holds every later command to.
 
 **The token.** With ``--real``, ``CLAUDE_CODE_OAUTH_TOKEN`` is read from the env file by this
 script, held only in memory and never printed. At the end every file under the output directory
-is scanned for it, for ``sk-ant-`` and for ``oat01``, and email addresses are replaced; only the
-counts are printed.
+is scanned for it, for ``sk-ant-`` and for ``oat01``, and email addresses are counted. Nothing is
+rewritten: a later phase holds the run's sealed trajectories and packet parts to their seals, so a
+rewrite would break the records it measures. Only the counts are printed.
 """
 
 from __future__ import annotations
@@ -522,6 +523,8 @@ GAINS = (0.0, 0.0, 0.0, 0.0)
 def step(state, measurement):
     return 0
 """
+#: An email address the dry control session writes into its own stream.
+PLANTED_ADDRESS = "dry-run@example.invalid"
 #: Re-runs of the analysis after an edit, as tuning to the margins takes: eleven cycles.
 DRY_TUNING_CYCLES = 11
 
@@ -562,7 +565,9 @@ def dry_fixture_session() -> list[dict[str, Any]]:
             file_path="{cwd}/.physgate/proposals/control.loop_gain.json",
             content=json.dumps(dry_node()),
         ),
-        text("done: scripted dry run placeholder; no criterion is claimed."),
+        # An address in the session's own words: the scan at the end of the run must count it
+        # and leave the sealed trajectory as it is, which the baseline phase then holds it to.
+        text(f"done: scripted dry run placeholder; no criterion is claimed. {PLANTED_ADDRESS}"),
     ]
     return steps
 
