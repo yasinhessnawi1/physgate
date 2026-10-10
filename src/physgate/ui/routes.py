@@ -32,6 +32,7 @@ from urllib.parse import unquote
 
 from physgate.orchestrator.exceptions import OrchestratorError
 from physgate.orchestrator.run_config import load_run_config
+from physgate.state.schema import NODE_ID_PATTERN
 from physgate.ui.assets import Assets
 from physgate.ui.exceptions import PathRefusedError, UIError
 from physgate.ui.guard import RouteKind, require_registered
@@ -45,6 +46,10 @@ PARAMETERS: Mapping[str, re.Pattern[str]] = {
     "asset": re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,255}$"),
     "session": re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_-]{0,127}$"),
     "date": re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$"),
+    "revision": re.compile(r"^(0|[1-9][0-9]{0,8})$"),
+    # The node identifier rule itself: lowercase dotted parts, so no separator, no
+    # leading dot and no parent reference can pass.
+    "node": NODE_ID_PATTERN,
 }
 
 #: The run's configuration file, whose presence makes a directory a run directory.

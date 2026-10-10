@@ -26,6 +26,7 @@ from ui_rig import (
     snapshot,
 )
 
+from physgate.state.store import journal_records_after
 from physgate.ui.exceptions import UnregisteredKindError
 from physgate.ui.routes import PARAMETERS, Context, Response, Route, json_response
 from physgate.ui.table import ROUTES
@@ -56,6 +57,8 @@ def _valid(world: dict[str, Path], run: str) -> dict[str, str]:
         "asset": "app.js",
         "session": sealed_session(world["root"] / run),
         "date": PRICES,
+        "revision": "1",
+        "node": journal_records_after(world["root"] / run / "store", 0)[-1].node_id,
     }
 
 

@@ -27,6 +27,14 @@ ROUTES: tuple[Route, ...] = (
     Route("GET", f"{RUN}/graph", "read", readers.graph),
     Route("GET", f"{RUN}/trajectories/{{session:session}}", "read", readers.trajectory),
     Route("GET", f"{RUN}/cost/{{date:date}}", "read", readers.cost),
+    Route("GET", f"{RUN}/trace", "read", readers.trace),
+    Route("GET", f"{RUN}/decisions", "read", readers.decisions),
+    Route("GET", f"{RUN}/status", "read", readers.status),
+    Route("GET", f"{RUN}/tokens", "read", readers.tokens),
+    Route("GET", f"{RUN}/gate-checks", "read", readers.gate_checks),
+    Route("GET", f"{RUN}/graph/at/{{revision:revision}}", "read", readers.graph_at_revision),
+    Route("GET", f"{RUN}/graph/history/{{node:node}}", "read", readers.history),
+    Route("GET", f"{RUN}/graph/diff/{{from:revision}}/{{to:revision}}", "read", readers.diff),
 )
 
 

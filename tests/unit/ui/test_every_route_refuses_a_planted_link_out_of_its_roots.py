@@ -20,6 +20,8 @@ from pathlib import Path
 import pytest
 from ui_rig import RECORDER, context_over, fake_ui, real_runs, sealed_session, serving
 
+from physgate.state.store import journal_records_after
+
 #: The marker written into every planted target: it must never appear in a response.
 MARKER = b"PLANTED-TARGET-MARKER"
 RUN = "run-observe"
@@ -32,20 +34,41 @@ def built(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
     return {"runs": real_runs(base), "ui": fake_ui(base / "checkout")}
 
 
+#: A node the observed run's journal holds, for the history route.
+NODE = "electrical.node_s1_af41ca"
+
+
 def _routes_reading(planted: str, session: str) -> list[str]:
     """The routes over one run that read ``planted``."""
     run = f"/api/runs/0/{RUN}"
     return {
-        "run.json": [f"{run}/config", f"{run}/gate-events", f"{run}/cost/{PRICES}"],
+        "run.json": [
+            f"{run}/config",
+            f"{run}/gate-events",
+            f"{run}/cost/{PRICES}",
+            f"{run}/trace",
+            f"{run}/gate-checks",
+        ],
         "events.jsonl": [
             f"{run}/events",
             f"{run}/ledger",
             f"{run}/gate-events",
             f"{run}/trajectories/{session}",
             f"{run}/cost/{PRICES}",
+            f"{run}/trace",
+            f"{run}/decisions",
+            f"{run}/status",
+            f"{run}/tokens",
+            f"{run}/gate-checks",
+            f"{run}/graph/history/{NODE}",
         ],
         "ledger.jsonl": [f"{run}/ledger"],
-        "store/journal.jsonl": [f"{run}/graph"],
+        "store/journal.jsonl": [
+            f"{run}/graph",
+            f"{run}/graph/at/1",
+            f"{run}/graph/history/{NODE}",
+            f"{run}/graph/diff/0/1",
+        ],
         "stream": [f"{run}/trajectories/{session}"],
     }[planted]
 
@@ -93,6 +116,8 @@ def test_a_route_refuses_a_file_it_reads_that_links_out_of_its_roots(
 ) -> None:
     world = _world(built, tmp_path)
     session = sealed_session(world["root"] / RUN)
+    held = {line.node_id for line in journal_records_after(world["root"] / RUN / "store", 0)}
+    assert NODE in held, f"the observed run's journal no longer holds {NODE}: {held}"
     target = _plant(world, planted, toward, session)
     context = context_over(world["root"], ui_root=built["ui"], held_out=(str(world["held"]),))
     routes = _routes_reading(planted, session)

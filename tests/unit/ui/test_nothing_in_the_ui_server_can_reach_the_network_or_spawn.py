@@ -58,6 +58,14 @@ ALLOWED_MODULES = {
     "physgate.orchestrator.trajectory",
     "physgate.state.exceptions",
     "physgate.state.store",
+    # The graph and run views' readers. The decision sequence's module can also run git (to
+    # map commits to trees for a rerun's comparison); the server calls only its pure
+    # ``decisions``, and inside a request the guard refuses a spawn. The rest read records.
+    "physgate.evaluation.observe.sequence",
+    "physgate.evaluation.observe.trace",
+    "physgate.orchestrator.accounting",
+    "physgate.orchestrator.change_sets",
+    "physgate.state.schema",
 }
 #: Names that load or evaluate code however they are reached.
 FORBIDDEN_NAMES = {"eval", "exec", "compile", "__import__", "import_module", "breakpoint"}
