@@ -20,7 +20,10 @@ the allowlist, then handed to the package's own reader for that format:
   ``physgate gate-events`` prints, each beside its record's bound, message and details;
 - the graph at a revision, one node's history and the change list between two revisions:
   ``graph_at``, ``node_history`` and ``journal_diff``, read from the journal without opening a
-  store, the change list through the store's own selection.
+  store, the change list through the store's own selection;
+- the approval queue: ``queue_listing``, exactly what ``physgate queue list`` prints, read
+  without writing; and one item as a person is shown it, ``item_view``, with its line's digest
+  and every trajectory held to its seal, which is what a decision on it sends back.
 
 A trajectory's path is never taken from the record. The record is written on the machine
 that ran the session, and a forged log could name any file in the run directory, a running
@@ -33,6 +36,7 @@ prints; the rest as JSON.
 
 from __future__ import annotations
 
+import errno
 import json
 import re
 from collections.abc import Mapping
@@ -49,6 +53,7 @@ from physgate.orchestrator.change_sets import change_history
 from physgate.orchestrator.common import render_jsonl
 from physgate.orchestrator.events import SessionEnded, read_events
 from physgate.orchestrator.gate_events import recorded_gate_checks, recorded_gate_events
+from physgate.orchestrator.queue import item_view, queue_files, queue_listing, read_stream
 from physgate.orchestrator.replay import recorded_ledger, replay
 from physgate.orchestrator.run_config import load_run_config
 from physgate.orchestrator.trajectory import read_sealed
@@ -62,7 +67,7 @@ from physgate.state.store import (
     journal_records_after,
     node_history,
 )
-from physgate.ui.exceptions import NotFoundError
+from physgate.ui.exceptions import NotFoundError, PathRefusedError
 from physgate.ui.routes import Context, Response, json_response, run_directories
 
 #: How the run's files are named in its directory.
@@ -80,7 +85,7 @@ JSON_LINES = "application/x-ndjson; charset=utf-8"
 SESSION_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
 
-def _run_dir(context: Context, params: Mapping[str, str]) -> Path:
+def run_dir_of(context: Context, params: Mapping[str, str]) -> Path:
     """The run directory a request names by its root's position and its name."""
     wanted = (int(params["root"]), params["name"])
     for position, name, path in run_directories(context.allowlist):
@@ -100,7 +105,7 @@ def _lines(body: str) -> Response:
 
 def config(context: Context, params: Mapping[str, str]) -> Response:
     """The run's recorded configuration and its manifest id."""
-    run_dir = _run_dir(context, params)
+    run_dir = run_dir_of(context, params)
     recorded = load_run_config(_file(context, run_dir, RUN_CONFIG))
     return json_response(
         {"manifest_id": recorded.sha256(), "config": recorded.model_dump(mode="json")}
@@ -109,20 +114,20 @@ def config(context: Context, params: Mapping[str, str]) -> Response:
 
 def events(context: Context, params: Mapping[str, str]) -> Response:
     """The run's event log, one record per line, as the package reads it back."""
-    run_dir = _run_dir(context, params)
+    run_dir = run_dir_of(context, params)
     return _lines(render_jsonl(read_events(_file(context, run_dir, EVENTS))))
 
 
 def ledger(context: Context, params: Mapping[str, str]) -> Response:
     """The task ledger, byte for byte what ``physgate ledger`` prints."""
-    run_dir = _run_dir(context, params)
+    run_dir = run_dir_of(context, params)
     held = recorded_ledger(_file(context, run_dir, EVENTS), _file(context, run_dir, LEDGER))
     return _lines(render_jsonl(held))
 
 
 def gate_events(context: Context, params: Mapping[str, str]) -> Response:
     """The gate events, byte for byte what ``physgate gate-events`` prints."""
-    run_dir = _run_dir(context, params)
+    run_dir = run_dir_of(context, params)
     found = recorded_gate_events(
         _file(context, run_dir, EVENTS), _file(context, run_dir, RUN_CONFIG)
     )
@@ -131,7 +136,7 @@ def gate_events(context: Context, params: Mapping[str, str]) -> Response:
 
 def graph(context: Context, params: Mapping[str, str]) -> Response:
     """Every node at its latest revision, with its revision, from the run's journal."""
-    run_dir = _run_dir(context, params)
+    run_dir = run_dir_of(context, params)
     store = _file(context, run_dir, STORE)
     _file(context, run_dir, STORE, JOURNAL_NAME)
     view = GraphView.read(store, 0)
@@ -148,7 +153,7 @@ def graph(context: Context, params: Mapping[str, str]) -> Response:
 
 def trajectory(context: Context, params: Mapping[str, str]) -> Response:
     """A session's captured stream, held to the seal its end recorded."""
-    run_dir = _run_dir(context, params)
+    run_dir = run_dir_of(context, params)
     session_id = params["session"]
     ended = [
         event
@@ -170,7 +175,7 @@ def prices(context: Context, params: Mapping[str, str]) -> Response:
 
 def cost(context: Context, params: Mapping[str, str]) -> Response:
     """The run's cost at the price sheet of the date named, as ``physgate cost`` prices it."""
-    run_dir = _run_dir(context, params)
+    run_dir = run_dir_of(context, params)
     log = read_events(_file(context, run_dir, EVENTS))
     recorded = load_run_config(_file(context, run_dir, RUN_CONFIG))
     line = price_events(
@@ -198,7 +203,7 @@ def _line(event: _Record) -> dict[str, Any]:
 
 def trace(context: Context, params: Mapping[str, str]) -> Response:
     """The run's trace, exactly what ``physgate trace`` prints."""
-    run_dir = _run_dir(context, params)
+    run_dir = run_dir_of(context, params)
     _file(context, run_dir, EVENTS)
     _file(context, run_dir, RUN_CONFIG)
     return json_response(_model(read_traces(run_dir)))
@@ -206,14 +211,14 @@ def trace(context: Context, params: Mapping[str, str]) -> Response:
 
 def decisions(context: Context, params: Mapping[str, str]) -> Response:
     """The run's decisions in log order, each with the sequence number that made it."""
-    run_dir = _run_dir(context, params)
+    run_dir = run_dir_of(context, params)
     log = read_events(_file(context, run_dir, EVENTS))
     return json_response({"decisions": decision_sequence([_line(e) for e in log])})
 
 
 def status(context: Context, params: Mapping[str, str]) -> Response:
     """Where the run stands: what the loop would do next, and why it halted, if it did."""
-    run_dir = _run_dir(context, params)
+    run_dir = run_dir_of(context, params)
     state = replay(read_events(_file(context, run_dir, EVENTS)))
     step = state.next_step()
     halted = state.halted
@@ -234,7 +239,7 @@ def status(context: Context, params: Mapping[str, str]) -> Response:
 
 def tokens(context: Context, params: Mapping[str, str]) -> Response:
     """The token account: per attribution, per kind of spender, and the run's total."""
-    run_dir = _run_dir(context, params)
+    run_dir = run_dir_of(context, params)
     account = TokenAccount.from_events(read_events(_file(context, run_dir, EVENTS)))
 
     def dumped(by: Mapping[str, _Record]) -> dict[str, object]:
@@ -251,7 +256,7 @@ def tokens(context: Context, params: Mapping[str, str]) -> Response:
 
 def gate_checks(context: Context, params: Mapping[str, str]) -> Response:
     """Every gate event with its record's bound, message and details, one per line."""
-    run_dir = _run_dir(context, params)
+    run_dir = run_dir_of(context, params)
     found = recorded_gate_checks(
         _file(context, run_dir, EVENTS), _file(context, run_dir, RUN_CONFIG)
     )
@@ -275,7 +280,7 @@ def _node_of(line: JournalLine) -> object:
 
 def graph_at_revision(context: Context, params: Mapping[str, str]) -> Response:
     """Every node as it stood at a journal revision, each with the revision it was written at."""
-    run_dir = _run_dir(context, params)
+    run_dir = run_dir_of(context, params)
     store = _journal(context, run_dir)
     revision = _revision(params, "revision")
     try:
@@ -300,7 +305,7 @@ def history(context: Context, params: Mapping[str, str]) -> Response:
     A revision at or below the head decomposition recorded is the given design's; any
     other belongs to the merged attempt whose writes the event log names.
     """
-    run_dir = _run_dir(context, params)
+    run_dir = run_dir_of(context, params)
     store = _journal(context, run_dir)
     node_id = params["node"]
     lines = node_history(store, node_id)
@@ -333,7 +338,7 @@ def history(context: Context, params: Mapping[str, str]) -> Response:
 
 def diff(context: Context, params: Mapping[str, str]) -> Response:
     """The store's change list between two revisions, and each changed node at both."""
-    run_dir = _run_dir(context, params)
+    run_dir = run_dir_of(context, params)
     store = _journal(context, run_dir)
     since, until = _revision(params, "from"), _revision(params, "to")
     if since > until:
@@ -369,3 +374,40 @@ def diff(context: Context, params: Mapping[str, str]) -> Response:
             },
         }
     )
+
+
+def _queue_files(context: Context, run_dir: Path) -> None:
+    """Hold the queue's files and the event log to the allowlist before anything reads them."""
+    for path in queue_files(run_dir):
+        context.allowlist.resolve(path)
+
+
+def queue(context: Context, params: Mapping[str, str]) -> Response:
+    """The open items and every decision with its mark, byte for byte ``physgate queue list``."""
+    run_dir = run_dir_of(context, params)
+    _queue_files(context, run_dir)
+    return json_response(queue_listing(run_dir))
+
+
+def queue_item(context: Context, params: Mapping[str, str]) -> Response:
+    """One item as a person is shown it: open or not, its digest, each trajectory's seal status.
+
+    A trajectory's path is built from the session id its link names, never taken as recorded.
+    """
+    run_dir = run_dir_of(context, params)
+    _queue_files(context, run_dir)
+
+    def stream(session_id: str) -> bytes | None:
+        try:
+            path = _file(context, run_dir, SESSIONS, session_id, STREAM)
+        except PathRefusedError as exc:
+            # A stream the allowlist refuses (a link out of the run, a second name) is not read;
+            # it is reported as tampered, which is what the decision's own check finds as well.
+            raise OSError(errno.EPERM, str(exc)) from None
+        return read_stream(path)
+
+    view = item_view(run_dir, int(params["position"]), read_stream=stream)
+    if view is None:
+        msg = "the run's queue holds no item at that position"
+        raise NotFoundError(msg, position=params["position"])
+    return json_response(view.model_dump(mode="json"))

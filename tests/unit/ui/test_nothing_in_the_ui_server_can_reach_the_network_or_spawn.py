@@ -24,6 +24,8 @@ ALLOWED_MODULES = {
     "contextlib",
     "contextvars",
     "dataclasses",
+    # A stream the allowlist refuses is reported as an error the trajectory check reads.
+    "errno",
     "hashlib",
     # The action token is compared in constant time.
     "hmac",
@@ -47,6 +49,8 @@ ALLOWED_MODULES = {
     "types",
     "typing",
     "urllib.parse",
+    # The decision request's shape, validated whole at the boundary, as every record is.
+    "pydantic",
     "physgate",
     "physgate.hooks.paths",
     "physgate.orchestrator.credentials",

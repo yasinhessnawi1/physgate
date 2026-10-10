@@ -1,14 +1,15 @@
 """The route table: every route the operator UI's server answers, in one tuple.
 
 The dispatcher consults this tuple and nothing else, and the route sweep walks it, so the
-list a test enumerates is exactly the list a request can reach. Every route is a read. A
-later route that acts is added here with its own kind, which must have a policy in the guard
-or the route cannot even be declared.
+list a test enumerates is exactly the list a request can reach. Every route is a read but
+one: the decision on an approval-queue item, of the ``act`` kind, whose handler calls the
+queue's own decision function. A route of a kind with no policy in the guard cannot even be
+declared.
 """
 
 from __future__ import annotations
 
-from physgate.ui import readers
+from physgate.ui import actions, readers
 from physgate.ui.routes import Route, asset, index, runs
 
 #: The path every route over one run starts with.
@@ -35,6 +36,10 @@ ROUTES: tuple[Route, ...] = (
     Route("GET", f"{RUN}/graph/at/{{revision:revision}}", "read", readers.graph_at_revision),
     Route("GET", f"{RUN}/graph/history/{{node:node}}", "read", readers.history),
     Route("GET", f"{RUN}/graph/diff/{{from:revision}}/{{to:revision}}", "read", readers.diff),
+    Route("GET", f"{RUN}/queue", "read", readers.queue),
+    Route("GET", f"{RUN}/queue/items/{{position:index}}", "read", readers.queue_item),
+    # The one route that acts: a decision, through the approval queue's own function.
+    Route("POST", f"{RUN}/queue/decisions", "act", actions.decide),
 )
 
 
