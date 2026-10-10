@@ -6,10 +6,11 @@ walks is exactly the list a request can reach; there is no default handler and
 no fallthrough. A method no route names is answered 405, a path no route matches
 404.
 
-**The kind decides what a handler may do while it runs** (see ``guard``). Every
-route here is ``read``. A later route that acts, for example one recording a
-decision through the approval queue's own function, is added as a new kind with
-its own policy; the table, the dispatcher and the read routes stay as they are.
+**The kind decides what a handler may do while it runs** (see ``guard``). A ``read``
+route answers ``GET`` and may only read. An ``act`` route answers ``POST`` only, and
+the pairing is checked when a route is declared, so no ``GET`` can ever act. Before an
+``act`` handler runs, the server refuses anything another page could have sent (see
+``server``); the request's body is then handed to it through :func:`request_body`.
 
 **A request never carries a filesystem path.** Path parameters are typed by a
 pattern each, checked after one round of percent-decoding, segment by segment,
@@ -24,7 +25,9 @@ from __future__ import annotations
 import json
 import os
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -55,7 +58,10 @@ PARAMETERS: Mapping[str, re.Pattern[str]] = {
 #: The run's configuration file, whose presence makes a directory a run directory.
 RUN_CONFIG = "run.json"
 
-Method = Literal["GET"]
+Method = Literal["GET", "POST"]
+
+#: The one method each kind answers.
+KIND_METHODS: Mapping[str, str] = {"read": "GET", "act": "POST"}
 
 
 @dataclass(frozen=True)
@@ -69,10 +75,41 @@ class Response:
 
 @dataclass(frozen=True)
 class Context:
-    """What every handler is given: the allowlist and the built app. Nothing writable."""
+    """What every handler is given: the allowlist, the built app, and who acts, if anyone.
+
+    ``operator`` is the name the server was started with; an action is recorded as theirs.
+    Without one, every action route is refused.
+    """
 
     allowlist: Allowlist
     assets: Assets
+    operator: str | None = None
+
+
+_body: ContextVar[bytes | None] = ContextVar("physgate_ui_request_body", default=None)
+
+
+@contextmanager
+def carrying(body: bytes) -> Iterator[None]:
+    """Hand ``body`` to the action handler running inside the block."""
+    token = _body.set(body)
+    try:
+        yield
+    finally:
+        _body.reset(token)
+
+
+def request_body() -> bytes:
+    """The body of the action request being handled.
+
+    Raises:
+        UIError: called outside an action request.
+    """
+    body = _body.get()
+    if body is None:
+        msg = "a request body is read only while an action request is handled"
+        raise UIError(msg)
+    return body
 
 
 Handler = Callable[[Context, Mapping[str, str]], Response]
@@ -93,9 +130,15 @@ class Route:
 
         Raises:
             UnregisteredKindError: the kind has no registered policy.
-            ValueError: the pattern does not start at the root or names an unknown type.
+            ValueError: the method is not its kind's, the pattern does not start at the root,
+                or it names an unknown type.
         """
         require_registered(self.kind)
+        if KIND_METHODS.get(self.kind) != self.method:
+            msg = (
+                f"a {self.kind} route answers {KIND_METHODS.get(self.kind)} only: {self.pattern!r}"
+            )
+            raise ValueError(msg)
         if not self.pattern.startswith("/"):
             msg = f"a route pattern starts at the root: {self.pattern!r}"
             raise ValueError(msg)

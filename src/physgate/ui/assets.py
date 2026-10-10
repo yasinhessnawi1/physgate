@@ -22,11 +22,12 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import json
 import os
 import sys
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from physgate.ui.exceptions import StartupRefusedError
@@ -98,12 +99,36 @@ def write_stamp(ui_root: Path) -> Path:
     return stamp
 
 
+#: The name of the ``<meta>`` element that carries the server's action token to its own page.
+ACT_TOKEN_META = "physgate-act-token"
+
+
 @dataclass(frozen=True)
 class Assets:
     """The built app in memory: the page, and each asset file's bytes and media type."""
 
     index: bytes
     files: Mapping[str, tuple[bytes, str]]
+
+    def with_act_token(self, token: str) -> Assets:
+        """The same build, its page carrying ``token`` in a ``<meta>`` element.
+
+        The page reads the token from itself and sends it back with every action, so only a
+        page this server served can act: another site's page cannot read this one. It goes
+        before ``</head>``, or straight after the doctype of a page with no head written out.
+
+        Raises:
+            StartupRefusedError: the page has neither, so there is nowhere to put it.
+        """
+        meta = f'<meta name="{ACT_TOKEN_META}" content="{html.escape(token)}">'.encode()
+        head = self.index.find(b"</head>")
+        if head >= 0:
+            return replace(self, index=self.index[:head] + meta + self.index[head:])
+        doctype = b"<!doctype html>"
+        if self.index[: len(doctype)].lower() == doctype:
+            return replace(self, index=doctype + meta + self.index[len(doctype) :])
+        msg = "the built page has no head and no doctype to carry the action token"
+        raise StartupRefusedError(msg)
 
 
 def _refuse(message: str, **context: str) -> StartupRefusedError:

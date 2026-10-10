@@ -7,6 +7,9 @@ way the hook layer takes them, explicit and absolute; the harness checkout's
 own ``corpora`` is always refused; and a root that overlaps any of them refuses
 the start. So does a missing or stale build of the app, and any address that is
 not loopback.
+
+``--operator`` names the person decisions taken in the UI are recorded under. Without
+it the UI reads everything and acts on nothing.
 """
 
 from __future__ import annotations
@@ -57,6 +60,11 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
     )
     p.add_argument("--bind", default=DEFAULT_BIND, help="127.0.0.1 or ::1; nothing else")
     p.add_argument("--port", type=int, default=DEFAULT_PORT)
+    p.add_argument(
+        "--operator",
+        default=None,
+        help="who decides in the UI, recorded on every decision; without it nothing acts",
+    )
     p.set_defaults(func=_serve)
 
 
@@ -86,7 +94,9 @@ def _serve(args: argparse.Namespace) -> int:
             raise StartupRefusedError(msg)
         built = assets.load(ui_root)
         server = make_server(
-            Context(allowlist=allowlist, assets=built), bind=args.bind, port=args.port
+            Context(allowlist=allowlist, assets=built, operator=args.operator),
+            bind=args.bind,
+            port=args.port,
         )
     except StartupRefusedError as exc:
         return _fail(str(exc), **exc.context)
@@ -99,6 +109,7 @@ def _serve(args: argparse.Namespace) -> int:
             {
                 "url": f"http://{literal}:{port}/",
                 "roots": [str(root.path) for root in allowlist.roots],
+                "operator": args.operator,
                 "refused": list(allowlist.refused),
             },
             indent=1,
