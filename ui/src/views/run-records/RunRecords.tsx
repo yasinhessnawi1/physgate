@@ -4,7 +4,7 @@
  * the focus areas later. Every figure here is read from a record and carries its source; the
  * only things this page computes are counts over a record, and each says it is a view.
  */
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect } from "react";
 
 import { getJson, getLines, type Result } from "../../api/client";
 import {
@@ -28,25 +28,10 @@ import { Quantity } from "../../design/components/Quantity";
 import { type Source, SourceChip, sourceAttribute } from "../../design/components/SourceChip";
 import { EmptyState, ErrorState, LoadingState } from "../../design/components/States";
 import { Tally, VerdictBadge } from "../../design/components/VerdictBadge";
+import { tallyOf } from "../../design/tally";
 import type { ViewProps } from "../../shell/header";
 import { hrefFor } from "../../shell/route";
-
-function useResult<T>(load: (() => Promise<Result<T>>) | null, key: string): Result<T> | null {
-  const [state, setState] = useState<{ key: string; result: Result<T> } | null>(null);
-  useEffect(() => {
-    if (load === null) return;
-    let live = true;
-    void load().then((result) => {
-      if (live) setState({ key, result });
-    });
-    return () => {
-      live = false;
-    };
-    // The key names the request; the loader is rebuilt every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
-  return state?.key === key ? state.result : null;
-}
+import { useResult } from "../common/useResult";
 
 /** A card that shows its record, or the reading state, or the refusal, and nothing partial. */
 function Card<T>({
@@ -177,8 +162,7 @@ function RunView({ listing, config }: { listing: RunListing; config: RunConfig }
                 The gate has not run in this run.
               </EmptyState>
             );
-          const counts = { pass: 0, fail: 0, warn: 0, unchecked: 0 };
-          for (const line of lines) counts[line.outcome] += 1;
+          const counts = tallyOf(lines.map((line) => line.outcome));
           return (
             <>
               <p className="view-note" data-source={sourceAttribute(source)}>

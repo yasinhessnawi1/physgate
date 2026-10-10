@@ -1,3 +1,5 @@
+import { evaluatedOf, type TallyCounts } from "../tally";
+
 /** The four verdicts. Each has a glyph and a word, so none depends on colour alone. */
 export type Verdict = "pass" | "fail" | "warn" | "unchecked";
 
@@ -18,13 +20,6 @@ export function VerdictBadge({ verdict }: { verdict: Verdict }) {
   );
 }
 
-export interface TallyCounts {
-  readonly pass: number;
-  readonly fail: number;
-  readonly warn: number;
-  readonly unchecked: number;
-}
-
 /**
  * Counts of verdicts. The evaluated count is pass, fail and warn; unchecked follows a
  * separator and is never part of it, because a check that did not run evaluated nothing.
@@ -32,7 +27,7 @@ export interface TallyCounts {
  * dashed outlines and never as filled verdicts.
  */
 export function Tally({ counts, observed = false }: { counts: TallyCounts; observed?: boolean }) {
-  const evaluated = counts.pass + counts.fail + counts.warn;
+  const evaluated = evaluatedOf(counts);
   const item = (verdict: "pass" | "fail" | "warn", word: string) =>
     observed ? (
       <span className={`badge observed observed-${verdict}`}>Would {word.toLowerCase()}</span>
