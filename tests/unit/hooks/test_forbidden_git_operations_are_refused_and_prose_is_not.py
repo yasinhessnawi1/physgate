@@ -85,6 +85,14 @@ REFUSED = [
     ("git config --edit", G.ROLE_CONFIG_WRITE),
     ("git config --file custom a.b c", G.ROLE_CONFIG_WRITE),
     ("git -C sub config user.name me", G.ROLE_CONFIG_WRITE),
+    # Inline config, in every spelling git accepts, is also setting config.
+    ("git -c filter.x.clean=somecommand add -A", G.ROLE_CONFIG_WRITE),
+    ("git -c core.fsmonitor=somecommand status", G.ROLE_CONFIG_WRITE),
+    ("git -c core.pager=somecommand log", G.ROLE_CONFIG_WRITE),
+    ("GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.pager git log", G.ROLE_CONFIG_WRITE),
+    ("GIT_CONFIG_PARAMETERS=\"'core.pager=x'\" git log", G.ROLE_CONFIG_WRITE),
+    # A shape the rule cannot read as a plain read is refused, not passed.
+    ("git config --unknownflag a b", G.ROLE_CONFIG_WRITE),
 ]
 
 ALLOWED = [

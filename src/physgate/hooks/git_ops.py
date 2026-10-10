@@ -41,12 +41,14 @@ HOOK_CONFIG = (
     "later git commands do without the command saying so."
 )
 ROLE_CONFIG_WRITE = (
-    "A role session does not change git's configuration. Setting any key could make a "
-    "later git command run a program of the session's choosing. Reading a value "
-    "(`git config --get <key>`) is allowed; writing one is not."
+    "A role session does not set git's configuration, by any means. Any key it set — on the "
+    "command line with -c, through a GIT_CONFIG_* variable, or with `git config` — could make "
+    "a later git command run a program of the session's choosing. Reading a value "
+    "(`git config --get <key>`, `--list`, or a bare key) is allowed; setting one is not."
 )
-#: ``git config`` forms that only read, so a role session may run them. Everything else under
-#: ``git config`` for a role either sets, unsets, edits or renames, which is refused.
+#: The only ``git config`` forms a role session may run: the ones that read. This is an
+#: allowlist — every other form, and anything this cannot classify, is refused — because a
+#: denylist of write actions keeps missing ways git can be told to set a key.
 _CONFIG_READ_FLAGS = (
     "--get",
     "--get-all",
@@ -55,17 +57,6 @@ _CONFIG_READ_FLAGS = (
     "--get-color",
     "--get-colorbool",
     "--list",
-)
-_CONFIG_WRITE_FLAGS = (
-    "--add",
-    "--unset",
-    "--unset-all",
-    "--replace-all",
-    "--rename-section",
-    "--remove-section",
-    "--edit",
-    "--file",
-    "--blob",
 )
 ROLE_PUSH = "A role session does not push. The orchestrator merges and pushes finished work."
 HARD_RESET = (
@@ -139,21 +130,35 @@ def _flags(rest: list[str]) -> list[str]:
     return flags
 
 
-def _is_config_write(rest: list[str]) -> bool:
-    """Whether a ``git config`` invocation writes, rather than only reads.
+def _config_is_read_only(rest: list[str]) -> bool:
+    """Whether a ``git config`` invocation is one of the read-only forms a role may run.
 
-    A read is any of the ``--get``/``--list`` family, or naming a single key with no value.
-    A write sets a value (two operands), or uses one of the write, unset, rename, edit or
-    alternate-file actions. A spelling that only reads is allowed for a role session; anything
-    else is refused, so the rule is the action, never a list of which keys may be set.
+    An allowlist: a recognised read flag (``--get``/``--list`` family, ``-l``), or at most a
+    single operand (a bare key, which prints its value, or none at all). Anything else — a key
+    and a value, an ``--unset``/``--edit``/``--file``/``--rename`` action, or a shape this
+    cannot read — is not allowed, so a form this does not recognise is refused, not passed.
     """
     flags = _flags(rest)
     if any(_names(f, _CONFIG_READ_FLAGS) or f in ("-l", "-L") for f in flags):
-        return False
-    if any(_names(f, _CONFIG_WRITE_FLAGS) or f in ("-e",) for f in flags):
         return True
-    operands = [w for w in rest if not w.startswith("-")]
-    return len(operands) >= 2
+    if any(f.startswith("-") for f in flags):
+        return False
+    return len([w for w in rest if not w.startswith("-")]) <= 1
+
+
+def _role_sets_config(cmd: SimpleCommand, globals_: list[str], sub: str, rest: list[str]) -> bool:
+    """Whether a role session's git command would set configuration, by any means.
+
+    Three ways git is told to set a key, all refused: a ``GIT_CONFIG_*`` environment variable
+    before the command, an inline ``-c``/``--config-env`` global, and a ``git config`` form
+    that is not a plain read. ``--config-env`` is already refused for every profile as a hook
+    change; it is named here too so the rule stands on its own.
+    """
+    if any(a.split("=", 1)[0].startswith("GIT_CONFIG") for a in cmd.assignments):
+        return True
+    if any(g == "-c" or _names(g, ("--config-env",)) for g in globals_):
+        return True
+    return sub == "config" and not _config_is_read_only(rest)
 
 
 def _names(flag: str, options: tuple[str, ...]) -> bool:
@@ -240,7 +245,7 @@ def check_command(
         return SKIP_HOOKS
     if sub == "config" and any(_mentions_hooks_path(w) or w.startswith("alias.") for w in rest):
         return HOOK_CONFIG
-    if sub == "config" and config.profile == "role" and _is_config_write(rest):
+    if config.profile == "role" and _role_sets_config(cmd, globals_, sub, rest):
         return ROLE_CONFIG_WRITE
     if sub == "commit" and any(_short_cluster_has(f, "n") for f in flags):
         return SKIP_HOOKS
