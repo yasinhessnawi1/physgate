@@ -138,16 +138,23 @@ in Terminal; the app never runs it.
 - **The update channel never leaves the machine.** The updater only fetches over HTTP. So
   for the length of one check, the app serves its own `updates/` folder on `127.0.0.1` and
   a free port. It answers two requests, the manifest and the bundle the manifest names,
-  then closes.
+  then closes. A manifest naming anything but a file in that folder is refused before the
+  updater runs (see below).
 
 ### Why `dangerousInsecureTransportProtocol` is set
 
 The updater refuses a plain `http` address in a release build unless this flag is set, and
 it makes no exception for loopback. The flag is set because both of the following hold:
 
-- **The channel is loopback only.** The only address the updater is ever given is the app's
-  own listener on `127.0.0.1`, which serves a folder on this machine. No request leaves the
-  machine, so there is no network path for anyone to tamper with.
+- **The channel is loopback only, and the manifest can't change that.**
+  - The updater is given two kinds of address: the manifest's, and the bundle's that the
+    manifest names. The manifest is checked before the updater starts.
+  - Every platform's `url` must be a plain file name in the `updates/` folder: no scheme,
+    host, path, query or `..`, not a link, and the same file for all platforms. A manifest
+    naming anything else (`https://…`, `http://127.0.0.1:other-port/…`, `x?y`) is refused
+    whole, and no update check runs.
+  - The bundle's address is then built from that file name and the app's own listener on
+    `127.0.0.1`. So both addresses are that listener, and no request leaves the machine.
 - **Every update is signature-checked.** The updater verifies each bundle against the
   public key built into the installed app before replacing anything, and that check can't
   be switched off. Only a bundle signed with the key in `~/.config/physgate-desktop/` is

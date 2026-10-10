@@ -6,9 +6,13 @@
 //! exactly two requests: `GET /latest.json`, and `GET` of the bundle the manifest names.
 //! Nothing else in the folder, and nothing outside it, can be asked for.
 //!
-//! The bundle's own address in the manifest is rewritten to this port, since the build
-//! script cannot know it. The signature is left as written: the updater checks it against
-//! the public key built into the app, and refuses a bundle it does not match.
+//! The manifest is checked before anything is served. Every platform's `url` must be a
+//! plain file name (no scheme, host, path, query or `..`) naming a file in the folder, and
+//! all of them the same file; a manifest that names anything else is refused whole, and the
+//! updater is never started. The address the updater is given is then built from that name
+//! and this listener's port, so the only address it can reach is this listener. The
+//! signature is left as written: the updater checks it against the public key built into
+//! the app, and refuses a bundle it does not match.
 
 use std::fs;
 use std::io::{self, Read, Write};
@@ -40,10 +44,12 @@ impl Channel {
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(e) => return Err(e),
         };
+        // Checked before a socket is opened: a refused manifest serves nothing at all.
+        let (mut manifest, name) = checked(&text, folder)?;
         let listener = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))?;
         let port = listener.local_addr()?.port();
-        let (manifest, bundle) = rewrite(&text, port)?;
-        let bundle = bundle.map(|name| (name.clone(), folder.join(name)));
+        let manifest = addressed(&mut manifest, &name, port)?;
+        let bundle = Some((name.clone(), folder.join(name)));
         listener.set_nonblocking(true)?;
         let stop = Arc::new(AtomicBool::new(false));
         let stopping = Arc::clone(&stop);
@@ -83,32 +89,63 @@ impl Drop for Channel {
     }
 }
 
-/// The manifest with every platform's `url` pointed at this port, and the one bundle it names.
+/// The manifest, if every platform names the same plain file in `folder`, and that name.
 ///
-/// A `url` that is not a plain file name is left as it is and nothing is served for it,
-/// so a manifest cannot make the channel serve a path outside its folder.
-fn rewrite(text: &str, port: u16) -> io::Result<(String, Option<String>)> {
-    let mut manifest: serde_json::Value =
-        serde_json::from_str(text).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    let mut bundle = None;
+/// Refused whole otherwise: a `url` that is an address (`https://…`, `//host/…`), a path, or
+/// carries a query or fragment; an entry with no `url`; a file that is not in the folder or
+/// is a link; no platform at all; or two platforms naming different files.
+fn checked(text: &str, folder: &Path) -> io::Result<(serde_json::Value, String)> {
+    let refuse = |why: String| io::Error::new(io::ErrorKind::InvalidData, why);
+    let manifest: serde_json::Value = serde_json::from_str(text)
+        .map_err(|e| refuse(format!("the update manifest is not JSON: {e}")))?;
+    let platforms = manifest
+        .get("platforms")
+        .and_then(serde_json::Value::as_object)
+        .filter(|p| !p.is_empty())
+        .ok_or_else(|| refuse("the update manifest names no platform".into()))?;
+    let mut named: Option<String> = None;
+    for (platform, entry) in platforms {
+        let url = entry
+            .get("url")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| refuse(format!("the update manifest gives {platform} no file")))?;
+        if !plain_file_name(url) {
+            return Err(refuse(format!(
+                "the update manifest names {url:?} for {platform}, which is not a file in the \
+                 update folder; the update is refused"
+            )));
+        }
+        let is_file = fs::symlink_metadata(folder.join(url)).is_ok_and(|m| m.file_type().is_file());
+        if !is_file {
+            return Err(refuse(format!(
+                "the update manifest names {url}, which is not in the update folder"
+            )));
+        }
+        match &named {
+            Some(other) if other != url => {
+                return Err(refuse(
+                    "the update manifest names two different files".into(),
+                ));
+            }
+            _ => named = Some(url.to_string()),
+        }
+    }
+    let name = named.ok_or_else(|| refuse("the update manifest names no file".into()))?;
+    Ok((manifest, name))
+}
+
+/// The manifest as the updater is given it: every platform's address built from the checked
+/// file name and this listener's port.
+fn addressed(manifest: &mut serde_json::Value, name: &str, port: u16) -> io::Result<String> {
     if let Some(platforms) = manifest
         .get_mut("platforms")
         .and_then(serde_json::Value::as_object_mut)
     {
         for entry in platforms.values_mut() {
-            let Some(name) = entry.get("url").and_then(serde_json::Value::as_str) else {
-                continue;
-            };
-            let name = name.rsplit('/').next().unwrap_or(name).to_string();
-            if !plain_file_name(&name) {
-                continue;
-            }
             entry["url"] = serde_json::Value::String(format!("http://127.0.0.1:{port}/{name}"));
-            bundle = Some(name);
         }
     }
-    let text = serde_json::to_string(&manifest).map_err(io::Error::other)?;
-    Ok((text, bundle))
+    serde_json::to_string(manifest).map_err(io::Error::other)
 }
 
 fn plain_file_name(name: &str) -> bool {
@@ -252,14 +289,57 @@ mod tests {
     }
 
     #[test]
-    fn a_manifest_naming_a_path_outside_the_folder_serves_no_bundle() {
-        let _sockets = one_at_a_time();
-        let dir = TestDir::new("channel-escape");
-        published(dir.path(), "../../etc/.hidden");
-        let channel = Channel::open(dir.path()).unwrap().unwrap();
-        let port = channel.manifest_url().port().unwrap();
-        let (head, _) = get(port, "GET /.hidden HTTP/1.1\r\n\r\n");
-        assert!(head.starts_with("HTTP/1.1 404"));
+    fn a_manifest_naming_anything_but_a_file_in_the_folder_is_refused_and_serves_nothing() {
+        for url in [
+            "https://example.com/x?y",
+            "http://127.0.0.1:58999/physgate-0.1.2.app.tar.gz?from=a-tampered-manifest",
+            "//example.com/physgate-0.1.2.app.tar.gz",
+            "physgate-0.1.2.app.tar.gz?y",
+            "physgate-0.1.2.app.tar.gz#y",
+            "sub/physgate-0.1.2.app.tar.gz",
+            "../../etc/.hidden",
+            "..",
+            ".hidden",
+            "",
+            "latest.json",
+            "physgate-9.9.9.app.tar.gz",
+        ] {
+            let dir = TestDir::new("channel-refused");
+            published(dir.path(), url);
+            let refused = Channel::open(dir.path());
+            assert!(refused.is_err(), "{url:?} was accepted");
+            assert_eq!(refused.err().unwrap().kind(), io::ErrorKind::InvalidData);
+        }
+    }
+
+    #[test]
+    fn a_manifest_with_no_platform_or_two_files_is_refused() {
+        let dir = TestDir::new("channel-shape");
+        fs::write(dir.path().join("a.tar.gz"), b"a").unwrap();
+        fs::write(dir.path().join("b.tar.gz"), b"b").unwrap();
+        for manifest in [
+            serde_json::json!({"version": "0.1.2"}),
+            serde_json::json!({"version": "0.1.2", "platforms": {}}),
+            serde_json::json!({"version": "0.1.2", "platforms": {"darwin-aarch64": {"signature": "s"}}}),
+            serde_json::json!({"version": "0.1.2", "platforms": {
+                "darwin-aarch64": {"signature": "s", "url": "a.tar.gz"},
+                "darwin-x86_64": {"signature": "s", "url": "b.tar.gz"}}}),
+        ] {
+            fs::write(dir.path().join(MANIFEST), manifest.to_string()).unwrap();
+            assert!(Channel::open(dir.path()).is_err(), "{manifest}");
+        }
+    }
+
+    #[test]
+    fn a_bundle_that_is_a_link_is_refused() {
+        let dir = TestDir::new("channel-link");
+        fs::write(dir.path().join("elsewhere"), b"bytes").unwrap();
+        std::os::unix::fs::symlink(dir.path().join("elsewhere"), dir.path().join("x.tar.gz"))
+            .unwrap();
+        let manifest = serde_json::json!({"version": "0.1.2", "platforms": {
+            "darwin-aarch64": {"signature": "s", "url": "x.tar.gz"}}});
+        fs::write(dir.path().join(MANIFEST), manifest.to_string()).unwrap();
+        assert!(Channel::open(dir.path()).is_err());
     }
 
     #[test]
