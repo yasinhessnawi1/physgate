@@ -28,16 +28,25 @@ record can be forged, so each is held to three tests in a fixed order:
 At start, a root that contains a refused path or lies inside one refuses to
 start, so the two sets can never overlap.
 
-What this cannot close: the moment between a check and the reader's own open. A
-same-user process that swaps a checked file for a link in that window is the
-same-user limit the hook layer already records; nothing here pretends otherwise.
+**The window between a check and an open.** :meth:`Allowlist.resolve` judges a path
+and returns it; a reader then opens it by name. A same-user process that swaps a
+checked file, or a directory above it, for a link in that moment would have the
+reader open the link's target. For the read routes this stays a known window: they
+reuse the package's readers, which open by name, and the guard holds each open to
+the same rule. For anything that writes it is closed: :meth:`Allowlist.open_directory`
+opens a directory by walking down to it from the root, one component at a time,
+never through a link, and checks that what it reached is the directory that was
+judged. Whatever happens to the names afterwards, the descriptor it returns is that
+directory, and every file the caller then opens relative to it is beneath it.
 """
 
 from __future__ import annotations
 
 import os
+import stat
 import sys
 from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -94,6 +103,31 @@ def _ancestor_ids(real: str) -> Iterator[tuple[int, int]]:
 
 def _has_corpus_component(path: str) -> bool:
     return any(part.casefold() == CORPUS_DIR for part in Path(path).parts)
+
+
+#: How the walk opens each directory below the root: read-only, a directory, and never
+#: through a link. A component swapped for a link after the path was judged fails here.
+WALK_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+
+#: How the walk opens the root itself. A root is taken as the operator gave it and made
+#: real at start, so its own name is followed; the descriptor is then held to the
+#: (device, inode) the root had at start instead.
+ROOT_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC
+
+
+def _open_root(path: Path) -> int:
+    """Open a root's directory. Its own function so a test can act just before it."""
+    return os.open(path, ROOT_FLAGS)
+
+
+def _open_child(parent: int, name: str) -> int:
+    """Open the directory ``name`` beneath ``parent``, refusing a link. A test seam as well."""
+    return os.open(name, WALK_FLAGS, dir_fd=parent)
+
+
+def _identity(fd: int) -> tuple[int, int]:
+    st = os.fstat(fd)
+    return st.st_dev, st.st_ino
 
 
 @dataclass(frozen=True)
@@ -178,8 +212,14 @@ class Allowlist:
         """
         if _has_nul(path) or not os.path.isabs(path):
             return False
-        real = os.path.realpath(path)
-        if self._refusal(path, real) is not None:
+        try:
+            real = os.path.realpath(path)
+            refused = self._refusal(path, real) is not None
+        except OSError:
+            # The path changed while it was being judged (a component removed between two
+            # steps of resolving it). Judged as refused, never passed on as an error.
+            return False
+        if refused:
             return False
         if any(real == base or real.startswith(base + os.sep) for base in INTERPRETER_PATHS):
             return True
@@ -209,8 +249,8 @@ class Allowlist:
 
         Raises:
             PathRefusedError: the path holds a NUL byte, is relative, lies outside
-                every root, reaches a refused path, names a credential, or is a
-                file with more than one name on disk.
+                every root, reaches a refused path, names a credential, is a file
+                with more than one name on disk, or changed while it was judged.
         """
         text = os.fspath(path)
         if _has_nul(text):
@@ -219,6 +259,17 @@ class Allowlist:
         if not os.path.isabs(text):
             msg = "a relative path is refused: nothing here resolves it against a directory"
             raise PathRefusedError(msg, path=text)
+        try:
+            return self._judge(text)
+        except OSError as exc:
+            # Resolving a path whose components are being removed or swapped can raise from
+            # inside the standard library's own resolution. That is a judgement that could not
+            # finish, so it is a refusal, never a raw error past this boundary.
+            msg = "the path changed while it was being judged, so it is refused"
+            raise PathRefusedError(msg, path=text, reason=os.strerror(exc.errno or 0)) from None
+
+    def _judge(self, text: str) -> Path:
+        """:meth:`resolve`'s checks on an absolute path free of NUL bytes."""
         real = os.path.realpath(text)
         ids = set(_ancestor_ids(real))
         if not any(root.ids in ids for root in self.roots):
@@ -235,3 +286,79 @@ class Allowlist:
             msg = "the file has more than one name on disk, so its other name may be refused"
             raise PathRefusedError(msg, path=text)
         return Path(real)
+
+    def open_directory(self, path: Path | str) -> int:
+        """A descriptor of the directory at ``path``, reached so that no swap can redirect it.
+
+        In order: the path is judged by :meth:`resolve`; the real path it returns must then be
+        a directory and not a link (``lstat``), and its (device, inode) is what was approved.
+        The walk opens the root the path lies beneath and holds it to the (device, inode) the
+        root had at start, then opens each component below it relative to the last, never
+        through a link. The directory it reaches must be the one approved. So a component
+        swapped for a link after the judgement fails at its own step, the root replaced by
+        another directory fails at the root, and the directory itself replaced by another real
+        directory fails at the end. The caller owns the descriptor and closes it.
+
+        Raises:
+            PathRefusedError: the path is refused by :meth:`resolve`, is not a real directory,
+                or the walk does not reach the directory that was approved.
+        """
+        real = self.resolve(path)
+        try:
+            st: os.stat_result | None = os.lstat(real)
+        except OSError:
+            st = None
+        if st is None or not stat.S_ISDIR(st.st_mode):
+            msg = "the path is not a real directory, so nothing is opened beneath it"
+            raise PathRefusedError(msg, path=str(real))
+        approved = (st.st_dev, st.st_ino)
+        root, below = self._beneath(real)
+        fd = _open_root(root.path)
+        try:
+            if _identity(fd) != root.ids:
+                msg = "the root is no longer the directory the server started with"
+                raise PathRefusedError(msg, path=str(real), root=str(root.path))
+            for name in below:
+                try:
+                    child = _open_child(fd, name)
+                except OSError as exc:
+                    msg = "a directory on the way is now a link, or is gone"
+                    raise PathRefusedError(
+                        msg, path=str(real), component=name, reason=os.strerror(exc.errno or 0)
+                    ) from None
+                os.close(fd)
+                fd = child
+            if _identity(fd) != approved:
+                msg = "the walk reached a different directory from the one that was approved"
+                raise PathRefusedError(msg, path=str(real))
+        except BaseException:
+            os.close(fd)
+            raise
+        return fd
+
+    @contextmanager
+    def opened_directory(self, path: Path | str) -> Iterator[int]:
+        """:meth:`open_directory`, its descriptor closed when the block ends."""
+        fd = self.open_directory(path)
+        try:
+            yield fd
+        finally:
+            os.close(fd)
+
+    def _beneath(self, real: Path) -> tuple[Root, tuple[str, ...]]:
+        """The nearest root at or above ``real``, by (device, inode), and the names below it.
+
+        Raises:
+            PathRefusedError: no directory at or above ``real`` is a root any longer.
+        """
+        parts = real.parts
+        for depth in range(len(parts), 0, -1):
+            try:
+                st = os.stat(Path(*parts[:depth]))
+            except OSError:
+                continue
+            for root in self.roots:
+                if root.ids == (st.st_dev, st.st_ino):
+                    return root, tuple(parts[depth:])
+        msg = "the path is outside every root the server was given"
+        raise PathRefusedError(msg, path=str(real))
