@@ -513,3 +513,41 @@ def test_a_decision_body_sent_slowly_but_steadily_is_taken_and_a_stall_is_droppe
     assert [d.item_id for _, d in read_queue(run_dir).decisions] == [
         read_queue(run_dir).items[0].item_id
     ]
+
+
+def test_a_run_directory_swapped_after_the_route_found_it_takes_no_decision(
+    built: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The route reaches the run by the walk no swap can redirect, never by its name.
+
+    Right after the route finds the run, its name is swapped for a link to a copy outside every
+    root. A route that let the decision function open the run by name would write the decision
+    into that copy; the walk refuses the link, and neither copy changes.
+    """
+    from physgate.ui import guard, readers
+
+    run_dir = _copy(built, tmp_path / "ui-root")
+    outside = _copy(built, tmp_path / "outside")
+    found = readers.run_dir_of
+
+    def found_then_swapped(context: object, params: object) -> Path:
+        real = found(context, params)  # type: ignore[arg-type]
+        # The swap stands for another process, so it runs outside this request's guard.
+        token = guard._current.set(None)
+        try:
+            real.rename(real.with_name("run-esc.moved"))
+            real.symlink_to(outside, target_is_directory=True)
+        finally:
+            guard._current.reset(token)
+        return real
+
+    context = replace(context_over(run_dir.parent, ui_root=built["ui"]), operator="yasin")
+    with serving(context) as live:
+        client = Page(live.port)
+        payload = _decision(_view(client))
+        before = (_tree(outside), _tree(run_dir))
+        monkeypatch.setattr(readers, "run_dir_of", found_then_swapped)
+        status, body = client.decide(payload)
+    assert status == 403, body
+    assert _tree(outside) == before[0]
+    assert _tree(run_dir.with_name("run-esc.moved")) == before[1]
