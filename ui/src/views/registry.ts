@@ -39,4 +39,10 @@ export const VIEWS: readonly ViewDef[] = [
     title: "Gate checks",
     component: lazy(() => import("./gate-checks/GateChecks")),
   },
+  {
+    area: "collaboration",
+    slug: "approval-queue",
+    title: "Approval queue",
+    component: lazy(() => import("./approval-queue/ApprovalQueue")),
+  },
 ];

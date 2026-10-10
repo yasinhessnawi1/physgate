@@ -536,3 +536,16 @@ def test_the_decision_function_itself_may_append_to_no_other_file(
     assert "other than the decisions file" in body.decode()
     assert _snapshot(run) == before
     assert guard.DECISIONS_FILE == "queue_decisions.jsonl"
+
+
+def test_the_page_can_read_who_decides_here_and_learns_no_one_when_none_was_named(
+    run: Path,
+) -> None:
+    from physgate.ui.routes import operator
+
+    routes = (_index_route(), Route("GET", "/api/operator", "read", operator))
+    for named, expected in (("Yasin H.", b'"operator": "Yasin H."'), (None, b'"operator": null')):
+        with serving(_context(run, operator=named), routes=routes) as server:
+            status, _, body = Client(server.port).raw("GET", "/api/operator", {})
+        assert status == 200
+        assert expected in body

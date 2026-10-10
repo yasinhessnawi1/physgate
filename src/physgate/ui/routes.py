@@ -221,6 +221,14 @@ def asset(context: Context, params: Mapping[str, str]) -> Response:
     return Response(200, body, content_type)
 
 
+def operator(context: Context, params: Mapping[str, str]) -> Response:
+    """Who decisions taken in the UI are recorded under, or ``null`` when none was named.
+
+    The page names it in every confirmation, since it is part of the line a decision writes.
+    """
+    return json_response({"operator": context.operator})
+
+
 def run_directories(allowlist: Allowlist) -> list[tuple[int, str, Path]]:
     """Every run directory the roots hold: a root that is one, or a root's direct child that is.
 

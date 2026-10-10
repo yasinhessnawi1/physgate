@@ -70,3 +70,59 @@ export async function getLines<T>(
     return value.map(guard);
   });
 }
+
+/** The name of the ``<meta>`` element the server puts its action token in. */
+export const ACT_TOKEN_META = "physgate-act-token";
+
+/** The header an action carries the token back in. */
+export const ACT_TOKEN_HEADER = "X-Physgate-Act-Token";
+
+/**
+ * The action token this page was served with, or ``null`` when the page carries none. The server
+ * made it at start and put it only in this page; another site's page cannot read it.
+ */
+export function actToken(doc: Document = document): string | null {
+  const meta = doc.querySelector<HTMLMetaElement>(`meta[name="${ACT_TOKEN_META}"]`);
+  return meta === null || meta.content === "" ? null : meta.content;
+}
+
+/**
+ * The one request that acts: a JSON body posted to ``path`` with this page's action token. The
+ * browser sends the page's own origin with it. The answer is held to ``guard``, or is the
+ * server's refusal with its reason; a page with no token sends nothing.
+ */
+export async function postAction<T>(
+  path: string,
+  body: string,
+  guard: (value: unknown) => T,
+  token: string | null = actToken(),
+): Promise<Result<T>> {
+  if (token === null)
+    return {
+      ok: false,
+      refusal: {
+        status: 0,
+        error: "this page carries no action token, so it cannot act",
+        context: {},
+      },
+    };
+  const response = await fetch(path, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      [ACT_TOKEN_HEADER]: token,
+    },
+    body,
+    credentials: "omit",
+  });
+  const text = await response.text();
+  if (response.ok) return guarded(text, guard);
+  let parsed: unknown = {};
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    parsed = {};
+  }
+  return { ok: false, refusal: refusalOf(response.status, parsed) };
+}
