@@ -88,6 +88,17 @@ pub struct Settings {
     pub held_out: Vec<PathBuf>,
     /// Paths passed to the server as `--answer-key`, never opened by the shell.
     pub answer_keys: Vec<PathBuf>,
+    /// Whether the welcome and the engine step have been through once.
+    pub onboarded: bool,
+    /// Whether the intro has been shown (it is shown once; the menu replays it).
+    pub intro_seen: bool,
+    /// The engine chosen: `claude-code` or `claude-api` today. A record of the choice only:
+    /// a run's own parameters still name its credential mode and models.
+    pub engine: Option<String>,
+    /// For the Claude API: the model that implements and the model that reviews. Stored
+    /// for a later change to wire; never overrides a run's parameters.
+    pub implementer_model: Option<String>,
+    pub reviewer_model: Option<String>,
 }
 
 impl Default for Settings {
@@ -97,6 +108,11 @@ impl Default for Settings {
             run_folders: Vec::new(),
             held_out: Vec::new(),
             answer_keys: Vec::new(),
+            onboarded: false,
+            intro_seen: false,
+            engine: None,
+            implementer_model: None,
+            reviewer_model: None,
         }
     }
 }

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-claude-code-detect"
+description = "Enables the claude_code_detect command without any pre-configured scope."
+commands.allow = ["claude_code_detect"]
+
+[[permission]]
+identifier = "deny-claude-code-detect"
+description = "Denies the claude_code_detect command without any pre-configured scope."
+commands.deny = ["claude_code_detect"]

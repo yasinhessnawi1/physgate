@@ -23,9 +23,54 @@ That builds the app, takes about three minutes the first time, and puts it in
 `~/Applications/physgate.app`. Open it from Spotlight or Finder. It isn't downloaded from
 the internet, so macOS opens it without a warning.
 
-On the first start the app asks for nothing. It shows how to add a run folder:
-**Run Folders → Add Run Folder…** in the menu bar. Pick a run, or a folder of runs, and
-it is remembered.
+## The first start: welcome, engine, then the operator UI
+
+1. **Welcome.** A seven-second intro plays once. **Skip**, Esc or Return passes it, and
+   **physgate → Replay Intro** shows it again. With reduced motion turned on in System
+   Settings, it shows as a still.
+2. **Engine.** You choose how physgate's roles reach a model. Two choices work today:
+   - **Claude Code**, signed in with your Claude subscription.
+     - **If Claude Code is missing,** the app shows Anthropic's official installer
+       (`curl -fsSL https://claude.ai/install.sh | bash`) and opens Terminal with it when you
+       click. The app downloads nothing itself. Then **Check Again**.
+     - **Sign In** runs `claude setup-token` inside the app and opens your browser. The
+       token it prints goes straight into the macOS Keychain and is never shown. If that
+       doesn't work, **Sign in in Terminal instead** runs it in Terminal, and you paste the
+       token into a masked field.
+   - **The Claude API**, with an API key.
+     - Paste the key into the masked field. It goes into the Keychain, and nothing is sent
+       anywhere.
+     - **Test Key — contacts Anthropic** makes one request, only when you click it, and says
+       whether Anthropic accepts the key.
+     - Choose an implementing and a reviewing model. They must differ.
+
+   Other providers, and a model run on this Mac, are listed as **not available yet**. The
+   local-model card shows what this Mac could run (chip, memory, GPU cores, free disk, and
+   which models would fit), but nothing is downloaded. **Set Up Later** skips the step,
+   and **physgate → Engine…** returns to it.
+3. **The operator UI.** If no run folder is chosen yet, the window says how to add one:
+   **Run Folders → Add Run Folder…**.
+
+**Runs still use Claude Code today.** What the engine step stores (the engine, and for the
+API the two models) is a record for later. A run still uses the credential and models its
+own parameters name, and runs on an API key still ask the owner before they spend.
+
+### Where credentials live
+
+- **Only in the macOS Keychain.** The service is `physgate`, and the account is the
+  variable a run reads (`CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`).
+- **Never anywhere else:** not in the settings, a log, the repository, or the operator UI
+  the server serves. The app's commands only store a credential, forget one, or say
+  whether one is kept. None hands one back.
+- **To start a run from Terminal,** load the credential first with the line the engine
+  step shows. It holds no secret; macOS asks you once to allow it:
+
+  ```sh
+  export CLAUDE_CODE_OAUTH_TOKEN="$(security find-generic-password -s physgate -a CLAUDE_CODE_OAUTH_TOKEN -w)"
+  ```
+
+- **Only the app's own pages can call these commands.** The capability that grants them
+  names no remote address, so the served operator UI can call none of them.
 
 ## Update
 
@@ -41,6 +86,8 @@ it is remembered.
 | Menu | What it does |
 |---|---|
 | physgate → Check for Shell Update… | Looks for a newer app in the local update channel |
+| physgate → Engine… | The engine step again: Claude Code or the Claude API, and the credential kept for runs |
+| physgate → Replay Intro | The welcome intro again |
 | physgate → Open Settings File | The remembered checkout, run folders and held-out paths, as JSON |
 | View → Reload (⌘R) | Reloads the page |
 | View → Restart Server (⇧⌘R) | Reads the settings again, restarts `physgate ui` and shows it |
@@ -59,6 +106,7 @@ in Terminal; the app never runs it.
 | `~/Library/Application Support/physgate-desktop/settings.json` | The settings |
 | `~/Library/Application Support/physgate-desktop/server.log`, `shell.log` | The server's log, and the app's own notes (starts, update checks) |
 | `~/Library/Application Support/physgate-desktop/updates/` | The update channel: `latest.json` and the signed bundle it names |
+| The macOS Keychain, service `physgate` | The subscription token or API key for runs, and nothing else holds them |
 | `~/.config/physgate-desktop/updater.key` | The update signing key, mode 0600, made by the first build. Never in the repository |
 
 - **Loopback only.** The app runs the checkout's own `.venv/bin/physgate ui --bind
@@ -107,6 +155,23 @@ The flag concerns only how the app fetches its own update. The operator server's
 (loopback, `Host`/`Origin`, the allowlist) are not touched by it.
 
 ## For whoever works on the app
+
+- **The intro** is a Remotion composition in `intro/`. To change it, edit `intro/src/Intro.tsx`
+  and render it again:
+
+  ```sh
+  cd desktop/intro && pnpm install && pnpm run render
+  ```
+
+  This writes `status/intro.gif` (an animated image, played once) and
+  `status/intro-poster.png` (its last frame), which are committed. It is an image rather
+  than a film because WebKit in the app won't start a film without a click, and an image
+  needs no permission. Remotion is free for individuals; check its licence before a company
+  uses it. The fonts in `intro/public/fonts` are IBM Plex, under the OFL.
+- **A scripted walk through the onboarding**, for screenshots, is built only with the
+  `walkthrough` cargo feature, never into a published app. See `src/walkthrough.rs` for
+  the variables it reads: a stand-in Claude Code, a Keychain service of its own, and a
+  made-up key.
 
 - **Gates:** `scripts/check-desktop.sh` runs formatting, clippy (pedantic, warnings as
   errors) and the unit tests. It isn't part of `scripts/check.sh` or CI. Run it before

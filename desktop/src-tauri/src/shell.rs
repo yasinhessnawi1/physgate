@@ -67,9 +67,21 @@ impl Shell {
 
     /// Show the app's own page in this state: the only way the window reaches that page.
     pub fn show(&self, window: &WebviewWindow, status: &Status) {
-        let url = status.url();
+        self.go(window, status.url());
+    }
+
+    /// Send the window to one of the app's own pages, with the ticket that lets it in.
+    pub fn go(&self, window: &WebviewWindow, url: Url) {
         self.gate.issue(&url);
         let _ = window.navigate(url);
+    }
+
+    /// Show the onboarding page at a step (`intro` or `engine`), with the server stopped.
+    pub fn onboard(&self, app: &AppHandle, step: &str) {
+        if let Some(window) = app.get_webview_window("main") {
+            self.stop_server();
+            self.go(&window, crate::onboarding::page(step));
+        }
     }
 
     pub fn tour(&self) -> Option<&PathBuf> {
@@ -179,6 +191,15 @@ impl Shell {
         }
         crate::menu::refresh(app);
 
+        if !settings.onboarded {
+            let step = if settings.intro_seen {
+                "engine"
+            } else {
+                "intro"
+            };
+            self.go(&window, crate::onboarding::page(step));
+            return;
+        }
         if !checkout::is_checkout(&settings.checkout) {
             self.show(&window, &Status::no_checkout(&settings.checkout));
             return;

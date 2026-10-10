@@ -15,6 +15,8 @@ use crate::update;
 
 const CHECK_UPDATE: &str = "check-update";
 const SETTINGS: &str = "settings";
+const ENGINE: &str = "engine";
+const REPLAY_INTRO: &str = "replay-intro";
 const RELOAD: &str = "reload";
 const RESTART: &str = "restart";
 const SERVER_LOG: &str = "server-log";
@@ -33,6 +35,8 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         .about(None)
         .separator()
         .item(&MenuItemBuilder::with_id(CHECK_UPDATE, "Check for Shell Update…").build(app)?)
+        .item(&MenuItemBuilder::with_id(ENGINE, "Engine…").build(app)?)
+        .item(&MenuItemBuilder::with_id(REPLAY_INTRO, "Replay Intro").build(app)?)
         .item(&MenuItemBuilder::with_id(SETTINGS, "Open Settings File").build(app)?)
         .separator()
         .hide()
@@ -145,6 +149,8 @@ pub fn on_event(app: &AppHandle, event: &MenuEvent) {
     let app = app.clone();
     match id.as_str() {
         CHECK_UPDATE => update::check(&app, true),
+        ENGINE => app.state::<Shell>().onboard(&app, "engine"),
+        REPLAY_INTRO => app.state::<Shell>().onboard(&app, "intro"),
         SETTINGS => open_in_editor(app.state::<Shell>().settings_file()),
         SERVER_LOG => open_in_editor(app.state::<Shell>().paths.server_log()),
         RELOAD => {

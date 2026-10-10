@@ -16,6 +16,15 @@ tauri-plugin-dialog = "2.6"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 libc = "0.2"
+# The macOS Keychain, through Apple's own API: the only place a credential is kept.
+security-framework = "3.7"
+# The one request the operator may ask for: "Test key". The same client the updater already
+# builds with, so nothing new is compiled in.
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
+
+[features]
+# A scripted walk through the onboarding screens, for screenshots. Never in a published build.
+walkthrough = []
 
 [profile.release]
 opt-level = "s"

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-test-api-key"
+description = "Enables the test_api_key command without any pre-configured scope."
+commands.allow = ["test_api_key"]
+
+[[permission]]
+identifier = "deny-test-api-key"
+description = "Denies the test_api_key command without any pre-configured scope."
+commands.deny = ["test_api_key"]

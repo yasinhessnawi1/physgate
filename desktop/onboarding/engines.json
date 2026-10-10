@@ -1,0 +1,40 @@
+{
+  "_about": "What the engine step offers. 'available' engines work today; 'not-yet' ones are shown so the choice can be switched on later, and nothing runs on them. Sizes for local models are approximate, for a 4-bit build.",
+  "engines": [
+    {
+      "id": "claude-code",
+      "name": "Claude Code",
+      "detail": "Runs sign in with your Claude subscription.",
+      "status": "available",
+      "auth": "subscription"
+    },
+    {
+      "id": "claude-api",
+      "name": "Claude API",
+      "detail": "Runs use an Anthropic API key, billed per token.",
+      "status": "available",
+      "auth": "api_key",
+      "models": [
+        { "id": "claude-opus-5-5", "label": "Claude Opus 5.5" },
+        { "id": "claude-sonnet-5", "label": "Claude Sonnet 5" },
+        { "id": "claude-haiku-4-5-20251001", "label": "Claude Haiku 4.5" }
+      ],
+      "defaults": { "implementer": "claude-opus-5-5", "reviewer": "claude-sonnet-5" }
+    },
+    { "id": "openai", "name": "OpenAI API", "detail": "GPT models with an OpenAI key.", "status": "not-yet" },
+    { "id": "google", "name": "Gemini API", "detail": "Gemini models with a Google AI key.", "status": "not-yet" },
+    { "id": "mistral", "name": "Mistral API", "detail": "Mistral models with a Mistral key.", "status": "not-yet" },
+    {
+      "id": "local",
+      "name": "A model on this Mac",
+      "detail": "An open-weight model run locally, downloaded from its official source.",
+      "status": "not-yet",
+      "local_models": [
+        { "name": "Llama 3.1 8B Instruct", "memory_gb": 6, "disk_gb": 5, "licence": "Llama 3.1 Community License", "source": "https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct" },
+        { "name": "Mistral Small 3.1 24B", "memory_gb": 16, "disk_gb": 14, "licence": "Apache-2.0", "source": "https://huggingface.co/mistralai/Mistral-Small-3.1-24B-Instruct-2503" },
+        { "name": "Qwen2.5-Coder 32B Instruct", "memory_gb": 22, "disk_gb": 19, "licence": "Apache-2.0", "source": "https://huggingface.co/Qwen/Qwen2.5-Coder-32B-Instruct" },
+        { "name": "Llama 3.3 70B Instruct", "memory_gb": 42, "disk_gb": 40, "licence": "Llama 3.3 Community License", "source": "https://huggingface.co/meta-llama/Llama-3.3-70B-Instruct" }
+      ]
+    }
+  ]
+}

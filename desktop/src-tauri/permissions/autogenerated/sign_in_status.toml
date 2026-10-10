@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-sign-in-status"
+description = "Enables the sign_in_status command without any pre-configured scope."
+commands.allow = ["sign_in_status"]
+
+[[permission]]
+identifier = "deny-sign-in-status"
+description = "Denies the sign_in_status command without any pre-configured scope."
+commands.deny = ["sign_in_status"]

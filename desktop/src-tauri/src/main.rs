@@ -12,8 +12,11 @@
 mod channel;
 mod checkout;
 mod config;
+mod engine;
+mod keychain;
 mod menu;
 mod navigation;
+mod onboarding;
 mod server;
 mod shell;
 mod status;
@@ -21,6 +24,8 @@ mod status;
 mod testdir;
 mod tour;
 mod update;
+#[cfg(feature = "walkthrough")]
+mod walkthrough;
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -37,6 +42,24 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Shell::new(Paths::from_env(), tour))
+        .manage(engine::SignIn::default())
+        .invoke_handler(tauri::generate_handler![
+            onboarding::onboarding_state,
+            onboarding::claude_code_detect,
+            onboarding::claude_code_install,
+            onboarding::sign_in_start,
+            onboarding::sign_in_status,
+            onboarding::sign_in_return,
+            onboarding::sign_in_cancel,
+            onboarding::sign_in_in_terminal,
+            onboarding::store_secret,
+            onboarding::forget_secret,
+            onboarding::test_api_key,
+            onboarding::choose_engine,
+            onboarding::device_report,
+            onboarding::intro_seen,
+            onboarding::finish_onboarding,
+        ])
         .setup(|app| {
             let handle = app.handle().clone();
             let shell = app.state::<Shell>();
@@ -75,6 +98,8 @@ fn main() {
             ));
             menu::restart_in_background(handle.clone());
             Shell::watch(handle.clone());
+            #[cfg(feature = "walkthrough")]
+            walkthrough::start(handle.clone());
             let later = handle.clone();
             std::thread::spawn(move || {
                 std::thread::sleep(Duration::from_secs(4));

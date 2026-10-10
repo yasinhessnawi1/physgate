@@ -1,0 +1,23 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "onboarding",
+  "description": "The app's own bundled pages may call the onboarding commands. No remote address is named, so the served operator UI can call none of them.",
+  "windows": ["main"],
+  "permissions": [
+    "allow-onboarding-state",
+    "allow-claude-code-detect",
+    "allow-claude-code-install",
+    "allow-sign-in-start",
+    "allow-sign-in-status",
+    "allow-sign-in-return",
+    "allow-sign-in-cancel",
+    "allow-sign-in-in-terminal",
+    "allow-store-secret",
+    "allow-forget-secret",
+    "allow-test-api-key",
+    "allow-choose-engine",
+    "allow-device-report",
+    "allow-intro-seen",
+    "allow-finish-onboarding"
+  ]
+}

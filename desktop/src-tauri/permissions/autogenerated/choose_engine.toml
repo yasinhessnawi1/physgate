@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-choose-engine"
+description = "Enables the choose_engine command without any pre-configured scope."
+commands.allow = ["choose_engine"]
+
+[[permission]]
+identifier = "deny-choose-engine"
+description = "Denies the choose_engine command without any pre-configured scope."
+commands.deny = ["choose_engine"]
