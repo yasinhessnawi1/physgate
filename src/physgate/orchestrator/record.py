@@ -96,6 +96,16 @@ class RunRecord:
         )
         if self.config_path.exists():
             require_recorded(self.config_path, config)
+            if self.log.events and self.state.escalation_backend != config.escalation_backend:
+                # The first line names the binding as well as the configuration's digest;
+                # a log that names another binding is not this run's.
+                msg = "the run's first line names another escalation backend than its config"
+                raise RunConfigError(
+                    msg,
+                    run_dir=str(self.run_dir),
+                    logged=str(self.state.escalation_backend),
+                    recorded=str(config.escalation_backend),
+                )
         elif self.log.events:
             msg = "the run has events but no recorded configuration"
             raise RunConfigError(msg, run_dir=str(self.run_dir))
@@ -122,7 +132,13 @@ class RunRecord:
             msg = "the run was already started"
             raise RunStateError(msg, run_dir=str(self.run_dir))
         write_run_config(self.config_path, self.config)
-        self.emit(RunStarted(**self.envelope(), config_sha256=self.config.sha256()))
+        self.emit(
+            RunStarted(
+                **self.envelope(),
+                config_sha256=self.config.sha256(),
+                escalation_backend=self.config.escalation_backend,
+            )
+        )
         if call is not None:
             for message in call.usage:
                 self.emit(

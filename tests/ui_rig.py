@@ -74,6 +74,7 @@ def run_config(run_id: str) -> RunConfig:
         max_output_tokens=64000,
         thinking_display="summarized",
         role_python=None,
+        escalation_backend="rules",
     )
 
 

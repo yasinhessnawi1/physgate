@@ -36,6 +36,7 @@ from physgate.gate.runner import PhysicsGate
 from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper
 from physgate.orchestrator.budget import SessionEnd
 from physgate.orchestrator.decompose import Outcome, Plan, PlannedModule, mint_id, start_run
+from physgate.orchestrator.escalation import bind
 from physgate.orchestrator.events import (
     Escalated,
     GateRan,
@@ -186,6 +187,7 @@ def _drive(
         changes=GitChangeChecker(run, run_dir / "store", {mint_id(cfg.seed, 0, name): module_dir}),
         merger=GitMerger(run, removal_timeout_s=60.0),
         graph=keeper,
+        escalation=bind("rules"),
         sleep=lambda _: None,
         clock=clock,
     )

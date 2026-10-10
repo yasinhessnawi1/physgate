@@ -12,6 +12,7 @@ from orch_helpers import gate_records, make_config, ticking_clock
 
 from physgate.orchestrator.budget import InfraCause, SessionEnd
 from physgate.orchestrator.common import GateMode
+from physgate.orchestrator.escalation import EscalationInterface, bind
 from physgate.orchestrator.exceptions import ReviewUnavailableError
 from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.ports import (
@@ -317,6 +318,8 @@ class Rig:
     delays: tuple[float, ...] = ()
     slept: list[float] = field(default_factory=list)
     config_overrides: dict[str, Any] = field(default_factory=dict)
+    #: The escalation interface the loop asks; the run's binding, through the register.
+    escalation: EscalationInterface = field(default_factory=lambda: bind("rules"))
 
     def open(self) -> Loop:
         from orch_helpers import SCRIPTED_BOUNDS
@@ -334,6 +337,7 @@ class Rig:
             changes=self.changes,
             merger=self.merger,
             graph=self.diff,
+            escalation=self.escalation,
             sleep=sleeper,
             clock=ticking_clock(),
         )

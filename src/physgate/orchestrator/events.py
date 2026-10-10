@@ -42,6 +42,7 @@ from physgate.orchestrator.common import (
     utc_now,
     utc_stamp,
 )
+from physgate.orchestrator.escalation import BackendName
 from physgate.orchestrator.exceptions import CorruptEventLogError, RunConfigError
 from physgate.orchestrator.install import InstallFacts
 from physgate.orchestrator.managed import ObservedTraffic
@@ -126,6 +127,9 @@ class RunStarted(_Event):
 
     kind: Literal["run_started"] = "run_started"
     config_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+    #: The escalation backend the run is bound to, as its configuration names it; ``None``
+    #: on a log written before the escalation interface existed, whose loop asked none.
+    escalation_backend: BackendName | None = None
 
 
 class SubtaskPlanned(_Event):

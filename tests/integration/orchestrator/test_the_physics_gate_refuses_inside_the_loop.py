@@ -27,6 +27,7 @@ from git_rig import DispatchPort, GitDispatcher, Reviewer, config, plan_entry, r
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper
 from physgate.orchestrator.cli import default_registrations
+from physgate.orchestrator.escalation import bind
 from physgate.orchestrator.events import (
     AttemptRejected,
     Escalated,
@@ -105,6 +106,7 @@ def run_loop(
         changes=GitChangeChecker(run, store_root, subtasks),
         merger=GitMerger(run, removal_timeout_s=60.0),
         graph=keeper,
+        escalation=bind("rules"),
         sleep=lambda _: None,
     )
     try:

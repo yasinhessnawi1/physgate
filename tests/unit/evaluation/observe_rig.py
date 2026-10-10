@@ -28,6 +28,7 @@ from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper
 from physgate.orchestrator.budget import SessionEnd
 from physgate.orchestrator.cli import _harness_root
 from physgate.orchestrator.decompose import Outcome, Plan, PlannedModule, mint_id, start_run
+from physgate.orchestrator.escalation import bind
 from physgate.orchestrator.git import head_of
 from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.merge import GitMerger, RunGit, commit_attempt
@@ -109,6 +110,7 @@ def config(run_id: str, repo: Path, **overrides: Any) -> RunConfig:  # noqa: ANN
         "max_output_tokens": 64000,
         "thinking_display": "summarized",
         "role_python": None,
+        "escalation_backend": "rules",
     }
     fields.update(overrides)
     return RunConfig(**fields)
@@ -349,6 +351,7 @@ def drive(
         changes=GitChangeChecker(run, run_dir / "store", modules),
         merger=GitMerger(run, removal_timeout_s=60.0),
         graph=keeper,
+        escalation=bind("rules"),
         sleep=lambda _: None,
         **({"clock": clock} if clock is not None else {}),
     )

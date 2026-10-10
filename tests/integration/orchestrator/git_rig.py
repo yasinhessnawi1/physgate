@@ -290,6 +290,7 @@ PARAMS = {
     "max_output_tokens",
     "thinking_display",
     "role_python",
+    "escalation_backend",
 }
 
 
@@ -321,6 +322,7 @@ def config(run_id: str = "run-1") -> RunConfig:
         max_output_tokens=64000,
         thinking_display="summarized",
         role_python=None,
+        escalation_backend="rules",
     )
 
 

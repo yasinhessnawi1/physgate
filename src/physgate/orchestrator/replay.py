@@ -151,6 +151,9 @@ class RunState:
     def __init__(self) -> None:
         """An empty run: nothing started."""
         self.gate_mode: GateMode | None = None
+        #: The escalation backend the run's first line names; ``None`` on a log written
+        #: before the escalation interface existed.
+        self.escalation_backend: str | None = None
         self.order: list[str] = []
         self.subtasks: dict[str, SubtaskState] = {}
         self.halted: Halted | None = None
@@ -193,6 +196,7 @@ class RunState:
     def _record(self, event: Event) -> None:
         if isinstance(event, RunStarted):
             self.gate_mode = event.gate_mode
+            self.escalation_backend = event.escalation_backend
             return
         if isinstance(event, Halted):
             self.halted = event

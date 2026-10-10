@@ -40,8 +40,13 @@ ADDED_LINES: frozenset[str] = frozenset()
 #: Fields added to an existing record after the golden file was written, per event
 #: kind (or ``config`` for the run configuration), each with the value that means
 #: "as before": a line or record that carries exactly that value is compared without
-#: it. Empty until such a field exists.
-ADDED_FIELDS: dict[str, dict[str, Any]] = {}
+#: it.
+ADDED_FIELDS: dict[str, dict[str, Any]] = {
+    # The run's escalation binding, recorded in its configuration and on its first line.
+    # Every run before the interface was, by construction, the rules binding.
+    "config": {"escalation_backend": "rules"},
+    "run_started": {"escalation_backend": "rules"},
+}
 
 #: Fields added after the golden file was written that carry new information, not a
 #: default, so they are set aside whatever their value; their content is held by tests of

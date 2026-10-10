@@ -60,7 +60,9 @@ from physgate.orchestrator.events import (
     WriteDone,
     WriteIntended,
 )
+from physgate.orchestrator.escalation import EscalationInterface, bind
 from physgate.orchestrator.exceptions import (
+    EscalationBackendError,
     GateNotRegisteredError,
     MergeConflictError,
     MergeRefusedError,
@@ -143,6 +145,36 @@ def require_gate(config: RunConfig, gate: Gate | None) -> None:
         raise GateNotRegisteredError(msg, gate_mode=config.gate_mode)
 
 
+def escalation_for(config: RunConfig) -> EscalationInterface:
+    """The escalation interface over the backend the run names, through the register.
+
+    Raises:
+        EscalationBackendError: the run names no backend, or the register will not bind it.
+    """
+    if config.escalation_backend is None:
+        msg = "the run names no escalation backend; a run recorded without one is not driven"
+        raise EscalationBackendError(msg, run_id=config.run_id)
+    return bind(config.escalation_backend)
+
+
+def require_binding(config: RunConfig, escalation: EscalationInterface) -> None:
+    """Refuse a run with no escalation binding, or asked through another backend's interface.
+
+    Raises:
+        EscalationBackendError: the configuration names no binding (a run recorded before
+            the interface existed), or the interface asks a backend other than the one the
+            run names.
+    """
+    if config.escalation_backend is None:
+        msg = "the run names no escalation backend; a run recorded without one is not driven"
+        raise EscalationBackendError(msg, run_id=config.run_id)
+    if escalation.backend_id != config.escalation_backend:
+        msg = "the escalation interface asks another backend than the one the run names"
+        raise EscalationBackendError(
+            msg, named=config.escalation_backend, asked=escalation.backend_id
+        )
+
+
 def refuse_unregistered(
     config: RunConfig, gate: Gate | None, reviewers: Mapping[str, Reviewer]
 ) -> None:
@@ -178,6 +210,7 @@ class Loop:
         changes: ChangeChecker,
         merger: Merger,
         graph: GraphPort,
+        escalation: EscalationInterface,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], datetime] = utc_now,
     ) -> None:
@@ -188,8 +221,10 @@ class Loop:
                 :func:`refuse_unregistered`.
             RunConfigError: the run directory holds another configuration, or a log
                 with no configuration.
+            EscalationBackendError: see :func:`require_binding`.
         """
         refuse_unregistered(config, gate, reviewers)
+        require_binding(config, escalation)
         self.config = config
         self.run_dir = Path(run_dir)
         self._gate = gate
@@ -198,6 +233,7 @@ class Loop:
         self._changes = changes
         self._merger = merger
         self._graph = graph
+        self._escalation = escalation
         self._sleep = sleep
         self._appends: tuple[str, ...] = ()
         self.record = RunRecord(config, self.run_dir, clock=clock)
