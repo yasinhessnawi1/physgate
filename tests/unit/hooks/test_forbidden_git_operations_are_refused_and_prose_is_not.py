@@ -68,6 +68,31 @@ REFUSED = [
     ("git push $FLAGS", G.DYNAMIC_GIT),
     ("git push", G.ROLE_PUSH),
     ("git push origin subtask/electrical-1", G.ROLE_PUSH),
+    # A role session may not write git's configuration: any set key could make a later
+    # command run a program. The rule is the action, not a list of keys. (These strings are
+    # only parsed by the hook; no git runs.)
+    ("git config user.email me@example.invalid", G.ROLE_CONFIG_WRITE),
+    ("git config filter.x.clean somecommand", G.ROLE_CONFIG_WRITE),
+    ("git config diff.external somecommand", G.ROLE_CONFIG_WRITE),
+    ("git config core.fsmonitor somecommand", G.ROLE_CONFIG_WRITE),
+    ("git config --add remote.o.url x", G.ROLE_CONFIG_WRITE),
+    ("git config --unset user.email", G.ROLE_CONFIG_WRITE),
+    ("git config --unset-all a.b", G.ROLE_CONFIG_WRITE),
+    ("git config --replace-all a.b c", G.ROLE_CONFIG_WRITE),
+    ("git config --remove-section foo", G.ROLE_CONFIG_WRITE),
+    ("git config --rename-section foo bar", G.ROLE_CONFIG_WRITE),
+    ("git config -e", G.ROLE_CONFIG_WRITE),
+    ("git config --edit", G.ROLE_CONFIG_WRITE),
+    ("git config --file custom a.b c", G.ROLE_CONFIG_WRITE),
+    ("git -C sub config user.name me", G.ROLE_CONFIG_WRITE),
+    # Inline config, in every spelling git accepts, is also setting config.
+    ("git -c filter.x.clean=somecommand add -A", G.ROLE_CONFIG_WRITE),
+    ("git -c core.fsmonitor=somecommand status", G.ROLE_CONFIG_WRITE),
+    ("git -c core.pager=somecommand log", G.ROLE_CONFIG_WRITE),
+    ("GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.pager git log", G.ROLE_CONFIG_WRITE),
+    ("GIT_CONFIG_PARAMETERS=\"'core.pager=x'\" git log", G.ROLE_CONFIG_WRITE),
+    # A shape the rule cannot read as a plain read is refused, not passed.
+    ("git config --unknownflag a b", G.ROLE_CONFIG_WRITE),
 ]
 
 ALLOWED = [
@@ -81,6 +106,10 @@ ALLOWED = [
     "git commit -m 'docs: explain why --no-verify is refused'",
     "git commit -F notes.txt -a",
     "git config --get user.name",
+    "git config user.email",
+    "git config --get-regexp '^user'",
+    "git config --list",
+    "git config -l",
     "git branch --list",
     "git branch subtask/extra",
     "git rebase --abort",
@@ -124,6 +153,14 @@ def test_a_forbidden_git_operation_is_refused(tmp_path: Path, command: str, reas
 @pytest.mark.parametrize("command", ALLOWED, ids=ALLOWED)
 def test_an_ordinary_command_or_text_naming_a_flag_passes(tmp_path: Path, command: str) -> None:
     assert _decide(tmp_path, command) == "allow"
+
+
+def test_the_config_write_refusal_is_for_role_sessions_only(tmp_path: Path) -> None:
+    # The orchestrator owns the repository and writes its own identity and settings.
+    assert _decide(tmp_path, "git config user.email x@y.invalid", profile="orchestrator") == "allow"
+    # A role session is refused the same write, and still allowed to read a value.
+    assert _decide(tmp_path, "git config user.email x@y.invalid") == G.ROLE_CONFIG_WRITE
+    assert _decide(tmp_path, "git config --get user.email") == "allow"
 
 
 #: git accepts any unique prefix of a subcommand's long option, so every

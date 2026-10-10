@@ -40,6 +40,24 @@ HOOK_CONFIG = (
     "Changing git's hook path or its aliases is refused: either would change what "
     "later git commands do without the command saying so."
 )
+ROLE_CONFIG_WRITE = (
+    "A role session does not set git's configuration, by any means. Any key it set — on the "
+    "command line with -c, through a GIT_CONFIG_* variable, or with `git config` — could make "
+    "a later git command run a program of the session's choosing. Reading a value "
+    "(`git config --get <key>`, `--list`, or a bare key) is allowed; setting one is not."
+)
+#: The only ``git config`` forms a role session may run: the ones that read. This is an
+#: allowlist — every other form, and anything this cannot classify, is refused — because a
+#: denylist of write actions keeps missing ways git can be told to set a key.
+_CONFIG_READ_FLAGS = (
+    "--get",
+    "--get-all",
+    "--get-regexp",
+    "--get-urlmatch",
+    "--get-color",
+    "--get-colorbool",
+    "--list",
+)
 ROLE_PUSH = "A role session does not push. The orchestrator merges and pushes finished work."
 HARD_RESET = (
     "A hard reset is refused unless it only moves this session's own branch within "
@@ -110,6 +128,37 @@ def _flags(rest: list[str]) -> list[str]:
         if word.startswith("-"):
             flags.append(word)
     return flags
+
+
+def _config_is_read_only(rest: list[str]) -> bool:
+    """Whether a ``git config`` invocation is one of the read-only forms a role may run.
+
+    An allowlist: a recognised read flag (``--get``/``--list`` family, ``-l``), or at most a
+    single operand (a bare key, which prints its value, or none at all). Anything else — a key
+    and a value, an ``--unset``/``--edit``/``--file``/``--rename`` action, or a shape this
+    cannot read — is not allowed, so a form this does not recognise is refused, not passed.
+    """
+    flags = _flags(rest)
+    if any(_names(f, _CONFIG_READ_FLAGS) or f in ("-l", "-L") for f in flags):
+        return True
+    if any(f.startswith("-") for f in flags):
+        return False
+    return len([w for w in rest if not w.startswith("-")]) <= 1
+
+
+def _role_sets_config(cmd: SimpleCommand, globals_: list[str], sub: str, rest: list[str]) -> bool:
+    """Whether a role session's git command would set configuration, by any means.
+
+    Three ways git is told to set a key, all refused: a ``GIT_CONFIG_*`` environment variable
+    before the command, an inline ``-c``/``--config-env`` global, and a ``git config`` form
+    that is not a plain read. ``--config-env`` is already refused for every profile as a hook
+    change; it is named here too so the rule stands on its own.
+    """
+    if any(a.split("=", 1)[0].startswith("GIT_CONFIG") for a in cmd.assignments):
+        return True
+    if any(g == "-c" or _names(g, ("--config-env",)) for g in globals_):
+        return True
+    return sub == "config" and not _config_is_read_only(rest)
 
 
 def _names(flag: str, options: tuple[str, ...]) -> bool:
@@ -196,6 +245,8 @@ def check_command(
         return SKIP_HOOKS
     if sub == "config" and any(_mentions_hooks_path(w) or w.startswith("alias.") for w in rest):
         return HOOK_CONFIG
+    if config.profile == "role" and _role_sets_config(cmd, globals_, sub, rest):
+        return ROLE_CONFIG_WRITE
     if sub == "commit" and any(_short_cluster_has(f, "n") for f in flags):
         return SKIP_HOOKS
     if sub == "push":

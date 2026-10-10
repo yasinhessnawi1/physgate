@@ -91,9 +91,28 @@ def run_protected_roots(run: RunGit) -> tuple[tuple[Path, ...], tuple[Path, ...]
     """
     # Where git keeps the run branch's loose ref, for any repository layout. A ref
     # moved in packed-refs is seen by the loop's check of the branch instead.
-    ref = common_dir(run.repo) / "refs" / "heads" / run.run_branch
+    common = common_dir(run.repo)
+    ref = common / "refs" / "heads" / run.run_branch
     reverted = (*(run.run_dir / name for name in RUN_RECORDS), run.integration, ref)
+    reverted = (*reverted, *git_config_roots(common))
     return reverted, (run.run_dir / "sessions", run.run_dir / DECISIONS_NAME)
+
+
+#: The files and directories in a repository's common git directory through which a write
+#: makes a later git command run a program: its configuration (a diff, merge or filter driver,
+#: or the file-system monitor), the attributes and exclude files under ``info/``, the
+#: repository hooks, and a submodule's own git directory under ``modules/`` (its config and
+#: hooks). A role session has no legitimate need to write any of them, so they are protected
+#: roots: the path layer refuses a file tool's write, and the sentinel puts back a shell write.
+#: The per-worktree ``config.worktree`` is covered too, because git reads it only when
+#: ``extensions.worktreeConfig`` is set in this same ``config``, which is now protected, and a
+#: role cannot set it (``git config`` writes are refused at the shell layer).
+GIT_CONFIG_NAMES = ("config", "config.worktree", "info", "hooks", "modules")
+
+
+def git_config_roots(common_git_dir: Path) -> tuple[Path, ...]:
+    """The common git directory's exec-config surface, as protected roots."""
+    return tuple(common_git_dir / name for name in GIT_CONFIG_NAMES)
 
 
 @dataclass(frozen=True)
@@ -294,6 +313,11 @@ class ClaudeDispatcher:
         # root the hook layer protects; a session that rewrote it would make the
         # next run refuse, or, with the manifest, pass. It is put back.
         reverted = (*reverted, build_record_path(self._install_bin.parent.parent))
+        # This session's worktree is a linked worktree, so its ``.git`` is a pointer file to
+        # the admin directory the orchestrator's commits run against. A session that repointed
+        # it would make the commit take another directory's config as git's own, so the pointer
+        # is put back. (The orchestrator also verifies it before every git call.)
+        reverted = (*reverted, worktree / ".git")
         protect = [arg for root in reverted for arg in ("--protect", str(root))]
         protect += [arg for root in refused for arg in ("--protect-refuse-only", str(root))]
         # A session in the target's worktree has nothing of its own in the harness
