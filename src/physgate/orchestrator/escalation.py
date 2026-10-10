@@ -35,6 +35,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 
 from physgate.orchestrator.budget import after_rejection
 from physgate.orchestrator.common import NonEmptyStr
+from physgate.orchestrator.escalation_state import AttemptEnd, EscalationState
 from physgate.orchestrator.exceptions import EscalationBackendError
 
 #: ARCH-131's routing threshold: a confidence below it goes to a person.
@@ -43,9 +44,6 @@ CONFIDENCE_FLOOR: Final = 0.8
 #: The question kinds ARCH-131 names; only ``yes_no`` is asked in the first slice.
 QuestionKind = Literal["yes_no"]
 Answer = Literal["yes", "no"]
-#: How an attempt that did not merge ended: rejected, its review blocked, or its
-#: review reached no verdict.
-AttemptEnd = Literal["rejected", "review_blocked", "review_unavailable"]
 #: Why a decision routes to the queue: a forced route, the answer, or the floor.
 RouteBasis = Literal["forced", "answer", "floor"]
 #: A register row's standing (ARCH-132).
@@ -93,7 +91,7 @@ class BackendAnswer(_Frozen):
 class Backend(Protocol):
     """An escalation backend: answers the question from the state alone."""
 
-    def decide(self, question: Question, state: EndOfAttempt) -> BackendAnswer:
+    def decide(self, question: Question, state: EscalationState) -> BackendAnswer:
         """Answer ``question`` for ``state``."""
         ...
 
@@ -243,7 +241,7 @@ REGISTER: Final = Register(
 class RulesBackend:
     """The default binding: escalate exactly when the loop has nothing else to do."""
 
-    def decide(self, question: Question, state: EndOfAttempt) -> BackendAnswer:
+    def decide(self, question: Question, state: EscalationState) -> BackendAnswer:
         """Yes on a forced route, no otherwise, always at confidence 1.0."""
         return BackendAnswer(answer="yes" if forced(state) else "no", confidence=1.0)
 
@@ -280,7 +278,7 @@ class EscalationInterface:
         """The register name of the backend this interface asks."""
         return self._row.name
 
-    def decide(self, question: Question, state: EndOfAttempt) -> Decision:
+    def decide(self, question: Question, state: EscalationState) -> Decision:
         """Ask the backend, and route by the forced routes, the answer and the floor.
 
         Raises:

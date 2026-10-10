@@ -14,20 +14,20 @@ from dataclasses import dataclass
 from itertools import count
 
 import pytest
+from escalation_states import ended
 from pydantic import ValidationError
 
 from physgate.orchestrator.escalation import (
     CONFIDENCE_FLOOR,
     REGISTER,
     TO_THE_QUEUE,
-    AttemptEnd,
     BackendAnswer,
     BackendRow,
     Decision,
-    EndOfAttempt,
     EscalationInterface,
     Question,
 )
+from physgate.orchestrator.escalation_state import EscalationState
 from physgate.orchestrator.exceptions import EscalationBackendError
 
 ROW = BackendRow(
@@ -39,26 +39,20 @@ ROW = BackendRow(
 )
 
 
-@dataclass(frozen=True)
-class End:
-    attempt_end: AttemptEnd
-    attempt_count: int
-
-
 @dataclass
 class Answers:
     """A backend that answers what it is told to, and is not ``rules``."""
 
     answer: str
     confidence: float
-    asked: list[EndOfAttempt]
+    asked: list[EscalationState]
 
-    def decide(self, question: Question, state: EndOfAttempt) -> BackendAnswer:
+    def decide(self, question: Question, state: EscalationState) -> BackendAnswer:
         self.asked.append(state)
         return BackendAnswer.model_validate({"answer": self.answer, "confidence": self.confidence})
 
 
-def ask(answer: str, confidence: float, end: End) -> Decision:
+def ask(answer: str, confidence: float, end: EscalationState) -> Decision:
     backend = Answers(answer, confidence, [])
     return EscalationInterface(backend, ROW).decide(TO_THE_QUEUE, end)
 
@@ -82,7 +76,7 @@ def test_the_floor_is_arch_131_s() -> None:
 def test_below_the_floor_goes_to_the_queue_whatever_the_answer(
     answer: str, confidence: float, basis: str | None
 ) -> None:
-    decision = ask(answer, confidence, End("rejected", 1))
+    decision = ask(answer, confidence, ended("rejected", 1))
     assert decision.basis == basis
     assert decision.routed is (basis is not None)
     assert decision.forced is False
@@ -90,12 +84,12 @@ def test_below_the_floor_goes_to_the_queue_whatever_the_answer(
 
 @pytest.mark.parametrize(
     "end",
-    [End("rejected", 3), End("review_blocked", 1), End("review_unavailable", 2)],
+    [ended("rejected", 3), ended("review_blocked", 1), ended("review_unavailable", 2)],
     ids=["third_rejection", "blocked", "unavailable"],
 )
 @pytest.mark.parametrize(("answer", "confidence"), [("no", 1.0), ("no", 0.0), ("yes", 1.0)])
 def test_a_forced_route_goes_to_the_queue_whatever_the_backend_says(
-    end: End, answer: str, confidence: float
+    end: EscalationState, answer: str, confidence: float
 ) -> None:
     decision = ask(answer, confidence, end)
     assert decision.forced is True
@@ -105,15 +99,15 @@ def test_a_forced_route_goes_to_the_queue_whatever_the_backend_says(
 
 @pytest.mark.parametrize("attempt", [1, 2])
 def test_a_rejection_with_budget_left_is_the_backend_s_to_decide(attempt: int) -> None:
-    assert ask("no", 1.0, End("rejected", attempt)).routed is False
-    assert ask("yes", 1.0, End("rejected", attempt)).routed is True
+    assert ask("no", 1.0, ended("rejected", attempt)).routed is False
+    assert ask("yes", 1.0, ended("rejected", attempt)).routed is True
 
 
 def test_the_record_carries_what_arch_131_names_and_the_backend_is_asked_once() -> None:
     backend = Answers("no", 0.9, [])
     ticks = count(start=1_000_000, step=2_500_000)
     interface = EscalationInterface(backend, ROW, clock=lambda: next(ticks))
-    end = End("rejected", 2)
+    end = ended("rejected", 2)
     decision = interface.decide(TO_THE_QUEUE, end)
     assert backend.asked == [end]
     assert (decision.answer, decision.confidence) == ("no", 0.9)
@@ -125,18 +119,18 @@ def test_the_record_carries_what_arch_131_names_and_the_backend_is_asked_once() 
 
 def test_a_backend_answering_with_something_else_is_refused() -> None:
     class Loose:
-        def decide(self, question: Question, state: EndOfAttempt) -> BackendAnswer:
+        def decide(self, question: Question, state: EscalationState) -> BackendAnswer:
             return {"answer": "no", "confidence": 1.0}  # type: ignore[return-value]
 
     with pytest.raises(EscalationBackendError):
-        EscalationInterface(Loose(), ROW).decide(TO_THE_QUEUE, End("rejected", 1))
+        EscalationInterface(Loose(), ROW).decide(TO_THE_QUEUE, ended("rejected", 1))
 
 
 def test_a_clock_that_runs_backwards_is_refused() -> None:
     ticks = iter([5, 4])
     interface = EscalationInterface(Answers("no", 1.0, []), ROW, clock=lambda: next(ticks))
     with pytest.raises(EscalationBackendError):
-        interface.decide(TO_THE_QUEUE, End("rejected", 1))
+        interface.decide(TO_THE_QUEUE, ended("rejected", 1))
 
 
 @pytest.mark.parametrize("confidence", [math.nan, math.inf, -0.01, 1.01])
