@@ -32,6 +32,15 @@ const TEXT_PAIRS: readonly (readonly [ColorName, ColorName])[] = [
   ["domain-control", "surface"],
   ["domain-firmware", "surface"],
   ["domain-mechanical", "surface"],
+  ["domain-electrical", "surface"],
+  ["domain-cross", "surface"],
+  // A node's domain chip sits on the node card, which is the surface or, selected, the accent's
+  // ground.
+  ["domain-control", "accent-bg"],
+  ["domain-firmware", "accent-bg"],
+  ["domain-mechanical", "accent-bg"],
+  ["domain-electrical", "accent-bg"],
+  ["domain-cross", "accent-bg"],
 ];
 
 describe("the token stylesheet", () => {

@@ -1,6 +1,8 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Page, test } from "@playwright/test";
 
+import { bindingStylesHold, cspViolations, styles, THEMES, TRANSPARENT, watch } from "./support";
+
 /**
  * The smoke page end to end: the real server over runs the real loop made. Every request the
  * page makes that is not to this loopback server is aborted and counted, and the count must be
@@ -8,96 +10,10 @@ import { expect, type Page, test } from "@playwright/test";
  * both themes.
  */
 
-const LOCAL = /^http:\/\/127\.0\.0\.1:8799\//;
-const THEMES = ["light", "dark"] as const;
-
-interface Watch {
-  readonly outbound: string[];
-  readonly api: Set<string>;
-}
-
-async function watch(page: Page): Promise<Watch> {
-  const seen: Watch = { outbound: [], api: new Set() };
-  await page.route("**/*", async (route) => {
-    const url = route.request().url();
-    if (LOCAL.test(url)) {
-      const path = new URL(url).pathname;
-      if (path.startsWith("/api/"))
-        seen.api.add(path.replace(/\/trajectories\/[^/]+$/, "/trajectories/:session"));
-      await route.continue();
-    } else {
-      seen.outbound.push(url);
-      await route.abort();
-    }
-  });
-  await page.addInitScript(() => {
-    const store = window as unknown as { cspViolations: string[] };
-    store.cspViolations = [];
-    document.addEventListener("securitypolicyviolation", (event) => {
-      store.cspViolations.push(`${event.violatedDirective} ${event.blockedURI}`);
-    });
-  });
-  return seen;
-}
-
 async function open(page: Page, theme: (typeof THEMES)[number], run: string) {
   await page.goto(`/?theme=${theme}#/home/run-records?run=${run}`);
   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0, { timeout: 30_000 });
   await expect(page.getByText("matched its seal")).toBeVisible();
-}
-
-/** The computed values of ``properties`` for every element ``selector`` matches. */
-async function styles(
-  page: Page,
-  selector: string,
-  properties: readonly string[],
-): Promise<Record<string, string>[]> {
-  const found = await page.locator(selector).evaluateAll(
-    (all, props) =>
-      all.map((el) => {
-        const computed = getComputedStyle(el);
-        return Object.fromEntries(props.map((p) => [p, computed.getPropertyValue(p)]));
-      }),
-    properties,
-  );
-  expect(found.length, `nothing on the page matches ${selector}`).toBeGreaterThan(0);
-  return found;
-}
-
-const TRANSPARENT = "rgba(0, 0, 0, 0)";
-
-/**
- * The design's binding styling rules, read from what the browser draws rather than from class
- * names: a class can stay while its style changes underneath it.
- */
-async function bindingStylesHold(page: Page) {
-  // Unchecked: dashed and unfilled, never drawn like a pass.
-  for (const u of await styles(page, ".verdict-unchecked", [
-    "border-top-style",
-    "background-color",
-  ])) {
-    expect(u).toEqual({ "border-top-style": "dashed", "background-color": TRANSPARENT });
-  }
-  // Every quantity: Plex Mono, tabular figures, never wrapped.
-  for (const q of await styles(page, ".quantity", [
-    "font-family",
-    "font-variant-numeric",
-    "white-space",
-  ])) {
-    expect(q["font-family"]).toContain("IBM Plex Mono");
-    expect(q["font-variant-numeric"]).toContain("tabular-nums");
-    expect(q["white-space"]).toBe("nowrap");
-  }
-  // Buttons and run links are at least 44 px tall.
-  const heights = await page
-    .locator(".button, .run-link")
-    .evaluateAll((all) => all.map((el) => el.getBoundingClientRect().height));
-  expect(heights.length).toBeGreaterThan(0);
-  for (const height of heights) expect(height).toBeGreaterThanOrEqual(44);
-}
-
-async function cspViolations(page: Page): Promise<string[]> {
-  return page.evaluate(() => (window as unknown as { cspViolations: string[] }).cspViolations);
 }
 
 for (const theme of THEMES) {

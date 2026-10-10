@@ -606,49 +606,615 @@ code {
   border-radius: var(--radius-card);
 }
 
+.graph-stage {
+  position: relative;
+}
+
+.graph-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  /* The dotted ground the design draws the graph on. */
+  background-image: radial-gradient(var(--color-border) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
 .graph-canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
   display: block;
 }
 
 .graph-edge {
   fill: none;
-  stroke: var(--color-border-strong);
+  stroke: var(--color-text-3);
   stroke-width: 1.5;
 }
 
+.graph-edge-on {
+  stroke: var(--color-accent);
+  stroke-width: 2.5;
+}
+
 .graph-arrow {
-  fill: var(--color-border-strong);
-}
-
-.graph-node rect {
-  fill: var(--color-surface);
-  stroke: var(--color-border-strong);
-}
-
-.graph-node:focus-visible rect {
-  stroke: var(--color-focus);
-  stroke-width: 2;
-}
-
-.graph-node-id {
-  font-family: var(--font-mono);
-  font-size: var(--type-label-size);
-  fill: var(--color-text);
-}
-
-.graph-node-kind {
-  font-size: var(--type-label-size);
   fill: var(--color-text-3);
 }
 
-.graph-node-control rect {
-  stroke: var(--color-domain-control);
+.graph-arrow-on {
+  fill: var(--color-accent);
 }
 
-.graph-node-firmware rect {
-  stroke: var(--color-domain-firmware);
+/* A node is a real button laid over the edges. */
+.graph-node {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--elevation-card);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
-.graph-node-mechanical rect {
-  stroke: var(--color-domain-mechanical);
+.graph-node:hover {
+  border-color: var(--color-accent);
+}
+
+.graph-node-selected {
+  border: 2px solid var(--color-accent);
+  box-shadow: 0 0 0 4px var(--color-accent-bg);
+}
+
+.graph-node-id {
+  font-size: var(--type-mono-number-size);
+  font-weight: var(--type-card-title-weight);
+  white-space: nowrap;
+}
+
+.graph-node-summary {
+  font-size: var(--type-label-size);
+  line-height: var(--type-label-line);
+  color: var(--color-text-3);
+}
+
+/* A domain is its word in the domain's colour, outlined; never colour alone. */
+.domain-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-2);
+  border: 1px solid currentcolor;
+  border-radius: var(--radius-badge);
+  font-size: var(--type-badge-size);
+  line-height: var(--type-badge-line);
+  font-weight: var(--type-badge-weight);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.domain-control {
+  color: var(--color-domain-control);
+}
+
+.domain-firmware {
+  color: var(--color-domain-firmware);
+}
+
+.domain-mechanical {
+  color: var(--color-domain-mechanical);
+}
+
+.domain-electrical {
+  color: var(--color-domain-electrical);
+}
+
+.domain-cross {
+  color: var(--color-domain-cross);
+}
+
+/* -- the views over one run ------------------------------------------------------------- */
+
+.view,
+.explorer {
+  display: grid;
+  /* One column that never grows past its container: a wide table scrolls in its own region. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-6);
+  min-width: 0;
+}
+
+.label {
+  font-size: var(--type-label-size);
+  line-height: var(--type-label-line);
+  color: var(--color-text-3);
+  margin: 0;
+}
+
+.section-title {
+  margin: 0;
+  font-size: var(--type-section-title-size);
+  line-height: var(--type-section-title-line);
+  font-weight: var(--type-section-title-weight);
+}
+
+.section-label {
+  margin: 0 0 var(--space-2);
+  font-size: var(--type-label-size);
+  line-height: var(--type-label-line);
+  font-weight: var(--type-card-title-weight);
+  color: var(--color-text-2);
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.toolbar .section-title {
+  margin-right: auto;
+}
+
+.select {
+  min-height: var(--size-touch-min);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+
+.segmented button {
+  min-height: var(--size-touch-min);
+  padding: 0 var(--space-4);
+  border: 0;
+  background: var(--color-surface);
+  color: var(--color-text-2);
+  font: inherit;
+  cursor: pointer;
+}
+
+/* The accent on its ground, as the selected nav link: the action blue on it is too faint in dark. */
+.segmented button[aria-pressed="true"] {
+  background: var(--color-accent-bg);
+  color: var(--color-accent);
+  font-weight: var(--type-card-title-weight);
+}
+
+.compare-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.explorer-main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  align-items: flex-start;
+}
+
+.graph-card {
+  flex: 999 1 560px;
+}
+
+.inspector {
+  flex: 1 1 340px;
+}
+
+.card-head,
+.inspector-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.inspector-name {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.inspector .table {
+  display: table;
+}
+
+.inspector .source-chip {
+  white-space: normal;
+}
+
+.numeric {
+  text-align: right;
+}
+
+.table th.numeric,
+.table td.numeric {
+  text-align: right;
+}
+
+.edges,
+.history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.edge {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+}
+
+/* An edge to a node the graph does not hold: said in words, outlined like unchecked. */
+.edge-missing {
+  color: var(--color-unchecked);
+  border: 1px dashed var(--color-unchecked-border);
+  border-radius: var(--radius-badge);
+  padding: 0 var(--space-2);
+  font-size: var(--type-label-size);
+}
+
+.history-entry {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.diff-node {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.diff-row-differs td {
+  background: var(--color-accent-bg);
+}
+
+.diff-mark {
+  color: var(--color-accent);
+  font-weight: var(--type-card-title-weight);
+}
+
+.split {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  align-items: flex-start;
+}
+
+.split-main {
+  flex: 999 1 560px;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-5);
+}
+
+.split-side {
+  flex: 1 1 340px;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-5);
+}
+
+.title-with-badge {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.run-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-5);
+}
+
+.run-head-titles {
+  display: grid;
+  gap: var(--space-3);
+  margin-right: auto;
+}
+
+.run-head-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+}
+
+.headline {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.headline .quantity {
+  font-size: var(--type-section-title-size);
+}
+
+/* -- the run timeline ---------------------------------------------------------------------- */
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.legend-item {
+  position: static;
+}
+
+.timeline-frame {
+  overflow-x: auto;
+}
+
+.timeline {
+  min-width: 900px;
+}
+
+.lane {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  align-items: center;
+  min-height: var(--size-touch-min);
+  border-bottom: 1px solid var(--color-surface-2);
+}
+
+.lane-name {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-2) var(--space-4) var(--space-2) 0;
+}
+
+.lane-title {
+  font-weight: var(--type-card-title-weight);
+}
+
+.track {
+  position: relative;
+  height: var(--size-touch-min);
+  /* Room for a marker or a segment drawn at the run's last line. */
+  margin-right: 88px;
+}
+
+.segment {
+  position: absolute;
+  top: 10px;
+  box-sizing: border-box;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-badge);
+  font-family: var(--font-mono);
+  font-size: var(--type-label-size);
+  white-space: nowrap;
+  overflow: hidden;
+  color: var(--color-text);
+}
+
+.legend .segment {
+  position: static;
+  height: 20px;
+}
+
+.segment-session {
+  background: var(--color-accent-bg);
+  border-color: var(--color-accent);
+}
+
+.segment-gate-on {
+  background: var(--color-gate-on-bg);
+  color: var(--color-gate-on-text);
+}
+
+/* An observed gate: hatched and dashed, and it says it was not enforced. */
+.segment-gate-observe {
+  color: var(--color-observe);
+  border: 1px dashed var(--color-observe-border);
+  background: repeating-linear-gradient(
+    135deg,
+    var(--color-observe-hatch) 0 4px,
+    var(--color-surface) 4px 8px
+  );
+}
+
+.segment-gate-off {
+  background: var(--color-gate-off-bg);
+  color: var(--color-gate-off);
+  border-color: var(--color-border);
+}
+
+.segment-review-pass {
+  background: var(--color-pass-bg);
+  border-color: var(--color-pass-border);
+}
+
+.segment-review-fail {
+  background: var(--color-fail-bg);
+  border-color: var(--color-fail-border);
+}
+
+.segment-review-other {
+  background: var(--color-warn-bg);
+  border-color: var(--color-warn-border);
+}
+
+/* An infrastructure outcome: no attempt was spent; outlined and dashed, never filled. */
+.segment-infrastructure {
+  background: transparent;
+  color: var(--color-unchecked);
+  border: 1px dashed var(--color-unchecked-border);
+}
+
+.marker {
+  position: absolute;
+  top: 10px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-2);
+  color: var(--color-text-2);
+  font-family: var(--font-mono);
+  font-size: var(--type-label-size);
+  white-space: nowrap;
+}
+
+/* -- statuses, reviews, tokens, checks --------------------------------------------------- */
+
+.status-done {
+  color: var(--color-pass);
+  background: var(--color-pass-bg);
+  border-color: var(--color-pass-border);
+}
+
+.status-escalated {
+  color: var(--color-warn);
+  background: var(--color-warn-bg);
+  border-color: var(--color-warn-border);
+}
+
+.status-halted {
+  color: var(--color-fail);
+  background: var(--color-fail-bg);
+  border-color: var(--color-fail-border);
+}
+
+.status-open {
+  color: var(--color-text-2);
+  background: var(--color-surface-2);
+  border-color: var(--color-border);
+}
+
+.reviews,
+.paired-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-3);
+}
+
+.review,
+.paired-list li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.review-other {
+  color: var(--color-warn);
+  background: var(--color-warn-bg);
+  border-color: var(--color-warn-border);
+}
+
+.row-subtotal th,
+.row-total th {
+  text-align: left;
+  font-weight: var(--type-card-title-weight);
+}
+
+.row-total td,
+.row-total th {
+  border-top: 2px solid var(--color-border-strong);
+}
+
+.checks-call th {
+  background: var(--color-surface-2);
+  text-align: left;
+  font-weight: var(--type-body-weight);
+}
+
+.checks-table tr.has-why td {
+  border-bottom: 0;
+}
+
+.checks-table .why-row td {
+  white-space: normal;
+  padding-top: 0;
+  color: var(--color-text-2);
+}
+
+.bound {
+  white-space: normal;
+  max-width: 16rem;
+}
+
+.measured-names {
+  display: inline-block;
+  white-space: normal;
+  max-width: 14rem;
+}
+
+.card > .button {
+  align-self: flex-start;
+}
+
+/* A pass that looked at nothing says so in words, outlined like unchecked. */
+.evaluated-none {
+  color: var(--color-unchecked);
+  border: 1px dashed var(--color-unchecked-border);
+  border-radius: var(--radius-badge);
+  padding: 0 var(--space-2);
+}
+
+.bound {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.paired-body {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.table-scroll > .table {
+  display: table;
+  width: 100%;
+}
+
+.bound-text {
+  display: inline-block;
+  white-space: normal;
+  max-width: 16rem;
 }

@@ -21,4 +21,22 @@ export const VIEWS: readonly ViewDef[] = [
     title: "Run records",
     component: lazy(() => import("./run-records/RunRecords")),
   },
+  {
+    area: "orchestration",
+    slug: "design-graph",
+    title: "Design graph",
+    component: lazy(() => import("./design-graph/DesignGraph")),
+  },
+  {
+    area: "orchestration",
+    slug: "run-timeline",
+    title: "Run timeline",
+    component: lazy(() => import("./run-timeline/RunTimeline")),
+  },
+  {
+    area: "orchestration",
+    slug: "gate-checks",
+    title: "Gate checks",
+    component: lazy(() => import("./gate-checks/GateChecks")),
+  },
 ];

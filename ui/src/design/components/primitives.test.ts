@@ -76,6 +76,7 @@ describe("the graph layout", () => {
       domain: "electrical",
     };
     expect(nodeWidth(long)).toBeGreaterThan(long.id.length * 7);
-    expect(nodeWidth({ id: "a.b", kind: "module", domain: "control" })).toBe(168);
+    // A node box is 184 px wide, as the design draws it.
+    expect(nodeWidth({ id: "a.b", kind: "module", domain: "control" })).toBe(184);
   });
 });

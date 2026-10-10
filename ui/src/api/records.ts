@@ -67,18 +67,32 @@ export interface RunConfig {
   readonly gateMode: GateMode;
   readonly harnessCommit: string | null;
   readonly auth: string;
+  /** The brief's digest and the seed: two runs of one brief and seed differ only by mode. */
+  readonly briefSha256: string;
+  readonly seed: number;
+  /** The model each role's sessions ran on, by role, as the run recorded it. */
+  readonly roleModels: Readonly<Record<string, string>>;
 }
 
 export function runConfig(value: unknown): RunConfig {
   const answer = object(value, "a run configuration");
   const config = object(answer.config, "a run configuration");
   const harness = object(config.harness, "the harness record");
+  const models = object(config.models, "the run's models");
   return {
     manifestId: text(answer.manifest_id, "a manifest id"),
     runId: text(config.run_id, "a run id"),
     gateMode: gateMode(config.gate_mode),
     harnessCommit: optionalText(harness.commit, "a commit"),
     auth: text(config.auth, "an auth mode"),
+    briefSha256: text(config.brief_sha256, "a brief digest"),
+    seed: count(config.seed, "a seed"),
+    roleModels: Object.fromEntries(
+      Object.entries(object(models.roles, "the role models")).map(([role, m]) => [
+        role,
+        text(m, "a model string"),
+      ]),
+    ),
   };
 }
 
@@ -180,12 +194,25 @@ export function graphRecord(value: unknown): GraphRecord {
   };
 }
 
+export interface CostRow {
+  readonly model: string;
+  readonly outputTokens: Quantity;
+  readonly usd: Quantity;
+}
+
 export interface CostRecord {
   readonly usd: Quantity;
   readonly nok: Quantity;
   readonly basis: string;
   readonly pricesDate: string;
   readonly partial: boolean;
+  /** Per model: its output tokens and what all its tokens cost, as the cost line recorded. */
+  readonly rows: readonly CostRow[];
+}
+
+function costRows(value: unknown): readonly unknown[] {
+  if (!Array.isArray(value)) throw new ShapeError("the cost line's rows");
+  return value;
 }
 
 export function costRecord(value: unknown): CostRecord {
@@ -198,6 +225,18 @@ export function costRecord(value: unknown): CostRecord {
     basis: text(line.basis, "a cost basis"),
     pricesDate: text(line.prices_date, "a price sheet date"),
     partial,
+    rows: costRows(line.rows).map((raw) => {
+      const row = object(raw, "a cost row");
+      const tokens = object(row.tokens, "a row's tokens");
+      return {
+        model: text(row.model, "a model string"),
+        outputTokens: requireQuantity({
+          value: count(tokens.output_tokens, "output tokens"),
+          unit: "tok",
+        }),
+        usd: requireQuantity({ value: text(row.usd, "an exact amount"), unit: "USD" }),
+      };
+    }),
   };
 }
 

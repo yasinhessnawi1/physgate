@@ -10,6 +10,7 @@ import { type Area, AREAS, areaById } from "./areas";
 const HOME: Area = { id: "home", number: "0", name: "Home" };
 import type { Header } from "./header";
 import { hrefFor, parseHash, type Route } from "./route";
+import { chordTarget, notAShortcut } from "./shortcuts";
 
 function useRoute(): Route {
   const [route, setRoute] = useState(() => parseHash(window.location.hash));
@@ -30,8 +31,30 @@ function useRoute(): Route {
  * the title and the record the page's figures come from, and the content beside them. Under
  * 760 px the sidebar stacks above the content. It renders whatever views it is given.
  */
+function useShortcuts(query: URLSearchParams) {
+  useEffect(() => {
+    let first: { key: string; at: number } | null = null;
+    const onKey = (event: KeyboardEvent) => {
+      if (notAShortcut(event)) return;
+      const href = chordTarget(first, event.key, event.timeStamp, query);
+      if (href !== null) {
+        first = null;
+        event.preventDefault();
+        window.location.hash = href.slice(1);
+        return;
+      }
+      first = event.key === "g" ? { key: "g", at: event.timeStamp } : null;
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [query]);
+}
+
 export function Shell({ views }: { views: readonly ViewDef[] }) {
   const route = useRoute();
+  useShortcuts(route.query);
   const area = areaById(route.area) ?? HOME;
   const inArea = views.filter((view) => view.area === area.id);
   const view =
