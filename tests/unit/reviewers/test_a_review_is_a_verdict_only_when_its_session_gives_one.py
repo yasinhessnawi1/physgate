@@ -34,6 +34,7 @@ from physgate.orchestrator.run_config import HarnessState, ModelStrings, RunBoun
 from physgate.reviewers.claude import (
     NO_SCAN_RUN,
     SCAN_FOUND_NONE,
+    SCAN_FOUND_THESE,
     ClaudeReviewer,
     ReviewerSetup,
     context_window,
@@ -189,20 +190,29 @@ def test_the_prompt_names_every_file_to_read_and_says_nothing_it_must_not(
     assert all(path in prompt for path in packet.required_reading)
     assert "StructuredOutput" in prompt
     if checks_off:
-        assert packet.indicators
+        assert packet.indicators and SCAN_FOUND_THESE in prompt
         assert all(hit.evidence in prompt for hit in packet.indicators)
     else:
         assert not packet.indicators and SCAN_FOUND_NONE in prompt
 
 
-#: Any sentence telling the reviewer, as a fact, that no check was switched off.
-ABSENCE = re.compile(
-    r"\bno checks? (was |were |is |are )?(switched|turned) off|shows no check", re.I
+#: Any sentence telling the reviewer, as a fact, that a check was, or was not, switched off.
+CLAIM = re.compile(
+    r"\bno checks? (was |were |is |are )?(switched|turned) off"
+    r"|\bshows (no |these |the following |some )?checks? (were |was )?(switched|turned) off"
+    r"|\bthese checks (were |are )?(switched|turned) off"
+    r"|\b(was|were|is|are|been) (switched|turned) off",
+    re.I,
 )
 
 
-def test_no_prompt_tells_the_reviewer_that_no_check_was_switched_off(tmp_path: Path) -> None:
-    """Absence is never asserted: the scan is narrow, and an account is never scanned at all."""
+def test_no_prompt_tells_the_reviewer_whether_a_check_was_switched_off(tmp_path: Path) -> None:
+    """The prompt says what the scan found, or that none ran; never that a check was off."""
+    hits = _packet(tmp_path / "h", checks_off=True)
+    assert hits.indicators
+    found = review_prompt("control", hits)
+    assert CLAIM.search(found) is None, found
+    assert SCAN_FOUND_THESE in found and evaluation_words(found) == []
     scanned = _packet(tmp_path / "s", checks_off=False)
     assert indicator_scan_runs(scanned.artefact) and scanned.indicators == ()
     account = scanned.model_copy(
@@ -211,12 +221,14 @@ def test_no_prompt_tells_the_reviewer_that_no_check_was_switched_off(tmp_path: P
     assert not indicator_scan_runs(account.artefact)
     found_none, not_run = review_prompt("control", scanned), review_prompt("control", account)
     for prompt in (found_none, not_run):
-        assert ABSENCE.search(prompt) is None, prompt
+        assert CLAIM.search(prompt) is None, prompt
         assert evaluation_words(prompt) == []
     assert SCAN_FOUND_NONE in found_none and NO_SCAN_RUN not in found_none
     assert NO_SCAN_RUN in not_run and SCAN_FOUND_NONE not in not_run
-    # The pattern catches the sentence the prompt used to carry.
-    assert ABSENCE.search("The trajectory shows no check switched off.")
+    # The pattern catches the sentences the prompt used to carry, and a reworded claim.
+    assert CLAIM.search("The trajectory shows no check switched off.")
+    assert CLAIM.search("The trajectory shows these checks switched off. Judge each one")
+    assert CLAIM.search("These checks were switched off in the trajectory.")
 
 
 def _config() -> RunConfig:
