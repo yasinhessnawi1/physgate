@@ -26,6 +26,7 @@ from physgate.orchestrator.budget import infra_retry_delay
 from physgate.orchestrator.change_sets import change_history
 from physgate.orchestrator.common import utc_now
 from physgate.orchestrator.credentials import SECRET_VARIABLE
+from physgate.orchestrator.escalation import EscalationInterface, bind
 from physgate.orchestrator.events import (
     RESUMABLE_HALTS,
     AttemptRejected,
@@ -60,7 +61,6 @@ from physgate.orchestrator.events import (
     WriteDone,
     WriteIntended,
 )
-from physgate.orchestrator.escalation import EscalationInterface, bind
 from physgate.orchestrator.exceptions import (
     EscalationBackendError,
     GateNotRegisteredError,
@@ -158,20 +158,19 @@ def escalation_for(config: RunConfig) -> EscalationInterface:
 
 
 def require_binding(config: RunConfig, escalation: EscalationInterface) -> None:
-    """Refuse a run with no escalation binding, or asked through another backend's interface.
+    """Refuse a run asked through any interface but the one over the backend it names.
+
+    One check covers a run that names none (recorded before the interface existed): an
+    interface always asks a backend with a name, so it never matches none.
 
     Raises:
-        EscalationBackendError: the configuration names no binding (a run recorded before
-            the interface existed), or the interface asks a backend other than the one the
-            run names.
+        EscalationBackendError: the interface asks a backend other than the one the run
+            names, or the run names none.
     """
-    if config.escalation_backend is None:
-        msg = "the run names no escalation backend; a run recorded without one is not driven"
-        raise EscalationBackendError(msg, run_id=config.run_id)
     if escalation.backend_id != config.escalation_backend:
         msg = "the escalation interface asks another backend than the one the run names"
         raise EscalationBackendError(
-            msg, named=config.escalation_backend, asked=escalation.backend_id
+            msg, named=str(config.escalation_backend), asked=escalation.backend_id
         )
 
 

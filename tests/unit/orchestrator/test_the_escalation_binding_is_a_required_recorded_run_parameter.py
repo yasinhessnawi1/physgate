@@ -112,8 +112,9 @@ def test_a_log_that_names_another_binding_than_its_config_is_not_this_run(tmp_pa
 
 def test_the_loop_refuses_a_run_that_names_no_binding(tmp_path: Path) -> None:
     rig = Rig(tmp_path, config_overrides={"escalation_backend": None})
-    with pytest.raises(EscalationBackendError):
+    with pytest.raises(EscalationBackendError) as caught:
         rig.open()
+    assert (caught.value.context["named"], caught.value.context["asked"]) == ("None", "rules")
     assert not (tmp_path / "events.jsonl").exists()
     with pytest.raises(EscalationBackendError):
         escalation_for(make_config(escalation_backend=None))
