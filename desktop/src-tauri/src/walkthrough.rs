@@ -26,10 +26,13 @@ fn click(text: &str) -> String {
 
 #[allow(clippy::too_many_lines)] // one line per step of the script, read top to bottom
 pub fn start(app: AppHandle) {
-    let Some(folder) = std::env::var_os("PHYSGATE_DESKTOP_WALKTHROUGH").map(PathBuf::from) else {
+    let Some(folder) = crate::config::switch("PHYSGATE_DESKTOP_WALKTHROUGH").map(PathBuf::from)
+    else {
         return;
     };
-    let key = std::env::var("PHYSGATE_DESKTOP_WALK_KEY").unwrap_or_default();
+    let key = crate::config::switch("PHYSGATE_DESKTOP_WALK_KEY")
+        .and_then(|k| k.into_string().ok())
+        .unwrap_or_default();
     thread::spawn(move || {
         let _ = fs::create_dir_all(&folder);
         let eval = |js: &str| {

@@ -39,7 +39,7 @@ use crate::config::Paths;
 use crate::shell::Shell;
 
 fn main() {
-    let tour = std::env::var_os("PHYSGATE_DESKTOP_TOUR").map(PathBuf::from);
+    let tour = config::switch("PHYSGATE_DESKTOP_TOUR").map(PathBuf::from);
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())

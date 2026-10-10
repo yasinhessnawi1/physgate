@@ -80,10 +80,11 @@ async fn run(app: &AppHandle) -> Result<Option<String>, String> {
         "update check: {} is published, {} is running",
         update.version, update.current_version
     ));
-    // A scripted check of the update path (the app's README describes it) answers the
+    // A scripted check of the update path, in a verification build only, answers the
     // question by environment instead of by click. The bundle is still verified against the
     // built-in key before anything is replaced.
-    let scripted = std::env::var_os("PHYSGATE_DESKTOP_ACCEPT_UPDATE").is_some_and(|v| v == "1");
+    let scripted =
+        crate::config::switch("PHYSGATE_DESKTOP_ACCEPT_UPDATE").is_some_and(|v| v == "1");
     if scripted {
         shell.note("update accepted by PHYSGATE_DESKTOP_ACCEPT_UPDATE=1");
     }

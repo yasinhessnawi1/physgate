@@ -27,6 +27,7 @@ gate "format" cargo fmt --check
 gate "lint" cargo clippy --all-targets --locked -- -D warnings -W clippy::pedantic
 gate "lint (walkthrough build)" cargo clippy --all-targets --locked --features walkthrough -- -D warnings -W clippy::pedantic
 gate "tests" cargo test --locked
+gate "tests (verification build)" cargo test --locked --features verification
 bash -n ../../scripts/build-desktop.sh || {
     echo "FAILED: desktop — build script syntax" >&2
     exit 1

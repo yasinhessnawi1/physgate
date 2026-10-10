@@ -43,10 +43,20 @@ impl Secret {
     }
 }
 
-/// The Keychain service: `physgate`, or `PHYSGATE_DESKTOP_KEYCHAIN_SERVICE` for a trial run
-/// that must not touch the real items.
+/// The Keychain service: `physgate`, or, in a verification build,
+/// `PHYSGATE_DESKTOP_KEYCHAIN_SERVICE` for a trial run that must not touch the real items.
+#[cfg(not(test))]
 pub fn service() -> String {
-    std::env::var("PHYSGATE_DESKTOP_KEYCHAIN_SERVICE").unwrap_or_else(|_| "physgate".into())
+    crate::config::switch("PHYSGATE_DESKTOP_KEYCHAIN_SERVICE")
+        .and_then(|s| s.into_string().ok())
+        .unwrap_or_else(|| "physgate".into())
+}
+
+/// Under test, never the real service, by construction: a name of this test process's own.
+/// No test, and nothing a test sets in the environment, can reach the operator's items.
+#[cfg(test)]
+pub fn service() -> String {
+    format!("physgate-desktop-test-{}", std::process::id())
 }
 
 /// Keep `value` as `secret`, replacing any earlier one.
@@ -128,12 +138,13 @@ mod tests {
     }
 
     #[test]
+    fn no_test_can_reach_the_operators_items() {
+        assert_ne!(service(), "physgate");
+        assert!(service().starts_with("physgate-desktop-test-"));
+    }
+
+    #[test]
     fn a_credential_goes_into_the_keychain_and_out_again() {
-        // A service of its own, removed at the end, so the real items are never touched.
-        std::env::set_var(
-            "PHYSGATE_DESKTOP_KEYCHAIN_SERVICE",
-            format!("physgate-desktop-test-{}", std::process::id()),
-        );
         let key = format!("sk-ant-api03-test-{}", "c".repeat(40));
         forget(Secret::ApiKey);
         assert!(!is_stored(Secret::ApiKey));

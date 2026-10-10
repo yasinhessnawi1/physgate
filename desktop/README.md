@@ -185,9 +185,20 @@ The flag concerns only how the app fetches its own update. The operator server's
 - **Gates:** `scripts/check-desktop.sh` runs formatting, clippy (pedantic, warnings as
   errors) and the unit tests. It isn't part of `scripts/check.sh` or CI. Run it before
   building.
-- **Trying it without touching the real install:** set `PHYSGATE_DESKTOP_HOME` (settings,
-  logs, channel) and `PHYSGATE_DESKTOP_APPLICATIONS` (where `--install` puts the app). Both
-  the app and the build script read them.
+- **Trying it without touching the real install:** the `PHYSGATE_DESKTOP_…` switches exist
+  only in a build with the `verification` feature (`walkthrough` includes it). A published
+  build reads none of them. The switches are:
+  - `PHYSGATE_DESKTOP_HOME`: settings, logs and the update channel;
+  - `PHYSGATE_DESKTOP_RUNS_ROOT`: the default run folder;
+  - `PHYSGATE_DESKTOP_CLAUDE`: a stand-in Claude Code;
+  - `PHYSGATE_DESKTOP_KEYCHAIN_SERVICE`: a Keychain service of its own;
+  - `PHYSGATE_DESKTOP_TOUR`: the click-through below;
+  - `PHYSGATE_DESKTOP_ACCEPT_UPDATE`: accept an update without its dialog. The bundle is
+    still verified against the built-in key.
+
+  `PHYSGATE_DESKTOP_APPLICATIONS` is the build script's own: where `--install` puts the app.
+  Unit tests use a Keychain service of the test process's own, so they can't reach the
+  operator's items.
 - **A click-through inside the app's own webview:**
   ```sh
   open -n --env PHYSGATE_DESKTOP_TOUR=/tmp/tour.json ~/Applications/physgate.app
@@ -196,8 +207,6 @@ The flag concerns only how the app fetches its own update. The operator server's
   - Content-Security-Policy violations, counted from the first byte of each page load;
   - any request to another origin;
   - the server's responses by status, every 403 listed.
-- **A scripted update check:** `PHYSGATE_DESKTOP_ACCEPT_UPDATE=1` answers the install
-  question without the dialog. The bundle is still verified against the built-in key.
 - **The key is lost?** Delete `~/.config/physgate-desktop/updater.key*` and the `updates/`
   folder, then run `scripts/build-desktop.sh --install` once. The new key is built into the
   new app.

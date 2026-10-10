@@ -82,7 +82,7 @@ pub struct ClaudeCode {
 /// Where Claude Code may be. `PHYSGATE_DESKTOP_CLAUDE` names the one place to look, for a
 /// trial run against a stand-in.
 fn candidates() -> Vec<PathBuf> {
-    if let Some(path) = std::env::var_os("PHYSGATE_DESKTOP_CLAUDE") {
+    if let Some(path) = crate::config::switch("PHYSGATE_DESKTOP_CLAUDE") {
         return vec![PathBuf::from(path)];
     }
     let home = home();
@@ -681,10 +681,7 @@ mod tests {
     #[test]
     fn a_sign_in_with_a_stand_in_keeps_the_token_and_shows_none_of_it() {
         let dir = crate::testdir::TestDir::new("sign-in");
-        std::env::set_var(
-            "PHYSGATE_DESKTOP_KEYCHAIN_SERVICE",
-            format!("physgate-desktop-test-{}", std::process::id()),
-        );
+        // The Keychain service under test is the test process's own (see keychain::service).
         let token = format!("sk-ant-oat01-standin-{}", "q".repeat(48));
         let script = dir.path().join("claude");
         fs::write(

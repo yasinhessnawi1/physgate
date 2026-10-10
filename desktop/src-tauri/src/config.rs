@@ -2,8 +2,8 @@
 //!
 //! Nothing here lives in the repository: the settings name paths on this machine, and
 //! the update channel is filled by the build script on this machine. The folder is
-//! `~/Library/Application Support/physgate-desktop`, or `PHYSGATE_DESKTOP_HOME` when set
-//! (so a trial run never touches the real one).
+//! `~/Library/Application Support/physgate-desktop`; a build with the `verification`
+//! feature reads `PHYSGATE_DESKTOP_HOME` instead, so a trial run never touches it.
 
 use std::fs;
 use std::io;
@@ -20,7 +20,7 @@ pub struct Paths {
 impl Paths {
     /// The root named by `PHYSGATE_DESKTOP_HOME`, or the default under the home folder.
     pub fn from_env() -> Self {
-        if let Some(root) = std::env::var_os("PHYSGATE_DESKTOP_HOME") {
+        if let Some(root) = switch("PHYSGATE_DESKTOP_HOME") {
             return Self::at(PathBuf::from(root));
         }
         Self::at(home().join("Library/Application Support/physgate-desktop"))
@@ -75,6 +75,20 @@ pub fn note(paths: &Paths, line: &str) {
             .map_or(0, |d| d.as_secs());
         let _ = writeln!(log, "{at} {line}");
     }
+}
+
+/// A switch for a trial run (`PHYSGATE_DESKTOP_…`), read only by a build with the
+/// `verification` feature. A published build has none of them: it reads no such variable,
+/// whatever its environment says.
+#[cfg(feature = "verification")]
+pub fn switch(name: &str) -> Option<std::ffi::OsString> {
+    std::env::var_os(name)
+}
+
+/// A switch for a trial run: never read in this build.
+#[cfg(not(feature = "verification"))]
+pub fn switch(_name: &str) -> Option<std::ffi::OsString> {
+    None
 }
 
 /// The user's home folder.
@@ -162,6 +176,15 @@ impl Settings {
 mod tests {
     use super::*;
     use crate::testdir::TestDir;
+
+    #[test]
+    fn switches_are_read_only_by_a_verification_build() {
+        // HOME is always set, so it stands for any variable the environment holds.
+        #[cfg(not(feature = "verification"))]
+        assert!(switch("HOME").is_none(), "a published build read a switch");
+        #[cfg(feature = "verification")]
+        assert!(switch("HOME").is_some());
+    }
 
     #[test]
     fn a_missing_file_gives_the_defaults() {

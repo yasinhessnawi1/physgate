@@ -4,7 +4,8 @@
 //! the first start, readable by its owner only. A folder already there is used as it is.
 //! A link there is refused, never followed or replaced: the app serves only a real folder
 //! it can vouch for, and whatever the link points at is left alone.
-//! `PHYSGATE_DESKTOP_RUNS_ROOT` names another place, for a trial run.
+//! A build with the `verification` feature reads `PHYSGATE_DESKTOP_RUNS_ROOT` instead, for a
+//! trial run.
 
 use std::fs::{self, DirBuilder};
 use std::io;
@@ -23,7 +24,7 @@ pub enum Root {
 }
 
 pub fn default_root() -> PathBuf {
-    std::env::var_os("PHYSGATE_DESKTOP_RUNS_ROOT")
+    crate::config::switch("PHYSGATE_DESKTOP_RUNS_ROOT")
         .map_or_else(|| home().join("physgate-runs"), PathBuf::from)
 }
 
