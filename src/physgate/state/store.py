@@ -35,8 +35,9 @@ import hashlib
 import json
 import os
 from collections import deque
+from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import IO, Annotated, Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -233,6 +234,97 @@ def journal_records_after(root: Path, revision: Revision) -> list[JournalLine]:
             found.append(line)
         offset += len(raw) + 1
     return found
+
+
+def _changes_after(
+    entries: Iterable[Mapping[str, Any]], since: Revision, until: Revision | None = None
+) -> list[NodeChange]:
+    """The change list: every entry above ``since`` and at most ``until``, in journal order.
+
+    The one definition of what a diff is, used by ``Store.diff`` and by the
+    read-only ``journal_diff``, so the change list a reader is shown and the one
+    the orchestrator diffs with cannot drift into two answers.
+    """
+    return [
+        NodeChange(entry["rev"], entry["node_id"], entry["version"], entry["op"])
+        for entry in entries
+        if entry["rev"] > since and (until is None or entry["rev"] <= until)
+    ]
+
+
+def _complete_entries(handle: IO[bytes]) -> Iterator[dict[str, Any]]:
+    """Each complete line from the handle's position on, parsed; a torn last line ends it."""
+    for raw in handle:
+        if not raw.endswith(b"\n"):
+            return
+        yield json.loads(raw)
+
+
+def _entry(line: JournalLine) -> dict[str, Any]:
+    return {"rev": line.rev, "node_id": line.node_id, "version": line.version, "op": line.op}
+
+
+def _require_minted(revision: Revision, head: Revision) -> None:
+    if not 0 <= revision <= head:
+        msg = "no such revision"
+        raise RevisionNotFoundError(msg, revision=str(revision), head=str(head))
+
+
+def journal_diff(root: Path, since: Revision, until: Revision | None = None) -> list[NodeChange]:
+    """The store's change list between two revisions, read without opening a store.
+
+    Exactly what ``Store.diff(since)`` returns, cut at ``until`` (the head when
+    ``None``), and through the same selection. Opening a store runs recovery,
+    which writes; a reader showing a run's graph must not, so this reads the
+    journal alone, every line held to recovery's rules first.
+
+    The edges are ``Store.diff``'s: a ``since`` at or past the head gives an empty
+    list, and a negative one names no revision. ``until`` must be a revision the
+    journal holds, or zero.
+
+    Raises:
+        CorruptRecordError: a journal line is not one the store could have written.
+        RevisionNotFoundError: ``since`` is negative, or ``until`` is not in the journal.
+    """
+    lines = journal_records_after(Path(root), 0)
+    if since < 0:
+        msg = "no such revision to diff from"
+        raise RevisionNotFoundError(msg, revision=str(since))
+    if until is not None:
+        _require_minted(until, len(lines))
+    return _changes_after((_entry(line) for line in lines), since, until)
+
+
+def graph_at(root: Path, revision: Revision) -> dict[str, JournalLine]:
+    """Each node's newest journal record at or below ``revision``, by id; read-only.
+
+    The graph as it stood after that revision: a node created later is absent,
+    and a node written later appears as it was then. Every record has been held
+    to recovery's rules, and its payload validated as a whole node.
+
+    Raises:
+        CorruptRecordError: a journal line is not one the store could have written.
+        RevisionNotFoundError: ``revision`` is negative or past the journal's head.
+    """
+    lines = journal_records_after(Path(root), 0)
+    _require_minted(revision, len(lines))
+    latest = {line.node_id: line for line in lines if line.rev <= revision}
+    return dict(sorted(latest.items()))
+
+
+def node_history(root: Path, node_id: str) -> list[JournalLine]:
+    """Every journal record of ``node_id``, oldest first; read-only.
+
+    The revisions are ``Store.history``'s, and each payload is ``Store.payload_at``'s
+    for its revision. An id the journal has never held has an empty history, as it
+    does in the store.
+
+    Raises:
+        MalformedNodeIdError: the id is not a legal identifier.
+        CorruptRecordError: a journal line is not one the store could have written.
+    """
+    validate_node_id(node_id)
+    return [line for line in journal_records_after(Path(root), 0) if line.node_id == node_id]
 
 
 def _first_validation_problem(exc: ValidationError) -> str:
@@ -731,17 +823,9 @@ class Store:
         if since + 1 not in self._offsets:
             msg = "no such revision to diff from"
             raise RevisionNotFoundError(msg, revision=str(since))
-        changes: list[NodeChange] = []
         with self.journal_path.open("rb") as handle:
             handle.seek(self._offsets[since + 1])
-            for raw in handle:
-                if not raw.endswith(b"\n"):
-                    break
-                entry = json.loads(raw)
-                changes.append(
-                    NodeChange(entry["rev"], entry["node_id"], entry["version"], entry["op"])
-                )
-        return changes
+            return _changes_after(_complete_entries(handle), since)
 
     def traverse_constrains(self, node_id: str) -> list[str]:
         """Return the transitive ``constrains`` closure of ``node_id``, breadth first.

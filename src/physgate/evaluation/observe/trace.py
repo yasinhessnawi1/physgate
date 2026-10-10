@@ -14,6 +14,11 @@ Durations are differences between recorded timestamps, and they say exactly that
   end line. It includes the orchestrator's own setup for the session (the
   worktree, the hooks' settings, the credential file), not only the model's time.
 
+**The steps are in the log's order**, by the sequence number of the line each
+stage came from, never by its timestamp. A timestamp is what the clock said when
+the line was written, and nothing makes the clock move forwards: a clock that is
+set back would otherwise show a run's stages in reverse.
+
 The per-check gate results come from the one reader of the gate's records,
 ``gate_events``, so their fields are named in one place.
 """
@@ -53,6 +58,8 @@ class _Frozen(BaseModel):
 class StageTiming(_Frozen):
     """How long one stage of one attempt took, by the log's own timestamps."""
 
+    #: The sequence number of the stage's line: the trace's order, and its tie to the log.
+    seq: Annotated[int, Field(ge=0)]
     subtask_id: str
     attempt: Annotated[int, Field(ge=1)]
     stage: Stage
@@ -114,6 +121,7 @@ def _steps(events: list[Event]) -> tuple[StageTiming, ...]:
             end = after.ts if after is not None else lines[-1].ts
             timings.append(
                 StageTiming(
+                    seq=here.seq,
                     subtask_id=subtask,
                     attempt=attempt,
                     stage=here.stage,
@@ -121,7 +129,7 @@ def _steps(events: list[Event]) -> tuple[StageTiming, ...]:
                     seconds=_seconds(here.ts, end),
                 )
             )
-    return tuple(sorted(timings, key=lambda t: t.entered))
+    return tuple(sorted(timings, key=lambda t: t.seq))
 
 
 def _sessions(events: list[Event], account: TokenAccount) -> tuple[SessionTrace, ...]:

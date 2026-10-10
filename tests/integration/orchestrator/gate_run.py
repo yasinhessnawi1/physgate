@@ -20,6 +20,7 @@ import pytest
 from git_rig import PARAMS, Reviewer, config, target_repo
 from knowledge_fixture import fixture_text
 from scripted_endpoint import DUMMY_KEY, Script, serving, text, tool
+from stand_in_drive_plan import POWER_BUS
 
 from physgate.cli import main
 from physgate.gate.runner import PhysicsGate
@@ -57,18 +58,7 @@ def seed_knowledge(repo: Path) -> None:
 
 BRIEF = "Build a self-balancing robot; start with its power.\n"
 
-INTERFACE: dict[str, Any] = {
-    "id": "iface.power_bus",
-    "kind": "interface",
-    "domain": "electrical",
-    "owner_role": "electrical",
-    "quantities": {"v": {"value": 12, "unit": "V", "source": "brief", "written_by": "electrical"}},
-    "requirements": [],
-    "constrains": [],
-    "model": None,
-    "geometry_hash": "sha256:0",
-    "updated": "2026-09-26T00:00:00Z",
-}
+INTERFACE: dict[str, Any] = POWER_BUS
 
 
 class PayingReviewer(Reviewer):

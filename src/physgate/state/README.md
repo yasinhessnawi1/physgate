@@ -14,7 +14,7 @@ adopted.
 
 | | |
 |---|---|
-| `store.py` | The store itself: JSON per node over an append-only journal, the three guards, recovery at open, and the staleness detector. Also two pure readers for code that must not open a store: `node_file_body`, and `journal_records_after`, which reads the journal's newest records read-only, held to recovery's rules |
+| `store.py` | The store itself: JSON per node over an append-only journal, the three guards, recovery at open, and the staleness detector. Also pure readers for code that must not open a store: `node_file_body`; `journal_records_after`, which reads the journal's newest records read-only, held to recovery's rules; and over it `journal_diff` (the store's change list between two revisions, through the same selection `Store.diff` uses), `graph_at` (each node as it stood at a revision) and `node_history` (every record of one node) |
 | `divergence.py` | The check that names a node changed during a step by a role that does not own it |
 | `protocol.py` | The store interface, exactly as the comparison froze it: eight methods, and the closed set of rejection reasons the correctness score is counted in |
 | `schema.py` | The node shape, the quantity, and the identifier rule. Every quantity carries a value, a unit, a source and the role that wrote it |

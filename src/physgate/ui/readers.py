@@ -11,7 +11,16 @@ the allowlist, then handed to the package's own reader for that format:
 - the graph: ``GraphView.read``, the gate's own read-only view of the journal;
 - a session's trajectory: ``read_sealed``, held to the seal its session's end recorded;
 - the cost: ``price_events`` at a recorded price sheet, without the manifest's git checks,
-  since the server starts no process.
+  since the server starts no process;
+- the trace: ``read_traces``, exactly what ``physgate trace`` prints;
+- the run's decisions: ``decisions``, the sequence a rerun is compared by;
+- where the run stands: ``replay(...).next_step()``, the loop's own answer;
+- the tokens: ``TokenAccount``, per attribution, per kind and in total;
+- the gate checks with what each said: ``recorded_gate_checks``, the same events
+  ``physgate gate-events`` prints, each beside its record's bound, message and details;
+- the graph at a revision, one node's history and the change list between two revisions:
+  ``graph_at``, ``node_history`` and ``journal_diff``, read from the journal without opening a
+  store, the change list through the store's own selection.
 
 A trajectory's path is never taken from the record. The record is written on the machine
 that ran the session, and a forged log could name any file in the run directory, a running
@@ -24,20 +33,35 @@ prints; the rest as JSON.
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Any, Protocol
 
 from physgate.evaluation.observe.cost import KNOWN_SHEETS, load_price_sheet, price_events
 from physgate.evaluation.observe.manifest import manifest_id_of
+from physgate.evaluation.observe.sequence import decisions as decision_sequence
+from physgate.evaluation.observe.trace import read_traces
 from physgate.gate.graph import GraphView
+from physgate.orchestrator.accounting import TokenAccount
+from physgate.orchestrator.change_sets import change_history
 from physgate.orchestrator.common import render_jsonl
 from physgate.orchestrator.events import SessionEnded, read_events
-from physgate.orchestrator.gate_events import recorded_gate_events
-from physgate.orchestrator.replay import recorded_ledger
+from physgate.orchestrator.gate_events import recorded_gate_checks, recorded_gate_events
+from physgate.orchestrator.replay import recorded_ledger, replay
 from physgate.orchestrator.run_config import load_run_config
 from physgate.orchestrator.trajectory import read_sealed
-from physgate.state.store import JOURNAL_NAME
+from physgate.state.schema import validate_node
+from physgate.state.store import (
+    JOURNAL_NAME,
+    JournalLine,
+    RevisionNotFoundError,
+    graph_at,
+    journal_diff,
+    journal_records_after,
+    node_history,
+)
 from physgate.ui.exceptions import NotFoundError
 from physgate.ui.routes import Context, Response, json_response, run_directories
 
@@ -153,3 +177,195 @@ def cost(context: Context, params: Mapping[str, str]) -> Response:
         recorded, manifest_id_of(run_dir, log), log, load_price_sheet(params["date"])
     )
     return json_response(line.model_dump(mode="json"))
+
+
+class _Record(Protocol):
+    """A record the package's readers return: it serialises itself as the CLI prints it."""
+
+    def model_dump_json(self) -> str: ...
+
+
+def _model(model: _Record) -> object:
+    """A model as the command line prints it: its JSON, read back."""
+    return json.loads(model.model_dump_json())
+
+
+def _line(event: _Record) -> dict[str, Any]:
+    """An event as its log line holds it, which is the form the decision sequence reads."""
+    line: dict[str, Any] = json.loads(event.model_dump_json())
+    return line
+
+
+def trace(context: Context, params: Mapping[str, str]) -> Response:
+    """The run's trace, exactly what ``physgate trace`` prints."""
+    run_dir = _run_dir(context, params)
+    _file(context, run_dir, EVENTS)
+    _file(context, run_dir, RUN_CONFIG)
+    return json_response(_model(read_traces(run_dir)))
+
+
+def decisions(context: Context, params: Mapping[str, str]) -> Response:
+    """The run's decisions in log order, each with the sequence number that made it."""
+    run_dir = _run_dir(context, params)
+    log = read_events(_file(context, run_dir, EVENTS))
+    return json_response({"decisions": decision_sequence([_line(e) for e in log])})
+
+
+def status(context: Context, params: Mapping[str, str]) -> Response:
+    """Where the run stands: what the loop would do next, and why it halted, if it did."""
+    run_dir = _run_dir(context, params)
+    state = replay(read_events(_file(context, run_dir, EVENTS)))
+    step = state.next_step()
+    halted = state.halted
+    return json_response(
+        {
+            "next_step": {
+                "kind": step.kind,
+                "subtask_id": step.subtask_id,
+                "attempt": step.attempt,
+                "point": step.point,
+            },
+            "halted": None
+            if halted is None
+            else {"seq": halted.seq, "reason": halted.reason, "detail": halted.detail},
+        }
+    )
+
+
+def tokens(context: Context, params: Mapping[str, str]) -> Response:
+    """The token account: per attribution, per kind of spender, and the run's total."""
+    run_dir = _run_dir(context, params)
+    account = TokenAccount.from_events(read_events(_file(context, run_dir, EVENTS)))
+
+    def dumped(by: Mapping[str, _Record]) -> dict[str, object]:
+        return {key: _model(usage) for key, usage in by.items()}
+
+    return json_response(
+        {
+            "by_attribution": dumped(account.by_attribution()),
+            "by_kind": dumped(account.by_kind()),
+            "total": _model(account.total()),
+        }
+    )
+
+
+def gate_checks(context: Context, params: Mapping[str, str]) -> Response:
+    """Every gate event with its record's bound, message and details, one per line."""
+    run_dir = _run_dir(context, params)
+    found = recorded_gate_checks(
+        _file(context, run_dir, EVENTS), _file(context, run_dir, RUN_CONFIG)
+    )
+    return _lines(render_jsonl(found))
+
+
+def _journal(context: Context, run_dir: Path) -> Path:
+    """The run's graph directory, with its journal held to the allowlist first."""
+    store = _file(context, run_dir, STORE)
+    _file(context, run_dir, STORE, JOURNAL_NAME)
+    return store
+
+
+def _revision(params: Mapping[str, str], name: str) -> int:
+    return int(params[name])
+
+
+def _node_of(line: JournalLine) -> object:
+    return validate_node(line.payload).model_dump(mode="json")
+
+
+def graph_at_revision(context: Context, params: Mapping[str, str]) -> Response:
+    """Every node as it stood at a journal revision, each with the revision it was written at."""
+    run_dir = _run_dir(context, params)
+    store = _journal(context, run_dir)
+    revision = _revision(params, "revision")
+    try:
+        at = graph_at(store, revision)
+    except RevisionNotFoundError as exc:
+        raise NotFoundError(str(exc), **exc.context) from None
+    return json_response(
+        {
+            "revision": revision,
+            "head_revision": len(journal_records_after(store, 0)),
+            "nodes": {
+                node_id: {"revision": line.rev, "node": _node_of(line)}
+                for node_id, line in at.items()
+            },
+        }
+    )
+
+
+def history(context: Context, params: Mapping[str, str]) -> Response:
+    """One node's every revision, oldest first, each with the attempt that wrote it.
+
+    A revision at or below the head decomposition recorded is the given design's; any
+    other belongs to the merged attempt whose writes the event log names.
+    """
+    run_dir = _run_dir(context, params)
+    store = _journal(context, run_dir)
+    node_id = params["node"]
+    lines = node_history(store, node_id)
+    if not lines:
+        msg = "the run's journal holds no such node"
+        raise NotFoundError(msg, node=node_id)
+    baseline, change_sets = change_history(read_events(_file(context, run_dir, EVENTS)))
+    writer = {
+        revision: {"subtask_id": change.subtask_id, "attempt": change.attempt}
+        for change in change_sets
+        for revision in change.revisions
+    }
+    return json_response(
+        {
+            "node_id": node_id,
+            "baseline": baseline,
+            "history": [
+                {
+                    "revision": line.rev,
+                    "op": line.op,
+                    "version": line.version,
+                    "written_by": "decomposition" if line.rev <= baseline else writer.get(line.rev),
+                    "node": _node_of(line),
+                }
+                for line in lines
+            ],
+        }
+    )
+
+
+def diff(context: Context, params: Mapping[str, str]) -> Response:
+    """The store's change list between two revisions, and each changed node at both."""
+    run_dir = _run_dir(context, params)
+    store = _journal(context, run_dir)
+    since, until = _revision(params, "from"), _revision(params, "to")
+    if since > until:
+        msg = "a diff runs from an earlier revision to a later one"
+        raise NotFoundError(msg, revision_from=str(since), revision_to=str(until))
+    try:
+        changes = journal_diff(store, since, until)
+        before, after = graph_at(store, since), graph_at(store, until)
+    except RevisionNotFoundError as exc:
+        raise NotFoundError(str(exc), **exc.context) from None
+    changed = sorted({change.node_id for change in changes})
+
+    def at(found: Mapping[str, JournalLine], node_id: str) -> object:
+        line = found.get(node_id)
+        return None if line is None else {"revision": line.rev, "node": _node_of(line)}
+
+    return json_response(
+        {
+            "from": since,
+            "to": until,
+            "changes": [
+                {
+                    "revision": change.revision,
+                    "node_id": change.node_id,
+                    "version": change.version,
+                    "op": change.op,
+                }
+                for change in changes
+            ],
+            "nodes": {
+                node_id: {"before": at(before, node_id), "after": at(after, node_id)}
+                for node_id in changed
+            },
+        }
+    )

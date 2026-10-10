@@ -3,9 +3,13 @@ import { join } from "node:path";
 
 import { defineConfig, devices } from "@playwright/test";
 
-/** Where the browser tests' runs are built: outside the repository, rebuilt every time. */
-export const RUNS = join(tmpdir(), "physgate-ui-e2e");
-export const PORT = 8799;
+import { PORT } from "./e2e/port";
+
+/**
+ * Where the browser tests' runs are built: outside the repository, rebuilt every time, and named
+ * by the port so two worktrees' runs never share a directory.
+ */
+export const RUNS = join(tmpdir(), `physgate-ui-e2e-${String(PORT)}`);
 
 // The real server over real runs: the command builds three runs with the real loop (no model),
 // then starts `physgate ui` on loopback over them. The app must be built and stamped first,

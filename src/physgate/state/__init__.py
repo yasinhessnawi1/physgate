@@ -44,8 +44,11 @@ from physgate.state.store import (
     JournalLine,
     RevisionNotFoundError,
     Store,
+    graph_at,
+    journal_diff,
     journal_records_after,
     node_file_body,
+    node_history,
 )
 from physgate.state.task_ledger import TaskLedger, TaskLine, read_ledger
 
@@ -77,8 +80,11 @@ __all__ = [
     "WriteResult",
     "canonical_json",
     "divergence",
+    "graph_at",
+    "journal_diff",
     "journal_records_after",
     "node_file_body",
+    "node_history",
     "quantities_are_valid",
     "read_ledger",
     "validate_node",

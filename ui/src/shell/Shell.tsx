@@ -1,4 +1,4 @@
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 
 import { GateModeBadge } from "../design/components/GateMode";
 import { InProgressBadge } from "../design/components/Figure";
@@ -10,6 +10,7 @@ import { type Area, AREAS, areaById } from "./areas";
 const HOME: Area = { id: "home", number: "0", name: "Home" };
 import type { Header } from "./header";
 import { hrefFor, parseHash, type Route } from "./route";
+import { chordTarget, notAShortcut } from "./shortcuts";
 
 function useRoute(): Route {
   const [route, setRoute] = useState(() => parseHash(window.location.hash));
@@ -30,8 +31,39 @@ function useRoute(): Route {
  * the title and the record the page's figures come from, and the content beside them. Under
  * 760 px the sidebar stacks above the content. It renders whatever views it is given.
  */
+/**
+ * The two-key shortcuts. The listener is added once, for the shell's life: re-adding it whenever
+ * the route changed lost a first key pressed across that change. The current query is read
+ * through a ref, so a chord keeps the run that is chosen when it completes.
+ */
+function useShortcuts(query: URLSearchParams) {
+  const current = useRef(query);
+  useEffect(() => {
+    current.current = query;
+  }, [query]);
+  useEffect(() => {
+    let first: { key: string; at: number } | null = null;
+    const onKey = (event: KeyboardEvent) => {
+      if (notAShortcut(event)) return;
+      const href = chordTarget(first, event.key, event.timeStamp, current.current);
+      if (href !== null) {
+        first = null;
+        event.preventDefault();
+        window.location.hash = href.slice(1);
+        return;
+      }
+      first = event.key === "g" ? { key: "g", at: event.timeStamp } : null;
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+    };
+  }, []);
+}
+
 export function Shell({ views }: { views: readonly ViewDef[] }) {
   const route = useRoute();
+  useShortcuts(route.query);
   const area = areaById(route.area) ?? HOME;
   const inArea = views.filter((view) => view.area === area.id);
   const view =

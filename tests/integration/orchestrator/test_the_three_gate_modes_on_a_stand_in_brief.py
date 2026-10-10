@@ -30,8 +30,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from gate_fixtures import node
 from gate_run import build_install, drive_run, reviewer_tokens
+from stand_in_drive_plan import DRIVE_MODULE, STAND_IN_BRIEF
 
 from physgate.orchestrator.events import (
     GateRan,
@@ -50,47 +50,6 @@ pytestmark = [
     ),
 ]
 
-STAND_IN_BRIEF = (
-    "STAND-IN BRIEF, written for the physics gate's three-mode test; not the reference "
-    "design's brief.\n\n"
-    "Size the drive power module of a two-wheeled self-balancing robot: two brushed DC "
-    "gearmotors on one motor driver, fed from the module's power supply, which is fed "
-    "from a battery.\n"
-)
-
-DRIVE_MODULE: tuple[dict[str, Any], ...] = (
-    # A declared source: a battery declares the energy it stores.
-    node(
-        "electrical.battery",
-        quantities={"power_supply": (20, "W"), "energy_capacity": (20, "W*h")},
-    ),
-    # The module draws what it supplies from the battery.
-    node(
-        "electrical.drive",
-        kind="module",
-        quantities={"power_supply": (10, "W"), "power_draw": (10, "W"), "mass": (0.4, "kg")},
-        constrains=["electrical.battery"],
-    ),
-    *(
-        node(
-            f"electrical.motor_{side}",
-            quantities={"power_draw": (7.5, "W"), "stall_current": (2.4, "A"), "mass": (0.2, "kg")},
-            constrains=["electrical.drive", "electrical.driver"],
-        )
-        for side in ("left", "right")
-    ),
-    node(
-        "electrical.driver",
-        quantities={
-            "current_limit": (3, "A"),
-            "thermal_resistance": (40, "K/W"),
-            "heat_dissipation": (3, "W"),
-            "ambient_temperature": (25, "degC"),
-            "max_temperature": (125, "degC"),
-        },
-        constrains=["electrical.drive"],
-    ),
-)
 SIX = {"units", "magnitude", "equilibrium", "power", "conservation", "thermal"}
 
 

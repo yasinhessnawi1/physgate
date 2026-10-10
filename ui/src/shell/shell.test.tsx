@@ -64,3 +64,26 @@ describe("the shell", () => {
     expect(parseHash("").area).toBe("home");
   });
 });
+
+describe("a two-key shortcut survives a change of route between its keys", () => {
+  it("g, then the route changes, then t: still goes to the timeline", () => {
+    window.location.hash = "#/orchestration/gate-checks?run=0/a";
+    const host = document.createElement("div");
+    document.body.append(host);
+    act(() => {
+      createRoot(host).render(<Shell views={[]} />);
+    });
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "g" }));
+    });
+    // The route changes between the two keys, as a link or another shortcut would change it.
+    act(() => {
+      window.location.hash = "#/orchestration/gate-checks?run=0/b";
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "t" }));
+    });
+    expect(window.location.hash).toBe("#/orchestration/run-timeline?run=0%2Fb");
+  });
+});
