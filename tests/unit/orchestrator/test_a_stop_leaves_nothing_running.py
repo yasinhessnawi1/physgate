@@ -47,10 +47,14 @@ def family(
     # A session's own command line carries its session id, as the runtime's does.
     tag = ["--session-id", session] if session else []
     parent = subprocess.Popen([sys.executable, "-c", FAMILY, str(marker), mode, *tag])
+    # Wait for the marker's content, not its existence: the child creates the file empty and
+    # writes the two pids a moment later, and a read in between finds nothing.
     deadline = time.monotonic() + 10
-    while not marker.exists() and time.monotonic() < deadline:
+    pids: list[str] = []
+    while len(pids) != 2 and time.monotonic() < deadline:
         time.sleep(0.05)
-    pid, child = (int(x) for x in marker.read_text().split())
+        pids = marker.read_text().split() if marker.exists() else []
+    pid, child = (int(x) for x in pids)
     return parent, pid, child
 
 
