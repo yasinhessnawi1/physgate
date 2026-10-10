@@ -71,6 +71,8 @@ def run_config(run_id: str) -> RunConfig:
         harness=harness_state(None),
         effort="high",
         max_output_tokens=64000,
+        thinking_display="summarized",
+        role_python=None,
     )
 
 
