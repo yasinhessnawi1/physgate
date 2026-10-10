@@ -154,13 +154,24 @@ def _object_store(object_dirs: tuple[str, ...]) -> str:
 
 
 def git(
-    cwd: Path, *args: str, check: bool = True, stdin: str | None = None, objects_only: bool = False
+    cwd: Path,
+    *args: str,
+    check: bool = True,
+    stdin: str | None = None,
+    objects_only: bool = False,
+    git_dir: Path | None = None,
 ) -> str:
     """Run one git command in ``cwd`` and return its standard output.
 
     With ``objects_only`` the command runs against a clean object store that reaches ``cwd``'s
     objects but holds none of its config, attributes or submodules: used for content reads (a
     diff of two commits), so a role-written repository cannot make the read run a program.
+
+    With ``git_dir`` the command is pinned to that git directory (``--git-dir``) and to ``cwd``
+    as its work tree (``--work-tree``), both resolved by the caller. git then never re-reads
+    the worktree's ``.git`` pointer, so a pointer a role swapped between a check and here cannot
+    redirect the command (the write path pins the admin directory :func:`verify_worktree_pointer`
+    resolved).
 
     Raises:
         GitError: it exited non-zero and ``check`` is true.
@@ -170,6 +181,9 @@ def git(
         store = _object_store(_object_dirs(Path(cwd)))
         argv = ["git", "--git-dir", store, *_FLAGS, *args]
         run_in: Path | str = store
+    elif git_dir is not None:
+        argv = ["git", "--git-dir", str(git_dir), "--work-tree", str(cwd), *_FLAGS, *args]
+        run_in = cwd
     else:
         argv = ["git", *_FLAGS, *args]
         run_in = cwd
@@ -216,8 +230,10 @@ def git_timed(cwd: Path, *args: str, timeout: float) -> tuple[int | None, str, f
     return done.returncode, done.stderr.strip()[-400:], time.monotonic() - started
 
 
-def verify_worktree_pointer(cwd: Path) -> None:
-    """Fail closed unless a linked worktree's ``.git`` names a real git admin directory.
+def verify_worktree_pointer(cwd: Path) -> Path | None:
+    """The verified admin directory of a linked worktree at ``cwd``, or ``None`` for a plain repo.
+
+    Fail closed unless a linked worktree's ``.git`` names a real git admin directory.
 
     A role session owns its worktree. If it rewrote the worktree's ``.git`` pointer file to
     name a directory it controls, the orchestrator's next commit or merge, run with its working
@@ -243,7 +259,7 @@ def verify_worktree_pointer(cwd: Path) -> None:
     if not is_pointer:
         # An ordinary git directory, or no .git at all: not a linked worktree to validate. A
         # directory is a git dir; its absence lets git report "not a repository" on its own.
-        return
+        return None
     try:
         pointer = dot.read_text().strip()
         named = Path(pointer.removeprefix("gitdir:").strip())
@@ -263,6 +279,7 @@ def verify_worktree_pointer(cwd: Path) -> None:
     if Path(back).resolve() != dot.resolve():
         msg = "a worktree's .git and its admin directory disagree"
         raise GitError(msg, cwd=str(cwd), admin=str(admin))
+    return admin
 
 
 def head_of(repo: Path, ref: str) -> str:
@@ -315,10 +332,10 @@ def commit_all(worktree: Path, message: str) -> str:
     so the pointer is verified here, immediately before, and the commit fails closed if it
     does not name a real git worktree admin whose back-pointer resolves to this worktree.
     """
-    verify_worktree_pointer(worktree)
-    git(worktree, "add", "--all")
-    git(worktree, "commit", "--quiet", "--allow-empty", "--file", "-", stdin=message)
-    return head_of(worktree, "HEAD")
+    admin = verify_worktree_pointer(worktree)
+    git(worktree, "add", "--all", git_dir=admin)
+    git(worktree, "commit", "--quiet", "--allow-empty", "--file", "-", stdin=message, git_dir=admin)
+    return git(worktree, "rev-parse", "--verify", "HEAD^{commit}", git_dir=admin).strip()
 
 
 @dataclass(frozen=True)

@@ -170,11 +170,14 @@ class GitMerger:
         already = merges_of(run.repo, run.run_branch, base).get(attempt_commit)
         if already is not None:
             return already
-        verify_worktree_pointer(run.integration)
+        admin = verify_worktree_pointer(run.integration)
         try:
-            git(run.integration, "merge", "--no-ff", "--no-edit", "-m", message, attempt_commit)
+            git(
+                run.integration, "merge", "--no-ff", "--no-edit", "-m", message, attempt_commit,
+                git_dir=admin,
+            )  # fmt: skip
         except GitError as exc:
-            git(run.integration, "merge", "--abort", check=False)
+            git(run.integration, "merge", "--abort", check=False, git_dir=admin)
             msg = "an accepted attempt did not merge cleanly"
             raise MergeConflictError(
                 msg, subtask=subtask_id, commit=attempt_commit, stderr=exc.context.get("stderr", "")

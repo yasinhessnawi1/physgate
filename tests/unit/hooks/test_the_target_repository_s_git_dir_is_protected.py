@@ -26,6 +26,7 @@ from physgate.orchestrator.git import (
     add_worktree,
     commit_all,
     common_dir,
+    git,
     verify_worktree_pointer,
 )
 from physgate.orchestrator.merge import RunGit
@@ -134,3 +135,31 @@ def test_a_pointer_that_cannot_be_parsed_fails_closed(tmp_path: Path) -> None:
     (worktree / ".git").write_text(f"gitdir: {other_admin}\n")
     with pytest.raises(GitError, match="disagree"):
         verify_worktree_pointer(worktree)
+
+
+def test_a_pointer_swapped_after_the_check_cannot_redirect_the_commit(tmp_path: Path) -> None:
+    """The commit is pinned to the admin directory the check resolved.
+
+    A pointer swapped between the check and git's use (a TOCTOU window) does not redirect it.
+    Inert: the swap target is an empty directory, and the commit must still land in the real
+    worktree's history.
+    """
+    repo = _repo(tmp_path)
+    _commit_base(repo)
+    worktree = tmp_path / "wt"
+    add_worktree(repo, worktree, "feat/x", "HEAD")
+    admin = verify_worktree_pointer(worktree)
+    assert admin is not None
+    # Swap the pointer at a decoy directory after the check. commit_all re-verifies and would
+    # refuse; to show the pinning itself, drive git with the resolved admin directly.
+    decoy = tmp_path / "decoy"
+    decoy.mkdir()
+    (worktree / ".git").write_text(f"gitdir: {decoy}\n")
+    (worktree / "a").write_text("changed\n")
+    git(worktree, "add", "--all", git_dir=admin)
+    git(worktree, "commit", "--quiet", "-m", "pinned", git_dir=admin)
+    head = git(worktree, "rev-parse", "HEAD", git_dir=admin).strip()
+    # The commit is on the real worktree's branch, read through the pinned admin directory, not
+    # the decoy (which holds no commits at all).
+    assert git(worktree, "log", "-1", "--format=%s", git_dir=admin).strip() == "pinned"
+    assert len(head) == 40
