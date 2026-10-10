@@ -15,6 +15,8 @@ operator UI all call. These tests hold it to what it promises:
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import json
 import os
 import shutil
@@ -23,6 +25,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -31,7 +34,7 @@ from loop_fakes import FakeDispatcher, FakeGate, Rig, plan
 from physgate.cli import main
 from physgate.orchestrator import queue as queue_module
 from physgate.orchestrator.events import read_events
-from physgate.orchestrator.exceptions import QueueError, StaleViewError
+from physgate.orchestrator.exceptions import CorruptEventLogError, QueueError, StaleViewError
 from physgate.orchestrator.queue import (
     DECISIONS_NAME,
     QUEUE_NAME,
@@ -39,6 +42,7 @@ from physgate.orchestrator.queue import (
     QueueResolution,
     ShownItem,
     decision_text,
+    queue_listing,
     read_queue,
     record_decision,
     trajectory_statuses,
@@ -497,3 +501,179 @@ def test_the_writer_class_refuses_an_items_file_of_another_name(tmp_path: Path) 
     with pytest.raises(QueueError, match="always named the same"):
         ApprovalQueue(tmp_path / "items.jsonl")
     assert list(tmp_path.iterdir()) == []
+
+
+# -- every wait and every read is bounded ----------------------------------------------------
+#
+# A run directory's files can be swapped for anything the same user can make: a file far
+# larger than any run writes, one that keeps growing, a named pipe that blocks whoever opens
+# it, or a lock held forever. Each test below runs the call in a thread and requires it to
+# finish, so a bound that is removed turns the test red instead of hanging the suite.
+
+
+def _finishes(call: Callable[[], object], unblock: Path | None = None) -> BaseException | None:
+    """Run ``call`` in a thread; the exception it raised, or ``None``. Fails if it hangs."""
+    outcome: list[BaseException | None] = []
+
+    def run() -> None:
+        try:
+            call()
+        except BaseException as exc:  # noqa: BLE001 - handed back to the test as data
+            outcome.append(exc)
+        else:
+            outcome.append(None)
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    thread.join(timeout=5)
+    hung = thread.is_alive()
+    if hung and unblock is not None:
+        # Open the pipe's other end so the stuck open returns and the thread can end.
+        for flags in (os.O_RDONLY | os.O_NONBLOCK, os.O_WRONLY | os.O_NONBLOCK):
+            with contextlib.suppress(OSError):
+                os.close(os.open(unblock, flags))
+        thread.join(timeout=5)
+    assert not hung, "the call waited without bound"
+    return outcome[0]
+
+
+def test_a_decision_waits_for_a_held_lock_no_longer_than_its_bound(
+    run_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(queue_module, "LOCK_WAIT_S", 0.3)
+    holder = os.open(run_dir / DECISIONS_NAME, os.O_RDONLY)
+    before = _snapshot(run_dir)
+    try:
+        fcntl.flock(holder, fcntl.LOCK_EX)
+        started = time.monotonic()
+        refused = _finishes(lambda: _decide(run_dir))
+        waited = time.monotonic() - started
+    finally:
+        os.close(holder)
+    assert isinstance(refused, QueueError)
+    assert "held the approval queue's lock for the whole wait" in str(refused)
+    assert refused.context["waited_s"] == "0.3"
+    assert 0.3 <= waited < 5
+    assert _snapshot(run_dir) == before
+
+
+def test_the_lock_s_bound_is_ten_seconds_and_a_free_lock_is_taken_at_once(
+    run_dir: Path,
+) -> None:
+    assert queue_module.LOCK_WAIT_S == 10.0
+    started = time.monotonic()
+    _decide(run_dir)
+    assert time.monotonic() - started < queue_module.LOCK_WAIT_S
+
+
+@pytest.mark.parametrize("name", [QUEUE_NAME, DECISIONS_NAME])
+def test_a_named_pipe_in_a_queue_file_s_place_is_refused_without_waiting(
+    run_dir: Path, name: str
+) -> None:
+    (run_dir / name).unlink()
+    os.mkfifo(run_dir / name)
+    refused = _finishes(lambda: _decide(run_dir), unblock=run_dir / name)
+    assert isinstance(refused, QueueError)
+    assert "not a plain file" in str(refused)
+
+
+@pytest.mark.parametrize("name", [QUEUE_NAME, DECISIONS_NAME, "events.jsonl"])
+def test_the_readers_refuse_a_named_pipe_without_waiting(run_dir: Path, name: str) -> None:
+    (run_dir / name).unlink()
+    os.mkfifo(run_dir / name)
+    refused = _finishes(lambda: queue_listing(run_dir), unblock=run_dir / name)
+    assert isinstance(refused, QueueError | CorruptEventLogError)
+    assert "not a regular file" in refused.context["reason"]
+    if name != "events.jsonl":
+        writer = _finishes(lambda: ApprovalQueue(run_dir / QUEUE_NAME), unblock=run_dir / name)
+        assert isinstance(writer, QueueError)
+
+
+def test_a_trajectory_that_is_a_named_pipe_reads_as_tampered_without_waiting(
+    run_dir: Path,
+) -> None:
+    shown = _shown(run_dir)
+    item = next(i for i in read_queue(run_dir).items if i.item_id == ITEM)
+    stream = Path(item.trajectories[0])
+    stream.unlink()
+    os.mkfifo(stream)
+    refused = _finishes(lambda: _decide(run_dir, shown=shown), unblock=stream)
+    assert isinstance(refused, StaleViewError)
+    assert refused.context["now"] == "tampered,holds,holds"
+
+
+def _sparse(path: Path, size: int) -> None:
+    """Replace ``path`` with a file of ``size`` bytes that takes no space on disk."""
+    path.unlink()
+    with path.open("wb") as handle:
+        handle.truncate(size)
+
+
+@pytest.mark.parametrize(
+    ("name", "cap"),
+    [
+        (QUEUE_NAME, queue_module.QUEUE_READ_CAP),
+        (DECISIONS_NAME, queue_module.DECISIONS_READ_CAP),
+    ],
+)
+def test_a_queue_file_past_its_cap_is_refused_by_its_size_before_it_is_read(
+    run_dir: Path, name: str, cap: int
+) -> None:
+    """Each cap crossed by one byte, at its real value: refused by the file's size, unread."""
+    _sparse(run_dir / name, cap + 1)
+    for call in (lambda: _decide(run_dir), lambda: read_queue(run_dir)):
+        refused = _finishes(call)
+        assert isinstance(refused, QueueError)
+        assert "larger than this reader reads" in str(refused)
+        assert refused.context["reason"] == f"larger than {cap} bytes"
+
+
+def test_a_queue_file_at_its_cap_is_read(run_dir: Path) -> None:
+    """The bound is ``cap`` bytes inclusive: a decisions file of exactly the cap is read."""
+    path = run_dir / DECISIONS_NAME
+    padding = queue_module.DECISIONS_READ_CAP - path.stat().st_size
+    with path.open("ab") as handle:
+        handle.write(b" " * (padding - 1) + b"\n")
+    assert path.stat().st_size == queue_module.DECISIONS_READ_CAP
+    with pytest.raises(QueueError, match="could not have written"):
+        read_queue(run_dir)  # read whole, then refused for its content, not for its size
+
+
+def test_an_event_log_or_a_trajectory_past_its_cap_is_refused_unread(run_dir: Path) -> None:
+    shown = _shown(run_dir)
+    item = next(i for i in read_queue(run_dir).items if i.item_id == ITEM)
+    stream = Path(item.trajectories[0])
+    _sparse(stream, queue_module.RECORD_READ_CAP + 1)
+    refused = _finishes(lambda: _decide(run_dir, shown=shown))
+    assert isinstance(refused, StaleViewError)
+    assert refused.context["now"] == "too_large,holds,holds"
+    _sparse(run_dir / "events.jsonl", queue_module.RECORD_READ_CAP + 1)
+    for call in (lambda: _decide(run_dir, shown=shown), lambda: queue_listing(run_dir)):
+        refused = _finishes(call)
+        assert isinstance(refused, QueueError | CorruptEventLogError)
+        assert refused.context["reason"] == f"larger than {queue_module.RECORD_READ_CAP} bytes"
+
+
+def test_a_file_that_grows_past_its_cap_while_it_is_read_is_refused() -> None:
+    """A pipe stands in for a growing file: within the cap when its size is taken, past it later.
+
+    The size check passes on the first five bytes; the rest arrive only once the read has
+    started, so only the read's own bound can stop it.
+    """
+    read_end, write_end = os.pipe()
+    os.write(write_end, b"x" * 5)
+
+    def grow() -> None:
+        time.sleep(0.2)
+        os.write(write_end, b"x" * 45)
+        os.close(write_end)
+
+    grower = threading.Thread(target=grow)
+    grower.start()
+    try:
+        refused = _finishes(lambda: queue_module._read_fd(read_end, 10))
+        assert isinstance(refused, queue_module.FileTooLargeError)
+        assert refused.strerror == "grew past 10 bytes while it was read"
+    finally:
+        grower.join(timeout=5)
+        os.close(read_end)
