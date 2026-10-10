@@ -56,8 +56,25 @@ export function Shell({ views }: { views: readonly ViewDef[] }) {
     <div className="shell">
       <nav className="sidebar" aria-label="Areas">
         <div className="sidebar-brand">
-          <span className="sidebar-name">physgate</span>
-          <span className="sidebar-role">Operator</span>
+          <span className="sidebar-mark" aria-hidden="true">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M12 3l8 4v6c0 4-3.5 7-8 8-4.5-1-8-4-8-8V7z" />
+              <path d="M9 12l2 2 4-4" />
+            </svg>
+          </span>
+          <span className="sidebar-words">
+            <span className="sidebar-name">physgate</span>
+            <span className="sidebar-role">Operator</span>
+          </span>
         </div>
         {AREAS.map((a) => (
           <section key={a.id} className="nav-area" aria-label={a.name}>

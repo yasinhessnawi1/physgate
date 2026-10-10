@@ -10,12 +10,6 @@ import tokens from "./tokens.json" with { type: "json" };
 export type Theme = "light" | "dark";
 export type ColorName = keyof typeof tokens.color.light;
 
-/**
- * The text colour on a solid action button. The tokens file has no entry for it; the design
- * sets action buttons in white text in both themes, so that is what this is.
- */
-export const ON_ACTION = "#FFFFFF";
-
 const FONT_STACKS = {
   sans: '"IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif',
   mono: '"IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace',
@@ -27,11 +21,10 @@ function block(selector: string, declarations: [string, string][]): string {
 }
 
 function colors(theme: Theme): [string, string][] {
-  const declared = Object.entries(tokens.color[theme]).map(([name, value]): [string, string] => [
+  return Object.entries(tokens.color[theme]).map(([name, value]): [string, string] => [
     `color-${name}`,
     value,
   ]);
-  return [...declared, ["color-on-action", ON_ACTION]];
 }
 
 function scale(): [string, string][] {

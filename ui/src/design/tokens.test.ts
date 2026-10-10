@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import tokens from "./tokens.json";
-import { color, type ColorName, contrast, ON_ACTION, type Theme, tokensCss } from "./tokens";
+import { color, type ColorName, contrast, type Theme, tokensCss } from "./tokens";
 
 const THEMES: readonly Theme[] = ["light", "dark"];
 
@@ -56,18 +56,12 @@ describe("contrast: all text at least 4.5 : 1 on its ground, in both themes", ()
         expect(contrast(color(theme, fore), color(theme, ground))).toBeGreaterThanOrEqual(4.5);
       });
     }
-    it(`${theme}: action-button text on action`, () => {
-      expect(contrast(ON_ACTION, color(theme, "action"))).toBeGreaterThanOrEqual(4.5);
-    });
+    for (const ground of ["action", "action-hover"] as const) {
+      it(`${theme}: action-button text on ${ground}`, () => {
+        expect(contrast(color(theme, "action-text"), color(theme, ground))).toBeGreaterThanOrEqual(
+          4.5,
+        );
+      });
+    }
   }
-  it("light: action-button text on action-hover", () => {
-    expect(contrast(ON_ACTION, color("light", "action-hover"))).toBeGreaterThanOrEqual(4.5);
-  });
-  // The design's dark action-hover is lighter than its action, and white text on it measures
-  // 3.78 : 1, below the design's own rule. Built as specified and raised with the design's owner;
-  // this is marked as failing so the suite stays honest about it, and it turns red the day the
-  // token changes, which is the signal to delete this marker.
-  it.fails("dark: action-button text on action-hover (a known gap in the design)", () => {
-    expect(contrast(ON_ACTION, color("dark", "action-hover"))).toBeGreaterThanOrEqual(4.5);
-  });
 });

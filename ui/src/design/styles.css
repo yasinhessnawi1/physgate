@@ -59,8 +59,26 @@ code {
 
 .sidebar-brand {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--space-3);
+}
+
+/* The product mark: a navy square holding the shield. 28 px is the mark's own size. */
+.sidebar-mark {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-control);
+  background: var(--color-gate-on-bg);
+  color: var(--color-gate-on-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-words {
+  display: flex;
+  flex-direction: column;
 }
 
 .sidebar-name {
@@ -473,7 +491,7 @@ code {
 .button-act {
   border: 1px solid var(--color-action);
   background: var(--color-action);
-  color: var(--color-on-action);
+  color: var(--color-action-text);
   font-weight: var(--type-card-title-weight);
 }
 
