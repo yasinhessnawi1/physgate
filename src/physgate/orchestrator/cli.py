@@ -66,7 +66,7 @@ from physgate.orchestrator.invocation import claude_binary
 from physgate.orchestrator.loop import Loop, refuse_unregistered, require_gate
 from physgate.orchestrator.merge import GitMerger, RunGit
 from physgate.orchestrator.protocols import Gate, Reviewer
-from physgate.orchestrator.queue import ApprovalQueue, queue_listing
+from physgate.orchestrator.queue import queue_listing, record_decision
 from physgate.orchestrator.replay import recorded_ledger
 from physgate.orchestrator.role_python import RolePython
 from physgate.orchestrator.role_python import measure as measure_role_python
@@ -533,9 +533,10 @@ def _queue_list(args: argparse.Namespace) -> int:
 
 
 def _queue_resolve(args: argparse.Namespace) -> int:
-    queue = ApprovalQueue(args.run_dir.resolve() / "queue.jsonl")
     try:
-        record = queue.resolve(args.item, decision=args.decision, resolved_by=args.by)
+        record = record_decision(
+            args.run_dir.resolve(), args.item, decision=args.decision, resolved_by=args.by
+        )
     except OrchestratorError as exc:
         return _fail(str(exc), **exc.context)
     _print({"resolved": record.model_dump()})
