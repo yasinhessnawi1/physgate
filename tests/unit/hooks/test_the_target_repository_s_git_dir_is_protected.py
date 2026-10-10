@@ -22,7 +22,12 @@ from hook_helpers import write_config
 from physgate.hooks import paths
 from physgate.orchestrator.dispatch import GIT_CONFIG_NAMES, git_config_roots, run_protected_roots
 from physgate.orchestrator.exceptions import GitError
-from physgate.orchestrator.git import add_worktree, common_dir, git, verify_worktree_pointer
+from physgate.orchestrator.git import (
+    add_worktree,
+    commit_all,
+    common_dir,
+    verify_worktree_pointer,
+)
 from physgate.orchestrator.merge import RunGit
 
 
@@ -98,18 +103,19 @@ def test_the_orchestrator_fails_closed_on_a_repointed_worktree(tmp_path: Path) -
     _commit_base(repo)
     worktree = tmp_path / "wt"
     add_worktree(repo, worktree, "feat/x", "HEAD")
-    # A normal linked worktree verifies and git runs.
+    # A normal linked worktree verifies, and the write path (commit_all) runs.
     verify_worktree_pointer(worktree)
-    assert git(worktree, "rev-parse", "--abbrev-ref", "HEAD").strip() == "feat/x"
+    (worktree / "a").write_text("2\n")
+    assert len(commit_all(worktree, "a change")) == 40
     # Repoint the worktree's .git at a directory that is not a git worktree admin (inert: an
-    # empty directory, nothing runs). The orchestrator refuses before any git command.
+    # empty directory, nothing runs). The orchestrator's commit refuses before running git.
     bogus = tmp_path / "bogus"
     bogus.mkdir()
     (worktree / ".git").write_text(f"gitdir: {bogus}\n")
     with pytest.raises(GitError, match="no git worktree admin directory"):
         verify_worktree_pointer(worktree)
     with pytest.raises(GitError):
-        git(worktree, "status")
+        commit_all(worktree, "should not commit")
 
 
 def test_a_pointer_that_cannot_be_parsed_fails_closed(tmp_path: Path) -> None:

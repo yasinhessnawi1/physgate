@@ -171,7 +171,6 @@ def git(
         argv = ["git", "--git-dir", store, *_FLAGS, *args]
         run_in: Path | str = store
     else:
-        verify_worktree_pointer(Path(cwd))
         argv = ["git", *_FLAGS, *args]
         run_in = cwd
     done = subprocess.run(
@@ -221,13 +220,16 @@ def verify_worktree_pointer(cwd: Path) -> None:
     """Fail closed unless a linked worktree's ``.git`` names a real git admin directory.
 
     A role session owns its worktree. If it rewrote the worktree's ``.git`` pointer file to
-    name a directory it controls, the orchestrator's next commit, run with its working
+    name a directory it controls, the orchestrator's next commit or merge, run with its working
     directory here, would take that directory's config — a filter, a hook — as git's own and
     run a program. The pointer file is a protected root, so a tool write to it is refused and a
-    shell write is put back; this is the second check, before every in-repo git command: the
-    pointer must name an admin directory that is a git worktree's (it has ``commondir`` and a
-    ``gitdir`` back-pointer resolving to this very ``.git``), or the command does not run.
+    shell write is put back; this is the second check, called immediately before the
+    orchestrator stages, commits or merges in a live worktree (:func:`commit_all` and the
+    merger): the pointer must name an admin directory that is a git worktree's (it has
+    ``commondir`` and a ``gitdir`` back-pointer resolving to this very ``.git``), or it fails.
 
+    It guards a write, not a read: an observability command reading a run that was copied or
+    moved sees stale absolute pointers git itself follows, and must not be refused for them.
     A repository whose ``.git`` is an ordinary directory (not a linked worktree) is left alone.
     It fails closed: anything it cannot read or parse refuses the command, and it compares
     paths only after resolving them, never as raw or prefixed strings.
@@ -307,7 +309,13 @@ def commit_all(worktree: Path, message: str) -> str:
 
     Empty commits are allowed on purpose: an attempt that changed nothing still
     has a commit, so it can be judged and named like any other.
+
+    The staging and the commit are where a worktree's git directory, if a session had
+    repointed the worktree's ``.git`` at one it controls, would run that directory's config,
+    so the pointer is verified here, immediately before, and the commit fails closed if it
+    does not name a real git worktree admin whose back-pointer resolves to this worktree.
     """
+    verify_worktree_pointer(worktree)
     git(worktree, "add", "--all")
     git(worktree, "commit", "--quiet", "--allow-empty", "--file", "-", stdin=message)
     return head_of(worktree, "HEAD")

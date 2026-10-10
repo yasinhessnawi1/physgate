@@ -39,6 +39,7 @@ from physgate.orchestrator.git import (
     head_of,
     merge_base,
     merges_of,
+    verify_worktree_pointer,
 )
 from physgate.orchestrator.ports import WorktreeRemoval
 
@@ -169,6 +170,7 @@ class GitMerger:
         already = merges_of(run.repo, run.run_branch, base).get(attempt_commit)
         if already is not None:
             return already
+        verify_worktree_pointer(run.integration)
         try:
             git(run.integration, "merge", "--no-ff", "--no-edit", "-m", message, attempt_commit)
         except GitError as exc:
