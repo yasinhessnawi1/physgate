@@ -6,12 +6,11 @@
  */
 import { useEffect, useState } from "react";
 
-import { getJson, postAction, type Result } from "../../api/client";
+import { getJson, pageOperator, postAction, type Result } from "../../api/client";
 import {
   decisionRequest,
   type ItemView,
   itemView,
-  operatorName,
   queueListing,
   resolved,
   type Verb,
@@ -50,7 +49,7 @@ export default function ApprovalQueue({ setHeader, query }: ViewProps) {
     base === null || total === null ? null : () => allItems(base, total),
     `${String(base)}/items/${String(total)}#${String(version)}`,
   );
-  const operator = useResult(() => getJson("/api/operator", operatorName), "/api/operator");
+  const operator = pageOperator();
   useEffect(() => {
     if (config?.ok === true)
       setHeader({
@@ -72,7 +71,7 @@ export default function ApprovalQueue({ setHeader, query }: ViewProps) {
   const picker = (
     <RunPicker runs={runs.value} chosen={chosen} area="collaboration" slug="approval-queue" />
   );
-  if (config === null || listing === null || operator === null)
+  if (config === null || listing === null)
     return (
       <div className="view">
         {picker}
@@ -83,8 +82,6 @@ export default function ApprovalQueue({ setHeader, query }: ViewProps) {
     return <ErrorState title="The run's configuration was refused" refusal={config.refusal} />;
   if (!listing.ok)
     return <ErrorState title="The approval queue was refused" refusal={listing.refusal} />;
-  if (!operator.ok)
-    return <ErrorState title="Who decides here could not be read" refusal={operator.refusal} />;
   if (views === null)
     return (
       <div className="view">
@@ -127,7 +124,7 @@ export default function ApprovalQueue({ setHeader, query }: ViewProps) {
               key={`${item.item.itemId}#${String(version)}`}
               view={item}
               runId={config.value.runId}
-              operator={operator.value}
+              operator={operator}
               send={send}
               onDecided={() => {
                 setVersion((v) => v + 1);

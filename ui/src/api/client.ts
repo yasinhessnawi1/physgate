@@ -74,6 +74,18 @@ export async function getLines<T>(
 /** The name of the ``<meta>`` element the server puts its action token in. */
 export const ACT_TOKEN_META = "physgate-act-token";
 
+/** The name of the ``<meta>`` element naming the operator decisions are recorded under. */
+export const OPERATOR_META = "physgate-operator";
+
+/**
+ * Who decisions taken here are recorded under, as the server put it in this page, or ``null`` when
+ * the server was started without naming anyone, in which case nothing can be decided here.
+ */
+export function pageOperator(doc: Document = document): string | null {
+  const meta = doc.querySelector<HTMLMetaElement>(`meta[name="${OPERATOR_META}"]`);
+  return meta === null || meta.content === "" ? null : meta.content;
+}
+
 /** The header an action carries the token back in. */
 export const ACT_TOKEN_HEADER = "X-Physgate-Act-Token";
 

@@ -373,10 +373,11 @@ def test_an_operator_name_within_bounds_is_taken_as_given() -> None:
 def test_a_page_with_no_head_and_no_doctype_cannot_carry_the_token() -> None:
     built = assets.Assets(index=b"<html><body></body></html>", files={})
     with pytest.raises(StartupRefusedError, match="carry the action token"):
-        built.with_act_token("t")
+        built.with_server_meta("t", None)
     headed = assets.Assets(index=b"<html><head></head></html>", files={})
     assert (
-        b'<meta name="physgate-act-token" content="t"></head>' in headed.with_act_token("t").index
+        b'<meta name="physgate-act-token" content="t"></head>'
+        in headed.with_server_meta("t", None).index
     )
 
 
@@ -538,14 +539,19 @@ def test_the_decision_function_itself_may_append_to_no_other_file(
     assert guard.DECISIONS_FILE == "queue_decisions.jsonl"
 
 
-def test_the_page_can_read_who_decides_here_and_learns_no_one_when_none_was_named(
-    run: Path,
-) -> None:
-    from physgate.ui.routes import operator
+def test_the_page_names_who_decides_here_and_no_one_when_none_was_named(run: Path) -> None:
+    """The operator's name reaches the page in its own element, escaped; no route serves it."""
+    for named, expected in (
+        ("Yasin H.", b'<meta name="physgate-operator" content="Yasin H.">'),
+        ('a "b" <c>', b'<meta name="physgate-operator" content="a &quot;b&quot; &lt;c&gt;">'),
+    ):
+        with serving(_context(run, operator=named), routes=(_index_route(),)) as server:
+            _, _, page = server.request("GET", "/")
+        assert expected in page
+    with serving(_context(run, operator=None), routes=(_index_route(),)) as server:
+        _, _, page = server.request("GET", "/")
+    assert b"physgate-operator" not in page
+    assert b"physgate-act-token" in page
+    from physgate.ui.table import ROUTES
 
-    routes = (_index_route(), Route("GET", "/api/operator", "read", operator))
-    for named, expected in (("Yasin H.", b'"operator": "Yasin H."'), (None, b'"operator": null')):
-        with serving(_context(run, operator=named), routes=routes) as server:
-            status, _, body = Client(server.port).raw("GET", "/api/operator", {})
-        assert status == 200
-        assert expected in body
+    assert not [r for r in ROUTES if "operator" in r.pattern]

@@ -10,7 +10,7 @@ declared.
 from __future__ import annotations
 
 from physgate.ui import actions, readers
-from physgate.ui.routes import Route, asset, index, operator, runs
+from physgate.ui.routes import Route, asset, index, runs
 
 #: The path every route over one run starts with.
 RUN = "/api/runs/{root:index}/{name:name}"
@@ -21,7 +21,6 @@ ROUTES: tuple[Route, ...] = (
     Route("GET", "/assets/{name:asset}", "read", asset),
     Route("GET", "/api/runs", "read", runs),
     Route("GET", "/api/prices", "read", readers.prices),
-    Route("GET", "/api/operator", "read", operator),
     Route("GET", f"{RUN}/config", "read", readers.config),
     Route("GET", f"{RUN}/events", "read", readers.events),
     Route("GET", f"{RUN}/ledger", "read", readers.ledger),
