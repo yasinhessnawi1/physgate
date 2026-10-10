@@ -16,6 +16,7 @@ write-ahead records that a restart has to be able to trust.
 
 from __future__ import annotations
 
+import io
 import os
 from collections.abc import Callable
 from datetime import datetime
@@ -590,9 +591,12 @@ E = TypeVar("E", bound=_Event)
 
 
 def read_jsonl[T](
-    path: Path, parse: Callable[[bytes], T]
+    path: Path | bytes, parse: Callable[[bytes], T]
 ) -> tuple[list[T], int, tuple[int, str] | None]:
-    """Parse every complete line of ``path``.
+    """Parse every complete line of ``path``, or of the bytes given in its place.
+
+    Bytes are for a reader that opened the file itself, through a descriptor it checked,
+    and must parse exactly what it read rather than reopen the file by name.
 
     Returns the parsed records, the byte offset where the good records end, and
     the offset and reason of the first complete line that did not parse, if any.
@@ -603,7 +607,7 @@ def read_jsonl[T](
     """
     records: list[T] = []
     good_end = 0
-    with path.open("rb") as handle:
+    with path.open("rb") if isinstance(path, Path) else io.BytesIO(path) as handle:
         for raw in handle:
             if not raw.endswith(b"\n"):
                 break
@@ -717,11 +721,24 @@ def read_events(path: Path) -> list[Event]:
         CorruptEventLogError: a complete line is not a record, or does not follow
             from the lines before it.
     """
-    events, _, corrupt = read_jsonl(Path(path), _parse_in(_Context(), None))
+    return _events_of(Path(path), str(path))
+
+
+def parse_events(data: bytes, *, log: str) -> list[Event]:
+    """Every event in ``data``, an event log's bytes read by the caller; ``log`` names it.
+
+    Raises:
+        CorruptEventLogError: as :func:`read_events`.
+    """
+    return _events_of(data, log)
+
+
+def _events_of(source: Path | bytes, log: str) -> list[Event]:
+    events, _, corrupt = read_jsonl(source, _parse_in(_Context(), None))
     if corrupt is not None:
         offset, reason = corrupt
         msg = "the run-event log holds a line this package could not have written"
-        raise CorruptEventLogError(msg, log=str(path), offset=str(offset), reason=reason)
+        raise CorruptEventLogError(msg, log=log, offset=str(offset), reason=reason)
     return events
 
 
