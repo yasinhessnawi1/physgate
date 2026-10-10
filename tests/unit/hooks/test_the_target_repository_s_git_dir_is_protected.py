@@ -110,3 +110,21 @@ def test_the_orchestrator_fails_closed_on_a_repointed_worktree(tmp_path: Path) -
         verify_worktree_pointer(worktree)
     with pytest.raises(GitError):
         git(worktree, "status")
+
+
+def test_a_pointer_that_cannot_be_parsed_fails_closed(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    _commit_base(repo)
+    worktree = tmp_path / "wt"
+    add_worktree(repo, worktree, "feat/x", "HEAD")
+    # Not a gitdir pointer at all: refused, never passed.
+    (worktree / ".git").write_text("not a pointer\n")
+    with pytest.raises(GitError, match="not a gitdir pointer"):
+        verify_worktree_pointer(worktree)
+    # An admin directory missing its back-pointer is refused (a real admin exists but is wrong).
+    other = tmp_path / "wt2"
+    add_worktree(repo, other, "feat/y", "HEAD")
+    other_admin = (Path(other / ".git").read_text().removeprefix("gitdir:")).strip()
+    (worktree / ".git").write_text(f"gitdir: {other_admin}\n")
+    with pytest.raises(GitError, match="disagree"):
+        verify_worktree_pointer(worktree)

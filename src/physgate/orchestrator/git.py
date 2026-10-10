@@ -229,21 +229,36 @@ def verify_worktree_pointer(cwd: Path) -> None:
     ``gitdir`` back-pointer resolving to this very ``.git``), or the command does not run.
 
     A repository whose ``.git`` is an ordinary directory (not a linked worktree) is left alone.
+    It fails closed: anything it cannot read or parse refuses the command, and it compares
+    paths only after resolving them, never as raw or prefixed strings.
     """
     dot = Path(cwd) / ".git"
-    if not dot.is_file():
+    try:
+        is_pointer = dot.is_file()
+    except OSError as exc:
+        msg = "a worktree's .git could not be examined"
+        raise GitError(msg, cwd=str(cwd), reason=str(exc)) from None
+    if not is_pointer:
+        # An ordinary git directory, or no .git at all: not a linked worktree to validate. A
+        # directory is a git dir; its absence lets git report "not a repository" on its own.
         return
-    pointer = dot.read_text().strip()
+    try:
+        pointer = dot.read_text().strip()
+        named = Path(pointer.removeprefix("gitdir:").strip())
+        admin = named if named.is_absolute() else (Path(cwd) / named)
+        admin = admin.resolve()
+        has_admin = (admin / "commondir").is_file() and (admin / "gitdir").is_file()
+        back = (admin / "gitdir").read_text().strip() if has_admin else ""
+    except OSError as exc:
+        msg = "a worktree's .git or its admin directory could not be read"
+        raise GitError(msg, cwd=str(cwd), reason=str(exc)) from None
     if not pointer.startswith("gitdir:"):
         msg = "a worktree's .git is not a gitdir pointer"
         raise GitError(msg, cwd=str(cwd))
-    named = Path(pointer.removeprefix("gitdir:").strip())
-    admin = named if named.is_absolute() else (Path(cwd) / named).resolve()
-    back = admin / "gitdir"
-    if not (admin / "commondir").is_file() or not back.is_file():
+    if not has_admin:
         msg = "a worktree's .git points at no git worktree admin directory"
         raise GitError(msg, cwd=str(cwd), admin=str(admin))
-    if Path(back.read_text().strip()).resolve() != dot.resolve():
+    if Path(back).resolve() != dot.resolve():
         msg = "a worktree's .git and its admin directory disagree"
         raise GitError(msg, cwd=str(cwd), admin=str(admin))
 
