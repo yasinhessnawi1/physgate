@@ -247,7 +247,9 @@ def test_a_blocked_review_s_state(tmp_path: Path) -> None:
         events, lambda e: isinstance(e, ReviewRan) and e.result.verdict == "blocked"
     )
     assert state.ended.kind == "review_blocked"
-    assert state.ledger.review_result == "blocked"
+    # Distinct on purpose: a builder that copied one ledger result into the other would
+    # still pass where both are "fail".
+    assert (state.ledger.gate_result, state.ledger.review_result) == ("pass", "blocked")
     assert state.review is not None
     assert (
         state.review.verdict,
