@@ -47,8 +47,10 @@ _ENV = {
     "LC_ALL": "C",
 }
 #: Overrides on every command: hooks off, no signing, the file-system monitor off (it is a
-#: program a repository can name), a repository's own attributes file off, and the ``ext``
-#: transport off. A repository's local config is still read for keys that only change git's
+#: program a repository can name), a repository's own attributes file off, the ``ext``
+#: transport off, and every signature path neutralised — a signed commit, merge or log would
+#: otherwise run ``gpg.program``, a program a repository can name, to make or verify a
+#: signature. A repository's local config is still read for keys that only change git's
 #: output; the exec vectors above are forced off, and content reads run against a clean store
 #: (:func:`_object_store`) so even those keys cannot be read.
 _FLAGS = (
@@ -57,6 +59,9 @@ _FLAGS = (
     "-c", "core.fsmonitor=false",
     "-c", "core.attributesFile=/dev/null",
     "-c", "protocol.ext.allow=never",
+    "-c", "log.showSignature=false",
+    "-c", "merge.verifySignatures=false",
+    "-c", f"gpg.program={os.devnull}",
 )  # fmt: skip
 #: Added to a diff: no external diff program, no textconv program, and a submodule shown as
 #: its gitlink rather than recursed into (recursion re-runs git in the submodule, where the
@@ -166,6 +171,7 @@ def git(
         argv = ["git", "--git-dir", store, *_FLAGS, *args]
         run_in: Path | str = store
     else:
+        verify_worktree_pointer(Path(cwd))
         argv = ["git", *_FLAGS, *args]
         run_in = cwd
     done = subprocess.run(
@@ -209,6 +215,37 @@ def git_timed(cwd: Path, *args: str, timeout: float) -> tuple[int | None, str, f
     except subprocess.TimeoutExpired:
         return None, "", time.monotonic() - started
     return done.returncode, done.stderr.strip()[-400:], time.monotonic() - started
+
+
+def verify_worktree_pointer(cwd: Path) -> None:
+    """Fail closed unless a linked worktree's ``.git`` names a real git admin directory.
+
+    A role session owns its worktree. If it rewrote the worktree's ``.git`` pointer file to
+    name a directory it controls, the orchestrator's next commit, run with its working
+    directory here, would take that directory's config — a filter, a hook — as git's own and
+    run a program. The pointer file is a protected root, so a tool write to it is refused and a
+    shell write is put back; this is the second check, before every in-repo git command: the
+    pointer must name an admin directory that is a git worktree's (it has ``commondir`` and a
+    ``gitdir`` back-pointer resolving to this very ``.git``), or the command does not run.
+
+    A repository whose ``.git`` is an ordinary directory (not a linked worktree) is left alone.
+    """
+    dot = Path(cwd) / ".git"
+    if not dot.is_file():
+        return
+    pointer = dot.read_text().strip()
+    if not pointer.startswith("gitdir:"):
+        msg = "a worktree's .git is not a gitdir pointer"
+        raise GitError(msg, cwd=str(cwd))
+    named = Path(pointer.removeprefix("gitdir:").strip())
+    admin = named if named.is_absolute() else (Path(cwd) / named).resolve()
+    back = admin / "gitdir"
+    if not (admin / "commondir").is_file() or not back.is_file():
+        msg = "a worktree's .git points at no git worktree admin directory"
+        raise GitError(msg, cwd=str(cwd), admin=str(admin))
+    if Path(back.read_text().strip()).resolve() != dot.resolve():
+        msg = "a worktree's .git and its admin directory disagree"
+        raise GitError(msg, cwd=str(cwd), admin=str(admin))
 
 
 def head_of(repo: Path, ref: str) -> str:

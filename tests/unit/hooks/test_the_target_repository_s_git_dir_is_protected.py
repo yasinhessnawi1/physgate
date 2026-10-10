@@ -21,7 +21,8 @@ from hook_helpers import write_config
 
 from physgate.hooks import paths
 from physgate.orchestrator.dispatch import GIT_CONFIG_NAMES, git_config_roots, run_protected_roots
-from physgate.orchestrator.git import common_dir
+from physgate.orchestrator.exceptions import GitError
+from physgate.orchestrator.git import add_worktree, common_dir, git, verify_worktree_pointer
 from physgate.orchestrator.merge import RunGit
 
 
@@ -48,7 +49,7 @@ def test_run_protected_roots_covers_the_git_dir_exec_surface(tmp_path: Path) -> 
     assert set(git_config_roots(common)) <= set(reverted)
 
 
-@pytest.mark.parametrize("name", ["config", "config.worktree", "hooks", "info"])
+@pytest.mark.parametrize("name", ["config", "config.worktree", "hooks", "info", "modules"])
 def test_the_path_layer_refuses_a_role_write_under_the_git_dir(tmp_path: Path, name: str) -> None:
     common = common_dir(_repo(tmp_path))
     roots = [
@@ -57,8 +58,55 @@ def test_the_path_layer_refuses_a_role_write_under_the_git_dir(tmp_path: Path, n
     ]
     _, _, config = write_config(tmp_path, protected_roots=roots)
     # A file under each protected root is refused to a writing tool.
-    target = str(common / name / "x") if name in ("hooks", "info") else str(common / name)
+    dir_roots = ("hooks", "info", "modules")
+    target = str(common / name / "x") if name in dir_roots else str(common / name)
     assert paths.protection(target, str(tmp_path), config, writing=True) is not None
     # Reading it is allowed, and an ordinary source file is untouched.
     assert paths.protection(target, str(tmp_path), config, writing=False) is None
     assert paths.protection(str(tmp_path / "m.py"), str(tmp_path), config, writing=True) is None
+
+
+def _commit_base(repo: Path) -> None:
+    env = {"PATH": "/usr/bin:/bin", "HOME": os.devnull, "GIT_AUTHOR_NAME": "t",
+           "GIT_AUTHOR_EMAIL": "t@x.invalid", "GIT_COMMITTER_NAME": "t",
+           "GIT_COMMITTER_EMAIL": "t@x.invalid"}  # fmt: skip
+    (repo / "a").write_text("1\n")
+    for args in (["add", "-A"], ["commit", "-q", "-m", "base"]):
+        subprocess.run(["git", *args], cwd=repo, env=env, check=True, capture_output=True)
+
+
+def test_the_session_worktree_s_git_pointer_is_a_protected_root(tmp_path: Path) -> None:
+    run = RunGit(repo=_repo(tmp_path), run_dir=tmp_path / "run", run_id="run-1")
+    worktree = run.subtask_worktree("s1")
+    reverted, _ = run_protected_roots(run)
+    # The dispatch adds the worktree's own .git pointer; here we assert the installer wires it,
+    # mirroring dispatch._install, by checking a file tool write to it is refused.
+    roots = [
+        {
+            "path": str(worktree / ".git"),
+            "reason": "it is the worktree's git pointer",
+            "watch": "revert",
+        }  # fmt: skip
+    ]
+    _, _, config = write_config(tmp_path, protected_roots=roots)
+    assert paths.protection(str(worktree / ".git"), str(worktree), config, writing=True) is not None
+    assert paths.protection(str(worktree / "src.py"), str(worktree), config, writing=True) is None
+
+
+def test_the_orchestrator_fails_closed_on_a_repointed_worktree(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    _commit_base(repo)
+    worktree = tmp_path / "wt"
+    add_worktree(repo, worktree, "feat/x", "HEAD")
+    # A normal linked worktree verifies and git runs.
+    verify_worktree_pointer(worktree)
+    assert git(worktree, "rev-parse", "--abbrev-ref", "HEAD").strip() == "feat/x"
+    # Repoint the worktree's .git at a directory that is not a git worktree admin (inert: an
+    # empty directory, nothing runs). The orchestrator refuses before any git command.
+    bogus = tmp_path / "bogus"
+    bogus.mkdir()
+    (worktree / ".git").write_text(f"gitdir: {bogus}\n")
+    with pytest.raises(GitError, match="no git worktree admin directory"):
+        verify_worktree_pointer(worktree)
+    with pytest.raises(GitError):
+        git(worktree, "status")
