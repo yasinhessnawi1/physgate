@@ -47,14 +47,32 @@ impl Status {
         )
     }
 
-    pub fn no_run_folders() -> Self {
-        Self::new(
+    /// The default run root holds no run yet. Runs are made there; nothing is picked.
+    pub fn no_runs(root: &Path) -> Self {
+        let root = crate::runs::shown(root);
+        let mut status = Self::new(
             "waiting",
-            "No run folders yet",
+            "No runs yet",
             vec![
-                "The operator UI shows runs from folders you choose.".into(),
-                "In the menu bar, choose Run Folders → Add Run Folder…, then pick a run folder, \
-                 or a folder that holds run folders. The app remembers it."
+                format!("Runs appear here as soon as one is made in {root}."),
+                format!("A run goes there when its run directory is inside {root}, for example:"),
+            ],
+        );
+        status.command = Some(format!(
+            "physgate run --run-dir {root}/my-first-run --target <repository> --install <hooks>"
+        ));
+        status
+    }
+
+    /// The default run root is there but cannot be used, for the reason given.
+    pub fn root_refused(reason: &str) -> Self {
+        Self::new(
+            "problem",
+            "The run folder can't be used",
+            vec![
+                format!("{reason}."),
+                "Remove what is there (whatever a link points at is not touched), then choose \
+                 View → Restart Server; the app makes the folder afresh."
                     .into(),
             ],
         )

@@ -48,8 +48,10 @@ the internet, so macOS opens it without a warning.
    local-model card shows what this Mac could run (chip, memory, GPU cores, free disk, and
    which models would fit), but nothing is downloaded. **Set Up Later** skips the step,
    and **physgate → Engine…** returns to it.
-3. **The operator UI.** If no run folder is chosen yet, the window says how to add one:
-   **Run Folders → Add Run Folder…**.
+3. **The operator UI.** The app serves `~/physgate-runs` without asking. It makes the
+   folder on the first start (readable by you only), uses it as it is afterwards, and
+   refuses it if it is a link. Runs appear as soon as one is made there, for example with
+   `physgate run --run-dir ~/physgate-runs/my-first-run …`. Until then the window says so.
 
 **Runs still use Claude Code today.** What the engine step stores (the engine, and for the
 API the two models) is a record for later. A run still uses the credential and models its
@@ -93,7 +95,7 @@ own parameters name, and runs on an API key still ask the owner before they spen
 | View → Restart Server (⇧⌘R) | Reads the settings again, restarts `physgate ui` and shows it |
 | View → Show Server Log | What `physgate ui` wrote on its latest start: its request log, or why it refused |
 | Checkout | Every worktree of the repository, to try a UI branch before it merges; or another folder |
-| Run Folders | The folders served, and adding or removing one |
+| Run Folders | The folders served (`~/physgate-runs` unless you set others), and adding or removing one |
 
 When the server can't start, the window says why, in the server's own words. If the UI
 build is missing or out of date, the window shows the command that builds it. You run it

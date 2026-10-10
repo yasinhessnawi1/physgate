@@ -17,6 +17,7 @@ mod keychain;
 mod menu;
 mod navigation;
 mod onboarding;
+mod runs;
 mod server;
 mod shell;
 mod status;

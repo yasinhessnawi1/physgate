@@ -11,6 +11,7 @@ use tauri::{AppHandle, Manager, Url, WebviewWindow};
 use crate::checkout::{self, Worktree};
 use crate::config::{Paths, Settings};
 use crate::navigation::Gate;
+use crate::runs;
 use crate::server::{self, Server};
 use crate::status::Status;
 use crate::tour;
@@ -35,6 +36,8 @@ struct State {
     worktrees: Vec<Worktree>,
     /// The build stamp the running server (or the last refusal) saw.
     stamp: Option<String>,
+    /// Every run folder was empty at the last start: start the server once one is not.
+    waiting_for_runs: bool,
 }
 
 impl Shell {
@@ -49,6 +52,7 @@ impl Shell {
                 server: None,
                 worktrees,
                 stamp: None,
+                waiting_for_runs: false,
             }),
             restarting: Mutex::new(()),
             tour,
@@ -170,7 +174,7 @@ impl Shell {
             .or_else(|| self.take_remembered_view());
         self.stop_server();
 
-        let settings = match Settings::load(&self.paths.settings()) {
+        let mut settings = match Settings::load(&self.paths.settings()) {
             Ok(settings) => settings,
             Err(problem) => {
                 self.show(
@@ -183,11 +187,19 @@ impl Shell {
                 return;
             }
         };
+        // With no run folder set, the default root is served: no folder is ever picked.
+        let root = runs::default_root();
+        if runs::with_default(&mut settings, &root) {
+            if let Err(problem) = settings.save(&self.paths.settings()) {
+                self.note(&format!("the settings could not be saved: {problem}"));
+            }
+        }
         {
             let mut state = self.state();
             state.worktrees = checkout::worktrees(&settings.checkout);
             state.settings = settings.clone();
             state.stamp = checkout::build_stamp(&settings.checkout);
+            state.waiting_for_runs = false;
         }
         crate::menu::refresh(app);
 
@@ -204,8 +216,20 @@ impl Shell {
             self.show(&window, &Status::no_checkout(&settings.checkout));
             return;
         }
-        if settings.run_folders.is_empty() {
-            self.show(&window, &Status::no_run_folders());
+        if settings.run_folders.contains(&root) {
+            match runs::ensure(&root) {
+                Ok(runs::Root::Created) => self.note(&format!("made {}", runs::shown(&root))),
+                Ok(runs::Root::Existing) => {}
+                Err(reason) => {
+                    self.note(&format!("the run folder was refused: {reason}"));
+                    self.show(&window, &Status::root_refused(&reason));
+                    return;
+                }
+            }
+        }
+        if !runs::has_runs(&settings.run_folders) {
+            self.state().waiting_for_runs = true;
+            self.show(&window, &Status::no_runs(&root));
             return;
         }
         self.show(&window, &Status::starting(&settings.checkout));
@@ -246,7 +270,13 @@ impl Shell {
             let (rebuilt, stopped) = {
                 let mut state = shell.state();
                 let now = checkout::build_stamp(&state.settings.checkout);
-                let rebuilt = now.is_some() && now != state.stamp;
+                let built = now.is_some() && now != state.stamp;
+                let arrived = state.waiting_for_runs && runs::has_runs(&state.settings.run_folders);
+                let rebuilt = match (built, arrived) {
+                    (true, _) => Some("the UI was rebuilt; restarting the server"),
+                    (false, true) => Some("a run arrived; starting the server"),
+                    (false, false) => None,
+                };
                 let gone = state
                     .server
                     .as_mut()
@@ -254,8 +284,8 @@ impl Shell {
                 let stopped = if gone { state.server.take() } else { None };
                 (rebuilt, stopped)
             };
-            if rebuilt {
-                shell.note("the UI was rebuilt; restarting the server");
+            if let Some(why) = rebuilt {
+                shell.note(why);
                 shell.restart(&app);
             } else if let Some(server) = stopped {
                 drop(server);
