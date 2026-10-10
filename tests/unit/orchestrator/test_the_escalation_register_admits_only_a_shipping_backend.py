@@ -17,6 +17,7 @@ from physgate.orchestrator.escalation import (
     IMPLEMENTATIONS,
     REGISTER,
     BackendRow,
+    EscalationInterface,
     Register,
     RulesBackend,
     bind,
@@ -98,3 +99,17 @@ def test_every_parked_row_cites_the_experiments_it_rests_on() -> None:
         if row.status == "parked":
             assert row.evidence
             assert all(e.startswith("R-") for e in row.evidence)
+
+
+@pytest.mark.parametrize("status", ["off", "parked"])
+def test_a_built_and_versioned_row_is_still_refused_until_it_ships(status: str) -> None:
+    # Every row that does not ship in the register today has no version, and a missing
+    # version is refused on its own; a backend that is built but has not passed its
+    # experiment would have both, so only the status can refuse it here.
+    built = BackendRow.model_validate({**ROW, "status": status, "version": "candidate/1"})
+    register = Register(rows=(built,))
+    with pytest.raises(EscalationBackendError) as caught:
+        bind("candidate", register=register, implementations={"candidate": RulesBackend})
+    assert caught.value.context["status"] == status
+    with pytest.raises(EscalationBackendError):
+        EscalationInterface(RulesBackend(), built)
