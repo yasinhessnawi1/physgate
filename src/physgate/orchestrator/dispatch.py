@@ -91,9 +91,26 @@ def run_protected_roots(run: RunGit) -> tuple[tuple[Path, ...], tuple[Path, ...]
     """
     # Where git keeps the run branch's loose ref, for any repository layout. A ref
     # moved in packed-refs is seen by the loop's check of the branch instead.
-    ref = common_dir(run.repo) / "refs" / "heads" / run.run_branch
+    common = common_dir(run.repo)
+    ref = common / "refs" / "heads" / run.run_branch
     reverted = (*(run.run_dir / name for name in RUN_RECORDS), run.integration, ref)
+    reverted = (*reverted, *git_config_roots(common))
     return reverted, (run.run_dir / "sessions", run.run_dir / DECISIONS_NAME)
+
+
+#: The files and directories in a repository's common git directory through which a write
+#: makes a later git command run a program: its configuration (a diff, merge or filter driver,
+#: or the file-system monitor), the attributes and exclude files under ``info/``, and the
+#: repository hooks. A role session has no legitimate need to write any of them, so they are
+#: protected roots: the path layer refuses a file tool's write, and the sentinel puts back a
+#: shell write. The per-worktree ``config.worktree`` is covered too, because git reads it only
+#: when ``extensions.worktreeConfig`` is set in this same ``config``, which is now protected.
+GIT_CONFIG_NAMES = ("config", "config.worktree", "info", "hooks")
+
+
+def git_config_roots(common_git_dir: Path) -> tuple[Path, ...]:
+    """The common git directory's exec-config surface, as protected roots."""
+    return tuple(common_git_dir / name for name in GIT_CONFIG_NAMES)
 
 
 @dataclass(frozen=True)
