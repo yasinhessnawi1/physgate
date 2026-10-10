@@ -55,6 +55,22 @@ impl Paths {
     }
 }
 
+/// Append a line to the shell's own log in `paths`. Never given a credential.
+pub fn note(paths: &Paths, line: &str) {
+    use std::io::Write as _;
+    let _ = fs::create_dir_all(paths.root());
+    if let Ok(mut log) = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(paths.shell_log())
+    {
+        let at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        let _ = writeln!(log, "{at} {line}");
+    }
+}
+
 /// The user's home folder.
 pub fn home() -> PathBuf {
     std::env::var_os("HOME").map_or_else(|| PathBuf::from("/"), PathBuf::from)

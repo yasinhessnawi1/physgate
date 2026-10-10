@@ -13,6 +13,7 @@ mod channel;
 mod checkout;
 mod config;
 mod menu;
+mod navigation;
 mod server;
 mod shell;
 mod status;
@@ -39,17 +40,30 @@ fn main() {
         .setup(|app| {
             let handle = app.handle().clone();
             let shell = app.state::<Shell>();
-            let origin = shell.origin();
+            let gate = shell.gate();
+            let refusals = shell.paths.clone();
+            let new_windows = shell.paths.clone();
+            // The window's first load: the app's own page with no state in its address, which
+            // shows only "Starting". The webview names it in any of these forms.
+            for first in ["tauri://localhost", "tauri://localhost/", status::PAGE] {
+                gate.issue(&tauri::Url::parse(first).expect("the page address parses"));
+            }
             let mut window =
                 WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                     .title("physgate")
                     .inner_size(1360.0, 900.0)
                     .min_inner_size(760.0, 560.0)
                     .on_navigation(move |url| {
-                        let origin = origin.lock().ok().and_then(|o| o.clone());
-                        shell::may_navigate(url, origin.as_deref())
+                        let decision = gate.decide(url);
+                        if decision == navigation::Decision::Refused {
+                            config::note(&refusals, &format!("navigation refused: {url}"));
+                        }
+                        decision != navigation::Decision::Refused
                     })
-                    .on_new_window(|_, _| NewWindowResponse::Deny);
+                    .on_new_window(move |url, _| {
+                        config::note(&new_windows, &format!("new window refused: {url}"));
+                        NewWindowResponse::Deny
+                    });
             if shell.tour().is_some() {
                 window = window.initialization_script(tour::WATCH_SCRIPT);
             }

@@ -69,9 +69,19 @@ in Terminal; the app never runs it.
   ordinary page, so its `Host` and `Origin` are the server's own and pass its checks as
   they are. Its Content-Security-Policy is untouched.
 - **The page gets nothing from the app.** No capability is granted to any remote address,
-  so the page can call nothing in the app. The window may only go to the server's origin or
-  the app's own status page, and it opens no other window. Every control is in the native
-  menu bar.
+  so every call into the app from the served page is refused. Every control is in the
+  native menu bar.
+- **The window goes only where the app sends it.** Every navigation the webview starts is
+  decided first:
+  - **The server's origin:** scheme, host and port, compared whole. This is the origin the
+    app's own child announced, after the loopback check. A page cannot choose it.
+  - **The app's own status page:** only at the exact address the app itself just sent the
+    window to, with a one-use ticket. So a served page cannot show its own text in that
+    page.
+
+  Everything else is refused and logged in `shell.log`, and the window stays put: links,
+  scripts and redirects alike, `data:` and `file:` addresses, another port, and `localhost`
+  by name. New windows (`window.open`, `target=_blank`) are refused too.
 - **Held-out paths and answer keys** in the settings are passed to the server as
   `--held-out` and `--answer-key`. The app never opens them. The server's own refusals
   (the checkout's `corpora`, credentials) stand whatever the settings say.

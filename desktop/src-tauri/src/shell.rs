@@ -1,16 +1,16 @@
 //! The shell's state and its one routine: (re)start the server and show what it serves.
 
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use tauri::{AppHandle, Manager, Url, WebviewWindow};
 
 use crate::checkout::{self, Worktree};
 use crate::config::{Paths, Settings};
+use crate::navigation::Gate;
 use crate::server::{self, Server};
 use crate::status::Status;
 use crate::tour;
@@ -18,12 +18,10 @@ use crate::tour;
 /// How often the watcher looks at the build stamp and the server.
 const WATCH_EVERY: Duration = Duration::from_millis(750);
 
-/// The origin the window may show besides the shell's own page, shared with the navigation check.
-pub type Origin = Arc<Mutex<Option<String>>>;
-
 pub struct Shell {
     pub paths: Paths,
-    origin: Origin,
+    /// Where the window may go; shared with the webview's navigation check.
+    gate: Arc<Gate>,
     state: Mutex<State>,
     /// Held for the whole of a restart, so two never interleave.
     restarting: Mutex<()>,
@@ -45,7 +43,7 @@ impl Shell {
         let worktrees = checkout::worktrees(&settings.checkout);
         Self {
             paths,
-            origin: Arc::new(Mutex::new(None)),
+            gate: Arc::new(Gate::default()),
             state: Mutex::new(State {
                 settings,
                 server: None,
@@ -63,8 +61,15 @@ impl Shell {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    pub fn origin(&self) -> Origin {
-        Arc::clone(&self.origin)
+    pub fn gate(&self) -> Arc<Gate> {
+        Arc::clone(&self.gate)
+    }
+
+    /// Show the app's own page in this state: the only way the window reaches that page.
+    pub fn show(&self, window: &WebviewWindow, status: &Status) {
+        let url = status.url();
+        self.gate.issue(&url);
+        let _ = window.navigate(url);
     }
 
     pub fn tour(&self) -> Option<&PathBuf> {
@@ -103,24 +108,11 @@ impl Shell {
 
     /// Append a line to the shell's log.
     pub fn note(&self, line: &str) {
-        let _ = fs::create_dir_all(self.paths.root());
-        if let Ok(mut log) = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(self.paths.shell_log())
-        {
-            let at = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_or(0, |d| d.as_secs());
-            let _ = writeln!(log, "{at} {line}");
-        }
+        crate::config::note(&self.paths, line);
     }
 
     pub fn stop_server(&self) {
-        *self
-            .origin
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+        self.gate.serve(None);
         let server = self.state().server.take();
         drop(server);
     }
@@ -144,7 +136,7 @@ impl Shell {
     /// The fragment of the operator UI's page the window shows now, if it shows one.
     fn server_fragment(&self, window: &WebviewWindow) -> Option<String> {
         let url = window.url().ok()?;
-        let origin = self.origin.lock().ok()?.clone()?;
+        let origin = self.gate.origin()?;
         (url.origin().ascii_serialization() == origin)
             .then(|| url.fragment().map(ToString::to_string))
             .flatten()
@@ -169,7 +161,7 @@ impl Shell {
         let settings = match Settings::load(&self.paths.settings()) {
             Ok(settings) => settings,
             Err(problem) => {
-                show(
+                self.show(
                     &window,
                     &Status::from_start_error(
                         &server::StartError::Failed(problem),
@@ -188,14 +180,14 @@ impl Shell {
         crate::menu::refresh(app);
 
         if !checkout::is_checkout(&settings.checkout) {
-            show(&window, &Status::no_checkout(&settings.checkout));
+            self.show(&window, &Status::no_checkout(&settings.checkout));
             return;
         }
         if settings.run_folders.is_empty() {
-            show(&window, &Status::no_run_folders());
+            self.show(&window, &Status::no_run_folders());
             return;
         }
-        show(&window, &Status::starting(&settings.checkout));
+        self.show(&window, &Status::starting(&settings.checkout));
         self.note(&format!(
             "starting the server from {}",
             settings.checkout.display()
@@ -204,11 +196,9 @@ impl Shell {
             Ok(server) => {
                 let mut target: Url = server.url().clone();
                 target.set_fragment(view.as_deref());
-                *self
-                    .origin
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner) =
-                    Some(server.url().origin().ascii_serialization());
+                // The origin trusted is the one this child announced and that passed the
+                // loopback check; nothing a page does can change it.
+                self.gate.serve(Some(server.url()));
                 self.note(&format!("serving {}", server.url()));
                 self.state().server = Some(server);
                 let _ = window.navigate(target);
@@ -218,7 +208,7 @@ impl Shell {
             }
             Err(error) => {
                 self.note(&format!("the server did not start: {error:?}"));
-                show(
+                self.show(
                     &window,
                     &Status::from_start_error(&error, &settings.checkout),
                 );
@@ -248,13 +238,10 @@ impl Shell {
                 shell.restart(&app);
             } else if let Some(server) = stopped {
                 drop(server);
-                *shell
-                    .origin
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+                shell.gate.serve(None);
                 let log = fs::read_to_string(shell.paths.server_log()).unwrap_or_default();
                 if let Some(window) = app.get_webview_window("main") {
-                    show(
+                    shell.show(
                         &window,
                         &Status::from_start_error(
                             &server::StartError::Refused(
@@ -267,52 +254,5 @@ impl Shell {
                 }
             }
         });
-    }
-}
-
-/// Show the shell's own page in this state.
-pub fn show(window: &WebviewWindow, status: &Status) {
-    let _ = window.navigate(status.url());
-}
-
-/// Whether the window may go to `url`: the shell's own page, or the running server's origin.
-/// Everything else (a link to another site, another port) is refused, and the window stays.
-pub fn may_navigate(url: &Url, origin: Option<&str>) -> bool {
-    let own_page = url.scheme() == "tauri" && url.host_str() == Some("localhost");
-    let served = origin.is_some_and(|origin| url.origin().ascii_serialization() == origin);
-    own_page || served
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_window_goes_only_to_its_own_page_or_the_running_server() {
-        let origin = Some("http://127.0.0.1:52011");
-        let allowed = [
-            "tauri://localhost/index.html#x",
-            "http://127.0.0.1:52011/",
-            "http://127.0.0.1:52011/#/runs/run-on",
-        ];
-        for url in allowed {
-            assert!(may_navigate(&Url::parse(url).unwrap(), origin), "{url}");
-        }
-        let refused = [
-            "http://127.0.0.1:8765/",
-            "http://localhost:52011/",
-            "https://127.0.0.1:52011/",
-            "https://example.com/",
-            "file:///etc/passwd",
-            "tauri://elsewhere/index.html",
-            "about:blank",
-        ];
-        for url in refused {
-            assert!(!may_navigate(&Url::parse(url).unwrap(), origin), "{url}");
-        }
-        assert!(!may_navigate(
-            &Url::parse("http://127.0.0.1:52011/").unwrap(),
-            None
-        ));
     }
 }
