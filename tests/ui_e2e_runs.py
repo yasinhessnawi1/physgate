@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 from ui_rig import real_runs
-from ui_three_mode_rig import three_mode_runs
+from ui_three_mode_rig import cut_after_first_gate_stage, three_mode_runs, two_domain_run
 
 
 def main(argv: list[str]) -> int:
@@ -29,6 +29,8 @@ def main(argv: list[str]) -> int:
     out.mkdir(parents=True)
     runs = real_runs(out)
     three_mode_runs(out, runs)
+    two_domain_run(out, runs)
+    cut_after_first_gate_stage(runs / "drive-on", runs / "drive-cut")
     refused = runs / "run-refused"
     shutil.copytree(runs / "run-clean", refused, symlinks=True)
     with (refused / "ledger.jsonl").open("ab") as ledger:

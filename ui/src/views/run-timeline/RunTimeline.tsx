@@ -104,9 +104,10 @@ function Timeline({
     newest === undefined ? null : () => getJson(`${base}/cost/${newest}`, costRecord),
     `${base}/cost/${String(newest)}`,
   );
-  if (trace === null || decided === null || events === null || status === null)
+  if (trace === null || decided === null || events === null || status === null || checks === null)
     return <LoadingState reading="the run's trace and event log" />;
   for (const [answer, what] of [
+    [checks, "The gate checks"],
     [trace, "The trace"],
     [decided, "The decisions"],
     [events, "The event log"],
@@ -114,9 +115,16 @@ function Timeline({
   ] as const) {
     if (!answer.ok) return <ErrorState title={`${what}: not shown`} refusal={answer.refusal} />;
   }
-  if (!trace.ok || !decided.ok || !events.ok || !status.ok) return null;
+  if (!trace.ok || !decided.ok || !events.ok || !status.ok || !checks.ok) return null;
   const named = timelineEvents(events.value);
-  const drawn = lanes(trace.value, decided.value, named, config.gateMode, config.roleModels);
+  const drawn = lanes(
+    trace.value,
+    decided.value,
+    named,
+    config.gateMode,
+    config.roleModels,
+    checks.value,
+  );
   return (
     <>
       <div
@@ -164,6 +172,7 @@ function Timeline({
       </div>
       <TimelineChart
         lanes={drawn}
+        mode={config.gateMode}
         started={trace.value.started}
         last={trace.value.last}
         source={source}

@@ -67,7 +67,7 @@ export function Inspector({
           <h2 className="card-title mono">{node.id}</h2>
         </div>
         <span className="label">
-          written by {node.owner} · <span className="mono">r{node.revision}</span>
+          owned by {node.owner} · <span className="mono">r{node.revision}</span>
         </span>
       </div>
 

@@ -6,6 +6,7 @@ import type { GateCheck } from "../../api/run";
 import type { GateMode } from "../../design/components/GateMode";
 import { GateChecksSummary } from "./GateChecksSummary";
 import { GateChecksTable } from "./GateChecksTable";
+import { PairedBody, pairedWhere } from "./PairedRun";
 import { pairable } from "./pairing";
 
 const SOURCE = { id: "run r-1", commit: "0123456789abcdef" };
@@ -146,5 +147,68 @@ describe("a run is read against another only of the same brief and seed", () => 
 
   it("offers the same brief and seed in another mode, and nothing else", () => {
     expect(pairable(chosen, all).map(([key]) => key)).toEqual(["0/observe", "0/off"]);
+  });
+});
+
+describe("an unchecked row never reads as a pass", () => {
+  it("its Measured cell names what was left unchecked, and says nothing of passing", () => {
+    const html = renderToStaticMarkup(<GateChecksTable checks={[check("unchecked", "on")]} />);
+    const row = html.slice(html.indexOf("verdict-unchecked"));
+    const measured = row.slice(0, row.indexOf("bound-cell"));
+    expect(measured).toContain("mass, power_draw");
+    expect(measured).not.toMatch(/pass|evaluated/);
+  });
+});
+
+describe("the tally says how many passes looked at nothing", () => {
+  it("next to the evaluated count, from the records", () => {
+    const html = summary("on", every("on"));
+    expect(html).toContain("tally-over-nothing");
+    expect(html).toMatch(/<span class="mono">1<\/span> pass over nothing/);
+  });
+});
+
+describe("the paired run is drawn in its own mode", () => {
+  function config(runId: string, gateMode: GateMode): RunConfig {
+    return {
+      manifestId: "m",
+      runId,
+      gateMode,
+      harnessCommit: null,
+      auth: "api_key",
+      briefSha256: "a",
+      seed: 7,
+      roleModels: {},
+    };
+  }
+
+  it("an observe run's counts and outcomes are would-be, never a filled verdict", () => {
+    const html = renderToStaticMarkup(
+      <PairedBody config={config("drive-observe", "observe")} checks={every("observe")} />,
+    );
+    expect(html).toContain("Observe · not gated");
+    expect(html).toContain("not enforced");
+    expect(html).toContain("Would fail");
+    expect(html).not.toMatch(/verdict-(pass|fail|warn)/);
+  });
+
+  it("a gated run's are filled", () => {
+    const html = renderToStaticMarkup(
+      <PairedBody config={config("drive-on", "on")} checks={every("on")} />,
+    );
+    expect(html).toContain("verdict-fail");
+  });
+
+  it("candidates that share an id say where each is", () => {
+    const candidates = [
+      ["0/drive-on", config("drive-on", "on")],
+      ["1/drive-on", config("drive-on", "on")],
+      ["0/drive-off", config("drive-off", "off")],
+    ] as const;
+    expect(candidates.map(([key, c]) => pairedWhere(key, c, candidates))).toEqual([
+      "root 0 · drive-on",
+      "root 1 · drive-on",
+      null,
+    ]);
   });
 });

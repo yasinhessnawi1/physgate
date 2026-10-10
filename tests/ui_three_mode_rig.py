@@ -21,8 +21,10 @@ fails here rather than leaving a browser test with nothing to look at:
 from __future__ import annotations
 
 import json
+import shutil
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -63,6 +65,8 @@ class StandInSession:
 
     layout: RunGit
     payloads: tuple[dict[str, Any], ...]
+    #: The rig's clock, which a session moves on by the time a session takes; none in real time.
+    clock: TickingClock | None = None
     calls: int = 0
 
     def environment(self) -> None:
@@ -73,6 +77,8 @@ class StandInSession:
 
     def run(self, request: SessionRequest) -> SessionReport:
         self.calls += 1
+        if self.clock is not None:
+            self.clock.spend(TickingClock.SESSION)
         worktree = self.layout.open_subtask(request.subtask_id)
         module = worktree / request.module_dir
         module.mkdir(parents=True, exist_ok=True)
@@ -130,24 +136,58 @@ def _start(runs: Path, run_id: str, repo: Path, mode: str, library: Path) -> Run
     return cfg
 
 
-def _drive(runs: Path, cfg: RunConfig, repo: Path) -> str:
+class TickingClock:
+    """A clock the rig moves itself: a tick per line the loop writes, more for a session.
+
+    The browser tests read where the timeline draws each segment, and that follows the log's
+    timestamps. Driven by the wall clock, a loaded machine stretched one step and shrank every
+    other segment, so whether a label fitted depended on the machine's load that minute. Driven
+    by this clock, every duration is a count of lines and sessions, the same on every machine and
+    every run. A session spends ``SESSION`` on it, as a session dominates a real run.
+    """
+
+    TICK = timedelta(milliseconds=250)
+    SESSION = timedelta(seconds=10)
+
+    def __init__(self) -> None:
+        self._now = datetime.now(UTC)
+
+    def __call__(self) -> datetime:
+        now = self._now
+        self._now += self.TICK
+        return now
+
+    def spend(self, how_long: timedelta) -> None:
+        """Move the clock on by ``how_long``, as work between two lines would."""
+        self._now += how_long
+
+
+def _drive(
+    runs: Path,
+    cfg: RunConfig,
+    repo: Path,
+    gate: Any = None,  # noqa: ANN401 - the real physics gate, or the evaluation rig's test gate
+    payloads: tuple[dict[str, Any], ...] = DRIVE_MODULE,
+) -> str:
     run_dir = runs / cfg.run_id
     run = RunGit(repo=repo, run_dir=run_dir, run_id=cfg.run_id)
     keeper = StoreKeeper(run, run_dir / "store")
+    clock = TickingClock()
     name, module_dir = MODULE
     loop = Loop(
         config=cfg,
         run_dir=run_dir,
-        gate=PhysicsGate(),
+        gate=PhysicsGate() if gate is None else gate,
         reviewers={
             role: evaluation_rig().Reviewer(model=m, ids="drive")
             for role, m in cfg.models.reviewers.items()
         },
-        dispatcher=StandInSession(run, DRIVE_MODULE),
+        dispatcher=StandInSession(run, payloads, clock=clock),
         changes=GitChangeChecker(run, run_dir / "store", {mint_id(cfg.seed, 0, name): module_dir}),
         merger=GitMerger(run, removal_timeout_s=60.0),
         graph=keeper,
         sleep=lambda _: None,
+        clock=clock,
     )
     try:
         step = loop.run()
@@ -226,3 +266,70 @@ def three_mode_runs(root: Path, runs: Path) -> tuple[Path, ...]:
         _require_what_the_three_mode_test_showed(runs / run_id, mode, step)
         built.append(runs / run_id)
     return tuple(built)
+
+
+def _node(node_id: str, domain: str, constrains: list[str]) -> dict[str, Any]:
+    """A node in ``domain``, owned and written by the run's one role."""
+    return {
+        "id": node_id,
+        "kind": "component",
+        "domain": domain,
+        "owner_role": "electrical",
+        "quantities": {
+            "power_draw": {
+                "value": 2,
+                "unit": "W",
+                "source": "datasheet",
+                "written_by": "electrical",
+            }
+        },
+        "requirements": [],
+        "constrains": constrains,
+        "model": None,
+        "geometry_hash": "sha256:0",
+        "updated": "2026-10-10T12:00:00Z",
+    }
+
+
+#: A graph across three domains: a supply constrains a balance loop, which constrains a loop in
+#: firmware. It exists so the design graph's domain filter is seen across domains in a browser.
+TWO_DOMAINS: tuple[dict[str, Any], ...] = (
+    _node("electrical.supply", "electrical", ["control.balance"]),
+    _node("control.balance", "control", ["firmware.loop"]),
+    _node("firmware.loop", "firmware", []),
+)
+
+
+def two_domain_run(root: Path, runs: Path) -> Path:
+    """``domains``: a gated run whose merged graph spans electrical, control and firmware.
+
+    Driven by the evaluation rig's test gate, which passes, so the nodes merge; the gate here is
+    not under test, the graph's domains are.
+    """
+    library = build_fixture_library(root / "library-domains")
+    repo = evaluation_rig().target_repo(root / "target-domains")
+    cfg = _start(runs, "domains", repo, "on", library)
+    step = _drive(runs, cfg, repo, gate=evaluation_rig().Gate(), payloads=TWO_DOMAINS)
+    events = read_events(runs / "domains" / "events.jsonl")
+    if step != "done" or len([e for e in events if isinstance(e, Merged)]) != 1:
+        msg = f"the two-domain run did not merge: ended {step}"
+        raise AssertionError(msg)
+    return runs / "domains"
+
+
+def cut_after_first_gate_stage(source: Path, target: Path) -> Path:
+    """A copy of ``source`` whose log ends right after its first gate stage line.
+
+    What a process killed while the gate checked would leave: the stage was entered and no
+    result was written. Nothing else in the copy changes.
+    """
+    shutil.copytree(source, target, symlinks=True)
+    log = target / "events.jsonl"
+    lines = log.read_text().splitlines(keepends=True)
+    cut = next(
+        i
+        for i, line in enumerate(lines)
+        if json.loads(line)["kind"] == "stage_entered" and json.loads(line)["stage"] == "gate"
+    )
+    log.write_text("".join(lines[: cut + 1]))
+    return target

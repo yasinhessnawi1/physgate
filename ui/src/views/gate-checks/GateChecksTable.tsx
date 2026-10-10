@@ -17,7 +17,9 @@ function call(check: GateCheck): string {
 
 export function Measured({ check }: { check: GateCheck }) {
   if (check.outcome === "pass") {
-    const n = check.evaluated ?? check.details.evaluated ?? 0;
+    // A pass record always carries its count; one that did not would say so, never a made-up 0.
+    const n = check.evaluated ?? check.details.evaluated;
+    if (n === null) return <span className="muted">count not recorded</span>;
     return n === 0 ? (
       <span className="evaluated evaluated-none">0 evaluated · a pass over nothing</span>
     ) : (

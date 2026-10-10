@@ -4,7 +4,15 @@
  * lanes and segments come in the order the records give them. The only arithmetic is where a
  * segment sits on the screen, from the log's own timestamps; no figure is computed.
  */
-import type { Decision, SessionTrace, StepTiming, TimelineEvents, Trace } from "../../api/run";
+import type {
+  Decision,
+  GateCheck,
+  SessionTrace,
+  StepTiming,
+  TimelineEvents,
+  Trace,
+} from "../../api/run";
+import { evaluatedOf, tallyOf } from "../../design/tally";
 import type { GateMode } from "../../design/components/GateMode";
 
 export type SegmentKind = "session" | "infrastructure" | "gate" | "review";
@@ -50,14 +58,26 @@ export function findingLabel(key: string): string {
       : source;
 }
 
-function gateTone(mode: GateMode, verdict: string | null, skipped: boolean): [string, string] {
+/**
+ * A gate segment's reading, from the gate's own records of that line and nothing else, counted
+ * by the one tally. No record is no verdict, never a pass; records that are all unchecked
+ * judged nothing; otherwise the gate failed if any record failed, and says how many it left
+ * unchecked. Under observe nothing was enforced, so it reads as what the gate would have done.
+ */
+export function gateReading(
+  mode: GateMode,
+  records: readonly Pick<GateCheck, "outcome">[],
+  skipped: boolean,
+): [string, string] {
   if (skipped || mode === "off") return ["segment-gate-off", "gate skipped · gate off"];
-  if (mode === "observe")
-    return [
-      "segment-gate-observe",
-      verdict === "fail" ? "would fail · not enforced" : "would pass · not enforced",
-    ];
-  return ["segment-gate-on", verdict === "fail" ? "gate · fail" : "gate · pass"];
+  if (records.length === 0) return ["segment-gate-none", "gate · no verdict recorded"];
+  const counts = tallyOf(records.map((r) => r.outcome));
+  if (evaluatedOf(counts) === 0) return ["segment-gate-none", "gate · unchecked only"];
+  const verdict = counts.fail > 0 ? "fail" : "pass";
+  const unchecked = counts.unchecked > 0 ? ` · ${String(counts.unchecked)} unchecked` : "";
+  return mode === "observe"
+    ? ["segment-gate-observe", `would ${verdict} · not enforced${unchecked}`]
+    : ["segment-gate-on", `gate · ${verdict}${unchecked}`];
 }
 
 /** The lanes of a run: decomposition, then each attempt in the log's order, then integration. */
@@ -67,6 +87,7 @@ export function lanes(
   events: TimelineEvents,
   mode: GateMode,
   roleModels: Readonly<Record<string, string>>,
+  checks: readonly GateCheck[],
 ): readonly Lane[] {
   const found: Lane[] = [];
   if (events.decomposed !== null) {
@@ -106,13 +127,16 @@ export function lanes(
         title: session.sessionId,
       };
     });
-    const ofAttempt = (d: Decision) => d.subtask === subtask && d.attempt === attempt;
     for (const step of steps.filter((s) => s.stage === "gate")) {
-      const decided = decisions.find((d) => ofAttempt(d) && d.step === "gate" && d.seq > step.seq);
+      // The gate's line for this stage lies between the stage line and the attempt's next one.
+      const next = steps.find((s) => s.seq > step.seq)?.seq ?? Number.POSITIVE_INFINITY;
+      const records = checks.filter(
+        (c) => c.subtask === subtask && c.attempt === attempt && c.seq > step.seq && c.seq < next,
+      );
       const skipped = events.gateSkipped.some(
         (g) => g.subtask === subtask && g.attempt === attempt,
       );
-      const [tone, label] = gateTone(mode, decided?.verdict ?? null, skipped);
+      const [tone, label] = gateReading(mode, records, skipped);
       segments.push({ kind: "gate", tone, start: step.entered, seconds: step.seconds, label });
     }
     for (const step of steps.filter((s) => s.stage === "review")) {

@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef } from "react";
 import type { StepTiming } from "../../api/run";
 import { Quantity } from "../../design/components/Quantity";
 import { type Source, sourceAttribute } from "../../design/components/SourceChip";
+import type { GateMode } from "../../design/components/GateMode";
 import { at, type Lane, position } from "./model";
 
 /** A log timestamp as a clock time, to the millisecond, in UTC. */
@@ -23,11 +24,13 @@ function percent(share: number): string {
  */
 export function TimelineChart({
   lanes,
+  mode,
   started,
   last,
   source,
 }: {
   lanes: readonly Lane[];
+  mode: GateMode;
   started: string;
   last: string;
   source: Source;
@@ -88,7 +91,11 @@ export function TimelineChart({
         <h2 className="card-title">Timeline</h2>
         <div className="legend" aria-label="Legend">
           <span className="segment segment-session legend-item">session</span>
-          <span className="segment segment-gate-on legend-item">gate</span>
+          {/* The gate's chip is drawn as this run's gate segments are: its mode decides. */}
+          <span className={`segment segment-gate-${mode} legend-item`}>
+            {mode === "observe" ? "gate · observed" : mode === "off" ? "gate · skipped" : "gate"}
+          </span>
+          <span className="segment segment-gate-none legend-item">gate · no verdict</span>
           <span className="segment segment-review-pass legend-item">review pass</span>
           <span className="segment segment-review-fail legend-item">review fail</span>
           <span className="segment segment-infrastructure legend-item">infrastructure</span>

@@ -5,7 +5,7 @@ import { type GateMode, GateModeBadge } from "../../design/components/GateMode";
 import { type Source, SourceChip, sourceAttribute } from "../../design/components/SourceChip";
 import { EmptyState } from "../../design/components/States";
 import { Tally } from "../../design/components/VerdictBadge";
-import { tallyOf } from "../../design/tally";
+import { tallyOfChecks } from "../../design/tally";
 
 /**
  * The gate's records counted by the one tally: pass, fail and warn as evaluated, unchecked after
@@ -33,7 +33,7 @@ export function GateChecksSummary({
           <GateModeBadge mode={mode} />
         </div>
         {checks.length > 0 && (
-          <Tally counts={tallyOf(checks.map((c) => c.outcome))} observed={mode === "observe"} />
+          <Tally counts={tallyOfChecks(checks)} observed={mode === "observe"} />
         )}
       </div>
       {mode === "off" ? (

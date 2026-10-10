@@ -201,6 +201,12 @@ for (const theme of THEMES) {
     await labelsWhole(page);
     await nothingCut(page);
     await runsDistinct(page);
+    // Every figure of an observe run reads as not enforced: the integration lane and the legend too.
+    await expect(page.locator('.lane[data-lane="integration"]')).toContainText(
+      "would fail · not enforced",
+    );
+    await expect(page.locator(".legend .segment-gate-observe")).toBeVisible();
+    await expect(page.locator(".legend .segment-gate-on")).toHaveCount(0);
     for (const route of [
       "trace",
       "decisions",
@@ -240,6 +246,17 @@ for (const theme of THEMES) {
         "/api/runs/0/drive-on/gate-checks",
       ]),
     );
+    await expect(page.locator(".tally-over-nothing").first()).toContainText("over nothing");
+    const measuredOfUnchecked = await page
+      .locator('section[aria-label="Gate checks"] tr:has(.verdict-unchecked) td:nth-child(5)')
+      .allTextContents();
+    expect(measuredOfUnchecked.length).toBeGreaterThan(0);
+    for (const text of measuredOfUnchecked) expect(text).not.toMatch(/pass|evaluated/);
+    const paired = await page
+      .locator('nav[aria-label="Runs of the same brief and seed"] .run-link')
+      .evaluateAll((links) => links.map((l) => l.textContent.replace(/\s+/g, " ").trim()));
+    expect(paired.length).toBeGreaterThan(2);
+    expect(new Set(paired).size).toBe(paired.length);
     await expect(
       page.locator('section[aria-label="Same plan, another gate mode"] .gate-mode-on').first(),
     ).toBeVisible();
@@ -316,4 +333,60 @@ test("the smoke page's runs read differently from each other too", async ({ page
   await watch(page);
   await open(page, "light", "/home/run-records?run=0/run-clean");
   await runsDistinct(page);
+});
+
+test("a gate stage with no recorded result is no verdict, never a pass", async ({ page }) => {
+  const seen = await watch(page);
+  await open(page, "light", "/orchestration/run-timeline?run=0/drive-cut");
+  const gate = page.locator(".track .segment[data-kind='gate']");
+  await expect(gate).toHaveCount(1);
+  await expect(gate).toHaveClass(/segment-gate-none/);
+  await expect(gate).toHaveAttribute("title", /^gate · no verdict recorded/);
+  await expect(page.locator(".track .segment-gate-on, .track .segment-gate-observe")).toHaveCount(
+    0,
+  );
+  for (const g of await styles(page, ".track .segment-gate-none", [
+    "border-top-style",
+    "background-color",
+  ]))
+    expect(g).toEqual({ "border-top-style": "dashed", "background-color": TRANSPARENT });
+  await expect(page.locator('section[aria-label="Gate checks"]')).toContainText(
+    "No gate checks recorded",
+  );
+  expect(seen.outbound).toEqual([]);
+});
+
+test("a gated run read against an observed one: the paired card is never a filled verdict", async ({
+  page,
+}) => {
+  const seen = await watch(page);
+  await open(page, "light", "/orchestration/gate-checks?run=0/drive-on&pair=0/drive-observe");
+  const paired = page.locator('section[aria-label="Same plan, another gate mode"]');
+  await expect(paired.locator(".paired-body .gate-mode-observe")).toBeVisible();
+  await expect(paired.locator(".verdict-pass, .verdict-fail, .verdict-warn")).toHaveCount(0);
+  await expect(paired.locator(".observed").first()).toBeVisible();
+  for (const o of await styles(
+    page,
+    'section[aria-label="Same plan, another gate mode"] .observed',
+    ["border-top-style", "background-color"],
+  ))
+    expect(o).toEqual({ "border-top-style": "dashed", "background-color": TRANSPARENT });
+  expect(seen.outbound).toEqual([]);
+});
+
+test("under a domain filter the nodes table resolves every edge over the whole graph", async ({
+  page,
+}) => {
+  const seen = await watch(page);
+  await open(page, "light", "/orchestration/design-graph?run=0/domains");
+  // Three domains' nodes and the plan's interface node.
+  await expect(page.locator("button.graph-node")).toHaveCount(4);
+  await page.locator('[aria-label="Domain filter"] button', { hasText: /^control$/ }).click();
+  await expect(page.locator("button.graph-node")).toHaveCount(1);
+  const table = page.locator('section[aria-label="Nodes"]');
+  await expect(table.locator("tbody tr")).toHaveCount(1);
+  await expect(table).not.toContainText("not in the graph");
+  await expect(table.locator("tbody tr")).toContainText("firmware.loop");
+  await expect(table.locator("tbody tr")).toContainText("electrical.supply");
+  expect(seen.outbound).toEqual([]);
 });

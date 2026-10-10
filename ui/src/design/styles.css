@@ -1086,6 +1086,14 @@ code {
   border-color: var(--color-warn-border);
 }
 
+/* A gate stage with no verdict recorded, or with only unchecked records: it judged nothing, so
+   it is drawn like unchecked, outlined and dashed, never filled like a pass. */
+.segment-gate-none {
+  background: transparent;
+  color: var(--color-unchecked);
+  border: 1px dashed var(--color-unchecked-border);
+}
+
 /* An infrastructure outcome: no attempt was spent; outlined and dashed, never filled. */
 .segment-infrastructure {
   background: transparent;

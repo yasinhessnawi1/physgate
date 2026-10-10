@@ -14,6 +14,8 @@ export interface TallyCounts {
   readonly fail: number;
   readonly warn: number;
   readonly unchecked: number;
+  /** Of the passes, how many looked at nothing (a pass record with 0 evaluated), when known. */
+  readonly overNothing?: number;
 }
 
 /** Counts of each outcome among ``outcomes``. */
@@ -34,4 +36,18 @@ export function tallyOf(outcomes: Iterable<Verdict>): TallyCounts {
 /** What was evaluated: pass, fail and warn. Unchecked evaluated nothing and is not here. */
 export function evaluatedOf(counts: TallyCounts): number {
   return counts.pass + counts.fail + counts.warn;
+}
+
+/**
+ * The tally of gate records, and how many of the passes looked at nothing. A pass over nothing
+ * stays a pass record, as the gate wrote it; the count says it out loud next to "evaluated".
+ */
+export function tallyOfChecks(
+  checks: Iterable<{ readonly outcome: Verdict; readonly evaluated: number | null }>,
+): TallyCounts {
+  const all = [...checks];
+  return {
+    ...tallyOf(all.map((c) => c.outcome)),
+    overNothing: all.filter((c) => c.outcome === "pass" && c.evaluated === 0).length,
+  };
 }

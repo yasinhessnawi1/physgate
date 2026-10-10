@@ -1,10 +1,18 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import type { Decision, StepTiming, TimelineEvents, Tokens, Trace, Usage } from "../../api/run";
+import type {
+  Decision,
+  GateCheck,
+  StepTiming,
+  TimelineEvents,
+  Tokens,
+  Trace,
+  Usage,
+} from "../../api/run";
 import { TokensCard } from "./Cards";
 import { StagesTable } from "./Chart";
-import { findingLabel, lanes } from "./model";
+import { findingLabel, gateReading, lanes } from "./model";
 
 const SOURCE = { id: "run r-1", commit: "0123456789abcdef" };
 
@@ -47,7 +55,7 @@ const STEPS: StepTiming[] = [
     seconds: 1,
   },
   {
-    seq: 10,
+    seq: 11,
     subtask: "s1",
     attempt: 2,
     stage: "review",
@@ -125,6 +133,35 @@ const DECISIONS: Decision[] = [
   },
 ];
 
+/** A record of the gate line at ``seq`` for attempt ``attempt`` of s1. */
+function record(seq: number, attempt: number | null, outcome: GateCheck["outcome"]): GateCheck {
+  return {
+    seq,
+    subtask: attempt === null ? "integration" : "s1",
+    attempt,
+    name: "power",
+    scope: "module",
+    mode: "on",
+    outcome,
+    blocking: outcome !== "warn",
+    value: null,
+    node: null,
+    evaluated: outcome === "pass" ? 1 : null,
+    reviewerHadPassed: null,
+    expected: null,
+    message: "m",
+    details: { form: outcome, evaluated: null, quantities: [], low: null, high: null },
+  };
+}
+
+/** Attempt 1's gate line (6) failed with an unchecked record beside it; attempt 2's (10) passed. */
+const CHECKS: GateCheck[] = [
+  record(6, 1, "fail"),
+  record(6, 1, "unchecked"),
+  record(10, 2, "pass"),
+  record(20, null, "fail"),
+];
+
 const EVENTS: TimelineEvents = {
   decomposed: {
     seq: 1,
@@ -155,18 +192,18 @@ const EVENTS: TimelineEvents = {
 
 describe("the timeline keeps the log's order", () => {
   it("lays lanes out in the order their stages first appear in the log, whatever the clock said", () => {
-    const drawn = lanes(TRACE, DECISIONS, EVENTS, "on", { electrical: "claude-opus-5-5" });
+    const drawn = lanes(TRACE, DECISIONS, EVENTS, "on", { electrical: "claude-opus-5-5" }, CHECKS);
     expect(drawn.map((l) => l.key)).toEqual(["decomposition", "s1/1", "s1/2", "integration"]);
   });
 
   it("lists every stage in the order it was given", () => {
     const html = renderToStaticMarkup(<StagesTable steps={STEPS} source={SOURCE} />);
     const seqs = [...html.matchAll(/<tr><td class="mono">(\d+)<\/td>/g)].map((m) => Number(m[1]));
-    expect(seqs).toEqual([3, 5, 8, 9, 10]);
+    expect(seqs).toEqual([3, 5, 8, 9, 11]);
   });
 
   it("names a repair by the finding that caused it, and an infrastructure session by its cause", () => {
-    const drawn = lanes(TRACE, DECISIONS, EVENTS, "on", { electrical: "claude-opus-5-5" });
+    const drawn = lanes(TRACE, DECISIONS, EVENTS, "on", { electrical: "claude-opus-5-5" }, CHECKS);
     const second = drawn.find((l) => l.key === "s1/2");
     expect(second?.subtitle).toContain("repair of gate · power");
     expect(second?.segments.find((s) => s.kind === "infrastructure")?.label).toBe(
@@ -176,19 +213,78 @@ describe("the timeline keeps the log's order", () => {
   });
 });
 
-describe("a gate segment shows the mode it ran in", () => {
+describe("a gate segment's verdict is its own records', through the one tally", () => {
   it("under observe it reads would-be and not enforced, never a filled gate", () => {
-    const drawn = lanes(TRACE, DECISIONS, EVENTS, "observe", {});
+    const drawn = lanes(TRACE, DECISIONS, EVENTS, "observe", {}, CHECKS);
     const gates = drawn.flatMap((l) => l.segments.filter((s) => s.kind === "gate"));
     expect(gates.map((g) => g.tone)).toEqual(["segment-gate-observe", "segment-gate-observe"]);
-    expect(gates[0]?.label).toBe("would fail · not enforced");
+    expect(gates.map((g) => g.label)).toEqual([
+      "would fail · not enforced · 1 unchecked",
+      "would pass · not enforced",
+    ]);
   });
 
-  it("under on it is the gate's own colour", () => {
-    const drawn = lanes(TRACE, DECISIONS, EVENTS, "on", {});
-    expect(
-      drawn.flatMap((l) => l.segments.filter((s) => s.kind === "gate")).map((g) => g.tone),
-    ).toEqual(["segment-gate-on", "segment-gate-on"]);
+  it("under on it is the gate's own colour, and it says what it left unchecked", () => {
+    const drawn = lanes(TRACE, DECISIONS, EVENTS, "on", {}, CHECKS);
+    const gates = drawn.flatMap((l) => l.segments.filter((s) => s.kind === "gate"));
+    expect(gates.map((g) => [g.tone, g.label])).toEqual([
+      ["segment-gate-on", "gate · fail · 1 unchecked"],
+      ["segment-gate-on", "gate · pass"],
+    ]);
+  });
+
+  it("a gate stage with no records is no verdict, never a pass, in either mode", () => {
+    for (const mode of ["on", "observe"] as const) {
+      const drawn = lanes(TRACE, DECISIONS, EVENTS, mode, {}, []);
+      const gates = drawn.flatMap((l) => l.segments.filter((s) => s.kind === "gate"));
+      expect(gates.map((g) => [g.tone, g.label])).toEqual([
+        ["segment-gate-none", "gate · no verdict recorded"],
+        ["segment-gate-none", "gate · no verdict recorded"],
+      ]);
+    }
+  });
+
+  it("records that are all unchecked judged nothing", () => {
+    expect(gateReading("on", [{ outcome: "unchecked" }, { outcome: "unchecked" }], false)).toEqual([
+      "segment-gate-none",
+      "gate · unchecked only",
+    ]);
+    expect(gateReading("observe", [{ outcome: "unchecked" }], false)[1]).toBe(
+      "gate · unchecked only",
+    );
+  });
+
+  it("a skipped gate says so, and takes no verdict", () => {
+    expect(gateReading("off", [{ outcome: "pass" }], false)).toEqual([
+      "segment-gate-off",
+      "gate skipped · gate off",
+    ]);
+  });
+});
+
+describe("the integration lane shows the mode it ran in", () => {
+  const ran: TimelineEvents = {
+    ...EVENTS,
+    integration: {
+      seq: 20,
+      ts: "2026-10-10T12:00:10.000000Z",
+      kind: "ran",
+      verdict: "fail",
+      reason: null,
+    },
+  };
+
+  it("under observe it reads would fail, not enforced", () => {
+    const drawn = lanes(TRACE, DECISIONS, ran, "observe", {}, CHECKS);
+    const integration = drawn.find((l) => l.key === "integration");
+    expect(integration?.subtitle).toContain("would fail · not enforced");
+  });
+
+  it("under on it is the gate's verdict", () => {
+    const drawn = lanes(TRACE, DECISIONS, ran, "on", {}, CHECKS);
+    const integration = drawn.find((l) => l.key === "integration");
+    expect(integration?.subtitle).toContain("· fail");
+    expect(integration?.subtitle).not.toContain("not enforced");
   });
 });
 

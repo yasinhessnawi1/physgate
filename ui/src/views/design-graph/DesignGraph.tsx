@@ -278,7 +278,12 @@ function Explorer({
           />
         )}
       </div>
-      <NodesTable nodes={shown} source={source} hrefFor={(id) => withQuery(query, { node: id })} />
+      <NodesTable
+        nodes={shown}
+        all={graph.nodes}
+        source={source}
+        hrefFor={(id) => withQuery(query, { node: id })}
+      />
     </div>
   );
 }

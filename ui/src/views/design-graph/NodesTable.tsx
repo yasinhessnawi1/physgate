@@ -7,10 +7,14 @@ import { edgesOf } from "./edges";
 /** The graph's data as a table beside the drawing: every node, its edges both ways, in id order. */
 export function NodesTable({
   nodes,
+  all,
   source,
   hrefFor,
 }: {
+  /** The rows shown: the graph, or the part of it a filter keeps. */
   nodes: readonly NodeRecord[];
+  /** The whole graph at this revision, which every edge is resolved against, filtered or not. */
+  all: readonly NodeRecord[];
   source: Source;
   hrefFor: (id: string) => string;
 }) {
@@ -33,7 +37,7 @@ export function NodesTable({
           </thead>
           <tbody>
             {sorted.map((node) => {
-              const edges = edgesOf(node.id, nodes);
+              const edges = edgesOf(node.id, all);
               return (
                 <tr key={node.id}>
                   <td>

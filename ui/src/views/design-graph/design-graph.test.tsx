@@ -136,10 +136,30 @@ describe("the inspector", () => {
 describe("the nodes table lists every node with its edges both ways", () => {
   it("has one row per node", () => {
     const html = renderToStaticMarkup(
-      <NodesTable nodes={NODES} source={SOURCE} hrefFor={(id) => `#${id}`} />,
+      <NodesTable nodes={NODES} all={NODES} source={SOURCE} hrefFor={(id) => `#${id}`} />,
     );
     for (const n of NODES) expect(html).toContain(`>${n.id}</a>`);
     expect(html).toContain("electrical.typo (not in the graph)");
+  });
+});
+
+describe("under a domain filter the table still resolves every edge over the whole graph", () => {
+  const LOOP: NodeRecord = { ...node("control.loop", ["firmware.main"], []), domain: "control" };
+  const MAIN: NodeRecord = { ...node("firmware.main", [], []), domain: "firmware" };
+  const PLANT: NodeRecord = {
+    ...node("mechanical.plant", ["control.loop"], []),
+    domain: "mechanical",
+  };
+  const ALL = [LOOP, MAIN, PLANT];
+
+  it("never calls a node of another domain missing, and keeps its incoming edges", () => {
+    const html = renderToStaticMarkup(
+      <NodesTable nodes={[LOOP]} all={ALL} source={SOURCE} hrefFor={(id) => `#${id}`} />,
+    );
+    expect(html).not.toContain("not in the graph");
+    expect(html).toContain("firmware.main");
+    expect(html).toContain("mechanical.plant");
+    expect(html.match(/<tr>/g)).toHaveLength(2); // the header and the one row the filter keeps
   });
 });
 

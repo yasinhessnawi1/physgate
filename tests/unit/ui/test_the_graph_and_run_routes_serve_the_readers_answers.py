@@ -23,7 +23,14 @@ from ui_three_mode_rig import three_mode_runs
 
 from physgate.evaluation.observe.sequence import decisions
 from physgate.orchestrator.accounting import TokenAccount
-from physgate.orchestrator.events import Decomposed, StageEntered, WriteDone, read_events
+from physgate.orchestrator.events import (
+    Decomposed,
+    EventLog,
+    Halted,
+    StageEntered,
+    WriteDone,
+    read_events,
+)
 from physgate.orchestrator.gate_events import recorded_gate_checks
 from physgate.orchestrator.replay import replay
 from physgate.state.schema import validate_node
@@ -282,4 +289,25 @@ def test_the_status_of_a_run_stopped_mid_way_is_where_it_stopped(
         "subtask_id": step.subtask_id,
         "attempt": step.attempt,
         "point": step.point,
+    }
+
+
+def test_the_status_of_a_halted_run_names_its_halt(world: dict[str, Path], tmp_path: Path) -> None:
+    """A halt is a line in the log, and the route serves it: its reason, its detail, its line."""
+    root = tmp_path / "runs"
+    shutil.copytree(world["root"] / "run-clean", root / "run-clean", symlinks=True)
+    path = root / "run-clean" / "events.jsonl"
+    config = json.loads((root / "run-clean" / "run.json").read_text())
+    log = EventLog(path, run_id=config["run_id"], gate_mode=config["gate_mode"])
+    halted = log.emit(Halted, reason="infrastructure_exhausted", detail="the retries ran out")
+    log.close()
+    state = replay(read_events(path))
+    assert state.halted is not None and state.next_step().kind == "halted"
+    with serving(context_over(root, ui_root=world["ui"])) as server:
+        served = _json(server, "run-clean", "status")
+    assert served["next_step"]["kind"] == "halted"
+    assert served["halted"] == {
+        "seq": halted.seq,
+        "reason": "infrastructure_exhausted",
+        "detail": "the retries ran out",
     }

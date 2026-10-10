@@ -47,7 +47,15 @@ export function Tally({ counts, observed = false }: { counts: TallyCounts; obser
           {item("warn", "Warn")} <span className="mono">{counts.warn}</span>
         </span>
         <span className="tally-total">
-          of <span className="mono">{evaluated}</span> evaluated{observed ? " · not enforced" : ""}
+          of <span className="mono">{evaluated}</span> evaluated
+          {counts.overNothing !== undefined && counts.overNothing > 0 && (
+            <span className="tally-over-nothing">
+              {" "}
+              · <span className="mono">{counts.overNothing}</span>{" "}
+              {counts.overNothing === 1 ? "pass" : "passes"} over nothing
+            </span>
+          )}
+          {observed ? " · not enforced" : ""}
         </span>
       </span>
       <span className="tally-separator" role="separator" aria-orientation="vertical" />
