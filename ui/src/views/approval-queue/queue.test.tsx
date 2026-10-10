@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { actToken, postAction, ShapeError } from "../../api/client";
+import { actToken, pageOperator, postAction, ShapeError } from "../../api/client";
 import {
   decisionRequest,
   decisionText,
@@ -162,6 +162,15 @@ describe("the action token comes only from this page", () => {
     meta.content = "tok-123";
     document.head.append(meta);
     expect(actToken()).toBe("tok-123");
+  });
+
+  it("the operator is read from the page too, and a page naming no one names no one", () => {
+    expect(pageOperator()).toBeNull();
+    const meta = document.createElement("meta");
+    meta.name = "physgate-operator";
+    meta.content = "Yasin H.";
+    document.head.append(meta);
+    expect(pageOperator()).toBe("Yasin H.");
   });
 
   it("a page without one sends nothing", async () => {

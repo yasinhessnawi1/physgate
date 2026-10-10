@@ -143,10 +143,6 @@ export function itemView(value: unknown): ItemView {
   };
 }
 
-export function operatorName(value: unknown): string | null {
-  return optionalText(object(value, "the operator").operator, "the operator's name");
-}
-
 export type Verb = "approve" | "reject";
 
 /**

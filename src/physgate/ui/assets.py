@@ -102,6 +102,9 @@ def write_stamp(ui_root: Path) -> Path:
 #: The name of the ``<meta>`` element that carries the server's action token to its own page.
 ACT_TOKEN_META = "physgate-act-token"
 
+#: The name of the ``<meta>`` element that names the operator decisions are recorded under.
+OPERATOR_META = "physgate-operator"
+
 
 @dataclass(frozen=True)
 class Assets:
@@ -110,17 +113,25 @@ class Assets:
     index: bytes
     files: Mapping[str, tuple[bytes, str]]
 
-    def with_act_token(self, token: str) -> Assets:
-        """The same build, its page carrying ``token`` in a ``<meta>`` element.
+    def with_server_meta(self, token: str, operator: str | None) -> Assets:
+        """The same build, its page carrying the action token and the operator's name.
 
         The page reads the token from itself and sends it back with every action, so only a
-        page this server served can act: another site's page cannot read this one. It goes
-        before ``</head>``, or straight after the doctype of a page with no head written out.
+        page this server served can act: another site's page cannot read this one. The
+        operator's name, when one was named, is part of the line a decision writes, so the
+        confirmation names it from here; with none, the page has no such element and acts on
+        nothing. Both go before ``</head>``, or straight after the doctype of a page with no
+        head written out.
 
         Raises:
-            StartupRefusedError: the page has neither, so there is nowhere to put it.
+            StartupRefusedError: the page has neither, so there is nowhere to put them.
         """
-        meta = f'<meta name="{ACT_TOKEN_META}" content="{html.escape(token)}">'.encode()
+        meta = f'<meta name="{ACT_TOKEN_META}" content="{html.escape(token)}">'
+        if operator is not None:
+            meta += f'<meta name="{OPERATOR_META}" content="{html.escape(operator)}">'
+        return self._with_head(meta.encode())
+
+    def _with_head(self, meta: bytes) -> Assets:
         head = self.index.find(b"</head>")
         if head >= 0:
             return replace(self, index=self.index[:head] + meta + self.index[head:])

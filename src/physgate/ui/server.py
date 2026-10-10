@@ -347,7 +347,7 @@ def make_server(
     require_loopback(bind)
     require_operator(context.operator)
     token = secrets.token_urlsafe(32)
-    context = replace(context, assets=context.assets.with_act_token(token))
+    context = replace(context, assets=context.assets.with_server_meta(token, context.operator))
     guard.install()
     server_class = _Server6 if ":" in bind else _Server
     server = server_class((bind, port), Handler)
