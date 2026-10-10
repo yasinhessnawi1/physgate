@@ -17,7 +17,16 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from loop_fakes import FakeChanges, FakeDispatcher, FakeGate, FakeReviewer, Rig, plan
+from loop_fakes import (
+    FakeChanges,
+    FakeDispatcher,
+    FakeGate,
+    FakeReviewer,
+    Rig,
+    failing_gate_result,
+    plan,
+)
+from orch_helpers import gate_records
 from pydantic import BaseModel
 
 from physgate.orchestrator.escalation_state import (
@@ -36,12 +45,15 @@ from physgate.orchestrator.events import (
 )
 from physgate.orchestrator.exceptions import ReviewUnavailableError, RunStateError
 from physgate.orchestrator.protocols import (
+    Artefact,
     CriterionDefect,
     CriterionVerdict,
+    GateResult,
     IndicatorReport,
     ItemVerdict,
     MessageUsage,
     ReviewResult,
+    RunningGateMode,
     SpecDefect,
     UnavailableCause,
     Usage,
@@ -128,6 +140,23 @@ def unavailable(cause: UnavailableCause) -> ReviewUnavailableError:
     )
 
 
+class MixedGate(FakeGate):
+    """Fails like the stand-in gate, with a second record differing in scope and blocking.
+
+    One uniform record could not tell a copied scope or blocking flag from a constant.
+    """
+
+    def check(self, artefact: Artefact, *, mode: RunningGateMode) -> GateResult:
+        self.seen.append(artefact)
+        failing = failing_gate_result(mode)
+        extra = gate_records(mode, None)[0].model_copy(
+            update={"scope": "module", "blocking": False}
+        )
+        return GateResult.model_validate(
+            failing.model_copy(update={"checks": (*failing.checks, extra)}).model_dump()
+        )
+
+
 def run(tmp_path: Path, rig: Rig) -> list[Event]:
     loop = rig.open()
     try:
@@ -156,7 +185,7 @@ def test_a_rejection_s_state_copies_each_part_from_its_own_record(tmp_path: Path
     rig = Rig(
         tmp_path,
         gate_mode="observe",
-        gate=FakeGate(verdicts=["fail", "fail"]),
+        gate=MixedGate(),
         changes=FakeChanges(proposed={1: ("motor.left",), 2: ("motor.left", "power.budget")}),
         reviewer=FakeReviewer(results={1: rich_rejection(1), 2: rich_rejection(2)}),
     )
@@ -190,6 +219,10 @@ def test_a_rejection_s_state_copies_each_part_from_its_own_record(tmp_path: Path
     assert state.gate.failing_check == gate.failing_check == "magnitude"
     assert [(c.check, c.scope, c.outcome, c.blocking) for c in state.gate.checks] == [
         (r.name, r.scope, r.outcome, r.blocking) for r in gate.checks
+    ]
+    assert [(c.scope, c.outcome, c.blocking) for c in state.gate.checks] == [
+        ("subtask", "fail", True),
+        ("module", "pass", False),
     ]
     review = _last(events, ReviewRan, ended).result
     assert state.review is not None
