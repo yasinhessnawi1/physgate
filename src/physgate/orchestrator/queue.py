@@ -15,12 +15,19 @@ what was asked, what was decided, and when.
 
 The item's wording is a template filled by code. The queue is where a model
 would be most tempting, since it is prose for a person, and there is none.
+
+**Reading is not writing.** :class:`ApprovalQueue` is the one writer: opening it
+creates the files it writes and cuts a torn final line. Anything that only reads
+(``physgate queue list``, the operator UI) goes through :func:`read_queue` and
+:func:`queue_listing`, which create nothing and cut nothing, and hold every line
+to exactly the rules the writer holds it to, through the same parser.
 """
 
 from __future__ import annotations
 
 import os
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Literal
@@ -29,7 +36,13 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from physgate.orchestrator.budget import REPAIR_BUDGET
 from physgate.orchestrator.common import NonEmptyStr, Timestamp, utc_now, utc_stamp
-from physgate.orchestrator.events import read_jsonl
+from physgate.orchestrator.events import (
+    LeftoverRead,
+    SessionEnded,
+    StageEntered,
+    read_events,
+    read_jsonl,
+)
 from physgate.orchestrator.exceptions import QueueError
 from physgate.orchestrator.protocols import GateResult, QuantityRef, SpecDefect
 from physgate.orchestrator.repair import Finding
@@ -72,6 +85,9 @@ class QueueResolution(_Record):
     decision: NonEmptyStr
     resolved_by: NonEmptyStr
 
+
+#: The items file, in the run directory.
+QUEUE_NAME = "queue.jsonl"
 
 #: The decisions file, beside the items file.
 DECISIONS_NAME = "queue_decisions.jsonl"
@@ -222,8 +238,164 @@ def integration_item(
     )
 
 
+class _Records:
+    """The queue's lines read so far, and what they make legal next.
+
+    Shared by the writer and every reader, so a line one accepts the other accepts.
+    """
+
+    def __init__(self) -> None:
+        self.items: dict[str, QueueItem] = {}
+        self.resolved: dict[str, QueueResolution] = {}
+
+    def check(self, record: QueueItem | QueueResolution) -> None:
+        """Raise ``ValueError`` unless ``record`` may be the next line."""
+        if isinstance(record, QueueItem):
+            if record.item_id in self.items:
+                msg = f"item {record.item_id!r} listed twice"
+                raise ValueError(msg)
+        elif record.item_id not in self.items or record.item_id in self.resolved:
+            msg = f"a decision on {record.item_id!r}, which is not an open item"
+            raise ValueError(msg)
+
+    def record(self, record: QueueItem | QueueResolution) -> None:
+        """Take ``record`` as read; :meth:`check` has passed it."""
+        if isinstance(record, QueueItem):
+            self.items[record.item_id] = record
+        else:
+            self.resolved[record.item_id] = record
+
+    def open_items(self) -> list[QueueItem]:
+        """Items no decision has been recorded for, oldest first."""
+        return [i for k, i in self.items.items() if k not in self.resolved]
+
+
+def _parse(
+    path: Path,
+    adapter: TypeAdapter[QueueItem] | TypeAdapter[QueueResolution],
+    records: _Records,
+    at: list[tuple[int, QueueResolution]] | None = None,
+) -> int:
+    """Admit every complete line of ``path`` into ``records``; the offset the good lines end at.
+
+    A final line without its terminator is a write still in progress and is not read. With
+    ``at``, each decision is also listed with the byte offset its line starts at.
+
+    Raises:
+        QueueError: a complete line is not a record of the file's kind, or does not follow
+            from the lines before it.
+        FileNotFoundError: there is no file at ``path``.
+    """
+    offset = 0
+
+    def admit(raw: bytes) -> QueueItem | QueueResolution:
+        nonlocal offset
+        record = adapter.validate_json(raw)
+        records.check(record)
+        records.record(record)
+        if at is not None and isinstance(record, QueueResolution):
+            at.append((offset, record))
+        offset += len(raw)
+        return record
+
+    _, good_end, corrupt = read_jsonl(path, admit)
+    if corrupt is not None:
+        bad_at, reason = corrupt
+        msg = "the approval queue holds a line this package could not have written"
+        raise QueueError(msg, queue=str(path), offset=str(bad_at), reason=reason)
+    return good_end
+
+
+@dataclass(frozen=True)
+class QueueView:
+    """A run's queue as read from disk: every item, and every decision with its line's offset."""
+
+    items: tuple[QueueItem, ...]
+    decisions: tuple[tuple[int, QueueResolution], ...]
+
+    def open_items(self) -> list[QueueItem]:
+        """Items no decision has been recorded for, oldest first."""
+        decided = {decision.item_id for _, decision in self.decisions}
+        return [item for item in self.items if item.item_id not in decided]
+
+
+def read_queue(run_dir: Path) -> QueueView:
+    """The queue of the run at ``run_dir``, read without writing anything.
+
+    Nothing is created: a run directory, or either file, that is missing reads as empty. A
+    torn final line is left where it is and not read, since its writer may still be completing
+    it; only the writer, which knows no write of its own is in progress, may cut one.
+
+    Raises:
+        QueueError: a complete line is not a record, or does not follow from the lines
+            before it (an item listed twice, a decision on no open item).
+    """
+    records = _Records()
+    at: list[tuple[int, QueueResolution]] = []
+    for name, adapter in ((QUEUE_NAME, _ITEM), (DECISIONS_NAME, _DECISION)):
+        try:
+            _parse(Path(run_dir) / name, adapter, records, at)
+        except FileNotFoundError:
+            continue
+    return QueueView(items=tuple(records.items.values()), decisions=tuple(at))
+
+
+def session_windows(run_dir: Path) -> list[tuple[int, int | None, str]]:
+    """The decisions file's byte ranges written while each session ran: (start, end, session).
+
+    From the event log: a session's window opens at its spawn stage and closes at
+    its end, or at the resume that found it left over; a window still open has no
+    end. No event log, no windows.
+    """
+    events_path = Path(run_dir) / "events.jsonl"
+    if not events_path.exists():
+        return []
+    windows: list[tuple[int, int | None, str]] = []
+    open_at: int | None = None
+    for event in read_events(events_path):
+        if isinstance(event, StageEntered) and event.decisions_bytes is not None:
+            open_at = event.decisions_bytes
+        elif (
+            isinstance(event, SessionEnded | LeftoverRead)
+            and open_at is not None
+            and event.decisions_bytes is not None
+        ):
+            windows.append((open_at, event.decisions_bytes, event.session_id))
+            open_at = None
+    if open_at is not None:
+        windows.append((open_at, None, "still running or not yet resumed"))
+    return windows
+
+
+def queue_listing(run_dir: Path) -> dict[str, object]:
+    """What ``physgate queue list`` prints: the open items, and every decision with its mark.
+
+    A decision is not refused for being made while a session ran, since a person may decide
+    then; but a session's hidden write could add one too, so a decision whose line starts
+    inside a session's window is marked for a person to confirm. Read without writing.
+
+    Raises:
+        QueueError: the queue holds a line the writer could not have written.
+        CorruptEventLogError: the event log does.
+    """
+    view = read_queue(run_dir)
+    windows = session_windows(run_dir)
+    decided = []
+    for offset, decision in view.decisions:
+        during = [
+            sid for start, end, sid in windows if start <= offset and (end is None or offset < end)
+        ]
+        flag = f"made while session {during[0]} ran; confirm" if during else None
+        decided.append({**decision.model_dump(), "flag": flag})
+    return {"open": [item.model_dump() for item in view.open_items()], "decided": decided}
+
+
 class ApprovalQueue:
-    """The one writer of a run's approval queue."""
+    """The one writer of a run's approval queue.
+
+    Opening it creates the files and cuts a torn final line, which is right for the writer and
+    wrong for anything that only reads: a reader goes through :func:`read_queue`.
+    """
 
     def __init__(self, path: Path, *, clock: Callable[[], datetime] = utc_now) -> None:
         """Open or create the queue at ``path``.
@@ -244,51 +416,24 @@ class ApprovalQueue:
         """Read both files again: a person may have decided since they were last read.
 
         Raises:
-            QueueError: a complete line is not a record of its file's kind, or does
-                not follow from the lines before it.
+            QueueError: a complete line is not a record of its file's kind, or does not
+                follow from the lines before it.
         """
-        self._items: dict[str, QueueItem] = {}
-        self._resolved: dict[str, QueueResolution] = {}
+        self._records = _Records()
         self._load(self.path, _ITEM)
         self._load(self.decisions_path, _DECISION)
 
     def _load(
         self, path: Path, adapter: TypeAdapter[QueueItem] | TypeAdapter[QueueResolution]
     ) -> None:
-        def admit(raw: bytes) -> QueueItem | QueueResolution:
-            record = adapter.validate_json(raw)
-            self._check(record)
-            self._record(record)
-            return record
-
-        _, good_end, corrupt = read_jsonl(path, admit)
-        if corrupt is not None:
-            offset, reason = corrupt
-            msg = "the approval queue holds a line this package could not have written"
-            raise QueueError(msg, queue=str(path), offset=str(offset), reason=reason)
+        good_end = _parse(path, adapter, self._records)
         if path.stat().st_size != good_end:
             with path.open("r+b") as handle:
                 handle.truncate(good_end)
 
-    def _check(self, record: QueueItem | QueueResolution) -> None:
-        """Raise ``ValueError`` unless ``record`` may be the next line."""
-        if isinstance(record, QueueItem):
-            if record.item_id in self._items:
-                msg = f"item {record.item_id!r} listed twice"
-                raise ValueError(msg)
-        elif record.item_id not in self._items or record.item_id in self._resolved:
-            msg = f"a decision on {record.item_id!r}, which is not an open item"
-            raise ValueError(msg)
-
-    def _record(self, record: QueueItem | QueueResolution) -> None:
-        if isinstance(record, QueueItem):
-            self._items[record.item_id] = record
-        else:
-            self._resolved[record.item_id] = record
-
     def _append(self, record: QueueItem | QueueResolution) -> None:
         try:
-            self._check(record)
+            self._records.check(record)
         except ValueError as exc:
             raise QueueError(str(exc), queue=str(self.path)) from None
         target = self.path if isinstance(record, QueueItem) else self.decisions_path
@@ -296,7 +441,7 @@ class ApprovalQueue:
             handle.write(record.model_dump_json().encode() + b"\n")
             handle.flush()
             os.fsync(handle.fileno())
-        self._record(record)
+        self._records.record(record)
 
     def add(self, item: QueueItem) -> None:
         """List ``item``, synced before returning."""
@@ -313,20 +458,10 @@ class ApprovalQueue:
         self._append(record)
         return record
 
-    def decisions_at(self) -> list[tuple[int, QueueResolution]]:
-        """Every decision with the byte offset its line starts at in the decisions file."""
-        found: list[tuple[int, QueueResolution]] = []
-        offset = 0
-        for line in self.decisions_path.read_bytes().splitlines(keepends=True):
-            if line.endswith(b"\n"):
-                found.append((offset, _DECISION.validate_json(line)))
-            offset += len(line)
-        return found
-
     def open_items(self) -> list[QueueItem]:
         """Items no decision has been recorded for, oldest first."""
-        return [i for k, i in self._items.items() if k not in self._resolved]
+        return self._records.open_items()
 
     def items(self) -> list[QueueItem]:
         """Every item, oldest first."""
-        return list(self._items.values())
+        return list(self._records.items.values())

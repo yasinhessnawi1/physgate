@@ -44,9 +44,6 @@ from physgate.orchestrator.dispatch import ClaudeDispatcher, probe_interpreter
 from physgate.orchestrator.events import (
     EnvironmentRecorded,
     InstallChecked,
-    LeftoverRead,
-    SessionEnded,
-    StageEntered,
     SubtaskPlanned,
     read_events,
 )
@@ -69,7 +66,7 @@ from physgate.orchestrator.invocation import claude_binary
 from physgate.orchestrator.loop import Loop, refuse_unregistered, require_gate
 from physgate.orchestrator.merge import GitMerger, RunGit
 from physgate.orchestrator.protocols import Gate, Reviewer
-from physgate.orchestrator.queue import ApprovalQueue
+from physgate.orchestrator.queue import ApprovalQueue, queue_listing
 from physgate.orchestrator.replay import recorded_ledger
 from physgate.orchestrator.role_python import RolePython
 from physgate.orchestrator.role_python import measure as measure_role_python
@@ -526,47 +523,12 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
     return 0 if step.kind == "done" else 1
 
 
-def session_windows(run_dir: Path) -> list[tuple[int, int | None, str]]:
-    """The decisions file's byte ranges written while each session ran: (start, end, session).
-
-    From the event log: a session's window opens at its spawn stage and closes at
-    its end, or at the resume that found it left over; a window still open has no
-    end.
-    """
-    events_path = run_dir / "events.jsonl"
-    if not events_path.exists():
-        return []
-    windows: list[tuple[int, int | None, str]] = []
-    open_at: int | None = None
-    for event in read_events(events_path):
-        if isinstance(event, StageEntered) and event.decisions_bytes is not None:
-            open_at = event.decisions_bytes
-        elif (
-            isinstance(event, SessionEnded | LeftoverRead)
-            and open_at is not None
-            and event.decisions_bytes is not None
-        ):
-            windows.append((open_at, event.decisions_bytes, event.session_id))
-            open_at = None
-    if open_at is not None:
-        windows.append((open_at, None, "still running or not yet resumed"))
-    return windows
-
-
 def _queue_list(args: argparse.Namespace) -> int:
-    run_dir = args.run_dir.resolve()
-    queue = ApprovalQueue(run_dir / "queue.jsonl")
-    windows = session_windows(run_dir)
-    decided = []
-    for offset, decision in queue.decisions_at():
-        # Not refused: a person may decide while a session runs. A session's hidden
-        # write could too, so such a decision is shown for a person to confirm.
-        during = [
-            sid for start, end, sid in windows if start <= offset and (end is None or offset < end)
-        ]
-        flag = f"made while session {during[0]} ran; confirm" if during else None
-        decided.append({**decision.model_dump(), "flag": flag})
-    _print({"open": [item.model_dump() for item in queue.open_items()], "decided": decided})
+    try:
+        listing = queue_listing(args.run_dir.resolve())
+    except OrchestratorError as exc:
+        return _fail(str(exc), **exc.context)
+    _print(listing)
     return 0
 
 
