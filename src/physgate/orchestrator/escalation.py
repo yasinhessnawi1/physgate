@@ -317,14 +317,14 @@ def bind(
 ) -> EscalationInterface:
     """The interface over the backend a run names.
 
+    Whether the row ships is checked once, by the interface itself, so a backend built
+    some other way is held to the same rule.
+
     Raises:
-        EscalationBackendError: the register has no row for ``name``, the row does not
-            ship, or nothing implements it.
+        EscalationBackendError: the register has no row for ``name``, nothing implements
+            it, or its row does not ship.
     """
     row = register.row(name)
-    if row.status != "ships":
-        msg = "this escalation backend does not ship and cannot be bound"
-        raise EscalationBackendError(msg, backend=name, status=row.status)
     build = implementations.get(name)
     if build is None:
         msg = "no implementation exists for this escalation backend"
