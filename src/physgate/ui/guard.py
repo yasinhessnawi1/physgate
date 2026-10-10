@@ -16,10 +16,17 @@ by kind means such a route arrives as one new kind with its own narrow policy,
 and every read route keeps exactly the policy it has today.
 
 **The one kind registered: ``read``.** A read route may open files for reading
-only. It may not open anything with a write, create, append or truncate flag,
-change the filesystem in any other way, connect anywhere but loopback, look a
-host name up, or start a process. A kind with no registered policy is refused
-both when a route is declared and when a scope is entered.
+only, and only files its request may read: beneath an allowed root and outside
+the refused set (the same rule as the allowlist's own resolver, applied to the
+path the open names, links followed), or the interpreter's and this package's
+own files. So a handler that forgets to hold a path to the allowlist is still
+refused at the open. It may not open anything with a write, create, append or
+truncate flag, change the filesystem in any other way, connect anywhere but
+loopback, look a host name up, start a process, or start a thread: the route's
+kind lives in a context variable that a new thread does not inherit, so a thread
+would run outside the guard, and refusing to start one is what keeps the guard
+whole. A kind with no registered policy is refused both when a route is declared
+and when a scope is entered.
 
 This is a tripwire against this package's own code, not a sandbox: code that
 reaches the C library directly (``ctypes``) is not seen. It is held beside a
@@ -35,6 +42,7 @@ import threading
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass
 from typing import Literal
 
 from physgate.ui.exceptions import GuardRefusedError, UnregisteredKindError
@@ -124,7 +132,23 @@ NAME_EVENTS = frozenset(
     }
 )
 
-Policy = Callable[[str, tuple[object, ...]], str | None]
+#: Whether a request may open the file at a path for reading.
+Readable = Callable[[str], bool]
+
+
+@dataclass(frozen=True)
+class Scope:
+    """One request's guard: its route's kind, and which files it may read.
+
+    ``readable`` is ``None`` only where a caller deliberately tests the other rules
+    alone; the server always passes its allowlist's rule.
+    """
+
+    kind: str
+    readable: Readable | None
+
+
+Policy = Callable[[str, tuple[object, ...], Scope], str | None]
 
 
 def _loopback(host: object) -> bool:
@@ -144,10 +168,20 @@ def _write_open(args: tuple[object, ...]) -> bool:
     return isinstance(flags, int) and bool(flags & WRITE_FLAGS)
 
 
-def read_policy(event: str, args: tuple[object, ...]) -> str | None:
+def read_policy(event: str, args: tuple[object, ...], scope: Scope) -> str | None:
     """Why a read route may not do ``event``, or ``None`` if it may."""
-    if event == "open" and _write_open(args):
-        return "a read route opened a file for writing"
+    if event == "open":
+        if _write_open(args):
+            return "a read route opened a file for writing"
+        path = args[0] if args else None
+        if (
+            scope.readable is not None
+            and isinstance(path, str | bytes)
+            and not scope.readable(os.fsdecode(path))
+        ):
+            return "a read route opened a file outside the roots it may read"
+    if event == "_thread.start_new_thread":
+        return "a read route started a thread, where its guard could not follow it"
     if event in MUTATING_EVENTS:
         return "a read route changed the filesystem or the process"
     if event in SPAWN_EVENTS:
@@ -167,7 +201,7 @@ def read_policy(event: str, args: tuple[object, ...]) -> str | None:
 #: The policy each registered kind runs under. A kind that is not here is refused.
 POLICIES: Mapping[str, Policy] = {"read": read_policy}
 
-_current: ContextVar[str | None] = ContextVar("physgate_ui_route_kind", default=None)
+_current: ContextVar[Scope | None] = ContextVar("physgate_ui_route_scope", default=None)
 _installed = threading.Lock()
 _state = {"installed": False}
 
@@ -184,12 +218,12 @@ def require_registered(kind: str) -> None:
 
 
 def _hook(event: str, args: tuple[object, ...]) -> None:
-    kind = _current.get()
-    if kind is None:
+    current = _current.get()
+    if current is None:
         return
-    reason = POLICIES[kind](event, args)
+    reason = POLICIES[current.kind](event, args, current)
     if reason is not None:
-        raise GuardRefusedError(reason, kind=kind, event=event)
+        raise GuardRefusedError(reason, kind=current.kind, event=event)
 
 
 def install() -> None:
@@ -212,8 +246,8 @@ def installed() -> bool:
 
 
 @contextmanager
-def scope(kind: str) -> Iterator[None]:
-    """Run the body under ``kind``'s policy.
+def scope(kind: str, *, readable: Readable | None) -> Iterator[None]:
+    """Run the body under ``kind``'s policy, reading only what ``readable`` allows.
 
     Raises:
         UnregisteredKindError: ``kind`` has no registered policy.
@@ -223,7 +257,7 @@ def scope(kind: str) -> Iterator[None]:
     if not installed():
         msg = "the guard is not installed, so a scope would enforce nothing"
         raise GuardRefusedError(msg, kind=kind)
-    token = _current.set(kind)
+    token = _current.set(Scope(kind=kind, readable=readable))
     try:
         yield
     finally:

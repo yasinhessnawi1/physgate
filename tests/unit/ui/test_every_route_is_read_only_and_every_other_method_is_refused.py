@@ -19,6 +19,7 @@ from ui_rig import (
     RECORDER,
     context_over,
     fake_ui,
+    opened_outside,
     real_runs,
     sealed_session,
     serving,
@@ -123,6 +124,10 @@ def test_no_route_with_any_method_changes_any_file(world: dict[str, Path]) -> No
     assert answered >= len(ROUTES) * len(METHODS)
     assert writes == [], writes
     assert snapshot(*watched) == before
+    # Every file any route opened lies where the request may read: the property the sweep holds
+    # for every route in the table, present and future, by where each open really landed.
+    assert RECORDER.opened, "a sweep that opened nothing proves nothing about what it opened"
+    assert opened_outside(RECORDER.opened, (world["root"],), (world["held"],)) == []
 
 
 def test_a_method_the_table_does_not_name_is_405_with_allow_never_501(

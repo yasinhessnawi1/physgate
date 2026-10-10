@@ -151,7 +151,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _run(self, route: Route, params: dict[str, str]) -> Response:
         try:
-            with guard.scope(route.kind):
+            with guard.scope(route.kind, readable=self.context.allowlist.readable):
                 return route.handler(self.context, params)
         except GuardRefusedError as exc:
             return error_response(500, exc)

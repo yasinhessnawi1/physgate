@@ -28,7 +28,7 @@ def _installed() -> None:
 
 def test_a_read_route_may_read(tmp_path: Path) -> None:
     (tmp_path / "f").write_text("x\n")
-    with guard.scope("read"):
+    with guard.scope("read", readable=None):
         assert (tmp_path / "f").read_text() == "x\n"
         assert os.listdir(tmp_path) == ["f"]
 
@@ -38,7 +38,7 @@ def test_a_read_route_may_not_open_a_file_for_writing(tmp_path: Path, mode: str)
     target = tmp_path / "f"
     if mode != "x":
         target.write_text("x\n")
-    with guard.scope("read"), pytest.raises(GuardRefusedError, match="for writing"):
+    with guard.scope("read", readable=None), pytest.raises(GuardRefusedError, match="for writing"):
         open(target, mode).close()  # noqa: SIM115 - the open itself is the subject
     if mode != "x":
         assert target.read_text() == "x\n"
@@ -47,7 +47,7 @@ def test_a_read_route_may_not_open_a_file_for_writing(tmp_path: Path, mode: str)
 
 
 def test_a_read_route_may_not_open_with_write_flags_at_the_os_level(tmp_path: Path) -> None:
-    with guard.scope("read"), pytest.raises(GuardRefusedError):
+    with guard.scope("read", readable=None), pytest.raises(GuardRefusedError):
         os.open(tmp_path / "g", os.O_WRONLY | os.O_CREAT, 0o644)
     assert not (tmp_path / "g").exists()
 
@@ -69,13 +69,13 @@ def test_a_read_route_may_not_open_with_write_flags_at_the_os_level(tmp_path: Pa
 def test_a_read_route_may_not_change_the_filesystem(tmp_path: Path, change: object) -> None:
     (tmp_path / "f").write_text("x\n")
     before = sorted(os.listdir(tmp_path)), os.stat(tmp_path / "f").st_mtime_ns
-    with guard.scope("read"), pytest.raises(GuardRefusedError, match="changed"):
+    with guard.scope("read", readable=None), pytest.raises(GuardRefusedError, match="changed"):
         change(tmp_path)  # type: ignore[operator]
     assert (sorted(os.listdir(tmp_path)), os.stat(tmp_path / "f").st_mtime_ns) == before
 
 
 def test_a_read_route_may_not_start_a_process() -> None:
-    with guard.scope("read"), pytest.raises(GuardRefusedError, match="process"):
+    with guard.scope("read", readable=None), pytest.raises(GuardRefusedError, match="process"):
         subprocess.run([sys.executable, "-c", "pass"], check=False)
 
 
@@ -85,19 +85,19 @@ def test_a_read_route_may_not_connect_off_loopback() -> None:
     # out the kernel's connect timeout to an unroutable address.
     sock.settimeout(2)
     try:
-        with guard.scope("read"), pytest.raises(GuardRefusedError, match="loopback"):
+        with guard.scope("read", readable=None), pytest.raises(GuardRefusedError, match="loopback"):
             sock.connect(("192.0.2.1", 9))  # TEST-NET-1: refused before a packet is sent
     finally:
         sock.close()
 
 
 def test_a_read_route_may_not_resolve_a_host_name() -> None:
-    with guard.scope("read"), pytest.raises(GuardRefusedError):
+    with guard.scope("read", readable=None), pytest.raises(GuardRefusedError):
         socket.getaddrinfo("example.org", 80)
 
 
 def test_a_read_route_may_not_build_an_outbound_request() -> None:
-    with guard.scope("read"), pytest.raises(GuardRefusedError):
+    with guard.scope("read", readable=None), pytest.raises(GuardRefusedError):
         urllib.request.urlopen("http://192.0.2.1/", timeout=1)  # noqa: S310 - the subject
 
 
@@ -107,7 +107,7 @@ def test_a_read_route_may_connect_to_loopback() -> None:
     listener.listen(1)
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        with guard.scope("read"):
+        with guard.scope("read", readable=None):
             client.connect(listener.getsockname())
     finally:
         client.close()
@@ -120,20 +120,52 @@ def test_outside_a_scope_nothing_is_refused(tmp_path: Path) -> None:
 
 
 def test_an_unregistered_kind_is_refused_when_a_scope_is_entered() -> None:
-    with pytest.raises(UnregisteredKindError, match="no policy"), guard.scope("act"):
+    with pytest.raises(UnregisteredKindError, match="no policy"), guard.scope("act", readable=None):
         pass
 
 
 def test_the_scope_ends_with_its_block_even_when_the_body_raises(tmp_path: Path) -> None:
-    with pytest.raises(GuardRefusedError), guard.scope("read"):
+    with pytest.raises(GuardRefusedError), guard.scope("read", readable=None):
         open(tmp_path / "x", "w").close()  # noqa: SIM115 - the open itself is the subject
     (tmp_path / "y").write_text("after the scope\n")
     assert (tmp_path / "y").exists()
 
 
 def test_the_policy_answers_every_write_mode_and_flag() -> None:
-    assert guard.read_policy("open", ("p", "r", os.O_RDONLY)) is None
-    assert guard.read_policy("open", ("p", "rb", os.O_RDONLY)) is None
-    assert guard.read_policy("open", ("p", None, os.O_RDONLY | os.O_CLOEXEC)) is None
+    free = guard.Scope(kind="read", readable=None)
+    assert guard.read_policy("open", ("p", "r", os.O_RDONLY), free) is None
+    assert guard.read_policy("open", ("p", "rb", os.O_RDONLY), free) is None
+    assert guard.read_policy("open", ("p", None, os.O_RDONLY | os.O_CLOEXEC), free) is None
     for flag in (os.O_WRONLY, os.O_RDWR, os.O_CREAT, os.O_APPEND, os.O_TRUNC, os.O_EXCL):
-        assert guard.read_policy("open", ("p", None, flag)) is not None
+        assert guard.read_policy("open", ("p", None, flag), free) is not None
+
+
+def test_a_read_route_may_open_only_what_its_request_may_read(tmp_path: Path) -> None:
+    """The rule travels with the request: a path the request may not read is refused at the open."""
+    allowed, other = tmp_path / "allowed", tmp_path / "other"
+    allowed.mkdir()
+    other.mkdir()
+    (allowed / "a").write_text("x\n")
+    (other / "b").write_text("secret\n")
+    readable = lambda path: path.startswith(str(allowed))  # noqa: E731 - the rule under test
+    with guard.scope("read", readable=readable):
+        assert (allowed / "a").read_text() == "x\n"
+        with pytest.raises(GuardRefusedError, match="outside the roots it may read"):
+            (other / "b").read_text()
+        with pytest.raises(GuardRefusedError, match="outside the roots it may read"):
+            os.open(other / "b", os.O_RDONLY)
+
+
+def test_a_read_route_may_not_start_a_thread_its_guard_could_not_follow() -> None:
+    """A new thread does not inherit the request's scope, so starting one is refused."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    with guard.scope("read", readable=None), pytest.raises(GuardRefusedError, match="thread"):
+        threading.Thread(target=lambda: None).start()
+    with (
+        guard.scope("read", readable=None),
+        pytest.raises(GuardRefusedError, match="thread"),
+        ThreadPoolExecutor(max_workers=1) as pool,
+    ):
+        pool.submit(lambda: None).result()

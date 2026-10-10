@@ -36,10 +36,12 @@ same-user limit the hook layer already records; nothing here pretends otherwise.
 from __future__ import annotations
 
 import os
+import sys
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+import physgate
 from physgate.hooks.paths import reaches
 from physgate.orchestrator.credentials import KEY_FILE, KEY_HELPER, LOGIN_FILE
 from physgate.ui.exceptions import PathRefusedError, StartupRefusedError
@@ -50,6 +52,23 @@ SECRET_NAMES = frozenset(name.casefold() for name in (LOGIN_FILE, KEY_FILE, KEY_
 
 #: A directory of this name holds evaluation corpora, which carry their answers.
 CORPUS_DIR = "corpora"
+
+#: Files a request may open besides the roots: the interpreter's own (a module imported late)
+#: and this package's (its recorded price sheets). Nothing in a run directory is among them.
+INTERPRETER_PATHS = tuple(
+    sorted(
+        {
+            os.path.realpath(p)
+            for p in (
+                sys.prefix,
+                sys.base_prefix,
+                sys.exec_prefix,
+                sys.base_exec_prefix,
+                os.path.dirname(physgate.__file__),
+            )
+        }
+    )
+)
 
 
 def _has_nul(text: str) -> bool:
@@ -143,6 +162,23 @@ class Allowlist:
             st = os.stat(real)
             built.append(Root(path=Path(real), ids=(st.st_dev, st.st_ino)))
         return cls(roots=tuple(built), refused=tuple(refused))
+
+    def readable(self, path: str) -> bool:
+        """Whether a request may open ``path``: the guard's rule for every open a route makes.
+
+        The interpreter's and this package's own files, or a path the allowlist resolves
+        (beneath a root, outside the refused set, no credential, links followed). This holds
+        a handler that forgot to call :meth:`resolve` to the same rule at the open itself.
+        """
+        absolute = os.path.abspath(path)
+        real = os.path.realpath(absolute)
+        if any(real == base or real.startswith(base + os.sep) for base in INTERPRETER_PATHS):
+            return True
+        try:
+            self.resolve(absolute)
+        except PathRefusedError:
+            return False
+        return True
 
     def resolve(self, path: Path | str) -> Path:
         """The real path of ``path`` if the server may read it; otherwise refuse.

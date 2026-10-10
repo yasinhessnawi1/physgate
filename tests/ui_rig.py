@@ -20,10 +20,11 @@ import sys
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path
 
+import physgate
 from physgate.orchestrator.run_config import (
     ModelStrings,
     RunBounds,
@@ -100,14 +101,21 @@ def fake_ui(root: Path) -> Path:
 
 @dataclass
 class Recorder:
-    """Every write-capable open, filesystem change and spawn in this process while on."""
+    """What this process does while on, from any thread.
+
+    ``seen``: every write-capable open, filesystem change and spawn. ``opened``: the path of
+    every open at all.
+    """
 
     on: bool = False
     seen: list[tuple[str, str]] | None = None
+    opened: list[str] = field(default_factory=list)
 
     def hook(self, event: str, args: tuple[object, ...]) -> None:
         if not self.on or self.seen is None:
             return
+        if event == "open" and args and isinstance(args[0], str | bytes):
+            self.opened.append(os.path.abspath(os.fsdecode(args[0])))
         if event == "open":
             mode = args[1] if len(args) > 1 else None
             flags = args[2] if len(args) > 2 else 0
@@ -120,6 +128,7 @@ class Recorder:
     @contextmanager
     def recording(self) -> Iterator[list[tuple[str, str]]]:
         self.seen = []
+        self.opened = []
         self.on = True
         try:
             yield self.seen
@@ -238,3 +247,39 @@ def sealed_session(run_dir: Path) -> str:
             return str(record["session_id"])
     msg = "the run sealed no trajectory"
     raise AssertionError(msg)
+
+
+#: What a request may open besides its roots, written here independently of the server's own
+#: rule: the interpreter's files and the package's (its recorded price sheets).
+OWN_FILES = tuple(
+    os.path.realpath(p)
+    for p in (sys.prefix, sys.base_prefix, sys.exec_prefix, os.path.dirname(physgate.__file__))
+)
+
+#: Names nothing may open, wherever they sit.
+SECRET_NAMES = {".credentials.json", "key", "key-helper.sh", ".env"}
+
+
+def opened_outside(
+    opened: list[str], roots: tuple[Path, ...], refused: tuple[Path, ...]
+) -> list[str]:
+    """The opened paths a request had no business opening, judged by where each really lands.
+
+    Beneath a root and not beneath a refused path, not a secret's name, not in a corpus; or one
+    of the interpreter's or the package's own files.
+    """
+
+    def under(path: str, base: str) -> bool:
+        return path == base or path.startswith(base.rstrip(os.sep) + os.sep)
+
+    bad = []
+    for path in opened:
+        real = os.path.realpath(path)
+        if any(under(real, base) for base in OWN_FILES):
+            continue
+        in_root = any(under(real, os.path.realpath(r)) for r in roots)
+        in_refused = any(under(real, os.path.realpath(r)) for r in refused)
+        named = os.path.basename(real).casefold() in SECRET_NAMES or "corpora" in Path(real).parts
+        if not in_root or in_refused or named:
+            bad.append(f"{path} -> {real}")
+    return bad

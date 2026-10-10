@@ -3,6 +3,12 @@
 Each test plants one form against one rule. The resolver resolves first, then checks the
 allowlist, then the refused set; the symlink tests are the ones that tell "resolved first"
 from "checked first", and each says so.
+
+Which rule refuses the tier matters, because a test that refuses it by the wrong rule proves
+nothing about the right one. Where the tier lies outside every root (the ``..``, symlink, case
+and trailing-slash forms below), the allowlist refuses it before the refused set is consulted.
+The refused set is reached only when the tier comes to lie beneath a root after start, which
+the tests at the end of this file plant on purpose.
 """
 
 from __future__ import annotations
@@ -245,3 +251,43 @@ def test_a_root_that_is_not_an_existing_directory_refuses_the_start(
 def test_no_root_refuses_the_start() -> None:
     with pytest.raises(StartupRefusedError, match="at least one root"):
         Allowlist.build([], held_out=[], answer_keys=[], harness=None)
+
+
+# -- the refused set at request time ---------------------------------------------------------
+
+
+def test_a_held_out_tier_that_comes_to_lie_under_a_root_after_start_is_refused(
+    layout: dict[str, Path],
+) -> None:
+    """Refused by the request-time check alone.
+
+    The path is beneath a root, so the allowlist passes it; only the refused set, followed
+    through the tier's own link, refuses it.
+    """
+    tier = layout["root"].parent / "tier-named-later"
+    allow = Allowlist.build(
+        [str(layout["root"])], held_out=[str(tier)], answer_keys=[], harness=None
+    )
+    inside = layout["root"] / "run-1" / "events.jsonl"
+    assert allow.resolve(inside) == Path(os.path.realpath(inside)), "readable before the link"
+    tier.symlink_to(layout["root"] / "run-1")
+    with pytest.raises(PathRefusedError, match="reaches a path nothing may read"):
+        allow.resolve(inside)
+
+
+def test_through_a_route_the_tier_that_moved_under_a_root_is_refused(tmp_path: Path) -> None:
+    """The run stays listed; the route reading the part the tier now names refuses."""
+    from ui_rig import context_over, fake_ui, serving, write_run
+
+    root = tmp_path / "runs"
+    write_run(root / "run-1", "run-1")
+    (root / "run-1" / "store").mkdir()
+    (root / "run-1" / "store" / "journal.jsonl").write_text("")
+    tier = tmp_path / "tier-named-later"
+    context = context_over(root, ui_root=fake_ui(tmp_path / "checkout"), held_out=(str(tier),))
+    with serving(context) as live:
+        assert live.request("GET", "/api/runs/0/run-1/graph")[0] == 200
+        tier.symlink_to(root / "run-1" / "store")
+        status, _, body = live.request("GET", "/api/runs/0/run-1/graph")
+    assert status == 403
+    assert b"reaches a path nothing may read" in body

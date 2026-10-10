@@ -6,6 +6,7 @@ import { Figure, WhatIfVerdictError } from "./Figure";
 import { GateModeBadge, GateOutcome } from "./GateMode";
 import { Quantity } from "./Quantity";
 import { SourceChip } from "./SourceChip";
+import { ErrorState } from "./States";
 import { Tally, VerdictBadge } from "./VerdictBadge";
 
 const SOURCE = { id: "run r-1", commit: "0123456789abcdef" };
@@ -151,5 +152,30 @@ describe("every figure names its source", () => {
     expect(renderToStaticMarkup(<SourceChip source={{ id: "run r-2", commit: null }} />)).toContain(
       "no commit",
     );
+  });
+});
+
+describe("an error names what was refused and shows nothing partial", () => {
+  const html = renderToStaticMarkup(
+    <ErrorState
+      title="Task ledger: not shown"
+      refusal={{
+        status: 422,
+        error: "the ledger disagrees with the run-event log",
+        context: { ledger: "ledger.jsonl" },
+      }}
+    />,
+  );
+
+  it("is an alert carrying the title, the server's reason, its status and its context", () => {
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("Task ledger: not shown");
+    expect(html).toContain("the ledger disagrees with the run-event log");
+    expect(html).toContain("422");
+    expect(html).toContain("ledger.jsonl");
+  });
+
+  it("holds no table: nothing of the refused record is shown", () => {
+    expect(html).not.toContain("<table");
   });
 });

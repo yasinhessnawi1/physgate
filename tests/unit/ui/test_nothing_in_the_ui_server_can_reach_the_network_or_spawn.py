@@ -37,6 +37,7 @@ ALLOWED_MODULES = {
     "threading",
     "typing",
     "urllib.parse",
+    "physgate",
     "physgate.hooks.paths",
     "physgate.orchestrator.credentials",
     "physgate.orchestrator.exceptions",
