@@ -108,14 +108,18 @@ def test_the_orchestrator_fails_closed_on_a_repointed_worktree(tmp_path: Path) -
     verify_worktree_pointer(worktree)
     (worktree / "a").write_text("2\n")
     assert len(commit_all(worktree, "a change")) == 40
-    # Repoint the worktree's .git at a directory that is not a git worktree admin (inert: an
-    # empty directory, nothing runs). The orchestrator's commit refuses before running git.
-    bogus = tmp_path / "bogus"
-    bogus.mkdir()
-    (worktree / ".git").write_text(f"gitdir: {bogus}\n")
-    with pytest.raises(GitError, match="no git worktree admin directory"):
+    # Repoint the worktree's .git at another real worktree's admin directory: git itself would
+    # accept it and commit against it, but verify rejects it (the back-pointer resolves to that
+    # other worktree, not this one), so commit_all refuses. This makes the guard load-bearing —
+    # git alone would not catch it. Inert: both are the harness's own worktrees; nothing runs.
+    other = tmp_path / "wt-other"
+    add_worktree(repo, other, "feat/y", "HEAD")
+    other_admin = Path(other / ".git").read_text().removeprefix("gitdir:").strip()
+    (worktree / ".git").write_text(f"gitdir: {other_admin}\n")
+    (worktree / "a").write_text("3\n")
+    with pytest.raises(GitError, match="disagree"):
         verify_worktree_pointer(worktree)
-    with pytest.raises(GitError):
+    with pytest.raises(GitError, match="disagree"):
         commit_all(worktree, "should not commit")
 
 
