@@ -71,6 +71,9 @@ own parameters name, and runs on an API key still ask the owner before they spen
   export CLAUDE_CODE_OAUTH_TOKEN="$(security find-generic-password -s physgate -a CLAUDE_CODE_OAUTH_TOKEN -w)"
   ```
 
+- **After a shell update, macOS may ask once to allow access to the Keychain item**, on Test
+  Key or when a credential is replaced. The app is signed ad hoc, so each update is a new
+  app to the Keychain. Checking whether a credential is kept reads no secret and doesn't ask.
 - **Only the app's own pages can call these commands.** The capability that grants them
   names no remote address, so the served operator UI can call none of them.
 
@@ -185,6 +188,10 @@ The flag concerns only how the app fetches its own update. The operator server's
 - **Gates:** `scripts/check-desktop.sh` runs formatting, clippy (pedantic, warnings as
   errors) and the unit tests. It isn't part of `scripts/check.sh` or CI. Run it before
   building.
+- **A trial build:** `PHYSGATE_DESKTOP_HOME=<a trial folder> scripts/build-desktop.sh
+  --verification`. It honours the switches below. It is published only to that trial
+  folder's channel and is never installed: the script refuses `--install` with it, and
+  refuses to run without a trial folder.
 - **Trying it without touching the real install:** the `PHYSGATE_DESKTOP_…` switches exist
   only in a build with the `verification` feature (`walkthrough` includes it). A published
   build reads none of them. The switches are:
@@ -201,7 +208,7 @@ The flag concerns only how the app fetches its own update. The operator server's
   operator's items.
 - **A click-through inside the app's own webview:**
   ```sh
-  open -n --env PHYSGATE_DESKTOP_TOUR=/tmp/tour.json ~/Applications/physgate.app
+  open -n --env PHYSGATE_DESKTOP_TOUR=/tmp/tour.json path/to/a-verification-build/physgate.app
   ```
   This clicks every in-app link and the buttons on each view. It writes to the named file:
   - Content-Security-Policy violations, counted from the first byte of each page load;

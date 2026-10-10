@@ -173,7 +173,8 @@ function signInSection() {
     el("details", {},
       el("summary", {}, "Sign in in Terminal instead"),
       el("div", { class: "box" },
-        el("p", {}, "Terminal runs the sign-in and prints the token. Paste it here; it goes to the Keychain."),
+        el("p", {}, "Terminal runs the sign-in and prints the token. Paste it here; it goes to the Keychain. " +
+          "Then press Return in Terminal: that empties the clipboard and clears the window."),
         el("div", { class: "row" }, el("button", { type: "button", onclick: () => invoke("sign_in_in_terminal").catch(problem) }, "Open in Terminal")),
         secretField("subscription_token", "Token from Terminal", "Keep Token"))),
   );

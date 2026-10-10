@@ -5,6 +5,9 @@
 #
 #   scripts/build-desktop.sh            build; publish if the app changed
 #   scripts/build-desktop.sh --install  the same, then put the app in ~/Applications
+#   scripts/build-desktop.sh --verification
+#                                       a trial build that honours the PHYSGATE_DESKTOP_...
+#                                       switches; never for the real install
 #
 # The app shows whatever `physgate ui` serves from a checkout, so a UI change needs only
 # scripts/build-ui.sh, never this. This is for changes under desktop/.
@@ -21,9 +24,11 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 install=0
+features=()
 for arg in "$@"; do
     case "$arg" in
         --install) install=1 ;;
+        --verification) features=(--features verification) ;;
         -h | --help)
             sed -n '3,8p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
@@ -46,6 +51,13 @@ die() {
     exit 1
 }
 
+# A verification build honours the trial switches, so it never reaches the real install:
+# it is not installed, and it is published only to a trial channel.
+if [ ${#features[@]} -gt 0 ]; then
+    [ "$install" = 0 ] || die "a --verification build is for trials and is never installed"
+    [ -n "${PHYSGATE_DESKTOP_HOME:-}" ] || die "a --verification build needs PHYSGATE_DESKTOP_HOME set to a trial folder"
+fi
+
 command -v cargo > /dev/null || die "cargo is not on PATH; install Rust (brew install rust) and try again"
 command -v node > /dev/null || die "node is not on PATH; open a new Terminal window or install Node 22"
 pnpm="$(command -v pnpm || echo "$HOME/Library/pnpm/pnpm")"
@@ -62,15 +74,14 @@ if [ ! -f "$key" ]; then
 fi
 chmod 600 "$key" "$key.pub"
 
-# What the app is built from. The channel is only filled when this changes, so rebuilding an
-# unchanged app never offers an update.
+# What the app is built from: the tracked files under desktop/, as they are on disk. The
+# channel is only filled when this changes, so rebuilding an unchanged app never offers an
+# update, and an untracked file (a local package folder) never counts.
 digest="$(
-    find desktop -type f \
-        -not -path 'desktop/node_modules/*' \
-        -not -path 'desktop/src-tauri/target/*' \
-        -not -path 'desktop/src-tauri/gen/*' \
-        -not -name '.DS_Store' -print0 |
-        LC_ALL=C sort -z | xargs -0 shasum -a 256 | shasum -a 256 | cut -d' ' -f1
+    {
+        git ls-files -z -- desktop | LC_ALL=C sort -z | xargs -0 shasum -a 256
+        echo "features: ${features[*]+${features[*]}}"
+    } | shasum -a 256 | cut -d' ' -f1
 )"
 version="0.1.$(date -u +%Y%m%d%H%M%S)"
 pubkey="$(cat "$key.pub")"
@@ -78,7 +89,7 @@ override="{\"version\":\"$version\",\"bundle\":{\"createUpdaterArtifacts\":true}
 
 echo "build-desktop: building physgate $version"
 TAURI_SIGNING_PRIVATE_KEY="$key" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" \
-    tauri build --ci --bundles app --config "$override"
+    tauri build --ci --bundles app ${features[@]+"${features[@]}"} --config "$override" -- --locked
 
 bundle="desktop/src-tauri/target/release/bundle/macos"
 app="$bundle/physgate.app"

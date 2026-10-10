@@ -187,7 +187,14 @@ pub fn sign_in_script(claude: &str) -> String {
          echo 'Your browser opens; sign in there. Then copy the token printed here,'\n\
          echo 'paste it into the physgate app, and close this window.'\n\
          echo\n\
-         '{}' setup-token\n",
+         '{}' setup-token\n\
+         echo\n\
+         echo 'When the app says the token is kept, press Return here.'\n\
+         echo 'That empties the clipboard and clears this window, so the token is left in neither.'\n\
+         read -r _\n\
+         printf '' | pbcopy\n\
+         clear && printf '\\033[3J'\n\
+         echo 'Clipboard emptied and window cleared. You can close this window.'\n",
         claude.replace('\'', r"'\''")
     )
 }
@@ -288,7 +295,8 @@ impl SignIn {
             raw.push_str(&String::from_utf8_lossy(&buffer[..n]));
             let clean = strip_terminal_codes(&raw);
             if !stored {
-                if let Some(token) = find_token(&clean, ended) {
+                let text = token_text(&raw);
+                if let Some(token) = find_token(&text, ended) {
                     let result = keychain::store(Secret::SubscriptionToken, token);
                     stored = true;
                     let mut state = locked(&self.0);
@@ -404,32 +412,52 @@ pub fn redact(text: &str) -> String {
 
 /// Terminal control sequences removed, so what is shown is the text a person would read.
 pub fn strip_terminal_codes(text: &str) -> String {
+    strip(text, "")
+}
+
+/// The text the token is looked for in: every control sequence becomes a line break, so a
+/// sequence written straight after the token (a colour reset, a cursor move, a character-set
+/// switch) ends it rather than gluing the next word onto it.
+pub fn token_text(text: &str) -> String {
+    strip(text, "\n")
+}
+
+fn strip(text: &str, gap: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
     while let Some(c) = chars.next() {
         match c {
-            '\u{1b}' => match chars.next() {
-                Some('[') => {
-                    for d in chars.by_ref() {
-                        if ('@'..='~').contains(&d) {
-                            break;
-                        }
-                    }
-                }
-                Some(']') => {
-                    while let Some(d) = chars.next() {
-                        if d == '\u{7}' || (d == '\u{1b}' && chars.peek() == Some(&'\\')) {
-                            if d == '\u{1b}' {
-                                chars.next();
+            '\u{1b}' => {
+                match chars.next() {
+                    // CSI: parameters, then one final byte.
+                    Some('[') => {
+                        for d in chars.by_ref() {
+                            if ('@'..='~').contains(&d) {
+                                break;
                             }
-                            break;
                         }
                     }
+                    // OSC and DCS: up to BEL or the string terminator.
+                    Some(']' | 'P') => {
+                        while let Some(d) = chars.next() {
+                            if d == '\u{7}' || (d == '\u{1b}' && chars.peek() == Some(&'\\')) {
+                                if d == '\u{1b}' {
+                                    chars.next();
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    // Character-set and line-attribute switches: one more character.
+                    Some('(' | ')' | '*' | '+' | '#') => {
+                        chars.next();
+                    }
+                    _ => {}
                 }
-                _ => {}
-            },
+                out.push_str(gap);
+            }
             '\r' => out.push('\n'),
-            c if c.is_control() && c != '\n' && c != '\t' => {}
+            c if c.is_control() && c != '\n' && c != '\t' => out.push_str(gap),
             c => out.push(c),
         }
     }
@@ -664,6 +692,25 @@ mod tests {
     }
 
     #[test]
+    fn a_control_sequence_straight_after_the_token_ends_it() {
+        let token = format!("sk-ant-oat01-{}", "z".repeat(60));
+        for after in [
+            "\u{1b}[0mnext",
+            "\u{1b}(Bnext",
+            "\u{1b}[2Cnext",
+            "\u{1b}]8;;\u{7}next",
+            "\u{7}next",
+        ] {
+            let raw = format!("Your token:\r\n{token}{after}\r\n");
+            assert_eq!(
+                find_token(&token_text(&raw), false),
+                Some(token.as_str()),
+                "{after:?}"
+            );
+        }
+    }
+
+    #[test]
     fn terminal_codes_are_removed() {
         let raw = "\u{1b}[1;32mSigned\u{1b}[0m in\r\n\u{1b}]8;;https://x\u{7}link\u{1b}]8;;\u{7}\u{1b}[?25l";
         assert_eq!(strip_terminal_codes(raw), "Signed in\n\nlink");
@@ -676,6 +723,9 @@ mod tests {
         assert!(install.starts_with("#!/bin/zsh\n"));
         let sign_in = sign_in_script("/Users/me/it's/claude");
         assert!(sign_in.contains(r"'/Users/me/it'\''s/claude' setup-token"));
+        // The token is pasted through the clipboard and printed here: both are emptied after.
+        assert!(sign_in.contains("printf '' | pbcopy"));
+        assert!(sign_in.contains("clear && printf"));
     }
 
     #[test]
