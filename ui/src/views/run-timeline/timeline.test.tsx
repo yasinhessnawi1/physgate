@@ -245,17 +245,36 @@ describe("a gate segment's verdict is its own records', through the one tally", 
   });
 
   it("records that are all unchecked judged nothing", () => {
-    expect(gateReading("on", [{ outcome: "unchecked" }, { outcome: "unchecked" }], false)).toEqual([
-      "segment-gate-none",
-      "gate · unchecked only",
-    ]);
-    expect(gateReading("observe", [{ outcome: "unchecked" }], false)[1]).toBe(
+    expect(
+      gateReading(
+        "on",
+        [
+          { outcome: "unchecked", blocking: true },
+          { outcome: "unchecked", blocking: true },
+        ],
+        false,
+      ),
+    ).toEqual(["segment-gate-none", "gate · unchecked only"]);
+    expect(gateReading("observe", [{ outcome: "unchecked", blocking: true }], false)[1]).toBe(
       "gate · unchecked only",
     );
   });
 
+  it("a failure that does not block is not the gate failing", () => {
+    const reading = gateReading(
+      "on",
+      [
+        { outcome: "fail", blocking: false },
+        { outcome: "pass", blocking: true },
+      ],
+      false,
+    );
+    expect(reading).toEqual(["segment-gate-on", "gate · pass"]);
+    expect(gateReading("on", [{ outcome: "fail", blocking: true }], false)[1]).toBe("gate · fail");
+  });
+
   it("a skipped gate says so, and takes no verdict", () => {
-    expect(gateReading("off", [{ outcome: "pass" }], false)).toEqual([
+    expect(gateReading("off", [{ outcome: "pass", blocking: true }], false)).toEqual([
       "segment-gate-off",
       "gate skipped · gate off",
     ]);
@@ -283,8 +302,14 @@ describe("the integration lane shows the mode it ran in", () => {
   it("under on it is the gate's verdict", () => {
     const drawn = lanes(TRACE, DECISIONS, ran, "on", {}, CHECKS);
     const integration = drawn.find((l) => l.key === "integration");
-    expect(integration?.subtitle).toContain("· fail");
-    expect(integration?.subtitle).not.toContain("not enforced");
+    expect(integration?.subtitle).toBe("gate on the whole design · fail");
+  });
+
+  it("under on it also says what the integration call left unchecked", () => {
+    const withUnchecked = [...CHECKS, record(20, null, "unchecked"), record(20, null, "unchecked")];
+    const drawn = lanes(TRACE, DECISIONS, ran, "on", {}, withUnchecked);
+    const integration = drawn.find((l) => l.key === "integration");
+    expect(integration?.subtitle).toBe("gate on the whole design · fail · 2 unchecked");
   });
 });
 

@@ -66,12 +66,16 @@ export function findingLabel(key: string): string {
  */
 export function gateReading(
   mode: GateMode,
-  records: readonly Pick<GateCheck, "outcome">[],
+  records: readonly Pick<GateCheck, "outcome" | "blocking">[],
   skipped: boolean,
 ): [string, string] {
   if (skipped || mode === "off") return ["segment-gate-off", "gate skipped · gate off"];
   if (records.length === 0) return ["segment-gate-none", "gate · no verdict recorded"];
-  const counts = tallyOf(records.map((r) => r.outcome));
+  // The gate fails exactly when a record failed where its failure blocks; a failure that does
+  // not block is a warning, which is how the gate itself records one.
+  const counts = tallyOf(
+    records.map((r) => (r.outcome === "fail" && !r.blocking ? "warn" : r.outcome)),
+  );
   if (evaluatedOf(counts) === 0) return ["segment-gate-none", "gate · unchecked only"];
   const verdict = counts.fail > 0 ? "fail" : "pass";
   const unchecked = counts.unchecked > 0 ? ` · ${String(counts.unchecked)} unchecked` : "";
@@ -183,12 +187,15 @@ export function lanes(
   }
   if (events.integration !== null) {
     const i = events.integration;
+    // The integration call is read like any gate line: its own records, through the one tally.
+    const records = checks.filter((c) => c.subtask === "integration" && c.seq === i.seq);
+    const reading = gateReading(mode, records, false)[1].replace(/^gate · /, "");
     found.push({
       key: "integration",
       title: "Integration",
       subtitle:
         i.kind === "ran"
-          ? `gate on the whole design · ${mode === "observe" ? `would ${i.verdict ?? ""} · not enforced` : (i.verdict ?? "")}`
+          ? `gate on the whole design · ${reading}`
           : `not gated · ${i.reason ?? ""}`,
       segments: [],
       markers: [{ at: i.ts, label: "integrate", tone: "marker-integrate" }],
