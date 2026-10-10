@@ -33,6 +33,8 @@ ALLOWED_MODULES = {
     "pathlib",
     "re",
     "socket",
+    # File-type tests on a stat result: the walk refuses a link where a directory was judged.
+    "stat",
     "sys",
     "threading",
     "typing",
