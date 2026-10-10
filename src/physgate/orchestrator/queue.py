@@ -33,6 +33,7 @@ import hashlib
 import os
 import re
 import stat
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -55,10 +56,9 @@ from physgate.orchestrator.events import (
     SessionEnded,
     StageEntered,
     parse_events,
-    read_events,
     read_jsonl,
 )
-from physgate.orchestrator.exceptions import QueueError, StaleViewError
+from physgate.orchestrator.exceptions import CorruptEventLogError, QueueError, StaleViewError
 from physgate.orchestrator.protocols import GateResult, QuantityRef, SpecDefect
 from physgate.orchestrator.repair import Finding
 from physgate.orchestrator.trajectory import Seal, seal
@@ -107,6 +107,84 @@ QUEUE_NAME = "queue.jsonl"
 
 #: The decisions file, beside the items file.
 DECISIONS_NAME = "queue_decisions.jsonl"
+
+# -- bounds on every read and every wait --------------------------------------------------
+#
+# A file in a run directory can be replaced by anything the same user can make: a file far
+# larger than any run writes, one that keeps growing, a named pipe that blocks whoever
+# opens it. Every read here is therefore capped, every open is non-blocking, and the one
+# wait, for the decisions file's lock, ends. Each cap is far above anything a run writes:
+# the largest records seen are event logs of about 40 KB and a trajectory of 6.3 MB, and a
+# decision line is a few hundred bytes.
+
+#: The most bytes read of the items file, whose items carry an artefact diff each.
+QUEUE_READ_CAP = 64 << 20
+
+#: The most bytes read of the decisions file.
+DECISIONS_READ_CAP = 16 << 20
+
+#: The most bytes read of a run's event log or of one session's captured stream.
+RECORD_READ_CAP = 256 << 20
+
+#: How long a decision waits for the decisions file's lock before it is refused. A decision
+#: holds the lock only to read two small files and append one line.
+LOCK_WAIT_S = 10.0
+
+#: How often a waiting decision tries the lock again.
+LOCK_POLL_S = 0.05
+
+
+class FileTooLargeError(OSError):
+    """A file is larger than the reader's cap, so it is not read at all."""
+
+
+def _read_fd(fd: int, cap: int) -> bytes:
+    """All of ``fd``'s bytes, refusing more than ``cap``: by its size first, then while reading.
+
+    Raises:
+        FileTooLargeError: the file is, or grows while it is read, past ``cap``.
+    """
+    if os.fstat(fd).st_size > cap:
+        raise FileTooLargeError(errno.EFBIG, f"larger than {cap} bytes")
+    data = bytearray()
+    while len(data) <= cap:
+        chunk = os.read(fd, min(1 << 20, cap + 1 - len(data)))
+        if not chunk:
+            return bytes(data)
+        data += chunk
+    raise FileTooLargeError(errno.EFBIG, f"grew past {cap} bytes while it was read")
+
+
+def _read_path(path: Path, cap: int) -> bytes | None:
+    """The bytes of the regular file at ``path``, or ``None`` if there is none.
+
+    For readers that take the path as given (the writer's own files, a read-only view the
+    operator UI has already held to its allowlist). The open never blocks, so a named pipe
+    put in a file's place is refused instead of waited on.
+
+    Raises:
+        OSError: not a regular file, or past ``cap`` (``FileTooLargeError``).
+    """
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+    except FileNotFoundError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError(errno.EINVAL, "not a regular file")
+        return _read_fd(fd, cap)
+    finally:
+        os.close(fd)
+
+
+def _unreadable(path: Path, exc: OSError) -> QueueError:
+    """The refusal for a queue file that is not read: too large, or not a plain file."""
+    if isinstance(exc, FileTooLargeError):
+        msg = "an approval-queue file is larger than this reader reads, so nothing is done with it"
+        return QueueError(msg, file=str(path), reason=str(exc.strerror))
+    msg = "an approval-queue file is not a plain file with one name, so it is not read"
+    return QueueError(msg, file=str(path), reason=exc.strerror or os.strerror(exc.errno or 0))
+
 
 _ITEM: TypeAdapter[QueueItem] = TypeAdapter(QueueItem)
 _DECISION: TypeAdapter[QueueResolution] = TypeAdapter(QueueResolution)
@@ -356,15 +434,22 @@ def read_queue(run_dir: Path) -> QueueView:
 
     Raises:
         QueueError: a complete line is not a record, or does not follow from the lines
-            before it (an item listed twice, a decision on no open item).
+            before it (an item listed twice, a decision on no open item); or a file is not
+            a regular file, or is past its cap.
     """
     records = _Records()
     at: list[tuple[int, QueueResolution]] = []
-    for name, adapter in ((QUEUE_NAME, _ITEM), (DECISIONS_NAME, _DECISION)):
+    for name, adapter, cap in (
+        (QUEUE_NAME, _ITEM, QUEUE_READ_CAP),
+        (DECISIONS_NAME, _DECISION, DECISIONS_READ_CAP),
+    ):
+        path = Path(run_dir) / name
         try:
-            _parse(Path(run_dir) / name, adapter, records, at)
-        except FileNotFoundError:
-            continue
+            data = _read_path(path, cap)
+        except OSError as exc:
+            raise _unreadable(path, exc) from None
+        if data is not None:
+            _parse(data, adapter, records, at, name=str(path))
     return QueueView(
         items=tuple(records.items.values()),
         decisions=tuple(at),
@@ -380,11 +465,16 @@ def session_windows(run_dir: Path) -> list[tuple[int, int | None, str]]:
     end. No event log, no windows.
     """
     events_path = Path(run_dir) / "events.jsonl"
-    if not events_path.exists():
+    try:
+        log = _read_path(events_path, RECORD_READ_CAP)
+    except OSError as exc:
+        msg = "the run-event log is not a file this reader reads"
+        raise CorruptEventLogError(msg, log=str(events_path), reason=str(exc.strerror)) from None
+    if log is None:
         return []
     windows: list[tuple[int, int | None, str]] = []
     open_at: int | None = None
-    for event in read_events(events_path):
+    for event in parse_events(log, log=str(events_path)):
         if isinstance(event, StageEntered) and event.decisions_bytes is not None:
             open_at = event.decisions_bytes
         elif (
@@ -439,7 +529,9 @@ _SESSION_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
 #: What an item's trajectory link is found to be, when its view is built and again when a
 #: decision is recorded on that view.
-TrajectoryStatus = Literal["holds", "tampered", "missing", "no_seal", "not_in_this_run"]
+TrajectoryStatus = Literal[
+    "holds", "tampered", "missing", "no_seal", "not_in_this_run", "too_large"
+]
 
 
 def trajectory_session(link: str) -> str | None:
@@ -473,8 +565,9 @@ def trajectory_statuses(
     """Each of ``item``'s trajectory links, held to its seal, in the item's order.
 
     ``read`` returns a session's stream bytes, or ``None`` if there is none; it raises
-    ``OSError`` for a stream it refused to open (a link, a second name), which counts as
-    tampered, since the runtime writes neither.
+    ``FileTooLargeError`` for a stream past its cap, which is not read, and any other
+    ``OSError`` for a stream it refused to open (a link, a second name, a pipe), which counts
+    as tampered, since the runtime writes none of those.
     """
     found: list[TrajectoryStatus] = []
     for link in item.trajectories:
@@ -488,6 +581,9 @@ def trajectory_statuses(
             continue
         try:
             data = read(session_id)
+        except FileTooLargeError:
+            found.append("too_large")
+            continue
         except OSError:
             found.append("tampered")
             continue
@@ -533,9 +629,10 @@ def decision_text(verb: Verb, note: str) -> str:
 
 
 #: How the decision function opens what it reads and writes: relative to the run directory's
-#: descriptor, never through a link, never creating anything.
-_READ_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
-_APPEND_FLAGS = os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW | os.O_CLOEXEC
+#: descriptor, never through a link, never creating anything, and never waiting (a named pipe
+#: in a file's place would otherwise block the open itself).
+_READ_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+_APPEND_FLAGS = os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 _DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 
 
@@ -552,21 +649,15 @@ def _plain(fd: int) -> os.stat_result:
     return st
 
 
-def _read_fd(fd: int) -> bytes:
-    chunks = []
-    while chunk := os.read(fd, 1 << 20):
-        chunks.append(chunk)
-    return b"".join(chunks)
-
-
-def _read_in(dir_fd: int, *parts: str) -> bytes | None:
+def _read_in(dir_fd: int, *parts: str, cap: int) -> bytes | None:
     """The bytes of the file ``parts`` names beneath ``dir_fd``, or ``None`` if it is not there.
 
-    Every directory on the way and the file itself are opened without following a link, and
-    the file must be regular with one name.
+    Every directory on the way and the file itself are opened without following a link and
+    without waiting, and the file must be regular with one name and at most ``cap`` bytes.
 
     Raises:
-        OSError: a link, a second name, or anything else that is not a plain file.
+        OSError: a link, a second name, anything else that is not a plain file, or a file
+            past ``cap`` (``FileTooLargeError``).
     """
     opened: list[int] = []
     try:
@@ -577,7 +668,7 @@ def _read_in(dir_fd: int, *parts: str) -> bytes | None:
         fd = _open_in(current, parts[-1], _READ_FLAGS)
         opened.append(fd)
         _plain(fd)
-        return _read_fd(fd)
+        return _read_fd(fd, cap)
     except FileNotFoundError:
         return None
     finally:
@@ -655,11 +746,6 @@ def _not_open(item_id: str, queue_path: Path) -> QueueError:
     return QueueError(msg, queue=str(queue_path))
 
 
-def _not_plain(name: Path, exc: OSError) -> QueueError:
-    msg = "an approval-queue file is not a plain file with one name, so nothing is written"
-    return QueueError(msg, file=str(name), reason=os.strerror(exc.errno or 0))
-
-
 def _decide(dir_fd: int, run_dir: Path, record: QueueResolution, shown: ShownItem | None) -> None:
     queue_path, decisions_path = run_dir / QUEUE_NAME, run_dir / DECISIONS_NAME
     try:
@@ -667,29 +753,29 @@ def _decide(dir_fd: int, run_dir: Path, record: QueueResolution, shown: ShownIte
     except FileNotFoundError:
         raise _not_open(record.item_id, queue_path) from None
     except OSError as exc:
-        raise _not_plain(decisions_path, exc) from None
+        raise _unreadable(decisions_path, exc) from None
     try:
         try:
             locked = _plain(append)
         except OSError as exc:
-            raise _not_plain(decisions_path, exc) from None
-        fcntl.flock(append, fcntl.LOCK_EX)
+            raise _unreadable(decisions_path, exc) from None
+        _lock(append, decisions_path)
         _checked(record.item_id)
         try:
-            items = _read_in(dir_fd, QUEUE_NAME)
+            items = _read_in(dir_fd, QUEUE_NAME, cap=QUEUE_READ_CAP)
         except OSError as exc:
-            raise _not_plain(queue_path, exc) from None
+            raise _unreadable(queue_path, exc) from None
         if items is None:
             raise _not_open(record.item_id, queue_path)
         try:
             reading = _open_in(dir_fd, DECISIONS_NAME, _READ_FLAGS)
         except OSError as exc:
-            raise _not_plain(decisions_path, exc) from None
+            raise _unreadable(decisions_path, exc) from None
         try:
             read = _plain(reading)
-            decided = _read_fd(reading)
+            decided = _read_fd(reading, DECISIONS_READ_CAP)
         except OSError as exc:
-            raise _not_plain(decisions_path, exc) from None
+            raise _unreadable(decisions_path, exc) from None
         finally:
             os.close(reading)
         if (read.st_dev, read.st_ino) != (locked.st_dev, locked.st_ino):
@@ -712,6 +798,28 @@ def _decide(dir_fd: int, run_dir: Path, record: QueueResolution, shown: ShownIte
         os.close(append)
 
 
+def _lock(fd: int, path: Path) -> None:
+    """Take the decisions file's lock, waiting at most ``LOCK_WAIT_S``; refuse after that.
+
+    Raises:
+        QueueError: the lock was held by another decision for the whole wait.
+    """
+    deadline = time.monotonic() + LOCK_WAIT_S
+    while True:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                msg = (
+                    "another decision held the approval queue's lock for the whole wait, "
+                    "so nothing is written; decide again"
+                )
+                raise QueueError(msg, file=str(path), waited_s=f"{LOCK_WAIT_S:g}") from None
+            time.sleep(LOCK_POLL_S)
+        else:
+            return
+
+
 def _checked(item_id: str) -> None:
     """Called with the lock held, before anything is read. A seam for the lock's own tests."""
 
@@ -725,14 +833,16 @@ def _require_as_shown(
         msg = "the item is no longer the one that was shown, so the decision is refused"
         raise StaleViewError(msg, item=item_id, shown=shown.item_sha256, now=now)
     try:
-        log = _read_in(dir_fd, EVENTS_NAME)
+        log = _read_in(dir_fd, EVENTS_NAME, cap=RECORD_READ_CAP)
     except OSError as exc:
-        raise _not_plain(run_dir / EVENTS_NAME, exc) from None
+        raise _unreadable(run_dir / EVENTS_NAME, exc) from None
     events = parse_events(log, log=str(run_dir / EVENTS_NAME)) if log is not None else []
     statuses = trajectory_statuses(
         records.items[item_id],
         events,
-        lambda session_id: _read_in(dir_fd, SESSIONS_NAME, session_id, STREAM_NAME),
+        lambda session_id: _read_in(
+            dir_fd, SESSIONS_NAME, session_id, STREAM_NAME, cap=RECORD_READ_CAP
+        ),
     )
     if statuses != shown.trajectories:
         msg = "a trajectory of the item is no longer as it was shown, so the decision is refused"
@@ -778,11 +888,19 @@ class ApprovalQueue:
         # interrupted write and is cut. The decisions file is appended to by whoever decides,
         # whenever they decide, so a torn tail there may be a write still in progress: it is
         # left for the decision function to cut, under its lock.
-        good_end = _parse(self.path, _ITEM, self._records)
-        if self.path.stat().st_size != good_end:
+        try:
+            items = _read_path(self.path, QUEUE_READ_CAP) or b""
+        except OSError as exc:
+            raise _unreadable(self.path, exc) from None
+        try:
+            decided = _read_path(self.decisions_path, DECISIONS_READ_CAP) or b""
+        except OSError as exc:
+            raise _unreadable(self.decisions_path, exc) from None
+        good_end = _parse(items, _ITEM, self._records, name=str(self.path))
+        if len(items) != good_end:
             with self.path.open("r+b") as handle:
                 handle.truncate(good_end)
-        _parse(self.decisions_path, _DECISION, self._records)
+        _parse(decided, _DECISION, self._records, name=str(self.decisions_path))
 
     def _append(self, record: QueueItem) -> None:
         try:
