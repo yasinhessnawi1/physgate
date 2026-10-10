@@ -120,6 +120,18 @@ class TokenAccount:
             totals[kind] = _plus(totals[kind], usage)
         return totals
 
+    def total(self) -> Usage:
+        """Every token the run spent, each counted once: the sum over every attribution.
+
+        A run's headline figure. Summed here, by the account that deduplicated each
+        message, so a reader never totals the parts itself and never counts a message
+        twice.
+        """
+        total = _ZERO
+        for usage in self.by_attribution().values():
+            total = _plus(total, usage)
+        return total
+
     def decomposition_invocations(self) -> int:
         """How many distinct decomposition calls spent tokens. A run makes one."""
         return len({a for a, _ in self._messages if a.startswith("decomposition:")})

@@ -53,6 +53,24 @@ def test_cache_reads_and_writes_stay_separate() -> None:
     assert account.by_attribution()["session:a"] == usage(30, 12, cr=300, cc=50)
 
 
+def test_the_total_is_every_attribution_summed_with_each_message_once() -> None:
+    account = TokenAccount()
+    account.add("decomposition:d", "m0", usage(100, 40, cr=7, cc=3))
+    account.add("session:a", "m1", usage(10, 5, cr=100, cc=50))
+    account.add("session:a", "m1", usage(10, 5, cr=100, cc=50))  # the same message again
+    account.add("session:b", "m2", usage(20, 7))
+    account.add("reviewer:r", "m3", usage(4, 9, cc=2))
+    assert account.total() == usage(134, 61, cr=107, cc=55)
+    kinds = account.by_kind()
+    for field in ("input_tokens", "output_tokens", "cache_read_input_tokens"):
+        assert getattr(account.total(), field) == sum(getattr(u, field) for u in kinds.values())
+    assert account.total().total() == sum(u.total() for u in account.by_attribution().values())
+
+
+def test_an_empty_account_totals_nothing() -> None:
+    assert TokenAccount().total() == usage(0, 0)
+
+
 def test_one_message_with_two_usages_is_an_error_not_a_choice() -> None:
     account = TokenAccount()
     account.add("session:a", "m1", usage(10, 5))

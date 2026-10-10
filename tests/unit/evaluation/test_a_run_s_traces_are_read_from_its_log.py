@@ -161,6 +161,21 @@ def test_each_session_s_tokens_are_the_account_s_for_that_session(tmp_path: Path
     assert trace.routing_tokens.total() == 0
 
 
+def test_the_account_s_total_is_the_trace_s_parts_together(tmp_path: Path) -> None:
+    run = fake_run(tmp_path, "run-a", target_repo(tmp_path))
+    trace = read_traces(run)
+    total = TokenAccount.from_events(read_events(run / "events.jsonl")).total()
+    parts = [
+        trace.decomposition_tokens,
+        trace.routing_tokens,
+        *(s.tokens for s in trace.sessions),
+        *trace.reviewer_tokens.values(),
+    ]
+    assert total.total() > 0
+    for field in Usage.model_fields:
+        assert getattr(total, field) == sum(getattr(part, field) for part in parts)
+
+
 def test_a_session_left_behind_is_traced_with_its_partial_usage(tmp_path: Path) -> None:
     repo = target_repo(tmp_path)
     run = fake_run(tmp_path, "run-a", repo)
