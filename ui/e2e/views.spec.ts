@@ -92,9 +92,9 @@ async function labelsWhole(page: Page) {
   expect(found.filter((f) => !f.fits)).toEqual([]);
 }
 
-/** No text in the checks table is cut: the table fits its region and every cell holds its text. */
+/** No text in any table of the view is cut: each fits its region and every cell holds its text. */
 async function nothingCut(page: Page) {
-  const overflow = await page.locator(".checks-table").evaluateAll((tables) =>
+  const overflow = await page.locator(".table-scroll > table").evaluateAll((tables) =>
     tables.flatMap((table) => {
       const region = table.parentElement;
       const wide =
@@ -107,7 +107,7 @@ async function nothingCut(page: Page) {
       return [...wide, ...cells];
     }),
   );
-  expect(await page.locator(".checks-table").count()).toBeGreaterThan(0);
+  expect(await page.locator(".table-scroll > table").count()).toBeGreaterThan(0);
   expect(overflow).toEqual([]);
 }
 
@@ -159,6 +159,7 @@ for (const theme of THEMES) {
     await expect(inspector.locator(".history-entry")).toHaveCount(1);
     await expect(page.locator('section[aria-label="Nodes"] tbody tr')).toHaveCount(6);
     await nodesWhole(page);
+    await nothingCut(page);
     expect([...seen.api]).toEqual(
       expect.arrayContaining([
         "/api/runs/0/drive-observe/config",
@@ -177,6 +178,7 @@ for (const theme of THEMES) {
     await expect(diff).toContainText("View: rows are marked");
     expect([...seen.api]).toContain("/api/runs/0/drive-observe/graph/diff/1/6");
     await nodesWhole(page);
+    await nothingCut(page);
     await common(page, seen, `design-graph-diff-${theme}`);
   });
 
@@ -197,6 +199,7 @@ for (const theme of THEMES) {
     await observedNeverFilled(page, 'section[aria-label="Gate checks"]');
     await expect(page.locator('table[aria-label="By attribution"]')).toContainText("all routing");
     await labelsWhole(page);
+    await nothingCut(page);
     await runsDistinct(page);
     for (const route of [
       "trace",

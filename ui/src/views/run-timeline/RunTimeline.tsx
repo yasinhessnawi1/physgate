@@ -187,17 +187,6 @@ function Timeline({
               </GateChecksSummary>
             )}
           </Loaded>
-          <SessionsCard sessions={trace.value.sessions} source={source} />
-          <Loaded result={tokens} what="Tokens">
-            {(value) => (
-              <TokensCard
-                tokens={value}
-                cost={cost?.ok === true ? cost.value : null}
-                source={source}
-              />
-            )}
-          </Loaded>
-          <StagesTable steps={trace.value.steps} source={source} />
         </div>
         <div className="split-side">
           <ReviewsCard reviews={named.reviews} source={source} />
@@ -215,6 +204,13 @@ function Timeline({
           )}
         </div>
       </div>
+      <SessionsCard sessions={trace.value.sessions} source={source} />
+      <Loaded result={tokens} what="Tokens">
+        {(value) => (
+          <TokensCard tokens={value} cost={cost?.ok === true ? cost.value : null} source={source} />
+        )}
+      </Loaded>
+      <StagesTable steps={trace.value.steps} source={source} />
     </>
   );
 }

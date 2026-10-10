@@ -1186,15 +1186,18 @@ code {
   color: var(--color-text-2);
 }
 
-.checks-table th,
-.checks-table td {
+/* A table in a view fits its card: its text wraps in its cell and is never cut. A quantity
+   keeps its value and unit together, as everywhere. */
+.table-scroll > .table th,
+.table-scroll > .table td {
   white-space: normal;
   padding-left: var(--space-3);
   padding-right: var(--space-3);
 }
 
-/* A node id breaks at its dots before it would push the table past its card. */
-.checks-table td.mono {
+/* An id breaks at its dots, or anywhere, before it would push the table past its card. */
+.table-scroll > .table td.mono,
+.table-scroll > .table td .mono {
   overflow-wrap: anywhere;
 }
 
