@@ -160,7 +160,9 @@ mod tests {
         for refused in [
             "http://127.0.0.1:52012/",
             "http://127.0.0.1:5201/",
-            "http://127.0.0.1:520110/",
+            // Begins with the trusted origin's text: only a whole comparison refuses these.
+            "http://127.0.0.1:52011@evil.example/",
+            "http://127.0.0.1:52011@127.0.0.1:52012/",
             "http://localhost:52011/",
             "https://127.0.0.1:52011/",
             "http://127.0.0.1.evil.example:52011/",
@@ -171,9 +173,8 @@ mod tests {
             "about:blank",
             "data:text/html,<p>x</p>",
         ] {
-            let Ok(parsed) = Url::parse(refused) else {
-                continue; // a string that is not even a URL never reaches the gate
-            };
+            // Every case must parse, or it would never reach the gate and prove nothing.
+            let parsed = Url::parse(refused).expect(refused);
             assert_eq!(gate.decide(&parsed), Decision::Refused, "{refused}");
         }
     }

@@ -311,3 +311,21 @@ impl Shell {
         });
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::navigation::Decision;
+    use crate::testdir::TestDir;
+
+    #[test]
+    fn stopping_the_server_stops_trusting_its_origin() {
+        let dir = TestDir::new("stop-trust");
+        let shell = Shell::new(Paths::at(dir.path().to_path_buf()), None);
+        let page = Url::parse("http://127.0.0.1:52011/#/runs").unwrap();
+        shell.gate().serve(Some(&page));
+        assert_eq!(shell.gate().decide(&page), Decision::Served);
+        shell.stop_server();
+        assert_eq!(shell.gate().decide(&page), Decision::Refused);
+    }
+}

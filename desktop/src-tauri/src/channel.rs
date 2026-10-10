@@ -30,7 +30,7 @@ pub const MANIFEST: &str = "latest.json";
 
 /// An open channel. Dropping it stops the listener.
 pub struct Channel {
-    port: u16,
+    bound: SocketAddr,
     stop: Arc<AtomicBool>,
     worker: Option<JoinHandle<()>>,
 }
@@ -47,8 +47,8 @@ impl Channel {
         // Checked before a socket is opened: a refused manifest serves nothing at all.
         let (mut manifest, name) = checked(&text, folder)?;
         let listener = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))?;
-        let port = listener.local_addr()?.port();
-        let manifest = addressed(&mut manifest, &name, port)?;
+        let bound = listener.local_addr()?;
+        let manifest = addressed(&mut manifest, &name, bound.port())?;
         let bundle = Some((name.clone(), folder.join(name)));
         listener.set_nonblocking(true)?;
         let stop = Arc::new(AtomicBool::new(false));
@@ -67,7 +67,7 @@ impl Channel {
             }
         });
         Ok(Some(Self {
-            port,
+            bound,
             stop,
             worker: Some(worker),
         }))
@@ -75,8 +75,17 @@ impl Channel {
 
     /// The manifest's address, for the updater.
     pub fn manifest_url(&self) -> Url {
-        Url::parse(&format!("http://127.0.0.1:{}/{MANIFEST}", self.port))
-            .expect("a loopback address parses")
+        Url::parse(&format!(
+            "http://127.0.0.1:{}/{MANIFEST}",
+            self.bound.port()
+        ))
+        .expect("a loopback address parses")
+    }
+
+    /// The address the listener is bound to, as the socket reports it.
+    #[cfg(test)]
+    pub fn bound(&self) -> SocketAddr {
+        self.bound
     }
 }
 
@@ -265,7 +274,13 @@ mod tests {
         let channel = Channel::open(dir.path()).unwrap().unwrap();
         let url = channel.manifest_url();
         assert_eq!(url.host_str(), Some("127.0.0.1"));
+        // The socket itself, not just the address handed out, is on loopback.
+        assert_eq!(
+            channel.bound().ip(),
+            std::net::IpAddr::from(Ipv4Addr::LOCALHOST)
+        );
         let port = url.port().unwrap();
+        assert_eq!(channel.bound().port(), port);
 
         let (head, body) = get(port, "GET /latest.json HTTP/1.1\r\nHost: x\r\n\r\n");
         assert!(head.starts_with("HTTP/1.1 200"), "{head}");
