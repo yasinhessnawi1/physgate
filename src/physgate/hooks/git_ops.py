@@ -40,6 +40,33 @@ HOOK_CONFIG = (
     "Changing git's hook path or its aliases is refused: either would change what "
     "later git commands do without the command saying so."
 )
+ROLE_CONFIG_WRITE = (
+    "A role session does not change git's configuration. Setting any key could make a "
+    "later git command run a program of the session's choosing. Reading a value "
+    "(`git config --get <key>`) is allowed; writing one is not."
+)
+#: ``git config`` forms that only read, so a role session may run them. Everything else under
+#: ``git config`` for a role either sets, unsets, edits or renames, which is refused.
+_CONFIG_READ_FLAGS = (
+    "--get",
+    "--get-all",
+    "--get-regexp",
+    "--get-urlmatch",
+    "--get-color",
+    "--get-colorbool",
+    "--list",
+)
+_CONFIG_WRITE_FLAGS = (
+    "--add",
+    "--unset",
+    "--unset-all",
+    "--replace-all",
+    "--rename-section",
+    "--remove-section",
+    "--edit",
+    "--file",
+    "--blob",
+)
 ROLE_PUSH = "A role session does not push. The orchestrator merges and pushes finished work."
 HARD_RESET = (
     "A hard reset is refused unless it only moves this session's own branch within "
@@ -110,6 +137,23 @@ def _flags(rest: list[str]) -> list[str]:
         if word.startswith("-"):
             flags.append(word)
     return flags
+
+
+def _is_config_write(rest: list[str]) -> bool:
+    """Whether a ``git config`` invocation writes, rather than only reads.
+
+    A read is any of the ``--get``/``--list`` family, or naming a single key with no value.
+    A write sets a value (two operands), or uses one of the write, unset, rename, edit or
+    alternate-file actions. A spelling that only reads is allowed for a role session; anything
+    else is refused, so the rule is the action, never a list of which keys may be set.
+    """
+    flags = _flags(rest)
+    if any(_names(f, _CONFIG_READ_FLAGS) or f in ("-l", "-L") for f in flags):
+        return False
+    if any(_names(f, _CONFIG_WRITE_FLAGS) or f in ("-e",) for f in flags):
+        return True
+    operands = [w for w in rest if not w.startswith("-")]
+    return len(operands) >= 2
 
 
 def _names(flag: str, options: tuple[str, ...]) -> bool:
@@ -196,6 +240,8 @@ def check_command(
         return SKIP_HOOKS
     if sub == "config" and any(_mentions_hooks_path(w) or w.startswith("alias.") for w in rest):
         return HOOK_CONFIG
+    if sub == "config" and config.profile == "role" and _is_config_write(rest):
+        return ROLE_CONFIG_WRITE
     if sub == "commit" and any(_short_cluster_has(f, "n") for f in flags):
         return SKIP_HOOKS
     if sub == "push":
