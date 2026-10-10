@@ -34,8 +34,8 @@ from escalation_paths import (
 )
 
 #: Event kinds the escalation interface writes, absent from the golden file by
-#: construction. Empty until the interface exists.
-ADDED_LINES: frozenset[str] = frozenset()
+#: construction: one decision line at every attempt end that did not merge.
+ADDED_LINES: frozenset[str] = frozenset({"escalation_decided"})
 
 #: Fields added to an existing record after the golden file was written, per event
 #: kind (or ``config`` for the run configuration), each with the value that means

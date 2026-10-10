@@ -42,7 +42,8 @@ from physgate.orchestrator.common import (
     utc_now,
     utc_stamp,
 )
-from physgate.orchestrator.escalation import BackendName
+from physgate.orchestrator.escalation import BackendName, Decision
+from physgate.orchestrator.escalation_state import EscalationState
 from physgate.orchestrator.exceptions import CorruptEventLogError, RunConfigError
 from physgate.orchestrator.install import InstallFacts
 from physgate.orchestrator.managed import ObservedTraffic
@@ -395,8 +396,24 @@ class DiffChecked(_Event):
     divergences: tuple[NonEmptyStr, ...]
 
 
+class EscalationDecided(_Event):
+    """The escalation question, asked at an attempt end that did not merge (ARCH-131).
+
+    Carries the decision (the answer, confidence, backend id and latency, and the route)
+    and the state it was asked about, so the decision can be audited after the fact. The
+    replay holds the state to the one the lines before it imply, the route to the rule,
+    and, for the deterministic rules, the answer to the rules' own.
+    """
+
+    kind: Literal["escalation_decided"] = "escalation_decided"
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    decision: Decision
+    state: EscalationState
+
+
 class Escalated(_Event):
-    """The subtask exhausted its repair budget and is in the approval queue."""
+    """The subtask is in the approval queue: its attempt end was routed there."""
 
     kind: Literal["escalated"] = "escalated"
     subtask_id: NonEmptyStr
@@ -577,6 +594,7 @@ Event = Annotated[
     | AttemptRejected
     | Merged
     | DiffChecked
+    | EscalationDecided
     | Escalated
     | Incident
     | Resumed

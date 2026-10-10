@@ -26,7 +26,8 @@ from physgate.orchestrator.budget import infra_retry_delay
 from physgate.orchestrator.change_sets import change_history
 from physgate.orchestrator.common import utc_now
 from physgate.orchestrator.credentials import SECRET_VARIABLE
-from physgate.orchestrator.escalation import EscalationInterface, bind
+from physgate.orchestrator.escalation import TO_THE_QUEUE, EscalationInterface, bind
+from physgate.orchestrator.escalation_state import escalation_state
 from physgate.orchestrator.events import (
     RESUMABLE_HALTS,
     AttemptRejected,
@@ -35,6 +36,7 @@ from physgate.orchestrator.events import (
     Envelope,
     EnvironmentRecorded,
     Escalated,
+    EscalationDecided,
     Event,
     GateRan,
     GateSkipped,
@@ -432,8 +434,16 @@ class Loop:
             if step.subtask_id is None or step.attempt is None:
                 msg = "a step with no subtask or attempt"
                 raise RunStateError(msg, step=step.kind)
-            if step.kind == "escalate":
+            if step.kind == "decide":
+                self._decide(step.subtask_id, step.attempt)
+            elif step.kind == "escalate":
                 now = self.state.subtasks[step.subtask_id].attempts[-1]
+                if now.decided is not None and not now.decided.decision.forced:
+                    # Routed by a backend's answer or the confidence floor where the loop
+                    # could have gone on: no queue item is built for that yet, so the run
+                    # stops here rather than route it under another item's name.
+                    msg = "a route that is not forced has no approval-queue item yet"
+                    raise RunStateError(msg, subtask=step.subtask_id)
                 if now.unavailable_final is not None:
                     self._escalate_unavailable(step.subtask_id, now.unavailable_final)
                 elif now.blocked is not None:
@@ -444,6 +454,24 @@ class Loop:
                 self._infra_failed(step.subtask_id, step.attempt)
             else:
                 self._attempt(step.subtask_id, step.attempt, step.point or "resolve")
+
+    def _decide(self, subtask_id: str, attempt: int) -> None:
+        """Ask the escalation question about the attempt that just ended, and record the answer.
+
+        The state is built from the run as its log replays, and recorded with the answer,
+        so the line says what the backend was shown as well as what it said.
+        """
+        state = escalation_state(self.state, subtask_id)
+        decision = self._escalation.decide(TO_THE_QUEUE, state)
+        self._emit(
+            EscalationDecided(
+                **self._env(),
+                subtask_id=subtask_id,
+                attempt=attempt,
+                decision=decision,
+                state=state,
+            )
+        )
 
     # -- one attempt ------------------------------------------------------------------
 

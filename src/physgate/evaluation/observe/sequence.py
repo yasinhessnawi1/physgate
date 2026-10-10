@@ -14,8 +14,8 @@ The binary exposes no seed and no temperature, so there are two levels:
   - *dropped:* ``ts`` on every line; the ``seconds`` a worktree removal and the
     installation check took; a token line's ``message_id``; the scratch
     ``graph_root`` of a proposal check; a review's usage ``message_id``s; a
-    trajectory's seal, whose stream carries
-    uuids and durations by design; and the first line's configuration digest,
+    trajectory's seal, whose stream carries uuids and durations by design; the
+    escalation decision's latency; and the first line's configuration digest,
     which is replaced by comparing the two configurations with the run id mapped.
 
   Then these must be equal: the configuration, every event line field by field,
@@ -68,6 +68,9 @@ DROPPED: dict[str, frozenset[str]] = {
 #: a list. A review's message ids are random on any real API, like a token line's.
 DROPPED_AT: dict[str, tuple[tuple[str, ...], ...]] = {
     "review_ran": (("result", "usage", "*", "message_id"),),
+    # How long the escalation backend took is measured on the wall clock, never the same
+    # twice; what it answered, and how that routed, are compared.
+    "escalation_decided": (("decision", "latency_ms"),),
 }
 
 #: The records of an exact comparison, in the order a divergence is looked for.
