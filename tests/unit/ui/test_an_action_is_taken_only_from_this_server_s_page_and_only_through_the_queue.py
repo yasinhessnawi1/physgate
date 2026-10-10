@@ -61,7 +61,11 @@ ITEM = "run-1-s1"
 
 @pytest.fixture
 def run(tmp_path: Path) -> Path:
-    """A run directory whose queue holds one open item, and is the server's only root."""
+    """A run directory whose queue holds one open item, one level below the server's root.
+
+    Below, not at: the walk to a run directory then takes a step, and the guard's opening for
+    the walk's steps is exercised rather than skipped.
+    """
     run_dir = tmp_path / "run-1"
     run_dir.mkdir()
     ApprovalQueue(run_dir / QUEUE_NAME).add(
@@ -82,7 +86,7 @@ def run(tmp_path: Path) -> Path:
 
 
 def _context(run: Path, operator: str | None = "yasin") -> Context:
-    allowlist = Allowlist.build([str(run)], held_out=[], answer_keys=[], harness=None)
+    allowlist = Allowlist.build([str(run.parent)], held_out=[], answer_keys=[], harness=None)
     checkout = run.parent / "checkout"
     ui = checkout / "ui" if (checkout / "ui").is_dir() else fake_ui(checkout)
     return Context(allowlist=allowlist, assets=assets.load(ui), operator=operator)
@@ -379,9 +383,13 @@ def test_a_page_with_no_head_and_no_doctype_cannot_carry_the_token() -> None:
 # -- the guard's act kind ---------------------------------------------------------------------
 
 
+def _run_of(context: Context) -> Path:
+    return context.allowlist.roots[0].path / "run-1"
+
+
 def _act_route(action: Callable[[Context, Path], object]) -> Route:
     def handler(context: Context, params: Mapping[str, str]) -> Response:
-        action(context, context.allowlist.roots[0].path)
+        action(context, _run_of(context))
         return json_response({"acted": True})
 
     return Route("POST", "/act", "act", handler)
@@ -399,7 +407,11 @@ def _decide_through_the_queue(context: Context, run_dir: Path) -> None:
 
 
 def test_the_queue_s_decision_function_acts_under_the_act_kind(run: Path) -> None:
-    """The positive control: the walk and the decision function, as the decision route will."""
+    """The positive control: the walk and the decision function, as the decision route will.
+
+    The run lies one level below the root, so the walk takes a step and the guard must admit
+    it; a guard that refused the walk's steps turns this red.
+    """
     status, body = _acting(run, _decide_through_the_queue)
     assert status == 200, body
     assert [d.item_id for _, d in read_queue(run).decisions] == [ITEM]
@@ -407,7 +419,7 @@ def test_the_queue_s_decision_function_acts_under_the_act_kind(run: Path) -> Non
 
 def test_the_decision_function_is_refused_under_the_read_kind(run: Path) -> None:
     def handler(context: Context, params: Mapping[str, str]) -> Response:
-        _decide_through_the_queue(context, context.allowlist.roots[0].path)
+        _decide_through_the_queue(context, _run_of(context))
         return json_response({})
 
     before = _snapshot(run)
