@@ -39,7 +39,7 @@ number in this codebase already does.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -57,7 +57,9 @@ from physgate.orchestrator.events import (
     read_events,
 )
 from physgate.orchestrator.protocols import (
+    CheckDetails,
     CheckName,
+    CheckRecord,
     Count,
     NumericOutput,
     Outcome,
@@ -120,14 +122,52 @@ class GateEvent(BaseModel):
         raise ValueError(msg)
 
 
+class GateCheck(BaseModel):
+    """One gate event with what its check said beyond the accounting fields.
+
+    The bound the check held the value to, its message (for an unchecked record, why
+    nothing could judge it) and its details, exactly as the gate wrote them in its
+    line. Kept beside :class:`GateEvent` rather than inside it, so the catch-accounting
+    record and what ``physgate gate-events`` prints stay as they are.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    event: GateEvent
+    expected: NonEmptyStr | None
+    message: NonEmptyStr
+    details: CheckDetails
+
+
 def gate_events(events: Iterable[Event], manifest_id: str) -> list[GateEvent]:
     """One event per check record in every gate line of ``events``, in log order.
 
     ``manifest_id`` is the run's manifest id (``RunConfig.sha256()``), stamped
     onto every event returned so a reader can tie a line back to its run.
     """
+    return [event for event, _ in _derived(events, manifest_id)]
+
+
+def gate_checks(events: Iterable[Event], manifest_id: str) -> list[GateCheck]:
+    """Every gate event of ``events`` with its record's bound, message and details.
+
+    The same events as :func:`gate_events`, from the same derivation, in the same order.
+    """
+    return [
+        GateCheck(
+            event=event, expected=record.expected, message=record.message, details=record.details
+        )
+        for event, record in _derived(events, manifest_id)
+    ]
+
+
+def _derived(events: Iterable[Event], manifest_id: str) -> Iterator[tuple[GateEvent, CheckRecord]]:
+    """Each gate event, derived from the log, with the check record it came from.
+
+    The one derivation behind both readers, so a gate event and its details can never
+    come from two different walks of the log.
+    """
     log = list(events)
-    found: list[GateEvent] = []
     for index, event in enumerate(log):
         if isinstance(event, GateRan):
             subtask, attempt = event.subtask_id, event.attempt
@@ -145,7 +185,7 @@ def gate_events(events: Iterable[Event], manifest_id: str) -> list[GateEvent]:
             if review is not None and review.result.verdict == "blocked":
                 # Blocked is neither a pass nor a fail: catch accounting records none.
                 review = None
-            found.append(
+            yield (
                 GateEvent(
                     run_id=event.run_id,
                     manifest_id=manifest_id,
@@ -173,9 +213,9 @@ def gate_events(events: Iterable[Event], manifest_id: str) -> list[GateEvent]:
                     review_seq=None if review is None else review.seq,
                     reviewed_subtask=None if review is None else review.subtask_id,
                     reviewed_attempt=None if review is None else review.attempt,
-                )
+                ),
+                record,
             )
-    return found
 
 
 def recorded_gate_events(events: Path, config: Path) -> list[GateEvent]:
@@ -190,6 +230,20 @@ def recorded_gate_events(events: Path, config: Path) -> list[GateEvent]:
     """
     log = read_events(events)
     return gate_events(log, load_run_config(config).sha256())
+
+
+def recorded_gate_checks(events: Path, config: Path) -> list[GateCheck]:
+    """The run's gate events with each record's bound, message and details.
+
+    What the operator UI's gate-check view reads: the events ``recorded_gate_events``
+    gives, from the same derivation, each beside what its check said.
+
+    Raises:
+        CorruptEventLogError: the log holds a line this package could not have written.
+        RunConfigError: there is no recorded configuration, or it is not valid.
+    """
+    log = read_events(events)
+    return gate_checks(log, load_run_config(config).sha256())
 
 
 def _bounds(event: Event, subtask: str, attempt: int) -> bool:
