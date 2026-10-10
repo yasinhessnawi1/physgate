@@ -5,7 +5,9 @@
  */
 import { expect, type Page } from "@playwright/test";
 
-export const LOCAL = /^http:\/\/127\.0\.0\.1:8799\//;
+import { PORT } from "./port";
+
+export const LOCAL = new RegExp(`^http://127\\.0\\.0\\.1:${String(PORT)}/`);
 export const THEMES = ["light", "dark"] as const;
 
 export interface Watch {

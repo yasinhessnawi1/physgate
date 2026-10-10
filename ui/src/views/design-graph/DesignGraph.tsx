@@ -8,7 +8,7 @@ import { type SyntheticEvent, useEffect, useState } from "react";
 
 import { getJson } from "../../api/client";
 import { type GraphAt, graphAt, graphDiff, nodeHistory, type NodeRecord } from "../../api/graph";
-import { GraphCanvas } from "../../design/components/GraphCanvas";
+import { GraphCanvas, layoutGraph } from "../../design/components/GraphCanvas";
 import { type Source, sourceAttribute } from "../../design/components/SourceChip";
 import { EmptyState, ErrorState, LoadingState } from "../../design/components/States";
 import type { ViewProps } from "../../shell/header";
@@ -141,6 +141,15 @@ function Explorer({
   const edges = shown.flatMap((n) => n.constrains.map((to) => ({ from: n.id, to })));
   const drawn = edges.filter((e) => shown.some((n) => n.id === e.to));
   const missing = missingTargets(graph.nodes);
+  const canvasNodes = shown.map((n) => ({
+    id: n.id,
+    kind: n.kind,
+    domain: n.domain,
+    summary: quantitiesLabel(n.quantities.length),
+  }));
+  // The card asks for the whole graph's width, so a graph wider than the room beside the
+  // inspector gets a row of its own (the inspector wraps below) and opens with every node whole.
+  const graphWidth = layoutGraph(canvasNodes, drawn).width;
   return (
     <div className="explorer">
       <div className="toolbar">
@@ -220,6 +229,7 @@ function Explorer({
           className="card graph-card"
           aria-label="Graph"
           data-source={sourceAttribute(source)}
+          style={{ flexBasis: graphWidth + 64 }}
         >
           <div className="card-head">
             <p className="label">
@@ -234,12 +244,7 @@ function Explorer({
             <EmptyState title="The graph holds no nodes at this revision" />
           ) : (
             <GraphCanvas
-              nodes={shown.map((n) => ({
-                id: n.id,
-                kind: n.kind,
-                domain: n.domain,
-                summary: quantitiesLabel(n.quantities.length),
-              }))}
+              nodes={canvasNodes}
               edges={drawn}
               selected={selected?.id ?? null}
               onSelect={select}

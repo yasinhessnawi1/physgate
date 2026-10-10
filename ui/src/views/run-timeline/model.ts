@@ -17,6 +17,8 @@ export interface Segment {
   /** From the record: the stage's or the session's own duration. ``null`` when none is recorded. */
   readonly seconds: number | null;
   readonly label: string;
+  /** More than the label has room for: the session's id, for one. Shown in the title. */
+  readonly title?: string;
 }
 
 export interface Marker {
@@ -46,10 +48,6 @@ export function findingLabel(key: string): string {
     : subject !== "-"
       ? `${source} · ${subject}`
       : source;
-}
-
-function short(id: string): string {
-  return id.length > 8 ? id.slice(0, 8) : id;
 }
 
 function gateTone(mode: GateMode, verdict: string | null, skipped: boolean): [string, string] {
@@ -104,7 +102,8 @@ export function lanes(
         seconds: session.wallClockS,
         label: infrastructure
           ? `infrastructure · ${session.cause ?? "no cause recorded"}`
-          : `${short(session.sessionId)} · session ${String(i + 1)}`,
+          : `session ${String(i + 1)}`,
+        title: session.sessionId,
       };
     });
     const ofAttempt = (d: Decision) => d.subtask === subtask && d.attempt === attempt;

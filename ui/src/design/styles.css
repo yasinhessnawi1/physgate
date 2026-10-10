@@ -814,6 +814,7 @@ code {
 
 .graph-card {
   flex: 999 1 560px;
+  max-width: 100%;
 }
 
 .inspector {
@@ -1028,6 +1029,21 @@ code {
   height: 20px;
 }
 
+/* A label that does not fit its segment whole is not drawn; the title and the stage table carry it. */
+.segment-label {
+  flex: none;
+  white-space: nowrap;
+}
+
+.segment-label[hidden] {
+  display: none;
+}
+
+.run-where {
+  color: var(--color-text-3);
+  font-size: var(--type-label-size);
+}
+
 .segment-session {
   background: var(--color-accent-bg);
   border-color: var(--color-accent);
@@ -1170,9 +1186,24 @@ code {
   color: var(--color-text-2);
 }
 
+.checks-table th,
+.checks-table td {
+  white-space: normal;
+  padding-left: var(--space-3);
+  padding-right: var(--space-3);
+}
+
+/* A node id breaks at its dots before it would push the table past its card. */
+.checks-table td.mono {
+  overflow-wrap: anywhere;
+}
+
+.checks-table td.bound-cell {
+  min-width: 10rem;
+}
+
 .bound {
   white-space: normal;
-  max-width: 16rem;
 }
 
 .measured-names {
@@ -1214,7 +1245,5 @@ code {
 }
 
 .bound-text {
-  display: inline-block;
   white-space: normal;
-  max-width: 16rem;
 }

@@ -52,7 +52,17 @@ export function runSource(config: RunConfig): Source {
   return { id: `run ${config.runId}`, commit: config.harnessCommit };
 }
 
-/** The runs as links, the chosen one marked; each says its gate mode. */
+/**
+ * Where a run is, said when its id alone does not tell it apart: the root it was found under and
+ * its directory, for a run whose id another listed run shares or whose directory has another name.
+ */
+export function whereLabel(run: RunListing, runs: readonly RunListing[]): string | null {
+  const id = run.runId ?? run.name;
+  const shared = runs.filter((other) => (other.runId ?? other.name) === id).length > 1;
+  return shared || id !== run.name ? `root ${String(run.root)} · ${run.name}` : null;
+}
+
+/** The runs as links, the chosen one marked; each says its gate mode, and where it is if needed. */
 export function RunPicker({
   runs,
   chosen,
@@ -81,6 +91,9 @@ export function RunPicker({
             href={hrefFor(area, slug, query)}
           >
             <span className="mono">{run.runId ?? run.name}</span>
+            {whereLabel(run, runs) !== null && (
+              <span className="run-where mono">{whereLabel(run, runs)}</span>
+            )}
             {run.gateMode !== null && <GateModeBadge mode={run.gateMode} />}
             {run.error !== null && <span className="muted">unreadable: {run.error}</span>}
           </a>

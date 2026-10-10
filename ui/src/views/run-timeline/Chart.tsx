@@ -1,4 +1,6 @@
 import { ScrollTable } from "../../design/components/ScrollTable";
+import { useLayoutEffect, useRef } from "react";
+
 import type { StepTiming } from "../../api/run";
 import { Quantity } from "../../design/components/Quantity";
 import { type Source, sourceAttribute } from "../../design/components/SourceChip";
@@ -51,6 +53,35 @@ export function TimelineChart({
         return { segment, left, share };
       });
   };
+  // A label is drawn only when it fits its segment whole: a clipped word reads as another word.
+  // Measured after layout, and again whenever the widths can have changed.
+  const timeline = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const fit = () => {
+      for (const segment of timeline.current?.querySelectorAll<HTMLElement>(".track .segment") ??
+        []) {
+        const label = segment.querySelector<HTMLElement>(".segment-label");
+        if (label === null) continue;
+        label.hidden = false;
+        const style = getComputedStyle(segment);
+        const room =
+          segment.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+        label.hidden = label.getBoundingClientRect().width > room + 0.5;
+      }
+    };
+    fit();
+    // Widths change when the fonts arrive and when the timeline is resized, not only the window.
+    window.addEventListener("resize", fit);
+    document.fonts.addEventListener("loadingdone", fit);
+    void document.fonts.ready.then(fit);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit);
+    if (timeline.current !== null) observer?.observe(timeline.current);
+    return () => {
+      window.removeEventListener("resize", fit);
+      document.fonts.removeEventListener("loadingdone", fit);
+      observer?.disconnect();
+    };
+  });
   return (
     <section className="card" aria-label="Timeline" data-source={sourceAttribute(source)}>
       <div className="card-head">
@@ -71,7 +102,7 @@ export function TimelineChart({
         segment&apos;s recorded time and duration are in its title and in the stage table.
       </p>
       <div className="timeline-frame">
-        <div className="timeline">
+        <div className="timeline" ref={timeline}>
           {lanes.map((lane) => (
             <div key={lane.key} className="lane" data-lane={lane.key}>
               <div className="lane-name">
@@ -85,9 +116,9 @@ export function TimelineChart({
                     className={`segment ${segment.tone}`}
                     data-kind={segment.kind}
                     style={{ left: percent(left), width: percent(share) }}
-                    title={`${segment.label} · from ${clock(segment.start)}${segment.seconds === null ? "" : ` for ${String(segment.seconds)} s`}`}
+                    title={`${segment.label}${segment.title === undefined ? "" : ` · ${segment.title}`} · from ${clock(segment.start)}${segment.seconds === null ? "" : ` for ${String(segment.seconds)} s`}`}
                   >
-                    {segment.label}
+                    <span className="segment-label">{segment.label}</span>
                   </span>
                 ))}
                 {lane.markers.map((marker, i) => (

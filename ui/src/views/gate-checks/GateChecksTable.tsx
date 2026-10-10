@@ -96,7 +96,7 @@ export function GateChecksTable({ checks }: { checks: readonly GateCheck[] }) {
                   <td>
                     <Measured check={check} />
                   </td>
-                  <td>
+                  <td className="bound-cell">
                     <Bound check={check} />
                   </td>
                   <td>{reviewer(check.reviewerHadPassed)}</td>

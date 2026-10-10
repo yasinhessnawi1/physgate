@@ -1,5 +1,5 @@
 import dagre, { type EdgeLabel, type GraphLabel, type NodeLabel } from "@dagrejs/dagre";
-import { type KeyboardEvent, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 /** A node of the design graph as the canvas draws it. */
 export interface GraphNode {
@@ -38,6 +38,8 @@ const TOUCH_MIN = 44;
 export const NODE_HEIGHT = 80;
 // One pixel of margin: the scaled height is a float, and 44 can render as 43.99997.
 export const LEAST_ZOOM = (TOUCH_MIN + 1) / NODE_HEIGHT;
+/** The least the graph is shrunk to open with every node whole; below it the text is too small. */
+export const READABLE_ZOOM = 0.8;
 /** Room per character of an id in the mono label, and the box's padding around it. */
 const CHARACTER_WIDTH = 8;
 const NODE_PADDING = 28;
@@ -54,7 +56,7 @@ export function nodeWidth(node: GraphNode): number {
  */
 export function layoutGraph(nodes: readonly GraphNode[], edges: readonly GraphEdge[]): Layout {
   const graph = new dagre.graphlib.Graph<GraphLabel, NodeLabel, EdgeLabel>();
-  graph.setGraph({ rankdir: "LR", nodesep: 24, ranksep: 72, marginx: 16, marginy: 16 });
+  graph.setGraph({ rankdir: "LR", nodesep: 24, ranksep: 56, marginx: 16, marginy: 16 });
   graph.setDefaultEdgeLabel(() => ({}));
   const sorted = [...nodes].sort((a, b) => a.id.localeCompare(b.id));
   const known = new Set(sorted.map((n) => n.id));
@@ -160,6 +162,15 @@ export function GraphCanvas({
   };
   const width = Math.max(layout.width, 1);
   const height = Math.max(layout.height, 1);
+  // Open with every node whole: shrunk to the frame's width if a readable zoom does it, and
+  // otherwise at the graph's start, at full size.
+  const frame = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const room = frame.current?.clientWidth ?? 0;
+    const fit = room / width;
+    setZoom(room > 0 && fit < 1 && fit >= READABLE_ZOOM ? fit : 1);
+    if (frame.current !== null) frame.current.scrollLeft = 0;
+  }, [width]);
 
   const touches = (e: GraphEdge) => selected !== null && (e.from === selected || e.to === selected);
   return (
@@ -184,7 +195,7 @@ export function GraphCanvas({
           Zoom out
         </button>
       </div>
-      <div className="graph-frame">
+      <div className="graph-frame" ref={frame}>
         <div className="graph-stage" style={{ width: width * zoom, height: height * zoom }}>
           <div
             className="graph-layer"

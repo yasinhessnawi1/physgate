@@ -30,7 +30,7 @@ import { EmptyState, ErrorState, LoadingState } from "../../design/components/St
 import { Tally, VerdictBadge } from "../../design/components/VerdictBadge";
 import { tallyOf } from "../../design/tally";
 import type { ViewProps } from "../../shell/header";
-import { hrefFor } from "../../shell/route";
+import { RunPicker } from "../common/runs";
 import { useResult } from "../common/useResult";
 
 /** A card that shows its record, or the reading state, or the refusal, and nothing partial. */
@@ -350,24 +350,7 @@ export default function RunRecords({ setHeader, query }: ViewProps) {
   }
   return (
     <div className="run-records">
-      <nav className="run-picker" aria-label="Runs">
-        {runs.value.map((run) => {
-          const key = `${String(run.root)}/${run.name}`;
-          const on = run === chosen;
-          return (
-            <a
-              key={key}
-              className={on ? "run-link run-link-on" : "run-link"}
-              aria-current={on ? "page" : undefined}
-              href={hrefFor("home", "run-records", new URLSearchParams({ run: key }))}
-            >
-              <span className="mono">{run.runId ?? run.name}</span>
-              {run.gateMode !== null && <GateModeBadge mode={run.gateMode} />}
-              {run.error !== null && <span className="muted">unreadable: {run.error}</span>}
-            </a>
-          );
-        })}
-      </nav>
+      <RunPicker runs={runs.value} chosen={chosen} area="home" slug="run-records" />
       {config === null ? (
         <LoadingState reading="run.json" />
       ) : config.ok ? (
