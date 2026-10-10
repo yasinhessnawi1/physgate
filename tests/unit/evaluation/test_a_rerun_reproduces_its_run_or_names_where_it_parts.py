@@ -153,6 +153,28 @@ def test_a_review_s_message_ids_are_dropped_and_are_needed(
     )
 
 
+def test_the_escalation_decision_s_latency_is_dropped_and_is_needed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = target_repo(tmp_path)
+    # A first attempt the gate refuses, so each run asks the escalation question once.
+    a = recorded(tmp_path, repo, "run-a", gate=Gate(fail_on={1}))
+    b = recorded(tmp_path, repo, "run-b", gate=Gate(fail_on={1}))
+    log = b / "events.jsonl"
+    raw = [json.loads(x) for x in log.read_text().splitlines()]
+    decided = [e for e in raw if e["kind"] == "escalation_decided"]
+    assert len(decided) == 1
+    # The wall clock differs between any two runs; make the difference certain.
+    decided[0]["decision"]["latency_ms"] += 1.0
+    log.write_text("".join(json.dumps(e, separators=(",", ":")) + "\n" for e in raw))
+    assert compare_runs(a, b).reproduced  # the two differ in nothing else
+    monkeypatch.setitem(sequence.DROPPED_AT, "escalation_decided", ())
+    compared = compare_runs(a, b)
+    parted = compared.exact["events"]
+    assert not compared.reproduced and parted is not None
+    assert parted.field == "decision.latency_ms"
+
+
 def test_the_timestamp_is_dropped_on_every_line_and_is_needed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
