@@ -1,0 +1,29 @@
+[package]
+name = "physgate-desktop"
+version = "0.1.0"
+description = "A desktop window around the physgate operator UI, served on loopback by `physgate ui`"
+edition = "2021"
+rust-version = "1.80"
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "2.5", features = [] }
+
+[dependencies]
+tauri = { version = "2.12", features = [] }
+tauri-plugin-updater = "2.13"
+tauri-plugin-dialog = "2.6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+libc = "0.2"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+
+# The checks build in the dev profile; leaving dependencies without debug information keeps
+# that build under half the size, and nothing here is debugged inside a dependency.
+[profile.dev.package."*"]
+debug = false
