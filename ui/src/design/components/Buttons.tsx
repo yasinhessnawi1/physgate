@@ -14,6 +14,8 @@ export interface Act {
   readonly label: string;
   /** Exactly what gets written if the person confirms, named in the confirmation. */
   readonly writes: string;
+  /** The written record itself and what follows from it, shown under ``writes``. */
+  readonly detail?: ReactNode;
   readonly onConfirm: () => void;
 }
 
@@ -22,10 +24,24 @@ export interface Act {
  * click: the click opens a confirmation naming exactly what gets written, which traps focus
  * while open and gives it back to the button when it closes.
  */
-export function ActButton({ act, reject = false }: { act: Act; reject?: boolean }) {
+export function ActButton({
+  act,
+  reject = false,
+  glyph,
+  disabledBecause,
+}: {
+  act: Act;
+  reject?: boolean;
+  /** The leading glyph; a check or a cross where the design draws one. */
+  glyph?: string;
+  /** Why the action cannot be taken now; the button is then disabled and says why. */
+  disabledBecause?: string | null;
+}) {
   const dialog = useRef<HTMLDialogElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const titleId = useId();
+  const reasonId = useId();
+  const disabled = disabledBecause !== undefined && disabledBecause !== null;
   const close = () => {
     dialog.current?.close();
     trigger.current?.focus();
@@ -36,10 +52,19 @@ export function ActButton({ act, reject = false }: { act: Act; reject?: boolean 
         ref={trigger}
         type="button"
         className={reject ? "button button-reject" : "button button-act"}
-        onClick={() => dialog.current?.showModal()}
+        disabled={disabled}
+        aria-describedby={disabled ? reasonId : undefined}
+        onClick={() => {
+          if (!disabled) dialog.current?.showModal();
+        }}
       >
-        <span aria-hidden="true">{reject ? "✕" : "▶"}</span> {act.label}…
+        <span aria-hidden="true">{glyph ?? (reject ? "✕" : "▶")}</span> {act.label}…
       </button>
+      {disabled && (
+        <span id={reasonId} className="act-reason">
+          {disabledBecause}
+        </span>
+      )}
       <dialog
         ref={dialog}
         className="confirm"
@@ -52,6 +77,7 @@ export function ActButton({ act, reject = false }: { act: Act; reject?: boolean 
         <p className="confirm-writes">
           This writes: <strong>{act.writes}</strong>
         </p>
+        {act.detail !== undefined && <div className="confirm-detail">{act.detail}</div>}
         <div className="confirm-actions">
           <button type="button" className="button button-browse" onClick={close}>
             Cancel

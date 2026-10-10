@@ -257,15 +257,22 @@ def real_runs(root: Path) -> Path:
 def escalated_run(root: Path, name: str = "run-esc") -> Path:
     """A run made by the real loop whose first subtask failed all three attempts.
 
-    Its queue holds one open item, escalated with every attempt's sealed trajectory. Made under
+    Its queue holds one open item, escalated with every attempt's sealed trajectory and the two
+    quantities the gate's last finding cites. Made under
     ``root/runs``, beside the runs ``real_runs`` makes there, with a target repository of its
     own.
     """
     _rig()
     from observe_rig import Gate, fake_run, target_repo
 
+    from physgate.orchestrator.protocols import QuantityRef
+
+    cited = (
+        QuantityRef(node_id="electrical.motor_driver", name="stall_current", value=3.4, unit="A"),
+        QuantityRef(node_id="electrical.motor_driver", name="current_limit", value=2.5, unit="A"),
+    )
     repo = target_repo(root / name)
-    return fake_run(root / "runs", name, repo, gate=Gate(fail_on={1, 2, 3}))
+    return fake_run(root / "runs", name, repo, gate=Gate(fail_on={1, 2, 3}, cited=cited))
 
 
 def sealed_session(run_dir: Path) -> str:

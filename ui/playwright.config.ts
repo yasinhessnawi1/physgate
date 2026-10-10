@@ -27,7 +27,7 @@ export default defineConfig({
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
-    command: `uv run python tests/ui_e2e_runs.py ${RUNS} && uv run physgate ui --root ${RUNS}/runs --port ${String(PORT)}`,
+    command: `uv run python tests/ui_e2e_runs.py ${RUNS} && uv run physgate ui --root ${RUNS}/runs --port ${String(PORT)} --operator e2e-operator`,
     cwd: "..",
     url: `http://127.0.0.1:${String(PORT)}/api/runs`,
     reuseExistingServer: false,

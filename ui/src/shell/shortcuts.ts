@@ -1,6 +1,6 @@
 /**
  * Keyboard shortcuts, two keys each and never one: g then g opens the design graph, g then t the
- * run timeline, g then q the approval queue's area. A shortcut keeps the chosen run. Keys typed
+ * run timeline, g then q the approval queue. A shortcut keeps the chosen run. Keys typed
  * into a field are never shortcuts.
  */
 import { hrefFor } from "./route";
@@ -11,7 +11,7 @@ export const CHORD_MS = 1500;
 const SECOND: Readonly<Record<string, readonly [string, string | null]>> = {
   g: ["orchestration", "design-graph"],
   t: ["orchestration", "run-timeline"],
-  q: ["collaboration", null],
+  q: ["collaboration", "approval-queue"],
 };
 
 /** Where the second key of a chord goes, or ``null`` when the two keys are not a shortcut. */

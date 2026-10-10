@@ -41,6 +41,7 @@ from physgate.orchestrator.protocols import (
     MessageUsage,
     NumericOutput,
     PassDetails,
+    QuantityRef,
     ReviewResult,
     RunningGateMode,
     Usage,
@@ -221,6 +222,8 @@ class Gate:
 
     fail_on: set[int] = field(default_factory=set)
     calls: int = 0
+    #: The quantities a failing call cites, as a real gate's finding does; none by default.
+    cited: tuple[QuantityRef, ...] = ()
 
     def check(self, artefact: Artefact, *, mode: RunningGateMode) -> GateResult:
         self.calls += 1
@@ -231,7 +234,7 @@ class Gate:
             finding="the stall current is too high" if failed else "checked",
             failing_check="magnitude" if failed else None,
             numeric_output=NumericOutput(value=3.4, unit="A") if failed else None,
-            quantities=(),
+            quantities=self.cited if failed else (),
             checks=(_record(mode, failed=failed),),
             catalogue_sha256="c" * 64,
         )
