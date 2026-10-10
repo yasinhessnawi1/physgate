@@ -236,6 +236,15 @@ def _decoded(path: str, data: bytes) -> str:
         raise PacketError(msg, trajectory=path) from None
 
 
+def indicator_scan_runs(artefact: Artefact | None) -> bool:
+    """Whether the marker scan (``scan.scan``) is run on this attempt's trajectory.
+
+    Only a session's own stream is scanned. A written account (the instrument's) is shown
+    as it is and never scanned, so an empty list of indicators says nothing about it.
+    """
+    return artefact is not None and artefact.trajectory_form == "session_stream"
+
+
 def _rendered(
     artefact: Artefact, sessions: list[tuple[str, bytes, Seal]], nonces: tuple[str, ...] = ()
 ) -> tuple[bytes, tuple[ScanHit, ...], tuple[str, ...]]:
@@ -244,7 +253,7 @@ def _rendered(
     Given ``nonces`` (the ones a packet recorded), it renders with them, so the same
     sealed streams give the same bytes again.
     """
-    if artefact.trajectory_form != "session_stream":
+    if not indicator_scan_runs(artefact):
         return sessions[-1][1], (), ()
     streams = [_decoded(path, data) for path, data, _ in sessions]
     if nonces and len(nonces) != len(streams):

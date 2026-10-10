@@ -42,6 +42,7 @@ from physgate.orchestrator.events import (  # noqa: E402
     ReviewUnavailable,
     read_events,
 )
+from physgate.reviewers.claude import NO_SCAN_RUN  # noqa: E402
 from physgate.reviewers.packet import DIFF_NAME, WORKTREE_NAME  # noqa: E402
 
 pytestmark = [
@@ -127,7 +128,8 @@ def _instrument(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     last: dict[str, Any],
-) -> tuple[int, str, Path]:
+) -> tuple[int, str, Path, list[str]]:
+    """Run the instrument; its exit, its errors, its run directory, and each review's prompt."""
     import physgate.evaluation.inject.cli as inject_cli
 
     library, _ = _library(tmp_path / "lib")
@@ -166,7 +168,9 @@ def _instrument(
         ]
         code = main(argv)
         printed = capsys.readouterr()
-    return code, printed.err, run_dir
+        # A session's first request carries its prompt as the user turn.
+        prompts = [r.last_user for r in api.requests if r.tool_results == 0]
+    return code, printed.err, run_dir, prompts
 
 
 def test_every_artefact_is_reviewed_by_the_claude_reviewer_before_the_gate(
@@ -175,7 +179,7 @@ def test_every_artefact_is_reviewed_by_the_claude_reviewer_before_the_gate(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    code, err, run_dir = _instrument(
+    code, err, run_dir, prompts = _instrument(
         tmp_path, install, monkeypatch, capsys, tool("StructuredOutput", review=VERDICT)
     )
     assert code == 0, err
@@ -200,6 +204,10 @@ def test_every_artefact_is_reviewed_by_the_claude_reviewer_before_the_gate(
     assert reviewing["install"] == str(install)
     rows = [json.loads(x) for x in (run_dir / RESULTS_NAME).read_text().splitlines()]
     assert len(rows) == 2 and all(r["reviewer_tokens"] > 0 for r in rows)
+    # An account is never scanned, and the reviewer is told so: never that no check was off.
+    assert len(prompts) == 2
+    for prompt in prompts:
+        assert NO_SCAN_RUN.strip() in prompt and "no check switched off" not in prompt
 
 
 def test_a_review_with_no_verdict_is_a_row_of_its_own_and_the_run_goes_on(
@@ -208,7 +216,7 @@ def test_a_review_with_no_verdict_is_a_row_of_its_own_and_the_run_goes_on(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    code, err, run_dir = _instrument(tmp_path, install, monkeypatch, capsys, text("I am done."))
+    code, err, run_dir, _ = _instrument(tmp_path, install, monkeypatch, capsys, text("I am done."))
     assert code == 1, err  # every artefact has its row; some came to no verdict
     events = read_events(run_dir / "events.jsonl")
     unavailable = [e for e in events if isinstance(e, ReviewUnavailable)]

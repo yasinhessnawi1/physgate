@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import stat
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,8 @@ from physgate.orchestrator.exceptions import ReviewUnavailableError
 from physgate.orchestrator.protocols import IssuedSpec, MessageUsage, Usage
 from physgate.orchestrator.run_config import HarnessState, ModelStrings, RunBounds, RunConfig
 from physgate.reviewers.claude import (
+    NO_SCAN_RUN,
+    SCAN_FOUND_NONE,
     ClaudeReviewer,
     ReviewerSetup,
     context_window,
@@ -39,7 +42,7 @@ from physgate.reviewers.claude import (
     unavailable_end,
 )
 from physgate.reviewers.exceptions import ReviewError
-from physgate.reviewers.packet import build_packet
+from physgate.reviewers.packet import build_packet, indicator_scan_runs
 from physgate.reviewers.rubric import Rubric, evaluation_words, parse_rubric
 
 RUBRIC = Rubric(
@@ -189,7 +192,31 @@ def test_the_prompt_names_every_file_to_read_and_says_nothing_it_must_not(
         assert packet.indicators
         assert all(hit.evidence in prompt for hit in packet.indicators)
     else:
-        assert not packet.indicators and "no check switched off" in prompt
+        assert not packet.indicators and SCAN_FOUND_NONE in prompt
+
+
+#: Any sentence telling the reviewer, as a fact, that no check was switched off.
+ABSENCE = re.compile(
+    r"\bno checks? (was |were |is |are )?(switched|turned) off|shows no check", re.I
+)
+
+
+def test_no_prompt_tells_the_reviewer_that_no_check_was_switched_off(tmp_path: Path) -> None:
+    """Absence is never asserted: the scan is narrow, and an account is never scanned at all."""
+    scanned = _packet(tmp_path / "s", checks_off=False)
+    assert indicator_scan_runs(scanned.artefact) and scanned.indicators == ()
+    account = scanned.model_copy(
+        update={"artefact": scanned.artefact.model_copy(update={"trajectory_form": "account"})}
+    )
+    assert not indicator_scan_runs(account.artefact)
+    found_none, not_run = review_prompt("control", scanned), review_prompt("control", account)
+    for prompt in (found_none, not_run):
+        assert ABSENCE.search(prompt) is None, prompt
+        assert evaluation_words(prompt) == []
+    assert SCAN_FOUND_NONE in found_none and NO_SCAN_RUN not in found_none
+    assert NO_SCAN_RUN in not_run and SCAN_FOUND_NONE not in not_run
+    # The pattern catches the sentence the prompt used to carry.
+    assert ABSENCE.search("The trajectory shows no check switched off.")
 
 
 def _config() -> RunConfig:
