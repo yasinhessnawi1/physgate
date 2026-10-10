@@ -23,6 +23,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path
+from types import ModuleType
 
 import physgate
 from physgate.orchestrator.run_config import (
@@ -226,6 +227,14 @@ EVALUATION_TESTS = Path(__file__).resolve().parent / "unit" / "evaluation"
 def _rig() -> None:
     if str(EVALUATION_TESTS) not in sys.path:
         sys.path.insert(0, str(EVALUATION_TESTS))
+
+
+def evaluation_rig() -> ModuleType:
+    """The observability tests' real-run rig, put on the path once and imported."""
+    _rig()
+    import observe_rig  # noqa: PLC0415 - importable only once the rig's directory is on the path
+
+    return observe_rig
 
 
 def real_runs(root: Path) -> Path:
