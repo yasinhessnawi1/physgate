@@ -345,6 +345,41 @@ def test_a_real_endpoint_run_is_compared_on_its_decisions_alone(tmp_path: Path) 
     assert (parted.decisions.subtask_id, parted.decisions.attempt) == ("s1-af41ca", 1)
 
 
+def test_the_decision_sequence_names_each_escalation_decision_and_not_its_latency(
+    tmp_path: Path,
+) -> None:
+    repo = target_repo(tmp_path)
+    real = {"endpoint": "default"}
+    a = recorded(tmp_path, repo, "run-a", overrides=real, gate=Gate(fail_on={1}))
+    raw = [json.loads(x) for x in (a / "events.jsonl").read_text().splitlines()]
+    steps = sequence.decisions(raw)
+    (decided,) = [d for d in steps if d["step"] == "escalation"]
+    rejected = next(i for i, d in enumerate(steps) if d["step"] == "rejected")
+    assert steps[rejected + 1] is decided  # the decision follows the end it was about
+    assert {k: v for k, v in decided.items() if k != "seq"} == {
+        "step": "escalation",
+        "subtask_id": steps[rejected]["subtask_id"],
+        "attempt": 1,
+        "answer": "no",
+        "confidence": 1.0,
+        "backend": "rules",
+        "routed": False,
+    }
+    assert not any("latency" in key for d in steps for key in d)
+    # A real-model rerun is scored on its decisions: one whose escalation answer and
+    # route differ parts there; one whose latency alone differs does not.
+    b = recorded(tmp_path, repo, "run-b", overrides=real, gate=Gate(fail_on={1}))
+    assert compare_runs(a, b).reproduced
+    log = b / "events.jsonl"
+    lines = [json.loads(x) for x in log.read_text().splitlines()]
+    (line,) = [e for e in lines if e["kind"] == "escalation_decided"]
+    line["decision"].update(answer="yes", basis="answer")
+    log.write_text("".join(json.dumps(e, separators=(",", ":")) + "\n" for e in lines))
+    parted = compare_runs(a, b)
+    assert not parted.reproduced and parted.decisions is not None
+    assert (parted.decisions.field, parted.decisions.rerun) == ("answer", '"yes"')
+
+
 @pytest.mark.parametrize(
     ("endpoint", "level"),
     [

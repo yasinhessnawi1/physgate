@@ -26,7 +26,8 @@ The binary exposes no seed and no temperature, so there are two levels:
   (the binary's own context names the run's branch, a short commit id and the
   date) and it has no seed, so what must match is the sequence of decisions
   only: each planned subtask; per attempt the gate verdict and failing check, or
-  why the gate was skipped, the review verdict, and how the attempt ended; the
+  why the gate was skipped, the review verdict, how the attempt ended, and the
+  escalation decision's answer, confidence, backend and route; the
   integration gate; and a halt. Tokens, trees, trajectories and durations are
   reported as measured differences and never scored.
 
@@ -384,6 +385,13 @@ def decisions(events: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
             step = {"step": "merged", **at}
         elif kind == "attempt_rejected":
             step = {"step": "rejected", **at, "finding_key": e["finding_key"]}
+        elif kind == "escalation_decided":
+            # What was answered and how it routed; never how long it took, which no two
+            # runs share.
+            decision = e["decision"]
+            step = {"step": "escalation", **at, "answer": decision["answer"]}
+            step |= {"confidence": decision["confidence"], "backend": decision["backend_id"]}
+            step["routed"] = decision["basis"] is not None
         elif kind == "escalated":
             step = {"step": "escalated", "subtask_id": e["subtask_id"]}
         elif kind == "session_ended" and e["outcome"] == "infrastructure":
