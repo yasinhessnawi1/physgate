@@ -254,6 +254,20 @@ def real_runs(root: Path) -> Path:
     return runs
 
 
+def escalated_run(root: Path, name: str = "run-esc") -> Path:
+    """A run made by the real loop whose first subtask failed all three attempts.
+
+    Its queue holds one open item, escalated with every attempt's sealed trajectory. Made under
+    ``root/runs``, beside the runs ``real_runs`` makes there, with a target repository of its
+    own.
+    """
+    _rig()
+    from observe_rig import Gate, fake_run, target_repo
+
+    repo = target_repo(root / name)
+    return fake_run(root / "runs", name, repo, gate=Gate(fail_on={1, 2, 3}))
+
+
 def sealed_session(run_dir: Path) -> str:
     """The id of a session whose trajectory the run sealed."""
     for raw in (run_dir / "events.jsonl").read_text().splitlines():

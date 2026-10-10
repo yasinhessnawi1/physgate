@@ -603,6 +603,92 @@ class ShownItem(BaseModel):
     trajectories: tuple[TrajectoryStatus, ...]
 
 
+def queue_files(run_dir: Path) -> tuple[Path, ...]:
+    """The files :func:`queue_listing` and :func:`item_view` read, for a caller to vet first."""
+    return tuple(Path(run_dir) / name for name in (QUEUE_NAME, DECISIONS_NAME, EVENTS_NAME))
+
+
+def read_stream(path: Path) -> bytes | None:
+    """A session's captured stream at ``path``, capped, or ``None`` if there is none.
+
+    For a reader that has already held the path to its own rules (the operator UI's
+    allowlist). The open never blocks; a stream that is not a regular file raises ``OSError``
+    and one past its cap ``FileTooLargeError``, which :func:`trajectory_statuses` reads as
+    tampered and too large.
+    """
+    return _read_path(path, RECORD_READ_CAP)
+
+
+class TrajectoryView(BaseModel):
+    """One of an item's trajectory links: the session it names, if any, and its status."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    link: NonEmptyStr
+    session_id: NonEmptyStr | None
+    status: TrajectoryStatus
+
+
+class ItemView(BaseModel):
+    """An item as a person is shown it: the item, whether it is open, and what was checked.
+
+    ``item_sha256`` and the trajectories' statuses are exactly what a decision on this view
+    sends back (:class:`ShownItem`) and what :func:`record_decision` checks again under its
+    lock, computed here by the same functions.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    position: Annotated[int, Field(ge=0)]
+    item: QueueItem
+    item_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+    open: bool
+    trajectories: tuple[TrajectoryView, ...]
+
+    def shown(self) -> ShownItem:
+        """What a decision on this view sends back."""
+        return ShownItem(
+            item_sha256=self.item_sha256,
+            trajectories=tuple(t.status for t in self.trajectories),
+        )
+
+
+def item_view(
+    run_dir: Path, position: int, *, read_stream: Callable[[str], bytes | None]
+) -> ItemView | None:
+    """The item at ``position`` in the run's queue, oldest first, or ``None`` past the end.
+
+    ``read_stream`` returns a session's stream by its id (built from the id, never from the
+    link as recorded), as :func:`trajectory_statuses` takes it. Read without writing.
+
+    Raises:
+        QueueError: the queue holds a line the writer could not have written, or is not read.
+        CorruptEventLogError: the event log does, or is not read.
+    """
+    view = read_queue(run_dir)
+    if not 0 <= position < len(view.items):
+        return None
+    item = view.items[position]
+    events_path = Path(run_dir) / EVENTS_NAME
+    try:
+        log = _read_path(events_path, RECORD_READ_CAP)
+    except OSError as exc:
+        msg = "the run-event log is not a file this reader reads"
+        raise CorruptEventLogError(msg, log=str(events_path), reason=str(exc.strerror)) from None
+    events = parse_events(log, log=str(events_path)) if log is not None else []
+    statuses = trajectory_statuses(item, events, read_stream)
+    return ItemView(
+        position=position,
+        item=item,
+        item_sha256=view.digests[item.item_id],
+        open=item in view.open_items(),
+        trajectories=tuple(
+            TrajectoryView(link=link, session_id=trajectory_session(link), status=status)
+            for link, status in zip(item.trajectories, statuses, strict=True)
+        ),
+    )
+
+
 # -- the one decision function ------------------------------------------------------------
 
 #: The words a person decides with in the operator UI, mapped onto the free-text decision.

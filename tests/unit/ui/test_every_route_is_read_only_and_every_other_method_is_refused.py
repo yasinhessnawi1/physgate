@@ -1,4 +1,8 @@
-"""Every route the server answers is enumerated, and none of them writes.
+"""Every route the server answers is enumerated, and none of them writes but the one that acts.
+
+The table holds read routes and exactly one action, the decision on an approval-queue item,
+whose handler is the decision route. The sweep below sends that route every method too, as
+any page could, without this server's token: it must change nothing.
 
 The sweep sends every method in ``METHODS`` to every route in the table, with valid and with
 hostile parameters, and holds the result to two detectors that do not depend on the server's
@@ -18,6 +22,7 @@ from ui_rig import (
     METHODS,
     RECORDER,
     context_over,
+    escalated_run,
     fake_ui,
     opened_outside,
     real_runs,
@@ -27,6 +32,7 @@ from ui_rig import (
 )
 
 from physgate.state.store import journal_records_after
+from physgate.ui import actions
 from physgate.ui.exceptions import UnregisteredKindError
 from physgate.ui.routes import PARAMETERS, Context, Response, Route, json_response
 from physgate.ui.table import ROUTES
@@ -45,7 +51,9 @@ HOSTILE = (
     "%",
     "%ZZ",
 )
-RUNS = ("run-on", "run-observe", "run-clean")
+#: The escalated run first: it is the one whose queue holds an item, so the first valid target
+#: of every route, the one the GET-and-HEAD test reads, names a record that exists.
+RUNS = ("run-esc", "run-on", "run-observe", "run-clean")
 PRICES = "2026-09-27"
 
 
@@ -88,6 +96,7 @@ def world(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
     """
     base = tmp_path_factory.mktemp("world")
     root = real_runs(base)
+    escalated_run(base)
     held = base / "held"
     held.mkdir()
     (held / "scenario.json").write_text("{}\n")
@@ -99,10 +108,32 @@ def _context(world: dict[str, Path]) -> Context:
     return context_over(world["root"], ui_root=world["ui"], held_out=(str(world["held"]),))
 
 
-def test_the_table_is_not_empty_and_every_route_is_a_read() -> None:
+def test_every_route_is_a_read_but_exactly_one_action_whose_handler_is_the_decision() -> None:
     assert ROUTES, "an empty table would make every other test here vacuous"
-    assert {route.kind for route in ROUTES} == {"read"}
-    assert {route.method for route in ROUTES} == {"GET"}
+    assert {route.kind for route in ROUTES} == {"read", "act"}
+    reads = [r for r in ROUTES if r.kind == "read"]
+    acts = [r for r in ROUTES if r.kind == "act"]
+    assert {r.method for r in reads} == {"GET"}
+    assert len(acts) == 1, "exactly one route acts"
+    (act,) = acts
+    assert act.method == "POST"
+    assert act.pattern == "/api/runs/{root:index}/{name:name}/queue/decisions"
+    assert act.handler is actions.decide
+
+
+def test_the_decision_handler_writes_through_the_queue_function_and_nothing_else() -> None:
+    """Read from the handler's own source: the one call that writes is ``record_decision``."""
+    import ast
+    import inspect
+
+    tree = ast.parse(inspect.getsource(actions.decide))
+    called = {
+        node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", "")
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+    }
+    assert "record_decision" in called
+    assert not called & {"open", "write", "write_text", "write_bytes", "append", "resolve"}
 
 
 def test_every_parameter_pattern_refuses_every_hostile_spelling() -> None:
@@ -138,16 +169,22 @@ def test_a_method_the_table_does_not_name_is_405_with_allow_never_501(
     world: dict[str, Path],
 ) -> None:
     with serving(_context(world)) as live:
-        for method in ("POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE", "PROPFIND", "FROB"):
+        for method in ("PUT", "PATCH", "DELETE", "OPTIONS", "TRACE", "PROPFIND", "FROB"):
             for target in ("/", "/api/runs", "/no/such/path"):
                 status, headers, _ = live.request(method, target)
                 assert status == 405, (method, target, status)
-                assert headers["allow"] == "GET, HEAD"
+                assert headers["allow"] == "GET, HEAD, POST"
+        # POST is named by the table, for the one action: on a read route's path it is 405
+        # with that path's own methods, and on no route's path it finds nothing.
+        for target in ("/", "/api/runs"):
+            status, headers, _ = live.request("POST", target)
+            assert (status, headers["allow"]) == (405, "GET, HEAD"), target
+        assert live.request("POST", "/no/such/path")[0] == 404
 
 
 def test_every_read_route_answers_get_and_head_alike(world: dict[str, Path]) -> None:
     with serving(_context(world)) as live:
-        for route in ROUTES:
+        for route in (r for r in ROUTES if r.kind == "read"):
             target = _targets(route, world)[0]
             get_status, get_headers, body = live.request("GET", target)
             head_status, head_headers, head_body = live.request("HEAD", target)

@@ -36,8 +36,10 @@ is not ``read`` runs, the server refuses, in order:
 5. a body without its length, sent in chunks, or longer than 16 KiB;
 6. any action at all when the server was started without naming an operator.
 
-No response carries a cross-origin header. Every connection's socket has a timeout, so a
-request that stops sending is dropped rather than waited on.
+No response carries a cross-origin header. Every connection's socket has a timeout on each
+wait, read or write, so a request that stops sending, or a client that stops reading, is
+dropped rather than waited on; one that keeps moving is served to its end however long it
+takes in all.
 """
 
 from __future__ import annotations
@@ -293,7 +295,21 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(response.body)))
         self.end_headers()
         if self.command != "HEAD":
-            self.wfile.write(response.body)
+            self._write_body(response.body)
+
+    def _write_body(self, body: bytes) -> None:
+        """Send ``body`` so that the socket's timeout bounds each wait, never the whole body.
+
+        ``socket.sendall`` holds its timeout to the whole call (Python 3.5 and later), so a large
+        body read slowly but steadily would be cut once its total time passed the timeout. Each
+        ``send`` here waits at most the timeout for room in the socket and sends what fits; only
+        a client that takes nothing for a whole timeout is dropped.
+        """
+        self.wfile.flush()
+        view = memoryview(body)
+        while view:
+            sent = self.connection.send(view[: 1 << 16])
+            view = view[sent:]
 
     def log_message(self, format: str, *args: object) -> None:  # noqa: A002 - the base class's name
         """Log to standard error unless the server was made quiet (in tests)."""
