@@ -174,6 +174,7 @@ def role_argv(
     session_id: str,
     max_turns: int,
     effort: str,
+    thinking_display: str,
 ) -> list[str]:
     """A role session: the hook layer's spawn arguments, the stream the trajectory is.
 
@@ -185,6 +186,63 @@ def role_argv(
         "-p",
         prompt,
         *spawn_args,
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--include-hook-events",
+        # Each message's final usage arrives only in its message_delta event.
+        "--include-partial-messages",
+        "--model",
+        model,
+        "--effort",
+        effort,
+        # Measured on both pinned binaries: an option they accept without listing it.
+        # A test runs each pinned binary with it and fails if one stops accepting it.
+        "--thinking-display",
+        thinking_display,
+        "--session-id",
+        session_id,
+        "--max-turns",
+        str(max_turns),
+        "--permission-mode",
+        "bypassPermissions",
+    ]
+
+
+#: What a reviewer session's environment adds: the binary's compaction switched off.
+#: A compaction summarises what the reviewer has read, which is a trim of its input
+#: made silently by the runtime (measured to be off with this set, on both pinned
+#: binaries, and on without it). A review that runs out of window instead is not a
+#: verdict, and is recorded as such.
+REVIEWER_ENV = {"DISABLE_COMPACT": "1"}
+
+
+def reviewer_argv(
+    binary: str,
+    *,
+    prompt: str,
+    spawn_args: tuple[str, ...],
+    schema: str,
+    model: str,
+    session_id: str,
+    max_turns: int,
+    effort: str,
+) -> list[str]:
+    """A reviewer session: reading only, then one structured verdict.
+
+    ``--tools Read`` offers the Read tool and, with ``--json-schema``, the structured
+    verdict tool beside it, nothing else. The thinking display is the binary's own:
+    a reviewer's reasoning is read by nobody.
+    """
+    return [
+        binary,
+        "-p",
+        prompt,
+        *spawn_args,
+        "--tools",
+        "Read",
+        "--json-schema",
+        schema,
         "--output-format",
         "stream-json",
         "--verbose",

@@ -91,6 +91,12 @@ class ConfigView(Protocol):
     def answer_keys(self) -> Sequence[str]: ...  # noqa: D102
 
     @property
+    def read_roots(self) -> Sequence[str]: ...  # noqa: D102
+
+    @property
+    def review_material(self) -> Sequence[str]: ...  # noqa: D102
+
+    @property
     def required_reading(self) -> Sequence[str]: ...  # noqa: D102
 
     @property
@@ -120,6 +126,9 @@ class InputView(Protocol):
 
     @property
     def cwd(self) -> str: ...  # noqa: D102
+
+    @property
+    def error(self) -> str | None: ...  # noqa: D102
 
     @property
     def hook_event_name(self) -> str: ...  # noqa: D102

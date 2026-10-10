@@ -45,6 +45,9 @@ __all__ = ["ALLOW", "EVENTS", "Decision", "HookSpec", "dispatch", "emit", "main"
 #: The events on which a refusal stops something. On the others a refusal is
 #: still reported and logged, and the later hooks act on the record it leaves.
 _BLOCKING_EVENTS = {"PreToolUse"}
+#: The events whose context Claude Code hands the session: at the start, and after a tool
+#: call failed (measured on both pinned binaries: a system reminder on the next request).
+CONTEXT_EVENTS = frozenset({"SessionStart", "PostToolUseFailure"})
 
 
 class Decision:
@@ -141,10 +144,10 @@ def _log_refusal(config: ConfigView, hook_input: InputView, hook: str, reason: s
 def emit(event: str, decision: Decision) -> int:
     """Write the decision the way Claude Code reads it, and return the exit status."""
     if decision.allow:
-        if decision.context and event == "SessionStart":
+        if decision.context and event in CONTEXT_EVENTS:
             context = {
                 "hookSpecificOutput": {
-                    "hookEventName": "SessionStart",
+                    "hookEventName": event,
                     "additionalContext": decision.context,
                 }
             }

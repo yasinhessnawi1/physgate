@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
+from pydantic import ValidationError
+
 from physgate.orchestrator.budget import REPAIR_BUDGET, after_rejection
 from physgate.orchestrator.common import GateMode
 from physgate.orchestrator.events import (
@@ -46,6 +48,7 @@ from physgate.orchestrator.events import (
     ProposalsChecked,
     Resumed,
     ReviewRan,
+    ReviewUnavailable,
     RunStarted,
     SessionEnded,
     Stage,
@@ -57,8 +60,9 @@ from physgate.orchestrator.events import (
     WriteDone,
     WriteIntended,
 )
-from physgate.orchestrator.exceptions import MergePreconditionError
+from physgate.orchestrator.exceptions import MergePreconditionError, RunConfigError
 from physgate.orchestrator.repair import FindingSource
+from physgate.orchestrator.run_config import load_run_config
 from physgate.state.task_ledger import TaskLedger, TaskLine
 
 
@@ -69,10 +73,15 @@ class AttemptState:
     number: int
     cursor: Stage | None = None
     session: SessionEnded | None = None
+    #: Every session this attempt ran, in order, as each ended. Never forgotten by a
+    #: restart: an infrastructure retry's earlier sessions are part of the attempt.
+    ended: list[SessionEnded] = field(default_factory=list)
     retries_done: int = 0
     changes: ProposalsChecked | None = None
     gate: GateRan | GateSkipped | None = None
     review: ReviewRan | None = None
+    #: A review that was not a verdict: retried once for infrastructure, otherwise final.
+    unavailable: list[ReviewUnavailable] = field(default_factory=list)
     rejected: AttemptRejected | None = None
     merged: Merged | None = None
     diff: DiffChecked | None = None
@@ -87,7 +96,20 @@ class AttemptState:
         if order.index(cursor) < order.index("spawn"):
             self.session = None
         self.changes = self.gate = self.review = None
+        self.unavailable = []
         self.cursor = cursor
+
+    @property
+    def blocked(self) -> ReviewRan | None:
+        """The review that blocked the attempt, if one did: a person decides, no attempt spent."""
+        review = self.review
+        return review if review is not None and review.result.verdict == "blocked" else None
+
+    @property
+    def unavailable_final(self) -> ReviewUnavailable | None:
+        """The review outcome that sends the attempt to a person, if there is one."""
+        last = self.unavailable[-1] if self.unavailable else None
+        return last if last is not None and not last.retry else None
 
 
 @dataclass
@@ -218,6 +240,7 @@ class RunState:
         elif isinstance(event, SessionEnded):
             self._expect(now.cursor == "spawn" and now.session is None, "a session end")
             now.session = event
+            now.ended.append(event)
         elif isinstance(event, InfraRetryScheduled):
             failed = now.session is not None and now.session.outcome == "infrastructure"
             self._expect(failed and event.retries_done == now.retries_done, "a retry")
@@ -232,9 +255,16 @@ class RunState:
             verdict = event.result.verdict if isinstance(event, GateRan) else "skipped"
             self._ledger(sub.plan.subtask_id, gate_result=verdict)
         elif isinstance(event, ReviewRan):
-            self._expect(now.cursor == "review" and now.review is None, "a review line")
+            done = now.cursor == "review" and now.review is None
+            self._expect(done and now.unavailable_final is None, "a review line")
             now.review = event
             self._ledger(sub.plan.subtask_id, review_result=event.result.verdict)
+        elif isinstance(event, ReviewUnavailable):
+            open_ = now.cursor == "review" and now.review is None
+            self._expect(open_ and now.unavailable_final is None, "an unavailable review")
+            retried = any(u.retry for u in now.unavailable)
+            self._expect(not (event.retry and retried), "a second retry of a review")
+            now.unavailable.append(event)
         elif isinstance(event, AttemptRejected):
             basis = self.rejection_basis(now)
             self._expect(now.cursor == "decide" and basis == event.finding.source, "a rejection")
@@ -281,7 +311,8 @@ class RunState:
                 sub.status = "done"
         elif isinstance(event, Escalated):
             last = now.number == REPAIR_BUDGET and now.rejected is not None
-            self._expect(last, "an escalation")
+            to_a_person = now.unavailable_final is not None or now.blocked is not None
+            self._expect(last or to_a_person, "an escalation")
             sub.status = "escalated"
             sub.queue_item = event.item_id
         elif isinstance(event, Incident):
@@ -445,6 +476,10 @@ class RunState:
             if sub.status == "planned":
                 return Step("attempt", subtask_id, 1, "resolve")
             now = sub.attempts[-1]
+            if now.unavailable_final is not None or now.blocked is not None:
+                # No verdict, or a blocked one: a person decides, and no repair attempt
+                # is spent.
+                return Step("escalate", subtask_id, now.number)
             if now.rejected is not None:
                 if sub.next_resolve is None:
                     return Step("escalate", subtask_id, now.number)
@@ -482,7 +517,8 @@ class RunState:
             failed = now.session is not None and now.session.outcome == "infrastructure"
             # An infrastructure failure not yet answered is answered by the retry
             # schedule, not by a resume, so a crash there cannot reset the count.
-            if not clean and not failed and now.rejected is None and now.diff is None:
+            final = now.unavailable_final is not None or now.blocked is not None
+            if not clean and not failed and not final and now.rejected is None and now.diff is None:
                 return sub
         return None
 
@@ -534,3 +570,44 @@ def require_mergeable(ledger_path: Path, subtask_id: str, gate_mode: GateMode) -
             gate_mode=gate_mode,
         )
     return line
+
+
+def recorded_implementer(run_dir: Path, subtask_id: str) -> str:
+    """The model string the run recorded for the role that implements ``subtask_id``.
+
+    Read from the durable record, never from a parameter: the subtask's role from its
+    task-ledger line, read back from disk, and that role's model from the run's
+    configuration file, held to the digest the run's first event line carries. A
+    caller holding a configuration object that says something else changes nothing.
+    The model that actually answered each session was already held to this string
+    when the session ended, so the record is the implementer's model.
+
+    Raises:
+        MergePreconditionError: the subtask has no ledger line.
+        RunConfigError: the configuration is not the one the run started with, or
+            names no model for the line's role.
+    """
+    run_dir = Path(run_dir)
+    ledger = TaskLedger(run_dir / "ledger.jsonl")
+    try:
+        line = ledger.find(subtask_id)
+    finally:
+        ledger.close()
+    if line is None:
+        msg = "a subtask with no ledger line has no recorded implementer"
+        raise MergePreconditionError(msg, subtask=subtask_id)
+    config = load_run_config(run_dir / "run.json")
+    with (run_dir / "events.jsonl").open("rb") as log:
+        first = log.readline()
+    try:
+        started = RunStarted.model_validate_json(first) if first.endswith(b"\n") else None
+    except ValidationError:
+        started = None
+    if started is None or started.config_sha256 != config.sha256():
+        msg = "the run's configuration is not the one its first event line recorded"
+        raise RunConfigError(msg, run_dir=str(run_dir))
+    model = config.models.roles.get(line.assigned_role)
+    if model is None:
+        msg = "the run recorded no model for the role on the ledger line"
+        raise RunConfigError(msg, role=line.assigned_role)
+    return model

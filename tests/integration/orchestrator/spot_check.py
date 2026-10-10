@@ -182,6 +182,8 @@ def params() -> dict[str, Any]:
         "reportable": False,
         "effort": "high",
         "max_output_tokens": 64000,
+        "thinking_display": "summarized",
+        "role_python": None,
     }
 
 
@@ -248,7 +250,10 @@ def child(root: Path, mode: str, install: str) -> int:
         gate=Gate(), reviewers={"electrical": Reviewer(model=REVIEWER)}
     )
     argv = [mode, "--run-dir", str(root / "run"), "--target", str(root / "target")]
-    return physgate_main([*argv, "--install", install], registrations)
+    return physgate_main(
+        [*argv, "--install", install, "--review-root", str(Path(install).parent / "rs")],
+        registrations,
+    )
 
 
 def spawn(root: Path, mode: str, env: dict[str, str], install: str) -> subprocess.Popen[bytes]:

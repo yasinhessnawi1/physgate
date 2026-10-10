@@ -65,7 +65,15 @@ def _lean_config(data: bytes) -> dict[str, Any] | None:
     out["installation"] = {
         name: getattr(config.installation, name) for name in lean.LeanInstallation.__slots__
     }
-    for name in ("held_out", "answer_keys", "required_reading", "always_loaded", "tools_allowed"):
+    for name in (
+        "held_out",
+        "answer_keys",
+        "read_roots",
+        "review_material",
+        "required_reading",
+        "always_loaded",
+        "tools_allowed",
+    ):
         out[name] = list(out[name])
     return out
 
@@ -156,6 +164,14 @@ def test_a_valid_configuration_comes_out_the_same(tmp_path: Path) -> None:
         {"answer_keys": ["relative/corpus"]},
         {"answer_keys": [""]},
         {"answer_keys": ["/c", 3]},
+        {"profile": "reviewer", "role": None, "read_roots": []},
+        {"profile": "reviewer", "role": None, "read_roots": ["/r"], "review_material": ["/m"]},
+        {"profile": "reviewer", "role": None, "read_roots": ["relative/r"]},
+        {"profile": "reviewer", "role": None, "read_roots": "/r"},
+        {"read_roots": ["/r"]},
+        {"review_material": ["/m"]},
+        {"review_material": ["/m", 3]},
+        {"review_material": [""]},
     ],
 )
 def test_the_configurations_own_cases_are_decided_the_same(
@@ -172,6 +188,7 @@ def test_thousands_of_generated_configurations_are_decided_the_same(tmp_path: Pa
         experiments=[{"root": "/e", "frozen_marker": "RESULT.md", "always_frozen_name": "C.md"}],
         held_out=["/h"],
         answer_keys=["/c"],
+        review_material=["/m"],
         required_reading=["/r"],
         always_loaded=["/l"],
     )
@@ -183,6 +200,28 @@ def test_thousands_of_generated_configurations_are_decided_the_same(tmp_path: Pa
         _agree(schema, _lean_config(data), variant)
         accepted, refused = accepted + (schema is not None), refused + (schema is None)
     # The generator must reach both outcomes, or the comparison saw only one side.
+    assert accepted > 100 and refused > 100, (accepted, refused)
+
+
+def test_thousands_of_generated_reviewer_configurations_are_decided_the_same(
+    tmp_path: Path,
+) -> None:
+    rng = random.Random(20261007)
+    base = config_dict(
+        tmp_path,
+        profile="reviewer",
+        role=None,
+        read_roots=["/r", "/s"],
+        tools_allowed=["Read", "StructuredOutput"],
+        required_reading=["/r/transcript.md"],
+    )
+    accepted = refused = 0
+    for _ in range(4000):
+        variant = _mutate(base, rng, ODD_VALUES)
+        data = json.dumps(variant).encode()
+        schema = _schema_config(data)
+        _agree(schema, _lean_config(data), variant)
+        accepted, refused = accepted + (schema is not None), refused + (schema is None)
     assert accepted > 100 and refused > 100, (accepted, refused)
 
 

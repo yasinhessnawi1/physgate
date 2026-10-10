@@ -41,7 +41,7 @@ record, and every check still runs against it, so a failure is reported, not hid
 **The token.** With ``--real``, read from the comment in ``real_rerun.py`` — unchanged here:
 ``CLAUDE_CODE_OAUTH_TOKEN`` from the env file, held only in memory, never printed. At the end,
 every file under the output directory is scanned for it, for ``sk-ant-`` and for ``oat01``, and
-email addresses are replaced; only the counts are printed.
+email addresses are counted; nothing is rewritten, and only the counts are printed.
 """
 
 from __future__ import annotations
@@ -52,7 +52,6 @@ import hashlib
 import io
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -66,6 +65,7 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
 from git_rig import Reviewer, target_repo  # noqa: E402
+from record_scan import scan as record_scan  # noqa: E402
 from scripted_endpoint import DUMMY_OAUTH_TOKEN, Script, serving, text, tool  # noqa: E402
 
 from physgate.cli import main as physgate_main  # noqa: E402
@@ -108,7 +108,6 @@ CONTROL_DIR = "modules/control"
 #: session's own worktree by name before either one is dispatched.
 CONTROL_ID = mint_id(SEED, 0, "control")
 FIRMWARE_ID = mint_id(SEED, 1, "firmware")
-EMAIL = re.compile(rb"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 
 #: The sourced stand-in node proposal, verbatim — not re-derived, not rephrased.
 FIRMWARE_PROPOSAL: dict[str, Any] = {
@@ -244,6 +243,8 @@ def params() -> dict[str, Any]:
         "reportable": True,
         "effort": "high",
         "max_output_tokens": 64000,
+        "thinking_display": "summarized",
+        "role_python": None,
     }
 
 
@@ -573,20 +574,8 @@ def check_criteria(
 
 
 def scan(root: Path, token: str) -> dict[str, int]:
-    """Counts only: files holding the token, ``sk-ant-`` or ``oat01``; emails replaced."""
-    files = [p for p in root.rglob("*") if p.is_file() and not p.is_symlink()]
-    counts = {"token": 0, "sk-ant-": 0, "oat01": 0, "emails_replaced": 0}
-    for path in files:
-        data = path.read_bytes()
-        counts["token"] += token.encode() in data
-        counts["sk-ant-"] += b"sk-ant-" in data
-        counts["oat01"] += b"oat01" in data
-        found = len(EMAIL.findall(data))
-        records = (root / "install") not in path.parents
-        if found and records and path.suffix in (".json", ".jsonl", ".log", ".txt", ".md", ".out"):
-            path.write_bytes(EMAIL.sub(b"<email>", data))
-            counts["emails_replaced"] += found
-    return counts
+    """Counts only, nothing written (``record_scan.scan``): the records are evidence."""
+    return record_scan(root, token)
 
 
 def dry_script(api: Any) -> None:  # noqa: ANN401
@@ -679,7 +668,17 @@ def one_run(root: Path) -> dict[str, Any]:
         result["stopped"] = "decomposition did not start a run; nothing more was called"
         return result
     result["run_exit"] = command(
-        ["run", "--run-dir", str(run_dir), *common, "--install", str(install)], log
+        [
+            "run",
+            "--run-dir",
+            str(run_dir),
+            *common,
+            "--install",
+            str(install),
+            "--review-root",
+            str(root / "review-scratch"),
+        ],
+        log,
     )
     outcome = printed_outcome(log)
     result["run_outcome"] = outcome

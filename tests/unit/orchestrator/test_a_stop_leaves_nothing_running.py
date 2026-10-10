@@ -100,6 +100,7 @@ def _dispatcher(run_dir: Path) -> ClaudeDispatcher:
         binary="/nonexistent/claude",
         base_url=None,
         credential=Credential("api_key", "sk-ant-test-dummy-not-a-credential"),
+        review_root=Path("/nonexistent/review-scratch"),
     )
 
 

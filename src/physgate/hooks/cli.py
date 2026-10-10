@@ -57,6 +57,18 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
         default=[],
         help="the orchestrator's interpreter's site-packages: its startup files are put back",
     )
+    p.add_argument(
+        "--read-root",
+        action="append",
+        default=[],
+        help="a directory a reviewer may read; a reviewer reads nothing else (reviewer only)",
+    )
+    p.add_argument(
+        "--review-material",
+        action="append",
+        default=[],
+        help="a further place only reviewers read, withheld from every other session",
+    )
     p.add_argument("--api-key-helper", help="a script printing the API key, named in the settings")
     p.set_defaults(func=_install)
 
@@ -81,6 +93,8 @@ def _install(args: argparse.Namespace) -> int:
         always_loaded=tuple(_abs(p) for p in args.always_loaded),
         held_out=tuple(_abs(p) for p in args.held_out),
         answer_keys=tuple(_abs(p) for p in args.answer_key),
+        read_roots=tuple(_abs(p) for p in args.read_root),
+        extra_review_material=tuple(_abs(p) for p in args.review_material),
         extra_protected=tuple(_abs(p) for p in args.protect),
         extra_protected_refuse_only=tuple(_abs(p) for p in args.protect_refuse_only),
         api_key_helper=_abs(args.api_key_helper) if args.api_key_helper else None,

@@ -24,8 +24,9 @@ the same run, and every event says which one (``review_seq``) and on what basis:
   propagation failure names the node that changed, so it is stamped from the
   review that approved the change.
 
-A record that names no node, a node only the given design wrote, or an attempt
-no reviewer ran on, is ``None``, with no basis.
+A record that names no node, a node only the given design wrote, an attempt no
+reviewer ran on, or one whose review was ``blocked`` (a verdict that is neither a
+pass nor a fail), is ``None``, with no basis.
 
 **Every event also carries the run's manifest id.** A log's lines carry their
 own ``run_id``, but not the digest of the configuration the run started under;
@@ -138,6 +139,9 @@ def gate_events(events: Iterable[Event], manifest_id: str) -> list[GateEvent]:
                 review, basis = _last_writer_review(log, record.node), "last_writer_of_node"
             else:
                 review, basis = same, "same_attempt"
+            if review is not None and review.result.verdict == "blocked":
+                # Blocked is neither a pass nor a fail: catch accounting records none.
+                review = None
             found.append(
                 GateEvent(
                     run_id=event.run_id,

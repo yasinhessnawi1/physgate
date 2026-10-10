@@ -71,6 +71,8 @@ class Materialised:
     revisions: tuple[int, ...]
     #: The worktree's head once the patch is written.
     commit: str
+    #: The commit holding the given design alone: the patch's change is read against it.
+    base_commit: str
 
 
 def _git(worktree: Path, *args: str) -> str:
@@ -115,7 +117,7 @@ def materialise(base: Base, patch: Patch | None, into: Path) -> Materialised:
         for payload in given:
             _write(store, payload)
         baseline = store.head_revision()
-        _commit(worktree, "the given design")
+        base_commit = _commit(worktree, "the given design")
         revisions = tuple(_write(store, payload) for payload in written)
     finally:
         store.close()
@@ -129,6 +131,7 @@ def materialise(base: Base, patch: Patch | None, into: Path) -> Materialised:
         baseline=baseline,
         revisions=revisions,
         commit=commit,
+        base_commit=base_commit,
     )
 
 

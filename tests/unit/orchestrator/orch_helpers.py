@@ -63,6 +63,8 @@ def make_config(**overrides: Any) -> RunConfig:
         "harness": MEASURED_HARNESS,
         "effort": "high",
         "max_output_tokens": 64000,
+        "thinking_display": "summarized",
+        "role_python": None,
     }
     fields.update(overrides)
     return RunConfig(**fields)

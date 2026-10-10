@@ -44,6 +44,8 @@ def _shim(paths: Sequence[Path], ceiling: int, role: str) -> SessionConfig:
         experiments=(),
         held_out=(),
         answer_keys=(),
+        read_roots=(),
+        review_material=(),
         required_reading=(),
         always_loaded=tuple(str(Path(p)) for p in paths),
         token_ceiling=ceiling,

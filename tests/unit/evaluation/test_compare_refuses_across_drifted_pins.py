@@ -18,6 +18,7 @@ from observe_rig import HARNESS, Gate, fake_run, target_repo
 from physgate.evaluation.observe.compare import compare, drift
 from physgate.evaluation.observe.exceptions import CompareRefusedError
 from physgate.evaluation.observe.manifest import read_manifest
+from physgate.orchestrator.role_python import RolePython
 from physgate.orchestrator.run_config import ModelStrings
 
 MODELS = {
@@ -54,6 +55,19 @@ def models(**changes: Any) -> ModelStrings:  # noqa: ANN401
         ),
         ({"effort": "low"}, "effort"),
         ({"max_output_tokens": 32000}, "max_output_tokens"),
+        ({"thinking_display": "omitted"}, "thinking_display"),
+        (
+            {
+                "role_python": RolePython(
+                    path="/opt/py/bin/python3",
+                    resolved="/opt/py/bin/python3.12",
+                    version="3.12.3",
+                    prefix="/opt/py",
+                    distributions=("pip",),
+                )
+            },
+            "role_python",
+        ),
         ({"claude_version": "2.1.273"}, "claude_version"),
         ({"endpoint": "default"}, "endpoint"),
     ],

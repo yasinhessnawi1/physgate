@@ -24,7 +24,7 @@ import json
 import os
 import sys
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -40,7 +40,7 @@ from physgate.orchestrator.catches import catches, parse_time
 from physgate.orchestrator.common import first_problem
 from physgate.orchestrator.credentials import SECRET_VARIABLE, credential_for
 from physgate.orchestrator.decompose import binary_version, call, require_fresh, start_run
-from physgate.orchestrator.dispatch import ClaudeDispatcher
+from physgate.orchestrator.dispatch import ClaudeDispatcher, probe_interpreter
 from physgate.orchestrator.events import (
     EnvironmentRecorded,
     InstallChecked,
@@ -50,7 +50,13 @@ from physgate.orchestrator.events import (
     SubtaskPlanned,
     read_events,
 )
-from physgate.orchestrator.exceptions import InvocationError, OrchestratorError, RunStateError
+from physgate.orchestrator.exceptions import (
+    InvocationError,
+    OrchestratorError,
+    ReviewerNotRegisteredError,
+    RunConfigError,
+    RunStateError,
+)
 from physgate.orchestrator.gate_events import GateEvent, gate_events
 from physgate.orchestrator.git import head_of
 from physgate.orchestrator.install import (
@@ -60,10 +66,12 @@ from physgate.orchestrator.install import (
     require_recorded_manifest,
 )
 from physgate.orchestrator.invocation import claude_binary
-from physgate.orchestrator.loop import Loop, refuse_unregistered
+from physgate.orchestrator.loop import Loop, refuse_unregistered, require_gate
 from physgate.orchestrator.merge import GitMerger, RunGit
 from physgate.orchestrator.protocols import Gate, Reviewer
 from physgate.orchestrator.queue import ApprovalQueue
+from physgate.orchestrator.role_python import RolePython
+from physgate.orchestrator.role_python import measure as measure_role_python
 from physgate.orchestrator.run_config import (
     RunConfig,
     endpoint_of,
@@ -74,6 +82,9 @@ from physgate.orchestrator.run_config import (
     require_harness,
     require_reportable,
 )
+from physgate.reviewers.claude import ReviewerSetup, claude_reviewers
+from physgate.reviewers.exceptions import ReviewError
+from physgate.reviewers.places import require_review_root
 
 #: Example parameters files, one per auth mode.
 EXAMPLES = Path(__file__).resolve().parent / "examples"
@@ -90,32 +101,41 @@ RUN_GUIDANCE = (
 )
 
 
+#: Builds a driven run's reviewers from its setup, once the run's facts are known.
+ReviewerFactory = Callable[[ReviewerSetup], Mapping[str, Reviewer]]
+
+
 @dataclass(frozen=True)
 class Registrations:
     """The gate and the reviewers a run may use.
 
     There is no pass-through default: with none registered, a run in a gate mode
-    that needs a gate, or with a role that has no reviewer, refuses to start.
+    that needs a gate, or with a role that has no reviewer, refuses to start. The
+    reviewers are given built, or as a factory the run calls with its own setup
+    (its binary, credential, installation and review root); the factory is used
+    only when none are given built.
     """
 
     gate: Gate | None = None
     reviewers: Mapping[str, Reviewer] = field(default_factory=dict)
+    reviewer_factory: ReviewerFactory | None = None
 
 
 def default_registrations() -> Registrations:
     """The registrations the ``physgate`` command runs with.
 
-    The physics gate is registered here as a plain import a reader can follow; the
-    reviewers are not yet, so a run still refuses to start until they are. Built
-    only when a run is driven: the gate loads its bounds table and its unit and
-    symbolic tools, which no other command needs.
+    The physics gate and a paired Claude reviewer per role, each registered here as
+    a plain import a reader can follow. Built only when a run is driven: the gate
+    loads its bounds table and its unit and symbolic tools, which no other command
+    needs; the reviewers are built by the run itself, which loads each role's
+    promoted rubric before anything is dispatched.
 
     Raises:
         BoundsTableError: the gate's bounds table does not load; no gate is built.
     """
     from physgate.gate.runner import PhysicsGate
 
-    return Registrations(gate=PhysicsGate())
+    return Registrations(gate=PhysicsGate(), reviewer_factory=claude_reviewers)
 
 
 def add_parsers(
@@ -135,6 +155,15 @@ def add_parsers(
             required=True,
             type=Path,
             help="the hooks' read-only installation; built there if it does not exist",
+        )
+        command.add_argument(
+            "--review-root",
+            required=True,
+            type=Path,
+            help=(
+                "where reviews are prepared (by convention ~/review-scratch): outside every "
+                "checkout, and named so that no path in it says what is measured"
+            ),
         )
         command.set_defaults(
             func=functools.partial(_drive, resume=resume, registrations=registrations)
@@ -253,6 +282,14 @@ def _config(args: argparse.Namespace) -> RunConfig:
     # Measured, never chosen: a parameters file that names the harness is overruled.
     harness = harness_state(_harness_root())
     require_reportable(harness, reportable=params.get("reportable") is True)
+    if params.get("role_python") is not None:
+        # Measured, never taken from the parameters: only the path is theirs to name.
+        named = params["role_python"]
+        if not isinstance(named, str):
+            msg = "role_python names the role sessions' interpreter by its path, or is null"
+            raise RunConfigError(msg)
+        measured = measure_role_python(named, probe=probe_interpreter, harness=_harness_root())
+        params = {**params, "role_python": measured}
     fields = {
         **params,
         "run_id": args.run_id,
@@ -263,6 +300,8 @@ def _config(args: argparse.Namespace) -> RunConfig:
         "endpoint": endpoint_of(os.environ.get("ANTHROPIC_BASE_URL")),
         "harness": harness.model_dump(),
     }
+    if isinstance(fields.get("role_python"), RolePython):
+        fields["role_python"] = fields["role_python"].model_dump()
     return RunConfig.model_validate_json(json.dumps(fields))
 
 
@@ -368,7 +407,30 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
         # The recorded mode decides which secret the run needs; a resume cannot change it.
         credential = credential_for(config.auth, os.environ)
         # The gate and the reviewers first: without them nothing else is worth building.
-        refuse_unregistered(config, registrations.gate, registrations.reviewers)
+        require_gate(config, registrations.gate)
+        # Where reviews are prepared: refused before any is, if a reviewer reading a path
+        # beneath it could tell what it is reading, or it sits inside a checkout.
+        review_root = require_review_root(args.review_root)
+        install = args.install.resolve()
+        reviewers = registrations.reviewers
+        if not reviewers and registrations.reviewer_factory is not None:
+            library = _library_root()
+            if library is None:
+                msg = "the reviewers' rubrics are read from a source checkout, and there is none"
+                raise ReviewerNotRegisteredError(msg)
+            reviewers = registrations.reviewer_factory(
+                ReviewerSetup.of_run(
+                    config,
+                    review_root=review_root,
+                    repo=args.target.resolve(),
+                    install_bin=install / "bin" / "physgate",
+                    binary=claude_binary(),
+                    base_url=os.environ.get("ANTHROPIC_BASE_URL"),
+                    credential=credential,
+                    library=library,
+                )
+            )
+        refuse_unregistered(config, registrations.gate, reviewers)
         # The same provider, or the run's numbers would mean something else.
         require_endpoint(config, os.environ.get("ANTHROPIC_BASE_URL"))
         # The same code: a run continued on other code is two runs under one name.
@@ -376,7 +438,6 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
         if not (run_dir / "events.jsonl").exists():
             msg = "the run was never started; decompose it first"
             raise RunStateError(msg, run_dir=str(run_dir))
-        install = args.install.resolve()
         started = time.monotonic()
         action: Literal["checked", "built"] = "checked" if install.exists() else "built"
         if action == "checked":
@@ -394,7 +455,7 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
             config=config,
             run_dir=run_dir,
             gate=registrations.gate,
-            reviewers=registrations.reviewers,
+            reviewers=reviewers,
             dispatcher=ClaudeDispatcher(
                 config=config,
                 run=run,
@@ -403,12 +464,13 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
                 binary=claude_binary(),
                 base_url=os.environ.get("ANTHROPIC_BASE_URL"),
                 credential=credential,
+                review_root=review_root,
             ),
             changes=GitChangeChecker(run, store_root, {e.subtask_id: e.module_dir for e in plan}),
             merger=GitMerger(run, removal_timeout_s=REMOVAL_TIMEOUT_S),
             graph=keeper,
         )
-    except OrchestratorError as exc:
+    except (OrchestratorError, ReviewError) as exc:
         return _fail(str(exc), **exc.context)
     try:
         # The check ran before the log was open; it is recorded now, before any spawn.

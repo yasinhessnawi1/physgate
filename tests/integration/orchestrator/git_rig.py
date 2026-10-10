@@ -288,6 +288,8 @@ PARAMS = {
     "reportable",
     "effort",
     "max_output_tokens",
+    "thinking_display",
+    "role_python",
 }
 
 
@@ -317,6 +319,8 @@ def config(run_id: str = "run-1") -> RunConfig:
         harness=MEASURED_HARNESS,
         effort="high",
         max_output_tokens=64000,
+        thinking_display="summarized",
+        role_python=None,
     )
 
 

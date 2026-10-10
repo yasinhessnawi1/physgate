@@ -228,6 +228,7 @@ def repeat_run(
     target: Path,
     install: Path,
     runs_dir: Path,
+    review_root: Path,
     driver: Driver | None = None,
 ) -> VarianceReport:
     """Make the recorded run ``n - 1`` more times and measure the variance over all ``n``.
@@ -254,6 +255,7 @@ def repeat_run(
             run_dir=Path(runs_dir) / run_id,
             target=target,
             install=install,
+            review_root=review_root,
             driver=driver,
         )
         repeats.append(Path(runs_dir) / run_id)

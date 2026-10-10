@@ -20,7 +20,7 @@ from hook_helpers import bash, event
 from physgate.hooks import paths
 from physgate.hooks import shell_paths as sp
 from physgate.hooks.config import HookInput, SessionConfig
-from physgate.hooks.reasons import ANSWER_KEY_REASON
+from physgate.hooks.reasons import ANSWER_KEY_REASON, OUTSIDE_REVIEW_REASON
 from physgate.hooks.settings import InstallRequest, build_config
 from physgate.hooks.settings import current_installation as installation
 
@@ -50,6 +50,11 @@ def _config(root: Path, profile: str) -> SessionConfig:
             user_home=str(root / "outside" / "home"),
             token_ceiling=1000,
             answer_keys=(str(root / "outside" / "corpus"),),
+            # The worktree and the named corpus: wide enough that the answer-key rule,
+            # not the reviewer's allowance, is what decides here.
+            read_roots=(str(root / "worktree"), str(root / "outside" / "corpus"))
+            if profile == "reviewer"
+            else (),
         ),
         installation(),
     )
@@ -106,7 +111,10 @@ def test_the_other_profiles_may_read_it(root: Path, target: str, profile: str) -
     ids=["cat", "grep over a glob", "ls the directory", "after a cd"],
 )
 def test_a_reviewer_cannot_read_a_corpus_through_the_shell(root: Path, command: str) -> None:
-    assert ANSWER_KEY_REASON in _shell(root, command, "reviewer")
+    # After a cd out of its allowance, every word a reviewer names is outside it, so
+    # the allowance refuses first; inside the allowance the answer-key rule does.
+    told = _shell(root, command, "reviewer")
+    assert ANSWER_KEY_REASON in told or OUTSIDE_REVIEW_REASON in told
 
 
 @pytest.mark.parametrize(

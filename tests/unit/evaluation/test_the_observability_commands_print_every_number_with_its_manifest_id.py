@@ -93,7 +93,7 @@ def test_variance_prints_n_and_each_run_s_manifest_id(
         read_manifest(r).manifest_id for r in runs
     ]
     missing = refused(capsys, ["variance", "--repeat", str(runs[0])])
-    assert missing["missing"] == "n,brief,target,install,runs_dir"
+    assert missing["missing"] == "n,brief,target,install,runs_dir,review_root"
 
 
 def test_compare_prints_both_manifest_ids_or_refuses_across_drift(
@@ -115,7 +115,14 @@ def test_a_rerun_refused_before_anything_runs_exits_two(
     other = tmp_path / "other.md"
     other.write_text("Something else.\n")
     common = ["--run-id", "run-r", "--run-dir", str(tmp_path / "run-r")]
-    where = ["--target", str(tmp_path / "target"), "--install", str(tmp_path / "install")]
+    where = [
+        "--target",
+        str(tmp_path / "target"),
+        "--install",
+        str(tmp_path / "install"),
+        "--review-root",
+        str(tmp_path / "review-scratch"),
+    ]
     error = refused(capsys, ["rerun", str(run), "--brief", str(other), *common, *where])
     assert "brief" in error["error"] and not (tmp_path / "run-r").exists()
 
@@ -134,7 +141,19 @@ def test_a_rerun_that_parts_exits_one_and_prints_its_rule_and_first_divergence(
     monkeypatch.setattr(observe_cli, "through_the_command", lambda _registrations: driver)
     argv = ["rerun", str(run), "--brief", str(brief), "--run-id", "run-r"]
     where = ["--run-dir", str(elsewhere / "run-r"), "--target", str(tmp_path / "target")]
-    assert main([*argv, *where, "--install", str(tmp_path / "install")]) == 1
+    assert (
+        main(
+            [
+                *argv,
+                *where,
+                "--install",
+                str(tmp_path / "install"),
+                "--review-root",
+                str(tmp_path / "review-scratch"),
+            ]
+        )
+        == 1
+    )
     shown = json.loads(capsys.readouterr().out)
     assert (shown["reproduced"], shown["rule"]) == (False, "exact")
     assert (shown["first"]["record"], shown["first"]["field"]) == ("events", "attempt_commit")

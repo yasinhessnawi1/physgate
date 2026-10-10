@@ -11,6 +11,7 @@ recorded configuration).
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 from pathlib import Path
@@ -35,6 +36,7 @@ from physgate.orchestrator.common import (
 )
 from physgate.orchestrator.exceptions import GitError, RunConfigError
 from physgate.orchestrator.git import git
+from physgate.orchestrator.role_python import RolePython
 
 
 class _Frozen(BaseModel):
@@ -197,6 +199,10 @@ def harness_state(root: Path | None) -> HarnessState:
     )
 
 
+#: How a role session's reasoning appears in its trajectory (``--thinking-display``).
+ThinkingDisplay = Literal["summarized", "omitted"]
+
+
 class RunConfig(_Frozen):
     """Everything a run is reproduced from."""
 
@@ -220,6 +226,15 @@ class RunConfig(_Frozen):
     #: Passed to every invocation as ``CLAUDE_CODE_MAX_OUTPUT_TOKENS``: the request's
     #: ``max_tokens``, otherwise a catalog default like the effort level.
     max_output_tokens: Annotated[int, Field(gt=0)]
+    #: Passed to every role session as ``--thinking-display``. ``summarized`` puts a
+    #: summary of the session's reasoning into its trajectory, which its reviewer reads;
+    #: the binary's own default leaves the reasoning out. A run recorded before this
+    #: field existed ran with the default, and reads as ``omitted``.
+    thinking_display: ThinkingDisplay
+    #: The interpreter role sessions find as ``python3``, as measured when the run was
+    #: configured (``role_python.measure``), or ``None`` for none: the parameters name a
+    #: path or null. A run recorded before the field existed named none, and reads so.
+    role_python: RolePython | None
 
     @model_validator(mode="after")
     def _reportable_needs_a_clean_commit(self) -> RunConfig:
@@ -229,8 +244,18 @@ class RunConfig(_Frozen):
         return self
 
     def canonical_bytes(self) -> bytes:
-        """The recorded form: stable key order, so equal configs are equal bytes."""
-        return self.model_dump_json(indent=None).encode() + b"\n"
+        """The recorded form: stable key order, so equal configs are equal bytes.
+
+        ``thinking_display`` is left out when it is ``omitted``, what every run before
+        the field existed ran with, and ``role_python`` when it is ``None``, so their
+        recorded digests still name them.
+        """
+        exclude = set()
+        if self.thinking_display == "omitted":
+            exclude.add("thinking_display")
+        if self.role_python is None:
+            exclude.add("role_python")
+        return self.model_dump_json(indent=None, exclude=exclude or None).encode() + b"\n"
 
     def sha256(self) -> str:
         """Digest of the recorded form, carried on the run's first event."""
@@ -298,6 +323,17 @@ def load_run_config(path: Path) -> RunConfig:
     except FileNotFoundError:
         msg = "no run configuration is recorded"
         raise RunConfigError(msg, path=str(path)) from None
+    try:
+        recorded = json.loads(raw)
+    except ValueError:  # not JSON, or not UTF-8: left to the validation below to refuse
+        recorded = None
+    if isinstance(recorded, dict) and "thinking_display" not in recorded:
+        # Recorded before the field existed: the binary's default, which is ``omitted``.
+        recorded = {**recorded, "thinking_display": "omitted"}
+        raw = json.dumps(recorded).encode()
+    if isinstance(recorded, dict) and "role_python" not in recorded:
+        # Recorded before the field existed: no interpreter was named.
+        raw = json.dumps({**recorded, "role_python": None}).encode()
     try:
         return RunConfig.model_validate_json(raw)
     except ValidationError as exc:

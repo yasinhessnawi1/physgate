@@ -12,6 +12,7 @@ from orch_helpers import gate_records, make_config, ticking_clock
 
 from physgate.orchestrator.budget import InfraCause, SessionEnd
 from physgate.orchestrator.common import GateMode
+from physgate.orchestrator.exceptions import ReviewUnavailableError
 from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.ports import (
     ChangeCheck,
@@ -64,6 +65,8 @@ class FakeDispatcher:
     tampered: dict[int, str] = field(default_factory=dict)
     #: Per call: the digest of the policy limits the session's invocation received.
     policy: dict[int, str] = field(default_factory=dict)
+    #: Per call: a canary of reviewer material found in the session's stream.
+    material: dict[int, str] = field(default_factory=dict)
     #: Where to write real, sealed trajectory files; None keeps them notional.
     trajectories: Path | None = None
     #: Per call: something done while the session runs.
@@ -85,11 +88,19 @@ class FakeDispatcher:
             self.during[call]()
         sid = f"sess-{call}"
         if call in self.infra:
+            infra_trajectory, infra_seal = None, None
+            if self.trajectories is not None:
+                # A session that ran and then ended for infrastructure leaves its stream.
+                path = self.trajectories / sid / "stdout.jsonl"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b'{"type": "result", "session": "' + sid.encode() + b'"}\n')
+                infra_trajectory, infra_seal = str(path), seal(path.read_bytes())
             return SessionReport(
                 session_id=sid,
                 end=SessionEnd(outcome="infrastructure", cause=self.infra[call]),
                 attempt_commit=None,
-                trajectory=None,
+                trajectory=infra_trajectory,
+                trajectory_seal=infra_seal,
                 worktree=None,
                 reading_verified=False,
                 node_files_halted=False,
@@ -114,6 +125,7 @@ class FakeDispatcher:
             node_files_halted=call in self.halted,
             managed_drift=self.drift.get(call),
             policy_limits_sha256=self.policy.get(call),
+            review_material_seen=self.material.get(call),
             usage=(
                 MessageUsage(message_id=f"m{call}a", usage=usage(10)),
                 MessageUsage(message_id=f"m{call}a", usage=usage(10)),
@@ -194,12 +206,20 @@ class FakeReviewer:
     verdicts: list[str] = field(default_factory=list)
     seen: list[Artefact] = field(default_factory=list)
     kill_on: int | None = None
+    #: Per call: a review that is not a verdict, raised instead of answering.
+    unavailable: dict[int, ReviewUnavailableError] = field(default_factory=dict)
+    #: Per call: the whole result to answer with, in place of the verdict list's.
+    results: dict[int, ReviewResult] = field(default_factory=dict)
 
     def review(self, artefact: Artefact) -> ReviewResult:
         self.seen.append(artefact)
         if len(self.seen) == self.kill_on:
             raise KilledError
         n = len(self.seen)
+        if n in self.unavailable:
+            raise self.unavailable[n]
+        if n in self.results:
+            return self.results[n]
         verdict = self.verdicts[n - 1] if n <= len(self.verdicts) else "pass"
         return ReviewResult(
             verdict=verdict,  # type: ignore[arg-type]
@@ -230,6 +250,9 @@ class FakeMerger:
 
     def run_branch_moved(self, expected: str, pending: str | None) -> str | None:
         return None
+
+    def review_base(self, attempt_commit: str) -> str:
+        return "0" * 40
 
     def artefact_diff(self, attempt_commit: str) -> str:
         return f"diff --git a/x b/x\n+ attempt {attempt_commit[:8]}\n"

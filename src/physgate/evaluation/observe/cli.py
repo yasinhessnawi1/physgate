@@ -20,7 +20,12 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel
 
 from physgate.evaluation.observe.compare import compare
-from physgate.evaluation.observe.cost import append_cost_line, load_price_sheet, price_run
+from physgate.evaluation.observe.cost import (
+    append_cost_line,
+    append_ratio_line,
+    load_price_sheet,
+    price_run,
+)
 from physgate.evaluation.observe.exceptions import ObserveError
 from physgate.evaluation.observe.manifest import read_manifest
 from physgate.evaluation.observe.rerun import rerun, through_the_command
@@ -76,6 +81,16 @@ def _cost(args: argparse.Namespace) -> int:
     return 0
 
 
+def _ratio(args: argparse.Namespace) -> int:
+    from physgate.evaluation.observe.generalist import ratio_line_from
+
+    line = ratio_line_from(args.baseline)
+    if args.append is not None:
+        append_ratio_line(args.append, line)
+    _print(line, appended_to=str(args.append or ""))
+    return 0
+
+
 def _rerun(args: argparse.Namespace, *, registrations: Registrations | None) -> int:
     result = rerun(
         args.recorded,
@@ -84,6 +99,7 @@ def _rerun(args: argparse.Namespace, *, registrations: Registrations | None) -> 
         run_dir=args.run_dir,
         target=args.target,
         install=args.install,
+        review_root=args.review_root,
         driver=through_the_command(registrations),
     )
     first = result.first
@@ -101,10 +117,15 @@ def _variance(args: argparse.Namespace, *, registrations: Registrations | None) 
         report = measure_variance(args.runs)
     else:
         missing = [
-            n for n in ("n", "brief", "target", "install", "runs_dir") if not getattr(args, n)
+            n
+            for n in ("n", "brief", "target", "install", "runs_dir", "review_root")
+            if not getattr(args, n)
         ]
         if missing:
-            msg = "repeating a run needs -n, --brief, --target, --install and --runs-dir"
+            msg = (
+                "repeating a run needs -n, --brief, --target, --install, --runs-dir and "
+                "--review-root"
+            )
             raise ObserveError(msg, missing=",".join(missing))
         report = repeat_run(
             args.repeat,
@@ -113,6 +134,7 @@ def _variance(args: argparse.Namespace, *, registrations: Registrations | None) 
             target=args.target,
             install=args.install,
             runs_dir=args.runs_dir,
+            review_root=args.review_root,
             driver=through_the_command(registrations),
         )
     _print(report)
@@ -154,6 +176,7 @@ def add_parsers(
     r.add_argument("--run-dir", required=True, type=Path, help="the rerun's run directory")
     r.add_argument("--target", required=True, type=Path, help="the target repository")
     r.add_argument("--install", required=True, type=Path, help="the hooks' installation")
+    r.add_argument("--review-root", required=True, type=Path, help="where reviews are prepared")
     r.set_defaults(func=_guarded(functools.partial(_rerun, registrations=registrations)))
 
     v = subparsers.add_parser(
@@ -167,6 +190,7 @@ def add_parsers(
     v.add_argument("--target", type=Path, help="with --repeat: the target repository")
     v.add_argument("--install", type=Path, help="with --repeat: the hooks' installation")
     v.add_argument("--runs-dir", type=Path, help="with --repeat: where the repeats are made")
+    v.add_argument("--review-root", type=Path, help="with --repeat: where reviews are prepared")
     v.set_defaults(func=_guarded(functools.partial(_variance, registrations=registrations)))
 
     p = subparsers.add_parser(
@@ -175,3 +199,92 @@ def add_parsers(
     p.add_argument("baseline", type=Path)
     p.add_argument("candidate", type=Path)
     p.set_defaults(func=_guarded(_compare))
+
+    g = subparsers.add_parser(
+        "generalist",
+        help="review one reviewed attempt again with the generalist rubric, and print the ratio",
+        description=(
+            "Review a finished run's attempt again, as its paired review read it, with the "
+            "role's rubric less its domain sections, and print paired over generalist tokens "
+            "and cost (n = 1)."
+        ),
+    )
+    g.add_argument("--run-dir", required=True, type=Path, help="the finished run")
+    g.add_argument("--subtask", required=True)
+    g.add_argument("--attempt", required=True, type=int)
+    g.add_argument("--target", required=True, type=Path, help="the run's target repository")
+    g.add_argument("--install", required=True, type=Path, help="the hooks' installation")
+    g.add_argument("--review-root", required=True, type=Path, help="the run's review root")
+    g.add_argument("--out", required=True, type=Path, help="a new directory for the review")
+    g.add_argument("--run-id", required=True, help="the generalist review's own run id")
+    g.add_argument("--prices", required=True, help="the price sheet's date, e.g. 2026-09-27")
+    g.set_defaults(func=_guarded(_generalist))
+
+    q = subparsers.add_parser(
+        "ratio",
+        help="read a generalist review's ratio as a trend line; optionally append it",
+        description=(
+            "Read the paired-versus-generalist ratio a `physgate generalist` review wrote, "
+            "held to the records beside it, as a line of the cost trend. No model is called "
+            "and nothing is rerun."
+        ),
+    )
+    q.add_argument("--baseline", required=True, type=Path, help="the review's baseline.json")
+    q.add_argument("--append", type=Path, help="the trend file to append the ratio line to")
+    q.set_defaults(func=_guarded(_ratio))
+
+
+def _generalist(args: argparse.Namespace) -> int:
+    import os
+
+    from physgate.evaluation.observe.generalist import (
+        BASELINE_NAME,
+        paired_review,
+        read_packet,
+        review_ratio,
+        run_generalist,
+    )
+    from physgate.orchestrator.cli import _library_root
+    from physgate.orchestrator.credentials import credential_for
+    from physgate.orchestrator.exceptions import ReviewerNotRegisteredError
+    from physgate.orchestrator.invocation import claude_binary
+    from physgate.orchestrator.run_config import load_run_config, require_endpoint
+    from physgate.reviewers.exceptions import ReviewError
+    from physgate.reviewers.places import require_review_root
+
+    run_dir = args.run_dir.resolve()
+    config = load_run_config(run_dir / "run.json")
+    base_url = os.environ.get("ANTHROPIC_BASE_URL")
+    require_endpoint(config, base_url)
+    prices = load_price_sheet(args.prices)
+    library = _library_root()
+    if library is None:
+        msg = "the rubrics are read from a source checkout, and there is none"
+        raise ReviewerNotRegisteredError(msg)
+    try:
+        review_root = require_review_root(args.review_root)
+        install_bin = args.install.resolve() / "bin" / "physgate"
+        ran, packet = run_generalist(
+            run_dir=run_dir,
+            subtask_id=args.subtask,
+            attempt=args.attempt,
+            out=args.out.resolve(),
+            run_id=args.run_id,
+            review_root=review_root,
+            target=args.target.resolve(),
+            install_bin=install_bin,
+            binary=claude_binary(),
+            base_url=base_url,
+            credential=credential_for(config.auth, os.environ),
+            library=library,
+        )
+    except ReviewError as exc:
+        print(json.dumps({"error": str(exc), **exc.context}, sort_keys=True), file=sys.stderr)
+        return 2
+    paired, _ = paired_review(run_dir, args.subtask, args.attempt)
+    ratio = review_ratio(
+        (paired.result, read_packet(review_root, paired.result)), (ran.result, packet), prices
+    )
+    (args.out.resolve() / BASELINE_NAME).write_text(ratio.model_dump_json(indent=1) + "\n")
+    _print(ratio)
+    return 0

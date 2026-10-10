@@ -114,6 +114,13 @@ class SessionConfig(BaseModel):
     #: Evaluation corpora that carry their own answers: no session writes them, and
     #: a reviewer does not read them.
     answer_keys: tuple[AbsolutePath, ...]
+    #: A reviewer's whole read allowance: it may read beneath these and nowhere else.
+    #: Empty for every other profile, and never empty for a reviewer.
+    read_roots: tuple[AbsolutePath, ...]
+    #: What only a reviewer reads, its rubric among it: no other session reads it,
+    #: because an implementer that could read what its reviewer looks for could steer
+    #: around it. Empty for a reviewer.
+    review_material: tuple[AbsolutePath, ...]
     required_reading: tuple[AbsolutePath, ...]
     always_loaded: tuple[AbsolutePath, ...]
     token_ceiling: Annotated[int, Field(gt=0)]
@@ -126,6 +133,12 @@ class SessionConfig(BaseModel):
     def _coherent(self) -> Self:
         if self.profile == "role" and not self.role:
             msg = "a role session must name its role"
+            raise ValueError(msg)
+        if (self.profile == "reviewer") != bool(self.read_roots):
+            msg = "a reviewer reads only beneath its read roots, and only a reviewer has them"
+            raise ValueError(msg)
+        if self.profile == "reviewer" and self.review_material:
+            msg = "a reviewer is not withheld what it reviews with"
             raise ValueError(msg)
         if self.watchdog_seconds + WATCHDOG_MARGIN_SECONDS > self.hook_timeout_seconds:
             msg = (
@@ -172,3 +185,5 @@ class HookInput(BaseModel):
     tool_input: dict[str, Any] | None = None
     tool_response: Any = None
     agent_id: str | None = None
+    #: Why a tool call failed, on ``PostToolUseFailure``.
+    error: str | None = None

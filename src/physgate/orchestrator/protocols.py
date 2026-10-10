@@ -27,6 +27,9 @@ Count = Annotated[int, Field(ge=0)]
 #: exists at all; the loop records that the stage was skipped and why.
 RunningGateMode = Literal["on", "observe"]
 Verdict = Literal["pass", "fail"]
+#: What a review comes to: a pass, a fail, or blocked (the issued specification lacks
+#: what a safety-critical check needs; a person decides, and no attempt is spent).
+ReviewVerdict = Literal["pass", "fail", "blocked"]
 
 
 class _Frozen(BaseModel):
@@ -74,8 +77,33 @@ class MessageUsage(_Frozen):
     usage: Usage
 
 
+#: A session's captured stream of events, or a written account of a revision.
+TrajectoryForm = Literal["session_stream", "account"]
+
+
+class IssuedSpec(_Frozen):
+    """A module specification as the decomposition issued it, and its digest then.
+
+    ``commit`` is the commit that issued it; ``sha256`` was taken before the attempt
+    was dispatched, so the bytes read at review must still be these.
+    """
+
+    commit: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
+    path: NonEmptyStr
+    sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+
+
 #: Where the gate checks one attempt. System scope is the integration call's alone.
 AttemptScope = Literal["subtask", "module"]
+
+
+class SessionTrajectory(_Frozen):
+    """One session's captured stream, with the seal taken when the session ended."""
+
+    session_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
+    trajectory: NonEmptyStr
+    trajectory_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+    trajectory_length: Annotated[int, Field(ge=0)]
 
 
 class Artefact(_Frozen):
@@ -98,6 +126,20 @@ class Artefact(_Frozen):
     #: The trajectory's seal from the end of its session, for a reader to hold it to.
     trajectory_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")] | None = None
     trajectory_length: Annotated[int, Field(ge=0)] | None = None
+    #: What the trajectory file is: a session's captured event stream, or, for an
+    #: artefact no session produced, a written account of the revision.
+    trajectory_form: TrajectoryForm = "session_stream"
+    #: The commit the attempt's change is read against: where it left the run branch.
+    base_commit: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")] | None = None
+    #: The specification the attempt was issued, when a decomposition issued one.
+    issued_spec: IssuedSpec | None = None
+    #: The repository holding the attempt's commit, when it is not the run's own.
+    repository: NonEmptyStr | None = None
+    #: The sessions of this attempt before the one that completed it, in order: each ended
+    #: for infrastructure (its turn limit, its wall clock, an API error) and was followed by
+    #: a fresh session in the same worktree. The attempt's trajectory is all of them, then
+    #: :attr:`trajectory`.
+    earlier_sessions: tuple[SessionTrajectory, ...] = ()
 
     @model_validator(mode="after")
     def _own_nodes_always(self) -> Artefact:
@@ -361,14 +403,178 @@ class GateResult(_Frozen):
         return self
 
 
-class ReviewResult(_Frozen):
-    """What a reviewer hands back, with the tokens it spent doing it."""
+#: The rubric's four sections, as a verdict names them (ARCH-062).
+RubricSection = Literal["acceptance_criteria", "domain_standards", "antipatterns", "reward_hacking"]
+#: What a verdict says of one rubric item, in each section's own words (the approved
+#: rubrics'): an acceptance criterion is ``met``, ``unmet`` or ``not evaluable``; a
+#: domain standard or a skill-file antipattern is ``met``, ``unmet``, ``n/a`` (its
+#: trigger is absent, with evidence) or ``not evaluable``; a reward-hacking indicator
+#: is ``not observed``, ``noted`` (only suggested) or ``confirmed``. ``unmet`` and
+#: ``confirmed`` reject. ``not evaluable`` is named by a specification defect, as the
+#: role's rubric requires.
+ItemResult = Literal["met", "unmet", "n/a", "not evaluable", "not observed", "noted", "confirmed"]
+#: The results each section allows.
+SECTION_RESULTS: dict[str, tuple[str, ...]] = {
+    "acceptance_criteria": ("met", "unmet", "not evaluable"),
+    "domain_standards": ("met", "unmet", "n/a", "not evaluable"),
+    "antipatterns": ("met", "unmet", "n/a", "not evaluable"),
+    "reward_hacking": ("not observed", "noted", "confirmed"),
+}
+#: The results that reject.
+REJECTING_RESULTS = frozenset({"unmet", "confirmed"})
+#: What a verdict says of one acceptance criterion of the issued specification.
+CriterionResult = Literal["met", "unmet", "not evaluable"]
+IndicatorKind = Literal["feature_isolation", "hard_coded_values", "disabled_checks"]
+#: Confirmed rejects; noted is reported and does not; dismissed says why it is not one.
+IndicatorDisposition = Literal["confirmed", "noted", "dismissed"]
 
-    verdict: Verdict
+
+class ItemVerdict(_Frozen):
+    """What the review found for one rubric item."""
+
+    item: NonEmptyStr
+    section: RubricSection
+    result: ItemResult
+    #: Where in the diff, the worktree or the trajectory: file and line, or a tool call.
+    evidence: str
+
+    @model_validator(mode="after")
+    def _a_result_its_section_allows(self) -> ItemVerdict:
+        if self.result not in SECTION_RESULTS[self.section]:
+            allowed = ", ".join(SECTION_RESULTS[self.section])
+            msg = f"a {self.section} item is answered {allowed}, never {self.result}"
+            raise ValueError(msg)
+        if self.result == "n/a" and not self.evidence.strip():
+            msg = "not applicable names the evidence that the item's trigger is absent"
+            raise ValueError(msg)
+        return self
+
+
+class CriterionDefect(_Frozen):
+    """What the issued specification lacks for one criterion, and whether that blocks."""
+
+    finding: NonEmptyStr
+    blocking: bool
+
+
+class CriterionVerdict(_Frozen):
+    """What the review found for one acceptance criterion of the issued specification."""
+
+    #: The criterion's own reference: its number in the issued specification, or its text.
+    criterion: NonEmptyStr
+    result: CriterionResult
+    evidence: NonEmptyStr
+    #: The line's own specification defect, which a criterion not evaluable carries.
+    defect: CriterionDefect | None = None
+
+    @model_validator(mode="after")
+    def _not_evaluable_carries_its_defect(self) -> CriterionVerdict:
+        if self.result == "not evaluable" and self.defect is None:
+            msg = "a criterion not evaluable carries its own defect: what the specification lacks"
+            raise ValueError(msg)
+        return self
+
+
+class IndicatorReport(_Frozen):
+    """One reward-hacking indicator: raised by the review, or shown to it by the scan."""
+
+    kind: IndicatorKind
+    evidence: NonEmptyStr
+    disposition: IndicatorDisposition
+    reason: NonEmptyStr
+
+
+class SpecDefect(_Frozen):
+    """A finding against the specification as issued, not against the attempt.
+
+    It goes to the approval queue as a note on the decomposition. A non-blocking one
+    never changes the verdict. A blocking one is a safety-critical check that cannot
+    be decided because the issued specification lacks its input: alone, it makes the
+    review ``blocked``, which only the decomposition can resolve; beside a rejecting
+    finding, the review is a reject that also names it.
+    """
+
+    finding: NonEmptyStr
+    blocking: bool
+    item: NonEmptyStr | None = None
+
+
+#: Why a review that ran is not a verdict. A blocked review is a verdict, so it has none.
+UnavailableCause = Literal[
+    "infrastructure",
+    "refused",
+    "no_verdict",
+    "invalid_verdict",
+    "reading_incomplete",
+    "compacted",
+    "context_exceeded",
+    "unprepared",
+]
+
+#: A cause logs written before a blocked review became a review line carry: a blocked
+#: review recorded as one with no verdict. It is read as written, never reinterpreted,
+#: and nothing writes it any more.
+LegacyUnavailableCause = Literal["blocking_spec_defect"]
+#: Every cause a recorded no-verdict line may carry, the legacy one included.
+RecordedUnavailableCause = UnavailableCause | LegacyUnavailableCause
+
+
+class ReviewResult(_Frozen):
+    """What a reviewer hands back, with the tokens it spent doing it.
+
+    The fields after ``usage`` were added with the paired reviewers and are optional,
+    so a review line written before them still reads. ``blocked`` is a verdict: no
+    rejecting finding and at least one blocking specification defect. It is not a
+    pass or a fail; the attempt goes to a person, spending no repair attempt.
+    """
+
+    verdict: ReviewVerdict
     finding: NonEmptyStr
     reviewer_model: ModelString
     session_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
     usage: tuple[MessageUsage, ...]
+    #: The rubric item that rejects, on a fail.
+    failing_item: NonEmptyStr | None = None
+    subject: NonEmptyStr | None = None
+    numeric_output: NumericOutput | None = None
+    items: tuple[ItemVerdict, ...] = ()
+    #: One line per acceptance criterion of the issued specification.
+    criteria: tuple[CriterionVerdict, ...] = ()
+    indicators: tuple[IndicatorReport, ...] = ()
+    spec_defects: tuple[SpecDefect, ...] = ()
+    rubric_sha256: Sha256 | None = None
+    rubric_kind: Literal["paired", "generalist"] | None = None
+    packet_sha256: Sha256 | None = None
+    reading_verified: bool | None = None
+    #: The largest context any of the review's model messages had, in tokens.
+    peak_context_tokens: Count | None = None
+    #: How many structured answers the binary refused before this one, each told to the
+    #: reviewer inside its session.
+    schema_refusals: Count | None = None
+    #: The output-token limit the review ran with. The window the binary keeps a
+    #: session within depends on it, so a peak is read against both.
+    max_output_tokens: Count | None = None
+    #: The context window the binary reported for the review's model, if it did.
+    context_window: Count | None = None
+
+    @model_validator(mode="after")
+    def _a_verdict_is_consistent(self) -> ReviewResult:
+        rejecting = (
+            any(i.result in REJECTING_RESULTS for i in self.items)
+            or any(c.result == "unmet" for c in self.criteria)
+            or any(r.disposition == "confirmed" for r in self.indicators)
+        )
+        blocking = any(d.blocking for d in self.spec_defects)
+        if self.verdict == "pass" and (rejecting or blocking):
+            msg = "a pass carries no rejecting finding and no blocking specification defect"
+            raise ValueError(msg)
+        if self.verdict == "fail" and blocking and not rejecting:
+            msg = "a review whose only obstacle is a blocking defect is blocked, not a fail"
+            raise ValueError(msg)
+        if self.verdict == "blocked" and (rejecting or not blocking):
+            msg = "blocked is a blocking specification defect and no rejecting finding"
+            raise ValueError(msg)
+        return self
 
 
 @runtime_checkable

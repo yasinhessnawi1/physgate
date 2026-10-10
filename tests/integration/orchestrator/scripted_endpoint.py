@@ -38,6 +38,8 @@ DUMMY_KEY = "sk-ant-test-dummy-not-a-credential"
 #: Shaped like the long-lived token ``claude setup-token`` prints; not one.
 DUMMY_OAUTH_TOKEN = "sk-ant-oat01-test-dummy-not-a-credential"
 SUBAGENT_MARKER = "SUBAGENT-MARKER"
+#: What the binary's compaction request tells the model (measured on 2.1.272).
+COMPACTION_MARKER = "CRITICAL: Respond with TEXT ONLY"
 
 
 def tool(name: str, **tool_input: Any) -> dict[str, Any]:  # noqa: ANN401 - a tool's own input
@@ -48,6 +50,11 @@ def tool(name: str, **tool_input: Any) -> dict[str, Any]:  # noqa: ANN401 - a to
 def text(message: str) -> dict[str, Any]:
     """A scripted step: the model answers with text and stops."""
     return {"text": message}
+
+
+def failure(status: int, kind: str, message: str) -> dict[str, Any]:
+    """A scripted step: the API answers with an error, as the real one shapes it."""
+    return {"error": {"status": status, "type": kind, "message": message}}
 
 
 @dataclass
@@ -82,6 +89,9 @@ class Recorded:
     effort: str | None = None
     max_tokens: int | None = None
     thinking: dict[str, Any] | None = None
+    #: The text of what the binary placed after the last user turn: a hook's context
+    #: after a failed tool call arrives there, as a ``system`` message.
+    after_user: str = ""
 
 
 def _text_of(content: Any) -> str:  # noqa: ANN401 - the Messages API's own content shape
@@ -110,6 +120,12 @@ def _last_user(messages: list[dict[str, Any]]) -> str:
     return ""
 
 
+def _after_user(messages: list[dict[str, Any]]) -> str:
+    """The text of the messages after the last user turn."""
+    last = max((i for i, m in enumerate(messages) if m.get("role") == "user"), default=-1)
+    return "\n".join(_text_of(m.get("content")) for m in messages[last + 1 :])
+
+
 def _results(messages: list[dict[str, Any]]) -> int:
     return sum(
         1
@@ -132,7 +148,9 @@ FINAL_USAGE = {**START_USAGE, "output_tokens": 9}
 
 
 def _events(step: dict[str, Any], model: str, n: int) -> bytes:
-    usage = dict(START_USAGE)
+    # A step may name its own input figures (``usage``), as a message with a large
+    # context would report them.
+    usage = {**START_USAGE, **step.get("usage", {})}
     if "tool" in step:
         start = {"type": "tool_use", "id": f"toolu_fake_{n}", "name": step["tool"], "input": {}}
         delta = {"type": "input_json_delta", "partial_json": json.dumps(step["input"])}
@@ -141,6 +159,7 @@ def _events(step: dict[str, Any], model: str, n: int) -> bytes:
         start = {"type": "text", "text": ""}
         delta = {"type": "text_delta", "text": step["text"]}
         stop = "end_turn"
+    stop = step.get("stop_reason", stop)
     message: dict[str, Any] = {
         "id": f"msg_fake_{n}",
         "type": "message",
@@ -180,7 +199,7 @@ def _events(step: dict[str, Any], model: str, n: int) -> bytes:
             {
                 "type": "message_delta",
                 "delta": {"stop_reason": stop, "stop_sequence": None},
-                "usage": dict(FINAL_USAGE),
+                "usage": {**FINAL_USAGE, **step.get("usage", {})},
             },
         ),
         ("message_stop", {"type": "message_stop"}),
@@ -203,6 +222,74 @@ def _working_directory(messages: list[dict[str, Any]]) -> str:
         if found:
             return found.group(1)
     return ""
+
+
+#: The JSON Schema keywords strict tool use does not support (the structured outputs
+#: page's "JSON Schema limitations"; "Array constraints beyond minItems of 0 or 1" and the
+#: string and numerical constraints are listed there as not supported).
+_NOT_IN_STRICT = (
+    "if",
+    "then",
+    "else",
+    "not",
+    "contains",
+    "maxItems",
+    "minLength",
+    "maxLength",
+    "minimum",
+    "maximum",
+    "multipleOf",
+)
+
+
+def _strict_problem(schema: object, where: str) -> str | None:
+    if isinstance(schema, list):
+        for index, part in enumerate(schema):
+            found = _strict_problem(part, f"{where}.{index}")
+            if found:
+                return found
+        return None
+    if not isinstance(schema, dict):
+        return None
+    for key in _NOT_IN_STRICT:
+        if key in schema:
+            return f"{where}: '{key}' is not supported with strict tool use"
+    if schema.get("minItems", 0) not in (0, 1):
+        return f"{where}: minItems other than 0 or 1 is not supported with strict tool use"
+    if schema.get("type") == "object" and schema.get("additionalProperties") is not False:
+        return f"{where}: additionalProperties must be false with strict tool use"
+    for key, value in schema.items():
+        if isinstance(value, dict | list):
+            found = _strict_problem(value, f"{where}.{key}")
+            if found:
+                return found
+    return None
+
+
+def refused_tools(tools: list[dict[str, Any]]) -> str | None:
+    """Why the API would refuse this request's tool definitions, if it would.
+
+    Two rules, each the API's own:
+    - a user-defined tool's ``input_schema`` with ``oneOf``, ``allOf`` or ``anyOf`` at its
+      top level is refused with exactly this message (measured on the real API: the first
+      request of every review in the second real paired run);
+    - a tool with ``strict: true`` may use only the JSON Schema the structured outputs
+      page lists as supported.
+    """
+    for index, entry in enumerate(tools):
+        if entry.get("type") not in (None, "custom") or "input_schema" not in entry:
+            continue
+        schema = entry["input_schema"]
+        if isinstance(schema, dict) and any(k in schema for k in ("oneOf", "allOf", "anyOf")):
+            return (
+                f"tools.{index}.custom.input_schema: input_schema does not support oneOf, "
+                "allOf, or anyOf at the top level"
+            )
+        if entry.get("strict") is True:
+            found = _strict_problem(schema, f"tools.{index}.custom.input_schema")
+            if found:
+                return found
+    return None
 
 
 class EmptySubstitutionError(ValueError):
@@ -256,6 +343,8 @@ class FakeMessagesApi:
         self.requests: list[Recorded] = []
         #: Every step refused before it was sent, with why. A run that has any is broken.
         self.failures: list[str] = []
+        #: Every request refused as the API refuses it (``refused_tools``), with the message.
+        self.refusals: list[str] = []
         #: Called before a scripted tool-offering request is answered, with the thread,
         #: the session's working directory and how many tool results it carries. It may
         #: block: that holds the request open, as a model that has not answered yet. It
@@ -265,7 +354,16 @@ class FakeMessagesApi:
         self._n = 0
 
     def answer(self, path: str, headers: Any, body: dict[str, Any]) -> tuple[bytes, str]:  # noqa: ANN401
-        """The response to one request, recorded."""
+        """The response to one request, recorded; a request the API would refuse, refused."""
+        refused = refused_tools(body.get("tools") or [])
+        if refused is not None:
+            self.refusals.append(refused)
+            shaped = {
+                "type": "error",
+                "error": {"type": "invalid_request_error", "message": refused},
+                "status": 400,
+            }
+            return json.dumps(shaped).encode(), "application/json"
         key = headers.get("x-api-key")
         auth = headers.get("authorization") or ""
         bearer = auth.removeprefix("Bearer ") if auth.startswith("Bearer ") else auth or None
@@ -277,7 +375,11 @@ class FakeMessagesApi:
         steps = self.script.sub if thread == "sub" else self.script.main
         if not offered:
             step: dict[str, Any] | None = None
-            reply = {"text": "ok"}
+            reply: dict[str, Any] = {"text": "ok"}
+        elif COMPACTION_MARKER in _last_user(messages):
+            # The binary's own request to summarise the conversation, which offers the
+            # session's tools and asks for text: answered as a model would, with text.
+            step, reply = None, {"text": "<summary>The session so far.</summary>"}
         else:
             step = steps[done] if done < len(steps) else {"text": "done"}
             cwd = _working_directory(messages)
@@ -307,6 +409,7 @@ class FakeMessagesApi:
                     tool_results=done,
                     offered_tools=offered,
                     last_user=_last_user(messages),
+                    after_user=_after_user(messages),
                     served=step,
                     structured_schema=next(
                         (
@@ -321,13 +424,22 @@ class FakeMessagesApi:
                     thinking=body.get("thinking"),
                 )
             )
+        if "error" in reply:
+            error = dict(reply["error"])
+            status = error.pop("status")
+            shaped = {"type": "error", "error": error, "status": status}
+            return json.dumps(shaped).encode(), "application/json"
         model = self.script.answer_as or body.get("model", "fake")
         return _events(reply, model, n), "text/event-stream"
 
 
 @contextmanager
-def serving(script: Script) -> Iterator[tuple[FakeMessagesApi, str]]:
-    """Run the fake API on a free local port; yield it and its base URL."""
+def serving(script: Script, port: int = 0) -> Iterator[tuple[FakeMessagesApi, str]]:
+    """Run the fake API on ``port`` (a free one if 0); yield it and its base URL.
+
+    A port is named only to serve a later command of the same run, which the run's
+    recorded endpoint holds to the same address.
+    """
     api = FakeMessagesApi(script)
 
     class Handler(BaseHTTPRequestHandler):
@@ -336,6 +448,7 @@ def serving(script: Script) -> Iterator[tuple[FakeMessagesApi, str]]:
 
         def do_POST(self) -> None:  # noqa: N802 - the name http.server calls
             raw = self.rfile.read(int(self.headers.get("content-length", 0)))
+            status = 200
             if "count_tokens" in self.path:
                 body, ctype = b'{"input_tokens": 1}', "application/json"
             else:
@@ -353,13 +466,17 @@ def serving(script: Script) -> Iterator[tuple[FakeMessagesApi, str]]:
                     self.end_headers()
                     self.wfile.write(body)
                     return
-            self.send_response(200)
+                if ctype == "application/json":  # a scripted error, its status beside it
+                    shaped = json.loads(body)
+                    status = int(shaped.pop("status"))
+                    body = json.dumps(shaped).encode()
+            self.send_response(status)
             self.send_header("content-type", ctype)
             self.send_header("content-length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:

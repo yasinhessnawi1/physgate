@@ -13,25 +13,48 @@ A promoted candidate is written whole into its destination — a `kind:
 human's explicit act of replacing it); a `kind: "skill"` or `"antipattern"`
 candidate creates `knowledge/<domain>/skill.md` if none exists yet, or is
 appended to it if one already does, matching ARCH-100's own model of a skill
-file accumulating from many episodes over time. Either way the candidate is
+file accumulating from many episodes over time. A skill candidate staged as a
+correction of the whole file (``replaces``) is written whole instead, like a
+standards file, and its promotion line says so.
+
+Before anything is written, the person promoting is told what the write does:
+whether it creates the file, adds to it, or replaces it whole, with the old and
+the new size and sha256. A whole-file write deletes what the file held, and a
+candidate can be staged by more than the person promoting it. Either way the candidate is
 removed from `staging/` once promoted, so `staging/` always reflects exactly
 what is still pending, and a candidate id cannot be promoted twice.
 
+A `kind: "rubric"` candidate is staged under `knowledge/reviewers/staging/` and
+replaces `knowledge/reviewers/<role>/rubric.md` whole, inside the tree only a
+reviewer reads. Promotion appends one opaque canary line to it and records the
+canary in the promotion line; see :func:`canaries`.
+
 Every promotion appends one line to `knowledge/promotions.jsonl`: which
-candidate, which kind and domain, which destination, who approved it, and
-when. This is the record ARCH-100's own acceptance test reads: the library's
-content, minus what this file's writes account for, is empty.
+candidate, which kind and domain, which destination, who approved it, when,
+and the sha256 of the destination as written. For a rubric that line is the
+ledger event ARCH-062 asks for, and the digest is what every later reader holds
+the file to: a rubric edited without a promotion no longer matches its line.
+This is the record ARCH-100's own acceptance test reads: the library's content,
+minus what this file's writes account for, is empty.
 """
 
 from __future__ import annotations
 
+import contextlib
+import errno
+import hashlib
 import json
+import os
+import re
+import secrets
+import stat
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from physgate.knowledge.exceptions import KnowledgeError
-from physgate.knowledge.staging import STAGING_ROOT, Candidate, Kind
+from physgate.knowledge.staging import RUBRIC_STAGING_ROOT, STAGING_ROOT, Candidate, Kind
 
 #: Where the library lives, relative to a worktree root — the same convention
 #: `loader.py` and `hooks/settings.py`'s knowledge-root discovery already use.
@@ -42,6 +65,9 @@ PROMOTIONS_NAME = "promotions.jsonl"
 
 STANDARDS_NAME = "standards.md"
 SKILL_NAME = "skill.md"
+RUBRIC_NAME = "rubric.md"
+#: The tree beneath the library that only reviewers read.
+REVIEWERS_NAME = "reviewers"
 
 
 class PromotionError(KnowledgeError):
@@ -67,18 +93,215 @@ def require_interactive() -> None:
         raise PromotionError(msg)
 
 
+def rubric_path(knowledge_root: Path, role: str) -> Path:
+    """Where ``role``'s reviewer rubric lives under ``knowledge_root``."""
+    return Path(knowledge_root) / REVIEWERS_NAME / role / RUBRIC_NAME
+
+
 def _destination(domain: str, kind: Kind, root: Path) -> Path:
+    if kind == "rubric":
+        return rubric_path(root, domain)
     name = STANDARDS_NAME if kind == "standards" else SKILL_NAME
     return Path(root) / domain / name
 
 
-def _find(candidate_id: str, staging_root: Path) -> tuple[Kind, Candidate, Path] | None:
-    kinds: tuple[Kind, ...] = ("standards", "skill", "antipattern")
-    for kind in kinds:
-        path = Path(staging_root) / kind / f"{candidate_id}.json"
+#: A candidate id as staging writes it: a plain identifier, never a path.
+_CANDIDATE_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+
+
+def _find(
+    candidate_id: str, staging_root: Path, rubric_staging_root: Path
+) -> tuple[Kind, Candidate, Path] | None:
+    """The staged candidate ``candidate_id``, looked for only where its kind is staged.
+
+    A rubric is looked for only under the rubric staging directory, inside the tree
+    only reviewers read, and every other kind only under the general one, which a
+    session may write. So a rubric written where a session may write is never
+    found, and a candidate is promoted as the kind it says it is, never as the
+    kind of the directory it was moved into.
+
+    Raises:
+        PromotionError: the id is not a plain id; the staged file is a link; or the
+            candidate's own kind is not its directory's.
+    """
+    if not _CANDIDATE_ID.fullmatch(candidate_id):
+        msg = "a candidate is named by a plain id, as staging wrote it"
+        raise PromotionError(msg, candidate_id=candidate_id)
+    places: tuple[tuple[Kind, Path], ...] = (
+        ("standards", Path(staging_root)),
+        ("skill", Path(staging_root)),
+        ("antipattern", Path(staging_root)),
+        ("rubric", Path(rubric_staging_root)),
+    )
+    for kind, root in places:
+        path = root / kind / f"{candidate_id}.json"
+        if path.is_symlink():
+            msg = "a staged candidate is a link, so what it holds is somewhere else"
+            raise PromotionError(msg, candidate_id=candidate_id, path=str(path))
         if path.is_file():
-            return kind, Candidate.model_validate_json(path.read_text(encoding="utf-8")), path
+            candidate = Candidate.model_validate_json(_read_no_follow(path).decode("utf-8"))
+            if candidate.kind != kind:
+                msg = "a candidate's own kind is not the kind of the directory it is staged in"
+                raise PromotionError(
+                    msg, candidate_id=candidate_id, kind=candidate.kind, directory=kind
+                )
+            return kind, candidate, path
     return None
+
+
+_NO_FOLLOW = os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+
+
+def _link_refused(path: Path) -> PromotionError:
+    msg = "a path a promotion reads or writes is a link, so it would reach somewhere else"
+    return PromotionError(msg, path=str(path))
+
+
+def _read_no_follow(path: Path) -> bytes:
+    """``path``'s bytes, read through a descriptor that refuses to follow a link.
+
+    The check and the read are one system call, so nothing can be swapped in
+    between them.
+
+    Raises:
+        PromotionError: ``path`` is a link, or not a regular file.
+    """
+    try:
+        fd = os.open(path, os.O_RDONLY | _NO_FOLLOW)
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise _link_refused(path) from None
+        raise
+    with os.fdopen(fd, "rb") as handle:
+        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+            msg = "a staged candidate is not a regular file"
+            raise PromotionError(msg, path=str(path))
+        return handle.read()
+
+
+def _open_dir(root: Path, parts: tuple[str, ...]) -> int:
+    """A descriptor of ``root``/``parts``, each component opened without following a link.
+
+    Missing directories are made, each beside the descriptor of its parent.
+
+    Raises:
+        PromotionError: a component is a link.
+    """
+    # The library root is the caller's, and trusted; everything beneath it is not.
+    root.mkdir(parents=True, exist_ok=True)
+    fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_CLOEXEC", 0))
+    try:
+        for part in parts:
+            with contextlib.suppress(FileExistsError):
+                os.mkdir(part, dir_fd=fd)
+            try:
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | _NO_FOLLOW, dir_fd=fd)
+            except OSError as exc:
+                if exc.errno in (errno.ELOOP, errno.ENOTDIR):
+                    raise _link_refused(root.joinpath(*parts)) from None
+                raise
+            os.close(fd)
+            fd = child
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+def _replace(destination: Path, knowledge_root: Path, data: bytes) -> None:
+    """Make ``destination`` hold exactly ``data``, never writing through a link.
+
+    Written to a new file beside it, opened by descriptor, then renamed over it: a
+    rename replaces a link at the destination rather than following it, and every
+    directory on the way is held open by descriptor, so none can be swapped.
+
+    Raises:
+        PromotionError: a directory between the library and the destination is a link.
+    """
+    root = Path(knowledge_root)
+    parts = destination.parent.relative_to(root).parts
+    dir_fd = _open_dir(root, parts)
+    temporary = f".{destination.name}.{os.getpid()}.promoting"
+    try:
+        fd = os.open(
+            temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NO_FOLLOW, 0o644, dir_fd=dir_fd
+        )
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, destination.name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+    finally:
+        os.close(dir_fd)
+
+
+def _fingerprint(data: bytes | None) -> str:
+    if data is None:
+        return "nothing"
+    return f"{len(data)} bytes, sha256 {hashlib.sha256(data).hexdigest()}"
+
+
+def _what_changes(
+    candidate_id: str, destination: Path, current: bytes | None, data: bytes, *, whole: bool
+) -> str:
+    """What promoting ``candidate_id`` does to ``destination``: old and new bytes and digests."""
+    if current is None:
+        verb = "creates"
+    elif whole:
+        verb = "REPLACES WHOLE"
+    else:
+        verb = "adds to"
+    return f"{candidate_id} {verb} {destination}: {_fingerprint(current)} -> {_fingerprint(data)}"
+
+
+def _existing(destination: Path, knowledge_root: Path) -> bytes | None:
+    """What ``destination`` holds now, read without following a link; ``None`` if nothing."""
+    root = Path(knowledge_root)
+    dir_fd = _open_dir(root, destination.parent.relative_to(root).parts)
+    try:
+        fd = os.open(destination.name, os.O_RDONLY | _NO_FOLLOW, dir_fd=dir_fd)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise _link_refused(destination) from None
+        raise
+    finally:
+        os.close(dir_fd)
+    with os.fdopen(fd, "rb") as handle:
+        return handle.read()
+
+
+def _append_record(promotions_path: Path, line: str) -> None:
+    """Append ``line`` to the promotion record, refusing a record that is a link."""
+    promotions_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(promotions_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | _NO_FOLLOW, 0o644)
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise _link_refused(promotions_path) from None
+        raise
+    with os.fdopen(fd, "a", encoding="utf-8") as log:
+        log.write(line)
+        log.flush()
+        os.fsync(log.fileno())
+
+
+def _refuse_links(destination: Path, knowledge_root: Path) -> None:
+    """Refuse a destination that is, or sits beneath, a link inside the library.
+
+    Raises:
+        PromotionError: the write would be redirected somewhere else.
+    """
+    root = Path(knowledge_root)
+    current = destination
+    while True:
+        if current.is_symlink():
+            msg = "a promotion's destination is a link, so the write would land elsewhere"
+            raise PromotionError(msg, destination=str(destination), link=str(current))
+        if current == root or current.parent == current:
+            return
+        current = current.parent
 
 
 def _apply(
@@ -88,33 +311,60 @@ def _apply(
     staging_root: Path,
     knowledge_root: Path,
     promotions_path: Path,
+    rubric_staging_root: Path = RUBRIC_STAGING_ROOT,
+    notice: Callable[[str], None] | None = None,
 ) -> Path:
     """Write the candidate into the library, log the promotion, remove it from staging.
 
     Carries no interactivity check of its own — ``require_interactive`` is the
-    caller's job, always run first for a real promotion.
+    caller's job, always run first for a real promotion. ``notice``, if given, is
+    told what the write will do (:func:`_what_changes`) before it is made.
 
     Raises:
-        PromotionError: ``by`` is empty, or no candidate with ``candidate_id``
-            is staged.
+        PromotionError: ``by`` is empty; no candidate with ``candidate_id`` is
+            staged where its kind is staged; the id, the staged file or the
+            destination is refused (:func:`_find`, :func:`_refuse_links`).
     """
     if not by.strip():
         msg = "promotion needs the name of the human approving it"
         raise PromotionError(msg, candidate_id=candidate_id)
-    found = _find(candidate_id, staging_root)
+    found = _find(candidate_id, Path(staging_root), Path(rubric_staging_root))
     if found is None:
         msg = "no staged candidate has this id"
         raise PromotionError(msg, candidate_id=candidate_id)
     kind, candidate, candidate_path = found
     destination = _destination(candidate.domain, kind, knowledge_root)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    text = candidate.content.rstrip() + "\n"
-    if kind == "standards" or not destination.exists():
-        destination.write_text(text, encoding="utf-8")
-    else:
-        with destination.open("a", encoding="utf-8") as appended:
-            appended.write("\n---\n\n" + text)
-    event = {
+    # An early, readable refusal; what makes the write safe is that it goes through
+    # descriptors opened without following links, at the moment of writing.
+    _refuse_links(destination, Path(knowledge_root))
+    text = (candidate.content.rstrip() + "\n").encode("utf-8")
+    canary = None
+    if kind == "rubric":
+        # Only a paired rubric of the required form becomes a role's rubric: one that
+        # would not load is refused here, by the person promoting it, not at a run's start.
+        from physgate.reviewers.exceptions import ReviewError  # they import this module
+        from physgate.reviewers.rubric import check_rubric
+
+        try:
+            check_rubric(text.decode("utf-8"))
+        except ReviewError as exc:
+            msg = f"the staged rubric would not load as a role's rubric: {exc}"
+            raise PromotionError(msg, candidate_id=candidate_id, **exc.context) from None
+        # An opaque line only this version of this rubric holds. A session that reads
+        # the rubric by a path no hook can judge shows it in its own stream, where the
+        # dispatcher looks for it: detection after the fact, not prevention.
+        canary = secrets.token_hex(16)
+        text += f"\n<!-- {canary} -->\n".encode()
+    whole = kind in ("standards", "rubric") or candidate.replaces
+    current = _existing(destination, knowledge_root)
+    before = None if whole else current
+    data = text if before is None else before + b"\n---\n\n" + text
+    # Said before anything is written: a whole-file write deletes whatever the file
+    # held, and a candidate can be staged by more than the person promoting it.
+    if notice is not None:
+        notice(_what_changes(candidate_id, destination, current, data, whole=whole))
+    _replace(destination, Path(knowledge_root), data)
+    event: dict[str, object] = {
         "candidate_id": candidate.candidate_id,
         "kind": kind,
         "domain": candidate.domain,
@@ -122,10 +372,14 @@ def _apply(
         "destination": str(destination),
         "promoted_by": by,
         "promoted": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        # The digest of the bytes written, never of a later read of the path.
+        "sha256": hashlib.sha256(data).hexdigest(),
     }
-    promotions_path.parent.mkdir(parents=True, exist_ok=True)
-    with promotions_path.open("a", encoding="utf-8") as log:
-        log.write(json.dumps(event, sort_keys=True) + "\n")
+    if canary is not None:
+        event["canary"] = canary
+    if candidate.replaces:
+        event["replaces"] = True
+    _append_record(Path(promotions_path), json.dumps(event, sort_keys=True) + "\n")
     candidate_path.unlink()
     return destination
 
@@ -137,6 +391,7 @@ def promote(
     staging_root: Path = STAGING_ROOT,
     knowledge_root: Path = KNOWLEDGE_ROOT,
     promotions_path: Path | None = None,
+    rubric_staging_root: Path = RUBRIC_STAGING_ROOT,
 ) -> Path:
     """Refuse unless interactive, then move one staged candidate into the library.
 
@@ -159,6 +414,8 @@ def promote(
         staging_root=staging_root,
         knowledge_root=knowledge_root,
         promotions_path=resolved_promotions,
+        rubric_staging_root=rubric_staging_root,
+        notice=print,
     )
 
 
@@ -170,3 +427,17 @@ def promotions(
     if not path.is_file():
         return ()
     return tuple(json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line)
+
+
+def canaries(promotions_path: Path = KNOWLEDGE_ROOT / PROMOTIONS_NAME) -> frozenset[str]:
+    """Every canary a rubric promotion ever recorded: each marks reviewer material.
+
+    A superseded version's canary still marks it, since an old version is still in
+    the repository's history for a session to read.
+    """
+    found = set()
+    for event in promotions(promotions_path):
+        canary = event.get("canary")
+        if event.get("kind") == "rubric" and isinstance(canary, str) and canary:
+            found.add(canary)
+    return frozenset(found)

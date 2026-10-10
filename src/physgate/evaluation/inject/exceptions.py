@@ -31,3 +31,7 @@ class ReviewerRefusedError(InstrumentError):
 
 class RunDirectoryError(InstrumentError):
     """The run or scratch directory is not fresh, or lies inside what a reviewer may not read."""
+
+
+class InstrumentParamsError(InstrumentError):
+    """The parameters the real reviewers run under are missing or incomplete."""

@@ -30,3 +30,11 @@ HARNESS_REASON = (
     "library and its bounds tables, and the frozen experiments a run is judged by, which no "
     "session in another worktree writes"
 )
+
+#: Given to a reviewer for a read outside its allowance. Neutral on purpose: a
+#: reviewer is shown nothing that says what is being measured.
+OUTSIDE_REVIEW_REASON = "it is outside the files this review is given"
+REVIEW_MATERIAL_REASON = (
+    "it is material only the paired reviewer reads; an implementing session that read "
+    "what its reviewer looks for could steer its work around it"
+)

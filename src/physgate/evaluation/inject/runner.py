@@ -25,6 +25,13 @@ each gate event is the review that came before it on the same artefact. The
 loop's replay would refuse it (a review before a gate), and it is never
 resumed: a killed run is started again into new directories.
 
+A review that is not a verdict never stops the run and is never a pass or a fail.
+An infrastructure failure is retried once; after that, the review is recorded in
+the log as unavailable and in its row as ``review_unavailable`` with its cause. A
+review that blocked, on a blocking defect of the issued specification, is a verdict:
+it is in the log as a review and in its row as ``blocked``. Every artefact gets its
+row.
+
 Artefacts run under an id derived from the seed and the corpus id, in the
 order those ids sort, so the log shows no corpus id and no class order. The
 results file has one row per artefact, in corpus id order, and **no total**:
@@ -33,10 +40,12 @@ what the rows add up to is the experiment's to state.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import shutil
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -51,7 +60,10 @@ from physgate.evaluation.inject.corpus import (
     Patch,
     digest,
 )
-from physgate.evaluation.inject.exceptions import ReviewerRefusedError, RunDirectoryError
+from physgate.evaluation.inject.exceptions import (
+    ReviewerRefusedError,
+    RunDirectoryError,
+)
 from physgate.evaluation.inject.materialise import (
     DESIGN_DIRNAME,
     Materialised,
@@ -61,19 +73,32 @@ from physgate.evaluation.inject.materialise import (
 from physgate.gate.catalogue import catalogue_digest
 from physgate.gate.graph import ChangeHistory, GraphView
 from physgate.gate.runner import PhysicsGate
-from physgate.orchestrator.common import ModelString, NonEmptyStr
-from physgate.orchestrator.events import EventLog, GateRan, ReviewRan, RunStarted, SubtaskPlanned
+from physgate.orchestrator.common import AuthMode, ModelString, NonEmptyStr
+from physgate.orchestrator.events import (
+    EventLog,
+    GateRan,
+    ReviewRan,
+    ReviewUnavailable,
+    RunStarted,
+    SubtaskPlanned,
+)
+from physgate.orchestrator.exceptions import ReviewUnavailableError
 from physgate.orchestrator.protocols import (
     Artefact,
     ChangeSet,
     CheckName,
     GateResult,
+    RecordedUnavailableCause,
     Reviewer,
     ReviewResult,
     Scope,
     Verdict,
     require_separate_models,
 )
+from physgate.orchestrator.run_config import Effort, RunBounds
+from physgate.orchestrator.trajectory import seal
+from physgate.reviewers.exceptions import ReviewRootError
+from physgate.reviewers.places import require_review_root
 
 #: One gate call per artefact, at every scope: for a design written as one change
 #: set these are exactly the scopes the loop's two calls cover.
@@ -91,6 +116,27 @@ class _Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
 
+class InstrumentParams(_Frozen):
+    """What the instrument's real reviewers run under, from a parameters file. No defaults."""
+
+    auth: AuthMode
+    #: The reviewer model of each role the corpus's artefacts go to.
+    reviewers: dict[NonEmptyStr, ModelString]
+    bounds: RunBounds
+    effort: Effort
+    max_output_tokens: Annotated[int, Field(gt=0)]
+    token_ceiling: Annotated[int, Field(gt=0)]
+
+
+class Reviewing(_Frozen):
+    """The real reviewers' run, as ``instrument.json`` records it."""
+
+    params: InstrumentParams
+    claude_version: NonEmptyStr
+    endpoint: NonEmptyStr
+    install: NonEmptyStr
+
+
 class InstrumentConfig(_Frozen):
     """What one run of the instrument was, recorded before its first action."""
 
@@ -106,6 +152,17 @@ class InstrumentConfig(_Frozen):
     gate_mode: Literal["observe"]
     scopes: tuple[Scope, ...]
     catalogue_sha256: Sha256
+    #: How the real reviewers ran: their parameters, the auth mode, the binary's
+    #: version and the endpoint. ``None`` for reviewers given built, as in tests.
+    reviewing: Reviewing | None = None
+
+
+#: What one artefact's review came to, as its row records it.
+ReviewOutcome = Literal["pass", "fail", "blocked", "review_unavailable"]
+
+#: Why a review came to neither a pass nor a fail: a blocked verdict's one reason, or
+#: why a review reached no verdict.
+ReviewCause = RecordedUnavailableCause
 
 
 class ResultRow(_Frozen):
@@ -116,8 +173,15 @@ class ResultRow(_Frozen):
     review_id: ReviewId
     error_class: ErrorClass
     expected_check: CheckName
-    reviewer_verdict: Verdict
-    reviewer_model: ModelString
+    #: What the review came to: a pass or a fail; ``blocked``, a blocking defect of
+    #: the issued specification; or ``review_unavailable``, no verdict after the one
+    #: retry an infrastructure failure gets. Neither of the last two is a pass or a fail.
+    reviewer_verdict: ReviewOutcome
+    #: Why the review gave no pass or fail, for ``blocked`` and ``review_unavailable``.
+    review_cause: ReviewCause | None
+    #: ``None`` only for a review that never reached its model.
+    reviewer_model: ModelString | None
+    #: Every token the artefact's review spent, a retried try included.
     reviewer_tokens: Annotated[int, Field(ge=0)]
     review_seq: Annotated[int, Field(ge=0)]
     gate_seq: Annotated[int, Field(ge=0)]
@@ -128,7 +192,7 @@ class ResultRow(_Frozen):
     #: The id the clean twin ran under in the controls log.
     control_id: ReviewId
     #: The clean twin's reviewer verdict, when the twins were reviewed; else ``None``.
-    control_reviewer_verdict: Verdict | None
+    control_reviewer_verdict: ReviewOutcome | None
     #: The gate on the clean patch, the control.
     control_verdict: Verdict
     control_blocking: tuple[CheckName, ...]
@@ -171,7 +235,9 @@ def require_places(corpus_root: Path, run_dir: Path, scratch: Path) -> None:
     so its own worktree may not be inside either.
 
     Raises:
-        RunDirectoryError: one exists and is not empty, or one is inside another.
+        RunDirectoryError: one exists and is not empty, one is inside another, or the
+            scratch directory is not a review root (its path names what is measured, or
+            it lies inside a git checkout).
     """
     places = {
         "corpus": corpus_root.resolve(),
@@ -193,6 +259,13 @@ def require_places(corpus_root: Path, run_dir: Path, scratch: Path) -> None:
         if path.exists() and (not path.is_dir() or any(path.iterdir())):
             msg = "the instrument writes into directories that are new or empty"
             raise RunDirectoryError(msg, **{name: str(path)})
+    # Every path a reviewer is shown begins with the scratch directory's, so a scratch
+    # path that names the harness would be refused at the first artefact. It is refused
+    # here instead, before anything is written.
+    try:
+        require_review_root(places["scratch"])
+    except ReviewRootError as exc:
+        raise RunDirectoryError(str(exc), **exc.context) from None
 
 
 def _gate(gate: PhysicsGate, made: Materialised, subtask: str) -> GateResult:
@@ -250,6 +323,8 @@ def _review(
     made = materialise(base, patch, place)
     try:
         require_blind(made, (artefact.id, artefact.description))
+        # Sealed as written, so the reviewer holds its own read to these bytes.
+        sealed = seal(made.trajectory.read_bytes())
         result = reviewer.review(
             Artefact(
                 subtask_id=subtask,
@@ -259,14 +334,82 @@ def _review(
                 worktree=str(made.worktree),
                 graph_root=str(made.graph_root),
                 trajectory=str(made.trajectory),
+                trajectory_sha256=sealed.sha256,
+                trajectory_length=sealed.length,
+                trajectory_form="account",
                 scopes=("subtask", "module"),
                 base_revision=made.baseline,
+                base_commit=made.base_commit,
+                repository=str(made.worktree),
             )
         )
     finally:
         shutil.rmtree(place)
     require_separate_models(implementer=author, reviewer=result.reviewer_model)
     return result
+
+
+@dataclass(frozen=True)
+class _Reviewed:
+    """One artefact's review as its log records it, and every token its tries spent."""
+
+    line: ReviewRan | ReviewUnavailable
+    tokens: int
+
+    @property
+    def outcome(self) -> ReviewOutcome:
+        if isinstance(self.line, ReviewRan):
+            return self.line.result.verdict
+        return "review_unavailable"
+
+    @property
+    def cause(self) -> ReviewCause | None:
+        if isinstance(self.line, ReviewRan):
+            return "blocking_spec_defect" if self.line.result.verdict == "blocked" else None
+        return self.line.cause
+
+    @property
+    def model(self) -> str | None:
+        if isinstance(self.line, ReviewRan):
+            return self.line.result.reviewer_model
+        return self.line.reviewer_model
+
+
+def _reviewed(log: EventLog, review: Callable[[], ReviewResult], subtask: str) -> _Reviewed:
+    """Review one artefact and record the outcome; a review that gives no verdict is recorded too.
+
+    An infrastructure failure is retried once, as in the loop. Any other review
+    that is not a verdict, or a second failure, is recorded as such and the run
+    goes on: every artefact gets its row, and a review that gave no verdict is
+    never counted as a pass or a fail.
+    """
+    retried, tokens = False, 0
+    while True:
+        try:
+            result = review()
+        except ReviewUnavailableError as exc:
+            tokens += sum(m.usage.total() for m in exc.usage)
+            retry = exc.cause == "infrastructure" and not retried
+            line = log.append(
+                ReviewUnavailable(
+                    **log.envelope(),
+                    subtask_id=subtask,
+                    attempt=1,
+                    cause=exc.cause,
+                    detail=str(exc) or exc.cause,
+                    retry=retry,
+                    session_id=exc.session_id,
+                    reviewer_model=exc.reviewer_model,
+                    spec_defects=exc.spec_defects,
+                )
+            )
+            if not retry:
+                return _Reviewed(line=line, tokens=tokens)
+            retried = True
+            continue
+        tokens += sum(m.usage.total() for m in result.usage)
+        ran = log.append(ReviewRan(**log.envelope(), subtask_id=subtask, attempt=1, result=result))
+        return _Reviewed(line=ran, tokens=tokens)
 
 
 def run_instrument(
@@ -279,6 +422,7 @@ def run_instrument(
     seed: int,
     review_clean_twins: bool = False,
     gate: PhysicsGate | None = None,
+    reviewing: Reviewing | None = None,
 ) -> tuple[ResultRow, ...]:
     """Review every artefact of ``corpus`` blind, then gate each, and write the results.
 
@@ -314,6 +458,7 @@ def run_instrument(
         gate_mode=GATE_MODE,
         scopes=SCOPES,
         catalogue_sha256=catalogue_digest(),
+        reviewing=reviewing,
     )
     run_dir.mkdir(parents=True, exist_ok=True)
     config_path = run_dir / CONFIG_NAME
@@ -329,14 +474,15 @@ def run_instrument(
     controls = _start(
         run_dir / CONTROLS_DIRNAME / EVENTS_NAME, f"{run_id}-controls", config_sha256, twins
     )
-    reviews: dict[str, ReviewRan] = {}
+    reviews: dict[str, _Reviewed] = {}
     try:
         # Every review first, each on its own copy, before the gate has run on anything.
         queue = [(rid, a, a.injected, log) for rid, a in order]
         if review_clean_twins:
             queue += [(cid, a, a.clean, controls) for cid, a in twins]
         for subtask, artefact, patch, into in sorted(queue, key=lambda q: q[0]):
-            result = _review(
+            review = functools.partial(
+                _review,
                 reviewers[artefact.assigned_role],
                 author,
                 corpus.base,
@@ -345,9 +491,7 @@ def run_instrument(
                 subtask,
                 artefact,
             )
-            reviews[subtask] = into.append(
-                ReviewRan(**into.envelope(), subtask_id=subtask, attempt=1, result=result)
-            )
+            reviews[subtask] = _reviewed(into, review, subtask)
         gated: dict[str, GateRan] = {}
         for rid, artefact in order:
             made = materialise(corpus.base, artefact.injected, scratch / "gate" / rid)
@@ -371,16 +515,17 @@ def run_instrument(
             review_id=rid,
             error_class=artefact.error_class,
             expected_check=artefact.expected_check,
-            reviewer_verdict=reviews[rid].result.verdict,
-            reviewer_model=reviews[rid].result.reviewer_model,
-            reviewer_tokens=sum(m.usage.total() for m in reviews[rid].result.usage),
-            review_seq=reviews[rid].seq,
+            reviewer_verdict=reviews[rid].outcome,
+            review_cause=reviews[rid].cause,
+            reviewer_model=reviews[rid].model,
+            reviewer_tokens=reviews[rid].tokens,
+            review_seq=reviews[rid].line.seq,
             gate_seq=gated[rid].seq,
             gate_verdict=gated[rid].result.verdict,
             gate_blocking=blocking(gated[rid].result),
             control_id=twin_of[artefact.id],
             control_reviewer_verdict=(
-                reviews[twin_of[artefact.id]].result.verdict if review_clean_twins else None
+                reviews[twin_of[artefact.id]].outcome if review_clean_twins else None
             ),
             control_verdict=controlled[twin_of[artefact.id]].verdict,
             control_blocking=blocking(controlled[twin_of[artefact.id]]),

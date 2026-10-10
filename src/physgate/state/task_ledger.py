@@ -24,8 +24,9 @@ from physgate.state.exceptions import CorruptRecordError
 
 NonEmptyStr = Annotated[str, StringConstraints(min_length=1)]
 
-#: A gate or review result is one of these, or absent because it has not run.
-Outcome = Literal["pass", "fail", "skipped"]
+#: A gate or review result is one of these, or absent because it has not run. Only a
+#: review is ever ``blocked``: its issued specification lacks what a check needs.
+Outcome = Literal["pass", "fail", "skipped", "blocked"]
 
 #: What to do about a complete line that is not a valid record.
 OnCorrupt = Literal["raise", "truncate"]

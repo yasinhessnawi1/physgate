@@ -31,11 +31,17 @@ from physgate.orchestrator.budget import REPAIR_BUDGET
 from physgate.orchestrator.common import NonEmptyStr, Timestamp, utc_now, utc_stamp
 from physgate.orchestrator.events import read_jsonl
 from physgate.orchestrator.exceptions import QueueError
-from physgate.orchestrator.protocols import GateResult, QuantityRef
+from physgate.orchestrator.protocols import GateResult, QuantityRef, SpecDefect
 from physgate.orchestrator.repair import Finding
 
-#: The queue's three sources (ARCH-130).
-QueueSource = Literal["gate_escalation", "repair_budget_exhausted", "arbitration"]
+#: The queue's sources (ARCH-130); a blocked review and one with no verdict are kept apart.
+QueueSource = Literal[
+    "gate_escalation",
+    "repair_budget_exhausted",
+    "review_unavailable",
+    "review_blocked",
+    "arbitration",
+]
 
 
 class _Record(BaseModel):
@@ -118,6 +124,56 @@ def escalation_item(
 #: The subtask field of the item the integration call escalates: it is about the
 #: whole design, not one subtask.
 INTEGRATION = "integration"
+
+
+def unavailable_item(
+    *,
+    item_id: str,
+    run_id: str,
+    subtask_id: str,
+    attempt: int,
+    source: Literal["review_unavailable", "review_blocked"],
+    cause: str,
+    detail: str,
+    spec_defects: tuple[SpecDefect, ...],
+    artefact_diff: str,
+    trajectory: str,
+    ts: str,
+) -> QueueItem:
+    """The item for a subtask whose review blocked it or reached no verdict; no attempt spent.
+
+    A blocked review names what the issued specification lacks, which only the
+    decomposition can supply; any other cause names why no verdict was reached. The
+    source is the caller's, from the line it escalates, so a no-verdict line a log
+    recorded with the legacy blocked cause stays a ``review_unavailable`` item.
+    """
+    if cause == "blocking_spec_defect":
+        lacking = "; ".join(d.finding for d in spec_defects if d.blocking) or detail
+        decision = (
+            f"The review of subtask {subtask_id}, attempt {attempt}, was blocked: it could "
+            f"not decide a safety-critical check because the issued specification lacks its input: "
+            f"{lacking}. Decide whether to revise the specification and dispatch again, or "
+            "to decide the check yourself. No repair attempt was spent."
+        )
+    else:
+        decision = (
+            f"The review of subtask {subtask_id}, attempt {attempt}, reached no verdict "
+            f"({cause}: {detail}). Decide whether to review it again, review it yourself, or "
+            "set the attempt aside. No repair attempt was spent."
+        )
+    notes = [f"specification defect: {d.finding}" for d in spec_defects if not d.blocking]
+    return QueueItem(
+        item_id=item_id,
+        ts=ts,
+        run_id=run_id,
+        subtask_id=subtask_id,
+        source=source,
+        decision_required=decision if not notes else decision + " Notes: " + "; ".join(notes),
+        artefact_diff=artefact_diff,
+        triggering_finding=detail,
+        quantities=(),
+        trajectories=(trajectory,),
+    )
 
 
 def integration_item(

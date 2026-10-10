@@ -25,7 +25,8 @@ and installation. Then comes the comparison.
 that line only, holds it in memory and puts it in this process's environment for the orchestrator.
 - It is never printed, never put on a command line and never written by this script.
 - At the end, every file under the output directory is scanned for the token, for ``sk-ant-`` and
-  for ``oat01``, and email addresses are replaced. Only the counts are printed.
+  for ``oat01``, and email addresses are counted. Nothing is rewritten: the records are evidence,
+  sealed trajectories among them. Only the counts are printed.
 """
 
 from __future__ import annotations
@@ -36,7 +37,6 @@ import hashlib
 import io
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -53,6 +53,7 @@ import scripted_endpoint  # noqa: E402
 from gate_fixtures import node  # noqa: E402
 from gate_run import INTERFACE  # noqa: E402
 from git_rig import Reviewer, target_repo  # noqa: E402
+from record_scan import scan as record_scan  # noqa: E402
 from scripted_endpoint import DUMMY_OAUTH_TOKEN, Script, serving, text, tool  # noqa: E402
 
 import physgate.orchestrator.cli as orchestrator_cli  # noqa: E402
@@ -87,7 +88,6 @@ REVIEWER = "claude-sonnet-5"
 SEED = 7
 PRICES = "2026-09-27"
 MODULE_DIR = "modules/power"
-EMAIL = re.compile(rb"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 
 #: The three-mode test's drive power module with its two errors removed: the motors
 #: draw 2 x 5 W of the module's 10 W, and the driver dissipates 2 W, so it runs at
@@ -159,6 +159,8 @@ def params() -> dict[str, Any]:
         "reportable": True,
         "effort": "high",
         "max_output_tokens": 64000,
+        "thinking_display": "summarized",
+        "role_python": None,
     }
 
 
@@ -313,24 +315,8 @@ def summary(run_dir: Path, trend: Path) -> dict[str, Any]:
 
 
 def scan(root: Path, token: str) -> dict[str, int]:
-    """Counts only: files holding the token, ``sk-ant-`` or ``oat01``; emails replaced.
-
-    Every file is read. Emails are replaced only in the run's own records: the
-    read-only installation is a copy of the package, and is not evidence.
-    """
-    files = [p for p in root.rglob("*") if p.is_file() and not p.is_symlink()]
-    counts = {"token": 0, "sk-ant-": 0, "oat01": 0, "emails_replaced": 0}
-    for path in files:
-        data = path.read_bytes()
-        counts["token"] += token.encode() in data
-        counts["sk-ant-"] += b"sk-ant-" in data
-        counts["oat01"] += b"oat01" in data
-        found = len(EMAIL.findall(data))
-        records = (root / "install") not in path.parents
-        if found and records and path.suffix in (".json", ".jsonl", ".log", ".txt", ".md", ".out"):
-            path.write_bytes(EMAIL.sub(b"<email>", data))
-            counts["emails_replaced"] += found
-    return counts
+    """Counts only, nothing written (``record_scan.scan``): the records are evidence."""
+    return record_scan(root, token)
 
 
 #: What the binary asked for, per request, on the scripted endpoint: the fields besides the
@@ -427,7 +413,17 @@ def both_runs(root: Path) -> dict[str, Any]:
         )
         return result
     result["run_exit"] = command(
-        ["run", "--run-dir", str(root / "e1-real-a"), *common, "--install", str(install)], log
+        [
+            "run",
+            "--run-dir",
+            str(root / "e1-real-a"),
+            *common,
+            "--install",
+            str(install),
+            "--review-root",
+            str(root / "review-scratch"),
+        ],
+        log,
     )
     result["rerun_started_utc"] = utc()
     comparison = rerun(
@@ -437,6 +433,7 @@ def both_runs(root: Path) -> dict[str, Any]:
         run_dir=root / "e1-real-b",
         target=repo,
         install=install,
+        review_root=root / "review-scratch",
         driver=through_the_command(registrations()),
     )
     first = comparison.first

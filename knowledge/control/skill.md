@@ -9,7 +9,8 @@
 1. Obtain a linear or linearized plant model, and state the operating region it is valid in
    (standards §1).
 2. Choose a starting point: the Ziegler–Nichols closed-loop test (standards §4) if no trusted
-   analytic model exists yet; otherwise a synthesis method aimed at the margins in standards §2.
+   analytic model exists yet and the loop is stable in open loop; otherwise a synthesis method aimed
+   at the margins in standards §2.
 3. Simulate step response, disturbance rejection, **and actuator saturation together** — margins
    measured on a linear model do not see saturation, and a controller that looks fine on a small
    step can still wind up on a large one.
@@ -32,8 +33,9 @@
 
 ## Antipatterns
 
-- **Reporting margins measured on the wrong loop.** Full-state-feedback LQR carries a provable
-  60°/6 dB guarantee (standards §2); the same gains behind an observer do not inherit it. A margin
+- **Reporting margins measured on the wrong loop.** Continuous-time full-state-feedback LQR
+  (diagonal `R`, loop broken at the plant input) carries a provable 60°/6 dB guarantee (standards
+  §2); the same gains behind an observer, or run as a sampled controller, do not inherit it. A margin
   number with no statement of which loop it was measured on is not verifiable and should be
   challenged in review.
 - **Tuning only at the nominal operating point.** A controller exercised only at the linearization

@@ -28,5 +28,7 @@
  "token_ceiling": 2000000,
  "reportable": false,
  "effort": "high",
- "max_output_tokens": 64000
+ "max_output_tokens": 64000,
+ "thinking_display": "summarized",
+ "role_python": null
 }

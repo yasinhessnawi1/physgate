@@ -28,6 +28,8 @@ def _real_config(paths: list[Path], limit: int) -> SessionConfig:
         experiments=(),
         held_out=(),
         answer_keys=(),
+        read_roots=(),
+        review_material=(),
         required_reading=(),
         always_loaded=tuple(str(p) for p in paths),
         token_ceiling=limit,

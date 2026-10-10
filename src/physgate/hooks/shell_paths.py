@@ -12,7 +12,8 @@ What this layer refuses, for every profile that has a shell:
 - a command that **names** a protected path anywhere in it, unless the command
   only reads (``cat``, ``grep``, ``ls``, ``diff``, ``git diff`` and the like),
   and a command of any kind that names the held-out tier, which nothing reads, or
-  that a reviewer runs naming a corpus that carries its own answers;
+  that a reviewer runs naming a corpus that carries its own answers, or that any
+  other session runs naming what only reviewers read;
 - any output redirection into a protected path, whatever the command;
 - running anything in the background: a write that lands after the call has
   returned lands after every check that could see it;
@@ -182,6 +183,7 @@ def _protected_names(config: ConfigView) -> set[str]:
     names = {os.path.basename(r.path.rstrip("/")).casefold() for r in config.protected_roots}
     names |= {os.path.basename(h.rstrip("/")).casefold() for h in config.held_out}
     names |= {os.path.basename(k.rstrip("/")).casefold() for k in config.answer_keys}
+    names |= {os.path.basename(m.rstrip("/")).casefold() for m in config.review_material}
     for rule in config.experiments:
         names |= {
             os.path.basename(rule.root.rstrip("/")).casefold(),
@@ -246,6 +248,9 @@ def check(cmd: SimpleCommand, cwd: str, config: ConfigView) -> str | None:
         return BACKGROUND
     if argv and _starts_claude(argv):
         return NESTED_SESSION
+    ambiguous = _ambiguous_cd(cmd, cwd)
+    if ambiguous is not None:
+        return AMBIGUOUS_CD.format(path=ambiguous)
     for redirect in cmd.redirects:
         writing = redirect.op in _WRITE_REDIRECTS or (
             redirect.op == ">&" and not redirect.target.isdigit() and redirect.target != "-"
@@ -266,6 +271,39 @@ def check(cmd: SimpleCommand, cwd: str, config: ConfigView) -> str | None:
         if _commits_with_inline_message(argv):
             reason += COMMIT_MESSAGE_ROUTE
         return reason
+    return None
+
+
+AMBIGUOUS_CD = (
+    "This command changes directory to {path}, which is a different directory depending on "
+    "whether the shell reads '..' after a symlink as written or as resolved; that cannot be "
+    "known before it runs. Change directory by a path without a symlink before '..'."
+)
+
+
+def _cd_target(cmd: SimpleCommand) -> tuple[str, bool] | None:
+    """The word a ``cd`` or ``pushd`` moves to, with whether it is dynamic, if ``cmd`` is one."""
+    argv = unwrap(cmd.argv)
+    if not argv or _name(argv[0]) not in ("cd", "pushd"):
+        return None
+    offset = len(cmd.argv) - len(argv)
+    targets = [
+        (w, offset + n + 1 in cmd.dynamic) for n, w in enumerate(argv[1:]) if not w.startswith("-")
+    ]
+    return targets[0] if targets else None
+
+
+def _ambiguous_cd(cmd: SimpleCommand, cwd: str) -> str | None:
+    """The destination of a ``cd`` whose written and resolved readings differ, if ``cmd`` is one."""
+    found = _cd_target(cmd)
+    if found is None:
+        return None
+    target = _expand(*found)
+    if target is None:
+        return None
+    joined = target if os.path.isabs(target) else os.path.join(cwd, target)
+    if os.path.realpath(os.path.normpath(joined)) != os.path.realpath(joined):
+        return target
     return None
 
 

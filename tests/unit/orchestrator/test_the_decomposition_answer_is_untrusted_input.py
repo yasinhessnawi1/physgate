@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from physgate.orchestrator.decompose import (
+    SPEC_MAX_CHARS,
     Plan,
     judge,
     mint_id,
@@ -207,6 +208,19 @@ def test_the_schema_the_binary_holds_the_answer_to_is_the_plans() -> None:
 def test_the_schema_itself_refuses_a_directory_that_starts_outside(module_dir: str) -> None:
     with pytest.raises(ValueError):
         plan([module("a", module_dir)])
+
+
+def test_a_specification_is_bounded_but_takes_a_reviewable_one_whole() -> None:
+    reviewable = {**module("control", "modules/control"), "spec": "x" * 22_285}
+    assert plan([reviewable]).modules[0].spec == "x" * 22_285
+    assert SPEC_MAX_CHARS == 32_768
+    at_limit = {**reviewable, "spec": "x" * SPEC_MAX_CHARS}
+    assert len(plan([at_limit]).modules[0].spec) == SPEC_MAX_CHARS
+    with pytest.raises(ValueError, match="32768"):
+        plan([{**reviewable, "spec": "x" * (SPEC_MAX_CHARS + 1)}])
+    schema = json.loads(plan_schema())
+    planned = schema["$defs"]["PlannedModule"]["properties"]["spec"]
+    assert planned["maxLength"] == SPEC_MAX_CHARS  # the binary holds the model to it too
 
 
 # The refusal event as the real binary wrote it (2.1.272, real API, 26.09.2026),

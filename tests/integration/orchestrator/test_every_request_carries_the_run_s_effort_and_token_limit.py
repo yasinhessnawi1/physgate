@@ -3,7 +3,8 @@
 The binary puts an effort level and a ``max_tokens`` in every request. Left to
 itself it takes both from a model catalog that can change while its version
 stays the same, so the run names them, records them, and passes them to every
-invocation: the decomposition call and every role session. Measured here at the
+invocation: the decomposition call and every role session. The same holds for the display of
+a role session's reasoning, which only role sessions are given. Measured here at the
 scripted endpoint, which sees each request as the binary sent it, with values
 that differ from the binary's own defaults (``high`` and 64000), so a value that
 only happened to match could not pass.
@@ -77,7 +78,16 @@ def test_the_decomposition_and_every_session_request_carry_the_recorded_pins(
         subtask = mint_id(7, 0, "power")
         spec = run_dir / "worktrees" / subtask / ".physgate" / "specs" / f"{subtask}.md"
         api.script = Script(main=[tool("Read", file_path=str(spec)), text("done")])
-        common = ["--run-dir", str(run_dir), "--target", str(repo), "--install", str(install)]
+        common = [
+            "--run-dir",
+            str(run_dir),
+            "--target",
+            str(repo),
+            "--install",
+            str(install),
+            "--review-root",
+            str(tmp_path / "rs"),
+        ]
         registrations = Registrations(gate=Gate(), reviewers={"electrical": Reviewer()})
         main(["run", *common], registrations)
         capsys.readouterr()
@@ -85,5 +95,34 @@ def test_the_decomposition_and_every_session_request_carry_the_recorded_pins(
     assert len(decomposition) == 1 and len(session) >= 2  # the call, then a read and an answer
     for request in [*decomposition, *session]:
         assert (request.effort, request.max_tokens) == ("low", 1000), request.path
+    # Every role session request carries the run's thinking display; the one
+    # decomposition call is not a role session and keeps the binary's own.
+    assert recorded["thinking_display"] == "summarized"
+    assert all((r.thinking or {}).get("display") == "summarized" for r in session), [
+        r.thinking for r in session
+    ]
+    assert (decomposition[0].thinking or {}).get("display") != "summarized"
+    # The specification as issued is digested at dispatch, before the session runs.
+    import hashlib
+    import subprocess
+
+    from physgate.orchestrator.events import Decomposed, SessionEnded, read_events
+
+    events = read_events(run_dir / "events.jsonl")
+    issued_by = next(e.spec_commit for e in events if isinstance(e, Decomposed))
+    spec_path = f".physgate/specs/{subtask}.md"
+    issued = subprocess.run(
+        ["git", "cat-file", "blob", f"{issued_by}:{spec_path}"],
+        cwd=repo,
+        capture_output=True,
+        check=True,
+    ).stdout
+    ended = [e for e in events if isinstance(e, SessionEnded)]
+    assert ended and all(e.issued_spec_sha256 == hashlib.sha256(issued).hexdigest() for e in ended)
     assert "StructuredOutput" in decomposition[0].offered_tools
+    # Where reviews are prepared is withheld from every role session the run spawns.
+    configs = sorted((run_dir / "sessions").glob("*/session/session-config.json"))
+    assert configs
+    review_root = str((tmp_path / "rs").resolve())
+    assert all(review_root in json.loads(c.read_text())["review_material"] for c in configs)
     assert all("Read" in r.offered_tools for r in session)

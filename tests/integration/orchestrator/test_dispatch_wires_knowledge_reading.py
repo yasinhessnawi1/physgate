@@ -79,6 +79,7 @@ class _Input:
     tool_input: dict[str, Any] | None = None
     tool_response: Any = None
     agent_id: str | None = None
+    error: str | None = None
 
 
 def test_the_installed_session_config_carries_loaders_full_reading_set(tmp_path: Path) -> None:
@@ -92,6 +93,7 @@ def test_the_installed_session_config_carries_loaders_full_reading_set(tmp_path:
         binary="unused-by-install",
         base_url=None,
         credential=Credential("api_key", "sk-ant-test-dummy"),
+        review_root=Path("/nonexistent/review-scratch"),
     )
     request = _request(cfg)
     worktree = run.open_subtask(request.subtask_id)
@@ -147,6 +149,7 @@ def test_a_role_whose_always_loaded_set_is_over_the_ceiling_fails_a_session_star
         binary="unused-by-install",
         base_url=None,
         credential=Credential("api_key", "sk-ant-test-dummy"),
+        review_root=Path("/nonexistent/review-scratch"),
     )
     request = _request(cfg)
     worktree = run.open_subtask(request.subtask_id)

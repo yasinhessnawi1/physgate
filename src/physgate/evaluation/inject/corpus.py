@@ -111,10 +111,14 @@ TELLTALES: tuple[str, ...] = (
 _TELLTALE = re.compile("|".join(TELLTALES))
 
 
+def fold(text: str) -> str:
+    """``text`` as the telltale words are matched in: lower case, ``_ - . /`` read as spaces."""
+    return " ".join(re.sub(r"[_\-./]+", " ", text.casefold()).split())
+
+
 def telltales(text: str) -> list[str]:
     """Every telltale word in ``text``, as matched, sorted and each once."""
-    folded = " ".join(re.sub(r"[_\-./]+", " ", text.casefold()).split())
-    return sorted({m.group(0) for m in _TELLTALE.finditer(folded)})
+    return sorted({m.group(0) for m in _TELLTALE.finditer(fold(text))})
 
 
 def strings_of(value: object) -> Iterator[str]:

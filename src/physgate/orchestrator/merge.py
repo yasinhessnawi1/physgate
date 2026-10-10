@@ -223,6 +223,11 @@ class GitMerger:
             )
         return WorktreeRemoval(path=str(path), outcome="removed", seconds=seconds, detail=None)
 
+    def review_base(self, attempt_commit: str) -> str:
+        """Where the attempt left the run branch: the commit its review diffs against."""
+        run = self._run
+        return merge_base(run.repo, run.run_branch, attempt_commit)
+
     def artefact_diff(self, attempt_commit: str) -> str:
         """The attempt's patch against where it left the run branch."""
         run = self._run

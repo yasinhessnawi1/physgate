@@ -18,6 +18,7 @@ from physgate.hooks import (
     shell_paths,
     token_ceiling,
     tools,
+    verdict_shape,
 )
 
 if TYPE_CHECKING:
@@ -36,5 +37,6 @@ REGISTRY: Mapping[str, HookSpec] = {
         graph.HOOK,
         reading.HOOK,
         token_ceiling.HOOK,
+        verdict_shape.HOOK,
     )
 }

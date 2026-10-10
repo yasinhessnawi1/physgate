@@ -47,17 +47,25 @@ SKILL_NAME = "skill.md"
 #: module resolves it against the orchestrator's own checkout.
 DEFAULT_ROOT = Path("knowledge")
 
+#: Directories beneath the knowledge root that are not a role's: candidates
+#: awaiting promotion, and the tree only reviewers read. A role by either name
+#: would put its always-loaded files inside one of them, so neither is a role.
+RESERVED = frozenset({"staging", "reviewers"})
+
 
 def _role_dir(role: str, root: Path) -> Path:
     """``root / role``, after checking ``role`` is safe to build a path from.
 
     Raises:
-        RoleNameError: ``role`` is empty, upper-case, or holds a character
+        RoleNameError: ``role`` is empty, upper-case, holds a character
             (``/``, ``.``, whitespace) that could name something other than a
-            single directory directly under ``root``.
+            single directory directly under ``root``, or is a reserved name.
     """
     if not _ROLE_PATTERN.fullmatch(role):
         msg = "a role name must be a safe, lower-case directory name to build a knowledge path from"
+        raise RoleNameError(msg, role=role)
+    if role in RESERVED:
+        msg = "this name is a directory of the knowledge root that no role's files may live in"
         raise RoleNameError(msg, role=role)
     return root / role
 

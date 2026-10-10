@@ -2,16 +2,19 @@
 
 > Researched and drafted by the
 > implementing agent (Yasin's content-authorship correction, 29.09.2026). Read
-> `knowledge/cross/standards.md` first. Almost every rule here is **judgement-only**: the physics
-> gate checks declared physical quantities, not code style or scheduling behaviour, so this domain's
-> discipline is enforced by the role's own on-target test and the reviewer, not by the gate — stated
-> plainly rather than implied, per this file's own rule 7.
+> `knowledge/cross/standards.md` first. Almost every rule here is **judgement-only**: the automated
+> design-quantity checks (the gate) cover declared physical quantities, not code style or scheduling
+> behaviour, so this domain's discipline is enforced by the role's own on-target test and the
+> reviewer, not by the gate — stated plainly rather than implied, per this file's own rule 11.
 
 ## 1. Control flow stays simple and statically boundable
 
-Avoid `goto`, `setjmp`/`longjmp`, and recursion (direct or indirect); give every loop a fixed,
-statically determinable upper bound. These are rules 1 and 2 of JPL's ten rules for safety-critical
-code, adopted as Flight Software's own institutional coding standard two years after publication
+Avoid `goto`, `setjmp`/`longjmp`, and recursion (direct or indirect); give every loop that is meant
+to terminate a fixed, statically determinable upper bound, and make every loop meant never to
+terminate (Holzmann's example: a process scheduler; in firmware, a task body or main loop)
+statically provable not to terminate. These are rules 1 and 2 of JPL's ten rules for
+safety-critical code, adopted as Flight Software's own institutional coding standard two years
+after publication
 [G. J. Holzmann, "The Power of 10: Rules for Developing Safety-Critical Code," *IEEE Computer*,
 vol. 39, no. 6, pp. 95–99, June 2006]. The reason stated there is verifiability: a human or a tool
 must be able to bound a loop's behaviour by reading it, not by running it.
@@ -44,9 +47,12 @@ real-time budget even when it never fails outright.
 
 No function should be too large to read and verify as a unit (Holzmann's rule of thumb: printable on
 a single sheet, roughly 60 lines) [Holzmann, 2006, rule 4]; functions check the return values and
-parameters they are given rather than assuming success (rule 7), and carry a working minimum of
-runtime assertions on their own preconditions and invariants (rule 5 — Holzmann's guidance is a
-floor of roughly two assertions per function, not a ceiling).
+parameters they are given rather than assuming success (rule 7; where the response to an error would
+be no different from success, an explicit cast to `(void)` can be acceptable, with a comment in
+dubious cases), and carry a working minimum of runtime assertions on their own preconditions and
+invariants (rule 5 — Holzmann's guidance is an average of at least two assertions per function
+across the code, not a per-function floor; an assertion a static checker can prove never fails or
+never holds does not count, and violates this rule).
 
 **Judgement-only.**
 
@@ -64,13 +70,14 @@ have come from [Holzmann, 2006, rule 6].
 
 No token pasting, no variable-argument macros, no recursive macro expansion, and no macro that
 expands to less than a complete syntactic unit. Conditional compilation beyond the standard
-include-guard boilerplate needs a justification in the code, not just a `#ifdef` — ten independent
+include-guard boilerplate needs a justification in the code, not just a `#ifdef`, and there should
+rarely be more than one or two such directives even in a large code base — ten independent
 conditional-compilation directives multiply into up to 2¹⁰ versions of the code, each in principle
 needing its own test [Holzmann, 2006, rule 8].
 
 **Judgement-only.**
 
-## 6. Pointer use is restricted, and a function-pointer HAL is a stated, deliberate exception to that
+## 6. Pointer use is restricted, and a function-pointer HAL is a stated, intended exception to that
 
 Holzmann's rule 9 is blunt: "no more than one level of dereferencing is allowed... Function pointers
 are not permitted" [Holzmann, 2006, rule 9] — but it is not a totally blanket ban; its own text
@@ -82,8 +89,12 @@ function-pointer-based interface for HAL and driver portability and testability*
 an oversight to paper over — and the resolution is exactly what that escape clause asks for: a
 fixed, init-time-populated, never-reassigned vtable is a statically enumerable, unchanging
 call-target set, which is the "alternate means" the rule names, not the unconstrained pointer
-arithmetic it is actually defending against. State which choice was made for a given module and why,
-rather than silently picking one convention and never naming the other.
+arithmetic it is actually defending against. Rule 9 also forbids hiding pointer dereferences in
+macro definitions or typedef declarations, and warns that with function pointers "it can become
+impossible for a tool to prove absence of recursion, so alternate guarantees would have to be
+provided" — the same enumerable call-target set is what makes that guarantee possible: with every
+target known, the call graph can be checked for cycles. State which choice was made for a given
+module and why, rather than silently picking one convention and never naming the other.
 
 **Judgement-only.**
 
@@ -129,8 +140,9 @@ period highest priority), a sufficient (not necessary) condition for every deadl
 and `n` the number of tasks — a bound that falls toward `ln 2 ≈ 0.693` as `n` grows large
 [C. L. Liu and J. W. Layland, "Scheduling Algorithms for Multiprogramming in a Hard-Real-Time
 Environment," *Journal of the ACM*, vol. 20, no. 1, pp. 46–61, Jan. 1973]. This is a **sufficient**
-bound: a task set below it is provably schedulable; one above it is not automatically unschedulable,
-but needs an exact test (e.g. response-time analysis) rather than an assumption either way.
+bound: a task set at or below it is provably schedulable; one above it is not automatically
+unschedulable, but needs an exact test (e.g. response-time analysis) rather than an assumption
+either way.
 
 Separately from the provable bound, practitioner guidance is more conservative in practice: staying
 near or under roughly 70% steady-state CPU utilization is commonly recommended so that timing stays
@@ -141,11 +153,11 @@ practitioner sources, e.g. Embedded Artistry, "Embedded Rules of Thumb"]. State 
 utilization figure and which bound (the provable one, or the practitioner margin) it is being
 compared against — the two are different claims and should not be conflated.
 
-**Judgement-only until a timing-budget quantity is added to the physics gate's own vocabulary** — the
-gate's catalogue does not yet name a firmware timing quantity, so a name introduced here needs adding
-to that catalogue before the gate can compare it to anything. Until then, a declared timing-budget
-number is unit-checked like any other quantity (cross-domain standards §1–2) but not compared against this
-bound by the gate itself.
+**Judgement-only until a timing-budget quantity is added to the automated design-quantity checks'
+own vocabulary** — the gate's catalogue does not yet name a firmware timing quantity, so a name
+introduced here needs adding to that catalogue before the gate can compare it to anything. Until
+then, a declared timing-budget number is unit-checked like any other quantity (cross-domain
+standards §1–2) but not compared against this bound by the gate itself.
 
 ## 11. State plainly which rules above are gate-enforced and which are not
 

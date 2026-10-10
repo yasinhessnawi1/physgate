@@ -16,7 +16,7 @@ from pathlib import Path
 from loop_fakes import FakeDispatcher, Rig, plan
 
 from physgate.orchestrator.accounting import TokenAccount
-from physgate.orchestrator.credentials import Credential
+from physgate.orchestrator.credentials import KEY_HELPER, Credential
 from physgate.orchestrator.dispatch import ClaudeDispatcher
 from physgate.orchestrator.events import Incident, LeftoverRead, TokensUsed, read_events
 from physgate.orchestrator.merge import RunGit
@@ -75,6 +75,7 @@ def _dispatcher(run_dir: Path) -> ClaudeDispatcher:
         binary="/nonexistent/claude",
         base_url=None,
         credential=Credential("api_key", "sk-ant-test-dummy-not-a-credential"),
+        review_root=Path("/nonexistent/review-scratch"),
     )
 
 
@@ -182,3 +183,80 @@ def test_a_halted_run_s_resume_records_a_leftover_s_tokens(tmp_path: Path) -> No
     again.close()
     events = read_events(tmp_path / "events.jsonl")
     assert any(isinstance(e, TokensUsed) and e.message_id == "m-real" and e.partial for e in events)
+
+
+def _left_review(root: Path, review: str, run_id: str, lines: list[str]) -> Path:
+    sdir = root / review / "session"
+    (sdir / "state").mkdir(parents=True)
+    (sdir / "owner.json").write_text(json.dumps({"run_id": run_id}))
+    (sdir / "state" / KEY_HELPER).write_text("#!/bin/sh\necho secret\n")
+    record = {
+        "pid": 999_999,
+        "started": "Mon Jan  1 00:00:00 2001",
+        "session_id": review,
+        "kind": "reviewer",
+    }
+    (sdir / "process.json").write_text(json.dumps(record))
+    (sdir / "stdout.jsonl").write_text("\n".join(lines) + "\n")
+    return sdir
+
+
+def test_a_review_session_of_this_run_is_found_cleaned_and_its_tokens_are_the_reviewer_s(
+    tmp_path: Path,
+) -> None:
+    """A review's session lives beneath the review root, which the run directory does not hold.
+
+    Its owner record names the run: this run's resume stops it, removes its
+    credential and reads its spend as a reviewer's; another run's is left alone.
+    """
+    from orch_helpers import make_config
+
+    run_dir, root = tmp_path / "run", tmp_path / "rs"
+    (run_dir / "sessions").mkdir(parents=True)
+    lines = [*_message("msg_review", 10), _result(10)]
+    mine = _left_review(root, "11111111-1111-4111-8111-111111111111", "run-1", lines)
+    other = _left_review(root, "22222222-2222-4222-8222-222222222222", "run-2", lines)
+    dispatcher = ClaudeDispatcher(
+        config=make_config(),
+        run=RunGit(repo=run_dir, run_dir=run_dir, run_id="run-1"),
+        store_root=run_dir / "store",
+        install_bin=run_dir / "bin" / "physgate",
+        binary="/nonexistent/claude",
+        base_url=None,
+        credential=Credential("api_key", "sk-ant-test-dummy-not-a-credential"),
+        review_root=root,
+    )
+    (left,) = dispatcher.stop_leftovers()
+    assert (left.session_id, left.kind, left.complete) == (mine.parent.name, "reviewer", True)
+    assert not (mine / "state" / KEY_HELPER).exists()
+    assert (mine / "ended.json").exists()
+    assert (other / "state" / KEY_HELPER).exists()
+    assert not (other / "ended.json").exists()
+
+
+def test_a_leftover_review_s_tokens_are_attributed_to_the_reviewer(tmp_path: Path) -> None:
+    class _LeftReview(FakeDispatcher):
+        def stop_leftovers(self) -> list[Leftover]:
+            return [
+                Leftover(
+                    session_id="rev-old",
+                    pid=4242,
+                    killed=0,
+                    stopped=False,
+                    usage=(SPENT,),
+                    complete=True,
+                    kind="reviewer",
+                )
+            ]
+
+    rig = Rig(tmp_path, dispatcher=_LeftReview())
+    loop = rig.open()
+    loop.start(plan("s1"))
+    loop.run()
+    loop.close()
+    again = rig.open()
+    again.resume()
+    again.close()
+    account = TokenAccount.from_events(read_events(tmp_path / "events.jsonl"))
+    assert account.by_attribution()["reviewer:rev-old"] == SPENT.usage
+    assert "session:rev-old" not in account.by_attribution()
