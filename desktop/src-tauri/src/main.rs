@@ -20,6 +20,7 @@ mod onboarding;
 mod runs;
 mod server;
 mod shell;
+mod signals;
 mod status;
 #[cfg(test)]
 mod testdir;
@@ -95,6 +96,23 @@ fn main() {
                 "launched version {}",
                 handle.package_info().version
             ));
+            if let Some(pid) = server::reap(&shell.paths.server_pid()) {
+                shell.note(&format!(
+                    "stopped a server ({pid}) an earlier run left behind"
+                ));
+            }
+            signals::install();
+            let stopping = handle.clone();
+            std::thread::spawn(move || loop {
+                std::thread::sleep(Duration::from_millis(100));
+                if signals::requested() {
+                    let shell = stopping.state::<Shell>();
+                    shell.note("asked to stop by a signal; stopping the server");
+                    shell.stop_server();
+                    stopping.exit(0);
+                    break;
+                }
+            });
             menu::restart_in_background(handle.clone());
             Shell::watch(handle.clone());
             #[cfg(feature = "walkthrough")]

@@ -44,6 +44,12 @@ impl Paths {
         self.root.join("server.log")
     }
 
+    /// The running server's pid and program, so a server left by a killed app is stopped
+    /// at the next start.
+    pub fn server_pid(&self) -> PathBuf {
+        self.root.join("server.pid")
+    }
+
     /// The shell's own notes: starts, restarts, update checks.
     pub fn shell_log(&self) -> PathBuf {
         self.root.join("shell.log")

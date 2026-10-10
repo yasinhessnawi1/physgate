@@ -127,14 +127,20 @@ pub enum StartError {
 }
 
 /// A running server, stopped when dropped.
+///
+/// While it runs, its pid and program are in a pid file. If the app is killed outright
+/// (Force Quit, `kill -9`, a crash), the next start reads that file and stops the server it
+/// left, so no `physgate ui` keeps serving after the app is gone.
 pub struct Server {
     child: Child,
     url: Url,
+    pid_file: PathBuf,
 }
 
 impl Server {
-    /// Start `physgate ui` for `settings`, writing its standard error to `log`.
-    pub fn start(settings: &Settings, log: &Path) -> Result<Self, StartError> {
+    /// Start `physgate ui` for `settings`, writing its standard error to `log` and its pid
+    /// to `pid_file`.
+    pub fn start(settings: &Settings, log: &Path, pid_file: &Path) -> Result<Self, StartError> {
         let program = entry_point(&settings.checkout);
         if !program.is_file() {
             return Err(StartError::NoEntryPoint(program));
@@ -151,15 +157,26 @@ impl Server {
             .stderr(errors)
             .spawn()
             .map_err(|e| StartError::Failed(format!("{} could not run: {e}", program.display())))?;
+        let _ = fs::write(pid_file, format!("{}\n{}\n", child.id(), program.display()));
+        let given_up = |child: &mut Child| {
+            stop_child(child);
+            let _ = fs::remove_file(pid_file);
+        };
         let stdout = child.stdout.take().expect("standard output is piped");
         let (sender, receiver) = mpsc::channel();
         thread::spawn(move || read_announcement(stdout, &sender));
         let started = Instant::now();
         loop {
             match receiver.recv_timeout(Duration::from_millis(100)) {
-                Ok(Ok(url)) => return Ok(Self { child, url }),
+                Ok(Ok(url)) => {
+                    return Ok(Self {
+                        child,
+                        url,
+                        pid_file: pid_file.to_path_buf(),
+                    })
+                }
                 Ok(Err(reason)) => {
-                    stop_child(&mut child);
+                    given_up(&mut child);
                     return Err(StartError::Failed(reason));
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
@@ -169,11 +186,12 @@ impl Server {
                 }
             }
             if let Ok(Some(_)) = child.try_wait() {
+                given_up(&mut child);
                 let text = fs::read_to_string(log).unwrap_or_default();
                 return Err(StartError::Refused(refusal_in(&text), tail(&text, 20)));
             }
             if started.elapsed() > START_TIMEOUT {
-                stop_child(&mut child);
+                given_up(&mut child);
                 return Err(StartError::Failed(format!(
                     "the server did not announce an address within {} seconds",
                     START_TIMEOUT.as_secs()
@@ -195,7 +213,53 @@ impl Server {
 impl Drop for Server {
     fn drop(&mut self) {
         stop_child(&mut self.child);
+        let _ = fs::remove_file(&self.pid_file);
     }
+}
+
+/// Stop a server an earlier run of the app left behind, if `pid_file` names one. Returns its
+/// pid if one was stopped.
+///
+/// It is stopped only if that pid is still a `physgate ui` of the program the file names,
+/// read from the process table, so a pid the system has since given to anything else is
+/// left alone. The file is removed either way.
+pub fn reap(pid_file: &Path) -> Option<i32> {
+    let text = fs::read_to_string(pid_file).ok()?;
+    let _ = fs::remove_file(pid_file);
+    let mut lines = text.lines();
+    let pid: i32 = lines.next()?.trim().parse().ok().filter(|p| *p > 1)?;
+    let program = lines.next()?.trim().to_string();
+    let command = Command::new("/bin/ps")
+        .args(["-o", "command=", "-p", &pid.to_string()])
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())?;
+    let ours = !program.is_empty()
+        && command.contains(&program)
+        && command.split_whitespace().any(|word| word == "ui");
+    if !ours {
+        return None;
+    }
+    let alive = || {
+        // SAFETY: signal 0 only asks whether the process exists.
+        unsafe { libc::kill(pid, 0) == 0 }
+    };
+    // SAFETY: a pid checked above to be a `physgate ui` of the recorded program.
+    unsafe {
+        libc::kill(pid, libc::SIGINT);
+    }
+    let deadline = Instant::now() + STOP_GRACE;
+    while alive() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(50));
+    }
+    if alive() {
+        // SAFETY: as above.
+        unsafe {
+            libc::kill(pid, libc::SIGKILL);
+        }
+    }
+    Some(pid)
 }
 
 /// Read standard output until it holds a complete announcement, then keep draining it.
@@ -241,6 +305,7 @@ fn stop_child(child: &mut Child) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
 
     #[test]
     fn the_server_is_always_asked_for_loopback_and_a_free_port() {
@@ -315,6 +380,87 @@ mod tests {
         assert_eq!(tail("a\n", 5), "a");
     }
 
+    fn stand_in_server(dir: &Path) -> PathBuf {
+        let bin = dir.join("checkout/.venv/bin");
+        fs::create_dir_all(&bin).unwrap();
+        let program = bin.join("physgate");
+        fs::write(
+            &program,
+            "#!/bin/sh\nprintf '{\"url\": \"http://127.0.0.1:5555/\"}\\n'\nwhile :; do sleep 1; done\n",
+        )
+        .unwrap();
+        fs::set_permissions(&program, fs::Permissions::from_mode(0o700)).unwrap();
+        program
+    }
+
+    fn alive(pid: i32) -> bool {
+        // SAFETY: signal 0 only asks whether the process exists.
+        unsafe { libc::kill(pid, 0) == 0 }
+    }
+
+    #[test]
+    fn a_running_server_has_a_pid_file_that_goes_with_it() {
+        let dir = crate::testdir::TestDir::new("pid-file");
+        stand_in_server(dir.path());
+        let settings = Settings {
+            checkout: dir.path().join("checkout"),
+            run_folders: vec![dir.path().to_path_buf()],
+            ..Settings::default()
+        };
+        let pid_file = dir.path().join("server.pid");
+        let server = Server::start(&settings, &dir.path().join("server.log"), &pid_file).unwrap();
+        let text = fs::read_to_string(&pid_file).unwrap();
+        let pid: i32 = text.lines().next().unwrap().parse().unwrap();
+        assert!(text.contains(".venv/bin/physgate"));
+        assert!(alive(pid));
+        drop(server);
+        assert!(!pid_file.exists(), "removed when the server stops");
+    }
+
+    #[test]
+    fn a_server_left_by_a_killed_app_is_stopped_at_the_next_start() {
+        let dir = crate::testdir::TestDir::new("reap");
+        let program = stand_in_server(dir.path());
+        // The server as a killed app would leave it: running, with only the pid file to find it.
+        let mut left = Command::new(&program)
+            .args(["ui", "--bind", "127.0.0.1"])
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = i32::try_from(left.id()).unwrap();
+        let pid_file = dir.path().join("server.pid");
+        fs::write(&pid_file, format!("{pid}\n{}\n", program.display())).unwrap();
+        thread::sleep(Duration::from_millis(200));
+        assert_eq!(reap(&pid_file), Some(pid));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while matches!(left.try_wait(), Ok(None)) && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(50));
+        }
+        assert!(
+            left.try_wait().unwrap().is_some(),
+            "the left-over server was stopped"
+        );
+        assert!(!pid_file.exists());
+    }
+
+    #[test]
+    fn a_pid_now_held_by_something_else_is_left_alone() {
+        let dir = crate::testdir::TestDir::new("reap-other");
+        let program = stand_in_server(dir.path());
+        let mut other = Command::new("/bin/sleep").arg("30").spawn().unwrap();
+        let pid = i32::try_from(other.id()).unwrap();
+        let pid_file = dir.path().join("server.pid");
+        fs::write(&pid_file, format!("{pid}\n{}\n", program.display())).unwrap();
+        assert_eq!(reap(&pid_file), None);
+        assert!(alive(pid), "not ours, not stopped");
+        assert!(!pid_file.exists());
+        let _ = other.kill();
+        let _ = other.wait();
+        fs::write(&pid_file, "not a pid\n").unwrap();
+        assert_eq!(reap(&pid_file), None);
+        assert_eq!(reap(&dir.path().join("absent.pid")), None);
+    }
+
     #[test]
     fn a_checkout_without_an_environment_is_named() {
         let settings = Settings {
@@ -323,7 +469,7 @@ mod tests {
             ..Settings::default()
         };
         let log = std::env::temp_dir().join("physgate-desktop-test-unused.log");
-        match Server::start(&settings, &log) {
+        match Server::start(&settings, &log, &log.with_extension("pid")) {
             Err(StartError::NoEntryPoint(path)) => {
                 assert_eq!(path, PathBuf::from("/nowhere/at/all/.venv/bin/physgate"));
             }

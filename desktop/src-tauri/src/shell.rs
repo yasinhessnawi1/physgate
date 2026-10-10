@@ -237,7 +237,11 @@ impl Shell {
             "starting the server from {}",
             settings.checkout.display()
         ));
-        match Server::start(&settings, &self.paths.server_log()) {
+        match Server::start(
+            &settings,
+            &self.paths.server_log(),
+            &self.paths.server_pid(),
+        ) {
             Ok(server) => {
                 let mut target: Url = server.url().clone();
                 target.set_fragment(view.as_deref());
