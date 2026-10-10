@@ -26,6 +26,7 @@ from physgate.orchestrator.events import RunStarted, read_events
 from physgate.orchestrator.exceptions import EscalationBackendError, RunConfigError
 from physgate.orchestrator.loop import escalation_for
 from physgate.orchestrator.record import RunRecord
+from physgate.orchestrator.replay import replay
 from physgate.orchestrator.run_config import (
     RunConfig,
     load_run_config,
@@ -81,9 +82,11 @@ def test_the_run_s_first_line_names_its_binding(tmp_path: Path) -> None:
     loop = Rig(tmp_path).open()
     loop.start(plan("s1"))
     loop.close()
-    first = read_events(tmp_path / "events.jsonl")[0]
+    events = read_events(tmp_path / "events.jsonl")
+    first = events[0]
     assert isinstance(first, RunStarted)
     assert first.escalation_backend == "rules"
+    assert replay(events).escalation_backend == "rules"
 
 
 def test_a_first_line_written_before_the_binding_reads_as_naming_none() -> None:
@@ -103,11 +106,12 @@ def test_a_log_that_names_another_binding_than_its_config_is_not_this_run(tmp_pa
     log = tmp_path / "events.jsonl"
     first, rest = log.read_bytes().split(b"\n", 1)
     line = json.loads(first)
-    line["escalation_backend"] = None
+    # Another name than the config's, and not None, so the replay must carry what is written.
+    line["escalation_backend"] = "llm"
     log.write_bytes(json.dumps(line).encode() + b"\n" + rest)
     with pytest.raises(RunConfigError) as caught:
         RunRecord(make_config(), tmp_path)
-    assert caught.value.context["logged"] == "None"
+    assert (caught.value.context["logged"], caught.value.context["recorded"]) == ("llm", "rules")
 
 
 def test_the_loop_refuses_a_run_that_names_no_binding(tmp_path: Path) -> None:
