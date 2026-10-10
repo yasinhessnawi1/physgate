@@ -40,6 +40,7 @@ number in this codebase already does.
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
+from pathlib import Path
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
@@ -53,6 +54,7 @@ from physgate.orchestrator.events import (
     ReviewRan,
     SessionEnded,
     WriteDone,
+    read_events,
 )
 from physgate.orchestrator.protocols import (
     CheckName,
@@ -64,6 +66,7 @@ from physgate.orchestrator.protocols import (
     Scope,
 )
 from physgate.orchestrator.queue import INTEGRATION
+from physgate.orchestrator.run_config import load_run_config
 
 #: How a gate event found the review it was stamped from.
 ReviewerBasis = Literal["same_attempt", "last_writer_of_node"]
@@ -173,6 +176,20 @@ def gate_events(events: Iterable[Event], manifest_id: str) -> list[GateEvent]:
                 )
             )
     return found
+
+
+def recorded_gate_events(events: Path, config: Path) -> list[GateEvent]:
+    """The run's gate events from its event log and its recorded configuration's digest.
+
+    What ``physgate gate-events`` prints and the operator UI serves, from one call,
+    so the two are the same events by construction rather than by comparison.
+
+    Raises:
+        CorruptEventLogError: the log holds a line this package could not have written.
+        RunConfigError: there is no recorded configuration, or it is not valid.
+    """
+    log = read_events(events)
+    return gate_events(log, load_run_config(config).sha256())
 
 
 def _bounds(event: Event, subtask: str, attempt: int) -> bool:

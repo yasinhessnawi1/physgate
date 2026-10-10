@@ -1,0 +1,7 @@
+dist
+node_modules
+pnpm-lock.yaml
+test-results
+playwright-report
+# Copied byte for byte from the design; never reformatted here.
+src/design/tokens.json

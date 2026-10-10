@@ -16,6 +16,7 @@ that ledger back from disk, not from memory.
 from __future__ import annotations
 
 import copy
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -59,11 +60,16 @@ from physgate.orchestrator.events import (
     WorktreeRemoved,
     WriteDone,
     WriteIntended,
+    read_events,
 )
-from physgate.orchestrator.exceptions import MergePreconditionError, RunConfigError
+from physgate.orchestrator.exceptions import (
+    CorruptEventLogError,
+    MergePreconditionError,
+    RunConfigError,
+)
 from physgate.orchestrator.repair import FindingSource
 from physgate.orchestrator.run_config import load_run_config
-from physgate.state.task_ledger import TaskLedger, TaskLine
+from physgate.state.task_ledger import TaskLedger, TaskLine, read_ledger
 
 
 @dataclass
@@ -531,12 +537,59 @@ def project_ledger(state: RunState, ledger: TaskLedger) -> int:
             so the two records disagree and neither can be trusted to merge from.
     """
     held = ledger.read_all()
-    if held != state.ledger[: len(held)]:
-        msg = "the task ledger disagrees with the run-event log"
-        raise MergePreconditionError(msg, ledger=str(ledger.path))
+    require_projection(held, state, ledger.path)
     for line in state.ledger[len(held) :]:
         ledger.append(line)
     return len(state.ledger) - len(held)
+
+
+def require_projection(held: list[TaskLine], state: RunState, ledger: Path) -> None:
+    """Refuse a ledger whose lines are not the start of what the event log implies.
+
+    The ledger is projected from the event log, and appended to only by
+    ``project_ledger``, so what it holds must be a prefix of the projection: equal
+    to it, or behind it by the lines a killed process had not yet appended.
+
+    Raises:
+        MergePreconditionError: the two records disagree, so neither can be
+            trusted to merge from or to show.
+    """
+    if held != state.ledger[: len(held)]:
+        msg = "the task ledger disagrees with the run-event log"
+        raise MergePreconditionError(msg, ledger=str(ledger))
+
+
+def replay(events: Iterable[Event]) -> RunState:
+    """The run's state, followed line by line from its events, with nothing written.
+
+    Raises:
+        CorruptEventLogError: a line cannot come next in the run, so the log could
+            not have been written by this loop.
+    """
+    state = RunState()
+    for event in events:
+        try:
+            state.record(event)
+        except ValueError as exc:
+            msg = "the run-event log does not replay as a run"
+            raise CorruptEventLogError(msg, seq=str(event.seq), reason=str(exc)) from None
+    return state
+
+
+def recorded_ledger(events: Path, ledger: Path) -> list[TaskLine]:
+    """The task ledger as recorded, read without writing, held to the event log's projection.
+
+    What ``physgate ledger`` prints and the operator UI serves.
+
+    Raises:
+        CorruptEventLogError: the event log does not read or does not replay.
+        CorruptRecordError: a ledger line is not a record this package could write.
+        MergePreconditionError: the ledger is not a prefix of the log's projection.
+    """
+    state = replay(read_events(events))
+    held = read_ledger(ledger)
+    require_projection(held, state, ledger)
+    return held
 
 
 def require_mergeable(ledger_path: Path, subtask_id: str, gate_mode: GateMode) -> TaskLine:

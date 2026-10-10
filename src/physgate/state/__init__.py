@@ -47,7 +47,7 @@ from physgate.state.store import (
     journal_records_after,
     node_file_body,
 )
-from physgate.state.task_ledger import TaskLedger, TaskLine
+from physgate.state.task_ledger import TaskLedger, TaskLine, read_ledger
 
 __all__ = [
     "REJECT_CROSS_ROLE",
@@ -80,6 +80,7 @@ __all__ = [
     "journal_records_after",
     "node_file_body",
     "quantities_are_valid",
+    "read_ledger",
     "validate_node",
     "validate_node_id",
 ]

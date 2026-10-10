@@ -37,7 +37,7 @@ from physgate.knowledge.library import LibraryError, read_library
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper
 from physgate.orchestrator.catches import catches, parse_time
-from physgate.orchestrator.common import first_problem
+from physgate.orchestrator.common import first_problem, render_jsonl
 from physgate.orchestrator.credentials import SECRET_VARIABLE, credential_for
 from physgate.orchestrator.decompose import binary_version, call, require_fresh, start_run
 from physgate.orchestrator.dispatch import ClaudeDispatcher, probe_interpreter
@@ -57,7 +57,7 @@ from physgate.orchestrator.exceptions import (
     RunConfigError,
     RunStateError,
 )
-from physgate.orchestrator.gate_events import GateEvent, gate_events
+from physgate.orchestrator.gate_events import GateEvent, gate_events, recorded_gate_events
 from physgate.orchestrator.git import head_of
 from physgate.orchestrator.install import (
     manifest_entries,
@@ -70,6 +70,7 @@ from physgate.orchestrator.loop import Loop, refuse_unregistered, require_gate
 from physgate.orchestrator.merge import GitMerger, RunGit
 from physgate.orchestrator.protocols import Gate, Reviewer
 from physgate.orchestrator.queue import ApprovalQueue
+from physgate.orchestrator.replay import recorded_ledger
 from physgate.orchestrator.role_python import RolePython
 from physgate.orchestrator.role_python import measure as measure_role_python
 from physgate.orchestrator.run_config import (
@@ -85,6 +86,7 @@ from physgate.orchestrator.run_config import (
 from physgate.reviewers.claude import ReviewerSetup, claude_reviewers
 from physgate.reviewers.exceptions import ReviewError
 from physgate.reviewers.places import require_review_root
+from physgate.state.exceptions import DesignStateError
 
 #: Example parameters files, one per auth mode.
 EXAMPLES = Path(__file__).resolve().parent / "examples"
@@ -205,6 +207,12 @@ def add_parsers(
     g.add_argument("--run-dir", required=True, type=Path)
     g.set_defaults(func=_gate_events)
 
+    ledger = subparsers.add_parser(
+        "ledger", help="print the task ledger as recorded, held to the run-event log"
+    )
+    ledger.add_argument("--run-dir", required=True, type=Path)
+    ledger.set_defaults(func=_ledger)
+
     c = subparsers.add_parser(
         "catches",
         help="count the blocking gate failures on work a reviewer had passed, per check",
@@ -230,12 +238,24 @@ def _gate_events(args: argparse.Namespace) -> int:
     """
     run_dir = args.run_dir.resolve()
     try:
-        events = read_events(run_dir / "events.jsonl")
-        manifest_id = load_run_config(run_dir / "run.json").sha256()
+        found = recorded_gate_events(run_dir / "events.jsonl", run_dir / "run.json")
     except OrchestratorError as exc:
         return _fail(str(exc), **exc.context)
-    for event in gate_events(events, manifest_id):
-        print(event.model_dump_json())
+    sys.stdout.write(render_jsonl(found))
+    return 0
+
+
+def _ledger(args: argparse.Namespace) -> int:
+    """Print the task ledger as recorded, one JSON line each, held to the event log.
+
+    Read without writing: a ledger the event log does not imply is refused, not shown.
+    """
+    run_dir = args.run_dir.resolve()
+    try:
+        lines = recorded_ledger(run_dir / "events.jsonl", run_dir / "ledger.jsonl")
+    except (OrchestratorError, DesignStateError) as exc:
+        return _fail(str(exc), **exc.context)
+    sys.stdout.write(render_jsonl(lines))
     return 0
 
 

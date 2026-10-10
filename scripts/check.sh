@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# Tests, then types, then lint. Stops at the first failure and names it.
+# Tests, then types, then lint, then the operator UI's gates. Stops at the first failure
+# and names it.
 #
 # This is shell rather than Python on purpose. A Python entry point would have
 # to live inside the very environment whose health it reports, so it could not
@@ -47,9 +48,15 @@ gate_lint() {
   uv run ruff format --check . || fail "format"
 }
 
+gate_ui() {
+  # The operator UI's own gates, first-red, in a script of their own.
+  ./scripts/check-ui.sh || fail "ui (see above)"
+}
+
 gate_tests
 gate_types
 gate_lint
+gate_ui
 
 echo
 echo "All gates passed."
