@@ -68,10 +68,8 @@ fn main() {
             let refusals = shell.paths.clone();
             let new_windows = shell.paths.clone();
             // The window's first load: the app's own page with no state in its address, which
-            // shows only "Starting". The webview names it in any of these forms.
-            for first in ["tauri://localhost", "tauri://localhost/", status::PAGE] {
-                gate.issue(&tauri::Url::parse(first).expect("the page address parses"));
-            }
+            // shows only "Starting". One ticket, for exactly the address the webview reports.
+            gate.first_load();
             let mut window =
                 WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                     .title("physgate")
