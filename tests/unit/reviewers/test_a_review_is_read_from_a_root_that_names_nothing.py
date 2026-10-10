@@ -26,7 +26,8 @@ INSTRUMENT_ID = "r0123456789ab"
 SESSION_ID = "5f0c1d2e-3a4b-4c5d-8e9f-0a1b2c3d4e5f"
 
 
-@pytest.mark.parametrize("home", ["/Users/yasinhessnawi", "/home/coder"])
+# A macOS and a Linux home, and the home of whichever machine runs the test.
+@pytest.mark.parametrize("home", ["/Users/someone", "/home/coder", str(Path.home())])
 @pytest.mark.parametrize("review", [INSTRUMENT_ID, SESSION_ID])
 @pytest.mark.parametrize("leaf", ["read/worktree", "read/transcript.md", "session/stdout.jsonl"])
 def test_the_standing_root_names_nothing_on_either_machine(

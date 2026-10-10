@@ -7,7 +7,10 @@ no content of the session's:
 
 - ``stream_event``: the streamed pieces of each model message, which the message
   event that follows holds again whole (measured on the recorded role streams:
-  the deltas carry tool inputs, text and thinking that the assistant events repeat);
+  the deltas carry tool inputs, text and thinking that the assistant events repeat).
+  One exception: a session stopped mid-message (at its wall clock, say) leaves its
+  last message only as deltas, with no event repeating it, so at most that one
+  partial message is not shown;
 - ``system`` events of subtype ``hook_started``, ``status`` and ``thinking_tokens``:
   a hook beginning (its outcome is kept), a status line and a token count;
 - ``rate_limit_event``: the account's rate-limit state.
