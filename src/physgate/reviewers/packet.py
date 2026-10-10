@@ -45,10 +45,14 @@ into its prompt.
 
 from __future__ import annotations
 
+import atexit
+import functools
 import hashlib
 import json
 import secrets
+import shutil
 import subprocess
+import tempfile
 import unicodedata
 from pathlib import Path
 from typing import Annotated
@@ -170,9 +174,104 @@ _GIT_FLAGS = (
 )
 
 
-def _git_bytes(repo: Path, *args: str) -> bytes:
+def _git_dir(repo: Path) -> Path:
+    """The repository's git directory, resolved from the filesystem without running git.
+
+    A normal repository keeps it at ``.git``; a ``git worktree`` checkout keeps a ``.git``
+    file naming it. Read as bytes on disk, so no configuration, hook or program is consulted.
+    """
+    dot = Path(repo) / ".git"
+    if dot.is_dir():
+        return dot
+    if dot.is_file():
+        pointer = dot.read_text().strip()
+        if pointer.startswith("gitdir:"):
+            named = Path(pointer.removeprefix("gitdir:").strip())
+            return named if named.is_absolute() else (Path(repo) / named).resolve()
+    msg = "the attempt's repository has no git directory"
+    raise PacketError(msg, repo=str(repo))
+
+
+def _object_dirs(repo: Path) -> list[str]:
+    """Every object directory the attempt's commits are read from, resolved from the filesystem.
+
+    A worktree's objects live in the repository's common directory; a repository may name
+    further object directories in ``objects/info/alternates``. Each is a store of
+    content-addressed objects: naming one grants only read access to objects a commit already
+    pins, never a way to change what a commit holds, and never anything git would run.
+    """
+    git_dir = _git_dir(repo)
+    roots = [git_dir]
+    commondir = git_dir / "commondir"
+    if commondir.is_file():
+        named = Path(commondir.read_text().strip())
+        roots.append(named if named.is_absolute() else (git_dir / named).resolve())
+    found: list[str] = []
+    seen: set[str] = set()
+    pending = [root / "objects" for root in roots]
+    while pending:
+        objects = pending.pop(0)
+        resolved = str(objects.resolve())
+        if resolved in seen or not objects.is_dir():
+            continue
+        seen.add(resolved)
+        found.append(resolved)
+        alternates = objects / "info" / "alternates"
+        if alternates.is_file():
+            for line in alternates.read_text().splitlines():
+                entry = line.strip()
+                if entry and not entry.startswith("#"):
+                    pending.append(Path(entry))
+    if not found:
+        msg = "the attempt's repository holds no object store"
+        raise PacketError(msg, repo=str(repo))
+    return found
+
+
+_STORES: list[str] = []
+
+
+@atexit.register
+def _remove_stores() -> None:
+    for store in _STORES:
+        shutil.rmtree(store, ignore_errors=True)
+
+
+@functools.cache
+def _object_store(object_dirs: tuple[str, ...]) -> str:
+    """A throwaway bare git directory that reaches ``object_dirs`` and holds nothing else.
+
+    Every packet git command runs against this, never with its working directory inside the
+    attempt's repository, so that repository's own configuration, its ``.gitattributes``, its
+    ``include`` paths and any submodule's configuration are never read and can run nothing.
+    The store reaches the attempt's objects through ``alternates`` (read-only), carries a clean
+    configuration, and has no working tree and no submodules, so a committed submodule is shown
+    as its gitlink rather than recursed into — which is where the local configuration otherwise
+    runs a program.
+    """
+    store = tempfile.mkdtemp(prefix="physgate-review-store-")
+    _STORES.append(store)
     done = subprocess.run(
-        ["git", *_GIT_FLAGS, *args], cwd=repo, capture_output=True, check=False, env=_GIT_ENV
+        ["git", *_GIT_FLAGS, "init", "-q", "--bare", store],
+        capture_output=True,
+        check=False,
+        env=_GIT_ENV,
+    )
+    if done.returncode != 0:
+        msg = "git could not prepare the object store the review reads"
+        raise PacketError(msg, stderr=done.stderr.decode()[-300:])
+    (Path(store) / "objects" / "info" / "alternates").write_text("\n".join(object_dirs) + "\n")
+    return store
+
+
+def _git_bytes(repo: Path, *args: str) -> bytes:
+    store = _object_store(tuple(_object_dirs(Path(repo))))
+    done = subprocess.run(
+        ["git", "--git-dir", store, *_GIT_FLAGS, *args],
+        cwd=store,
+        capture_output=True,
+        check=False,
+        env=_GIT_ENV,
     )
     if done.returncode != 0:
         msg = "git could not produce what the review is shown"
