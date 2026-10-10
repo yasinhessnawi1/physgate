@@ -137,6 +137,8 @@ class FakeDispatcher:
 @dataclass
 class FakeChanges:
     refuse: dict[int, tuple[str, str]] = field(default_factory=dict)
+    #: Per call: the node ids the attempt proposed.
+    proposed: dict[int, tuple[str, ...]] = field(default_factory=dict)
     calls: int = 0
 
     def check(self, subtask_id: str, attempt_commit: str, role: str) -> ChangeCheck:
@@ -146,6 +148,7 @@ class FakeChanges:
             refused_by=refused[0] if refused else None,  # type: ignore[arg-type]
             reason=refused[1] if refused else None,
             graph_root="scratch/graph",
+            proposed=self.proposed.get(self.calls, ()),
         )
 
 

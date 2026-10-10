@@ -110,6 +110,10 @@ class ChangeCheck(_Frozen):
     #: The offending paths or node id, for the finding's key.
     subject: NonEmptyStr | None = None
     graph_root: NonEmptyStr
+    #: The node ids the attempt proposed, sorted as its proposals are read; empty
+    #: when it was refused before they were read. What the escalation decision's state
+    #: reports as the changed-node summary (ARCH-131).
+    proposed: tuple[NonEmptyStr, ...] = ()
 
 
 class WorktreeRemoval(_Frozen):

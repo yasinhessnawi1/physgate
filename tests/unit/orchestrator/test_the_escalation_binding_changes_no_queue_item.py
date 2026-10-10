@@ -43,6 +43,12 @@ ADDED_LINES: frozenset[str] = frozenset()
 #: it. Empty until such a field exists.
 ADDED_FIELDS: dict[str, dict[str, Any]] = {}
 
+#: Fields added after the golden file was written that carry new information, not a
+#: default, so they are set aside whatever their value; their content is held by tests of
+#: their own. ``proposed`` on the change check names the nodes an attempt proposed, which
+#: the escalation decision's state reports (its tests check it against the proposals).
+SET_ASIDE: dict[str, frozenset[str]] = {"proposals_checked": frozenset({"proposed"})}
+
 #: Every source the loop could put on an item before the interface: the golden file
 #: must show each of them, or it does not cover what it claims to.
 SOURCES = {"repair_budget_exhausted", "review_blocked", "review_unavailable", "gate_escalation"}
@@ -55,7 +61,8 @@ def _golden() -> dict[str, dict[str, list[Any]]]:
 
 def _without_added(kind: str, line: dict[str, Any]) -> dict[str, Any]:
     added = ADDED_FIELDS.get(kind, {})
-    return {k: v for k, v in line.items() if not (k in added and added[k] == v)}
+    aside = SET_ASIDE.get(kind, frozenset())
+    return {k: v for k, v in line.items() if not (k in added and added[k] == v) and k not in aside}
 
 
 def comparable(run: dict[str, list[Any]]) -> dict[str, list[Any]]:

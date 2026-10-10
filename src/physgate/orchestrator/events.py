@@ -343,6 +343,9 @@ class ProposalsChecked(_Event):
     reason: NonEmptyStr | None
     subject: NonEmptyStr | None
     graph_root: NonEmptyStr
+    #: The node ids the attempt proposed; empty when it was refused before they were
+    #: read, and on every line written before the field existed.
+    proposed: tuple[NonEmptyStr, ...] = ()
 
     @model_validator(mode="after")
     def _a_refusal_says_why(self) -> ProposalsChecked:
