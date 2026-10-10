@@ -25,12 +25,19 @@ truncate flag, change the filesystem in any other way, connect anywhere but
 loopback, look a host name up, start a process, or start a thread: the route's
 kind lives in a context variable that a new thread does not inherit, so a thread
 would run outside the guard, and refusing to start one is what keeps the guard
-whole. A kind with no registered policy is refused both when a route is declared
-and when a scope is entered.
+whole. Listing a directory is held to the same rule as opening a file, since a
+listing names what is in it. A kind with no registered policy is refused both
+when a route is declared and when a scope is entered.
 
-This is a tripwire against this package's own code, not a sandbox: code that
-reaches the C library directly (``ctypes``) is not seen. It is held beside a
-syntax-tree fence over the package's imports for that reason.
+This is a tripwire against this package's own code, not a sandbox. What it does
+not see: code that reaches the C library directly (``ctypes``); work deferred past
+the request (an ``atexit`` callback, a finalizer, a callable kept for later),
+which runs after the scope has ended; and ``stat``, ``lstat``, ``access`` and the
+``exists`` family, for which Python raises no audit event (measured on 3.12), so
+a route could learn a file's size or existence, never its bytes or a directory's
+names. It is held beside a syntax-tree fence over the package's imports, and the
+thread refusal names the 3.12 event (``_thread.start_new_thread``), which a later
+interpreter renames; the thread tests would turn red on such an upgrade.
 """
 
 from __future__ import annotations
@@ -150,6 +157,11 @@ class Scope:
 
 Policy = Callable[[str, tuple[object, ...], Scope], str | None]
 
+#: Audit events that list a directory. A listing names the files in it, so it is held to the
+#: same rule as an open. One given a descriptor instead of a path, or no path at all, cannot be
+#: judged and is refused.
+LISTING_EVENTS = frozenset({"os.listdir", "os.scandir", "os.walk", "os.listxattr", "os.getxattr"})
+
 
 def _loopback(host: object) -> bool:
     if not isinstance(host, str):
@@ -180,6 +192,10 @@ def read_policy(event: str, args: tuple[object, ...], scope: Scope) -> str | Non
             and not scope.readable(os.fsdecode(path))
         ):
             return "a read route opened a file outside the roots it may read"
+    if event in LISTING_EVENTS and scope.readable is not None:
+        target = args[0] if args else None
+        if not isinstance(target, str | bytes) or not scope.readable(os.fsdecode(target)):
+            return "a read route listed a directory outside the roots it may read"
     if event == "_thread.start_new_thread":
         return "a read route started a thread, where its guard could not follow it"
     if event in MUTATING_EVENTS:

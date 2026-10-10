@@ -164,21 +164,41 @@ class Allowlist:
         return cls(roots=tuple(built), refused=tuple(refused))
 
     def readable(self, path: str) -> bool:
-        """Whether a request may open ``path``: the guard's rule for every open a route makes.
+        """Whether a request may open or list ``path``: the guard's rule for every such call.
 
-        The interpreter's and this package's own files, or a path the allowlist resolves
-        (beneath a root, outside the refused set, no credential, links followed). This holds
-        a handler that forgot to call :meth:`resolve` to the same rule at the open itself.
+        The refusals come first and hold everywhere: a path that reaches the held-out tier or
+        an answer key, lies in a corpus, or names a credential is refused even beneath the
+        interpreter's own files, so the exception below can never be wider than the refusals.
+        A relative path is refused: the call that names it may resolve it against a directory
+        handle the audit event does not carry, so the working directory would be the wrong
+        thing to judge it by. Then the interpreter's and this package's own files are readable
+        (a late import, the recorded price sheets), and anything else only if the allowlist
+        resolves it (beneath a root, links followed). This holds a handler that forgot to call
+        :meth:`resolve` to the same rule at the call itself.
         """
-        absolute = os.path.abspath(path)
-        real = os.path.realpath(absolute)
+        if _has_nul(path) or not os.path.isabs(path):
+            return False
+        real = os.path.realpath(path)
+        if self._refusal(path, real) is not None:
+            return False
         if any(real == base or real.startswith(base + os.sep) for base in INTERPRETER_PATHS):
             return True
         try:
-            self.resolve(absolute)
+            self.resolve(path)
         except PathRefusedError:
             return False
         return True
+
+    def _refusal(self, text: str, real: str) -> str | None:
+        """Why ``text`` (really ``real``) may never be read, wherever it lies, or ``None``."""
+        for refused in self.refused:
+            if reaches(real, refused) or reaches(text, refused):
+                return "the path reaches a path nothing may read"
+        if _has_corpus_component(real) or _has_corpus_component(text):
+            return "the path lies inside an evaluation corpus"
+        if os.path.basename(real).casefold() in SECRET_NAMES:
+            return "the path names a credential or environment file"
+        return None
 
     def resolve(self, path: Path | str) -> Path:
         """The real path of ``path`` if the server may read it; otherwise refuse.
@@ -204,16 +224,9 @@ class Allowlist:
         if not any(root.ids in ids for root in self.roots):
             msg = "the path is outside every root the server was given"
             raise PathRefusedError(msg, path=text)
-        for refused in self.refused:
-            if reaches(real, refused) or reaches(text, refused):
-                msg = "the path reaches a path nothing may read"
-                raise PathRefusedError(msg, path=text)
-        if _has_corpus_component(real) or _has_corpus_component(text):
-            msg = "the path lies inside an evaluation corpus"
-            raise PathRefusedError(msg, path=text)
-        if os.path.basename(real).casefold() in SECRET_NAMES:
-            msg = "the path names a credential or environment file"
-            raise PathRefusedError(msg, path=text)
+        refusal = self._refusal(text, real)
+        if refusal is not None:
+            raise PathRefusedError(refusal, path=text)
         try:
             st = os.stat(real)
         except OSError:

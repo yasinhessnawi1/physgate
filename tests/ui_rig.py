@@ -104,18 +104,21 @@ class Recorder:
     """What this process does while on, from any thread.
 
     ``seen``: every write-capable open, filesystem change and spawn. ``opened``: the path of
-    every open at all.
+    every open at all. ``listed``: the path of every directory listing.
     """
 
     on: bool = False
     seen: list[tuple[str, str]] | None = None
     opened: list[str] = field(default_factory=list)
+    listed: list[str] = field(default_factory=list)
 
     def hook(self, event: str, args: tuple[object, ...]) -> None:
         if not self.on or self.seen is None:
             return
         if event == "open" and args and isinstance(args[0], str | bytes):
             self.opened.append(os.path.abspath(os.fsdecode(args[0])))
+        if event in ("os.listdir", "os.scandir") and args and isinstance(args[0], str | bytes):
+            self.listed.append(os.path.abspath(os.fsdecode(args[0])))
         if event == "open":
             mode = args[1] if len(args) > 1 else None
             flags = args[2] if len(args) > 2 else 0
@@ -129,6 +132,7 @@ class Recorder:
     def recording(self) -> Iterator[list[tuple[str, str]]]:
         self.seen = []
         self.opened = []
+        self.listed = []
         self.on = True
         try:
             yield self.seen
@@ -263,10 +267,12 @@ SECRET_NAMES = {".credentials.json", "key", "key-helper.sh", ".env"}
 def opened_outside(
     opened: list[str], roots: tuple[Path, ...], refused: tuple[Path, ...]
 ) -> list[str]:
-    """The opened paths a request had no business opening, judged by where each really lands.
+    """The opened or listed paths a request had no business touching, by where each really lands.
 
-    Beneath a root and not beneath a refused path, not a secret's name, not in a corpus; or one
-    of the interpreter's or the package's own files.
+    The refusals are judged first and hold everywhere, the interpreter's own files included: a
+    path in a refused tier, in a corpus, or named like a secret is flagged wherever it lies.
+    Only then are the interpreter's and the package's own files let through, and anything else
+    must lie beneath a root. Written independently of the server's own rule.
     """
 
     def under(path: str, base: str) -> bool:
@@ -275,11 +281,13 @@ def opened_outside(
     bad = []
     for path in opened:
         real = os.path.realpath(path)
-        if any(under(real, base) for base in OWN_FILES):
-            continue
-        in_root = any(under(real, os.path.realpath(r)) for r in roots)
         in_refused = any(under(real, os.path.realpath(r)) for r in refused)
         named = os.path.basename(real).casefold() in SECRET_NAMES or "corpora" in Path(real).parts
-        if not in_root or in_refused or named:
+        if in_refused or named:
+            bad.append(f"{path} -> {real}")
+            continue
+        if any(under(real, base) for base in OWN_FILES):
+            continue
+        if not any(under(real, os.path.realpath(r)) for r in roots):
             bad.append(f"{path} -> {real}")
     return bad

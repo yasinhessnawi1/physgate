@@ -128,6 +128,7 @@ def test_no_route_with_any_method_changes_any_file(world: dict[str, Path]) -> No
     # for every route in the table, present and future, by where each open really landed.
     assert RECORDER.opened, "a sweep that opened nothing proves nothing about what it opened"
     assert opened_outside(RECORDER.opened, (world["root"],), (world["held"],)) == []
+    assert opened_outside(RECORDER.listed, (world["root"],), (world["held"],)) == []
 
 
 def test_a_method_the_table_does_not_name_is_405_with_allow_never_501(
