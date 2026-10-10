@@ -139,9 +139,10 @@ test("a ledger the server refuses is shown as a refusal with its reason, and not
 
 test("an area with no views says so", async ({ page }) => {
   const seen = await watch(page);
-  await page.goto("/#/collaboration");
+  // Simulation has no views yet (its views arrive with the simulation records).
+  await page.goto("/#/simulation");
   await expect(page.getByText("No views in this area yet")).toBeVisible();
-  await expect(page.locator(".topbar-area")).toContainText("Human–AI collaboration");
+  await expect(page.locator(".topbar-area")).toContainText("Simulation");
   const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
   expect(axe.violations).toEqual([]);
   expect(seen.outbound).toEqual([]);
