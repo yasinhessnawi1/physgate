@@ -136,12 +136,18 @@ def test_listing_a_root_is_allowed(world: dict[str, Path]) -> None:
 # -- relative paths are refused ------------------------------------------------------------------
 
 
-def test_a_relative_open_through_a_directory_handle_is_refused(world: dict[str, Path]) -> None:
+def test_a_relative_open_through_a_directory_handle_is_refused(
+    world: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A relative open through a directory handle is refused, never misjudged.
 
-    It names ``../held/target`` relative to a handle on the root; the audit event carries the
-    relative path and no handle, so judging it against the working directory would be wrong.
+    The process's working directory sits inside the root, so ``../held/target`` judged against
+    it would land inside the root too; opened through a handle on the root, the same path
+    reaches the held-out tier. The audit event carries the relative path and no handle, so the
+    only sound answer is to refuse a relative path outright.
     """
+    monkeypatch.chdir(world["root"] / "run-1")
+    assert (Path.cwd().parent / "held" / "target").resolve().is_relative_to(world["root"].resolve())
 
     def through_handle() -> object:
         fd = os.open(world["root"], os.O_RDONLY)
@@ -160,9 +166,18 @@ def test_a_relative_open_through_a_directory_handle_is_refused(world: dict[str, 
     assert MARKER.encode() not in body
 
 
-def test_a_plain_relative_open_is_refused(world: dict[str, Path]) -> None:
-    status, _, _ = _careless(world, lambda: open("relative.txt").read())  # noqa: SIM115
+def test_a_plain_relative_open_is_refused_even_inside_a_root(
+    world: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A plain relative open is refused, even where it would land inside a root.
+
+    Nothing a route does should depend on the server's working directory.
+    """
+    monkeypatch.chdir(world["root"] / "run-1")
+    (world["root"] / "run-1" / "relative.txt").write_text("inside the root\n")
+    status, _, body = _careless(world, lambda: open("relative.txt").read())  # noqa: SIM115
     assert status == 500
+    assert b"outside the roots it may read" in body
 
 
 # -- the test-side detector judges the refusals first too -----------------------------------------
