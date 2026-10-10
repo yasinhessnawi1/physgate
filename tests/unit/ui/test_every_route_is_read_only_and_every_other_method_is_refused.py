@@ -186,11 +186,11 @@ def test_an_absolute_form_request_target_is_refused(world: dict[str, Path]) -> N
 
 
 def test_a_route_of_a_kind_with_no_policy_cannot_be_declared() -> None:
-    def act(context: Context, params: object) -> Response:
+    def steer(context: Context, params: object) -> Response:
         return json_response({})
 
     with pytest.raises(UnregisteredKindError, match="no policy"):
-        Route("GET", "/act", "act", act)  # type: ignore[arg-type]
+        Route("POST", "/steer", "steer", steer)  # type: ignore[arg-type]
 
 
 def test_a_planted_route_that_writes_through_get_is_refused_by_the_guard(

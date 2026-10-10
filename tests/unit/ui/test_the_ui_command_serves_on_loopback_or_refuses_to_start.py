@@ -138,3 +138,44 @@ def test_the_command_serves_the_app_and_the_runs_on_loopback_and_stops_cleanly(
         process.send_signal(signal.SIGINT)
         code = process.wait(timeout=10)
     assert code == 0
+
+
+def test_an_operator_name_that_does_not_print_is_refused_before_anything_listens(
+    world: dict[str, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    error = _refused(
+        capsys, ["ui", "--root", str(world["root"]), "--port", "0", "--operator", "a\nb"]
+    )
+    assert "printable name" in error["error"]
+
+
+def test_the_command_names_its_operator_and_never_prints_its_action_token(
+    world: dict[str, Path],
+) -> None:
+    process = subprocess.Popen(
+        [sys.executable, "-c", LAUNCH, str(world["ui"]), "ui", "--root", str(world["root"]),
+         "--port", "0", "--operator", "Yasin H."],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )  # fmt: skip
+    try:
+        assert process.stdout is not None
+        lines: list[str] = []
+        while not lines or lines[-1] != "}":
+            line = process.stdout.readline()
+            assert line, process.stderr.read() if process.stderr else "no output"
+            lines.append(line.rstrip("\n"))
+        started = json.loads("\n".join(lines))
+        assert started["operator"] == "Yasin H."
+        port = int(started["url"].rsplit(":", 1)[1].strip("/"))
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        connection.request("GET", "/")
+        page = connection.getresponse().read().decode()
+        connection.close()
+        token = page.split('name="physgate-act-token" content="', 1)[1].split('"', 1)[0]
+        assert len(token) >= 40
+    finally:
+        process.send_signal(signal.SIGINT)
+        out, err = process.communicate(timeout=10)
+    assert token not in "\n".join(lines) + out + err

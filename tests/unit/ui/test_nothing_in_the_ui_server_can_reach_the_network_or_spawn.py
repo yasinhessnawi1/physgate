@@ -25,6 +25,10 @@ ALLOWED_MODULES = {
     "contextvars",
     "dataclasses",
     "hashlib",
+    # The action token is compared in constant time.
+    "hmac",
+    # The action token is escaped into the page's head.
+    "html",
     "http",
     "http.server",
     "ipaddress",
@@ -32,11 +36,15 @@ ALLOWED_MODULES = {
     "os",
     "pathlib",
     "re",
+    # The action token is made from the system's cryptographic source at each start.
+    "secrets",
     "socket",
     # File-type tests on a stat result: the walk refuses a link where a directory was judged.
     "stat",
     "sys",
     "threading",
+    # The guard recognises the decision function by its code object on the call stack.
+    "types",
     "typing",
     "urllib.parse",
     "physgate",
@@ -44,6 +52,9 @@ ALLOWED_MODULES = {
     "physgate.orchestrator.credentials",
     "physgate.orchestrator.exceptions",
     "physgate.orchestrator.run_config",
+    # The guard's action kind admits the approval queue's decision function and nothing
+    # else, by its code; the decisions file's name is bound from it.
+    "physgate.orchestrator.queue",
     # The readers the command line uses, and their exceptions. Each is imported for its
     # read function only. Two of these modules can start a process elsewhere (the manifest
     # runs git to check commits, the run configuration measures a checkout); the server

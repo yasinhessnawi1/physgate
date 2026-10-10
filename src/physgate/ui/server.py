@@ -20,13 +20,34 @@ framing, no referrer, no caching.
 Each handler runs inside the guard's scope for its route's kind, so a read route
 that tries to write, connect out or spawn is aborted before the operation, and
 answered 500 with the reason.
+
+**A route that acts cannot be reached from another page.** Before any route whose kind
+is not ``read`` runs, the server refuses, in order:
+
+1. a request with no ``Origin``, or one that is not this server's own (a page on another
+   site sends its own origin, or ``null``);
+2. a ``Sec-Fetch-Site`` other than ``same-origin``, when the browser sends one;
+3. a request without this server start's action token in its header. The token is made
+   when the server starts, kept only in memory, and put in the app's own page; another
+   site's page cannot read that page, and a request carrying a custom header from another
+   origin needs a preflight, which this server answers 405;
+4. any body that is not ``application/json``: the three content types a plain form or a
+   simple request can send are among those refused;
+5. a body without its length, sent in chunks, or longer than 16 KiB;
+6. any action at all when the server was started without naming an operator.
+
+No response carries a cross-origin header. Every connection's socket has a timeout, so a
+request that stops sending is dropped rather than waited on.
 """
 
 from __future__ import annotations
 
+import hmac
+import secrets
 import socket
 import sys
 from collections.abc import Mapping
+from dataclasses import replace
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import ClassVar
@@ -43,7 +64,7 @@ from physgate.ui.exceptions import (
     StartupRefusedError,
     UIError,
 )
-from physgate.ui.routes import Context, Response, Route, error_response, split_target
+from physgate.ui.routes import Context, Response, Route, carrying, error_response, split_target
 from physgate.ui.table import ROUTES, methods
 
 #: The only addresses the server binds. A host name is refused without a lookup.
@@ -63,6 +84,34 @@ SECURITY_HEADERS: Mapping[str, str] = {
     "Cross-Origin-Resource-Policy": "same-origin",
     "Cache-Control": "no-store",
 }
+
+
+#: The header an action request carries the server's token in.
+ACT_TOKEN_HEADER = "X-Physgate-Act-Token"
+
+#: The largest action body read, in bytes. A decision is a few hundred.
+MAX_ACT_BODY = 16 * 1024
+
+#: How long a connection's socket waits for the client, in seconds, before it is dropped.
+REQUEST_TIMEOUT_S = 10.0
+
+#: The longest operator name taken at start.
+MAX_OPERATOR = 64
+
+
+def require_operator(name: str | None) -> str | None:
+    """``name`` as the operator decisions are recorded under, or ``None`` if none was named.
+
+    Raises:
+        StartupRefusedError: a name that is empty, longer than ``MAX_OPERATOR``, or holds a
+            character that does not print.
+    """
+    if name is None:
+        return None
+    if not name.strip() or len(name) > MAX_OPERATOR or not name.isprintable():
+        msg = f"the operator is a printable name of at most {MAX_OPERATOR} characters"
+        raise StartupRefusedError(msg, operator=repr(name))
+    return name
 
 
 def require_loopback(bind: str) -> str:
@@ -89,9 +138,11 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "physgate-ui"
     sys_version = ""
     protocol_version = "HTTP/1.0"
+    timeout = REQUEST_TIMEOUT_S
     context: ClassVar[Context]
     routes: ClassVar[tuple[Route, ...]]
     hosts: ClassVar[frozenset[str]]
+    act_token: ClassVar[str]
     quiet: ClassVar[bool] = False
 
     def handle_one_request(self) -> None:
@@ -139,7 +190,19 @@ class Handler(BaseHTTPRequestHandler):
             if route.method != method:
                 served.add(route.method)
                 continue
-            self._send(self._run(route, params))
+            if route.kind == "read":
+                self._send(self._run(route, params))
+                return
+            refused = self._refuse_action()
+            if refused is not None:
+                self._send(error_response(*refused))
+                return
+            body = self._read_body()
+            if isinstance(body, Response):
+                self._send(body)
+                return
+            with carrying(body):
+                self._send(self._run(route, params))
             return
         if served:
             self._send(
@@ -166,6 +229,43 @@ class Handler(BaseHTTPRequestHandler):
             self.log_error("handler failed: %s", type(exc).__name__)
             return error_response(500, f"the server failed to read this: {type(exc).__name__}")
 
+    def _own_origins(self) -> frozenset[str]:
+        return frozenset(f"http://{host}" for host in self.hosts)
+
+    def _refuse_action(self) -> tuple[int, str] | None:
+        """Why an action request is refused before its body is read, or ``None``."""
+        origins = self.headers.get_all("Origin") or []
+        if len(origins) != 1 or origins[0].lower() not in self._own_origins():
+            return 403, "an action is taken only from this server's own page"
+        sites = self.headers.get_all("Sec-Fetch-Site") or []
+        if sites and sites != ["same-origin"]:
+            return 403, "an action is taken only from this server's own page"
+        tokens = self.headers.get_all(ACT_TOKEN_HEADER) or []
+        if len(tokens) != 1 or not hmac.compare_digest(tokens[0].encode(), self.act_token.encode()):
+            return 403, "an action carries the token this server put in its own page"
+        media = (self.headers.get_all("Content-Type") or [""])[0].split(";")
+        charset = [p.strip().lower() for p in media[1:]]
+        if media[0].strip().lower() != "application/json" or charset not in ([], ["charset=utf-8"]):
+            return 415, "an action's body is JSON, sent as application/json"
+        if self.context.operator is None:
+            return 403, "no operator was named when the server started, so nothing can act"
+        return None
+
+    def _read_body(self) -> bytes | Response:
+        """The action's body, read to its stated length, or the refusal of it."""
+        if self.headers.get_all("Transfer-Encoding"):
+            return error_response(411, "an action's body states its length; it is never chunked")
+        lengths = self.headers.get_all("Content-Length") or []
+        if len(lengths) != 1 or not lengths[0].isdigit():
+            return error_response(411, "an action's body states its length, once")
+        length = int(lengths[0])
+        if length > MAX_ACT_BODY:
+            return error_response(413, f"an action's body is at most {MAX_ACT_BODY} bytes")
+        body = self.rfile.read(length)
+        if len(body) != length:
+            return error_response(400, "the body ended before its stated length")
+        return body
+
     def _refuse_origin(self) -> str | None:
         """Why the request's ``Host`` or ``Origin`` is refused, or ``None``."""
         hosts = self.headers.get_all("Host") or []
@@ -174,7 +274,7 @@ class Handler(BaseHTTPRequestHandler):
         origins = self.headers.get_all("Origin") or []
         if len(origins) > 1:
             return "the request carries more than one origin"
-        if origins and origins[0].lower() not in {f"http://{h}" for h in self.hosts}:
+        if origins and origins[0].lower() not in self._own_origins():
             return "the request comes from another origin"
         return None
 
@@ -216,15 +316,22 @@ def make_server(
     port: int,
     routes: tuple[Route, ...] = ROUTES,
     quiet: bool = False,
+    timeout_s: float = REQUEST_TIMEOUT_S,
 ) -> ThreadingHTTPServer:
     """A server on ``bind``:``port`` answering ``routes``, with the guard installed.
 
-    ``routes`` is for the tests that plant a route; the command always serves the table.
+    ``routes`` is for the tests that plant a route, and ``timeout_s`` for the test that
+    crosses it; the command always serves the table with the default. A new action token is
+    made for every server and put in its page.
 
     Raises:
-        StartupRefusedError: the address is not loopback.
+        StartupRefusedError: the address is not loopback, the operator's name is refused, or
+            the page has nowhere to carry the token.
     """
     require_loopback(bind)
+    require_operator(context.operator)
+    token = secrets.token_urlsafe(32)
+    context = replace(context, assets=context.assets.with_act_token(token))
     guard.install()
     server_class = _Server6 if ":" in bind else _Server
     server = server_class((bind, port), Handler)
@@ -236,6 +343,8 @@ def make_server(
             "context": context,
             "routes": routes,
             "hosts": allowed_hosts(bind, bound_port),
+            "act_token": token,
+            "timeout": timeout_s,
             "quiet": quiet,
         },
     )
