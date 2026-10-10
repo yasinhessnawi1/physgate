@@ -23,8 +23,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from physgate.orchestrator.common import NonEmptyStr, first_problem
 from physgate.orchestrator.exceptions import QueueError
 from physgate.orchestrator.queue import ShownItem, Verb, decision_text, record_decision
+from physgate.ui import readers
 from physgate.ui.exceptions import UIError
-from physgate.ui.readers import run_dir_of
 from physgate.ui.routes import Context, Response, error_response, json_response, request_body
 
 #: The longest note taken with a decision, in characters. The body's own cap is far larger.
@@ -62,7 +62,7 @@ def decide(context: Context, params: Mapping[str, str]) -> Response:
         text = decision_text(request.verb, request.note)
     except QueueError as exc:  # a rejection without its reason: the request is not a decision
         return error_response(400, exc)
-    run_dir = run_dir_of(context, params)
+    run_dir = readers.run_dir_of(context, params)
     try:
         with context.allowlist.opened_directory(run_dir) as fd:
             record = record_decision(
