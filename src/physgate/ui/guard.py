@@ -15,7 +15,7 @@ example to record a decision through the approval queue's own function. Scoping
 by kind means such a route arrives as one new kind with its own narrow policy,
 and every read route keeps exactly the policy it has today.
 
-**The one kind registered: ``read``.** A read route may open files for reading
+**The first kind: ``read``.** A read route may open files for reading
 only, and only files its request may read: beneath an allowed root and outside
 the refused set (the same rule as the allowlist's own resolver, applied to the
 path the open names, links followed), or the interpreter's and this package's
@@ -28,6 +28,26 @@ would run outside the guard, and refusing to start one is what keeps the guard
 whole. Listing a directory is held to the same rule as opening a file, since a
 listing names what is in it. A kind with no registered policy is refused both
 when a route is declared and when a scope is entered.
+
+**The second kind: ``act``.** It exists for one thing: recording a person's decision
+through the approval queue's own decision function, and nothing else. Its rule is the read
+rule, with exactly these openings:
+
+- a file may be opened for writing only from inside that decision function, only by the
+  decisions file's own name relative to the run directory, and only to append (never to
+  create, truncate or read-and-write it);
+- a path relative to a directory descriptor may be opened only from inside that function,
+  or by the walk that reaches the run directory from its root without following a link;
+- the decisions file's lock may be taken, and its torn tail cut, only from inside that
+  function.
+
+"From inside" is read off the call stack when the event fires, and strictly: the frame that
+issues the operation must be one of the queue module's own helpers for it, and every frame
+between it and the decision function must be another of those helpers. Code that merely runs
+beneath the decision function (a callback it happens to call) issues its operations from its
+own frame and is refused. So a route of this kind that writes the decisions file itself,
+reaches for the function's helpers directly, or slips code beneath it is refused at the write,
+as is one that writes anywhere else.
 
 This is a tripwire against this package's own code, not a sandbox. What it does
 not see: code that reaches the C library directly (``ctypes``); work deferred past
@@ -50,13 +70,24 @@ from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+from types import CodeType, FrameType
 from typing import Literal
 
+from physgate.orchestrator.queue import (
+    DECISIONS_NAME,
+    _decide,
+    _lock,
+    _open_in,
+    _read_in,
+    _require_as_shown,
+    trajectory_statuses,
+)
 from physgate.ui.exceptions import GuardRefusedError, UnregisteredKindError
+from physgate.ui.paths import Allowlist, _open_child
 
 #: The kinds of route there are. A new kind is added here, with a policy in
 #: ``POLICIES``; nothing else in the server changes.
-RouteKind = Literal["read"]
+RouteKind = Literal["read", "act"]
 
 #: Flags that make an ``open`` more than a read.
 WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_APPEND | os.O_TRUNC | os.O_EXCL
@@ -214,8 +245,138 @@ def read_policy(event: str, args: tuple[object, ...], scope: Scope) -> str | Non
     return None
 
 
+#: The decisions file's name, bound when this module is imported: the rule holds even if the
+#: queue module's own name were changed at run time.
+DECISIONS_FILE = DECISIONS_NAME
+
+#: The only flags an action may open the decisions file with: append, never through a link,
+#: never waiting. Python adds close-on-exec itself.
+APPEND_FLAGS = os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+
+
+def _lambda_in(code: CodeType) -> CodeType:
+    """The one lambda defined in ``code``: the stream reader ``_require_as_shown`` passes on."""
+    (found,) = [c for c in code.co_consts if isinstance(c, CodeType) and c.co_name == "<lambda>"]
+    return found
+
+
+#: The decision function: the root every action's operation must be issued beneath.
+DECIDING = _decide.__code__
+
+#: The queue module's helpers a decision's operations pass through, and nothing else: opening
+#: a file beneath the run directory, reading one, the lock, the check of what was shown and the
+#: trajectory statuses it computes, with the stream reader it hands them.
+DECISION_CHAIN: frozenset[CodeType] = frozenset(
+    {
+        _decide.__code__,
+        _open_in.__code__,
+        _read_in.__code__,
+        _lock.__code__,
+        _require_as_shown.__code__,
+        _lambda_in(_require_as_shown.__code__),
+        trajectory_statuses.__code__,
+    }
+)
+
+#: The frames that may issue each kind of operation themselves.
+OPENING: frozenset[CodeType] = frozenset({_open_in.__code__})
+LOCKING: frozenset[CodeType] = frozenset({_lock.__code__})
+CUTTING: frozenset[CodeType] = frozenset({_decide.__code__})
+
+#: The walk's step, which may open a directory relative to the one before it, and its root.
+WALKING: frozenset[CodeType] = frozenset({_open_child.__code__})
+WALK_CHAIN: frozenset[CodeType] = frozenset(
+    {_open_child.__code__, Allowlist.open_directory.__code__}
+)
+WALK_ROOT = Allowlist.open_directory.__code__
+
+#: How far up the stack the chain is followed. A decision's deepest operation is six frames below
+#: the decision function; past this bound the check fails closed.
+STACK_DEPTH = 64
+
+_THIS_FILE = __file__
+
+
+def _issued_by(entries: frozenset[CodeType], chain: frozenset[CodeType], root: CodeType) -> bool:
+    """Whether the operation being audited was issued by one of ``entries``, beneath ``root``.
+
+    The frame that issued it is the first one outside this module. It must be one of
+    ``entries``, and every frame from it up to ``root`` must be in ``chain``: a foreign frame on
+    the way, however deep beneath ``root``, means the operation is not the root's own.
+    """
+    frame: FrameType | None = sys._getframe(1)
+    while frame is not None and frame.f_code.co_filename == _THIS_FILE:
+        frame = frame.f_back
+    if frame is None or frame.f_code not in entries:
+        return False
+    for _ in range(STACK_DEPTH):
+        if frame is None or frame.f_code not in chain:
+            return False
+        if frame.f_code is root:
+            return True
+        frame = frame.f_back
+    return False
+
+
+def _relative(path: object) -> bool:
+    return isinstance(path, str | bytes) and not os.path.isabs(os.fsdecode(path))
+
+
+def act_policy(event: str, args: tuple[object, ...], scope: Scope) -> str | None:
+    """Why an action route may not do ``event``, or ``None`` if it may.
+
+    The read rule, opened exactly as far as the approval queue's decision function needs.
+    """
+    reason = _act_reason(event, args, scope)
+    return None if reason is None else reason.replace("a read route", "an action route", 1)
+
+
+def _act_reason(event: str, args: tuple[object, ...], scope: Scope) -> str | None:
+    if event == "open":
+        path = args[0] if args else None
+        flags = args[2] if len(args) > 2 else 0
+        if _write_open(args):
+            if not _issued_by(OPENING, DECISION_CHAIN, DECIDING):
+                return "an action route opened a file for writing outside the decision function"
+            if not _relative(path) or os.fsdecode(path) != DECISIONS_FILE:  # type: ignore[arg-type]
+                return "an action route opened a file other than the decisions file for writing"
+            mode = args[1] if len(args) > 1 else None
+            if (
+                mode is not None
+                or not isinstance(flags, int)
+                or not flags & os.O_APPEND
+                or flags & ~APPEND_FLAGS
+            ):
+                return "an action route opened the decisions file other than to append to it"
+            return None
+        if _relative(path):
+            if _issued_by(OPENING, DECISION_CHAIN, DECIDING):
+                return None
+            if (
+                isinstance(flags, int)
+                and flags & os.O_DIRECTORY
+                and _issued_by(WALKING, WALK_CHAIN, WALK_ROOT)
+            ):
+                return None
+            return "an action route opened a relative path outside the decision and the walk"
+        return read_policy(event, args, scope)
+    if event == "fcntl.flock":
+        return (
+            None
+            if _issued_by(LOCKING, DECISION_CHAIN, DECIDING)
+            else "an action route took a lock outside the decision function"
+        )
+    if event == "os.truncate":
+        if isinstance(args[0] if args else None, int) and _issued_by(
+            CUTTING, DECISION_CHAIN, DECIDING
+        ):
+            return None
+        return "an action route truncated a file outside the decision function"
+    return read_policy(event, args, scope)
+
+
 #: The policy each registered kind runs under. A kind that is not here is refused.
-POLICIES: Mapping[str, Policy] = {"read": read_policy}
+POLICIES: Mapping[str, Policy] = {"read": read_policy, "act": act_policy}
 
 _current: ContextVar[Scope | None] = ContextVar("physgate_ui_route_scope", default=None)
 _installed = threading.Lock()

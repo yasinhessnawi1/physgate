@@ -61,6 +61,10 @@ class QueueError(OrchestratorError):
     """The approval queue was asked to do something its record forbids."""
 
 
+class StaleViewError(QueueError):
+    """A decision was sent for an item as it was shown, and the item is no longer that."""
+
+
 class MergePreconditionError(OrchestratorError):
     """A merge was about to happen without what the ledger must show first (ARCH-001)."""
 

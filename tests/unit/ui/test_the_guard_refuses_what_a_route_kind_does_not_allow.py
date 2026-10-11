@@ -120,7 +120,8 @@ def test_outside_a_scope_nothing_is_refused(tmp_path: Path) -> None:
 
 
 def test_an_unregistered_kind_is_refused_when_a_scope_is_entered() -> None:
-    with pytest.raises(UnregisteredKindError, match="no policy"), guard.scope("act", readable=None):
+    refused = pytest.raises(UnregisteredKindError, match="no policy")
+    with refused, guard.scope("steer", readable=None):
         pass
 
 

@@ -22,11 +22,12 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import json
 import os
 import sys
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from physgate.ui.exceptions import StartupRefusedError
@@ -98,12 +99,42 @@ def write_stamp(ui_root: Path) -> Path:
     return stamp
 
 
+#: The name of the ``<meta>`` element that names the operator decisions are recorded under.
+OPERATOR_META = "physgate-operator"
+
+
 @dataclass(frozen=True)
 class Assets:
     """The built app in memory: the page, and each asset file's bytes and media type."""
 
     index: bytes
     files: Mapping[str, tuple[bytes, str]]
+
+    def with_operator(self, operator: str | None) -> Assets:
+        """The same build, its page naming the operator decisions are recorded under, if any.
+
+        The name is part of the line a decision writes, so the confirmation names it from here;
+        with none, the page has no such element. The action token is never put in the page: a
+        page any local client can fetch must not carry it (see ``server``).
+
+        Raises:
+            StartupRefusedError: the page has neither a head nor a doctype to carry the name.
+        """
+        if operator is None:
+            return self
+        return self._with_head(
+            f'<meta name="{OPERATOR_META}" content="{html.escape(operator)}">'.encode()
+        )
+
+    def _with_head(self, meta: bytes) -> Assets:
+        head = self.index.find(b"</head>")
+        if head >= 0:
+            return replace(self, index=self.index[:head] + meta + self.index[head:])
+        doctype = b"<!doctype html>"
+        if self.index[: len(doctype)].lower() == doctype:
+            return replace(self, index=doctype + meta + self.index[len(doctype) :])
+        msg = "the built page has no head and no doctype to carry the operator's name"
+        raise StartupRefusedError(msg)
 
 
 def _refuse(message: str, **context: str) -> StartupRefusedError:

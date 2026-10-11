@@ -12,7 +12,8 @@ import { PORT } from "./e2e/port";
 export const RUNS = join(tmpdir(), `physgate-ui-e2e-${String(PORT)}`);
 
 // The real server over real runs: the command builds three runs with the real loop (no model),
-// then starts `physgate ui` on loopback over them. The app must be built and stamped first,
+// then starts `physgate ui` on loopback over them, its start-up record (the operator's address
+// among it) written to `started.json` beside the runs for the tests that act. The app must be built and stamped first,
 // which the check script does before this runs.
 export default defineConfig({
   testDir: "e2e",
@@ -27,7 +28,7 @@ export default defineConfig({
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
-    command: `uv run python tests/ui_e2e_runs.py ${RUNS} && uv run physgate ui --root ${RUNS}/runs --port ${String(PORT)}`,
+    command: `uv run python tests/ui_e2e_runs.py ${RUNS} && uv run physgate ui --root ${RUNS}/runs --port ${String(PORT)} --operator e2e-operator > ${RUNS}/started.json`,
     cwd: "..",
     url: `http://127.0.0.1:${String(PORT)}/api/runs`,
     reuseExistingServer: false,

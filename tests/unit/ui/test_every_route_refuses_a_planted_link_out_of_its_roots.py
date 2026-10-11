@@ -61,8 +61,12 @@ def _routes_reading(planted: str, session: str) -> list[str]:
             f"{run}/tokens",
             f"{run}/gate-checks",
             f"{run}/graph/history/{NODE}",
+            f"{run}/queue",
+            f"{run}/queue/items/0",
         ],
         "ledger.jsonl": [f"{run}/ledger"],
+        "queue.jsonl": [f"{run}/queue", f"{run}/queue/items/0"],
+        "queue_decisions.jsonl": [f"{run}/queue", f"{run}/queue/items/0"],
         "store/journal.jsonl": [
             f"{run}/graph",
             f"{run}/graph/at/1",
@@ -105,7 +109,15 @@ def _plant(world: dict[str, Path], planted: str, toward: str, session: str) -> P
     return target
 
 
-PLANTED = ("run.json", "events.jsonl", "ledger.jsonl", "store/journal.jsonl", "stream")
+PLANTED = (
+    "run.json",
+    "events.jsonl",
+    "ledger.jsonl",
+    "store/journal.jsonl",
+    "stream",
+    "queue.jsonl",
+    "queue_decisions.jsonl",
+)
 TOWARD = ("held-out tier", "outside every root", "a credential in the run")
 
 
