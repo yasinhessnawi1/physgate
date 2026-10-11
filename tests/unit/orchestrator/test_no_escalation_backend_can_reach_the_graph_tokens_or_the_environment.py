@@ -46,6 +46,7 @@ ALLOWED_MODULES = {
     },
     STATE_SOURCE: {
         "__future__",
+        "re",
         "typing",
         "pydantic",
         "physgate.orchestrator.common",

@@ -5,6 +5,9 @@ the task-ledger line, the gate result, the reviewer verdict and the changed-node
 summary, with no free text. Each part below is copied from one record the run already
 writes, and says which. Nothing is derived beyond counting, and nothing a person or a
 model phrased is carried: no finding, message, evidence, reason, path or model string.
+That is held by the types, not only by what the builder copies: every string field is an
+identifier, and a failing item the reviewer named in words (an issued specification that
+does not number its criteria) is not carried, only the fact that it was so named.
 
 The state is built from the run as its event log replays (``RunState``), never from
 an open ledger or store, so building it writes nothing and reads only what the log
@@ -13,11 +16,12 @@ says happened.
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Annotated, Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
-from physgate.orchestrator.common import GateMode, NonEmptyStr
+from physgate.orchestrator.common import GateMode
 from physgate.orchestrator.exceptions import RunStateError
 from physgate.orchestrator.protocols import (
     CheckName,
@@ -42,6 +46,15 @@ AttemptEnd = Literal["rejected", "review_blocked", "review_unavailable"]
 #: What a task-ledger line records for a gate or a review (the ledger's own vocabulary).
 LedgerOutcome = Literal["pass", "fail", "skipped", "blocked"]
 Count = Annotated[int, Field(ge=0)]
+#: A name the run gave something: a subtask, a role, a node. One token, no spaces, so no
+#: sentence fits.
+IDENTIFIER = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+Identifier = Annotated[str, StringConstraints(pattern=IDENTIFIER)]
+#: A rubric item's id, as a promoted rubric numbers its items (``DS-4``, ``AC-1``).
+RUBRIC_ITEM = r"^[A-Z]{1,2}-?[0-9]+$"
+#: What a failing item may be in the state: a rubric item's id, or an acceptance criterion's
+#: number in the issued specification.
+FAILING_ITEM = r"^(?:[A-Z]{1,2}-?[0-9]+|[0-9]+)$"
 
 
 class _Frozen(BaseModel):
@@ -55,8 +68,8 @@ class LedgerPart(_Frozen):
     the merge commit, which is always empty where the question is asked.
     """
 
-    subtask_id: NonEmptyStr
-    assigned_role: NonEmptyStr
+    subtask_id: Identifier
+    assigned_role: Identifier
     attempt_count: Annotated[int, Field(ge=1)]
     gate_result: LedgerOutcome | None
     review_result: LedgerOutcome | None
@@ -94,7 +107,7 @@ class ChangesPart(_Frozen):
     """From the change check (``ProposalsChecked``): the changed-node summary."""
 
     refused_by: Literal["proposal", "write_scope"] | None
-    proposed: tuple[NonEmptyStr, ...]
+    proposed: tuple[Identifier, ...]
 
 
 class GateCheck(_Frozen):
@@ -129,7 +142,7 @@ class GatePart(_Frozen):
 class ReviewItem(_Frozen):
     """One rubric item's verdict: its id, section and result, without the evidence."""
 
-    item: NonEmptyStr
+    item: Annotated[str, StringConstraints(pattern=RUBRIC_ITEM)]
     section: RubricSection
     result: ItemResult
 
@@ -155,12 +168,24 @@ class ReviewPart(_Frozen):
     verdict: ReviewVerdict
     rubric_kind: Literal["paired", "generalist"] | None
     reading_verified: bool | None
-    failing_item: NonEmptyStr | None
+    #: The failing item when it is an identifier the review answered: a rubric item's id, or
+    #: a numbered acceptance criterion. Otherwise ``None``.
+    failing_item: Annotated[str, StringConstraints(pattern=FAILING_ITEM)] | None
+    #: The reviewer named a failing item in its own words (the issued specification did not
+    #: number its criteria): those words are not carried, only that they were written.
+    failing_item_in_words: bool
     items: tuple[ReviewItem, ...]
     criteria: CriteriaCount
     indicators: tuple[Indicator, ...]
     spec_defects: Count
     blocking_spec_defects: Count
+
+    @model_validator(mode="after")
+    def _a_failing_item_is_carried_or_said_to_be_in_words(self) -> ReviewPart:
+        if self.failing_item_in_words and self.failing_item is not None:
+            msg = "a failing item named in words is not carried"
+            raise ValueError(msg)
+        return self
 
 
 class EscalationState(_Frozen):
@@ -291,11 +316,21 @@ def _review(state: RunState, subtask_id: str) -> ReviewPart | None:
         return None
     result = review.result
     results: list[CriterionResult] = [c.result for c in result.criteria]
+    # Carried only as an identifier the review itself answered: a rubric item's id, or a
+    # criterion the issued specification numbered. Anything else is the reviewer's words.
+    named = result.failing_item
+    answered = {i.item for i in result.items} | {c.criterion for c in result.criteria}
+    carried = (
+        named
+        if named is not None and named in answered and re.fullmatch(FAILING_ITEM, named)
+        else None
+    )
     return ReviewPart(
         verdict=result.verdict,
         rubric_kind=result.rubric_kind,
         reading_verified=result.reading_verified,
-        failing_item=result.failing_item,
+        failing_item=carried,
+        failing_item_in_words=named is not None and carried is None,
         items=tuple(
             ReviewItem(item=i.item, section=i.section, result=i.result) for i in result.items
         ),
