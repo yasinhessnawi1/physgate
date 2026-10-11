@@ -24,6 +24,7 @@ from typing import Any
 
 import pytest
 from escalation_paths import STAND_INS, blocked_review, unavailable
+from escalation_states import STAND_IN, register_stand_in
 from loop_fakes import FakeReviewer, KilledError, Rig, plan
 
 from physgate.orchestrator.escalation import (
@@ -45,7 +46,7 @@ from physgate.orchestrator.events import (
     ReviewUnavailable,
     read_events,
 )
-from physgate.orchestrator.exceptions import CorruptEventLogError, RunStateError
+from physgate.orchestrator.exceptions import CorruptEventLogError
 from physgate.orchestrator.queue import ApprovalQueue
 from physgate.orchestrator.replay import replay
 
@@ -146,19 +147,10 @@ def test_the_backend_is_shown_the_state_the_line_records(tmp_path: Path) -> None
         assert d.state == escalation_state(replay(events[: d.seq]), d.subtask_id)
 
 
-#: A backend that ships, for the tests that need a route the rules never give: a stand-in
-#: answering as told cannot pass as the rules, whose every answer the replay recomputes.
-STAND_IN = BackendRow(
-    name="stand_in", status="ships", entry_condition="a test's", evidence=(), version="s/1"
-)
-
-
 @pytest.fixture
 def stand_in_registered(monkeypatch: pytest.MonkeyPatch) -> None:
     """The register as the configuration and the replay read it, with the stand-in in it."""
-    register = Register(rows=(*REGISTER.rows, STAND_IN))
-    monkeypatch.setattr("physgate.orchestrator.run_config.REGISTER", register)
-    monkeypatch.setattr("physgate.orchestrator.replay.REGISTER", register)
+    register_stand_in(monkeypatch)
 
 
 def test_a_stand_in_cannot_pass_as_the_rules(tmp_path: Path) -> None:
@@ -176,25 +168,19 @@ def test_a_stand_in_cannot_pass_as_the_rules(tmp_path: Path) -> None:
 
 
 @pytest.mark.usefixtures("stand_in_registered")
-def test_a_route_that_is_not_forced_stops_the_run_until_it_has_a_queue_item(
-    tmp_path: Path,
-) -> None:
+def test_a_route_that_is_not_forced_is_recorded_and_followed(tmp_path: Path) -> None:
     rig = Rig(
         tmp_path,
         reviewer=FakeReviewer(verdicts=["fail"]),
         escalation=EscalationInterface(Answering(answer="no", confidence=0.5), STAND_IN),
         config_overrides={"escalation_backend": "stand_in"},
     )
-    loop = rig.open()
-    loop.start(plan("s1"))
-    with pytest.raises(RunStateError):
-        loop.run()
-    loop.close()
-    events = read_events(tmp_path / "events.jsonl")
+    events = drive(rig, "s1")
     (decided,) = [e for e in events if isinstance(e, EscalationDecided)]
     assert (decided.decision.basis, decided.decision.forced) == ("floor", False)
-    assert not [e for e in events if isinstance(e, Escalated)]
-    assert replay(events).next_step().kind == "escalate"
+    (escalated,) = [e for e in events if isinstance(e, Escalated)]
+    assert escalated.seq > decided.seq
+    assert replay(events).subtasks["s1"].status == "escalated"
 
 
 @pytest.mark.parametrize("kill_on", [1, 2, 3])

@@ -98,6 +98,7 @@ from physgate.orchestrator.protocols import (
 )
 from physgate.orchestrator.queue import (
     INTEGRATION,
+    decided_item,
     escalation_item,
     integration_item,
     unavailable_item,
@@ -438,12 +439,6 @@ class Loop:
                 self._decide(step.subtask_id, step.attempt)
             elif step.kind == "escalate":
                 now = self.state.subtasks[step.subtask_id].attempts[-1]
-                if now.decided is not None and not now.decided.decision.forced:
-                    # Routed by a backend's answer or the confidence floor where the loop
-                    # could have gone on: no queue item is built for that yet, so the run
-                    # stops here rather than route it under another item's name.
-                    msg = "a route that is not forced has no approval-queue item yet"
-                    raise RunStateError(msg, subtask=step.subtask_id)
                 if now.unavailable_final is not None:
                     self._escalate_unavailable(step.subtask_id, now.unavailable_final)
                 elif now.blocked is not None:
@@ -1144,8 +1139,22 @@ class Loop:
         commits = [s.attempt_commit for s in sessions if s.attempt_commit is not None]
         item_id = f"{self.config.run_id}-{subtask_id}"
         if item_id not in {item.item_id for item in self.queue.items()}:
-            self.queue.add(
-                escalation_item(
+            decided = attempts[-1].decided
+            if decided is not None and not decided.decision.forced:
+                # Sent to a person with attempts left, by the backend's answer or the
+                # confidence floor: an item of its own, with the attempts made so far.
+                item = decided_item(
+                    item_id=item_id,
+                    run_id=self.config.run_id,
+                    subtask_id=subtask_id,
+                    decision=decided.decision,
+                    findings=findings,
+                    artefact_diff=self._merger.artefact_diff(commits[-1]),
+                    trajectories=trajectories,
+                    ts=self.log.events[-1].ts,
+                )
+            else:
+                item = escalation_item(
                     item_id=item_id,
                     run_id=self.config.run_id,
                     subtask_id=subtask_id,
@@ -1154,5 +1163,5 @@ class Loop:
                     trajectories=trajectories,
                     ts=self.log.events[-1].ts,
                 )
-            )
+            self.queue.add(item)
         self._emit(Escalated(**self._env(), subtask_id=subtask_id, item_id=item_id))
