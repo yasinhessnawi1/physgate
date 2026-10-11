@@ -179,16 +179,27 @@ def test_an_action_from_this_server_s_own_page_reaches_its_handler_with_its_body
 
 
 def test_no_response_ever_carries_the_token_the_page_included(live: Client) -> None:
-    """Any local process can fetch any page, so the token is served by no route at all."""
+    """Any local process can fetch any page, so the token is served by no route at all.
+
+    Nor by a refusal: an action from this server's own origin with a wrong token passes every
+    check before the token's, so its 403 is the token check's own, and that carries no token.
+    """
     assert len(live.token) >= 40
-    for method, target, headers in (
-        ("GET", "/", {}),
-        ("HEAD", "/", {}),
-        ("GET", "/act", {}),
-        ("OPTIONS", "/act", {"Origin": "http://evil.example"}),
-        ("POST", "/act", {}),
-    ):
-        status, got, body = live.raw(method, target, headers)
+    wrong = "w" * len(live.token)
+    answers = [
+        live.raw(method, target, headers)
+        for method, target, headers in (
+            ("GET", "/", {}),
+            ("HEAD", "/", {}),
+            ("GET", "/act", {}),
+            ("OPTIONS", "/act", {"Origin": "http://evil.example"}),
+            ("POST", "/act", {}),
+        )
+    ]
+    refused = live.act(X_Physgate_Act_Token=wrong)
+    assert refused[0] == 403
+    assert b"operator's address" in refused[2]
+    for status, got, body in [*answers, refused]:
         assert status in (200, 403, 405, 411, 415)
         assert b"physgate-act-token" not in body
         assert live.token.encode() not in body
