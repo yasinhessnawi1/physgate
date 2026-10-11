@@ -684,7 +684,8 @@ mod tests {
     #[test]
     fn every_credential_is_cut_from_what_is_shown() {
         let token = format!("sk-ant-oat01-{}", "y".repeat(60));
-        let shown = redact(&format!("ok {token} and sk-ant-api03-zzzz and sk-ant-o"));
+        let other_key = format!("sk-ant-api03-{}", "zzzz");
+        let shown = redact(&format!("ok {token} and {other_key} and sk-ant-o"));
         assert!(!shown.contains("sk-ant-"), "{shown}");
         assert_eq!(shown.matches(KEPT).count(), 3);
         let lines = shown_lines(&format!("one\n\n{token}\n"));

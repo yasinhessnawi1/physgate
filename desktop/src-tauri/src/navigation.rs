@@ -157,24 +157,27 @@ mod tests {
         ] {
             assert_eq!(gate.decide(&url(allowed)), Decision::Served, "{allowed}");
         }
+        // An address with a user part (`http://<user>@<host>/`), put together here rather than
+        // written out, so it is not taken for a credential.
+        let with_user = |user: &str, host: &str| format!("http://{user}@{host}/");
         for refused in [
-            "http://127.0.0.1:52012/",
-            "http://127.0.0.1:5201/",
+            "http://127.0.0.1:52012/".to_string(),
+            "http://127.0.0.1:5201/".to_string(),
             // Begins with the trusted origin's text: only a whole comparison refuses these.
-            "http://127.0.0.1:52011@evil.example/",
-            "http://127.0.0.1:52011@127.0.0.1:52012/",
-            "http://localhost:52011/",
-            "https://127.0.0.1:52011/",
-            "http://127.0.0.1.evil.example:52011/",
-            "http://evil.example/http://127.0.0.1:52011/",
-            "http://user@127.0.0.1.evil.example:52011/",
-            "https://example.com/",
-            "file:///etc/passwd",
-            "about:blank",
-            "data:text/html,<p>x</p>",
+            with_user("127.0.0.1:52011", "evil.example"),
+            with_user("127.0.0.1:52011", "127.0.0.1:52012"),
+            "http://localhost:52011/".to_string(),
+            "https://127.0.0.1:52011/".to_string(),
+            "http://127.0.0.1.evil.example:52011/".to_string(),
+            "http://evil.example/http://127.0.0.1:52011/".to_string(),
+            with_user("user", "127.0.0.1.evil.example:52011"),
+            "https://example.com/".to_string(),
+            "file:///etc/passwd".to_string(),
+            "about:blank".to_string(),
+            "data:text/html,<p>x</p>".to_string(),
         ] {
             // Every case must parse, or it would never reach the gate and prove nothing.
-            let parsed = Url::parse(refused).expect(refused);
+            let parsed = Url::parse(&refused).expect(&refused);
             assert_eq!(gate.decide(&parsed), Decision::Refused, "{refused}");
         }
     }

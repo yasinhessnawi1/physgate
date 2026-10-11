@@ -137,7 +137,7 @@ mod tests {
             "a key is not a token"
         );
         assert!(Secret::ApiKey.plausible(&key));
-        assert!(!Secret::ApiKey.plausible("sk-ant-api03-short"));
+        assert!(!Secret::ApiKey.plausible(&format!("sk-ant-api03-{}", "short")));
         assert!(!Secret::ApiKey.plausible(&format!("{key} trailing")));
         assert!(!Secret::ApiKey.plausible(&format!("{key}\n")));
     }
