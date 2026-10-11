@@ -71,8 +71,37 @@ export async function getLines<T>(
   });
 }
 
-/** The name of the ``<meta>`` element the server puts its action token in. */
-export const ACT_TOKEN_META = "physgate-act-token";
+/**
+ * This page's action token, held in memory only. No route serves it: the operator opens the
+ * address ``physgate ui --operator`` printed, whose fragment (``#act=…``) a browser never sends
+ * to a server, and the page takes it from there once, at start.
+ */
+let held: string | null = null;
+
+/** The fragment the operator's address carries the token in. */
+export const ACT_FRAGMENT = "#act=";
+
+/**
+ * Take the action token from this page's address, if it carries one, and clear it from the
+ * address bar, so the token is in memory only and not in the address a person might copy.
+ */
+export function takeTokenFromAddress(win: Window = window): void {
+  const { hash, pathname, search } = win.location;
+  if (!hash.startsWith(ACT_FRAGMENT)) return;
+  const token = decodeURIComponent(hash.slice(ACT_FRAGMENT.length));
+  held = token === "" ? null : token;
+  win.history.replaceState(null, "", `${pathname}${search}`);
+}
+
+/** The action token this page holds, or ``null`` when it was opened without the operator's address. */
+export function actToken(): string | null {
+  return held;
+}
+
+/** Forget the token: for tests, which share one module between cases. */
+export function forgetToken(): void {
+  held = null;
+}
 
 /** The name of the ``<meta>`` element naming the operator decisions are recorded under. */
 export const OPERATOR_META = "physgate-operator";
@@ -88,15 +117,6 @@ export function pageOperator(doc: Document = document): string | null {
 
 /** The header an action carries the token back in. */
 export const ACT_TOKEN_HEADER = "X-Physgate-Act-Token";
-
-/**
- * The action token this page was served with, or ``null`` when the page carries none. The server
- * made it at start and put it only in this page; another site's page cannot read it.
- */
-export function actToken(doc: Document = document): string | null {
-  const meta = doc.querySelector<HTMLMetaElement>(`meta[name="${ACT_TOKEN_META}"]`);
-  return meta === null || meta.content === "" ? null : meta.content;
-}
 
 /**
  * The one request that acts: a JSON body posted to ``path`` with this page's action token. The

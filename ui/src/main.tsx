@@ -4,6 +4,7 @@ import "./design/styles.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
+import { takeTokenFromAddress } from "./api/client";
 import { loadFonts } from "./design/fonts";
 import { Shell } from "./shell/Shell";
 import { VIEWS } from "./views/registry";
@@ -13,6 +14,9 @@ import { VIEWS } from "./views/registry";
 const theme =
   new URLSearchParams(window.location.search).get("theme") === "dark" ? "dark" : "light";
 document.documentElement.dataset.theme = theme;
+// The operator's address carries the action token in its fragment; it is taken once, kept in
+// memory, and cleared from the address bar before anything else reads the address.
+takeTokenFromAddress();
 loadFonts();
 
 const root = document.getElementById("root");

@@ -99,9 +99,6 @@ def write_stamp(ui_root: Path) -> Path:
     return stamp
 
 
-#: The name of the ``<meta>`` element that carries the server's action token to its own page.
-ACT_TOKEN_META = "physgate-act-token"
-
 #: The name of the ``<meta>`` element that names the operator decisions are recorded under.
 OPERATOR_META = "physgate-operator"
 
@@ -113,23 +110,21 @@ class Assets:
     index: bytes
     files: Mapping[str, tuple[bytes, str]]
 
-    def with_server_meta(self, token: str, operator: str | None) -> Assets:
-        """The same build, its page carrying the action token and the operator's name.
+    def with_operator(self, operator: str | None) -> Assets:
+        """The same build, its page naming the operator decisions are recorded under, if any.
 
-        The page reads the token from itself and sends it back with every action, so only a
-        page this server served can act: another site's page cannot read this one. The
-        operator's name, when one was named, is part of the line a decision writes, so the
-        confirmation names it from here; with none, the page has no such element and acts on
-        nothing. Both go before ``</head>``, or straight after the doctype of a page with no
-        head written out.
+        The name is part of the line a decision writes, so the confirmation names it from here;
+        with none, the page has no such element. The action token is never put in the page: a
+        page any local client can fetch must not carry it (see ``server``).
 
         Raises:
-            StartupRefusedError: the page has neither, so there is nowhere to put them.
+            StartupRefusedError: the page has neither a head nor a doctype to carry the name.
         """
-        meta = f'<meta name="{ACT_TOKEN_META}" content="{html.escape(token)}">'
-        if operator is not None:
-            meta += f'<meta name="{OPERATOR_META}" content="{html.escape(operator)}">'
-        return self._with_head(meta.encode())
+        if operator is None:
+            return self
+        return self._with_head(
+            f'<meta name="{OPERATOR_META}" content="{html.escape(operator)}">'.encode()
+        )
 
     def _with_head(self, meta: bytes) -> Assets:
         head = self.index.find(b"</head>")
@@ -138,7 +133,7 @@ class Assets:
         doctype = b"<!doctype html>"
         if self.index[: len(doctype)].lower() == doctype:
             return replace(self, index=doctype + meta + self.index[len(doctype) :])
-        msg = "the built page has no head and no doctype to carry the action token"
+        msg = "the built page has no head and no doctype to carry the operator's name"
         raise StartupRefusedError(msg)
 
 

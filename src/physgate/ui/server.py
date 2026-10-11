@@ -28,9 +28,13 @@ is not ``read`` runs, the server refuses, in order:
    site sends its own origin, or ``null``);
 2. a ``Sec-Fetch-Site`` other than ``same-origin``, when the browser sends one;
 3. a request without this server start's action token in its header. The token is made
-   when the server starts, kept only in memory, and put in the app's own page; another
-   site's page cannot read that page, and a request carrying a custom header from another
-   origin needs a preflight, which this server answers 405;
+   when the server starts and kept only in memory. **No route ever serves it**: any local
+   process can fetch any page, so a token in a page would let one act as the operator.
+   ``physgate ui --operator`` prints the operator's address with the token in its fragment
+   (``#act=…``), which a browser never sends to a server, so it is in no request and no log;
+   the app takes it from there once, keeps it in memory and clears the address bar. A page
+   opened without it can only read. A request carrying a custom header from another origin
+   also needs a preflight, which this server answers 405;
 4. any body that is not ``application/json``: the three content types a plain form or a
    simple request can send are among those refused;
 5. a body without its length, sent in chunks, or longer than 16 KiB;
@@ -317,12 +321,25 @@ class Handler(BaseHTTPRequestHandler):
             sys.stderr.write(f"{self.address_string()} {format % args}\n")
 
 
-class _Server(ThreadingHTTPServer):
+class UIServer(ThreadingHTTPServer):
+    """The server, holding this start's action token; the command prints it, nothing serves it."""
+
     daemon_threads = True
+    act_token: str = ""
 
 
-class _Server6(_Server):
+class _Server6(UIServer):
     address_family = socket.AF_INET6
+
+
+def operator_url(server: UIServer, bind: str) -> str:
+    """The operator's address: the app's, with this start's action token in its fragment.
+
+    A browser never sends a fragment to the server, so the token reaches the page without any
+    route serving it. Printed once by ``physgate ui --operator``; never logged.
+    """
+    literal = f"[{bind}]" if ":" in bind else bind
+    return f"http://{literal}:{int(server.server_address[1])}/#act={server.act_token}"
 
 
 def make_server(
@@ -333,7 +350,7 @@ def make_server(
     routes: tuple[Route, ...] = ROUTES,
     quiet: bool = False,
     timeout_s: float = REQUEST_TIMEOUT_S,
-) -> ThreadingHTTPServer:
+) -> UIServer:
     """A server on ``bind``:``port`` answering ``routes``, with the guard installed.
 
     ``routes`` is for the tests that plant a route, and ``timeout_s`` for the test that
@@ -347,10 +364,11 @@ def make_server(
     require_loopback(bind)
     require_operator(context.operator)
     token = secrets.token_urlsafe(32)
-    context = replace(context, assets=context.assets.with_server_meta(token, context.operator))
+    context = replace(context, assets=context.assets.with_operator(context.operator))
     guard.install()
-    server_class = _Server6 if ":" in bind else _Server
+    server_class = _Server6 if ":" in bind else UIServer
     server = server_class((bind, port), Handler)
+    server.act_token = token
     bound_port = int(server.server_address[1])
     handler = type(
         "BoundHandler",

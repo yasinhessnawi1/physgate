@@ -19,7 +19,6 @@ from __future__ import annotations
 import fcntl
 import http.client
 import os
-import re
 import socket
 import subprocess
 import sys
@@ -102,10 +101,10 @@ def _snapshot(root: Path) -> dict[str, bytes | None]:
 class Client:
     """Sends requests the way the app's page would, and every way it would not."""
 
-    def __init__(self, port: int) -> None:
+    def __init__(self, port: int, token: str) -> None:
         self.port = port
         self.origin = f"http://127.0.0.1:{port}"
-        self.token = self.page_token()
+        self.token = token
 
     def raw(
         self, method: str, target: str, headers: Mapping[str, str], body: bytes = b""
@@ -120,13 +119,6 @@ class Client:
         data = response.read()
         connection.close()
         return response.status, {k.lower(): v for k, v in response.getheaders()}, data
-
-    def page_token(self) -> str:
-        status, _, page = self.raw("GET", "/", {})
-        assert status == 200
-        found = re.search(rb'<meta name="physgate-act-token" content="([^"]+)">', page)
-        assert found, "the page carries no action token"
-        return found.group(1).decode()
 
     def act(
         self,
@@ -165,7 +157,7 @@ def _recording_route(called: list[bytes]) -> Route:
 @pytest.fixture
 def live(run: Path, called: list[bytes]) -> Iterator[Client]:
     with serving(_context(run), routes=(_index_route(), _recording_route(called))) as server:
-        yield Client(server.port)
+        yield Client(server.port, server.token)
 
 
 def _index_route() -> Route:
@@ -186,15 +178,19 @@ def test_an_action_from_this_server_s_own_page_reaches_its_handler_with_its_body
     assert not [h for h in headers if h.startswith("access-control-")]
 
 
-def test_the_token_is_in_the_page_and_nowhere_else(live: Client) -> None:
+def test_no_response_ever_carries_the_token_the_page_included(live: Client) -> None:
+    """Any local process can fetch any page, so the token is served by no route at all."""
     assert len(live.token) >= 40
     for method, target, headers in (
+        ("GET", "/", {}),
+        ("HEAD", "/", {}),
         ("GET", "/act", {}),
         ("OPTIONS", "/act", {"Origin": "http://evil.example"}),
         ("POST", "/act", {}),
     ):
         status, got, body = live.raw(method, target, headers)
-        assert status in (403, 405, 411, 415)
+        assert status in (200, 403, 405, 411, 415)
+        assert b"physgate-act-token" not in body
         assert live.token.encode() not in body
         assert all(live.token not in v for v in got.values())
 
@@ -202,9 +198,9 @@ def test_the_token_is_in_the_page_and_nowhere_else(live: Client) -> None:
 def test_a_token_from_another_server_start_is_refused(run: Path, called: list[bytes]) -> None:
     routes = (_index_route(), _recording_route(called))
     with serving(_context(run), routes=routes) as first:
-        earlier = Client(first.port).token
+        earlier = first.token
     with serving(_context(run), routes=routes) as second:
-        client = Client(second.port)
+        client = Client(second.port, second.token)
         assert client.token != earlier
         client.token = earlier
         status, _, body = client.act()
@@ -277,7 +273,7 @@ def test_a_body_one_byte_over_its_bound_is_refused_and_one_at_it_accepted(
 def test_an_action_without_a_named_operator_is_refused(run: Path, called: list[bytes]) -> None:
     routes = (_index_route(), _recording_route(called))
     with serving(_context(run, operator=None), routes=routes) as server:
-        status, _, body = Client(server.port).act()
+        status, _, body = Client(server.port, server.token).act()
     assert status == 403
     assert b"no operator was named" in body
     assert called == []
@@ -314,7 +310,7 @@ def test_a_request_that_stops_sending_is_dropped_at_its_timeout(
     thread.start()
     try:
         port = int(server.server_address[1])
-        token = Client(port).token
+        token = server.act_token
         with socket.create_connection(("127.0.0.1", port), timeout=10) as sock:
             sock.sendall(
                 (
@@ -370,15 +366,14 @@ def test_an_operator_name_within_bounds_is_taken_as_given() -> None:
     assert require_operator("x" * 64) == "x" * 64
 
 
-def test_a_page_with_no_head_and_no_doctype_cannot_carry_the_token() -> None:
+def test_a_page_with_no_head_and_no_doctype_cannot_carry_the_operator_s_name() -> None:
     built = assets.Assets(index=b"<html><body></body></html>", files={})
-    with pytest.raises(StartupRefusedError, match="carry the action token"):
-        built.with_server_meta("t", None)
+    with pytest.raises(StartupRefusedError, match="carry the operator's name"):
+        built.with_operator("op")
+    assert built.with_operator(None) is built
     headed = assets.Assets(index=b"<html><head></head></html>", files={})
-    assert (
-        b'<meta name="physgate-act-token" content="t"></head>'
-        in headed.with_server_meta("t", None).index
-    )
+    named = headed.with_operator("op").index
+    assert b'<meta name="physgate-operator" content="op"></head>' in named
 
 
 # -- the guard's act kind ---------------------------------------------------------------------
@@ -398,7 +393,7 @@ def _act_route(action: Callable[[Context, Path], object]) -> Route:
 
 def _acting(run: Path, action: Callable[[Context, Path], object]) -> tuple[int, bytes]:
     with serving(_context(run), routes=(_index_route(), _act_route(action))) as server:
-        status, _, body = Client(server.port).act()
+        status, _, body = Client(server.port, server.token).act()
     return status, body
 
 
@@ -551,7 +546,7 @@ def test_the_page_names_who_decides_here_and_no_one_when_none_was_named(run: Pat
     with serving(_context(run, operator=None), routes=(_index_route(),)) as server:
         _, _, page = server.request("GET", "/")
     assert b"physgate-operator" not in page
-    assert b"physgate-act-token" in page
+    assert b"physgate-act-token" not in page
     from physgate.ui.table import ROUTES
 
     assert not [r for r in ROUTES if "operator" in r.pattern]

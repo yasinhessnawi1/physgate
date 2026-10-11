@@ -149,9 +149,10 @@ def test_an_operator_name_that_does_not_print_is_refused_before_anything_listens
     assert "printable name" in error["error"]
 
 
-def test_the_command_names_its_operator_and_never_prints_its_action_token(
+def test_the_command_prints_the_operator_s_address_and_no_route_serves_its_token(
     world: dict[str, Path],
 ) -> None:
+    """The token is in the printed address's fragment, and in no response the server makes."""
     process = subprocess.Popen(
         [sys.executable, "-c", LAUNCH, str(world["ui"]), "ui", "--root", str(world["root"]),
          "--port", "0", "--operator", "Yasin H."],
@@ -168,14 +169,44 @@ def test_the_command_names_its_operator_and_never_prints_its_action_token(
             lines.append(line.rstrip("\n"))
         started = json.loads("\n".join(lines))
         assert started["operator"] == "Yasin H."
-        port = int(started["url"].rsplit(":", 1)[1].strip("/"))
-        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
-        connection.request("GET", "/")
-        page = connection.getresponse().read().decode()
-        connection.close()
-        token = page.split('name="physgate-act-token" content="', 1)[1].split('"', 1)[0]
+        url, _, fragment = started["operator_url"].partition("#")
+        assert url == started["url"]
+        assert fragment.startswith("act=")
+        token = fragment.removeprefix("act=")
         assert len(token) >= 40
+        port = int(started["url"].rsplit(":", 1)[1].strip("/"))
+        served = []
+        for target in ("/", "/api/runs", "/api/runs/0/run-1/config"):
+            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+            connection.request("GET", target)
+            response = connection.getresponse()
+            served.append(response.read().decode() + str(response.getheaders()))
+            connection.close()
     finally:
         process.send_signal(signal.SIGINT)
         out, err = process.communicate(timeout=10)
-    assert token not in "\n".join(lines) + out + err
+    assert not [s for s in served if token in s]
+    assert token not in err, "the token reached the server's log"
+
+
+def test_without_an_operator_no_address_with_a_token_is_printed(world: dict[str, Path]) -> None:
+    process = subprocess.Popen(
+        [sys.executable, "-c", LAUNCH, str(world["ui"]), "ui", "--root", str(world["root"]),
+         "--port", "0"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )  # fmt: skip
+    try:
+        assert process.stdout is not None
+        lines: list[str] = []
+        while not lines or lines[-1] != "}":
+            line = process.stdout.readline()
+            assert line, process.stderr.read() if process.stderr else "no output"
+            lines.append(line.rstrip("\n"))
+        started = json.loads("\n".join(lines))
+    finally:
+        process.send_signal(signal.SIGINT)
+        process.communicate(timeout=10)
+    assert started["operator"] is None
+    assert "operator_url" not in started

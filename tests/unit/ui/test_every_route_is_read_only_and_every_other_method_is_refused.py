@@ -152,10 +152,14 @@ def test_no_route_with_any_method_changes_any_file(world: dict[str, Path]) -> No
         for route in ROUTES:
             for target in _targets(route, world):
                 for method in METHODS:
-                    status, _, _ = live.request(method, target)
+                    status, headers, body = live.request(method, target)
                     assert status != 500, (method, target)
+                    # No route serves the action token, under any method, to anyone.
+                    assert live.token.encode() not in body, (method, target)
+                    assert not [v for v in headers.values() if live.token in v], (method, target)
                     answered += 1
     assert answered >= len(ROUTES) * len(METHODS)
+    assert len(live.token) >= 40, "a sweep for an empty token proves nothing"
     assert writes == [], writes
     assert snapshot(*watched) == before
     # Every file any route opened lies where the request may read: the property the sweep holds

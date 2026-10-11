@@ -64,14 +64,15 @@ def pinned_clock(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class Page:
-    """Asks as the app's own page does: with its origin and the token it was served with."""
+    """Asks as the app's own page does: with its origin and the token from the operator's address.
 
-    def __init__(self, port: int) -> None:
+    No route serves the token; the page takes it from the address the command printed, and this
+    stand-in takes it from the server it is given.
+    """
+
+    def __init__(self, port: int, token: str) -> None:
         self.port = port
-        _, _, page = self.request("GET", "/")
-        found = re.search(rb'<meta name="physgate-act-token" content="([^"]+)">', page)
-        assert found, "the page carries no action token"
-        self.token = found.group(1).decode()
+        self.token = token
 
     def request(
         self, method: str, target: str, body: bytes = b"", headers: dict[str, str] | None = None
@@ -112,7 +113,7 @@ def page(built: dict[str, Path], tmp_path: Path) -> Iterator[tuple[Page, Path]]:
     run_dir = _copy(built, tmp_path / "ui-root")
     context = replace(context_over(run_dir.parent, ui_root=built["ui"]), operator="yasin")
     with serving(context) as live:
-        yield Page(live.port), run_dir
+        yield Page(live.port, live.token), run_dir
 
 
 def _view(page: Page) -> dict[str, object]:
@@ -189,7 +190,7 @@ def test_a_ui_decision_writes_exactly_what_the_command_writes(
 
     context = replace(context_over(by_ui.parent, ui_root=built["ui"]), operator="yasin")
     with serving(context) as live:
-        page = Page(live.port)
+        page = Page(live.port, live.token)
         status, answered = page.decide(_decision(_view(page), verb, note))
     assert status == 201, answered
 
@@ -232,7 +233,7 @@ def test_a_decision_made_while_a_session_s_window_is_open_is_marked_as_the_queue
     (run_dir / "events.jsonl").write_bytes(b"".join(lines[: opened + 1]))
     context = replace(context_over(run_dir.parent, ui_root=built["ui"]), operator="yasin")
     with serving(context) as live:
-        client = Page(live.port)
+        client = Page(live.port, live.token)
         assert client.decide(_decision(_view(client)))[0] == 201
         status, served = client.get(f"/api/runs/0/{RUN}/queue")
     code, printed = _command(["queue", "list", "--run-dir", str(run_dir)], capsys)
@@ -399,13 +400,13 @@ TIMEOUT_S = 1.0
 
 
 @contextmanager
-def _short_timeout_server(run_dir: Path, ui: Path) -> Iterator[int]:
+def _short_timeout_server(run_dir: Path, ui: Path) -> Iterator[tuple[int, str]]:
     context = replace(context_over(run_dir.parent, ui_root=ui), operator="yasin")
     server = make_server(context, bind="127.0.0.1", port=0, quiet=True, timeout_s=TIMEOUT_S)
     thread = threading.Thread(target=server.serve_forever, args=(0.02,), daemon=True)
     thread.start()
     try:
-        yield int(server.server_address[1])
+        yield int(server.server_address[1]), server.act_token
     finally:
         server.shutdown()
         server.server_close()
@@ -470,7 +471,7 @@ def test_a_large_trajectory_read_slowly_but_steadily_is_served_to_its_end(
     size = 24 << 20
     session = _large_trajectory(run_dir, size)
     target = f"/api/runs/0/{RUN}/trajectories/{session}"
-    with _short_timeout_server(run_dir, built["ui"]) as port:
+    with _short_timeout_server(run_dir, built["ui"]) as (port, _):
         whole, took = _read_slowly(port, target, chunk=128 * 1024, gap=0.02, stall_after=None)
         cut, _ = _read_slowly(port, target, chunk=128 * 1024, gap=0.02, stall_after=3)
     head, _, body = whole.partition(b"\r\n\r\n")
@@ -487,8 +488,8 @@ def test_a_decision_body_sent_slowly_but_steadily_is_taken_and_a_stall_is_droppe
     built: dict[str, Path], tmp_path: Path
 ) -> None:
     run_dir = _copy(built, tmp_path / "ui-root")
-    with _short_timeout_server(run_dir, built["ui"]) as port:
-        page = Page(port)
+    with _short_timeout_server(run_dir, built["ui"]) as (port, token):
+        page = Page(port, token)
         payload = json.dumps(_decision(_view(page))).encode()
         head = (
             f"POST /api/runs/0/{RUN}/queue/decisions HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\n"
@@ -553,7 +554,7 @@ def test_a_run_directory_swapped_after_the_route_found_it_takes_no_decision(
 
     context = replace(context_over(run_dir.parent, ui_root=built["ui"]), operator="yasin")
     with serving(context) as live:
-        client = Page(live.port)
+        client = Page(live.port, live.token)
         payload = _decision(_view(client))
         before = (_tree(outside), _tree(run_dir))
         monkeypatch.setattr(readers, "run_dir_of", found_then_swapped)
@@ -561,3 +562,30 @@ def test_a_run_directory_swapped_after_the_route_found_it_takes_no_decision(
     assert status == 403, body
     assert _tree(outside) == before[0]
     assert _tree(run_dir.with_name("run-esc.moved")) == before[1]
+
+
+def test_a_local_process_that_reads_every_page_still_cannot_decide(
+    built: dict[str, Path], tmp_path: Path
+) -> None:
+    """The reviewer's script, with the standard library only: read the page, try to decide.
+
+    Any local process, a role session's shell among them, can fetch every page the server
+    serves. None carries the token, so a request built from them all is refused, and the run's
+    decisions file does not change.
+    """
+    run_dir = _copy(built, tmp_path / "ui-root")
+    context = replace(context_over(run_dir.parent, ui_root=built["ui"]), operator="yasin")
+    with serving(context) as live:
+        anyone = Page(live.port, "")
+        _, _, page = anyone.request("GET", "/")
+        assert re.search(rb'physgate-act-token" content="([^"]+)"', page) is None
+        assert live.token.encode() not in page
+        payload = _decision(_view(anyone))
+        before = (run_dir / DECISIONS_NAME).read_bytes()
+        for guess in ("", "guess", page.decode(errors="replace")[:43]):
+            anyone.token = guess
+            status, body = anyone.decide(payload)
+            assert status == 403, body
+        assert (run_dir / DECISIONS_NAME).read_bytes() == before
+        operator = Page(live.port, live.token)
+        assert operator.decide(payload)[0] == 201

@@ -166,9 +166,14 @@ def snapshot(*directories: Path) -> dict[str, tuple[int, int, int, str]]:
 
 @dataclass(frozen=True)
 class Live:
-    """A server running in this process on an ephemeral loopback port."""
+    """A server running in this process on an ephemeral loopback port.
+
+    ``token`` is the server's action token, which no route serves: a test that acts as the
+    operator's page takes it from here, as the page takes it from the operator's address.
+    """
 
     port: int
+    token: str = ""
 
     def request(
         self,
@@ -202,7 +207,7 @@ def serving(context: Context, routes: tuple[Route, ...] = ROUTES) -> Iterator[Li
     thread = threading.Thread(target=server.serve_forever, args=(0.02,), daemon=True)
     thread.start()
     try:
-        yield Live(port=int(server.server_address[1]))
+        yield Live(port=int(server.server_address[1]), token=server.act_token)
     finally:
         server.shutdown()
         server.server_close()

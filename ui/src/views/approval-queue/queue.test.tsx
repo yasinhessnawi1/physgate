@@ -3,7 +3,14 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { actToken, pageOperator, postAction, ShapeError } from "../../api/client";
+import {
+  actToken,
+  forgetToken,
+  pageOperator,
+  postAction,
+  ShapeError,
+  takeTokenFromAddress,
+} from "../../api/client";
 import {
   decisionRequest,
   decisionText,
@@ -182,13 +189,32 @@ describe("the records are held to their shapes", () => {
   });
 });
 
-describe("the action token comes only from this page", () => {
-  it("is read from the page's meta element", () => {
-    const meta = document.createElement("meta");
-    meta.name = "physgate-act-token";
-    meta.content = "tok-123";
-    document.head.append(meta);
+describe("the action token comes only from the operator's address, and lives in memory", () => {
+  afterEach(() => {
+    forgetToken();
+  });
+
+  it("is taken from the address's fragment once, and cleared from the address bar", () => {
+    window.history.replaceState(null, "", "/?theme=dark#act=tok%2D123");
+    expect(actToken()).toBeNull();
+    takeTokenFromAddress();
     expect(actToken()).toBe("tok-123");
+    expect(window.location.hash).toBe("");
+    expect(window.location.search).toBe("?theme=dark");
+    // Taken once: a later address without it changes nothing.
+    window.history.replaceState(null, "", "/#/collaboration/approval-queue");
+    takeTokenFromAddress();
+    expect(actToken()).toBe("tok-123");
+    expect(window.location.hash).toBe("#/collaboration/approval-queue");
+  });
+
+  it("a page opened at any other address holds no token", () => {
+    window.history.replaceState(null, "", "/#/collaboration/approval-queue");
+    takeTokenFromAddress();
+    expect(actToken()).toBeNull();
+    window.history.replaceState(null, "", "/#act=");
+    takeTokenFromAddress();
+    expect(actToken()).toBeNull();
   });
 
   it("the operator is read from the page too, and a page naming no one names no one", () => {
@@ -273,12 +299,13 @@ describe("the item view shows the five things, and every seal status apart", () 
 });
 
 describe("deciding goes through a confirmation naming the line it writes", () => {
-  function panel(operator: string | null, send = vi.fn()) {
+  function panel(operator: string | null, send = vi.fn(), holdsToken = true) {
     const host = mount(
       <DecisionPanel
         view={VIEW}
         runId="run-esc"
         operator={operator}
+        holdsToken={holdsToken}
         send={send}
         onDecided={vi.fn()}
       />,
@@ -361,6 +388,14 @@ describe("deciding goes through a confirmation naming the line it writes", () =>
     expect(host.querySelector('[role="alert"]')?.textContent).toContain(
       "a trajectory of the item is no longer as it was shown",
     );
+  });
+
+  it("a page opened without the operator's address can only read, and says how to decide", () => {
+    const { host } = panel("yasin", vi.fn(), false);
+    expect(buttons(host, "Approve")[0]?.disabled).toBe(true);
+    expect(buttons(host, "Reject")[0]?.disabled).toBe(true);
+    expect(host.textContent).toContain("opened without the operator's address");
+    expect(host.textContent).toContain("#act=");
   });
 
   it("without an operator nothing can be decided, and the page says why", () => {

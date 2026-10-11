@@ -6,7 +6,7 @@
  */
 import { useEffect, useState } from "react";
 
-import { getJson, pageOperator, postAction, type Result } from "../../api/client";
+import { actToken, getJson, pageOperator, postAction, type Result } from "../../api/client";
 import {
   decisionRequest,
   type ItemView,
@@ -125,6 +125,7 @@ export default function ApprovalQueue({ setHeader, query }: ViewProps) {
               view={item}
               runId={config.value.runId}
               operator={operator}
+              holdsToken={actToken() !== null}
               send={send}
               onDecided={() => {
                 setVersion((v) => v + 1);

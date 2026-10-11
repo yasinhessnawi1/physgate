@@ -8,8 +8,10 @@ own ``corpora`` is always refused; and a root that overlaps any of them refuses
 the start. So does a missing or stale build of the app, and any address that is
 not loopback.
 
-``--operator`` names the person decisions taken in the UI are recorded under. Without
-it the UI reads everything and acts on nothing.
+``--operator`` names the person decisions taken in the UI are recorded under, and the
+command then prints ``operator_url``: the app's address with this start's action token in
+its fragment. Only a page opened at that address can decide; the token is served by no
+route. Without ``--operator`` the UI reads everything and acts on nothing.
 """
 
 from __future__ import annotations
@@ -78,7 +80,7 @@ def _serve(args: argparse.Namespace) -> int:
     from physgate.ui.exceptions import StartupRefusedError
     from physgate.ui.paths import Allowlist
     from physgate.ui.routes import Context
-    from physgate.ui.server import make_server, require_loopback
+    from physgate.ui.server import make_server, operator_url, require_loopback
 
     try:
         require_loopback(args.bind)
@@ -110,6 +112,11 @@ def _serve(args: argparse.Namespace) -> int:
                 "url": f"http://{literal}:{port}/",
                 "roots": [str(root.path) for root in allowlist.roots],
                 "operator": args.operator,
+                **(
+                    {"operator_url": operator_url(server, host)}
+                    if args.operator is not None
+                    else {}
+                ),
                 "refused": list(allowlist.refused),
             },
             indent=1,

@@ -16,12 +16,15 @@ export function DecisionPanel({
   view,
   runId,
   operator,
+  holdsToken,
   send,
   onDecided,
 }: {
   view: ItemView;
   runId: string;
   operator: string | null;
+  /** Whether this page holds the action token; without it, it can only read. */
+  holdsToken: boolean;
   send: (verb: Verb, note: string) => Promise<Result<Resolved>>;
   onDecided: () => void;
 }) {
@@ -73,9 +76,13 @@ export function DecisionPanel({
         <ActButton
           act={act("approve")}
           glyph="✓"
-          disabledBecause={whyNot("approve", note, operator)}
+          disabledBecause={whyNot("approve", note, operator, holdsToken)}
         />
-        <ActButton act={act("reject")} reject disabledBecause={whyNot("reject", note, operator)} />
+        <ActButton
+          act={act("reject")}
+          reject
+          disabledBecause={whyNot("reject", note, operator, holdsToken)}
+        />
         <span className="muted queue-actions-note">
           Each writes one decision, exactly as <span className="mono">physgate queue resolve</span>{" "}
           would{operator === null ? "" : ","}

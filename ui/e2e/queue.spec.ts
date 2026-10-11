@@ -1,4 +1,4 @@
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import AxeBuilder from "@axe-core/playwright";
@@ -24,8 +24,33 @@ function rootOf(name: string): string {
   return `0/${name}`;
 }
 
-async function open(page: Page, theme: string, run: string) {
-  await page.goto(`/?theme=${theme}#/collaboration/approval-queue?run=${rootOf(run)}`);
+/**
+ * The operator's address, as `physgate ui --operator` printed it: the app's, with the action
+ * token in its fragment. No route serves the token; this is how a person's browser gets it.
+ */
+function operatorUrl(): string {
+  const started = JSON.parse(readFileSync(join(RUNS, "started.json"), "utf8")) as {
+    operator_url: string;
+  };
+  return started.operator_url;
+}
+
+/** Open the operator's address, let the page take its token, then go to the run's queue. */
+async function open(page: Page, theme: string, run: string, asOperator = true) {
+  const address = new URL(operatorUrl());
+  if (asOperator) {
+    await page.goto(`/?theme=${theme}${address.hash}`);
+    await expect.poll(() => page.evaluate(() => window.location.hash)).toBe("");
+    expect(page.url()).not.toContain("act=");
+  } else {
+    await page.goto(`/?theme=${theme}`);
+  }
+  await page.evaluate(
+    (hash) => {
+      window.location.hash = hash;
+    },
+    `/collaboration/approval-queue?run=${rootOf(run)}`,
+  );
   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0, { timeout: 30_000 });
   await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
   await expect(page.locator(".queue-detail")).toBeVisible();
@@ -126,6 +151,25 @@ for (const theme of THEMES) {
       await page.screenshot({ path: `${evidence}/queue-${theme}.png`, fullPage: true });
   });
 }
+
+test("a page opened without the operator's address can only read, and says how to decide", async ({
+  page,
+}) => {
+  await open(page, "light", "run-esc-view", false);
+  await expect(page.locator(".queue-actions > .button-act")).toBeDisabled();
+  await expect(page.locator(".queue-actions > .button-reject")).toBeDisabled();
+  await expect(
+    page
+      .getByText("This page was opened without the operator's address, so it can only read.")
+      .first(),
+  ).toBeVisible();
+  // The page any local client can fetch carries no token, and neither does any response here.
+  const index = await (await page.request.get(`${ORIGIN}/`)).text();
+  const token = new URL(operatorUrl()).hash.replace("#act=", "");
+  expect(index).not.toContain(token);
+  expect(index).not.toContain("physgate-act-token");
+  expect(await decisions(page, "run-esc-view")).toEqual([]);
+});
 
 test("a rejection cannot be opened until its note says why", async ({ page }) => {
   await open(page, "light", "run-esc-view");

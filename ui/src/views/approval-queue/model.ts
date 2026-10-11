@@ -58,9 +58,19 @@ export function lineToWrite(
 }
 
 /** Why a verb cannot be chosen now, or ``null`` when it can. */
-export function whyNot(verb: Verb, note: string, operator: string | null): string | null {
+export function whyNot(
+  verb: Verb,
+  note: string,
+  operator: string | null,
+  holdsToken = true,
+): string | null {
   if (operator === null)
     return "This server was started without naming an operator, so no decision can be taken here.";
+  if (!holdsToken)
+    return (
+      "This page was opened without the operator's address, so it can only read. Open the " +
+      "operator_url that physgate ui printed (the address ending in #act=…) to decide here."
+    );
   if (verb === "reject" && isBlank(note)) return "A rejection says why: write the note first.";
   return null;
 }
