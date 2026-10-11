@@ -50,8 +50,13 @@ the internet, so macOS opens it without a warning.
    and **physgate → Engine…** returns to it.
 3. **The operator UI.** The app serves `~/physgate-runs` without asking. It makes the
    folder on the first start (readable by you only), uses it as it is afterwards, and
-   refuses it if it is a link. Runs appear as soon as one is made there, for example with
-   `physgate run --run-dir ~/physgate-runs/my-first-run …`. Until then the window says so.
+   refuses it if it is a link. Runs appear as soon as one is made there. Until then the
+   window says so and shows the two steps that make one:
+
+   ```sh
+   physgate decompose <brief> --seed <seed> --run-id <id> --params <params.json> --target <repository> --run-dir ~/physgate-runs/<id>
+   physgate run --run-dir ~/physgate-runs/<id> --target <repository> --install <hooks folder> --review-root ~/review-scratch
+   ```
 
 **Runs still use Claude Code today.** What the engine step stores (the engine, and for the
 API the two models) is a record for later. A run still uses the credential and models its

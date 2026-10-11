@@ -55,15 +55,28 @@ impl Status {
             "No runs yet",
             vec![
                 format!("Runs appear here as soon as one is made in {root}."),
-                format!("A run goes there when its run directory is inside {root}, for example:"),
+                format!(
+                    "A run is made in two steps, from the physgate checkout: decompose a brief \
+                     into a run folder inside {root}, then drive it:"
+                ),
             ],
         );
-        status.command = Some(format!(
-            "physgate run --run-dir {root}/my-first-run --target <repository> --install <hooks>"
-        ));
+        status.command = Some(run_commands(&root));
         status
     }
+}
 
+/// The two commands that put a run in `root`: `decompose` makes it, `run` drives it.
+fn run_commands(root: &str) -> String {
+    format!(
+        "physgate decompose <brief> --seed <seed> --run-id <id> --params <params.json> \
+         --target <repository> --run-dir {root}/<id>\n\
+         physgate run --run-dir {root}/<id> --target <repository> --install <hooks folder> \
+         --review-root ~/review-scratch"
+    )
+}
+
+impl Status {
     /// The default run root is there but cannot be used, for the reason given.
     pub fn root_refused(reason: &str) -> Self {
         Self::new(
@@ -241,6 +254,81 @@ mod tests {
         let command = status.command.unwrap();
         assert!(command.starts_with("cd /Users/me/dev/physgate && "));
         assert!(command.ends_with("scripts/build-ui.sh"));
+    }
+
+    /// The arguments a parser in the CLI's source requires: its `--flags` with
+    /// `required=True`, and its positional arguments.
+    fn required_by(source: &str, parser: &str) -> (Vec<String>, Vec<String>) {
+        let marker = format!("{parser}.add_argument(");
+        let (mut flags, mut positionals) = (Vec::new(), Vec::new());
+        for (at, _) in source.match_indices(&marker) {
+            let before = source[..at].chars().last().unwrap_or(' ');
+            if before.is_alphanumeric() || before == '_' {
+                continue; // another variable whose name ends the same way
+            }
+            let rest = &source[at + marker.len()..];
+            let end = ["add_argument(", "set_defaults(", "add_parser("]
+                .iter()
+                .filter_map(|m| rest.find(m))
+                .min()
+                .unwrap_or(rest.len());
+            let call = &rest[..end];
+            let name = call.split('"').nth(1).unwrap_or_default().to_string();
+            if name.starts_with("--") {
+                if call.contains("required=True") {
+                    flags.push(name);
+                }
+            } else if !name.is_empty() {
+                positionals.push(name);
+            }
+        }
+        (flags, positionals)
+    }
+
+    #[test]
+    fn the_commands_shown_for_a_first_run_are_the_ones_the_cli_accepts() {
+        let source = include_str!("../../../src/physgate/orchestrator/cli.py");
+        let shown = run_commands("~/physgate-runs");
+        let lines: Vec<&str> = shown.lines().collect();
+        assert_eq!(lines.len(), 2);
+        // In the CLI's source, `run` is declared through the variable `command`, `decompose`
+        // through `d`.
+        for (line, verb, parser, positional_count) in [
+            (lines[0], "decompose", "d", 1),
+            (lines[1], "run", "command", 0),
+        ] {
+            assert!(line.starts_with(&format!("physgate {verb} ")), "{line}");
+            let (flags, positionals) = required_by(source, parser);
+            assert!(
+                !flags.is_empty(),
+                "no required flags found for {verb}: the parse broke"
+            );
+            for flag in &flags {
+                assert!(
+                    line.split_whitespace().any(|w| w == flag),
+                    "{verb} needs {flag}: {line}"
+                );
+            }
+            assert_eq!(
+                positionals.len(),
+                positional_count,
+                "{verb}: {positionals:?}"
+            );
+            let shown_positionals = line
+                .split_whitespace()
+                .skip(2)
+                .take_while(|w| !w.starts_with("--"))
+                .count();
+            assert_eq!(shown_positionals, positional_count, "{line}");
+            // Every flag shown is one the parser declares.
+            for word in line.split_whitespace().filter(|w| w.starts_with("--")) {
+                assert!(
+                    source.contains(&format!("\"{word}\"")),
+                    "{word} is not an argument of physgate {verb}"
+                );
+            }
+        }
+        assert!(lines[1].contains("--review-root"), "run requires it");
     }
 
     #[test]
