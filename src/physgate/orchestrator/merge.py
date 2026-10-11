@@ -19,6 +19,14 @@ branch name that could have moved. It is idempotent, so a merge already made is
 found and returned rather than made twice. Dispatch is serial and every attempt
 stays in its module, so a conflict means an invariant broke; the merge is
 aborted and the run halts, and the agent is not charged.
+
+**Every git call here holds to the commit's rule.** A repository or worktree a
+session could have touched has its ``.git`` pointer verified once per operation,
+and each command of that operation runs pinned to the admin directory that check
+returned, so nothing re-reads a pointer between the check and the use. History
+(merge bases, a branch's merges, a commit's parents) is read in the clean object
+store after the names are resolved, so the repository's ``shallow``, graft and
+commit-graph files cannot reshape it.
 """
 
 from __future__ import annotations
@@ -107,19 +115,22 @@ def commit_attempt(worktree: Path, subtask_id: str, attempt: int, session_id: st
     return commit_all(worktree, message)
 
 
-def write_scope_violations(repo: Path, base: str, commit: str, module_dir: str) -> list[str]:
+def write_scope_violations(
+    repo: Path, base: str, commit: str, module_dir: str, *, git_dir: Path | None = None
+) -> list[str]:
     """Every change from ``base`` to ``commit`` outside the attempt's own scope.
 
     In scope: regular files and executables under ``module_dir``, and regular
     files that are node proposals. Out of scope: any other path, and a symbolic
     link or a submodule anywhere, since either can point outside the module.
+    ``git_dir`` is the repository's verified git directory, if the caller has one.
     """
     module = PurePosixPath(module_dir)
     if module.is_absolute() or ".." in module.parts or not module.parts:
         msg = "a module directory is a relative path inside the repository"
         raise GitError(msg, module_dir=module_dir)
     found: list[str] = []
-    for change in changes_between(repo, base, commit):
+    for change in changes_between(repo, base, commit, git_dir=git_dir):
         mode = change.new_mode if change.new_mode != _ABSENT else change.old_mode
         if mode not in (_REGULAR, "100755"):
             found.append(f"{change.path} (not a regular file)")
@@ -163,11 +174,15 @@ class GitMerger:
         """
         run = self._run
         branch = run.subtask_branch(subtask_id)
-        if not branch_exists(run.repo, branch) or head_of(run.repo, branch) != attempt_commit:
+        pinned = verify_worktree_pointer(run.repo)
+        if (
+            not branch_exists(run.repo, branch, git_dir=pinned)
+            or head_of(run.repo, branch, git_dir=pinned) != attempt_commit
+        ):
             msg = "the subtask's branch is not at the commit that was checked"
             raise MergeRefusedError(msg, subtask=subtask_id, checked=attempt_commit)
-        base = merge_base(run.repo, run.run_branch, attempt_commit)
-        already = merges_of(run.repo, run.run_branch, base).get(attempt_commit)
+        base = merge_base(run.repo, run.run_branch, attempt_commit, git_dir=pinned)
+        already = merges_of(run.repo, run.run_branch, base, git_dir=pinned).get(attempt_commit)
         if already is not None:
             return already
         admin = verify_worktree_pointer(run.integration)
@@ -182,7 +197,8 @@ class GitMerger:
             raise MergeConflictError(
                 msg, subtask=subtask_id, commit=attempt_commit, stderr=exc.context.get("stderr", "")
             ) from None
-        return head_of(run.integration, "HEAD")
+        # Through the admin directory the merge ran in: the pointer is not read again.
+        return head_of(run.integration, "HEAD", git_dir=admin)
 
     def run_branch_moved(self, expected: str, pending: str | None) -> str | None:
         """Why the run branch is not at ``expected``, or ``None``.
@@ -192,15 +208,17 @@ class GitMerger:
         is the merge a killed process made and did not record.
         """
         run = self._run
-        head = head_of(run.repo, run.run_branch)
+        pinned = verify_worktree_pointer(run.repo)
+        head = head_of(run.repo, run.run_branch, git_dir=pinned)
         if head == expected:
             return None
         if pending is not None:
             # The commit's own parents, read through the clean object store: a ``shallow``
             # or graft file in the repository would otherwise hide or replace them.
             parents = git(
-                run.repo, "rev-list", "--parents", "-n", "1", head, objects_only=True
-            ).split()[1:]
+                run.repo, "rev-list", "--parents", "-n", "1", head,
+                objects_only=True, git_dir=pinned,
+            ).split()[1:]  # fmt: skip
             if parents == [expected, pending]:
                 return None
         return (
@@ -218,9 +236,15 @@ class GitMerger:
         path = self._run.subtask_worktree(subtask_id)
         if not path.exists():
             return WorktreeRemoval(path=str(path), outcome="absent", seconds=0.0, detail=None)
+        try:
+            pinned = verify_worktree_pointer(self._run.repo)
+        except GitError as exc:
+            detail = f"{exc}: the repository's .git pointer did not verify"
+            return WorktreeRemoval(path=str(path), outcome="refused", seconds=0.0, detail=detail)
         code, stderr, seconds = git_timed(
-            self._run.repo, "worktree", "remove", str(path), timeout=self._removal_timeout_s
-        )
+            self._run.repo, "worktree", "remove", str(path),
+            timeout=self._removal_timeout_s, git_dir=pinned,
+        )  # fmt: skip
         if code is None:
             detail = f"no answer within {self._removal_timeout_s:g} s"
             return WorktreeRemoval(
@@ -235,11 +259,12 @@ class GitMerger:
     def review_base(self, attempt_commit: str) -> str:
         """Where the attempt left the run branch: the commit its review diffs against."""
         run = self._run
-        return merge_base(run.repo, run.run_branch, attempt_commit)
+        pinned = verify_worktree_pointer(run.repo)
+        return merge_base(run.repo, run.run_branch, attempt_commit, git_dir=pinned)
 
     def artefact_diff(self, attempt_commit: str) -> str:
         """The attempt's patch against where it left the run branch."""
         run = self._run
-        return diff_text(
-            run.repo, merge_base(run.repo, run.run_branch, attempt_commit), attempt_commit
-        )
+        pinned = verify_worktree_pointer(run.repo)
+        base = merge_base(run.repo, run.run_branch, attempt_commit, git_dir=pinned)
+        return diff_text(run.repo, base, attempt_commit, git_dir=pinned)

@@ -155,8 +155,19 @@ def attr_source(object_format: str = "sha1") -> str:
 #: a replace ref makes git silently show one object in place of another, and a role can write
 #: refs in a repository it works in, so a read or a merge would otherwise act on an object other
 #: than the one the orchestrator named.
+#:
+#: ``GIT_SHALLOW_FILE`` and ``GIT_GRAFT_FILE``, set empty, name no file, so git reads neither the
+#: repository's ``shallow`` file nor its ``info/grafts``. Either one makes git see a commit with
+#: other parents than the commit holds (none, or any it lists), and a role session can write the
+#: ``shallow`` file. A merge run in the repository computes its base through those parents, so
+#: with them it could merge from another base than the write-scope check read, and keep or drop
+#: a file neither saw. Measured on git 2.54: both variables, empty, restore the commit's own
+#: parents in ``merge-base`` and ``merge``. An ordinary repository has neither file, so nothing
+#: changes for it.
 _ENV = {
     "GIT_NO_REPLACE_OBJECTS": "1",
+    "GIT_SHALLOW_FILE": "",
+    "GIT_GRAFT_FILE": "",
     "GIT_CONFIG_NOSYSTEM": "1",
     "GIT_CONFIG_GLOBAL": os.devnull,
     "GIT_ATTR_NOSYSTEM": "1",
@@ -175,6 +186,13 @@ _ENV = {
 #: signature. A repository's local config is still read for keys that only change git's
 #: output; the exec vectors above are forced off, and content reads run against a clean store
 #: (:func:`_object_store`) so even those keys cannot be read.
+#:
+#: The commit graph is off too. ``objects/info/commit-graph`` (and ``commit-graphs/``) is a
+#: cache of every commit's parents that git trusts in place of the commits themselves, in the
+#: repository and in every object directory it reaches through alternates, the clean store's
+#: included. It is a file in the object directory, which a role session can write, so a graph
+#: that names other parents would move a merge base, hide a merge, or change what a merge
+#: merges. Read without it, git takes each commit's parents from the commit.
 _FLAGS = (
     "-c", f"core.hooksPath={os.devnull}",
     "-c", "commit.gpgsign=false",
@@ -184,6 +202,7 @@ _FLAGS = (
     "-c", "log.showSignature=false",
     "-c", "merge.verifySignatures=false",
     "-c", f"gpg.program={os.devnull}",
+    "-c", "core.commitGraph=false",
 )  # fmt: skip
 #: Added to a diff: no external diff program, no textconv program, and a submodule shown as
 #: its gitlink rather than recursed into (recursion re-runs git in the submodule, where the
@@ -205,14 +224,16 @@ def _git_dir(repo: Path) -> Path:
     raise GitError(msg, cwd=str(repo))
 
 
-def _object_dirs(repo: Path) -> tuple[str, ...]:
+def _object_dirs(repo: Path, pinned: Path | None = None) -> tuple[str, ...]:
     """Every object directory a repository's commits are read from, from the filesystem.
 
     A worktree's objects live in the repository's common directory; a repository may name
     more in ``objects/info/alternates``. Each is a store of content-addressed objects: naming
     one grants read access to objects a commit already pins, never a way to change them.
+    ``pinned`` is a git directory the caller already verified; without one, the repository's
+    ``.git`` is read here.
     """
-    git_dir = _git_dir(repo)
+    git_dir = pinned if pinned is not None else _git_dir(repo)
     roots = [git_dir]
     commondir = git_dir / "commondir"
     if commondir.is_file():
@@ -249,7 +270,7 @@ def _remove_stores() -> None:
         shutil.rmtree(store, ignore_errors=True)
 
 
-def _object_format(repo: Path) -> str:
+def _object_format(repo: Path, pinned: Path | None = None) -> str:
     """The hash the repository names its objects with (``sha1`` or ``sha256``).
 
     The clean store must use the same one: a store of the other format cannot read a single
@@ -261,7 +282,7 @@ def _object_format(repo: Path) -> str:
     Raises:
         GitError: the config cannot be read, or names a format this module does not know.
     """
-    git_dir = _git_dir(repo)
+    git_dir = pinned if pinned is not None else _git_dir(repo)
     commondir = git_dir / "commondir"
     if commondir.is_file():
         named = Path(commondir.read_text().strip())
@@ -352,7 +373,8 @@ def git(
     as its work tree (``--work-tree``), both resolved by the caller. git then never re-reads
     the worktree's ``.git`` pointer, so a pointer a role swapped between a check and here cannot
     redirect the command (the write path pins the admin directory :func:`verify_worktree_pointer`
-    resolved).
+    resolved). With both, the clean store is built from that git directory's object directories,
+    and the pointer is not read again for it either.
 
     Raises:
         GitError: it exited non-zero and ``check`` is true.
@@ -360,8 +382,8 @@ def git(
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.devnull, **_ENV}
     exe = harness_git().path
     if objects_only:
-        object_format = _object_format(Path(cwd))
-        store = _object_store(_object_dirs(Path(cwd)), object_format)
+        object_format = _object_format(Path(cwd), git_dir)
+        store = _object_store(_object_dirs(Path(cwd), git_dir), object_format)
         env["GIT_ATTR_SOURCE"] = EMPTY_TREES[object_format]
         argv = [exe, attr_source(object_format), "--git-dir", store, *_FLAGS, *args]
         run_in: Path | str = store
@@ -393,20 +415,24 @@ def git(
     return done.stdout
 
 
-def git_timed(cwd: Path, *args: str, timeout: float) -> tuple[int | None, str, float]:
+def git_timed(
+    cwd: Path, *args: str, timeout: float, git_dir: Path | None = None
+) -> tuple[int | None, str, float]:
     """Run one git command with a time limit: (exit code or None on timeout, stderr, seconds).
 
-    Never raises for a failure or a timeout: the caller records what happened.
+    Never raises for a failure or a timeout: the caller records what happened. ``git_dir``
+    pins the command as it does for :func:`git`.
 
     Raises:
         GitError: no git at 2.42 or later is found, so there is no git to run.
     """
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.devnull, **_ENV}
     exe = harness_git().path
+    pin = [] if git_dir is None else ["--git-dir", str(git_dir), "--work-tree", str(cwd)]
     started = time.monotonic()
     try:
         done = subprocess.run(
-            [exe, attr_source(), *_FLAGS, *args],
+            [exe, attr_source(), *pin, *_FLAGS, *args],
             cwd=cwd,
             env=env,
             capture_output=True,
@@ -471,9 +497,9 @@ def verify_worktree_pointer(cwd: Path) -> Path | None:
     return admin
 
 
-def head_of(repo: Path, ref: str) -> str:
-    """The commit ``ref`` points at, as a full SHA."""
-    return git(repo, "rev-parse", "--verify", f"{ref}^{{commit}}").strip()
+def head_of(repo: Path, ref: str, *, git_dir: Path | None = None) -> str:
+    """The commit ``ref`` points at, as a full SHA; ``git_dir`` pins it as for :func:`git`."""
+    return git(repo, "rev-parse", "--verify", f"{ref}^{{commit}}", git_dir=git_dir).strip()
 
 
 def common_dir(repo: Path) -> Path:
@@ -486,28 +512,32 @@ def common_dir(repo: Path) -> Path:
     return found if found.is_absolute() else (Path(repo) / found).resolve()
 
 
-def branch_exists(repo: Path, branch: str) -> bool:
-    """Whether ``refs/heads/<branch>`` exists."""
-    return bool(git(repo, "branch", "--list", branch).strip())
+def branch_exists(repo: Path, branch: str, *, git_dir: Path | None = None) -> bool:
+    """Whether ``refs/heads/<branch>`` exists; ``git_dir`` pins it as for :func:`git`."""
+    return bool(git(repo, "branch", "--list", branch, git_dir=git_dir).strip())
 
 
 def add_worktree(repo: Path, path: Path, branch: str, start: str) -> None:
     """Check ``branch`` out at ``path``, creating the branch at ``start`` if it is new.
 
     An existing worktree at ``path`` on ``branch`` is kept as it is: a repair
-    attempt continues in the worktree the rejected attempt left.
+    attempt continues in the worktree the rejected attempt left. That worktree is one a
+    session ran in, so its pointer is verified and its branch read through the verified
+    admin directory, as a commit there is; the repository's own pointer likewise.
     """
     if path.exists():
-        current = git(path, "rev-parse", "--abbrev-ref", "HEAD").strip()
+        admin = verify_worktree_pointer(path)
+        current = git(path, "rev-parse", "--abbrev-ref", "HEAD", git_dir=admin).strip()
         if current != branch:
             msg = "a worktree exists at the path on another branch"
             raise GitError(msg, path=str(path), branch=current, expected=branch)
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    if branch_exists(repo, branch):
-        git(repo, "worktree", "add", "--quiet", str(path), branch)
+    pinned = verify_worktree_pointer(repo)
+    if branch_exists(repo, branch, git_dir=pinned):
+        git(repo, "worktree", "add", "--quiet", str(path), branch, git_dir=pinned)
     else:
-        git(repo, "worktree", "add", "--quiet", "-b", branch, str(path), start)
+        git(repo, "worktree", "add", "--quiet", "-b", branch, str(path), start, git_dir=pinned)
 
 
 def commit_all(worktree: Path, message: str) -> str:
@@ -537,11 +567,17 @@ class Change:
     new_mode: str
 
 
-def changes_between(repo: Path, base: str, commit: str) -> list[Change]:
-    """Every path changed from ``base`` to ``commit``, renames split in two."""
+def changes_between(
+    repo: Path, base: str, commit: str, *, git_dir: Path | None = None
+) -> list[Change]:
+    """Every path changed from ``base`` to ``commit``, renames split in two.
+
+    Read in the clean store, built from ``git_dir`` when the caller verified one.
+    """
     raw = git(
-        repo, "diff", "--raw", "-z", "--no-renames", "--no-abbrev", base, commit, objects_only=True
-    )
+        repo, "diff", "--raw", "-z", "--no-renames", "--no-abbrev", base, commit,
+        objects_only=True, git_dir=git_dir,
+    )  # fmt: skip
     fields = raw.split("\0")
     out: list[Change] = []
     i = 0
@@ -554,19 +590,38 @@ def changes_between(repo: Path, base: str, commit: str) -> list[Change]:
     return out
 
 
-def merge_base(repo: Path, one: str, other: str) -> str:
-    """The best common ancestor of two commits."""
-    return git(repo, "merge-base", one, other).strip()
+def merge_base(repo: Path, one: str, other: str, *, git_dir: Path | None = None) -> str:
+    """The best common ancestor of two commits.
+
+    Each name is resolved to its commit in the repository (pinned to ``git_dir``), the only
+    place refs are; the ancestry is then walked in the clean store, which holds none of the
+    repository's ``shallow``, graft or commit-graph files, so the base is the one the commits'
+    own parents give.
+    """
+    ends = [head_of(repo, name, git_dir=git_dir) for name in (one, other)]
+    return git(repo, "merge-base", *ends, objects_only=True, git_dir=git_dir).strip()
 
 
-def diff_text(repo: Path, base: str, commit: str) -> str:
+def diff_text(repo: Path, base: str, commit: str, *, git_dir: Path | None = None) -> str:
     """The patch from ``base`` to ``commit``, for a person to read."""
-    return git(repo, "diff", *_DIFF_FLAGS, base, commit, objects_only=True)
+    return git(repo, "diff", *_DIFF_FLAGS, base, commit, objects_only=True, git_dir=git_dir)
 
 
-def merges_of(repo: Path, branch: str, since: str) -> dict[str, str]:
-    """Second parent to merge commit, for every merge on ``branch`` after ``since``."""
-    out = git(repo, "log", "--merges", "--format=%H %P", f"{since}..{branch}")
+def merges_of(
+    repo: Path, branch: str, since: str, *, git_dir: Path | None = None
+) -> dict[str, str]:
+    """Second parent to merge commit, for every merge on ``branch`` after ``since``.
+
+    Both names are resolved in the repository (pinned to ``git_dir``) and the history between
+    them is read in the clean store, as for :func:`merge_base`: a merge the repository's files
+    made look parentless would otherwise be missed, and merged a second time.
+    """
+    tip = head_of(repo, branch, git_dir=git_dir)
+    start = head_of(repo, since, git_dir=git_dir)
+    out = git(
+        repo, "log", "--merges", "--format=%H %P", f"{start}..{tip}",
+        objects_only=True, git_dir=git_dir,
+    )  # fmt: skip
     found: dict[str, str] = {}
     for line in out.splitlines():
         parts = line.split()

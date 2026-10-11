@@ -31,7 +31,14 @@ import shutil
 from pathlib import Path
 
 from physgate.orchestrator.exceptions import StoreRefusalError
-from physgate.orchestrator.git import changes_between, commit_all, git, init_repo, merge_base
+from physgate.orchestrator.git import (
+    changes_between,
+    commit_all,
+    git,
+    init_repo,
+    merge_base,
+    verify_worktree_pointer,
+)
 from physgate.orchestrator.merge import RunGit, write_scope_violations
 from physgate.orchestrator.ports import ChangeCheck
 from physgate.state.divergence import divergence
@@ -68,8 +75,12 @@ def _fixed(store_root: Path) -> dict[str, tuple[str, str]]:
     }
 
 
-def read_proposals(repo: Path, base: str, commit: str, store_root: Path) -> list[Payload]:
+def read_proposals(
+    repo: Path, base: str, commit: str, store_root: Path, *, git_dir: Path | None = None
+) -> list[Payload]:
     """The whole-node proposals ``commit`` added or changed since ``base``, validated.
+
+    ``git_dir`` is the repository's verified git directory, if the caller has one.
 
     Raises:
         ProposalRefusedError: a proposal is not a regular file, not JSON, not a whole
@@ -77,7 +88,7 @@ def read_proposals(repo: Path, base: str, commit: str, store_root: Path) -> list
     """
     fixed = _fixed(store_root)
     found: list[Payload] = []
-    for change in changes_between(repo, base, commit):
+    for change in changes_between(repo, base, commit, git_dir=git_dir):
         named = _PROPOSAL.match(change.path)
         if named is None or change.status == "D":
             continue
@@ -85,7 +96,7 @@ def read_proposals(repo: Path, base: str, commit: str, store_root: Path) -> list
             raise ProposalRefusedError(f"{change.path} is not a regular file", change.path)
         # Read through the clean object store: the bytes the commit holds, whatever the
         # repository's own settings say.
-        raw = git(repo, "show", f"{commit}:{change.path}", objects_only=True)
+        raw = git(repo, "show", f"{commit}:{change.path}", objects_only=True, git_dir=git_dir)
         try:
             payload = json.loads(raw)
         except json.JSONDecodeError:
@@ -129,8 +140,12 @@ class GitChangeChecker:
     def check(self, subtask_id: str, attempt_commit: str, role: str) -> ChangeCheck:
         """Refuse an attempt out of scope or with a proposal the store would refuse."""
         repo = self._run.repo
-        base = merge_base(repo, self._run.run_branch, attempt_commit)
-        outside = write_scope_violations(repo, base, attempt_commit, self._module_dirs[subtask_id])
+        # Verified once; the base, the scope check and the proposals all read through it.
+        pinned = verify_worktree_pointer(repo)
+        base = merge_base(repo, self._run.run_branch, attempt_commit, git_dir=pinned)
+        outside = write_scope_violations(
+            repo, base, attempt_commit, self._module_dirs[subtask_id], git_dir=pinned
+        )
         scratch = self._run.run_dir / "scratch" / f"{subtask_id}-{attempt_commit[:12]}"
         if outside:
             reason = "the attempt changed paths outside its module: " + "; ".join(outside)
@@ -139,7 +154,7 @@ class GitChangeChecker:
                 refused_by="write_scope", reason=reason, subject=subject, graph_root=str(scratch)
             )
         try:
-            proposals = read_proposals(repo, base, attempt_commit, self._store_root)
+            proposals = read_proposals(repo, base, attempt_commit, self._store_root, git_dir=pinned)
             self._precheck(scratch, proposals, role)
         except ProposalRefusedError as exc:
             return ChangeCheck(
@@ -202,8 +217,9 @@ class StoreKeeper:
     def proposals(self, subtask_id: str, attempt_commit: str) -> list[Payload]:
         """The attempt's validated proposals, read from its commit."""
         repo = self._run.repo
-        base = merge_base(repo, self._run.run_branch, attempt_commit)
-        return read_proposals(repo, base, attempt_commit, self._root)
+        pinned = verify_worktree_pointer(repo)
+        base = merge_base(repo, self._run.run_branch, attempt_commit, git_dir=pinned)
+        return read_proposals(repo, base, attempt_commit, self._root, git_dir=pinned)
 
     def write(self, payload: Payload, role: str) -> int:
         """Write one node; a refusal after a clean pre-check raises."""
