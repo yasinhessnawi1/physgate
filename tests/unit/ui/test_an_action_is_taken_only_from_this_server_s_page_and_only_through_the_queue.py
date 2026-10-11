@@ -555,12 +555,15 @@ def test_the_page_names_who_decides_here_and_no_one_when_none_was_named(run: Pat
 def test_a_callback_running_beneath_the_decision_function_can_neither_write_nor_read_for_it(
     run: Path, tmp_path: Path
 ) -> None:
-    """The reviewer's probe: code the decision function happens to call issues its own opens.
+    """Code the decision function happens to call cannot write or read on its behalf.
 
     A digest whose ``__ne__`` runs inside the decision's own staleness check tries to append to
     another run's decisions file and to read a file outside every root, each by a name relative
-    to a descriptor it holds. Its frame issues both, so both are refused, however deep beneath
-    the decision function it runs; and the other run's file is unchanged.
+    to a descriptor it holds: once with its own opens, and once through the queue's own helpers,
+    so that the frame issuing the open is the helper's and the callback sits above it. All four
+    are refused, however deep beneath the decision function it runs, since a frame between the
+    helper and the decision function is not in the decision's chain; and the other run's file is
+    unchanged.
     """
     from physgate.orchestrator.exceptions import QueueError
     from physgate.orchestrator.queue import ShownItem
@@ -575,9 +578,11 @@ def test_a_callback_running_beneath_the_decision_function_can_neither_write_nor_
     outside_fd = os.open(outside, os.O_RDONLY | os.O_DIRECTORY)
     tried: dict[str, str] = {}
 
-    def attempt(label: str, opening: Callable[[], int]) -> None:
+    def attempt(label: str, opening: Callable[[], int | bytes | None]) -> None:
         try:
-            os.close(opening())
+            got = opening()
+            if isinstance(got, int):
+                os.close(got)
             tried[label] = "allowed"
         except GuardRefusedError:
             tried[label] = "refused"
@@ -591,6 +596,14 @@ def test_a_callback_running_beneath_the_decision_function_can_neither_write_nor_
                 lambda: os.open(DECISIONS_NAME, os.O_WRONLY | os.O_APPEND, dir_fd=other_fd),
             )
             attempt("read", lambda: os.open("secret.txt", os.O_RDONLY, dir_fd=outside_fd))
+            attempt(
+                "append through the helper",
+                lambda: queue_module._open_in(other_fd, DECISIONS_NAME, queue_module._APPEND_FLAGS),
+            )
+            attempt(
+                "read through the helper",
+                lambda: queue_module._read_in(outside_fd, "secret.txt", cap=1024),
+            )
             return False
 
     allow = Allowlist.build([str(run.parent)], held_out=[], answer_keys=[], harness=None)
@@ -608,7 +621,12 @@ def test_a_callback_running_beneath_the_decision_function_can_neither_write_nor_
     finally:
         os.close(other_fd)
         os.close(outside_fd)
-    assert tried == {"append": "refused", "read": "refused"}
+    assert tried == {
+        "append": "refused",
+        "read": "refused",
+        "append through the helper": "refused",
+        "read through the helper": "refused",
+    }
     assert (other / DECISIONS_NAME).read_bytes() == b""
 
 
