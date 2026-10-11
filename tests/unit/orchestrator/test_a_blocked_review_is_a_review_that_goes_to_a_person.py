@@ -18,6 +18,7 @@ from loop_fakes import FakeGate, FakeReviewer, KilledError, Rig, plan
 from physgate.orchestrator.events import (
     AttemptRejected,
     Escalated,
+    EscalationDecided,
     GateRan,
     Merged,
     ReviewRan,
@@ -178,8 +179,15 @@ def test_the_record_refuses_a_merge_decision_or_another_review_after_it(tmp_path
     state = RunState()
     for event in events[: at + 1]:
         state.record(event)
-    assert state.next_step().kind == "escalate"
+    # The escalation question is asked first; its forced route then sends it to a person.
+    assert state.next_step().kind == "decide"
     assert state.interrupted() is None
+    decided = events[at + 1]
+    assert isinstance(decided, EscalationDecided) and decided.decision.basis == "forced"
+    after = RunState()
+    for event in events[: at + 2]:
+        after.record(event)
+    assert after.next_step().kind == "escalate"
     ran = events[at]
     assert isinstance(ran, ReviewRan)
     envelope = ran.model_dump(include={"seq", "ts", "run_id", "gate_mode"})

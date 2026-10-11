@@ -24,11 +24,17 @@ from physgate.orchestrator.events import (
     SubtaskPlanned,
     read_events,
 )
-from physgate.orchestrator.exceptions import ReviewUnavailableError
+from physgate.orchestrator.exceptions import (
+    EscalationBackendError,
+    ReviewUnavailableError,
+    RunConfigError,
+)
 from physgate.orchestrator.gate_events import gate_events
 from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.protocols import SpecDefect
-from physgate.orchestrator.replay import RunState
+from physgate.orchestrator.record import RunRecord
+from physgate.orchestrator.replay import RunState, replay
+from physgate.orchestrator.run_config import load_run_config
 
 LEGACY: Final = "blocking_spec_defect"
 BLOCKING = SpecDefect(finding="no unstable pole is given", blocking=True, item="DS-4")
@@ -44,16 +50,33 @@ def _no_verdict(cause: str) -> ReviewUnavailableError:
 
 
 def _rewrite(tmp_path: Path) -> None:
-    """Rewrite the no-verdict line as an earlier writer wrote it."""
+    """Rewrite the run as an earlier writer wrote it.
+
+    The legacy cause predates the escalation interface, so an earlier writer's run has
+    no decision lines, a first line that names no binding, and a configuration without
+    the field: the no-verdict line is rewritten, and the run is put back into that shape.
+    """
+    config = tmp_path / "run.json"
+    recorded = json.loads(config.read_text())
+    del recorded["escalation_backend"]
+    config.write_bytes(json.dumps(recorded, separators=(",", ":")).encode() + b"\n")
+    digest = load_run_config(config).sha256()
     path = tmp_path / "events.jsonl"
-    lines = []
+    lines: list[str] = []
     for line in path.read_text().splitlines():
         record = json.loads(line)
+        if record["kind"] == "escalation_decided":
+            continue
+        if record["kind"] == "run_started":
+            del record["escalation_backend"]
+            record["config_sha256"] = digest
         if record["kind"] == "review_unavailable":
             record["cause"] = LEGACY
             record["spec_defects"] = [BLOCKING.model_dump(mode="json")]
+        record["seq"] = len(lines)
         lines.append(json.dumps(record, separators=(",", ":")))
     path.write_text("\n".join(lines) + "\n")
+    assert load_run_config(config).canonical_bytes() == config.read_bytes()
 
 
 def _legacy_log(tmp_path: Path) -> Rig:
@@ -86,10 +109,13 @@ def test_the_replay_and_every_derived_record_take_it_as_they_did(tmp_path: Path)
     assert state.next_step().kind == "done"
     stamped = gate_events(events, "d" * 64)
     assert stamped and {e.reviewer_had_passed for e in stamped} == {None}
-    reopened = rig.open()  # the one writer reads it back through its own checks
+    # The one writer reads it back through its own checks, under the configuration it
+    # recorded, which names no escalation binding.
+    reopened = RunRecord(load_run_config(tmp_path / "run.json"), tmp_path)
     (item,) = reopened.queue.open_items()
     reopened.close()
     assert item.source == "review_unavailable"
+    assert rig is not None
 
 
 def test_the_log_refuses_to_write_the_legacy_cause(tmp_path: Path) -> None:
@@ -137,7 +163,11 @@ def test_a_reviewer_raising_it_cannot_get_it_onto_the_log(tmp_path: Path) -> Non
 def test_a_legacy_line_not_yet_escalated_escalates_as_it_was_written(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A killed run resumed from such a line sends a no-verdict item, not a blocked one."""
+    """A killed run left on such a line is due to go to a person as a review with no verdict.
+
+    Such a run predates the escalation interface, so no loop drives it on to the queue
+    any more: the replay says where it stands, and the loop refuses to take it over.
+    """
     rig = Rig(tmp_path, reviewer=FakeReviewer(unavailable={1: _no_verdict("invalid_verdict")}))
     loop = rig.open()
     loop.start(plan("s1"))
@@ -151,10 +181,14 @@ def test_a_legacy_line_not_yet_escalated_escalates_as_it_was_written(
             loop.run()
     loop.close()
     _rewrite(tmp_path)
-    again = rig.open()
-    again.run()
-    (item,) = again.queue.open_items()
-    again.close()
-    assert item.source == "review_unavailable"
-    assert "no unstable pole is given" in item.decision_required
+    state = replay(read_events(tmp_path / "events.jsonl"))
+    now = state.subtasks["s1"].attempts[-1]
+    assert state.next_step().kind == "escalate"
+    assert now.unavailable_final is not None and now.unavailable_final.cause == LEGACY
+    assert now.blocked is None  # read as written: a review with no verdict
+    with pytest.raises(RunConfigError):
+        rig.open()  # a configuration naming a binding is not this run's
+    unbound = Rig(tmp_path, reviewer=rig.reviewer, config_overrides={"escalation_backend": None})
+    with pytest.raises(EscalationBackendError):
+        unbound.open()
     assert len(rig.reviewer.seen) == 1

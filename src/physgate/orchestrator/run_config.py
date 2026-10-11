@@ -34,7 +34,8 @@ from physgate.orchestrator.common import (
     NonEmptyStr,
     first_problem,
 )
-from physgate.orchestrator.exceptions import GitError, RunConfigError
+from physgate.orchestrator.escalation import REGISTER, BackendName
+from physgate.orchestrator.exceptions import EscalationBackendError, GitError, RunConfigError
 from physgate.orchestrator.git import git
 from physgate.orchestrator.role_python import RolePython
 
@@ -235,6 +236,25 @@ class RunConfig(_Frozen):
     #: configured (``role_python.measure``), or ``None`` for none: the parameters name a
     #: path or null. A run recorded before the field existed named none, and reads so.
     role_python: RolePython | None
+    #: The escalation backend that answers "does this subtask go to the approval queue"
+    #: (ARCH-131), by its register name (ARCH-132). Required, like the gate mode, and never
+    #: taken from the environment. ``None`` only on a run recorded before the field existed,
+    #: whose loop asked no interface; no loop drives such a run.
+    escalation_backend: BackendName | None
+
+    @model_validator(mode="after")
+    def _the_binding_is_a_backend_that_ships(self) -> RunConfig:
+        if self.escalation_backend is None:
+            return self
+        try:
+            row = REGISTER.row(self.escalation_backend)
+        except EscalationBackendError:
+            msg = "the escalation backend register has no row for this name"
+            raise ValueError(msg) from None
+        if row.status != "ships":
+            msg = f"the escalation backend {row.name!r} is {row.status} and cannot be bound"
+            raise ValueError(msg)
+        return self
 
     @model_validator(mode="after")
     def _reportable_needs_a_clean_commit(self) -> RunConfig:
@@ -247,14 +267,17 @@ class RunConfig(_Frozen):
         """The recorded form: stable key order, so equal configs are equal bytes.
 
         ``thinking_display`` is left out when it is ``omitted``, what every run before
-        the field existed ran with, and ``role_python`` when it is ``None``, so their
-        recorded digests still name them.
+        the field existed ran with, and ``role_python`` and ``escalation_backend`` when
+        they are ``None``, so their recorded digests still name them. A run that names a
+        binding always records it, so the binding is part of its manifest id.
         """
         exclude = set()
         if self.thinking_display == "omitted":
             exclude.add("thinking_display")
         if self.role_python is None:
             exclude.add("role_python")
+        if self.escalation_backend is None:
+            exclude.add("escalation_backend")
         return self.model_dump_json(indent=None, exclude=exclude or None).encode() + b"\n"
 
     def sha256(self) -> str:
@@ -333,7 +356,11 @@ def load_run_config(path: Path) -> RunConfig:
         raw = json.dumps(recorded).encode()
     if isinstance(recorded, dict) and "role_python" not in recorded:
         # Recorded before the field existed: no interpreter was named.
-        raw = json.dumps({**recorded, "role_python": None}).encode()
+        recorded = {**recorded, "role_python": None}
+        raw = json.dumps(recorded).encode()
+    if isinstance(recorded, dict) and "escalation_backend" not in recorded:
+        # Recorded before the field existed: the loop asked no escalation interface.
+        raw = json.dumps({**recorded, "escalation_backend": None}).encode()
     try:
         return RunConfig.model_validate_json(raw)
     except ValidationError as exc:

@@ -140,3 +140,13 @@ class ReviewUnavailableError(OrchestratorError):
         self.reviewer_model = reviewer_model
         self.usage = usage
         self.spec_defects = spec_defects
+
+
+class EscalationBackendError(OrchestratorError):
+    """An escalation backend is not admitted, or answered with something that is not an answer.
+
+    Raised for a name the backend register has no row for, a row that does not ship,
+    a shipping row with no implementation, and a backend whose answer is not the
+    interface's answer type. Each stops the step: a decision about who sees a subtask
+    is never taken by a backend nobody admitted.
+    """

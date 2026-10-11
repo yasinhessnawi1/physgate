@@ -26,6 +26,7 @@ from git_rig import DispatchPort, GitDispatcher, Reviewer, config, run_layout
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper
 from physgate.orchestrator.cli import default_registrations
+from physgate.orchestrator.escalation import bind
 from physgate.orchestrator.events import GateRan, ReviewRan, read_events
 from physgate.orchestrator.git import head_of
 from physgate.orchestrator.loop import Loop
@@ -127,6 +128,7 @@ def test_a_unit_inconsistent_loop_gain_is_refused_by_the_gate_with_zero_review_t
         changes=GitChangeChecker(run, store_root, {SUBTASK: MODULE_DIR}),
         merger=GitMerger(run, removal_timeout_s=60.0),
         graph=keeper,
+        escalation=bind("rules"),
         sleep=lambda _: None,
     )
     try:

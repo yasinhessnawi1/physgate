@@ -42,6 +42,8 @@ from physgate.orchestrator.common import (
     utc_now,
     utc_stamp,
 )
+from physgate.orchestrator.escalation import BackendName, Decision
+from physgate.orchestrator.escalation_state import EscalationState
 from physgate.orchestrator.exceptions import CorruptEventLogError, RunConfigError
 from physgate.orchestrator.install import InstallFacts
 from physgate.orchestrator.managed import ObservedTraffic
@@ -126,6 +128,9 @@ class RunStarted(_Event):
 
     kind: Literal["run_started"] = "run_started"
     config_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+    #: The escalation backend the run is bound to, as its configuration names it; ``None``
+    #: on a log written before the escalation interface existed, whose loop asked none.
+    escalation_backend: BackendName | None = None
 
 
 class SubtaskPlanned(_Event):
@@ -343,6 +348,9 @@ class ProposalsChecked(_Event):
     reason: NonEmptyStr | None
     subject: NonEmptyStr | None
     graph_root: NonEmptyStr
+    #: The node ids the attempt proposed; empty when it was refused before they were
+    #: read, and on every line written before the field existed.
+    proposed: tuple[NonEmptyStr, ...] = ()
 
     @model_validator(mode="after")
     def _a_refusal_says_why(self) -> ProposalsChecked:
@@ -388,8 +396,24 @@ class DiffChecked(_Event):
     divergences: tuple[NonEmptyStr, ...]
 
 
+class EscalationDecided(_Event):
+    """The escalation question, asked at an attempt end that did not merge (ARCH-131).
+
+    Carries the decision (the answer, confidence, backend id and latency, and the route)
+    and the state it was asked about, so the decision can be audited after the fact. The
+    replay holds the state to the one the lines before it imply, the route to the rule,
+    and, for the deterministic rules, the answer to the rules' own.
+    """
+
+    kind: Literal["escalation_decided"] = "escalation_decided"
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    decision: Decision
+    state: EscalationState
+
+
 class Escalated(_Event):
-    """The subtask exhausted its repair budget and is in the approval queue."""
+    """The subtask is in the approval queue: its attempt end was routed there."""
 
     kind: Literal["escalated"] = "escalated"
     subtask_id: NonEmptyStr
@@ -570,6 +594,7 @@ Event = Annotated[
     | AttemptRejected
     | Merged
     | DiffChecked
+    | EscalationDecided
     | Escalated
     | Incident
     | Resumed

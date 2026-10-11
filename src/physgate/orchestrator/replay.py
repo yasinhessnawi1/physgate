@@ -19,12 +19,21 @@ import copy
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Literal, NoReturn
 
 from pydantic import ValidationError
 
-from physgate.orchestrator.budget import REPAIR_BUDGET, after_rejection
+from physgate.orchestrator.budget import after_rejection
 from physgate.orchestrator.common import GateMode
+from physgate.orchestrator.escalation import (
+    REGISTER,
+    TO_THE_QUEUE,
+    BackendAnswer,
+    RulesBackend,
+    forced,
+    route,
+)
+from physgate.orchestrator.escalation_state import EscalationState, escalation_state
 from physgate.orchestrator.events import (
     RESUMABLE_HALTS,
     AttemptRejected,
@@ -32,6 +41,7 @@ from physgate.orchestrator.events import (
     DiffChecked,
     EnvironmentRecorded,
     Escalated,
+    EscalationDecided,
     Event,
     GateRan,
     GateSkipped,
@@ -64,8 +74,10 @@ from physgate.orchestrator.events import (
 )
 from physgate.orchestrator.exceptions import (
     CorruptEventLogError,
+    EscalationBackendError,
     MergePreconditionError,
     RunConfigError,
+    RunStateError,
 )
 from physgate.orchestrator.repair import FindingSource
 from physgate.orchestrator.run_config import load_run_config
@@ -95,6 +107,11 @@ class AttemptState:
     #: a resume: they are in the store, and a resumed apply must not write them twice.
     applied: dict[str, int] = field(default_factory=dict)
     pending: WriteIntended | None = None
+    #: Whether the attempt's end goes to the approval queue: the recorded decision's
+    #: route, or on a log written before the escalation interface, the route the rules
+    #: give. ``None`` until the attempt has ended without a merge and been decided.
+    routed: bool | None = None
+    decided: EscalationDecided | None = None
 
     def restart(self, cursor: Stage | None) -> None:
         """Forget everything the attempt did after ``cursor``."""
@@ -135,13 +152,15 @@ class SubtaskState:
 class Step:
     """What the loop does next."""
 
-    kind: Literal["attempt", "infra_failed", "escalate", "integrate", "halted", "escalated", "done"]
+    kind: Literal[
+        "attempt", "infra_failed", "decide", "escalate", "integrate", "halted", "escalated", "done"
+    ]
     subtask_id: str | None = None
     attempt: int | None = None
     point: Literal["resolve", "verify_reading", "diff"] | None = None
 
 
-def _refuse(message: str) -> None:
+def _refuse(message: str) -> NoReturn:
     raise ValueError(message)
 
 
@@ -151,6 +170,9 @@ class RunState:
     def __init__(self) -> None:
         """An empty run: nothing started."""
         self.gate_mode: GateMode | None = None
+        #: The escalation backend the run's first line names; ``None`` on a log written
+        #: before the escalation interface existed.
+        self.escalation_backend: str | None = None
         self.order: list[str] = []
         self.subtasks: dict[str, SubtaskState] = {}
         self.halted: Halted | None = None
@@ -193,6 +215,7 @@ class RunState:
     def _record(self, event: Event) -> None:
         if isinstance(event, RunStarted):
             self.gate_mode = event.gate_mode
+            self.escalation_backend = event.escalation_backend
             return
         if isinstance(event, Halted):
             self.halted = event
@@ -265,12 +288,16 @@ class RunState:
             self._expect(done and now.unavailable_final is None, "a review line")
             now.review = event
             self._ledger(sub.plan.subtask_id, review_result=event.result.verdict)
+            if now.blocked is not None:
+                self._ended(sub, now)
         elif isinstance(event, ReviewUnavailable):
             open_ = now.cursor == "review" and now.review is None
             self._expect(open_ and now.unavailable_final is None, "an unavailable review")
             retried = any(u.retry for u in now.unavailable)
             self._expect(not (event.retry and retried), "a second retry of a review")
             now.unavailable.append(event)
+            if now.unavailable_final is not None:
+                self._ended(sub, now)
         elif isinstance(event, AttemptRejected):
             basis = self.rejection_basis(now)
             self._expect(now.cursor == "decide" and basis == event.finding.source, "a rejection")
@@ -279,7 +306,7 @@ class RunState:
             keyed = event.finding_key == event.finding.key()
             self._expect(keyed and event.repeats_previous == repeats, "a rejection's key")
             now.rejected = event
-            sub.next_resolve = after_rejection(now.number)
+            self._ended(sub, now)
         elif isinstance(event, WriteIntended):
             ready = now.cursor == "decide" and self.mergeable(now) and now.pending is None
             fresh = event.node_id not in now.applied
@@ -315,16 +342,77 @@ class RunState:
             now.diff = event
             if not event.divergences:
                 sub.status = "done"
+        elif isinstance(event, EscalationDecided):
+            self._decided(sub, now, event)
         elif isinstance(event, Escalated):
-            last = now.number == REPAIR_BUDGET and now.rejected is not None
-            to_a_person = now.unavailable_final is not None or now.blocked is not None
-            self._expect(last or to_a_person, "an escalation")
+            self._expect(now.routed is True, "an escalation")
             sub.status = "escalated"
             sub.queue_item = event.item_id
         elif isinstance(event, Incident):
             self.incident = event
         elif isinstance(event, Resumed):
             self._resume(sub, now, event.point)
+
+    @staticmethod
+    def _ended_without_merge(now: AttemptState) -> bool:
+        return (
+            now.rejected is not None or now.blocked is not None or now.unavailable_final is not None
+        )
+
+    def _ended(self, sub: SubtaskState, now: AttemptState) -> None:
+        """The attempt ended without a merge: the escalation question is due.
+
+        A log that names an escalation backend carries the answer on a line of its own,
+        which comes next. A log written before the interface existed has no such line; its
+        loop sent to a person exactly where the rules do, so the rules' route is taken as
+        the answer it would have recorded.
+        """
+        if self.escalation_backend is not None:
+            return
+        state = self._state_of(sub.plan.subtask_id)
+        answered = RulesBackend().decide(TO_THE_QUEUE, state)
+        basis = route(forced=forced(state), answer=answered.answer, confidence=answered.confidence)
+        self._route(sub, now, routed=basis is not None)
+
+    def _state_of(self, subtask_id: str) -> EscalationState:
+        try:
+            return escalation_state(self, subtask_id)
+        except RunStateError as exc:
+            _refuse(f"no escalation state can be built here: {exc}")
+
+    def _decided(self, sub: SubtaskState, now: AttemptState, event: EscalationDecided) -> None:
+        """Take a decision line: due, about the state the log implies, routed by the rule."""
+        if self.escalation_backend is None:
+            _refuse("a decision line in a log whose run names no escalation backend")
+        due = self._ended_without_merge(now) and now.decided is None
+        self._expect(due and now.cursor in ("decide", "review"), "an escalation decision")
+        decision = event.decision
+        if decision.backend_id != self.escalation_backend:
+            _refuse("a decision by another backend than the one the run names")
+        try:
+            row = REGISTER.row(decision.backend_id)
+        except EscalationBackendError:
+            _refuse("a decision by a backend the register does not name")
+        if decision.backend_version != row.version or decision.question != TO_THE_QUEUE:
+            _refuse("a decision under another backend version or question")
+        if event.state != self._state_of(sub.plan.subtask_id):
+            _refuse("a decision about a state the lines before it do not imply")
+        if decision.forced != forced(event.state):
+            _refuse("a decision whose forced route is not the state's")
+        if decision.backend_id == "rules":
+            answered = RulesBackend().decide(TO_THE_QUEUE, event.state)
+            recorded = BackendAnswer(answer=decision.answer, confidence=decision.confidence)
+            if recorded != answered:
+                _refuse("a rules decision whose answer is not the rules' own")
+        now.decided = event
+        self._route(sub, now, routed=decision.routed)
+
+    @staticmethod
+    def _route(sub: SubtaskState, now: AttemptState, *, routed: bool) -> None:
+        now.routed = routed
+        if not routed:
+            # Only a rejection with budget left can go on; the forced routes always route.
+            sub.next_resolve = after_rejection(now.number)
 
     def _integrate(
         self, event: IntegrationGateRan | IntegrationGateSkipped | IntegrationEscalated
@@ -431,6 +519,11 @@ class RunState:
         return reviewed and now.merged is None and self._gate_allows_review(now)
 
     def _resume(self, sub: SubtaskState, now: AttemptState, point: str) -> None:
+        if self._ended_without_merge(now):
+            # An attempt that ended without a merge is never taken over: what follows it is
+            # its escalation decision and the route that decision gives. A resume there would
+            # restart the attempt and drop a decision that is due, or one already recorded.
+            _refuse("an attempt that ended without a merge is not resumed; it is decided")
         if self.halted is not None and self.halted.reason not in RESUMABLE_HALTS:
             _refuse(f"a run halted for {self.halted.reason} is not resumed by the loop")
         if self.halted is not None:
@@ -482,12 +575,12 @@ class RunState:
             if sub.status == "planned":
                 return Step("attempt", subtask_id, 1, "resolve")
             now = sub.attempts[-1]
-            if now.unavailable_final is not None or now.blocked is not None:
-                # No verdict, or a blocked one: a person decides, and no repair attempt
-                # is spent.
-                return Step("escalate", subtask_id, now.number)
-            if now.rejected is not None:
-                if sub.next_resolve is None:
+            if self._ended_without_merge(now):
+                # Asked once at every attempt end that did not merge; then the queue, or
+                # the next attempt.
+                if now.routed is None:
+                    return Step("decide", subtask_id, now.number)
+                if now.routed:
                     return Step("escalate", subtask_id, now.number)
                 return Step("attempt", subtask_id, sub.next_resolve, "resolve")
             failed = now.session is not None and now.session.outcome == "infrastructure"

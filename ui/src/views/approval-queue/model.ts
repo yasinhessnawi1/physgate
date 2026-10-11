@@ -13,6 +13,7 @@ export const SOURCE_LABEL: Readonly<Record<QueueSource, string>> = {
   review_unavailable: "Review reached no verdict",
   review_blocked: "Review blocked",
   arbitration: "Arbitration",
+  escalation_decision: "Sent by the escalation decision",
 };
 
 /** Each seal status as a verdict-styled badge: a glyph and words, never colour alone. */

@@ -17,6 +17,7 @@ export const SOURCES = [
   "review_unavailable",
   "review_blocked",
   "arbitration",
+  "escalation_decision",
 ] as const;
 export type QueueSource = (typeof SOURCES)[number];
 

@@ -245,6 +245,7 @@ def params() -> dict[str, Any]:
         "max_output_tokens": 64000,
         "thinking_display": "summarized",
         "role_python": None,
+        "escalation_backend": "rules",
     }
 
 
