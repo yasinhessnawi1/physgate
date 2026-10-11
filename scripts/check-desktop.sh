@@ -41,8 +41,15 @@ trial="$(mktemp -d)"
 real="$HOME/Library/Application Support/physgate-desktop"
 ln -s "$real" "$trial/looks-elsewhere"
 gate "build script refuses a trial build with no trial folder" refuses "needs PHYSGATE_DESKTOP_HOME"
+walkthrough_refused() {
+    local said
+    said="$(env -i HOME="$HOME" PATH=/usr/bin:/bin PHYSGATE_DESKTOP_HOME="$real" \
+        bash ../../scripts/build-desktop.sh --walkthrough 2>&1)" && return 1
+    case "$said" in *"installed app's folder"*) return 0 ;; *) return 1 ;; esac
+}
 gate "build script refuses the installed app's folder" refuses "installed app's folder" PHYSGATE_DESKTOP_HOME="$real"
 gate "build script refuses a folder inside it" refuses "installed app's folder" PHYSGATE_DESKTOP_HOME="$real/trial"
+gate "build script refuses the installed app's folder for a walkthrough build" walkthrough_refused
 gate "build script refuses it through a link" refuses "installed app's folder" PHYSGATE_DESKTOP_HOME="$trial/looks-elsewhere/x"
 gate "build script lets a trial folder through to the next check" refuses "cargo is not on PATH" PHYSGATE_DESKTOP_HOME="$trial/own"
 install_refused() {

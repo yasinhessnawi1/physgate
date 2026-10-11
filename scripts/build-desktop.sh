@@ -8,6 +8,8 @@
 #   scripts/build-desktop.sh --verification
 #                                       a trial build that honours the PHYSGATE_DESKTOP_...
 #                                       switches; never for the real install
+#   scripts/build-desktop.sh --walkthrough
+#                                       the same, with the scripted onboarding walkthrough
 #
 # The app shows whatever `physgate ui` serves from a checkout, so a UI change needs only
 # scripts/build-ui.sh, never this. This is for changes under desktop/.
@@ -29,6 +31,7 @@ for arg in "$@"; do
     case "$arg" in
         --install) install=1 ;;
         --verification) features=(--features verification) ;;
+        --walkthrough) features=(--features walkthrough) ;;
         -h | --help)
             sed -n '3,8p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
@@ -63,15 +66,15 @@ die() {
 # A verification build honours the trial switches, so it never reaches the real install:
 # it is not installed, and it is published only to a trial channel.
 if [ ${#features[@]} -gt 0 ]; then
-    [ "$install" = 0 ] || die "a --verification build is for trials and is never installed"
-    [ -n "${PHYSGATE_DESKTOP_HOME:-}" ] || die "a --verification build needs PHYSGATE_DESKTOP_HOME set to a trial folder"
+    [ "$install" = 0 ] || die "a trial build (--verification, --walkthrough) is for trials and is never installed"
+    [ -n "${PHYSGATE_DESKTOP_HOME:-}" ] || die "a trial build (--verification, --walkthrough) needs PHYSGATE_DESKTOP_HOME set to a trial folder"
     # Compared after links and .. are resolved, so no spelling of the installed app's folder
     # (or of a folder inside it) gets through.
     resolve() { /usr/bin/python3 -I -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"; }
     given="$(resolve "$PHYSGATE_DESKTOP_HOME")"
     real="$(resolve "$real_home")"
     case "$given/" in
-        "$real/"*) die "$PHYSGATE_DESKTOP_HOME is the installed app's folder, or inside it; a --verification build needs a trial folder of its own" ;;
+        "$real/"*) die "$PHYSGATE_DESKTOP_HOME is the installed app's folder, or inside it; a trial build needs a trial folder of its own" ;;
     esac
 fi
 
@@ -128,7 +131,11 @@ else
     mv "$channel/latest.json.partial" "$channel/latest.json"
     echo "$digest" > "$channel/published-digest"
     find "$channel" -name 'physgate-*.app.tar.gz' -not -name "$name" -delete
-    echo "build-desktop: published $version; the installed app offers it at its next start, or from physgate → Check for Shell Update…"
+    if [ ${#features[@]} -gt 0 ]; then
+        echo "build-desktop: published trial build $version to $channel"
+    else
+        echo "build-desktop: published $version; the installed app offers it at its next start, or from physgate → Check for Shell Update…"
+    fi
 fi
 
 if [ "$install" = 1 ]; then

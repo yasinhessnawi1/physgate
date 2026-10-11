@@ -173,6 +173,9 @@ The flag concerns only how the app fetches its own update. The operator server's
 
 ## For whoever works on the app
 
+- **One app at a time.** A second launch brings the running window forward and quits.
+  Trial builds have their own identifier, so one can run beside the installed app.
+
 - **The intro** is a Remotion composition in `intro/`. To change it, edit `intro/src/Intro.tsx`
   and render it again:
 
@@ -185,8 +188,9 @@ The flag concerns only how the app fetches its own update. The operator server's
   than a film because WebKit in the app won't start a film without a click, and an image
   needs no permission. Remotion is free for individuals; check its licence before a company
   uses it. The fonts in `intro/public/fonts` are IBM Plex, under the OFL.
-- **A scripted walk through the onboarding**, for screenshots, is built only with the
-  `walkthrough` cargo feature, never into a published app. See `src/walkthrough.rs` for
+- **A scripted walk through the onboarding**, for screenshots, is built only as a trial
+  build (`scripts/build-desktop.sh --walkthrough`), never into a published app. It refuses
+  to start without a stand-in Claude Code. See `src/walkthrough.rs` for
   the variables it reads: a stand-in Claude Code, a Keychain service of its own, and a
   made-up key.
 
@@ -194,7 +198,8 @@ The flag concerns only how the app fetches its own update. The operator server's
   errors) and the unit tests. It isn't part of `scripts/check.sh` or CI. Run it before
   building.
 - **A trial build:** `PHYSGATE_DESKTOP_HOME=<a trial folder> scripts/build-desktop.sh
-  --verification`. It honours the switches below and is kept apart from the real install:
+  --verification` (or `--walkthrough`, which adds the scripted onboarding walk). It honours
+  the switches below and is kept apart from the real install:
   - **Its own signing key,** in `~/.config/physgate-desktop/trial/`. The installed app
     refuses its bundles, wherever they end up.
   - **Its own identifier,** `local.physgate.desktop.trial`.

@@ -54,6 +54,32 @@ fn paths_or_exit() -> Paths {
     })
 }
 
+/// A second launch reached this one: bring the window forward.
+fn hand_over(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+    app.state::<Shell>()
+        .note("a second launch was handed to this one");
+}
+
+/// Catch the stopping signals; when one comes, stop the server and quit.
+fn stop_on_signal(app: tauri::AppHandle) {
+    signals::install();
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_millis(100));
+        if signals::requested() {
+            let shell = app.state::<Shell>();
+            shell.note("asked to stop by a signal; stopping the server");
+            shell.stop_server();
+            app.exit(0);
+            break;
+        }
+    });
+}
+
 fn main() {
     #[cfg(feature = "walkthrough")]
     if let Err(problem) = walkthrough::preflight(
@@ -66,6 +92,11 @@ fn main() {
     let paths = paths_or_exit();
     let tour = config::switch("PHYSGATE_DESKTOP_TOUR").map(PathBuf::from);
     let app = tauri::Builder::default()
+        // First, so a second launch stops here: it brings the running window forward and
+        // quits, before it could start (or stop) a server of its own.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            hand_over(app);
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Shell::new(paths, tour))
@@ -126,18 +157,7 @@ fn main() {
                     "stopped a server ({pid}) an earlier run left behind"
                 ));
             }
-            signals::install();
-            let stopping = handle.clone();
-            std::thread::spawn(move || loop {
-                std::thread::sleep(Duration::from_millis(100));
-                if signals::requested() {
-                    let shell = stopping.state::<Shell>();
-                    shell.note("asked to stop by a signal; stopping the server");
-                    shell.stop_server();
-                    stopping.exit(0);
-                    break;
-                }
-            });
+            stop_on_signal(handle.clone());
             menu::restart_in_background(handle.clone());
             Shell::watch(handle.clone());
             #[cfg(feature = "walkthrough")]
