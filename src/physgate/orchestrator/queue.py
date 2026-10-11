@@ -827,6 +827,22 @@ def record_decision(
     return record
 
 
+def _no_decisions_file(
+    dir_fd: int, item_id: str, queue_path: Path, decisions_path: Path
+) -> QueueError:
+    """The refusal when the decisions file is missing: no queue at all, or one that lost it."""
+    try:
+        os.stat(QUEUE_NAME, dir_fd=dir_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return _not_open(item_id, queue_path)
+    msg = (
+        "the run's queue lists items but its decisions file is missing, so nothing can be "
+        "decided: the queue's writer creates that file with the first item, and this function "
+        "never creates it"
+    )
+    return QueueError(msg, queue=str(queue_path), file=str(decisions_path))
+
+
 def _not_open(item_id: str, queue_path: Path) -> QueueError:
     msg = f"a decision on {item_id!r}, which is not an open item"
     return QueueError(msg, queue=str(queue_path))
@@ -837,7 +853,7 @@ def _decide(dir_fd: int, run_dir: Path, record: QueueResolution, shown: ShownIte
     try:
         append = _open_in(dir_fd, DECISIONS_NAME, _APPEND_FLAGS)
     except FileNotFoundError:
-        raise _not_open(record.item_id, queue_path) from None
+        raise _no_decisions_file(dir_fd, record.item_id, queue_path, decisions_path) from None
     except OSError as exc:
         raise _unreadable(decisions_path, exc) from None
     try:
@@ -993,6 +1009,9 @@ class ApprovalQueue:
             self._records.check(record)
         except ValueError as exc:
             raise QueueError(str(exc), queue=str(self.path)) from None
+        # Every listed item has a decisions file beside it, so it can always be decided: the
+        # decision function never creates one, and refuses a run whose file has gone.
+        self.decisions_path.touch(exist_ok=True)
         with self.path.open("ab") as handle:
             handle.write(record.model_dump_json().encode() + b"\n")
             handle.flush()

@@ -677,3 +677,54 @@ def test_a_file_that_grows_past_its_cap_while_it_is_read_is_refused() -> None:
     finally:
         grower.join(timeout=5)
         os.close(read_end)
+
+
+# -- a decisions file beside every item ---------------------------------------------------------
+
+
+def test_a_queue_that_lost_its_decisions_file_is_refused_saying_so_and_nothing_is_created(
+    run_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An open item whose decisions file is gone is not called "not open", and is not repaired.
+
+    The item is listed and shown as open, so a refusal naming it closed would be false. The
+    decision function never creates the file; it says the file is missing.
+    """
+    (run_dir / DECISIONS_NAME).unlink()
+    before = _snapshot(run_dir)
+    with pytest.raises(QueueError, match="decisions file is missing") as refused:
+        _decide(run_dir)
+    assert refused.value.context["file"] == str(run_dir / DECISIONS_NAME)
+    code = main(["queue", "resolve", ITEM, "--run-dir", str(run_dir),
+                 "--decision", "approve", "--by", "yasin"])  # fmt: skip
+    assert code == 2
+    assert "decisions file is missing" in json.loads(capsys.readouterr().err)["error"]
+    assert _snapshot(run_dir) == before
+
+
+def test_the_queue_s_writer_puts_a_decisions_file_beside_every_item_it_lists(
+    tmp_path: Path,
+) -> None:
+    queue = ApprovalQueue(tmp_path / QUEUE_NAME)
+    (tmp_path / DECISIONS_NAME).unlink()
+    item = read_queue(tmp_path)  # empty, and nothing created by reading
+    assert item.items == () and not (tmp_path / DECISIONS_NAME).exists()
+    from physgate.orchestrator.queue import QueueItem
+
+    queue.add(
+        QueueItem(
+            item_id="r-s1",
+            ts="2026-10-11T00:00:00.000000Z",
+            run_id="r",
+            subtask_id="s1",
+            source="repair_budget_exhausted",
+            decision_required="Decide.",
+            artefact_diff="",
+            triggering_finding="a finding",
+            quantities=(),
+            trajectories=("sessions/a/stdout.jsonl",),
+        )
+    )
+    assert (tmp_path / DECISIONS_NAME).read_bytes() == b""
+    record_decision(tmp_path, "r-s1", decision="approve", resolved_by="yasin")
+    assert [d.item_id for _, d in read_queue(tmp_path).decisions] == ["r-s1"]
