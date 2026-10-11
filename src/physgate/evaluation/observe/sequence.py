@@ -162,7 +162,14 @@ class RunView:
                     self.sessions[sid] = f"<session {len(self.sessions) + 1}>"
         self.trees: dict[str, str] = {}
         for repo in self._repositories():
-            for row in git(repo, "log", "--all", "--format=%H %T").splitlines():
+            # The repository names its tips (every ref and every worktree's HEAD, as
+            # ``--all`` reads them); the history from them is walked in the clean object
+            # store, so a ``shallow`` or graft file in the repository cannot cut it short.
+            tips = git(repo, "rev-list", "--all", "--no-walk=unsorted")
+            if not tips.strip():
+                continue
+            walked = git(repo, "log", "--format=%H %T", "--stdin", stdin=tips, objects_only=True)
+            for row in walked.splitlines():
                 commit, tree = row.split()
                 self.trees[commit] = tree
         self._names: dict[str, str] = {
@@ -222,15 +229,22 @@ class RunView:
         integration = self.run_dir / "worktrees" / "_integration"
         if integration in repos:
             prefix = f"refs/heads/physgate/{self.run_id}/"
-            refs = git(integration, "for-each-ref", "--format=%(refname)", prefix).split()
-            for ref in sorted(refs):
-                # Graph order: commits of one second would otherwise order by chance.
-                trees = git(integration, "log", "--topo-order", "--format=%T", ref).split()
+            listed = git(integration, "for-each-ref", "--format=%(refname) %(objectname)", prefix)
+            tips = dict(line.split(" ", 1) for line in listed.splitlines() if line)
+            for ref in sorted(tips):
+                # Graph order: commits of one second would otherwise order by chance. The
+                # ref is resolved in the repository and its history walked in the clean store.
+                trees = git(
+                    integration, "log", "--topo-order", "--format=%T", tips[ref], objects_only=True
+                ).split()
                 out.append({"ref": self.text(ref), "trees": trees})
         store = self.run_dir / "store"
         if store in repos:
             try:
-                trees = git(store, "log", "--topo-order", "--format=%T").split()
+                head = git(store, "rev-parse", "--verify", "HEAD").strip()
+                trees = git(
+                    store, "log", "--topo-order", "--format=%T", head, objects_only=True
+                ).split()
                 out.append({"ref": "store", "trees": trees})
             except GitError:  # a store repository with no commit yet
                 out.append({"ref": "store", "trees": []})

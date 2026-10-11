@@ -83,7 +83,9 @@ def read_proposals(repo: Path, base: str, commit: str, store_root: Path) -> list
             continue
         if change.new_mode != "100644":
             raise ProposalRefusedError(f"{change.path} is not a regular file", change.path)
-        raw = git(repo, "show", f"{commit}:{change.path}")
+        # Read through the clean object store: the bytes the commit holds, whatever the
+        # repository's own settings say.
+        raw = git(repo, "show", f"{commit}:{change.path}", objects_only=True)
         try:
             payload = json.loads(raw)
         except json.JSONDecodeError:

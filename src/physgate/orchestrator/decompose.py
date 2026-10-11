@@ -489,14 +489,15 @@ def _require_library_fits(repo: Path, commit: str, curated: Mapping[Path, bytes]
     """
     if not curated:
         return
-    listing = git(repo, "ls-tree", "-r", "-z", "--full-tree", commit)
+    listing = git(repo, "ls-tree", "-r", "-z", "--full-tree", commit, objects_only=True)
     entries: dict[str, tuple[str, str]] = {}
     for item in listing.split("\0"):
         if item:
             meta, name = item.split("\t", 1)
             mode, _, oid = meta.split()
             entries[name] = (mode, oid)
-    object_format = git(repo, "rev-parse", "--show-object-format").strip()
+    # The clean store is created with the repository's object format, so it reports the same.
+    object_format = git(repo, "rev-parse", "--show-object-format", objects_only=True).strip()
     for relative, data in sorted(curated.items()):
         name = relative.as_posix()
         parts = name.split("/")

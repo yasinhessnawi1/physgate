@@ -181,7 +181,7 @@ class RunManifest(_Frozen):
 
 def _tree(repo: Path, commit: str) -> str:
     try:
-        return git(repo, "rev-parse", "--verify", f"{commit}^{{tree}}").strip()
+        return git(repo, "rev-parse", "--verify", f"{commit}^{{tree}}", objects_only=True).strip()
     except GitError:
         msg = "the run records a commit its repository does not hold"
         raise ManifestError(msg, commit=commit, repository=str(repo)) from None

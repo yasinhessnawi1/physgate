@@ -196,7 +196,11 @@ class GitMerger:
         if head == expected:
             return None
         if pending is not None:
-            parents = git(run.repo, "rev-list", "--parents", "-n", "1", head).split()[1:]
+            # The commit's own parents, read through the clean object store: a ``shallow``
+            # or graft file in the repository would otherwise hide or replace them.
+            parents = git(
+                run.repo, "rev-list", "--parents", "-n", "1", head, objects_only=True
+            ).split()[1:]
             if parents == [expected, pending]:
                 return None
         return (
