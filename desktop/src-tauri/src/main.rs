@@ -38,6 +38,22 @@ use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 use crate::config::Paths;
 use crate::shell::Shell;
 
+/// The app's folders. A trial build starts only with a trial folder and run root of its own,
+/// so it never reads the installed app's settings, `server.pid` or update channel, nor its run
+/// folder; without them it says why and exits.
+fn paths_or_exit() -> Paths {
+    let checked = Paths::from_env().and_then(|paths| {
+        if !config::PUBLISHED_BUILD {
+            runs::check_trial_root(&runs::default_root(&paths))?;
+        }
+        Ok(paths)
+    });
+    checked.unwrap_or_else(|problem| {
+        eprintln!("physgate: {problem}");
+        std::process::exit(2);
+    })
+}
+
 fn main() {
     #[cfg(feature = "walkthrough")]
     if let Err(problem) = walkthrough::preflight(
@@ -47,11 +63,12 @@ fn main() {
         eprintln!("physgate: {problem}");
         std::process::exit(2);
     }
+    let paths = paths_or_exit();
     let tour = config::switch("PHYSGATE_DESKTOP_TOUR").map(PathBuf::from);
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(Shell::new(Paths::from_env(), tour))
+        .manage(Shell::new(paths, tour))
         .manage(engine::SignIn::default())
         .invoke_handler(tauri::generate_handler![
             onboarding::onboarding_state,

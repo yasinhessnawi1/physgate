@@ -23,9 +23,30 @@ pub enum Root {
     Existing,
 }
 
-pub fn default_root() -> PathBuf {
+/// The operator's own run root.
+pub fn real_root() -> PathBuf {
+    home().join("physgate-runs")
+}
+
+/// The run root this build serves when none is set: the operator's in a published build; in a
+/// trial build, `PHYSGATE_DESKTOP_RUNS_ROOT` or a folder inside the trial home.
+pub fn default_root(paths: &crate::config::Paths) -> PathBuf {
+    if crate::config::PUBLISHED_BUILD {
+        return real_root();
+    }
     crate::config::switch("PHYSGATE_DESKTOP_RUNS_ROOT")
-        .map_or_else(|| home().join("physgate-runs"), PathBuf::from)
+        .map_or_else(|| paths.root().join("physgate-runs"), PathBuf::from)
+}
+
+/// A trial build's run root must not be the operator's, nor inside it.
+pub fn check_trial_root(root: &Path) -> Result<(), String> {
+    if crate::config::within(root, &real_root()) {
+        return Err(format!(
+            "{} is the operator's run folder, or inside it; a trial build needs its own",
+            shown(root)
+        ));
+    }
+    Ok(())
 }
 
 /// Serve `root` when no run folder is set. Returns whether the settings changed.
@@ -186,6 +207,30 @@ mod tests {
         assert!(!has_runs(&folders), "hidden files are not runs");
         fs::create_dir(root.join("run-one")).unwrap();
         assert!(has_runs(&folders));
+    }
+
+    #[test]
+    fn a_trial_run_root_is_never_the_operators() {
+        assert!(check_trial_root(&real_root()).is_err());
+        assert!(check_trial_root(&real_root().join("a-run")).is_err());
+        let dir = TestDir::new("trial-root");
+        let link = dir.path().join("runs");
+        symlink(real_root(), &link).unwrap();
+        assert!(check_trial_root(&link).is_err(), "through a link");
+        assert!(check_trial_root(&dir.path().join("own-runs")).is_ok());
+        // A trial build with no root named uses one inside its own folder.
+        #[cfg(feature = "verification")]
+        {
+            let paths = crate::config::Paths::at(dir.path().to_path_buf());
+            if crate::config::switch("PHYSGATE_DESKTOP_RUNS_ROOT").is_none() {
+                assert_eq!(default_root(&paths), dir.path().join("physgate-runs"));
+            }
+        }
+        #[cfg(not(feature = "verification"))]
+        assert_eq!(
+            default_root(&crate::config::Paths::at(dir.path().to_path_buf())),
+            real_root()
+        );
     }
 
     #[test]

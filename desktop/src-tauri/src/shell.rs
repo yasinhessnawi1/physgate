@@ -188,7 +188,7 @@ impl Shell {
             }
         };
         // With no run folder set, the default root is served: no folder is ever picked.
-        let root = runs::default_root();
+        let root = runs::default_root(&self.paths);
         if runs::with_default(&mut settings, &root) {
             if let Err(problem) = settings.save(&self.paths.settings()) {
                 self.note(&format!("the settings could not be saved: {problem}"));

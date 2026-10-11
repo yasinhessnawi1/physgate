@@ -17,13 +17,77 @@ pub struct Paths {
     root: PathBuf,
 }
 
-impl Paths {
-    /// The root named by `PHYSGATE_DESKTOP_HOME`, or the default under the home folder.
-    pub fn from_env() -> Self {
-        if let Some(root) = switch("PHYSGATE_DESKTOP_HOME") {
-            return Self::at(PathBuf::from(root));
+/// Whether this is a published build: no trial feature compiled in.
+pub const PUBLISHED_BUILD: bool = !cfg!(feature = "verification");
+
+/// The installed app's own folder.
+pub fn real_home() -> PathBuf {
+    home().join("Library/Application Support/physgate-desktop")
+}
+
+/// `path` with every link followed and every `..` applied, one component at a time, so a
+/// link is seen through whether or not what it points at exists yet.
+pub fn resolved(path: &Path) -> PathBuf {
+    resolve(path, 0)
+}
+
+fn resolve(path: &Path, depth: u32) -> PathBuf {
+    let mut out = PathBuf::new();
+    for part in path.components() {
+        match part {
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            std::path::Component::CurDir => {}
+            other => {
+                out.push(other);
+                if depth < 40 {
+                    if let Ok(target) = fs::read_link(&out) {
+                        let base = out.parent().map(Path::to_path_buf).unwrap_or_default();
+                        let joined = if target.is_absolute() {
+                            target
+                        } else {
+                            base.join(target)
+                        };
+                        out = resolve(&joined, depth + 1);
+                    }
+                }
+            }
         }
-        Self::at(home().join("Library/Application Support/physgate-desktop"))
+    }
+    out
+}
+
+/// Whether `path` is `folder` or inside it, once both are resolved.
+pub fn within(path: &Path, folder: &Path) -> bool {
+    resolved(path).starts_with(resolved(folder))
+}
+
+/// A trial build's folder: the one `PHYSGATE_DESKTOP_HOME` names, which must be given and
+/// must not be the installed app's folder or inside it.
+pub fn trial_home(given: Option<PathBuf>) -> Result<PathBuf, String> {
+    let given = given.ok_or_else(|| {
+        "a trial build needs PHYSGATE_DESKTOP_HOME naming a trial folder; it never uses the \
+         installed app's"
+            .to_string()
+    })?;
+    if within(&given, &real_home()) {
+        return Err(format!(
+            "{} is the installed app's folder, or inside it; a trial build needs a folder of its own",
+            given.display()
+        ));
+    }
+    Ok(given)
+}
+
+impl Paths {
+    /// The installed app's folder in a published build. A trial build needs its own, named by
+    /// `PHYSGATE_DESKTOP_HOME`, and refuses to start without it.
+    pub fn from_env() -> Result<Self, String> {
+        if PUBLISHED_BUILD {
+            return Ok(Self::at(real_home()));
+        }
+        trial_home(switch("PHYSGATE_DESKTOP_HOME").map(PathBuf::from)).map(Self::at)
     }
 
     pub fn at(root: PathBuf) -> Self {
@@ -176,6 +240,42 @@ impl Settings {
 mod tests {
     use super::*;
     use crate::testdir::TestDir;
+
+    #[test]
+    fn a_trial_home_is_required_and_is_never_the_installed_apps_folder() {
+        assert!(trial_home(None)
+            .unwrap_err()
+            .contains("PHYSGATE_DESKTOP_HOME"));
+        assert!(trial_home(Some(real_home())).is_err(), "the folder itself");
+        assert!(
+            trial_home(Some(real_home().join("trial"))).is_err(),
+            "inside it"
+        );
+        assert!(
+            trial_home(Some(real_home().join("updates/../x"))).is_err(),
+            "through .."
+        );
+        let dir = TestDir::new("trial-home");
+        let link = dir.path().join("looks-elsewhere");
+        std::os::unix::fs::symlink(real_home(), &link).unwrap();
+        assert!(trial_home(Some(link.clone())).is_err(), "through a link");
+        assert!(
+            trial_home(Some(link.join("deeper"))).is_err(),
+            "inside, through a link"
+        );
+        let own = dir.path().join("trial");
+        assert_eq!(trial_home(Some(own.clone())), Ok(own));
+    }
+
+    #[test]
+    fn a_published_build_uses_the_installed_folder_and_a_trial_build_needs_its_own() {
+        #[cfg(not(feature = "verification"))]
+        assert_eq!(Paths::from_env().unwrap().root(), real_home());
+        // A trial build's answer depends on PHYSGATE_DESKTOP_HOME, which the tests do not set;
+        // whatever it is, it is never the installed folder.
+        #[cfg(feature = "verification")]
+        assert!(Paths::from_env().map_or(true, |p| !within(p.root(), &real_home())));
+    }
 
     #[test]
     fn switches_are_read_only_by_a_verification_build() {

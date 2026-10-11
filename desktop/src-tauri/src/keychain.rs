@@ -50,8 +50,7 @@ const PUBLISHED_SERVICE: &str = "physgate";
 /// compiled, never read from the environment, so no trial run can reach the operator's items.
 pub const TRIAL_SERVICE: &str = "physgate-trial";
 
-/// Whether this is a published build: no trial feature compiled in.
-pub const PUBLISHED_BUILD: bool = !cfg!(feature = "verification");
+use crate::config::PUBLISHED_BUILD;
 
 /// The service a build of this kind uses: the operator's for a published build only.
 const fn service_for(published: bool) -> &'static str {

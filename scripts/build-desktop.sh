@@ -40,10 +40,19 @@ for arg in "$@"; do
     esac
 done
 
-app_home="${PHYSGATE_DESKTOP_HOME:-$HOME/Library/Application Support/physgate-desktop}"
+real_home="$HOME/Library/Application Support/physgate-desktop"
+app_home="${PHYSGATE_DESKTOP_HOME:-$real_home}"
 channel="$app_home/updates"
 applications="${PHYSGATE_DESKTOP_APPLICATIONS:-$HOME/Applications}"
 key_dir="$HOME/.config/physgate-desktop"
+identifier=""
+if [ ${#features[@]} -gt 0 ]; then
+    # A trial build is signed with a key of its own and built under another identifier, so
+    # the installed app refuses its bundles even if one reached the real channel, and the
+    # two never share a window, a lock or WebKit's storage.
+    key_dir="$HOME/.config/physgate-desktop/trial"
+    identifier=",\"identifier\":\"local.physgate.desktop.trial\""
+fi
 key="$key_dir/updater.key"
 
 die() {
@@ -56,6 +65,14 @@ die() {
 if [ ${#features[@]} -gt 0 ]; then
     [ "$install" = 0 ] || die "a --verification build is for trials and is never installed"
     [ -n "${PHYSGATE_DESKTOP_HOME:-}" ] || die "a --verification build needs PHYSGATE_DESKTOP_HOME set to a trial folder"
+    # Compared after links and .. are resolved, so no spelling of the installed app's folder
+    # (or of a folder inside it) gets through.
+    resolve() { /usr/bin/python3 -I -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"; }
+    given="$(resolve "$PHYSGATE_DESKTOP_HOME")"
+    real="$(resolve "$real_home")"
+    case "$given/" in
+        "$real/"*) die "$PHYSGATE_DESKTOP_HOME is the installed app's folder, or inside it; a --verification build needs a trial folder of its own" ;;
+    esac
 fi
 
 command -v cargo > /dev/null || die "cargo is not on PATH; install Rust (brew install rust) and try again"
@@ -85,7 +102,7 @@ digest="$(
 )"
 version="0.1.$(date -u +%Y%m%d%H%M%S)"
 pubkey="$(cat "$key.pub")"
-override="{\"version\":\"$version\",\"bundle\":{\"createUpdaterArtifacts\":true},\"plugins\":{\"updater\":{\"pubkey\":\"$pubkey\"}}}"
+override="{\"version\":\"$version\"$identifier,\"bundle\":{\"createUpdaterArtifacts\":true},\"plugins\":{\"updater\":{\"pubkey\":\"$pubkey\"}}}"
 
 echo "build-desktop: building physgate $version"
 TAURI_SIGNING_PRIVATE_KEY="$key" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" \

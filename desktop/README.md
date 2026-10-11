@@ -189,9 +189,17 @@ The flag concerns only how the app fetches its own update. The operator server's
   errors) and the unit tests. It isn't part of `scripts/check.sh` or CI. Run it before
   building.
 - **A trial build:** `PHYSGATE_DESKTOP_HOME=<a trial folder> scripts/build-desktop.sh
-  --verification`. It honours the switches below. It is published only to that trial
-  folder's channel and is never installed: the script refuses `--install` with it, and
-  refuses to run without a trial folder.
+  --verification`. It honours the switches below and is kept apart from the real install:
+  - **Its own signing key,** in `~/.config/physgate-desktop/trial/`. The installed app
+    refuses its bundles, wherever they end up.
+  - **Its own identifier,** `local.physgate.desktop.trial`.
+  - **Its own folder.** The script refuses a missing `PHYSGATE_DESKTOP_HOME`, and one that
+    is (or is inside) the installed app's folder, compared after links are resolved. It
+    also refuses `--install`.
+  - **The built app checks the same.** It refuses to start without a trial folder of its
+    own. Its run root defaults to `physgate-runs` inside that folder, and it refuses one
+    that is (or is inside) `~/physgate-runs`. So it never reads the installed app's
+    settings, `server.pid` or update channel.
 - **Trying it without touching the real install:** the `PHYSGATE_DESKTOP_…` switches exist
   only in a build with the `verification` feature (`walkthrough` includes it). A published
   build reads none of them. The switches are:
