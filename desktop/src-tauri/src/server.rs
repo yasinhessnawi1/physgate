@@ -49,22 +49,131 @@ pub fn arguments(settings: &Settings) -> Vec<String> {
             args.push(path.display().to_string());
         }
     }
+    // The person decisions are recorded under. Without a name the UI reads and acts on nothing.
+    // One argument, `--operator=<name>`, so a name that starts with `-` is still a name.
+    if let Some(name) = &settings.operator {
+        args.push(format!("--operator={name}"));
+    }
     args
 }
 
 /// What the server prints once it listens.
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct Announcement {
     url: String,
+    /// Only when started with `--operator`: the page's address with this start's action token
+    /// in its fragment (`#act=…`).
+    #[serde(default)]
+    operator_url: Option<String>,
 }
 
-/// The server's address, read from what it printed, if what it printed so far is complete.
+/// The operator's address. It carries the action token, so it is held in the shell's memory
+/// only: never written to a file or a log, never put on a command line or in an environment,
+/// and nothing that formats it shows it.
+#[derive(Clone, PartialEq, Eq)]
+pub struct OperatorUrl(Url);
+
+impl OperatorUrl {
+    pub fn url(&self) -> &Url {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for OperatorUrl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("OperatorUrl([withheld])")
+    }
+}
+
+/// What the server announced.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Announced {
+    /// The server's address, which every page of it shares the origin of.
+    pub url: Url,
+    /// The operator's address, when the server was started for an operator.
+    pub operator: Option<OperatorUrl>,
+}
+
+/// What the server announced, read from what it printed, if what it printed so far is
+/// complete.
 ///
 /// Refuses anything but `http://127.0.0.1:<port>/`: the shell shows the page at this
-/// address, so a server that announced another host would not be shown at all.
-pub fn announced_url(printed: &str) -> Option<Result<Url, String>> {
+/// address, so a server that announced another host would not be shown at all. An operator
+/// address must be that same address with an action token in its fragment and nothing else;
+/// a refusal never quotes it.
+pub fn announced(printed: &str) -> Option<Result<Announced, String>> {
     let announcement: Announcement = serde_json::from_str(printed).ok()?;
-    Some(loopback_url(&announcement.url))
+    Some(loopback_url(&announcement.url).and_then(|url| {
+        let operator = match announcement.operator_url.as_deref() {
+            None => None,
+            Some(text) => Some(operator_url(text, &url)?),
+        };
+        Ok(Announced { url, operator })
+    }))
+}
+
+/// The address the shell shows of an announcement, as before operators: for tests.
+#[cfg(test)]
+pub fn announced_url(printed: &str) -> Option<Result<Url, String>> {
+    announced(printed).map(|a| a.map(|a| a.url))
+}
+
+fn operator_url(text: &str, url: &Url) -> Result<OperatorUrl, String> {
+    let refused = || {
+        "the server announced an operator address that is not its own page with an action \
+            token; it is not shown"
+            .to_string()
+    };
+    let parsed = Url::parse(text).map_err(|_| refused())?;
+    let token = parsed.fragment().and_then(|f| f.strip_prefix("act="));
+    let token_shaped = token.is_some_and(|t| {
+        !t.is_empty()
+            && t.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    });
+    let same_page = parsed.origin() == url.origin()
+        && parsed.path() == "/"
+        && parsed.query().is_none()
+        && parsed.username().is_empty()
+        && parsed.password().is_none();
+    if same_page && token_shaped {
+        Ok(OperatorUrl(parsed))
+    } else {
+        Err(refused())
+    }
+}
+
+/// A person's name for decisions: what the server takes (`--operator`), checked here first so
+/// the app can say what is wrong. Trimmed; 1 to 64 characters, every one printable.
+pub fn valid_operator(name: &str) -> Result<String, String> {
+    let name = name.trim();
+    let printable = name
+        .chars()
+        .all(|c| !c.is_control() && (c == ' ' || !c.is_whitespace()));
+    if name.is_empty() || name.chars().count() > 64 || !printable {
+        return Err("a name of 1 to 64 printable characters".into());
+    }
+    Ok(name.to_string())
+}
+
+/// The macOS account's full name, as the system holds it: the default operator name.
+pub fn account_full_name() -> Option<String> {
+    // SAFETY: getpwuid returns a pointer into static storage valid until the next call;
+    // the fields are copied out at once.
+    unsafe {
+        let entry = libc::getpwuid(libc::getuid());
+        if entry.is_null() || (*entry).pw_gecos.is_null() {
+            return None;
+        }
+        let gecos = std::ffi::CStr::from_ptr((*entry).pw_gecos).to_string_lossy();
+        let name = gecos
+            .split(',')
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        valid_operator(&name).ok()
+    }
 }
 
 fn loopback_url(text: &str) -> Result<Url, String> {
@@ -134,6 +243,7 @@ pub enum StartError {
 pub struct Server {
     child: Child,
     url: Url,
+    operator: Option<OperatorUrl>,
     pid_file: PathBuf,
 }
 
@@ -168,10 +278,11 @@ impl Server {
         let started = Instant::now();
         loop {
             match receiver.recv_timeout(Duration::from_millis(100)) {
-                Ok(Ok(url)) => {
+                Ok(Ok(announced)) => {
                     return Ok(Self {
                         child,
-                        url,
+                        url: announced.url,
+                        operator: announced.operator,
                         pid_file: pid_file.to_path_buf(),
                     })
                 }
@@ -202,6 +313,11 @@ impl Server {
 
     pub fn url(&self) -> &Url {
         &self.url
+    }
+
+    /// The operator's address, when this server was started for one.
+    pub fn operator(&self) -> Option<&OperatorUrl> {
+        self.operator.as_ref()
     }
 
     /// Whether the server is still running.
@@ -262,17 +378,25 @@ pub fn reap(pid_file: &Path) -> Option<i32> {
     Some(pid)
 }
 
+/// The announcement in `printed`, once it is complete; `printed` is then emptied, since what
+/// was printed holds the action token and is kept no longer than it takes to read it.
+fn take_announcement(printed: &mut String) -> Option<Result<Announced, String>> {
+    let result = announced(printed)?;
+    printed.clear();
+    Some(result)
+}
+
 /// Read standard output until it holds a complete announcement, then keep draining it.
-fn read_announcement(stdout: impl Read, sender: &mpsc::Sender<Result<Url, String>>) {
+fn read_announcement(stdout: impl Read, sender: &mpsc::Sender<Result<Announced, String>>) {
     let mut reader = BufReader::new(stdout);
     let mut printed = String::new();
-    let mut announced = false;
+    let mut done = false;
     let mut line = String::new();
     while matches!(reader.read_line(&mut line), Ok(n) if n > 0) {
-        if !announced {
+        if !done {
             printed.push_str(&line);
-            if let Some(result) = announced_url(&printed) {
-                announced = true;
+            if let Some(result) = take_announcement(&mut printed) {
+                done = true;
                 let _ = sender.send(result);
             }
         }
@@ -378,6 +502,146 @@ mod tests {
     fn the_tail_keeps_the_last_lines() {
         assert_eq!(tail("a\nb\nc\n", 2), "b\nc");
         assert_eq!(tail("a\n", 5), "a");
+    }
+
+    /// A made-up action token, put together so that no scanner takes it for a real one.
+    fn made_up_token() -> String {
+        "MadeUpToken-".to_owned() + &"x".repeat(32)
+    }
+
+    /// The start-up line `physgate ui --operator` prints: indented, keys sorted.
+    fn printed_for_operator(port: u16, token: &str) -> String {
+        format!(
+            "{{\n \"operator\": \"Ada Lovelace\",\n \"operator_url\": \"http://127.0.0.1:{port}/#act={token}\",\n \"refused\": [],\n \"roots\": [\"/r\"],\n \"url\": \"http://127.0.0.1:{port}/\"\n}}\n"
+        )
+    }
+
+    #[test]
+    fn an_empty_or_blank_name_is_refused_and_a_name_is_trimmed() {
+        for bad in ["", "   ", "\t", "a\nb", &"x".repeat(65)] {
+            assert!(valid_operator(bad).is_err(), "{bad:?}");
+        }
+        assert_eq!(valid_operator("  Ada Lovelace "), Ok("Ada Lovelace".into()));
+        assert_eq!(valid_operator(&"x".repeat(64)), Ok("x".repeat(64)));
+    }
+
+    #[test]
+    fn what_was_printed_is_emptied_once_the_announcement_is_read() {
+        let token = made_up_token();
+        let line = printed_for_operator(52011, &token);
+        let (head, rest) = line.split_at(line.len() / 2);
+        let mut printed = head.to_string();
+        assert!(
+            take_announcement(&mut printed).is_none(),
+            "not complete yet"
+        );
+        assert!(!printed.is_empty(), "kept while incomplete");
+        printed.push_str(rest);
+        assert!(take_announcement(&mut printed).is_some());
+        assert!(
+            printed.is_empty(),
+            "the token is not kept in what was printed"
+        );
+    }
+
+    #[test]
+    fn the_operators_address_is_taken_from_the_line_exactly() {
+        let token = made_up_token();
+        let said = announced(&printed_for_operator(52011, &token))
+            .unwrap()
+            .unwrap();
+        assert_eq!(said.url.as_str(), "http://127.0.0.1:52011/");
+        let operator = said.operator.expect("the operator's address");
+        assert_eq!(
+            operator.url().as_str(),
+            format!("http://127.0.0.1:52011/#act={token}")
+        );
+        // Its own origin: the gate already trusts it once the server's address is trusted.
+        assert_eq!(operator.url().origin(), said.url.origin());
+        // Without --operator there is none.
+        let plain = announced("{\"url\": \"http://127.0.0.1:52011/\"}")
+            .unwrap()
+            .unwrap();
+        assert!(plain.operator.is_none());
+    }
+
+    #[test]
+    fn an_operator_address_that_is_not_the_servers_page_with_a_token_is_refused_unquoted() {
+        let token = made_up_token();
+        for bad in [
+            format!("http://127.0.0.1:52012/#act={token}"),
+            format!("http://localhost:52011/#act={token}"),
+            format!("http://127.0.0.1:52011/other#act={token}"),
+            format!("http://127.0.0.1:52011/?x=1#act={token}"),
+            format!("http://127.0.0.1:52011/#token={token}"),
+            "http://127.0.0.1:52011/#act=".to_string(),
+            format!("http://127.0.0.1:52011/#act={token}%20x"),
+            format!("not a url {token}"),
+        ] {
+            let printed = format!(
+                "{{\"url\": \"http://127.0.0.1:52011/\", \"operator_url\": {}}}",
+                serde_json::to_string(&bad).unwrap()
+            );
+            let refused = announced(&printed).unwrap().unwrap_err();
+            assert!(
+                !refused.contains(&token),
+                "the refusal quoted the token: {refused}"
+            );
+            let shown = format!("{:?}", StartError::Failed(refused));
+            assert!(!shown.contains(&token));
+        }
+    }
+
+    #[test]
+    fn the_token_reaches_no_file_and_no_log() {
+        let dir = crate::testdir::TestDir::new("token-files");
+        let token = made_up_token();
+        let bin = dir.path().join("checkout/.venv/bin");
+        fs::create_dir_all(&bin).unwrap();
+        let program = bin.join("physgate");
+        let printed = printed_for_operator(5555, &token).replace('"', "\\\"");
+        fs::write(
+            &program,
+            format!(
+                "#!/bin/sh\necho 'a request log line' >&2\nprintf \"{}\" \nwhile :; do sleep 1; done\n",
+                printed.replace('\n', "\\n")
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&program, fs::Permissions::from_mode(0o700)).unwrap();
+        let settings = Settings {
+            checkout: dir.path().join("checkout"),
+            run_folders: vec![dir.path().to_path_buf()],
+            operator: Some("Ada Lovelace".into()),
+            ..Settings::default()
+        };
+        let log = dir.path().join("server.log");
+        let pid_file = dir.path().join("server.pid");
+        let server = Server::start(&settings, &log, &pid_file).unwrap();
+        let operator = server.operator().expect("the operator's address").clone();
+        assert!(operator.url().as_str().ends_with(&token));
+        // Whatever formats it shows nothing of it, and its loggable form withholds it.
+        assert!(!format!("{operator:?}").contains(&token));
+        let logged = crate::navigation::loggable(operator.url());
+        assert!(!logged.contains(&token), "{logged}");
+        assert!(logged.ends_with("#act=[withheld]"));
+        // The command line holds the name, not the token.
+        assert!(!arguments(&settings).iter().any(|a| a.contains(&token)));
+        drop(server);
+        // No file the shell wrote holds it: the server's log, its pid file, anything else.
+        let mut files = 0;
+        for entry in fs::read_dir(dir.path()).unwrap().flatten() {
+            if entry.path().is_file() {
+                files += 1;
+                let bytes = fs::read(entry.path()).unwrap();
+                assert!(
+                    !String::from_utf8_lossy(&bytes).contains(&token),
+                    "{} holds the token",
+                    entry.path().display()
+                );
+            }
+        }
+        assert!(files >= 1, "the server's log was written");
     }
 
     fn stand_in_server(dir: &Path) -> PathBuf {

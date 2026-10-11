@@ -2,7 +2,9 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "onboarding",
   "description": "The app's own bundled pages may call the onboarding commands. No remote address is named, so the served operator UI can call none of them.",
-  "windows": ["main"],
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "allow-onboarding-state",
     "allow-claude-code-detect",
@@ -18,6 +20,8 @@
     "allow-choose-engine",
     "allow-device-report",
     "allow-intro-seen",
-    "allow-finish-onboarding"
+    "allow-finish-onboarding",
+    "allow-operator-state",
+    "allow-set-operator"
   ]
 }

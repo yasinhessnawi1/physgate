@@ -14,6 +14,24 @@
       <button id="skip" class="skip" type="button">Skip</button>
     </section>
 
+    <main id="operator" class="setup operator" hidden aria-label="Operator name">
+      <h1>Who decides here?</h1>
+      <p class="lead">
+        Approvals and rejections made in the app are recorded under this name, exactly as
+        <span class="mono">physgate queue resolve --by</span> would record them.
+      </p>
+      <label for="operator-name">Your name</label>
+      <div class="row">
+        <input id="operator-name" type="text" autocomplete="name" maxlength="64" spellcheck="false" />
+        <button id="operator-save" class="primary" type="button">Decide as This Name</button>
+      </div>
+      <p class="quiet-note">
+        Or <button id="operator-skip" class="quiet" type="button">stay read-only</button>: the UI then
+        shows everything and decides nothing. physgate → Operator Name… changes this later.
+      </p>
+      <p id="operator-problem" class="problem" role="alert" hidden></p>
+    </main>
+
     <div id="setup" class="setup" hidden>
       <header class="steps" aria-label="Setup steps">
         <span class="mark" aria-hidden="true">

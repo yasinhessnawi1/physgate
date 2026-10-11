@@ -86,3 +86,11 @@ td.num { font-family: ui-monospace, "SF Mono", Menlo, monospace; white-space: no
 .actions { display: flex; justify-content: space-between; margin-top: 24px; }
 .problem { color: var(--fail); margin-top: 12px; }
 @media (max-width: 640px) { .pair { grid-template-columns: 1fr; } input[type="password"] { min-width: 0; } }
+
+.operator { max-width: 640px; padding-top: 64px; }
+.operator input[type="text"] {
+  font: 15px/1.4 -apple-system, BlinkMacSystemFont, sans-serif; color: var(--text); background: var(--bg);
+  border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; min-height: 44px; flex: 1; min-width: 260px;
+}
+.quiet-note { font-size: 14px; color: var(--text-2); margin-top: 18px; }
+.quiet-note button.quiet { padding: 0 4px; min-height: 0; text-decoration: underline; border: 0; }

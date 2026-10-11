@@ -224,6 +224,11 @@ pub struct Settings {
     /// for a later change to wire; never overrides a run's parameters.
     pub implementer_model: Option<String>,
     pub reviewer_model: Option<String>,
+    /// Who decisions taken in the app are recorded under (`physgate ui --operator`). `None`
+    /// opens the UI read-only.
+    pub operator: Option<String>,
+    /// Whether the app has asked for that name once; it asks only once.
+    pub operator_asked: bool,
 }
 
 impl Default for Settings {
@@ -238,6 +243,8 @@ impl Default for Settings {
             engine: None,
             implementer_model: None,
             reviewer_model: None,
+            operator: None,
+            operator_asked: false,
         }
     }
 }

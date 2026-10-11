@@ -26,6 +26,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tauri::Url;
 
+/// `url` as it may be written to a log: a fragment that carries an action token is withheld.
+pub fn loggable(url: &Url) -> String {
+    if url.fragment().is_some_and(|f| f.contains("act=")) {
+        let mut shown = url.clone();
+        shown.set_fragment(Some("act=[withheld]"));
+        return shown.to_string();
+    }
+    url.to_string()
+}
+
 /// What the gate decided about one navigation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Decision {

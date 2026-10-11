@@ -62,6 +62,21 @@ the internet, so macOS opens it without a warning.
 API the two models) is a record for later. A run still uses the credential and models its
 own parameters name, and runs on an API key still ask the owner before they spend.
 
+### Deciding from the app
+
+- **The name is asked for once.** On the first start after the engine step, the app asks
+  who decides here. It suggests the macOS account's full name and keeps the answer in the
+  settings. It then starts `physgate ui --operator <name>`, so approvals and rejections
+  made in the app are recorded under that name. physgate → Operator Name… changes it.
+- **"Stay read-only" is also an answer.** The UI then reads everything and decides nothing,
+  and each launch says so, with how to set a name.
+- **The action token stays in memory.** The server prints the operator's address, with
+  this start's action token in its fragment (`#act=…`), and the app opens exactly that
+  address. The address is held in memory only: never written to a log or a file, never put
+  on a command line or in an environment. A logged address shows `#act=[withheld]`.
+- **Reload keeps you able to decide.** The page itself keeps the token only in memory, so
+  Reload opens the operator's address again rather than reloading in place.
+
 ### Where credentials live
 
 - **Only in the macOS Keychain.** The service is `physgate`, and the account is the

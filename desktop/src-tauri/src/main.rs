@@ -110,6 +110,47 @@ fn claim_or_exit(paths: &Paths) -> (Option<std::os::unix::net::UnixListener>, Op
     }
 }
 
+/// The one window, with its navigation gate: it goes only where the gate allows, opens no
+/// other window, and logs every refusal with any action token withheld.
+fn build_window(app: &tauri::App, shell: &Shell) -> tauri::Result<()> {
+    let gate = shell.gate();
+    let refusals = shell.paths.clone();
+    let new_windows = shell.paths.clone();
+    // The window's first load: the app's own page with no state in its address, which shows
+    // only "Starting". One ticket, for exactly the address the webview reports.
+    gate.first_load();
+    let mut window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+        .title("physgate")
+        .inner_size(1360.0, 900.0)
+        .min_inner_size(760.0, 560.0)
+        // A data store that is never written to disk: no page, and no address the operator's
+        // page was opened at (it carries the action token), reaches WebKit's caches, whatever
+        // a server sends.
+        .incognito(true)
+        .on_navigation(move |url| {
+            let decision = gate.decide(url);
+            if decision == navigation::Decision::Refused {
+                config::note(
+                    &refusals,
+                    &format!("navigation refused: {}", navigation::loggable(url)),
+                );
+            }
+            decision != navigation::Decision::Refused
+        })
+        .on_new_window(move |url, _| {
+            config::note(
+                &new_windows,
+                &format!("new window refused: {}", navigation::loggable(&url)),
+            );
+            NewWindowResponse::Deny
+        });
+    if shell.tour().is_some() {
+        window = window.initialization_script(tour::WATCH_SCRIPT);
+    }
+    window.build()?;
+    Ok(())
+}
+
 /// A second launch reached this one: bring the window forward.
 fn hand_over(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
@@ -170,36 +211,13 @@ fn main() {
             onboarding::device_report,
             onboarding::intro_seen,
             onboarding::finish_onboarding,
+            onboarding::operator_state,
+            onboarding::set_operator,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
             let shell = app.state::<Shell>();
-            let gate = shell.gate();
-            let refusals = shell.paths.clone();
-            let new_windows = shell.paths.clone();
-            // The window's first load: the app's own page with no state in its address, which
-            // shows only "Starting". One ticket, for exactly the address the webview reports.
-            gate.first_load();
-            let mut window =
-                WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                    .title("physgate")
-                    .inner_size(1360.0, 900.0)
-                    .min_inner_size(760.0, 560.0)
-                    .on_navigation(move |url| {
-                        let decision = gate.decide(url);
-                        if decision == navigation::Decision::Refused {
-                            config::note(&refusals, &format!("navigation refused: {url}"));
-                        }
-                        decision != navigation::Decision::Refused
-                    })
-                    .on_new_window(move |url, _| {
-                        config::note(&new_windows, &format!("new window refused: {url}"));
-                        NewWindowResponse::Deny
-                    });
-            if shell.tour().is_some() {
-                window = window.initialization_script(tour::WATCH_SCRIPT);
-            }
-            window.build()?;
+            build_window(app, &shell)?;
             app.set_menu(menu::build(&handle)?)?;
             shell.note(&format!(
                 "launched version {}",
@@ -219,6 +237,8 @@ fn main() {
             Shell::watch(handle.clone());
             #[cfg(feature = "walkthrough")]
             walkthrough::start(handle.clone());
+            #[cfg(feature = "walkthrough")]
+            walkthrough::decide(handle.clone());
             let later = handle.clone();
             std::thread::spawn(move || {
                 std::thread::sleep(Duration::from_secs(4));
@@ -244,6 +264,13 @@ mod tests {
     use super::*;
     use std::ffi::OsStr;
     use std::path::Path;
+
+    #[test]
+    fn the_window_keeps_nothing_on_disk() {
+        // The window is built with a non-persistent data store: read from the source, so the
+        // call cannot drop out unnoticed.
+        assert!(include_str!("main.rs").contains(".incognito(true)"));
+    }
 
     #[test]
     fn a_trial_build_keeps_its_library_inside_its_trial_folder() {

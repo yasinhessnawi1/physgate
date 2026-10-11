@@ -178,6 +178,89 @@ pub fn start(app: AppHandle) {
     });
 }
 
+/// A scripted decision through the operator UI, for checking the app end to end: open the
+/// approval queue of the run `PHYSGATE_DESKTOP_DECIDE_RUN` names (as `<root>/<run>`), press
+/// Approve on its first open item, and confirm. Same handshake as the walkthrough, in the folder
+/// `PHYSGATE_DESKTOP_DECIDE` names. Trial builds only, like the rest of this module.
+pub fn decide(app: AppHandle) {
+    let Some(folder) = crate::config::switch("PHYSGATE_DESKTOP_DECIDE").map(PathBuf::from) else {
+        return;
+    };
+    let run = crate::config::switch("PHYSGATE_DESKTOP_DECIDE_RUN")
+        .and_then(|r| r.into_string().ok())
+        .unwrap_or_default();
+    thread::spawn(move || {
+        let _ = fs::create_dir_all(&folder);
+        let mut n = 0;
+        let mut step = |name: &str, js: Option<String>, settle: u64| {
+            if let (Some(js), Some(window)) = (js, app.get_webview_window("main")) {
+                let _ = window.eval(js);
+            }
+            thread::sleep(Duration::from_millis(settle));
+            n += 1;
+            let stem = format!("{n:02}-{name}");
+            let _ = fs::write(folder.join(format!("{stem}.ready")), "");
+            let done = folder.join(format!("{stem}.done"));
+            let deadline = Instant::now() + Duration::from_secs(120);
+            while !done.exists() && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(100));
+            }
+        };
+        step("operator-ui", None, 6000);
+        step(
+            "approval-queue",
+            Some(format!(
+                "{{ location.hash = '#/collaboration/approval-queue?run=' + encodeURIComponent({}); }}",
+                serde_json::to_string(&run).unwrap_or_default()
+            )),
+            3500,
+        );
+        step(
+            "confirm-approve",
+            Some("{ document.querySelector('.queue-actions .button-act').click(); }".into()),
+            1200,
+        );
+        step(
+            "approved",
+            Some(
+                "{ document.querySelector('dialog[open] .confirm-actions .button-act').click(); }"
+                    .into(),
+            ),
+            3500,
+        );
+        // View > Reload, as the menu does it; then whether the address holds a token, as a
+        // yes or no only: the token itself is never written anywhere.
+        if let Some(window) = app.get_webview_window("main") {
+            app.state::<crate::shell::Shell>().reload(&app, &window);
+        }
+        thread::sleep(Duration::from_secs(8));
+        if let Some(window) = app.get_webview_window("main") {
+            let in_address = window
+                .url()
+                .ok()
+                .and_then(|u| u.fragment().map(|f| f.contains("act=")))
+                .unwrap_or(false);
+            let (sender, receiver) = std::sync::mpsc::channel();
+            let _ = window.eval_with_callback(
+                "JSON.stringify({ act_in_href: location.href.includes('act='), \
+                 act_in_hash: location.hash.includes('act='), ready: document.readyState })",
+                move |result| {
+                    let _ = sender.send(result);
+                },
+            );
+            let page = receiver
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap_or_default();
+            let _ = fs::write(
+                folder.join("after-reload.json"),
+                format!("{{\"act_in_window_address\": {in_address}, \"page\": {page}}}\n"),
+            );
+        }
+        step("reloaded", None, 500);
+        let _ = fs::write(folder.join("finished"), "");
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

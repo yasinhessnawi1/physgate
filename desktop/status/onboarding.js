@@ -356,11 +356,34 @@ async function finish() {
   await invoke("finish_onboarding").catch(problem);
 }
 
+// ---- Operator name ------------------------------------------------------------------
+
+async function showOperator() {
+  $("intro").hidden = true;
+  $("setup").hidden = true;
+  $("operator").hidden = false;
+  const said = await invoke("operator_state");
+  const input = $("operator-name");
+  input.value = said.current || said.suggested || "";
+  input.focus();
+  const failed = (e) => {
+    const p = $("operator-problem");
+    p.textContent = `That name can't be used: ${String(e)}.`;
+    p.hidden = false;
+  };
+  $("operator-save").onclick = () => invoke("set_operator", { name: input.value }).catch(failed);
+  $("operator-skip").onclick = () => invoke("set_operator", { name: null }).catch(failed);
+  input.onkeydown = (event) => {
+    if (event.key === "Enter") $("operator-save").click();
+  };
+}
+
 // ---- Start --------------------------------------------------------------------------
 
 (async () => {
   await refresh();
   const step = location.hash.slice(1);
-  if (step === "intro" || (!step && !state.intro_seen)) showIntro();
+  if (step === "operator") showOperator();
+  else if (step === "intro" || (!step && !state.intro_seen)) showIntro();
   else showEngine();
 })();
