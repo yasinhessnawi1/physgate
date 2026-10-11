@@ -5,9 +5,9 @@ exists yet:
 
 - **Before the handler runs**, the server refuses anything another page could send: a missing
   or foreign ``Origin``, a cross-site ``Sec-Fetch-Site``, a missing or wrong action token (the
-  one this server start put in its own page), a body that is not JSON, one without its length,
-  chunked or too long, and any action when no operator was named. A refused request never
-  reaches the handler.
+  one in the operator's address this server start printed), a body that is not JSON, one
+  without its length, chunked or too long, and any action when no operator was named. A refused
+  request never reaches the handler.
 - **While the handler runs**, the guard's ``act`` kind lets it write exactly one thing: the
   decisions file, appended to by the approval queue's decision function. A handler that writes
   that file itself, reaches for the function's helpers directly, or writes anywhere else is

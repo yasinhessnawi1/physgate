@@ -248,7 +248,10 @@ class Handler(BaseHTTPRequestHandler):
             return 403, "an action is taken only from this server's own page"
         tokens = self.headers.get_all(ACT_TOKEN_HEADER) or []
         if len(tokens) != 1 or not hmac.compare_digest(tokens[0].encode(), self.act_token.encode()):
-            return 403, "an action carries the token this server put in its own page"
+            return (
+                403,
+                "an action carries the token from the operator's address this server printed",
+            )
         media = (self.headers.get_all("Content-Type") or [""])[0].split(";")
         charset = [p.strip().lower() for p in media[1:]]
         if media[0].strip().lower() != "application/json" or charset not in ([], ["charset=utf-8"]):
@@ -355,11 +358,11 @@ def make_server(
 
     ``routes`` is for the tests that plant a route, and ``timeout_s`` for the test that
     crosses it; the command always serves the table with the default. A new action token is
-    made for every server and put in its page.
+    made for every server; no route serves it, and ``operator_url`` carries it.
 
     Raises:
         StartupRefusedError: the address is not loopback, the operator's name is refused, or
-            the page has nowhere to carry the token.
+            the page has nowhere to carry the operator's name.
     """
     require_loopback(bind)
     require_operator(context.operator)
