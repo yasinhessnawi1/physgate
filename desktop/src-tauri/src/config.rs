@@ -17,8 +17,9 @@ pub struct Paths {
     root: PathBuf,
 }
 
-/// Whether this is a published build: no trial feature compiled in.
-pub const PUBLISHED_BUILD: bool = !cfg!(feature = "verification");
+/// Whether this is the published build: only the build script's normal build is (see
+/// build.rs). Every other build, debug or release, is a trial build.
+pub const PUBLISHED_BUILD: bool = cfg!(published);
 
 /// The installed app's own folder.
 pub fn real_home() -> PathBuf {
@@ -141,16 +142,16 @@ pub fn note(paths: &Paths, line: &str) {
     }
 }
 
-/// A switch for a trial run (`PHYSGATE_DESKTOP_…`), read only by a build with the
-/// `verification` feature. A published build has none of them: it reads no such variable,
-/// whatever its environment says.
-#[cfg(feature = "verification")]
+/// A switch for a trial run (`PHYSGATE_DESKTOP_…`), read only by a trial build. The
+/// published build has none of them: it reads no such variable, whatever its environment
+/// says.
+#[cfg(not(published))]
 pub fn switch(name: &str) -> Option<std::ffi::OsString> {
     std::env::var_os(name)
 }
 
-/// A switch for a trial run: never read in this build.
-#[cfg(not(feature = "verification"))]
+/// A switch for a trial run: never read in the published build.
+#[cfg(published)]
 pub fn switch(_name: &str) -> Option<std::ffi::OsString> {
     None
 }
@@ -269,20 +270,23 @@ mod tests {
 
     #[test]
     fn a_published_build_uses_the_installed_folder_and_a_trial_build_needs_its_own() {
-        #[cfg(not(feature = "verification"))]
+        #[cfg(published)]
         assert_eq!(Paths::from_env().unwrap().root(), real_home());
         // A trial build's answer depends on PHYSGATE_DESKTOP_HOME, which the tests do not set;
         // whatever it is, it is never the installed folder.
-        #[cfg(feature = "verification")]
+        #[cfg(not(published))]
         assert!(Paths::from_env().map_or(true, |p| !within(p.root(), &real_home())));
     }
 
     #[test]
-    fn switches_are_read_only_by_a_verification_build() {
+    fn switches_are_read_only_by_a_trial_build() {
         // HOME is always set, so it stands for any variable the environment holds.
-        #[cfg(not(feature = "verification"))]
-        assert!(switch("HOME").is_none(), "a published build read a switch");
-        #[cfg(feature = "verification")]
+        #[cfg(published)]
+        assert!(
+            switch("HOME").is_none(),
+            "the published build read a switch"
+        );
+        #[cfg(not(published))]
         assert!(switch("HOME").is_some());
     }
 

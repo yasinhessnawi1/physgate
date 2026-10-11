@@ -219,14 +219,14 @@ mod tests {
         assert!(check_trial_root(&link).is_err(), "through a link");
         assert!(check_trial_root(&dir.path().join("own-runs")).is_ok());
         // A trial build with no root named uses one inside its own folder.
-        #[cfg(feature = "verification")]
+        #[cfg(not(published))]
         {
             let paths = crate::config::Paths::at(dir.path().to_path_buf());
             if crate::config::switch("PHYSGATE_DESKTOP_RUNS_ROOT").is_none() {
                 assert_eq!(default_root(&paths), dir.path().join("physgate-runs"));
             }
         }
-        #[cfg(not(feature = "verification"))]
+        #[cfg(published)]
         assert_eq!(
             default_root(&crate::config::Paths::at(dir.path().to_path_buf())),
             real_root()

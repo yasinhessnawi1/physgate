@@ -197,6 +197,11 @@ The flag concerns only how the app fetches its own update. The operator server's
 - **Gates:** `scripts/check-desktop.sh` runs formatting, clippy (pedantic, warnings as
   errors) and the unit tests. It isn't part of `scripts/check.sh` or CI. Run it before
   building.
+- **Only the build script's normal build is published.** It alone sets the `published`
+  feature. Any other build is a trial build: `cargo build`, `cargo run`, `tauri dev`, a
+  release built by hand, `--verification`, `--walkthrough`. A trial build uses the Keychain
+  service `physgate-trial`, needs a trial folder of its own, and has the identifier
+  `local.physgate.desktop.trial`.
 - **A trial build:** `PHYSGATE_DESKTOP_HOME=<a trial folder> scripts/build-desktop.sh
   --verification` (or `--walkthrough`, which adds the scripted onboarding walk). It honours
   the switches below and is kept apart from the real install:

@@ -26,9 +26,12 @@ security-framework = "3.7"
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 
 [features]
-# The PHYSGATE_DESKTOP_... switches for trial runs (another home, a stand-in Claude Code, a
-# Keychain service of its own, an update accepted without its dialog, a click-through).
-# Never in a published build, which reads none of them.
+# The one build that is published: set only by scripts/build-desktop.sh for the app it
+# installs and publishes. Without it, any build is a trial build (see build.rs).
+published = []
+# A trial build made on purpose by the build script; it can never be published, even with
+# `published` set. Trial builds read the PHYSGATE_DESKTOP_... switches; a published build
+# reads none.
 verification = []
 # A scripted walk through the onboarding screens, for screenshots. Never in a published build.
 walkthrough = ["verification"]

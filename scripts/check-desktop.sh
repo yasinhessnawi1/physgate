@@ -25,8 +25,10 @@ gate() {
 
 gate "format" cargo fmt --check
 gate "lint" cargo clippy --all-targets --locked -- -D warnings -W clippy::pedantic
+gate "lint (published build)" cargo clippy --all-targets --locked --features published -- -D warnings -W clippy::pedantic
 gate "lint (walkthrough build)" cargo clippy --all-targets --locked --features walkthrough -- -D warnings -W clippy::pedantic
 gate "tests" cargo test --locked
+gate "tests (published build)" cargo test --locked --features published
 gate "tests (verification build)" cargo test --locked --features verification
 # The build script's refusals, run with no cargo or node on PATH, so a refusal that fails
 # to happen stops at "cargo is not on PATH" and is caught here, and nothing is ever built.

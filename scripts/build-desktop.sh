@@ -26,14 +26,16 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 install=0
-features=()
+trial=0
+# The normal build is the published one; it alone carries the `published` marker.
+features=(--features published)
 for arg in "$@"; do
     case "$arg" in
         --install) install=1 ;;
-        --verification) features=(--features verification) ;;
-        --walkthrough) features=(--features walkthrough) ;;
+        --verification) trial=1 features=(--features verification) ;;
+        --walkthrough) trial=1 features=(--features walkthrough) ;;
         -h | --help)
-            sed -n '3,8p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '3,11p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -48,13 +50,13 @@ app_home="${PHYSGATE_DESKTOP_HOME:-$real_home}"
 channel="$app_home/updates"
 applications="${PHYSGATE_DESKTOP_APPLICATIONS:-$HOME/Applications}"
 key_dir="$HOME/.config/physgate-desktop"
-identifier=""
-if [ ${#features[@]} -gt 0 ]; then
+identifier="local.physgate.desktop"
+if [ "$trial" = 1 ]; then
     # A trial build is signed with a key of its own and built under another identifier, so
     # the installed app refuses its bundles even if one reached the real channel, and the
     # two never share a window, a lock or WebKit's storage.
     key_dir="$HOME/.config/physgate-desktop/trial"
-    identifier=",\"identifier\":\"local.physgate.desktop.trial\""
+    identifier="local.physgate.desktop.trial"
 fi
 key="$key_dir/updater.key"
 
@@ -63,9 +65,9 @@ die() {
     exit 1
 }
 
-# A verification build honours the trial switches, so it never reaches the real install:
-# it is not installed, and it is published only to a trial channel.
-if [ ${#features[@]} -gt 0 ]; then
+# A trial build honours the trial switches, so it never reaches the real install: it is not
+# installed, and it is published only to a trial channel.
+if [ "$trial" = 1 ]; then
     [ "$install" = 0 ] || die "a trial build (--verification, --walkthrough) is for trials and is never installed"
     [ -n "${PHYSGATE_DESKTOP_HOME:-}" ] || die "a trial build (--verification, --walkthrough) needs PHYSGATE_DESKTOP_HOME set to a trial folder"
     # Compared after links and .. are resolved, so no spelling of the installed app's folder
@@ -100,16 +102,16 @@ chmod 600 "$key" "$key.pub"
 digest="$(
     {
         git ls-files -z -- desktop | LC_ALL=C sort -z | xargs -0 shasum -a 256
-        echo "features: ${features[*]+${features[*]}}"
+        echo "features: ${features[*]}"
     } | shasum -a 256 | cut -d' ' -f1
 )"
 version="0.1.$(date -u +%Y%m%d%H%M%S)"
 pubkey="$(cat "$key.pub")"
-override="{\"version\":\"$version\"$identifier,\"bundle\":{\"createUpdaterArtifacts\":true},\"plugins\":{\"updater\":{\"pubkey\":\"$pubkey\"}}}"
+override="{\"version\":\"$version\",\"identifier\":\"$identifier\",\"bundle\":{\"createUpdaterArtifacts\":true},\"plugins\":{\"updater\":{\"pubkey\":\"$pubkey\"}}}"
 
 echo "build-desktop: building physgate $version"
 TAURI_SIGNING_PRIVATE_KEY="$key" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" \
-    tauri build --ci --bundles app ${features[@]+"${features[@]}"} --config "$override" -- --locked
+    tauri build --ci --bundles app "${features[@]}" --config "$override" -- --locked
 
 bundle="desktop/src-tauri/target/release/bundle/macos"
 app="$bundle/physgate.app"
@@ -131,7 +133,7 @@ else
     mv "$channel/latest.json.partial" "$channel/latest.json"
     echo "$digest" > "$channel/published-digest"
     find "$channel" -name 'physgate-*.app.tar.gz' -not -name "$name" -delete
-    if [ ${#features[@]} -gt 0 ]; then
+    if [ "$trial" = 1 ]; then
         echo "build-desktop: published trial build $version to $channel"
     else
         echo "build-desktop: published $version; the installed app offers it at its next start, or from physgate → Check for Shell Update…"

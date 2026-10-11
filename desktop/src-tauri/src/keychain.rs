@@ -158,14 +158,27 @@ mod tests {
         assert_eq!(service_for(false), TRIAL_SERVICE);
         assert_ne!(TRIAL_SERVICE, PUBLISHED_SERVICE);
         // What the build being tested would use outside its tests.
-        #[cfg(feature = "verification")]
+        #[cfg(not(published))]
         assert_eq!(
             service_for(PUBLISHED_BUILD),
             TRIAL_SERVICE,
             "a trial build named physgate"
         );
-        #[cfg(not(feature = "verification"))]
+        #[cfg(published)]
         assert_eq!(service_for(PUBLISHED_BUILD), PUBLISHED_SERVICE);
+    }
+
+    #[test]
+    fn a_build_without_the_published_marker_cannot_name_the_operators_service() {
+        // `cargo test` with no features: the build anyone gets from cargo build, cargo run or
+        // tauri dev. It must be a trial build.
+        #[cfg(not(published))]
+        {
+            assert!(!PUBLISHED_BUILD);
+            assert_ne!(service_for(PUBLISHED_BUILD), "physgate");
+        }
+        #[cfg(published)]
+        assert!(PUBLISHED_BUILD);
     }
 
     #[test]
