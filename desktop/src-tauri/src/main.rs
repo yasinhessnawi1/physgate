@@ -13,6 +13,7 @@ mod channel;
 mod checkout;
 mod config;
 mod engine;
+mod instance;
 mod keychain;
 mod menu;
 mod navigation;
@@ -54,6 +55,22 @@ fn paths_or_exit() -> Paths {
     })
 }
 
+/// Claim the data folder for this instance, before anything starts: if another instance has
+/// it, ask that one to come forward and quit here.
+fn claim_or_exit(paths: &Paths) -> (Option<std::os::unix::net::UnixListener>, Option<PathBuf>) {
+    let claimed = std::fs::create_dir_all(paths.root())
+        .and_then(|()| instance::socket_path(paths.root()))
+        .and_then(|socket| instance::claim(&socket).map(|claim| (claim, socket)));
+    match claimed {
+        Ok((instance::Claim::HandedOver, _)) => std::process::exit(0),
+        Ok((instance::Claim::First(listener), socket)) => (Some(listener), Some(socket)),
+        Err(problem) => {
+            config::note(paths, &format!("no single-instance guard: {problem}"));
+            (None, None)
+        }
+    }
+}
+
 /// A second launch reached this one: bring the window forward.
 fn hand_over(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
@@ -90,13 +107,9 @@ fn main() {
         std::process::exit(2);
     }
     let paths = paths_or_exit();
+    let (listener, socket) = claim_or_exit(&paths);
     let tour = config::switch("PHYSGATE_DESKTOP_TOUR").map(PathBuf::from);
     let app = tauri::Builder::default()
-        // First, so a second launch stops here: it brings the running window forward and
-        // quits, before it could start (or stop) a server of its own.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            hand_over(app);
-        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Shell::new(paths, tour))
@@ -158,6 +171,10 @@ fn main() {
                 ));
             }
             stop_on_signal(handle.clone());
+            if let Some(listener) = listener {
+                let forward = handle.clone();
+                instance::listen(listener, move || hand_over(&forward));
+            }
             menu::restart_in_background(handle.clone());
             Shell::watch(handle.clone());
             #[cfg(feature = "walkthrough")]
@@ -172,9 +189,12 @@ fn main() {
         .on_menu_event(|app, event| menu::on_event(app, &event))
         .build(tauri::generate_context!())
         .expect("the app could not be built");
-    app.run(|app, event| {
+    app.run(move |app, event| {
         if let RunEvent::Exit = event {
             app.state::<Shell>().stop_server();
+            if let Some(socket) = &socket {
+                let _ = std::fs::remove_file(socket);
+            }
         }
     });
 }
