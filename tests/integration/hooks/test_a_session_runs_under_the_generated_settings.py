@@ -58,9 +58,9 @@ def test_a_forbidden_git_operation_is_refused_through_the_real_tool_path(tmp_pat
     assert not (run.worktree / "marker.txt").exists()
     refusals = [e for e in run.hook_log if e.get("decision") == "refuse"]
     assert [(e["hook"], e["tool"], e["reason"]) for e in refusals] == [
-        ("git_ops", "Bash", git_ops.FORCE_PUSH)
+        ("git_ops", "Bash", git_ops.ROLE_NO_GIT)
     ]
-    assert git_ops.FORCE_PUSH in run.told_after(1)
+    assert git_ops.ROLE_NO_GIT in run.told_after(1)
     assert "trampoline" not in run.told_after(1), "the agent was shown the hook command line"
 
 

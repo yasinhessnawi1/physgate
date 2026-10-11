@@ -1,13 +1,14 @@
 """Refuse the git operations no agent session may run.
 
+A role session runs no git at all: the orchestrator commits, merges and pushes
+its work. Any git the hook can see in a role's command is refused, under
+whatever name or wrapper it is run.
+
 Refused for every profile: a force push in any spelling, skipping the
 repository's own hooks in any spelling, a hard reset that could move anything
 but the session's own branch within its own history, a rebase, forcing or
-deleting a branch, writing a ref directly, and changing git's hook path or
-aliases. Refused for a role session as well: any push at all, because the
-orchestrator merges and pushes; and any change to git's configuration or to where
-git reads it from. A role may read its repository's configuration with the
-``git config`` forms an allowlist names, and nothing else.
+deleting a branch, writing a ref directly, and changing git's hook path, its
+aliases or its includes.
 
 A rebase is refused outright. The rule it implements permits a rebase only onto
 the session's own branch, which rewrites nothing, and the orchestrator owns
@@ -21,15 +22,11 @@ commit message that names a forbidden flag is text and passes.
 A git that another program runs is still a command: behind a reserved word
 (``{``, ``if``, ``then``, ``!``), behind a program that runs its arguments
 (``timeout 5 git …``, ``sudo -u x git …``), handed over as a string (``trap``,
-``watch``, ``su -c``) or by its dashed name (``git-push``). Among the words of a
-program that may only be printing them (``grep git …``) it is held to the forms
-refused outright. A word the shell expands into others (a glob, ``{a,b}``) is
-refused in a git command, because git would not get the word that was checked.
-
-A role session is also held to its own repository: no option, variable or
-earlier ``cd`` may point its git at another; no git command git does not have
-(an alias); no shell reading commands from its input; no ``env`` option whose
-effect cannot be read; and no git run by a program that adds words to it.
+``watch``, ``su -c``), by its dashed name (``git-push``) or by zsh's ``=git``.
+Among the words of a program that may only be printing them (``grep git …``) it
+is held to the forms refused outright, and for a role to naming a git command.
+A word the shell expands into others (a glob, ``{a,b}``) is refused in a git
+command, because git would not get the word that was checked.
 """
 
 from __future__ import annotations
@@ -56,91 +53,17 @@ HOOK_CONFIG = (
     "Changing git's hook path or its aliases is refused: either would change what "
     "later git commands do without the command saying so."
 )
-ROLE_CONFIG_WRITE = (
-    "A role session does not set git's configuration, by any means. Any key it set — on the "
-    "command line with -c, through a GIT_CONFIG_* variable, or with `git config` — could make "
-    "a later git command run a program of the session's choosing. Reading a value "
-    "(`git config --get <key>`, `--list`, or a bare key) is allowed; setting one is not."
+ROLE_NO_GIT = (
+    "A role session does not run git: the orchestrator commits, merges and pushes the work "
+    "a role leaves in its worktree. Leave the files as they should be committed."
 )
-ROLE_CONFIG_SOURCE = (
-    "A role session reads git's configuration only from the repository's own sources, as git "
-    "finds them. Pointing git at another file, blob, repository or home directory (--file, "
-    "--blob, --includes, -C, --git-dir, or HOME or XDG_CONFIG_HOME set for the command) is "
-    "refused: it could read a file the session may not open, or make a later git command run "
-    "a program. Run `git config --get <key>` or `git config --list` as they are."
-)
-#: The ``git config`` forms a role session may run are the ones that read the repository's own
-#: configuration sources. This is an allowlist, matched word by word, exactly as spelt: every
-#: other form is refused, including an abbreviation git would accept, a short-option cluster,
-#: a repeated option and a ``--`` separator, because a form that is not recognised cannot be
-#: known to read. A denylist of write actions kept missing ways git can be told to set a key.
-#:
-#: git's subcommands (``git config list``), recognised by git only as the first word. The two
-#: that read are admitted; the others set, remove, rename or open an editor on a config file.
-_CONFIG_SUBCOMMANDS = frozenset(
-    {"list", "get", "set", "unset", "rename-section", "remove-section", "edit"}
-)
-#: The older read actions, each with the fewest and most operands it takes.
-_CONFIG_READ_ACTIONS = {
-    "--get": (1, 2),
-    "--get-all": (1, 2),
-    "--get-regexp": (1, 2),
-    "--get-urlmatch": (2, 2),
-    "--get-color": (1, 2),
-    "--get-colorbool": (1, 2),
-    "--list": (0, 0),
-}
-#: Which configuration file is read: one of the repository's ordinary sources.
-_CONFIG_SCOPES = frozenset({"--local", "--global", "--system", "--worktree"})
-#: How what is read is shown or typed. None of them changes what is read or writes anything.
-_CONFIG_MODIFIERS = _CONFIG_SCOPES | {
-    "--null",
-    "--name-only",
-    "--show-origin",
-    "--show-scope",
-    "--show-names",
-    "--bool",
-    "--int",
-    "--bool-or-int",
-    "--bool-or-str",
-    "--path",
-    "--expiry-date",
-}
-#: The flags (no value) each form admits, by form: the older syntax, ``get`` and ``list``.
-_CONFIG_FLAGS = {
-    "": _CONFIG_MODIFIERS | set(_CONFIG_READ_ACTIONS) | {"--fixed-value"},
-    "get": _CONFIG_MODIFIERS | {"--all", "--regexp", "--fixed-value"},
-    "list": _CONFIG_MODIFIERS,
-}
-#: The options each form admits that take a value, as ``--opt=value`` or ``--opt value``.
-_CONFIG_VALUED = {
-    "": frozenset({"--type", "--default"}),
-    "get": frozenset({"--type", "--default", "--value", "--url"}),
-    "list": frozenset({"--type"}),
-}
-#: The short spellings admitted, each standing alone, by the long option it is.
-_CONFIG_SHORT = {"-l": "--list", "-z": "--null", "-t": "--type"}
-#: Options that read configuration from somewhere the command names instead of the
-#: repository's own sources, matched spelt out or abbreviated; ``-f`` is ``--file``.
-_CONFIG_ELSEWHERE = ("--file", "--blob", "--includes", "--no-includes")
-#: The global options a role's ``git config`` read may carry: none of them changes which
-#: repository or which configuration git reads.
-_CONFIG_QUIET_GLOBALS = frozenset(
-    {
-        "-P",
-        "--no-pager",
-        "--no-replace-objects",
-        "--no-lazy-fetch",
-        "--no-optional-locks",
-        "--no-advice",
-        "--literal-pathspecs",
-        "--glob-pathspecs",
-        "--noglob-pathspecs",
-        "--icase-pathspecs",
-    }
+ROLE_GIT_VARIABLE = (
+    "A role session does not set the variables that tell git what to read (GIT_CONFIG*, "
+    "HOME, XDG_CONFIG_HOME, GIT_DIR or another repository variable): a role runs no git, and "
+    "the value would hold for whatever ran git later in the same shell."
 )
 #: Variables that tell git where its user configuration file is. A ``GIT_CONFIG*`` variable
-#: sets keys or names a file outright, and is refused as setting configuration.
+#: sets keys or names a file outright.
 _CONFIG_HOME_VARIABLES = frozenset({"HOME", "XDG_CONFIG_HOME"})
 #: Variables that point git at another repository, or at another index or object store.
 _REPOSITORY_VARIABLES = frozenset(
@@ -160,8 +83,8 @@ _REPOSITORY_GLOBALS = ("-C", "--git-dir", "--work-tree", "--bare", "--namespace"
 #: any case, as git matches section and key names.
 _EXEC_CONFIG = re.compile(r"hookspath|(?<![a-z0-9_-])(alias|include|includeif)\.")
 #: git's own commands (builtins and those it ships), measured with
-#: ``git --list-cmds=builtins,main`` on git 2.54. Any other word is an alias or a
-#: ``git-<word>`` program found on the path.
+#: ``git --list-cmds=builtins,main`` on git 2.54. Among another program's words, ``git``
+#: followed by one of these is taken as a git command for a role, not as text.
 _GIT_COMMANDS = frozenset(
     """
     add am annotate apply archimport archive backfill bisect blame branch bugreport bundle
@@ -199,8 +122,6 @@ _RUNNERS = frozenset(
         "runuser", "strace", "ltrace", "uv", "uvx", "npx", "pipx", "poetry", "pdm", "hatch",
     }
 )  # fmt: skip
-#: Runners that add words of their own (from input, or file names) to the command they run.
-_FEEDERS = frozenset({"xargs", "parallel", "find"})
 #: Words that start a command a check must look at, wherever they appear among another's words.
 _STARTS = frozenset({"git", "env", "eval", "command", "exec", "nohup", "time", "builtin"})
 #: Programs that run a command given to them as one string: after ``-c`` (``su``,
@@ -211,17 +132,6 @@ _C_STRING_RUNNERS = frozenset({"su", "runuser", "script", "flock"})
 _DIRECTORY_MOVERS = frozenset({"cd", "pushd", "popd"})
 #: Shell builtins that set a variable named in their arguments (``export NAME=value``).
 _DECLARERS = frozenset({"export", "declare", "typeset", "readonly", "local"})
-ROLE_REPOSITORY = (
-    "A role session works in its own repository. Pointing git at another one (-C, --git-dir, "
-    "--work-tree, --bare, --namespace, or GIT_DIR, GIT_COMMON_DIR, GIT_WORK_TREE, "
-    "GIT_INDEX_FILE, GIT_OBJECT_DIRECTORY or GIT_ALTERNATE_OBJECT_DIRECTORIES) is refused: "
-    "that repository's configuration and hooks are not this one's. Run git in the worktree."
-)
-ROLE_UNKNOWN_SUBCOMMAND = (
-    "A role session runs only git's own commands. `git {sub}` is not one of them: git would run "
-    "an alias or a program named git-{sub} in its place, which cannot be checked, so it is "
-    "refused."
-)
 ROLE_OPAQUE_ENV = (
     "A role session runs `env` only to set or unset variables for a command. Its other options "
     "(-S, -C, an emptied environment with variables set, or one this cannot read) change what "
@@ -231,10 +141,6 @@ ROLE_SHELL_STDIN = (
     "A role session does not hand a shell its commands on standard input (`… | sh`, `bash -s`, "
     "a shell with no script or -c): what it would run cannot be checked. Write the commands "
     "out, or use `sh -c '…'`."
-)
-ROLE_GIT_FED = (
-    "A role session does not run git through xargs, parallel or find: they add words to the "
-    "git command that cannot be checked. Write the git command out in full."
 )
 ROLE_SHELL_ALIAS = (
     "A role session does not define shell aliases: an alias turns a later word into a command "
@@ -249,7 +155,6 @@ EXPANDING_GIT = (
     .replace("{{", "{")
     .replace("}}", "}")
 )
-ROLE_PUSH = "A role session does not push. The orchestrator merges and pushes finished work."
 HARD_RESET = (
     "A hard reset is refused unless it only moves this session's own branch within "
     "its own history (to HEAD, HEAD~n or HEAD^), with nothing earlier in the command "
@@ -282,15 +187,36 @@ _GLOBAL_WITH_VALUE = {
     "--attr-source",
     "--config-env",
 }
-#: Options whose next word is a value, not a flag: a message that is exactly a
-#: forbidden flag is a message.
-_VALUE_OPTIONS = {"-m", "--message", "-F", "--file", "-C", "-c", "-t", "--template", "--author"}
-_VALUE_LETTERS = set("mFCctS")
+#: Options whose next word is a value, not a flag, in the subcommands checked here: a message
+#: that is exactly a forbidden flag is a message. Per subcommand, because the same letter is a
+#: flag elsewhere (``git am -m`` and ``git branch -t`` take no value), and a word skipped as a
+#: value that git reads as a flag is a flag the checks never see. An option missing here only
+#: makes a check stricter.
+_VALUE_OPTIONS = {
+    "commit": frozenset(
+        {"-m", "--message", "-F", "--file", "-C", "--reuse-message", "-c", "--reedit-message"}
+        | {"-t", "--template", "--author"}
+    ),
+    "merge": frozenset({"-m", "--message", "-F", "--file", "-s", "--strategy", "-X"}),
+    "push": frozenset({"-o", "--push-option", "--repo", "--receive-pack", "--exec"}),
+    "branch": frozenset({"-u", "--set-upstream-to"}),
+}
+#: The short options of each subcommand whose value may follow in the same word (``-mtext``).
+_VALUE_LETTERS = {"commit": "mFCctS", "merge": "mFsXS", "push": "o", "branch": "u"}
 _HEAD_MOVERS = {"checkout", "switch", "symbolic-ref"}
+#: Subcommands that push: ``send-pack`` and ``http-push`` are the plumbing under ``push``.
+_PUSHERS = frozenset({"push", "send-pack", "http-push"})
+#: Configuration that makes a plain push a forcing or deleting one.
+_PUSH_CONFIG = re.compile(r"remote\.[^=\s]*\.(push|mirror)\b|^push\.default\b")
 #: The forbidden long options, each matched spelt out or abbreviated (``_names``).
 _SKIP_HOOKS_LONG = ("--no-verify",)
-_FORCE_PUSH_LONG = ("--force", "--force-with-lease", "--force-if-includes", "--mirror", "--delete")
-_HARD_LONG = ("--hard",)
+_FORCE_PUSH_LONG = (
+    *("--force", "--force-with-lease", "--force-if-includes", "--mirror", "--delete"),
+    "--prune",
+)
+#: Reset modes that move the branch and rewrite the working tree to match: ``--keep`` and
+#: ``--merge`` move it as ``--hard`` does, keeping only local changes.
+_HARD_LONG = ("--hard", "--keep", "--merge")
 _REF_WRITE_LONG = ("--force", "--delete", "--move", "--copy")
 _WATCHED = {"push", "commit", "reset", "rebase", "config", "merge", "am", "branch", "update-ref"}
 
@@ -303,11 +229,13 @@ def _as_git(argv: tuple[str, ...]) -> tuple[str, ...] | None:
     """``argv`` as a ``git …`` command, or ``None`` if it runs no git.
 
     git's own programs can be run by their dashed names (``git-config edit``, from git's
-    program directory or the path), and are the same commands as ``git config edit``.
+    program directory or the path), and are the same commands as ``git config edit``; and
+    zsh runs ``=git`` as the ``git`` found on the path.
     """
     if not argv:
         return None
-    name = argv[0].rsplit("/", 1)[-1]
+    # zsh replaces a word ``=name`` with the path of the command ``name``.
+    name = argv[0].removeprefix("=").rsplit("/", 1)[-1]
     if name == "git":
         return argv
     if name.startswith("git-") and len(name) > 4:
@@ -329,8 +257,9 @@ def _split_git(argv: tuple[str, ...]) -> tuple[list[str], str, list[str]]:
     return globals_, sub, list(argv[i + 1 :])
 
 
-def _flags(rest: list[str]) -> list[str]:
-    """The flag words of ``rest``, skipping the values of options that take one."""
+def _flags(sub: str, rest: list[str]) -> list[str]:
+    """The flag words of ``rest``, skipping the values of ``sub``'s options that take one."""
+    values = _VALUE_OPTIONS.get(sub, frozenset())
     flags, skip = [], False
     for word in rest:
         if skip:
@@ -338,7 +267,7 @@ def _flags(rest: list[str]) -> list[str]:
             continue
         if word == "--":
             break
-        if word in _VALUE_OPTIONS:
+        if word in values:
             skip = True
         if word.startswith("-"):
             flags.append(word)
@@ -374,16 +303,16 @@ def _role_environment_refusal(assigned: list[str]) -> str | None:
     """The reason a role session may not set these variables, or ``None``.
 
     A ``GIT_CONFIG*`` variable sets configuration (a key, or the file it is read from); ``HOME``
-    and ``XDG_CONFIG_HOME`` move the user configuration file to one the session chose. Either
-    holds for every later git command in the same shell, so it is refused wherever it is set.
+    and ``XDG_CONFIG_HOME`` move the user configuration file; the repository variables point
+    git at another repository. A role runs no git, but a value set here would hold for any git
+    run later in the same shell by a means no check sees (a script), so it is refused.
     """
     names = [a.split("=", 1)[0] for a in assigned]
-    if any(n.startswith("GIT_CONFIG") for n in names):
-        return ROLE_CONFIG_WRITE
-    if any(n in _CONFIG_HOME_VARIABLES for n in names):
-        return ROLE_CONFIG_SOURCE
-    if any(n in _REPOSITORY_VARIABLES for n in names):
-        return ROLE_REPOSITORY
+    if any(
+        n.startswith("GIT_CONFIG") or n in _CONFIG_HOME_VARIABLES or n in _REPOSITORY_VARIABLES
+        for n in names
+    ):
+        return ROLE_GIT_VARIABLE
     return None
 
 
@@ -396,6 +325,14 @@ def _sets_exec_config(assigned: list[str]) -> bool:
         if name.startswith("GIT_CONFIG") and _EXEC_CONFIG.search(value.lower()):
             return True
     return False
+
+
+def _sets_push_config(assigned: list[str]) -> bool:
+    """Whether a ``GIT_CONFIG*`` variable sets a push refspec or mirroring for a remote."""
+    return any(
+        w.split("=", 1)[0].startswith("GIT_CONFIG") and _PUSH_CONFIG.search(w.lower())
+        for w in assigned
+    )
 
 
 def _opaque_env(argv: tuple[str, ...]) -> bool:
@@ -435,114 +372,20 @@ def _reads_stdin(argv: tuple[str, ...]) -> bool:
     """Whether a shell in command position takes its commands from standard input."""
     if not argv or argv[0].rsplit("/", 1)[-1] not in SHELLS:
         return False
-    options = [w for w in argv[1:] if w.startswith("-") and not w.startswith("--")]
-    if any("c" in w[1:] for w in options):
-        return False
-    if any("s" in w[1:] for w in options):
-        return True
-    return not any(not w.startswith(("-", "+")) for w in argv[1:])
-
-
-def _reads_elsewhere(word: str) -> bool:
-    """Whether ``word`` is an option that reads configuration from a place the command names."""
-    if word.startswith("-") and not word.startswith("--"):
-        return "f" in word[1:]
-    return _names(word, _CONFIG_ELSEWHERE)
-
-
-def _without_elsewhere(words: list[str]) -> list[str]:
-    """``words`` without the options that name another place to read, and their values.
-
-    So the shape of a command can be judged apart from where it reads: a key and a value
-    sent to a named file is still a write, and is refused as one.
-    """
-    kept: list[str] = []
-    i = 0
+    words, operands, i = argv[1:], [], 0
     while i < len(words):
         word = words[i]
         i += 1
-        if word in ("--file", "-f", "--blob"):
-            i += 1
-        elif not _reads_elsewhere(word):
-            kept.append(word)
-    return kept
-
-
-def _config_read_shape(form: str, words: list[str]) -> bool:
-    """Whether ``words`` (after ``git config`` and any subcommand) is an admitted read.
-
-    Every word is either an operand or one admitted option exactly as spelt, each option at
-    most once, a value-taking option followed by its value. Then at most one read action and
-    one scope, and as many operands as the form takes.
-    """
-    flags, valued = _CONFIG_FLAGS[form], _CONFIG_VALUED[form]
-    seen: set[str] = set()
-    operands: list[str] = []
-    i = 0
-    while i < len(words):
-        word = words[i]
-        i += 1
-        if word in _CONFIG_SUBCOMMANDS or word == "--":
-            return False
-        if not word.startswith("-") or word == "-":
-            operands.append(word)
-            continue
-        name, eq, _ = word.partition("=")
-        if not name.startswith("--"):
-            if eq or name not in _CONFIG_SHORT:
+        if word in ("-o", "+o", "-O", "+O", "--rcfile", "--init-file"):
+            i += 1  # its value is an option name or a file, not a script
+        elif word.startswith(("-", "+")):
+            if not word.startswith("--") and "c" in word[1:]:
                 return False
-            name = _CONFIG_SHORT[name]
-        if name in seen:
-            return False
-        seen.add(name)
-        if name in valued:
-            if not eq:
-                if i >= len(words) or words[i].startswith("-") or words[i] in _CONFIG_SUBCOMMANDS:
-                    return False
-                i += 1
-        elif eq or name not in flags:
-            return False
-    actions = [a for a in _CONFIG_READ_ACTIONS if a in seen]
-    if len(actions) > 1 or len(seen & _CONFIG_SCOPES) > 1:
-        return False
-    if form == "list":
-        low, high = 0, 0
-    elif form == "get" or not actions:
-        low, high = 1, 1
-    else:
-        low, high = _CONFIG_READ_ACTIONS[actions[0]]
-    return low <= len(operands) <= high
-
-
-def _role_config_refusal(
-    cmd: SimpleCommand, globals_: list[str], sub: str, rest: list[str]
-) -> str | None:
-    """The reason a role session may not run this git command for its configuration, or ``None``.
-
-    Inline configuration (``-c``, ``--config-env``) sets keys, so it is refused on any
-    subcommand; ``--config-env`` is already refused for every profile as a hook change and is
-    named here too so the rule stands on its own. A ``git config`` command is admitted only as a
-    read of the repository's own sources: a shape :func:`_config_read_shape` admits (else it is
-    refused as a write, whatever it names), no variable set for it, no global option that moves
-    git to another repository or file, and no option that reads a named file or blob. Anything
-    else is refused, not passed.
-    """
-    if any(g == "-c" or _names(g, ("--config-env",)) for g in globals_):
-        return ROLE_CONFIG_WRITE
-    if sub != "config":
-        return None
-    form, words = ("", rest)
-    if rest and rest[0] in ("list", "get"):
-        form, words = rest[0], rest[1:]
-    if not _config_read_shape(form, _without_elsewhere(words)):
-        return ROLE_CONFIG_WRITE
-    if (
-        _assigned(cmd)
-        or any(g not in _CONFIG_QUIET_GLOBALS for g in globals_)
-        or any(_reads_elsewhere(w) for w in words)
-    ):
-        return ROLE_CONFIG_SOURCE
-    return None
+            if not word.startswith("--") and "s" in word[1:]:
+                return True
+        else:
+            operands.append(word)
+    return not operands
 
 
 def _names(flag: str, options: tuple[str, ...]) -> bool:
@@ -559,14 +402,15 @@ def _names(flag: str, options: tuple[str, ...]) -> bool:
     return name.startswith("--") and len(name) > 2 and any(o.startswith(name) for o in options)
 
 
-def _short_cluster_has(flag: str, letter: str) -> bool:
-    """True if a short-option cluster sets ``letter`` before any value-taking letter."""
+def _short_cluster_has(sub: str, flag: str, letter: str) -> bool:
+    """True if a short-option cluster sets ``letter`` before any of ``sub``'s value letters."""
     if not flag.startswith("-") or flag.startswith("--"):
         return False
+    values = _VALUE_LETTERS.get(sub, "")
     for ch in flag[1:]:
         if ch == letter:
             return True
-        if ch in _VALUE_LETTERS:
+        if ch in values:
             return False
     return False
 
@@ -610,22 +454,21 @@ def check_command(
     head_moved_earlier: bool,
     *,
     position: str = "command",
-    elsewhere: bool = False,
 ) -> str | None:
     """The reason ``cmd`` is refused, or ``None``.
 
     ``position`` says how ``cmd`` was found: ``"command"`` where the shell runs it,
     ``"runner"`` among the words of a program that runs its arguments (``timeout 5 git …``),
     ``"text"`` among any other program's words, where it may be text (``grep git …``) and is
-    held only to the forms refused outright. ``elsewhere`` says the command may run outside
-    the session's worktree: the call started outside it, or a ``cd`` earlier in the call
-    went somewhere this cannot place inside it.
+    held only to the forms refused outright, and for a role to naming a git command.
     """
     role = config.profile == "role"
     seen = position != "text"
     assigned = _assigned(cmd)
     if _sets_exec_config(assigned):
         return HOOK_CONFIG
+    if _sets_push_config(assigned):
+        return FORCE_PUSH
     if role and (reason := _role_environment_refusal(assigned)):
         return reason
     argv = unwrap(cmd.argv)
@@ -639,15 +482,21 @@ def check_command(
     if role and seen and argv[0] == "alias" and any("=" in w for w in argv[1:]):
         return ROLE_SHELL_ALIAS
     if offset in cmd.dynamic:
+        # A command named at run time may be git. A role runs none, so one whose first
+        # word after its options is a git command is refused as git.
+        if role and _split_git(argv)[1] in _GIT_COMMANDS:
+            return ROLE_NO_GIT
         return DYNAMIC_GIT if any(word in _WATCHED for word in argv) else None
     as_git = _as_git(argv)
     if as_git is None:
         return None
+    globals_, sub, rest = _split_git(as_git)
+    if role and (seen or sub in _GIT_COMMANDS):
+        return ROLE_NO_GIT
     if seen and any(offset + n in cmd.dynamic for n in range(1, len(argv))):
         return DYNAMIC_GIT
     if seen and any(offset + n in cmd.expanding for n in range(1, len(argv))):
         return EXPANDING_GIT
-    globals_, sub, rest = _split_git(as_git)
     redirected = any(g.split("=", 1)[0] in _REPOSITORY_GLOBALS for g in globals_) or any(
         a.split("=", 1)[0] in _REPOSITORY_VARIABLES for a in assigned
     )
@@ -655,24 +504,23 @@ def check_command(
         _names(g, ("--config-env",)) for g in globals_
     ):
         return HOOK_CONFIG
-    flags = _flags(rest)
+    if any(_PUSH_CONFIG.search(g.lower()) for g in globals_):
+        return FORCE_PUSH
+    flags = _flags(sub, rest)
     if any(_names(f, _SKIP_HOOKS_LONG) for f in flags):
         return SKIP_HOOKS
     if sub == "config" and _config_changes_exec(rest):
         return HOOK_CONFIG
-    if config.profile == "role" and (reason := _role_config_refusal(cmd, globals_, sub, rest)):
-        return reason
-    if sub == "commit" and any(_short_cluster_has(f, "n") for f in flags):
+    if sub == "config" and any(_PUSH_CONFIG.search(w.lower()) for w in rest):
+        return FORCE_PUSH
+    if sub == "commit" and any(_short_cluster_has(sub, f, "n") for f in flags):
         return SKIP_HOOKS
-    if sub == "push":
-        if (
-            any(_names(f, _FORCE_PUSH_LONG) for f in flags)
-            or any(_short_cluster_has(f, "f") or _short_cluster_has(f, "d") for f in flags)
-            or any(w.startswith(("+", ":")) for w in rest if not w.startswith("-"))
-        ):
-            return FORCE_PUSH
-        if config.profile == "role":
-            return ROLE_PUSH
+    if sub in _PUSHERS and (
+        any(_names(f, _FORCE_PUSH_LONG) for f in flags)
+        or any(_short_cluster_has(sub, f, "f") or _short_cluster_has(sub, f, "d") for f in flags)
+        or any(w.startswith(("+", ":")) for w in rest if not w.startswith("-"))
+    ):
+        return FORCE_PUSH
     if sub == "reset" and any(_names(f, _HARD_LONG) for f in flags):
         refs = [w for w in rest if not w.startswith("-")]
         own = config.own_branch
@@ -686,19 +534,32 @@ def check_command(
             return HARD_RESET
     if sub == "rebase" and flags != ["--abort"]:
         return REBASE
-    if sub == "update-ref" or (
-        sub == "branch"
-        and any(
-            _names(f, _REF_WRITE_LONG) or any(_short_cluster_has(f, x) for x in "fdDmMcC")
+    if sub == "update-ref" or _forces_a_branch(sub, rest, flags):
+        return REF_WRITE
+    return None
+
+
+def _forces_a_branch(sub: str, rest: list[str], flags: list[str]) -> bool:
+    """Whether a command forces, deletes, moves or copies a branch, by any subcommand.
+
+    ``git branch`` with a forcing or deleting option; ``checkout -B``, ``switch -C`` and
+    ``worktree add -B``, which reset a branch that exists to another commit; and a ``fetch``
+    whose refspec forces (``+``) an update of a local branch.
+    """
+    if sub == "branch":
+        return any(
+            _names(f, _REF_WRITE_LONG) or any(_short_cluster_has(sub, f, x) for x in "fdDmMcC")
             for f in flags
         )
-    ):
-        return REF_WRITE
-    if role and (redirected or (elsewhere and seen)):
-        return ROLE_REPOSITORY
-    if role and seen and sub and sub not in _GIT_COMMANDS:
-        return ROLE_UNKNOWN_SUBCOMMAND.format(sub=sub)
-    return None
+    if sub == "checkout":
+        return any(_short_cluster_has(sub, f, "B") for f in flags)
+    if sub == "switch":
+        return any(_names(f, ("--force-create",)) or _short_cluster_has(sub, f, "C") for f in flags)
+    if sub == "worktree":
+        return any(_short_cluster_has(sub, f, "B") for f in flags)
+    if sub == "fetch":
+        return any(w.startswith("+") for w in rest if not w.startswith("-"))
+    return False
 
 
 def _config_changes_exec(rest: list[str]) -> bool:
@@ -714,9 +575,7 @@ def _config_changes_exec(rest: list[str]) -> bool:
     return renames and any(w.split(".", 1)[0] == "core" for w in words)
 
 
-def _found_in(
-    cmd: SimpleCommand, position: str, fed: bool
-) -> list[tuple[SimpleCommand, str, bool]]:
+def _found_in(cmd: SimpleCommand, position: str) -> list[tuple[SimpleCommand, str]]:
     """Commands ``cmd`` runs that the parser did not hand over, each with how it was found.
 
     The string a shell found among another program's words runs (``timeout 5 sh -c '…'``),
@@ -726,7 +585,7 @@ def _found_in(
     """
     argv = unwrap(cmd.argv)
     offset = len(cmd.argv) - len(argv)
-    found: list[tuple[SimpleCommand, str, bool]] = []
+    found: list[tuple[SimpleCommand, str]] = []
     if not argv:
         return found
     head = argv[0].rsplit("/", 1)[-1]
@@ -751,11 +610,11 @@ def _found_in(
                 strings.append(arg.split("=", 1)[1])
                 break
     for text in strings:
-        found += [(c, "command", fed) for c in parse(text)]
+        found += [(c, "command") for c in parse(text)]
     inner = "runner" if head in _RUNNERS or position == "runner" else "text"
-    fed = fed or head in _FEEDERS
     for k in range(1, len(argv)):
         word = argv[k].rsplit("/", 1)[-1]
+        word = word.removeprefix("=")
         if word in _STARTS or word in SHELLS or word in _RUNNERS or word.startswith("git-"):
             start = offset + k
             tail = SimpleCommand(
@@ -763,7 +622,7 @@ def _found_in(
                 dynamic=frozenset(n - start for n in cmd.dynamic if n >= start),
                 expanding=frozenset(n - start for n in cmd.expanding if n >= start),
             )
-            found.append((tail, inner, fed))
+            found.append((tail, inner))
             break
     return found
 
@@ -781,12 +640,10 @@ def pre_tool_use(hook_input: InputView, config: ConfigView) -> Decision:
         return refuse(UNPARSEABLE.format(detail=exc))
     cwd = hook_input.cwd if os.path.isabs(hook_input.cwd) else config.worktree
     head_moved = False
-    here: str | None = cwd
-    pending: list[tuple[SimpleCommand, str, bool]] = [(c, "command", False) for c in commands]
+    pending: list[tuple[SimpleCommand, str]] = [(c, "command") for c in commands]
     while pending:
-        cmd, position, fed = pending.pop(0)
-        elsewhere = here is None or not _inside_worktree(here, config.worktree)
-        reason = check_command(cmd, config, cwd, head_moved, position=position, elsewhere=elsewhere)
+        cmd, position = pending.pop(0)
+        reason = check_command(cmd, config, cwd, head_moved, position=position)
         if reason is not None:
             return refuse(reason)
         argv = unwrap(cmd.argv)
@@ -794,42 +651,30 @@ def pre_tool_use(hook_input: InputView, config: ConfigView) -> Decision:
             # A reset is held to the branch checked out where the call started; after a
             # directory change it may act on another, so it is refused as a moved head is.
             head_moved = True
-            here = _moved_to(cmd, here)
         as_git = _as_git(argv)
-        if as_git is not None:
-            if fed and config.profile == "role":
-                return refuse(ROLE_GIT_FED)
-            if _split_git(as_git)[1] in _HEAD_MOVERS:
-                head_moved = True
+        if as_git is not None and _moves_head(as_git):
+            head_moved = True
         try:
-            pending[0:0] = _found_in(cmd, position, fed)
+            pending[0:0] = _found_in(cmd, position)
         except ShellSyntaxError as exc:
             return refuse(UNPARSEABLE.format(detail=exc))
     return ALLOW
 
 
-def _inside_worktree(path: str, worktree: str) -> bool:
-    real, root = os.path.realpath(path), os.path.realpath(worktree)
-    return real == root or real.startswith(root.rstrip("/") + "/")
+def _moves_head(argv: tuple[str, ...]) -> bool:
+    """Whether a git command may leave HEAD, or the branch it names, somewhere else.
 
-
-def _moved_to(cmd: SimpleCommand, here: str | None) -> str | None:
-    """Where a ``cd`` or ``pushd`` leaves the shell, or ``None`` when that cannot be told.
-
-    No target (the home directory), ``-``, a ``~`` path, a word known only at run time and
-    ``popd`` (a directory pushed earlier) are not placed.
+    Switching branches, and a reset of any mode to anything but HEAD's own history: a
+    ``reset --soft main`` followed by ``reset --hard HEAD`` would otherwise move the branch
+    to another history in two steps that each pass.
     """
-    argv = unwrap(cmd.argv)
-    offset = len(cmd.argv) - len(argv)
-    if here is None or argv[0] == "popd":
-        return None
-    for n, word in enumerate(argv[1:], 1):
-        if word.startswith("-") and word != "-":
-            continue
-        if word == "-" or word.startswith("~") or offset + n in cmd.dynamic:
-            return None
-        return os.path.normpath(os.path.join(here, word))
-    return None
+    _, sub, rest = _split_git(argv)
+    if sub in _HEAD_MOVERS:
+        return True
+    if sub == "reset":
+        refs = [w for w in rest if not w.startswith("-")]
+        return not all(_head_relative(r) for r in refs)
+    return False
 
 
 HOOK = HookSpec("git_ops", {"PreToolUse": pre_tool_use})

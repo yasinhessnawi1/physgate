@@ -393,7 +393,7 @@ ATTEMPTS = [
     Attempt(
         "patch",
         "a patch that rewrites the gate",
-        [bash("git apply payload.patch && echo ran > ran.txt")],
+        [bash("patch -p1 < payload.patch && echo ran > ran.txt")],
         "sentinel",
         runs=True,
     ),
