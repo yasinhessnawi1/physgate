@@ -61,7 +61,8 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from physgate.knowledge import loader
 from physgate.knowledge.library import LibraryError, read_library
-from physgate.orchestrator.exceptions import TrajectoryTamperedError
+from physgate.orchestrator.exceptions import GitError, TrajectoryTamperedError
+from physgate.orchestrator.git import EMPTY_TREES, attr_source, harness_git
 from physgate.orchestrator.protocols import Artefact, IssuedSpec
 from physgate.orchestrator.trajectory import Seal, read_sealed
 from physgate.reviewers.exceptions import ReviewError
@@ -150,9 +151,11 @@ def _digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-#: Git as the packet runs it: replacement objects ignored, no system or user
-#: configuration, no attributes file. An attempt's session can add a replacement
-#: object, which would change what a commit is shown to hold, or commit an
+#: Git as the packet runs it: the harness's one git binary (``harness_git``, never a
+#: lookup on ``PATH``), replacement objects ignored, no system or user configuration,
+#: no attributes file, and attributes taken from the empty tree of the store's object
+#: format (``--attr-source`` and ``GIT_ATTR_SOURCE``). An attempt's session can add a
+#: replacement object, which would change what a commit is shown to hold, or commit an
 #: attribute file, which would hide or rewrite a file in an archive or a diff.
 _GIT_ENV = {
     "PATH": "/usr/bin:/bin",
@@ -256,12 +259,12 @@ def _object_format(repo: Path) -> str:
         msg = "the attempt's repository has no config to read its object format from"
         raise PacketError(msg, repo=str(repo))
     done = subprocess.run(
-        ["git", *_GIT_FLAGS, "config", "--file", str(config), "--no-includes", "--get",
-         "extensions.objectformat"],
+        [_git_path(), attr_source(), *_GIT_FLAGS, "config", "--file", str(config),
+         "--no-includes", "--get", "extensions.objectformat"],
         cwd="/",
         capture_output=True,
         check=False,
-        env=_GIT_ENV,
+        env={**_GIT_ENV, "GIT_ATTR_SOURCE": EMPTY_TREES["sha1"]},
     )  # fmt: skip
     if done.returncode == 1:  # the key is absent
         return "sha1"
@@ -287,11 +290,12 @@ def _object_store(object_dirs: tuple[str, ...], object_format: str) -> str:
     store = tempfile.mkdtemp(prefix="physgate-review-store-")
     _STORES.append(store)
     done = subprocess.run(
-        ["git", *_GIT_FLAGS, "init", "-q", "--bare", f"--object-format={object_format}", store],
+        [_git_path(), attr_source(object_format), *_GIT_FLAGS, "init", "-q", "--bare",
+         f"--object-format={object_format}", store],
         capture_output=True,
         check=False,
-        env=_GIT_ENV,
-    )
+        env={**_GIT_ENV, "GIT_ATTR_SOURCE": EMPTY_TREES[object_format]},
+    )  # fmt: skip
     if done.returncode != 0:
         msg = "git could not prepare the object store the review reads"
         raise PacketError(msg, stderr=done.stderr.decode()[-300:])
@@ -299,14 +303,27 @@ def _object_store(object_dirs: tuple[str, ...], object_format: str) -> str:
     return store
 
 
+def _git_path() -> str:
+    """The harness's git binary, by absolute path.
+
+    Raises:
+        PacketError: no git at 2.42 or later is found.
+    """
+    try:
+        return harness_git().path
+    except GitError as exc:
+        raise PacketError(str(exc), **exc.context) from None
+
+
 def _git_bytes(repo: Path, *args: str) -> bytes:
-    store = _object_store(tuple(_object_dirs(Path(repo))), _object_format(Path(repo)))
+    object_format = _object_format(Path(repo))
+    store = _object_store(tuple(_object_dirs(Path(repo))), object_format)
     done = subprocess.run(
-        ["git", "--git-dir", store, *_GIT_FLAGS, *args],
+        [_git_path(), attr_source(object_format), "--git-dir", store, *_GIT_FLAGS, *args],
         cwd=store,
         capture_output=True,
         check=False,
-        env=_GIT_ENV,
+        env={**_GIT_ENV, "GIT_ATTR_SOURCE": EMPTY_TREES[object_format]},
     )
     if done.returncode != 0:
         msg = "git could not produce what the review is shown"

@@ -109,6 +109,7 @@ def config(run_id: str, repo: Path, **overrides: Any) -> RunConfig:  # noqa: ANN
         "max_output_tokens": 64000,
         "thinking_display": "summarized",
         "role_python": None,
+        "git_binary": None,
     }
     fields.update(overrides)
     return RunConfig(**fields)

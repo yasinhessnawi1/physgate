@@ -1,5 +1,10 @@
 """The orchestrator's git plumbing: branches, worktrees, commits and merges.
 
+Every command runs one git binary, resolved once per process (:func:`harness_git`): the first
+``git`` on the harness's ``PATH``, then in ``/usr/bin``, whose version is 2.42 or later. git
+before 2.42 silently ignores the attribute source the harness sets, so an older one is never
+run, and no command looks git up on ``PATH`` itself.
+
 Every command runs with the user's and the system's git configuration switched
 off, repository hooks disabled and replacement objects ignored, so it reads and
 writes the exact objects it names. The orchestrator's merges and commits must not
@@ -17,29 +22,134 @@ from __future__ import annotations
 import atexit
 import functools
 import os
+import re
 import shutil
 import subprocess
 import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Annotated
+
+from pydantic import BaseModel, ConfigDict, StringConstraints
 
 from physgate.orchestrator.exceptions import GitError
 
 AUTHOR = ("physgate orchestrator", "orchestrator@physgate.invalid")
 
-#: Git's empty tree. Attribute lookup reads ``.gitattributes`` from it, so no committed
-#: attribute selects a diff driver or a merge driver, two ways a role-written repository would
-#: otherwise run a program when the harness diffs or merges it. (This does not govern the
-#: clean/smudge filter ``git add`` applies; that is why content reads run against a clean store
-#: rather than relying on it, and why a write in a role worktree is a separate concern.)
+#: Git's empty tree: every command takes its attributes from it (``--attr-source`` and
+#: ``GIT_ATTR_SOURCE``), not from a ``.gitattributes`` in the worktree, the index or a commit.
+#: So no committed attribute selects a diff driver or a merge driver, two ways a role-written
+#: repository would otherwise run a program when the harness diffs or merges it, and none
+#: changes what ``git add`` stages. Measured on git 2.54.0 with an inert attribute: with a
+#: ``* text`` committed, a file with CRLF line endings was staged byte for byte under this
+#: source, where ``git add`` without it staged the file with LF endings. git 2.39.3 ignored the
+#: environment variable and staged LF, and refused the option; hence the 2.42 floor.
 _EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 #: The empty tree under each object format git can store. A clean-store read takes its attribute
 #: source from the one matching the store, since git refuses an attribute source of the other hash.
-_EMPTY_TREES = {
+#: A command inside a repository keeps the SHA-1 one, so in a SHA-256 repository it fails closed.
+EMPTY_TREES = {
     "sha1": _EMPTY_TREE,
     "sha256": "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321",
 }
+
+#: The oldest git the harness runs: before 2.42, git ignores ``GIT_ATTR_SOURCE`` without a word
+#: and refuses ``--attr-source``, so a committed ``.gitattributes`` would choose how the harness
+#: diffs, merges and adds.
+GIT_FLOOR = (2, 42)
+#: Looked in after every directory on the harness's ``PATH``.
+_LAST_DIRECTORY = "/usr/bin"
+_VERSION_LINE = re.compile(r"^git version (\d+)\.(\d+)")
+
+
+class GitBinary(BaseModel):
+    """The git every harness git command runs, as resolved when the process first needed it."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    #: The absolute path it was found at on the search path, as spelt (no link followed):
+    #: the path every command executes.
+    path: Annotated[str, StringConstraints(pattern=r"^/")]
+    #: What ``git --version`` printed after ``git version``.
+    version: Annotated[str, StringConstraints(min_length=1)]
+
+
+def _reported_version(path: str) -> str | None:
+    """What the program at ``path`` says its version is, or ``None`` if it says no git version.
+
+    Run from the filesystem root with an empty environment, so nothing of the harness's own
+    environment reaches it.
+    """
+    try:
+        done = subprocess.run(
+            [path, "--version"],
+            cwd="/",
+            env={"PATH": "/usr/bin:/bin", "HOME": os.devnull, "LC_ALL": "C"},
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    line = done.stdout.strip().split("\n", 1)[0]
+    if done.returncode != 0 or not _VERSION_LINE.match(line):
+        return None
+    return line.removeprefix("git version ").strip()
+
+
+def _meets_floor(version: str) -> bool:
+    found = _VERSION_LINE.match(f"git version {version}")
+    return found is not None and (int(found[1]), int(found[2])) >= GIT_FLOOR
+
+
+def resolve_git(search_path: str) -> GitBinary:
+    """The first ``git`` at or above :data:`GIT_FLOOR`, looked for along ``search_path``.
+
+    ``search_path`` is a ``PATH`` value; its directories are tried in order, then
+    ``/usr/bin``. An empty or relative entry is skipped: it names whatever the current
+    directory is when git runs, which is not a place the harness chose.
+
+    Raises:
+        GitError: no git there is 2.42 or later.
+    """
+    seen: set[str] = set()
+    looked: list[str] = []
+    for directory in [*search_path.split(os.pathsep), _LAST_DIRECTORY]:
+        if not os.path.isabs(directory):
+            continue
+        candidate = os.path.join(os.path.normpath(directory), "git")
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if not (os.path.isfile(candidate) and os.access(candidate, os.X_OK)):
+            continue
+        version = _reported_version(candidate)
+        looked.append(f"{candidate} ({version or 'no version'})")
+        if version is not None and _meets_floor(version):
+            return GitBinary(path=candidate, version=version)
+    msg = (
+        "no git at 2.42 or later was found on the PATH or in /usr/bin; an older git ignores "
+        "the attribute source the harness sets, so the harness does not run it"
+    )
+    raise GitError(msg, found=", ".join(looked) or "none")
+
+
+@functools.cache
+def harness_git() -> GitBinary:
+    """The git this process runs for every harness git command, resolved once from ``PATH``.
+
+    Raises:
+        GitError: no git at 2.42 or later is found (not cached: the next call looks again).
+    """
+    return resolve_git(os.environ.get("PATH", ""))
+
+
+def attr_source(object_format: str = "sha1") -> str:
+    """The option that makes git take attributes from the empty tree of ``object_format``."""
+    return f"--attr-source={EMPTY_TREES[object_format]}"
+
 
 #: The environment every command runs with. ``GIT_NO_REPLACE_OBJECTS`` turns off ``refs/replace``:
 #: a replace ref makes git silently show one object in place of another, and a role can write
@@ -162,8 +272,8 @@ def _object_format(repo: Path) -> str:
         raise GitError(msg, cwd=str(repo))
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.devnull, **_ENV}
     done = subprocess.run(
-        ["git", *_FLAGS, "config", "--file", str(config), "--no-includes", "--get",
-         "extensions.objectformat"],
+        [harness_git().path, attr_source(), *_FLAGS, "config", "--file", str(config),
+         "--no-includes", "--get", "extensions.objectformat"],
         cwd="/",
         env=env,
         capture_output=True,
@@ -173,7 +283,7 @@ def _object_format(repo: Path) -> str:
     if done.returncode == 1:  # the key is absent
         return "sha1"
     found = done.stdout.strip()
-    if done.returncode != 0 or found not in _EMPTY_TREES:
+    if done.returncode != 0 or found not in EMPTY_TREES:
         msg = "the repository's object format cannot be read, or the clean store cannot use it"
         raise GitError(
             msg, cwd=str(repo), exit=str(done.returncode), object_format=found[:40],
@@ -195,9 +305,23 @@ def _object_store(object_dirs: tuple[str, ...], object_format: str) -> str:
     """
     store = tempfile.mkdtemp(prefix="physgate-git-store-")
     _STORES.append(store)
-    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.devnull, **_ENV}
+    env = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "HOME": os.devnull,
+        **_ENV,
+        "GIT_ATTR_SOURCE": EMPTY_TREES[object_format],
+    }
     done = subprocess.run(
-        ["git", *_FLAGS, "init", "-q", "--bare", f"--object-format={object_format}", store],
+        [
+            harness_git().path,
+            attr_source(object_format),
+            *_FLAGS,
+            "init",
+            "-q",
+            "--bare",
+            f"--object-format={object_format}",
+            store,
+        ],
         env=env,
         capture_output=True,
         text=True,
@@ -234,17 +358,19 @@ def git(
         GitError: it exited non-zero and ``check`` is true.
     """
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.devnull, **_ENV}
+    exe = harness_git().path
     if objects_only:
         object_format = _object_format(Path(cwd))
         store = _object_store(_object_dirs(Path(cwd)), object_format)
-        env["GIT_ATTR_SOURCE"] = _EMPTY_TREES[object_format]
-        argv = ["git", "--git-dir", store, *_FLAGS, *args]
+        env["GIT_ATTR_SOURCE"] = EMPTY_TREES[object_format]
+        argv = [exe, attr_source(object_format), "--git-dir", store, *_FLAGS, *args]
         run_in: Path | str = store
     elif git_dir is not None:
-        argv = ["git", "--git-dir", str(git_dir), "--work-tree", str(cwd), *_FLAGS, *args]
+        argv = [exe, attr_source(), "--git-dir", str(git_dir), "--work-tree", str(cwd), *_FLAGS]
+        argv += args
         run_in = cwd
     else:
-        argv = ["git", *_FLAGS, *args]
+        argv = [exe, attr_source(), *_FLAGS, *args]
         run_in = cwd
     done = subprocess.run(
         argv,
@@ -271,12 +397,16 @@ def git_timed(cwd: Path, *args: str, timeout: float) -> tuple[int | None, str, f
     """Run one git command with a time limit: (exit code or None on timeout, stderr, seconds).
 
     Never raises for a failure or a timeout: the caller records what happened.
+
+    Raises:
+        GitError: no git at 2.42 or later is found, so there is no git to run.
     """
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.devnull, **_ENV}
+    exe = harness_git().path
     started = time.monotonic()
     try:
         done = subprocess.run(
-            ["git", *_FLAGS, *args],
+            [exe, attr_source(), *_FLAGS, *args],
             cwd=cwd,
             env=env,
             capture_output=True,

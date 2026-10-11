@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 
+from physgate.orchestrator.git import harness_git
 from physgate.reviewers import packet
 from physgate.reviewers.packet import _diff, _export, issued_spec_sha256
 
@@ -88,7 +89,7 @@ def test_every_packet_git_call_runs_with_replace_objects_off(
     packet._object_store.cache_clear()
     _diff(repo, _EMPTY_TREE, commit)
 
-    git_calls = [(argv, env) for argv, env in calls if argv and argv[0] == "git"]
+    git_calls = [(argv, env) for argv, env in calls if argv and argv[0] == harness_git().path]
     assert any("init" in argv for argv, _ in git_calls), "the store's creation was not recorded"
     assert any("config" in argv for argv, _ in git_calls), "the format read was not recorded"
     assert any("diff" in argv for argv, _ in git_calls), "the diff was not recorded"

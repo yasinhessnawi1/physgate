@@ -26,7 +26,7 @@ import pytest
 
 from physgate.evaluation.inject import materialise
 from physgate.orchestrator import git as orchestrator_git
-from physgate.orchestrator.git import diff_text, git, git_timed
+from physgate.orchestrator.git import diff_text, git, git_timed, harness_git
 
 _ENV = {
     "PATH": "/usr/bin:/bin",
@@ -123,11 +123,11 @@ def test_every_git_helper_runs_git_with_replace_objects_off(
     for name, call in helpers.items():
         before = len(calls)
         call()
-        made = [argv for argv, _ in calls[before:] if argv and argv[0] == "git"]
+        made = [argv for argv, _ in calls[before:] if argv and argv[0] == harness_git().path]
         assert made, f"the {name} helper ran no git call that was recorded"
         if name.startswith("clean store"):
             assert len(made) == 3, made
 
-    git_calls = [(argv, env) for argv, env in calls if argv and argv[0] == "git"]
+    git_calls = [(argv, env) for argv, env in calls if argv and argv[0] == harness_git().path]
     for argv, env in git_calls:
         assert env.get("GIT_NO_REPLACE_OBJECTS") == "1", argv

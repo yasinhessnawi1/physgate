@@ -35,7 +35,7 @@ from physgate.orchestrator.common import (
     first_problem,
 )
 from physgate.orchestrator.exceptions import GitError, RunConfigError
-from physgate.orchestrator.git import git
+from physgate.orchestrator.git import GitBinary, git
 from physgate.orchestrator.role_python import RolePython
 
 
@@ -235,6 +235,11 @@ class RunConfig(_Frozen):
     #: configured (``role_python.measure``), or ``None`` for none: the parameters name a
     #: path or null. A run recorded before the field existed named none, and reads so.
     role_python: RolePython | None
+    #: The git binary every harness git command ran, as resolved when the run was configured
+    #: (``git.harness_git``): its absolute path and its version. Recorded, not held to: a
+    #: resume runs whatever git the resuming process resolves, at 2.42 or later. A run recorded
+    #: before the field existed names none, and reads so.
+    git_binary: GitBinary | None
 
     @model_validator(mode="after")
     def _reportable_needs_a_clean_commit(self) -> RunConfig:
@@ -247,14 +252,16 @@ class RunConfig(_Frozen):
         """The recorded form: stable key order, so equal configs are equal bytes.
 
         ``thinking_display`` is left out when it is ``omitted``, what every run before
-        the field existed ran with, and ``role_python`` when it is ``None``, so their
-        recorded digests still name them.
+        the field existed ran with, and ``role_python`` and ``git_binary`` when they are
+        ``None``, so their recorded digests still name them.
         """
         exclude = set()
         if self.thinking_display == "omitted":
             exclude.add("thinking_display")
         if self.role_python is None:
             exclude.add("role_python")
+        if self.git_binary is None:
+            exclude.add("git_binary")
         return self.model_dump_json(indent=None, exclude=exclude or None).encode() + b"\n"
 
     def sha256(self) -> str:
@@ -333,7 +340,11 @@ def load_run_config(path: Path) -> RunConfig:
         raw = json.dumps(recorded).encode()
     if isinstance(recorded, dict) and "role_python" not in recorded:
         # Recorded before the field existed: no interpreter was named.
-        raw = json.dumps({**recorded, "role_python": None}).encode()
+        recorded = {**recorded, "role_python": None}
+        raw = json.dumps(recorded).encode()
+    if isinstance(recorded, dict) and "git_binary" not in recorded:
+        # Recorded before the field existed: the git it ran was not recorded.
+        raw = json.dumps({**recorded, "git_binary": None}).encode()
     try:
         return RunConfig.model_validate_json(raw)
     except ValidationError as exc:

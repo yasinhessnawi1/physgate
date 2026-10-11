@@ -259,6 +259,7 @@ def _config() -> RunConfig:
         max_output_tokens=64000,
         thinking_display="summarized",
         role_python=None,
+        git_binary=None,
     )
 
 

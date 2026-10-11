@@ -27,6 +27,7 @@ from pathlib import Path
 
 from physgate.evaluation.inject.corpus import Base, Patch, strings_of, telltales
 from physgate.evaluation.inject.exceptions import BlindnessError, CorpusError
+from physgate.orchestrator.git import EMPTY_TREES, attr_source, harness_git
 from physgate.state.store import Store
 
 #: Where the design sits in a materialised worktree.
@@ -46,12 +47,13 @@ ANSWER_FIELDS: tuple[str, ...] = (
     "injected",
 )
 
-#: Git's empty tree: attribute lookup reads ``.gitattributes`` from it, so no committed
-#: attribute selects a diff or a merge driver. The instrument commits a worktree of a fresh
-#: repository it creates itself, with no configuration a role session wrote, so no clean or
-#: smudge filter is defined for ``git add`` to run; the hardening here is defence in depth,
-#: matching the orchestrator's git, not a reachable hole.
-_EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+#: Git's empty tree: every command takes its attributes from it (``--attr-source`` and
+#: ``GIT_ATTR_SOURCE``), so no ``.gitattributes`` selects a diff or a merge driver or changes
+#: what ``git add`` stages. The instrument commits a worktree of a fresh repository it creates
+#: itself, with no configuration a role session wrote; the hardening here is defence in depth,
+#: matching the orchestrator's git, not a reachable hole. The repository is created with git's
+#: default object format, SHA-1, whose empty tree this is.
+_EMPTY_TREE = EMPTY_TREES["sha1"]
 #: ``GIT_NO_REPLACE_OBJECTS`` turns off ``refs/replace``, so every command reads and writes the
 #: exact objects it names, never a substitute a replace ref would silently show in their place.
 _GIT_ENV = {
@@ -96,8 +98,13 @@ class Materialised:
 
 
 def _git(worktree: Path, *args: str) -> str:
+    """Run the harness's one git binary (never a lookup on ``PATH``) in ``worktree``.
+
+    Raises:
+        GitError: no git at 2.42 or later is found.
+    """
     done = subprocess.run(
-        ["git", *_GIT_FLAGS, *args],
+        [harness_git().path, attr_source(), *_GIT_FLAGS, *args],
         cwd=worktree,
         env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.devnull, **_GIT_ENV},
         capture_output=True,

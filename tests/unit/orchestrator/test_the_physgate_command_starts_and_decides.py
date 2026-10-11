@@ -251,6 +251,7 @@ def test_both_example_parameters_files_are_complete_configurations() -> None:
                     "target_head": "b" * 40,
                     "endpoint": "default",
                     "harness": {"commit": None, "clean": False, "uncommitted_sha256": None},
+                    "git_binary": {"path": "/usr/local/bin/git", "version": "2.54.0"},
                 }
             )
         )
@@ -505,11 +506,12 @@ def test_a_run_is_refused_against_another_endpoint_before_any_session(
     assert json.loads(capsys.readouterr().err)["now"] == "default"
     assert (tmp_path / "run" / "events.jsonl").read_bytes() == events
 
-    # The recorded endpoint passes this check; what stops the run then is the next guard in
-    # order, the harness check, which cannot read the checkout with no git on the path.
+    # The recorded endpoint passes this check, and so does the harness check after it: git is
+    # run by the absolute path resolved once per process, never looked up on PATH. What stops
+    # the run then is the next guard in order: no Claude Code binary on the emptied path.
     monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:53817/")
     assert main(args, registrations) == 2
-    assert "git is not available to read the harness" in capsys.readouterr().err
+    assert "no Claude Code binary found" in capsys.readouterr().err
 
 
 def test_a_run_refuses_a_reused_installation_that_is_not_the_source(

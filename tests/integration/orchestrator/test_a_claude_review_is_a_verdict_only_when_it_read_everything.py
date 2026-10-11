@@ -227,6 +227,7 @@ def _config(version: str) -> RunConfig:
         max_output_tokens=1000,
         thinking_display="summarized",
         role_python=None,
+        git_binary=None,
     )
 
 

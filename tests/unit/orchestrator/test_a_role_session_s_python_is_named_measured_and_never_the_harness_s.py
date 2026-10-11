@@ -10,6 +10,7 @@ before the field existed.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -92,7 +93,9 @@ def test_a_configuration_that_names_none_records_what_it_did_before() -> None:
     measured = measure(str(BASE), probe=probe_interpreter, harness=REPO)
     named = cfg.model_copy(update={"role_python": measured})
     assert b"role_python" in named.canonical_bytes()
-    assert RunConfig.model_validate_json(named.canonical_bytes()).role_python == (named.role_python)
+    # Read back as a recorded run is: a field left out of the bytes as ``None`` reads as ``None``.
+    recorded = {**json.loads(named.canonical_bytes()), "git_binary": None}
+    assert RunConfig.model_validate_json(json.dumps(recorded)).role_python == named.role_python
     assert isinstance(named.role_python, RolePython)
 
 
