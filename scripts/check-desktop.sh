@@ -63,6 +63,34 @@ install_refused() {
     case "$said" in *"never installed"*) return 0 ;; *) return 1 ;; esac
 }
 gate "build script refuses to install a trial build" install_refused
+# What each kind of build would be signed with and built as, asked without building or
+# reading any key: a trial build never plans the real key folder or identifier.
+plan_is() {
+    local expected="$1"
+    shift
+    local said
+    said="$(env -i HOME="$HOME" PATH=/usr/bin:/bin "$@" --print-plan 2>&1)" || return 1
+    case "$said" in *"$expected"*) return 0 ;; *) echo "planned: $said" >&2; return 1 ;; esac
+}
+build=(bash ../../scripts/build-desktop.sh)
+for kind in --verification --walkthrough; do
+    gate "a $kind build plans the trial key" plan_is "key_dir=$HOME/.config/physgate-desktop/trial" \
+        PHYSGATE_DESKTOP_HOME="$trial/own" "${build[@]}" "$kind"
+    gate "a $kind build plans the trial identifier" plan_is "identifier=local.physgate.desktop.trial" \
+        PHYSGATE_DESKTOP_HOME="$trial/own" "${build[@]}" "$kind"
+done
+gate "the published build plans the real key and identifier" plan_is \
+    "key_dir=$HOME/.config/physgate-desktop
+identifier=local.physgate.desktop
+features=--features published" "${build[@]}"
+# Where both keys exist, the trial key is not the real one (public halves compared only).
+keys_differ() {
+    local real_pub="$HOME/.config/physgate-desktop/updater.key.pub"
+    local trial_pub="$HOME/.config/physgate-desktop/trial/updater.key.pub"
+    [ -f "$real_pub" ] && [ -f "$trial_pub" ] || return 0
+    ! cmp -s "$real_pub" "$trial_pub"
+}
+gate "the trial signing key differs from the real one" keys_differ
 rm -rf "$trial"
 bash -n ../../scripts/build-desktop.sh || {
     echo "FAILED: desktop — build script syntax" >&2

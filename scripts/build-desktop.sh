@@ -10,6 +10,9 @@
 #                                       switches; never for the real install
 #   scripts/build-desktop.sh --walkthrough
 #                                       the same, with the scripted onboarding walkthrough
+#   scripts/build-desktop.sh --print-plan
+#                                       print the key folder, identifier and features a run
+#                                       with these options would use, and stop
 #
 # The app shows whatever `physgate ui` serves from a checkout, so a UI change needs only
 # scripts/build-ui.sh, never this. This is for changes under desktop/.
@@ -27,6 +30,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 install=0
 trial=0
+plan=0
 # The normal build is the published one; it alone carries the `published` marker.
 features=(--features published)
 for arg in "$@"; do
@@ -34,8 +38,9 @@ for arg in "$@"; do
         --install) install=1 ;;
         --verification) trial=1 features=(--features verification) ;;
         --walkthrough) trial=1 features=(--features walkthrough) ;;
+        --print-plan) plan=1 ;;
         -h | --help)
-            sed -n '3,11p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '3,14p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -101,6 +106,14 @@ if [ "$trial" = 1 ]; then
     if inside "$PHYSGATE_DESKTOP_HOME" "$real_home"; then
         die "$PHYSGATE_DESKTOP_HOME is the installed app's folder, or inside it; a trial build needs a trial folder of its own"
     fi
+fi
+
+# What this run would build, and with which key, without building or reading anything.
+if [ "$plan" = 1 ]; then
+    echo "key_dir=$key_dir"
+    echo "identifier=$identifier"
+    echo "features=${features[*]}"
+    exit 0
 fi
 
 command -v cargo > /dev/null || die "cargo is not on PATH; install Rust (brew install rust) and try again"
