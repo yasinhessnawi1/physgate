@@ -42,7 +42,7 @@ from physgate.orchestrator.queue import (
     record_decision,
 )
 from physgate.ui import assets, guard
-from physgate.ui.exceptions import StartupRefusedError, UIError
+from physgate.ui.exceptions import GuardRefusedError, StartupRefusedError, UIError
 from physgate.ui.paths import Allowlist
 from physgate.ui.routes import (
     Context,
@@ -555,3 +555,63 @@ def test_the_page_names_who_decides_here_and_no_one_when_none_was_named(run: Pat
     from physgate.ui.table import ROUTES
 
     assert not [r for r in ROUTES if "operator" in r.pattern]
+
+
+def test_a_callback_running_beneath_the_decision_function_can_neither_write_nor_read_for_it(
+    run: Path, tmp_path: Path
+) -> None:
+    """The reviewer's probe: code the decision function happens to call issues its own opens.
+
+    A digest whose ``__ne__`` runs inside the decision's own staleness check tries to append to
+    another run's decisions file and to read a file outside every root, each by a name relative
+    to a descriptor it holds. Its frame issues both, so both are refused, however deep beneath
+    the decision function it runs; and the other run's file is unchanged.
+    """
+    from physgate.orchestrator.exceptions import QueueError
+    from physgate.orchestrator.queue import ShownItem
+
+    other = tmp_path / "other-run"
+    other.mkdir()
+    (other / DECISIONS_NAME).write_bytes(b"")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("not for the UI\n")
+    other_fd = os.open(other, os.O_RDONLY | os.O_DIRECTORY)
+    outside_fd = os.open(outside, os.O_RDONLY | os.O_DIRECTORY)
+    tried: dict[str, str] = {}
+
+    def attempt(label: str, opening: Callable[[], int]) -> None:
+        try:
+            os.close(opening())
+            tried[label] = "allowed"
+        except GuardRefusedError:
+            tried[label] = "refused"
+
+    class Digest(str):
+        __hash__ = str.__hash__
+
+        def __ne__(self, other_value: object) -> bool:
+            attempt(
+                "append",
+                lambda: os.open(DECISIONS_NAME, os.O_WRONLY | os.O_APPEND, dir_fd=other_fd),
+            )
+            attempt("read", lambda: os.open("secret.txt", os.O_RDONLY, dir_fd=outside_fd))
+            return False
+
+    allow = Allowlist.build([str(run.parent)], held_out=[], answer_keys=[], harness=None)
+    guard.install()
+    shown = ShownItem.model_construct(item_sha256=Digest("0" * 64), trajectories=())
+    try:
+        with (
+            allow.opened_directory(run) as fd,
+            guard.scope("act", readable=allow.readable),
+            pytest.raises(QueueError),
+        ):
+            record_decision(
+                run, ITEM, decision="approve", resolved_by="yasin", shown=shown, dir_fd=fd
+            )
+    finally:
+        os.close(other_fd)
+        os.close(outside_fd)
+    assert tried == {"append": "refused", "read": "refused"}
+    assert (other / DECISIONS_NAME).read_bytes() == b""

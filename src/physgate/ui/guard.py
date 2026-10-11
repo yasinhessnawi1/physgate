@@ -41,9 +41,13 @@ rule, with exactly these openings:
 - the decisions file's lock may be taken, and its torn tail cut, only from inside that
   function.
 
-"From inside" is read off the call stack when the event fires: the function's own code must
-be on it. So a route of this kind that writes the decisions file itself, or reaches for the
-function's helpers directly, is refused at the write, as is one that writes anywhere else.
+"From inside" is read off the call stack when the event fires, and strictly: the frame that
+issues the operation must be one of the queue module's own helpers for it, and every frame
+between it and the decision function must be another of those helpers. Code that merely runs
+beneath the decision function (a callback it happens to call) issues its operations from its
+own frame and is refused. So a route of this kind that writes the decisions file itself,
+reaches for the function's helpers directly, or slips code beneath it is refused at the write,
+as is one that writes anywhere else.
 
 This is a tripwire against this package's own code, not a sandbox. What it does
 not see: code that reaches the C library directly (``ctypes``); work deferred past
@@ -69,9 +73,17 @@ from dataclasses import dataclass
 from types import CodeType, FrameType
 from typing import Literal
 
-from physgate.orchestrator.queue import DECISIONS_NAME, _decide, _lock
+from physgate.orchestrator.queue import (
+    DECISIONS_NAME,
+    _decide,
+    _lock,
+    _open_in,
+    _read_in,
+    _require_as_shown,
+    trajectory_statuses,
+)
 from physgate.ui.exceptions import GuardRefusedError, UnregisteredKindError
-from physgate.ui.paths import _open_child
+from physgate.ui.paths import Allowlist, _open_child
 
 #: The kinds of route there are. A new kind is added here, with a policy in
 #: ``POLICIES``; nothing else in the server changes.
@@ -241,26 +253,66 @@ DECISIONS_FILE = DECISIONS_NAME
 #: never waiting. Python adds close-on-exec itself.
 APPEND_FLAGS = os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 
-#: The decision function's own code, which must be on the stack for an action's write, its
-#: relative reads, its torn-tail cut; and its lock's.
-DECIDING: frozenset[CodeType] = frozenset({_decide.__code__})
+
+def _lambda_in(code: CodeType) -> CodeType:
+    """The one lambda defined in ``code``: the stream reader ``_require_as_shown`` passes on."""
+    (found,) = [c for c in code.co_consts if isinstance(c, CodeType) and c.co_name == "<lambda>"]
+    return found
+
+
+#: The decision function: the root every action's operation must be issued beneath.
+DECIDING = _decide.__code__
+
+#: The queue module's helpers a decision's operations pass through, and nothing else: opening
+#: a file beneath the run directory, reading one, the lock, the check of what was shown and the
+#: trajectory statuses it computes, with the stream reader it hands them.
+DECISION_CHAIN: frozenset[CodeType] = frozenset(
+    {
+        _decide.__code__,
+        _open_in.__code__,
+        _read_in.__code__,
+        _lock.__code__,
+        _require_as_shown.__code__,
+        _lambda_in(_require_as_shown.__code__),
+        trajectory_statuses.__code__,
+    }
+)
+
+#: The frames that may issue each kind of operation themselves.
+OPENING: frozenset[CodeType] = frozenset({_open_in.__code__})
 LOCKING: frozenset[CodeType] = frozenset({_lock.__code__})
+CUTTING: frozenset[CodeType] = frozenset({_decide.__code__})
 
-#: The walk's step, which may open a directory relative to the one before it.
+#: The walk's step, which may open a directory relative to the one before it, and its root.
 WALKING: frozenset[CodeType] = frozenset({_open_child.__code__})
+WALK_CHAIN: frozenset[CodeType] = frozenset(
+    {_open_child.__code__, Allowlist.open_directory.__code__}
+)
+WALK_ROOT = Allowlist.open_directory.__code__
 
-#: How far up the stack the caller check looks. A decision's deepest open is about a dozen
-#: frames below the route's handler; a bound keeps a deep stack from costing anything.
+#: How far up the stack the chain is followed. A decision's deepest operation is six frames below
+#: the decision function; past this bound the check fails closed.
 STACK_DEPTH = 64
 
+_THIS_FILE = __file__
 
-def _on_stack(codes: frozenset[CodeType]) -> bool:
-    """Whether any of ``codes`` is running in a frame above this one."""
+
+def _issued_by(entries: frozenset[CodeType], chain: frozenset[CodeType], root: CodeType) -> bool:
+    """Whether the operation being audited was issued by one of ``entries``, beneath ``root``.
+
+    The frame that issued it is the first one outside this module. It must be one of
+    ``entries``, and every frame from it up to ``root`` must be in ``chain``: a foreign frame on
+    the way, however deep beneath ``root``, means the operation is not the root's own.
+    """
     frame: FrameType | None = sys._getframe(1)
+    while frame is not None and frame.f_code.co_filename == _THIS_FILE:
+        frame = frame.f_back
+    if frame is None or frame.f_code not in entries:
+        return False
     for _ in range(STACK_DEPTH):
-        if frame is None:
+        if frame is None or frame.f_code not in chain:
             return False
-        if frame.f_code in codes:
+        if frame.f_code is root:
             return True
         frame = frame.f_back
     return False
@@ -284,7 +336,7 @@ def _act_reason(event: str, args: tuple[object, ...], scope: Scope) -> str | Non
         path = args[0] if args else None
         flags = args[2] if len(args) > 2 else 0
         if _write_open(args):
-            if not _on_stack(DECIDING):
+            if not _issued_by(OPENING, DECISION_CHAIN, DECIDING):
                 return "an action route opened a file for writing outside the decision function"
             if not _relative(path) or os.fsdecode(path) != DECISIONS_FILE:  # type: ignore[arg-type]
                 return "an action route opened a file other than the decisions file for writing"
@@ -298,20 +350,26 @@ def _act_reason(event: str, args: tuple[object, ...], scope: Scope) -> str | Non
                 return "an action route opened the decisions file other than to append to it"
             return None
         if _relative(path):
-            if _on_stack(DECIDING):
+            if _issued_by(OPENING, DECISION_CHAIN, DECIDING):
                 return None
-            if isinstance(flags, int) and flags & os.O_DIRECTORY and _on_stack(WALKING):
+            if (
+                isinstance(flags, int)
+                and flags & os.O_DIRECTORY
+                and _issued_by(WALKING, WALK_CHAIN, WALK_ROOT)
+            ):
                 return None
             return "an action route opened a relative path outside the decision and the walk"
         return read_policy(event, args, scope)
     if event == "fcntl.flock":
         return (
             None
-            if _on_stack(LOCKING)
+            if _issued_by(LOCKING, DECISION_CHAIN, DECIDING)
             else "an action route took a lock outside the decision function"
         )
     if event == "os.truncate":
-        if isinstance(args[0] if args else None, int) and _on_stack(DECIDING):
+        if isinstance(args[0] if args else None, int) and _issued_by(
+            CUTTING, DECISION_CHAIN, DECIDING
+        ):
             return None
         return "an action route truncated a file outside the decision function"
     return read_policy(event, args, scope)
