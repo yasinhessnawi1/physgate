@@ -156,6 +156,19 @@ class HarnessState(_Frozen):
         return self
 
 
+#: The patch a dirty checkout's digest is taken over has no colour, the ``a/`` and ``b/`` path
+#: prefixes and no external diff or textconv program, whatever the checkout's own config says
+#: about those (other diff settings, such as the context lines, still apply). On a checkout that
+#: sets none of them the patch is byte for byte git's default, so recorded digests are unchanged.
+_CHECKOUT_DIFF_FLAGS = (
+    "--no-color",
+    "--no-ext-diff",
+    "--no-textconv",
+    "--src-prefix=a/",
+    "--dst-prefix=b/",
+)
+
+
 def harness_root() -> Path | None:
     """The source checkout this orchestrator runs from, or ``None`` if it runs from none.
 
@@ -183,7 +196,7 @@ def harness_state(root: Path | None) -> HarnessState:
         return HarnessState(commit=None, clean=False, uncommitted_sha256=None)
     try:
         commit = git(root, "rev-parse", "HEAD").strip()
-        diff = git(root, "diff", "--binary", "HEAD")
+        diff = git(root, "diff", "--binary", *_CHECKOUT_DIFF_FLAGS, "HEAD")
         untracked = git(root, "ls-files", "--others", "--exclude-standard", "-z").split("\0")
     except GitError as exc:
         msg = "the harness checkout could not be read"

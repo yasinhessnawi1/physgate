@@ -168,3 +168,52 @@ def test_the_materialiser_s_add_stages_a_crlf_file_byte_for_byte(tmp_path: Path)
     repo = _crlf_under_a_committed_text_attribute(tmp_path / "instrument")
     materialise._commit(repo, "the instrument commits")
     assert _staged(repo, "HEAD") == CRLF
+
+
+# ── an attributes file the repository's own config names ──────────────────────────────────
+# The attribute source replaces only the in-tree ``.gitattributes``; git still reads the file
+# ``core.attributesFile`` names. A repository's local config can name one, so every command
+# also sets that key to ``/dev/null``. The marker is the same inert ``* text``.
+
+
+def _crlf_under_a_configured_attributes_file(root: Path) -> Path:
+    """A repository whose local config names an attributes file saying ``* text``; a CRLF file."""
+    root.mkdir(parents=True)
+    _git(root, "init", "-q", "-b", "run")
+    _git(root, "commit", "-q", "--allow-empty", "-m", "start")
+    attributes = root.parent / f"{root.name}.attributes"
+    attributes.write_text("* text\n")
+    _git(root, "config", "core.attributesFile", str(attributes))
+    (root / "f.txt").write_bytes(CRLF)
+    return root
+
+
+def test_the_configured_attributes_file_is_live_without_the_harness_s_setting(
+    tmp_path: Path,
+) -> None:
+    # The control: the same git, under the attribute source alone, applies the file's ``* text``.
+    repo = _crlf_under_a_configured_attributes_file(tmp_path / "plain")
+    subprocess.run(
+        [harness_git().path, f"--attr-source={EMPTY_TREES['sha1']}", "add", "f.txt"],
+        cwd=repo,
+        env=_ENV,
+        capture_output=True,
+        check=True,
+    )
+    assert _staged(repo, "") == b"one\ntwo\n"
+
+
+def test_the_harness_s_add_ignores_an_attributes_file_the_repository_names(
+    tmp_path: Path,
+) -> None:
+    repo = _crlf_under_a_configured_attributes_file(tmp_path / "harness")
+    commit_all(repo, "the harness commits")
+    assert _staged(repo, "HEAD") == CRLF
+
+
+def test_the_materialiser_s_add_ignores_an_attributes_file_the_repository_names(
+    tmp_path: Path,
+) -> None:
+    repo = _crlf_under_a_configured_attributes_file(tmp_path / "instrument")
+    materialise._commit(repo, "the instrument commits")
+    assert _staged(repo, "HEAD") == CRLF

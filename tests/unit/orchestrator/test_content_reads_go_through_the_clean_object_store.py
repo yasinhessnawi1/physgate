@@ -4,9 +4,10 @@ A role session works in the run's repository and can leave files in its git dire
 run inside that repository honours them; a read through the clean object store (a bare
 directory that reaches the repository's objects and nothing else) cannot. These reads moved
 there: a proposal's bytes (``show``), the target's tree at the run's start (``ls-tree``) and its
-object format, a merge's parents (``rev-list``), a recorded commit's tree, and every history the
-rerun comparison walks (``log``). Ref names are still resolved in the repository, the only place
-refs are; only the objects behind them are read in the store.
+object format, a merge's parents (``rev-list``), a recorded commit's tree, every history the
+rerun comparison walks (``log``), and an attempt's changed paths and its patch (``diff``). Ref
+names are still resolved in the repository, the only place refs are; only the objects behind
+them are read in the store.
 
 Inert markers only. A ``shallow`` file in the git directory lists commits whose parents git then
 treats as absent: it runs nothing, and its only effect is what git's history reads report. For
@@ -30,7 +31,7 @@ from physgate.evaluation.observe.manifest import _tree
 from physgate.evaluation.observe.sequence import RunView
 from physgate.orchestrator.apply import ProposalRefusedError, read_proposals
 from physgate.orchestrator.decompose import _require_library_fits
-from physgate.orchestrator.git import head_of
+from physgate.orchestrator.git import changes_between, diff_text, head_of
 from physgate.orchestrator.merge import GitMerger, RunGit, commit_attempt
 
 _ENV = {
@@ -234,3 +235,18 @@ def test_the_rerun_comparison_walks_history_in_the_store(
     _ran_in_store(calls, "log", "--format=%H %T", "--stdin")
     _ran_in_store(calls, "log", "--topo-order", "--format=%T", tip)
     _ran_in_store(calls, "log", "--topo-order", "--format=%T", head)
+
+
+# ── an attempt's changed paths and its patch ───────────────────────────────────
+
+
+def test_an_attempt_s_changes_and_patch_are_read_from_the_store(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, first, second = _repo(tmp_path)
+    calls = _recording(monkeypatch)
+    assert [change.path for change in changes_between(repo, first, second)] == ["m.txt"]
+    assert "+two" in diff_text(repo, first, second)
+    _ran_in_store(calls, "diff", "--raw", "-z", "--no-renames", "--no-abbrev", first, second)
+    _ran_in_store(calls, "diff", "--no-ext-diff", "--no-textconv", "--no-color",
+                  "--submodule=short", first, second)  # fmt: skip
