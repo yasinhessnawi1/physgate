@@ -30,6 +30,7 @@ gate "lint (walkthrough build)" cargo clippy --all-targets --locked --features w
 gate "tests" cargo test --locked
 gate "tests (published build)" cargo test --locked --features published
 gate "tests (verification build)" cargo test --locked --features verification
+gate "tests (walkthrough build)" cargo test --locked --features walkthrough
 # The build script's refusals, run with no cargo or node on PATH, so a refusal that fails
 # to happen stops at "cargo is not on PATH" and is caught here, and nothing is ever built.
 refuses() {
