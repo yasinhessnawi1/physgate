@@ -162,6 +162,30 @@ pub fn intro_seen(app: AppHandle) -> Result<(), String> {
         .change_settings(|s| s.intro_seen = true)
 }
 
+/// The operator's name as the page asks for it: the one set, and the default to offer.
+#[tauri::command]
+pub fn operator_state(app: AppHandle) -> serde_json::Value {
+    serde_json::json!({
+        "current": app.state::<Shell>().settings().operator,
+        "suggested": crate::server::account_full_name(),
+    })
+}
+
+/// Record who decides in the app (`None` leaves it read-only), then start the UI again with
+/// it. Asked once; physgate → Operator Name… changes it.
+#[tauri::command]
+pub fn set_operator(app: AppHandle, name: Option<String>) -> Result<(), String> {
+    let name = name
+        .map(|n| crate::server::valid_operator(&n))
+        .transpose()?;
+    app.state::<Shell>().change_settings(|s| {
+        s.operator = name;
+        s.operator_asked = true;
+    })?;
+    crate::menu::restart_in_background(app);
+    Ok(())
+}
+
 /// Done: remember it, and show the operator UI.
 #[tauri::command]
 pub fn finish_onboarding(app: AppHandle) -> Result<(), String> {

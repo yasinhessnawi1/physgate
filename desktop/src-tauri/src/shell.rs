@@ -28,6 +28,8 @@ pub struct Shell {
     restarting: Mutex<()>,
     /// The app's own page last shown, without its one-use value, so a reload can show it again.
     shown: Mutex<Option<Url>>,
+    /// Whether this launch has said that the UI is read-only for want of an operator's name.
+    told_read_only: std::sync::atomic::AtomicBool,
     /// Where a tour's findings go, when the app was started to take one.
     tour: Option<PathBuf>,
 }
@@ -58,6 +60,7 @@ impl Shell {
             }),
             restarting: Mutex::new(()),
             shown: Mutex::new(None),
+            told_read_only: std::sync::atomic::AtomicBool::new(false),
             tour,
         }
     }
@@ -87,6 +90,34 @@ impl Shell {
         let _ = window.navigate(ticketed);
     }
 
+    /// Once a launch, when the UI opens read-only for want of a name, say so and how to set one.
+    fn say_read_only(&self, app: &AppHandle) {
+        if self
+            .told_read_only
+            .swap(true, std::sync::atomic::Ordering::SeqCst)
+        {
+            return;
+        }
+        self.note("no operator name is set: the UI is read-only; said how to set one");
+        let app = app.clone();
+        thread::spawn(move || {
+            use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+            let set = app
+                .dialog()
+                .message(READ_ONLY_NOTICE)
+                .title("The operator UI is read-only")
+                .kind(MessageDialogKind::Info)
+                .buttons(MessageDialogButtons::OkCancelCustom(
+                    "Set a Name…".into(),
+                    "Stay Read-Only".into(),
+                ))
+                .blocking_show();
+            if set {
+                app.state::<Shell>().onboard(&app, "operator");
+            }
+        });
+    }
+
     /// Reload what the window shows: the server's page as it is, or the app's own page again
     /// through a fresh ticket (its old one is used up, so a plain reload would be refused).
     pub fn reload(&self, window: &WebviewWindow) {
@@ -101,7 +132,21 @@ impl Shell {
         match reload_target(&current, shown.as_ref()) {
             Reload::ShowAgain(page) => self.go(window, &page),
             Reload::Page => {
-                let _ = window.eval("window.location.reload()");
+                // The UI keeps the action token in memory only, so a plain reload would leave
+                // it read-only: an operator's page is opened at the operator's address again.
+                let operator = self
+                    .state()
+                    .server
+                    .as_ref()
+                    .and_then(|server| server.operator().map(|o| o.url().clone()));
+                match operator {
+                    Some(address) => {
+                        let _ = window.navigate(address);
+                    }
+                    None => {
+                        let _ = window.eval("window.location.reload()");
+                    }
+                }
             }
             Reload::Nothing => {}
         }
@@ -163,7 +208,11 @@ impl Shell {
     /// Keep the view the window shows, so a relaunch after an update opens on it again.
     pub fn remember_view(&self, app: &AppHandle) {
         if let Some(window) = app.get_webview_window("main") {
-            if let Some(fragment) = self.server_fragment(&window) {
+            // A fragment that carries an action token is never kept.
+            if let Some(fragment) = self
+                .server_fragment(&window)
+                .filter(|f| !f.contains("act="))
+            {
                 let _ = fs::write(self.paths.root().join("view.txt"), fragment);
             }
         }
@@ -239,6 +288,10 @@ impl Shell {
             self.go(&window, &crate::onboarding::page(step));
             return;
         }
+        if operator_mode(&settings) == OperatorMode::Ask {
+            self.go(&window, &crate::onboarding::page("operator"));
+            return;
+        }
         if !checkout::is_checkout(&settings.checkout) {
             self.show(&window, &Status::no_checkout(&settings.checkout));
             return;
@@ -264,20 +317,43 @@ impl Shell {
             "starting the server from {}",
             settings.checkout.display()
         ));
-        match Server::start(
-            &settings,
-            &self.paths.server_log(),
-            &self.paths.server_pid(),
-        ) {
+        self.serve(app, &window, &settings, view.as_deref());
+    }
+
+    /// Start the server for `settings` and show its page: the operator's address, exactly as
+    /// announced, or the page at the view the window had; or say why it could not start.
+    fn serve(
+        &self,
+        app: &AppHandle,
+        window: &WebviewWindow,
+        settings: &Settings,
+        view: Option<&str>,
+    ) {
+        match Server::start(settings, &self.paths.server_log(), &self.paths.server_pid()) {
             Ok(server) => {
-                let mut target: Url = server.url().clone();
-                target.set_fragment(view.as_deref());
+                // An operator's page is opened at exactly the address the server announced,
+                // which carries the action token; any other page at its address and the view.
+                let target: Url = if let Some(operator) = server.operator() {
+                    operator.url().clone()
+                } else {
+                    let mut plain = server.url().clone();
+                    plain.set_fragment(view);
+                    plain
+                };
                 // The origin trusted is the one this child announced and that passed the
                 // loopback check; nothing a page does can change it.
                 self.gate.serve(Some(server.url()));
                 self.note(&format!("serving {}", server.url()));
                 self.state().server = Some(server);
+                let read_only = self
+                    .state()
+                    .server
+                    .as_ref()
+                    .is_some_and(|s| s.operator().is_none());
                 let _ = window.navigate(target);
+                if read_only {
+                    self.say_read_only(app);
+                }
                 if let Some(out) = &self.tour {
                     tour::take(window.clone(), out.clone(), self.paths.server_log());
                 }
@@ -285,7 +361,7 @@ impl Shell {
             Err(error) => {
                 self.note(&format!("the server did not start: {error:?}"));
                 self.show(
-                    &window,
+                    window,
                     &Status::from_start_error(&error, &settings.checkout),
                 );
             }
@@ -339,6 +415,30 @@ impl Shell {
     }
 }
 
+/// What the app says when the UI opens read-only, and how to change that.
+pub const READ_ONLY_NOTICE: &str = "No operator name is set, so the app can read everything \
+    but approve or reject nothing. To decide from the app, choose physgate → Operator Name… \
+    and give the name decisions are recorded under.";
+
+/// How the operator UI is opened, from the settings.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OperatorMode {
+    /// Not asked yet: ask for the name, once.
+    Ask,
+    /// Asked, and no name given: the UI reads everything and acts on nothing.
+    ReadOnly,
+    /// Decisions are recorded under this name.
+    Decide(String),
+}
+
+pub fn operator_mode(settings: &Settings) -> OperatorMode {
+    match (&settings.operator, settings.operator_asked) {
+        (Some(name), _) => OperatorMode::Decide(name.clone()),
+        (None, false) => OperatorMode::Ask,
+        (None, true) => OperatorMode::ReadOnly,
+    }
+}
+
 /// What a reload does.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Reload {
@@ -383,6 +483,28 @@ mod tests {
         let again = gate.issue(&page);
         assert_ne!(again, first);
         assert_eq!(gate.decide(&again), Decision::OwnPage);
+    }
+
+    #[test]
+    fn the_name_is_asked_once_then_decides_or_leaves_the_ui_read_only() {
+        let mut settings = Settings::default();
+        assert_eq!(operator_mode(&settings), OperatorMode::Ask);
+        settings.operator_asked = true;
+        assert_eq!(operator_mode(&settings), OperatorMode::ReadOnly);
+        settings.operator = Some("Ada Lovelace".into());
+        assert_eq!(
+            operator_mode(&settings),
+            OperatorMode::Decide("Ada Lovelace".into())
+        );
+        // Read-only says how to set a name.
+        assert!(READ_ONLY_NOTICE.contains("physgate → Operator Name…"));
+        // A read-only start asks the server for no operator; a named one does.
+        settings.operator = None;
+        assert!(!crate::server::arguments(&settings).contains(&"--operator".to_string()));
+        settings.operator = Some("Ada Lovelace".into());
+        let args = crate::server::arguments(&settings);
+        let at = args.iter().position(|a| a == "--operator").unwrap();
+        assert_eq!(args[at + 1], "Ada Lovelace");
     }
 
     #[test]

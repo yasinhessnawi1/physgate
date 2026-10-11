@@ -178,6 +178,60 @@ pub fn start(app: AppHandle) {
     });
 }
 
+/// A scripted decision through the operator UI, for checking the app end to end: open the
+/// approval queue of the run `PHYSGATE_DESKTOP_DECIDE_RUN` names (as `<root>/<run>`), press
+/// Approve on its first open item, and confirm. Same handshake as the walkthrough, in the folder
+/// `PHYSGATE_DESKTOP_DECIDE` names. Trial builds only, like the rest of this module.
+pub fn decide(app: AppHandle) {
+    let Some(folder) = crate::config::switch("PHYSGATE_DESKTOP_DECIDE").map(PathBuf::from) else {
+        return;
+    };
+    let run = crate::config::switch("PHYSGATE_DESKTOP_DECIDE_RUN")
+        .and_then(|r| r.into_string().ok())
+        .unwrap_or_default();
+    thread::spawn(move || {
+        let _ = fs::create_dir_all(&folder);
+        let mut n = 0;
+        let mut step = |name: &str, js: Option<String>, settle: u64| {
+            if let (Some(js), Some(window)) = (js, app.get_webview_window("main")) {
+                let _ = window.eval(js);
+            }
+            thread::sleep(Duration::from_millis(settle));
+            n += 1;
+            let stem = format!("{n:02}-{name}");
+            let _ = fs::write(folder.join(format!("{stem}.ready")), "");
+            let done = folder.join(format!("{stem}.done"));
+            let deadline = Instant::now() + Duration::from_secs(120);
+            while !done.exists() && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(100));
+            }
+        };
+        step("operator-ui", None, 6000);
+        step(
+            "approval-queue",
+            Some(format!(
+                "{{ location.hash = '#/collaboration/approval-queue?run=' + encodeURIComponent({}); }}",
+                serde_json::to_string(&run).unwrap_or_default()
+            )),
+            3500,
+        );
+        step(
+            "confirm-approve",
+            Some("{ document.querySelector('.queue-actions .button-act').click(); }".into()),
+            1200,
+        );
+        step(
+            "approved",
+            Some(
+                "{ document.querySelector('dialog[open] .confirm-actions .button-act').click(); }"
+                    .into(),
+            ),
+            3500,
+        );
+        let _ = fs::write(folder.join("finished"), "");
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

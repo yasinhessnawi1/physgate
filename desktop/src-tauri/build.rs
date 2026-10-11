@@ -29,6 +29,8 @@ fn main() {
             "device_report",
             "intro_seen",
             "finish_onboarding",
+            "operator_state",
+            "set_operator",
         ]),
     ))
     .expect("the app's build configuration is valid");
