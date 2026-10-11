@@ -52,7 +52,10 @@ ANSWER_FIELDS: tuple[str, ...] = (
 #: smudge filter is defined for ``git add`` to run; the hardening here is defence in depth,
 #: matching the orchestrator's git, not a reachable hole.
 _EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+#: ``GIT_NO_REPLACE_OBJECTS`` turns off ``refs/replace``, so every command reads and writes the
+#: exact objects it names, never a substitute a replace ref would silently show in their place.
 _GIT_ENV = {
+    "GIT_NO_REPLACE_OBJECTS": "1",
     "GIT_AUTHOR_NAME": "design",
     "GIT_AUTHOR_EMAIL": "design@example.invalid",
     "GIT_COMMITTER_NAME": "design",

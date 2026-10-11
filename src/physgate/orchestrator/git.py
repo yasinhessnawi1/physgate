@@ -1,7 +1,8 @@
 """The orchestrator's git plumbing: branches, worktrees, commits and merges.
 
 Every command runs with the user's and the system's git configuration switched
-off and repository hooks disabled. The orchestrator's merges and commits must not
+off, repository hooks disabled and replacement objects ignored, so it reads and
+writes the exact objects it names. The orchestrator's merges and commits must not
 depend on one person's aliases, signing setup or hook scripts, and a hook script
 in a target repository is code the orchestrator would otherwise run on every
 commit. Author and committer are fixed, so the history says the orchestrator
@@ -40,7 +41,12 @@ _EMPTY_TREES = {
     "sha256": "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321",
 }
 
+#: The environment every command runs with. ``GIT_NO_REPLACE_OBJECTS`` turns off ``refs/replace``:
+#: a replace ref makes git silently show one object in place of another, and a role can write
+#: refs in a repository it works in, so a read or a merge would otherwise act on an object other
+#: than the one the orchestrator named.
 _ENV = {
+    "GIT_NO_REPLACE_OBJECTS": "1",
     "GIT_CONFIG_NOSYSTEM": "1",
     "GIT_CONFIG_GLOBAL": os.devnull,
     "GIT_ATTR_NOSYSTEM": "1",
