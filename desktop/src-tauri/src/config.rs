@@ -341,6 +341,17 @@ mod tests {
     }
 
     #[test]
+    fn the_build_is_published_exactly_when_the_build_script_says_so() {
+        // Decided from the features themselves, not from the cfg build.rs derives: a build.rs
+        // that marked every build (or every build without a trial feature) as published
+        // would fail here, in whichever build the tests run.
+        assert_eq!(
+            PUBLISHED_BUILD,
+            cfg!(feature = "published") && !cfg!(feature = "verification")
+        );
+    }
+
+    #[test]
     fn switches_are_read_only_by_a_trial_build() {
         // HOME is always set, so it stands for any variable the environment holds.
         #[cfg(published)]
