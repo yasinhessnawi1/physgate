@@ -137,16 +137,42 @@ def _object_format(repo: Path) -> str:
     """The hash the repository names its objects with (``sha1`` or ``sha256``).
 
     The clean store must use the same one: a store of the other format cannot read a single
-    object through its alternates. Asked of git, which reports what the repository was created
-    with and runs nothing to say it.
+    object through its alternates. Read as data from the repository's config file, by git run
+    outside the repository with ``--file`` (includes off), so nothing in that config is applied
+    and no git command runs with the repository as its working or git directory. A repository
+    that names no format is SHA-1, git's default.
 
     Raises:
-        GitError: git cannot say, or names a format this module does not know.
+        GitError: the config cannot be read, or names a format this module does not know.
     """
-    found = git(repo, "rev-parse", "--show-object-format").strip()
-    if found not in _EMPTY_TREES:
-        msg = "the repository uses an object format the clean store cannot be made with"
-        raise GitError(msg, cwd=str(repo), object_format=found[:40])
+    git_dir = _git_dir(repo)
+    commondir = git_dir / "commondir"
+    if commondir.is_file():
+        named = Path(commondir.read_text().strip())
+        git_dir = named if named.is_absolute() else (git_dir / named).resolve()
+    config = git_dir / "config"
+    if not config.is_file():
+        msg = "the repository has no config to read its object format from"
+        raise GitError(msg, cwd=str(repo))
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.devnull, **_ENV}
+    done = subprocess.run(
+        ["git", *_FLAGS, "config", "--file", str(config), "--no-includes", "--get",
+         "extensions.objectformat"],
+        cwd="/",
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )  # fmt: skip
+    if done.returncode == 1:  # the key is absent
+        return "sha1"
+    found = done.stdout.strip()
+    if done.returncode != 0 or found not in _EMPTY_TREES:
+        msg = "the repository's object format cannot be read, or the clean store cannot use it"
+        raise GitError(
+            msg, cwd=str(repo), exit=str(done.returncode), object_format=found[:40],
+            stderr=done.stderr.strip()[-400:],
+        )  # fmt: skip
     return found
 
 
@@ -156,9 +182,10 @@ def _object_store(object_dirs: tuple[str, ...], object_format: str) -> str:
 
     A content read (a diff of two commits) runs against this instead of inside the repository,
     so the repository's own config, its ``.gitattributes``, its ``include`` paths and any
-    submodule's config are never consulted by the read and can run nothing, and a committed
-    submodule is shown as its gitlink rather than recursed into. It is created with the
-    repository's ``object_format``, so a SHA-256 repository is read as readily as a SHA-1 one.
+    submodule's config are never applied and can run nothing, and a committed submodule is
+    shown as its gitlink rather than recursed into. The config is read only as data, for the
+    ``object_format`` the store is created with, so a SHA-256 repository is read as readily as
+    a SHA-1 one.
     """
     store = tempfile.mkdtemp(prefix="physgate-git-store-")
     _STORES.append(store)

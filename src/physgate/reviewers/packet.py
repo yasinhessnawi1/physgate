@@ -237,8 +237,43 @@ def _remove_stores() -> None:
         shutil.rmtree(store, ignore_errors=True)
 
 
+def _object_format(repo: Path) -> str:
+    """The hash the attempt's repository names its objects with (``sha1`` or ``sha256``).
+
+    The store must use the same one: a store of the other format cannot read a single object
+    through its alternates. Read as data from the repository's config file, by git run outside
+    the repository with ``--file`` (includes off), so nothing in that config is applied and no
+    git command runs inside the attempt's repository. A repository that names no format is
+    SHA-1, git's default.
+    """
+    git_dir = _git_dir(repo)
+    commondir = git_dir / "commondir"
+    if commondir.is_file():
+        named = Path(commondir.read_text().strip())
+        git_dir = named if named.is_absolute() else (git_dir / named).resolve()
+    config = git_dir / "config"
+    if not config.is_file():
+        msg = "the attempt's repository has no config to read its object format from"
+        raise PacketError(msg, repo=str(repo))
+    done = subprocess.run(
+        ["git", *_GIT_FLAGS, "config", "--file", str(config), "--no-includes", "--get",
+         "extensions.objectformat"],
+        cwd="/",
+        capture_output=True,
+        check=False,
+        env=_GIT_ENV,
+    )  # fmt: skip
+    if done.returncode == 1:  # the key is absent
+        return "sha1"
+    found = done.stdout.decode(errors="replace").strip()
+    if done.returncode != 0 or found not in {"sha1", "sha256"}:
+        msg = "the attempt's object format cannot be read, or the review's store cannot use it"
+        raise PacketError(msg, repo=str(repo), object_format=found[:40])
+    return found
+
+
 @functools.cache
-def _object_store(object_dirs: tuple[str, ...]) -> str:
+def _object_store(object_dirs: tuple[str, ...], object_format: str) -> str:
     """A throwaway bare git directory that reaches ``object_dirs`` and holds nothing else.
 
     Every packet git command runs against this, never with its working directory inside the
@@ -247,12 +282,12 @@ def _object_store(object_dirs: tuple[str, ...]) -> str:
     The store reaches the attempt's objects through ``alternates`` (read-only), carries a clean
     configuration, and has no working tree and no submodules, so a committed submodule is shown
     as its gitlink rather than recursed into — which is where the local configuration otherwise
-    runs a program.
+    runs a program. It is created with the attempt's ``object_format``.
     """
     store = tempfile.mkdtemp(prefix="physgate-review-store-")
     _STORES.append(store)
     done = subprocess.run(
-        ["git", *_GIT_FLAGS, "init", "-q", "--bare", store],
+        ["git", *_GIT_FLAGS, "init", "-q", "--bare", f"--object-format={object_format}", store],
         capture_output=True,
         check=False,
         env=_GIT_ENV,
@@ -265,7 +300,7 @@ def _object_store(object_dirs: tuple[str, ...]) -> str:
 
 
 def _git_bytes(repo: Path, *args: str) -> bytes:
-    store = _object_store(tuple(_object_dirs(Path(repo))))
+    store = _object_store(tuple(_object_dirs(Path(repo))), _object_format(Path(repo)))
     done = subprocess.run(
         ["git", "--git-dir", store, *_GIT_FLAGS, *args],
         cwd=store,
