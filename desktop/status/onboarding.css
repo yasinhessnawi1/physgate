@@ -1,0 +1,88 @@
+/* The onboarding page: the status page's tokens (status.css) plus the few it adds. */
+:root {
+  --accent: #1f55c4;
+  --accent-bg: #e8effc;
+  --pass: #1b7a4b;
+  --muted-bg: #f0f2f5;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --accent: #7aa7ff;
+    --accent-bg: #1a2740;
+    --pass: #4fc08d;
+    --muted-bg: #1e242c;
+  }
+}
+/* Author display rules would otherwise beat the hidden attribute. */
+[hidden] { display: none !important; }
+body.onboarding { display: block; padding: 0; }
+
+.intro { position: fixed; inset: 0; background: #0e1217; display: grid; place-items: center; }
+.intro img { width: 100%; height: 100%; object-fit: contain; }
+.skip {
+  position: absolute; right: 24px; bottom: 24px;
+  font: 600 14px/1 -apple-system, BlinkMacSystemFont, sans-serif;
+  color: #e6eaf0; background: rgba(22, 27, 34, 0.85); border: 1px solid #2c343f;
+  border-radius: 8px; padding: 12px 18px; min-height: 44px; cursor: pointer;
+}
+
+.setup { max-width: 880px; margin: 0 auto; padding: 28px 24px 48px; }
+.steps { display: flex; align-items: center; gap: 16px; margin-bottom: 28px; }
+.steps .mark { margin: 0; width: 32px; height: 32px; }
+.steps ol { display: flex; gap: 8px; list-style: none; margin: 0; padding: 0; font-size: 13px; color: var(--text-2); }
+.steps li + li::before { content: "→"; margin-right: 8px; color: var(--border); }
+.steps li[aria-current="step"] { color: var(--text); font-weight: 600; }
+
+h1 { font-size: 26px; }
+h2 { font-size: 17px; margin: 0 0 8px; }
+.lead { font-size: 16px; }
+.notice {
+  background: var(--accent-bg); color: var(--text); border-radius: 8px;
+  padding: 12px 14px; font-size: 14px; margin: 16px 0 20px;
+}
+
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+.card {
+  text-align: left; font: inherit; color: var(--text); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; cursor: pointer;
+  display: grid; gap: 6px; min-height: 96px;
+}
+.card[aria-checked="true"] { border: 2px solid var(--accent); padding: 13px 15px; }
+.card .name { font-weight: 600; }
+.card .detail { font-size: 13px; color: var(--text-2); }
+.badge { justify-self: start; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+         border-radius: 999px; padding: 3px 8px; }
+.badge.available { background: var(--accent-bg); color: var(--accent); }
+.badge.not-yet { border: 1px dashed var(--border); color: var(--text-2); }
+
+.panel { margin-top: 20px; }
+.panel:empty { display: none; }
+.box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px 22px; display: grid; gap: 14px; }
+.box p { margin: 0; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.ok { color: var(--pass); font-weight: 600; }
+.warn { color: var(--fail); font-weight: 600; }
+ol.howto { margin: 0; padding-left: 20px; display: grid; gap: 10px; }
+label { font-size: 13px; font-weight: 600; display: grid; gap: 6px; }
+input[type="password"], select {
+  font: 14px/1.4 ui-monospace, "SF Mono", Menlo, monospace; color: var(--text); background: var(--bg);
+  border: 1px solid var(--border-strong, var(--border)); border-radius: 6px; padding: 10px 12px; min-height: 44px;
+}
+input[type="password"] { min-width: 340px; flex: 1; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+button {
+  font: 600 14px/1 -apple-system, BlinkMacSystemFont, sans-serif; min-height: 40px; padding: 0 16px;
+  border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer;
+}
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.quiet { background: transparent; }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+button:focus-visible, .card:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+pre.log { max-height: 180px; overflow: auto; font-size: 12px; margin: 0; }
+pre.copy { margin: 0; user-select: all; -webkit-user-select: all; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+td.num { font-family: ui-monospace, "SF Mono", Menlo, monospace; white-space: nowrap; }
+.actions { display: flex; justify-content: space-between; margin-top: 24px; }
+.problem { color: var(--fail); margin-top: 12px; }
+@media (max-width: 640px) { .pair { grid-template-columns: 1fr; } input[type="password"] { min-width: 0; } }

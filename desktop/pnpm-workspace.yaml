@@ -1,0 +1,7 @@
+# The same fail-closed settings as the operator UI's package:
+# - No version younger than a week is installed.
+# - No dependency's install script runs; the Tauri CLI ships its binary as a
+#   platform package and needs none.
+minimumReleaseAge: 10080
+strictDepBuilds: true
+onlyBuiltDependencies: []

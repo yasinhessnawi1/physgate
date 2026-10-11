@@ -1,0 +1,19 @@
+{
+  "name": "physgate-intro",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The desktop app's opening motion, rendered once into desktop/status/intro.gif and its poster.",
+  "type": "module",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts Intro ../status/intro.gif --codec=gif --every-nth-frame=2 --number-of-gif-loops=0 && remotion still src/index.ts Intro ../status/intro-poster.png --frame=209"
+  },
+  "devDependencies": {
+    "@remotion/cli": "4.0.532",
+    "@remotion/fonts": "4.0.532",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "remotion": "4.0.532"
+  },
+  "packageManager": "pnpm@10.26.2"
+}

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-intro-seen"
+description = "Enables the intro_seen command without any pre-configured scope."
+commands.allow = ["intro_seen"]
+
+[[permission]]
+identifier = "deny-intro-seen"
+description = "Denies the intro_seen command without any pre-configured scope."
+commands.deny = ["intro_seen"]

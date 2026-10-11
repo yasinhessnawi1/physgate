@@ -1,0 +1,14 @@
+{
+  "name": "physgate-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The desktop shell around the operator UI. Only the Tauri command-line tool lives here.",
+  "type": "module",
+  "scripts": {
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.1"
+  },
+  "packageManager": "pnpm@10.26.2"
+}

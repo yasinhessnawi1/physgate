@@ -1,0 +1,45 @@
+[package]
+name = "physgate-desktop"
+version = "0.1.0"
+description = "A desktop window around the physgate operator UI, served on loopback by `physgate ui`"
+edition = "2021"
+rust-version = "1.80"
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "2.5", features = [] }
+
+[dependencies]
+tauri = { version = "2.12", features = [] }
+tauri-plugin-updater = "2.13"
+tauri-plugin-dialog = "2.6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+libc = "0.2"
+# The macOS Keychain, through Apple's own API: the only place a credential is kept.
+security-framework = "3.7"
+# The one request the operator may ask for: "Test key". The same client the updater already
+# builds with, so nothing new is compiled in.
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
+
+[features]
+# The one build that is published: set only by scripts/build-desktop.sh for the app it
+# installs and publishes. Without it, any build is a trial build (see build.rs).
+published = []
+# A trial build made on purpose by the build script; it can never be published, even with
+# `published` set. Trial builds read the PHYSGATE_DESKTOP_... switches; a published build
+# reads none.
+verification = []
+# A scripted walk through the onboarding screens, for screenshots. Never in a published build.
+walkthrough = ["verification"]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+
+# The checks build in the dev profile; leaving dependencies without debug information keeps
+# that build under half the size, and nothing here is debugged inside a dependency.
+[profile.dev.package."*"]
+debug = false

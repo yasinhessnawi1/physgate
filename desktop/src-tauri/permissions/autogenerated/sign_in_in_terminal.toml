@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-sign-in-in-terminal"
+description = "Enables the sign_in_in_terminal command without any pre-configured scope."
+commands.allow = ["sign_in_in_terminal"]
+
+[[permission]]
+identifier = "deny-sign-in-in-terminal"
+description = "Denies the sign_in_in_terminal command without any pre-configured scope."
+commands.deny = ["sign_in_in_terminal"]
