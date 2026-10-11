@@ -59,9 +59,38 @@ fn resolve(path: &Path, depth: u32) -> PathBuf {
     out
 }
 
-/// Whether `path` is `folder` or inside it, once both are resolved.
+/// Whether `path` is `folder` or inside it. Decided by what the file system says, not by
+/// spelling: any existing ancestor of the resolved `path` that is the same directory as
+/// `folder` (same device and inode) counts, whatever its spelling, so a link, a `..` or
+/// another capitalisation on a case-insensitive volume is caught. For a `folder` that does
+/// not exist yet, the resolved paths are compared without regard to case.
 pub fn within(path: &Path, folder: &Path) -> bool {
-    resolved(path).starts_with(resolved(folder))
+    let given = resolved(path);
+    let folder = resolved(folder);
+    if starts_with_ignoring_case(&given, &folder) {
+        return true;
+    }
+    identity(&folder).is_some_and(|target| {
+        given
+            .ancestors()
+            .any(|ancestor| identity(ancestor) == Some(target))
+    })
+}
+
+/// A directory's device and inode, if it exists.
+fn identity(path: &Path) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    fs::metadata(path).ok().map(|m| (m.dev(), m.ino()))
+}
+
+fn starts_with_ignoring_case(path: &Path, prefix: &Path) -> bool {
+    let words = |p: &Path| -> Vec<String> {
+        p.components()
+            .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
+            .collect()
+    };
+    let (path, prefix) = (words(path), words(prefix));
+    path.len() >= prefix.len() && path[..prefix.len()] == prefix[..]
 }
 
 /// A trial build's folder: the one `PHYSGATE_DESKTOP_HOME` names, which must be given and
@@ -266,6 +295,39 @@ mod tests {
         );
         let own = dir.path().join("trial");
         assert_eq!(trial_home(Some(own.clone())), Ok(own));
+    }
+
+    #[test]
+    fn inside_is_decided_by_the_file_system_not_by_spelling() {
+        let dir = TestDir::new("within");
+        let folder = dir.path().join("Folder");
+        fs::create_dir_all(folder.join("Sub")).unwrap();
+        // Another capitalisation, of the folder and of a path inside it.
+        assert!(within(&dir.path().join("FOLDER"), &folder));
+        assert!(within(&dir.path().join("folder/sub/new"), &folder));
+        // Through a link whose own name has nothing in common.
+        let link = dir.path().join("elsewhere");
+        std::os::unix::fs::symlink(dir.path().join("fOlDeR"), &link).unwrap();
+        assert!(within(&link.join("x"), &folder));
+        // A folder that does not exist yet: its spelling, without regard to case.
+        let later = dir.path().join("Later");
+        assert!(within(&dir.path().join("LATER/run"), &later));
+        // Neighbours are not inside.
+        fs::create_dir(dir.path().join("Folder2")).unwrap();
+        assert!(!within(&dir.path().join("Folder2"), &folder));
+        assert!(!within(&dir.path().join("Fold"), &folder));
+        assert!(!within(dir.path(), &folder), "a parent is not inside");
+    }
+
+    #[test]
+    fn another_capitalisation_of_the_installed_folder_is_refused() {
+        let home = home();
+        for spelling in [
+            "library/application support/PHYSGATE-DESKTOP",
+            "LIBRARY/Application Support/Physgate-Desktop/trial",
+        ] {
+            assert!(trial_home(Some(home.join(spelling))).is_err(), "{spelling}");
+        }
     }
 
     #[test]

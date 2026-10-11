@@ -218,6 +218,9 @@ mod tests {
         symlink(real_root(), &link).unwrap();
         assert!(check_trial_root(&link).is_err(), "through a link");
         assert!(check_trial_root(&dir.path().join("own-runs")).is_ok());
+        // Another capitalisation, whether or not the operator's run root exists yet.
+        assert!(check_trial_root(&home().join("PHYSGATE-RUNS")).is_err());
+        assert!(check_trial_root(&home().join("Physgate-Runs/a-run")).is_err());
         // A trial build with no root named uses one inside its own folder.
         #[cfg(not(published))]
         {

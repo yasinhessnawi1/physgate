@@ -65,19 +65,42 @@ die() {
     exit 1
 }
 
+# Whether $1 is the folder $2 or inside it. Decided by file identity (device and inode) of
+# every existing ancestor, not by spelling, so a link, a `..` or another capitalisation on a
+# case-insensitive volume is caught; and, for a folder that does not exist yet, by its
+# resolved path compared without regard to case.
+inside() {
+    /usr/bin/python3 -I - "$1" "$2" << 'PY'
+import os, sys
+given, folder = os.path.realpath(sys.argv[1]), os.path.realpath(sys.argv[2])
+def identity(path):
+    try:
+        st = os.stat(path)
+        return (st.st_dev, st.st_ino)
+    except OSError:
+        return None
+target = identity(folder)
+found = (given.lower() + "/").startswith(folder.lower() + "/")
+path = given
+while not found:
+    if target is not None and identity(path) == target:
+        found = True
+    parent = os.path.dirname(path)
+    if parent == path:
+        break
+    path = parent
+sys.exit(0 if found else 1)
+PY
+}
+
 # A trial build honours the trial switches, so it never reaches the real install: it is not
 # installed, and it is published only to a trial channel.
 if [ "$trial" = 1 ]; then
     [ "$install" = 0 ] || die "a trial build (--verification, --walkthrough) is for trials and is never installed"
     [ -n "${PHYSGATE_DESKTOP_HOME:-}" ] || die "a trial build (--verification, --walkthrough) needs PHYSGATE_DESKTOP_HOME set to a trial folder"
-    # Compared after links and .. are resolved, so no spelling of the installed app's folder
-    # (or of a folder inside it) gets through.
-    resolve() { /usr/bin/python3 -I -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"; }
-    given="$(resolve "$PHYSGATE_DESKTOP_HOME")"
-    real="$(resolve "$real_home")"
-    case "$given/" in
-        "$real/"*) die "$PHYSGATE_DESKTOP_HOME is the installed app's folder, or inside it; a trial build needs a trial folder of its own" ;;
-    esac
+    if inside "$PHYSGATE_DESKTOP_HOME" "$real_home"; then
+        die "$PHYSGATE_DESKTOP_HOME is the installed app's folder, or inside it; a trial build needs a trial folder of its own"
+    fi
 fi
 
 command -v cargo > /dev/null || die "cargo is not on PATH; install Rust (brew install rust) and try again"
