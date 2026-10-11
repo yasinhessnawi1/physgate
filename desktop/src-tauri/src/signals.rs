@@ -36,17 +36,40 @@ pub fn requested() -> bool {
 mod tests {
     use super::*;
 
+    /// Run in a child copy of the test binary (see below), never in the shared test process:
+    /// if the handler were not installed, the signal would end whatever process raises it.
     #[test]
-    fn a_stopping_signal_is_caught_and_noted_rather_than_ending_the_process() {
+    #[ignore = "run only in a child process, by the test below"]
+    fn child_catches_a_stopping_signal() {
         install();
-        assert!(!requested());
-        // SAFETY: raising a signal this process now catches.
-        unsafe {
-            libc::raise(libc::SIGTERM);
+        for signal in STOPPING {
+            // SAFETY: raising a signal this process now catches.
+            unsafe {
+                libc::raise(signal);
+            }
         }
         assert!(
             requested(),
             "the signal was caught and the process is still here"
+        );
+    }
+
+    #[test]
+    fn a_stopping_signal_is_caught_and_noted_rather_than_ending_the_process() {
+        let out = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--ignored",
+                "--exact",
+                "signals::tests::child_catches_a_stopping_signal",
+                "--test-threads=1",
+            ])
+            .output()
+            .unwrap();
+        let said = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            out.status.success() && said.contains("1 passed"),
+            "the child did not survive its own signals: {:?}\n{said}",
+            out.status
         );
     }
 }
