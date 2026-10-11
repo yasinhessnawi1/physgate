@@ -76,6 +76,10 @@ FORBIDDEN_NAMES = {
     "getenv",
     "putenv",
     "import_module",
+    # The interpreter's module table, reachable through an allowed import (``typing.sys``):
+    # any module at all, ``os`` included, is one lookup away from it.
+    "sys",
+    "modules",
 }
 
 
@@ -161,7 +165,14 @@ def test_an_annotation_only_import_outside_its_list_is_refused() -> None:
 
 @pytest.mark.parametrize(
     "planted",
-    ["x = os.environ['B']\n", "x = getenv('B')\n", "x = eval('1')\n", "x = open('f')\n"],
+    [
+        "x = os.environ['B']\n",
+        "x = getenv('B')\n",
+        "x = eval('1')\n",
+        "x = open('f')\n",
+        "x = typing.sys.modules['os'].system\n",
+        "x = typing.sys\n",
+    ],
 )
 @pytest.mark.parametrize("source", MODULES, ids=lambda p: p.name)
 def test_the_fence_refuses_a_planted_name(planted: str, source: Path) -> None:
