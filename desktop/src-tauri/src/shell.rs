@@ -120,7 +120,7 @@ impl Shell {
 
     /// Reload what the window shows: the server's page as it is, or the app's own page again
     /// through a fresh ticket (its old one is used up, so a plain reload would be refused).
-    pub fn reload(&self, window: &WebviewWindow) {
+    pub fn reload(&self, app: &AppHandle, window: &WebviewWindow) {
         let Ok(current) = window.url() else {
             return;
         };
@@ -129,24 +129,23 @@ impl Shell {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone();
-        match reload_target(&current, shown.as_ref()) {
+        let operator = self
+            .state()
+            .server
+            .as_ref()
+            .is_some_and(|server| server.operator().is_some());
+        match reload_target(&current, shown.as_ref(), operator) {
             Reload::ShowAgain(page) => self.go(window, &page),
             Reload::Page => {
-                // The UI keeps the action token in memory only, so a plain reload would leave
-                // it read-only: an operator's page is opened at the operator's address again.
-                let operator = self
-                    .state()
-                    .server
-                    .as_ref()
-                    .and_then(|server| server.operator().map(|o| o.url().clone()));
-                match operator {
-                    Some(address) => {
-                        let _ = window.navigate(address);
-                    }
-                    None => {
-                        let _ = window.eval("window.location.reload()");
-                    }
-                }
+                let _ = window.eval("window.location.reload()");
+            }
+            Reload::Restart => {
+                // The page keeps the action token in memory only, and opening the operator's
+                // address again from the page would only change its fragment: no load, and the
+                // token back in the address. A restart is a real load, from the app's own
+                // page, with a new server's token, taken once and cleared by the page.
+                let app = app.clone();
+                thread::spawn(move || app.state::<Shell>().restart(&app));
             }
             Reload::Nothing => {}
         }
@@ -444,18 +443,25 @@ pub fn operator_mode(settings: &Settings) -> OperatorMode {
 pub enum Reload {
     /// Show the app's own page again, through a fresh ticket.
     ShowAgain(Url),
-    /// Reload the server's page in place.
+    /// Reload the server's page in place (a read-only page holds no token to lose).
     Page,
+    /// Start the server again and load the operator's new address from the app's own page.
+    Restart,
     /// Nothing to reload.
     Nothing,
 }
 
-/// What reloading `current` means, given the app's own page last shown.
-pub fn reload_target(current: &Url, shown: Option<&Url>) -> Reload {
+/// What reloading `current` means, given the app's own page last shown and whether the server's
+/// page is an operator's.
+pub fn reload_target(current: &Url, shown: Option<&Url>, operator: bool) -> Reload {
     if current.scheme() == "tauri" {
         return shown.map_or(Reload::Nothing, |page| Reload::ShowAgain(page.clone()));
     }
-    Reload::Page
+    if operator {
+        Reload::Restart
+    } else {
+        Reload::Page
+    }
 }
 
 #[cfg(test)]
@@ -470,12 +476,12 @@ mod tests {
         let mut current = page.clone();
         current.set_query(Some("t=used-up"));
         assert_eq!(
-            reload_target(&current, Some(&page)),
+            reload_target(&current, Some(&page), false),
             Reload::ShowAgain(page.clone())
         );
-        assert_eq!(reload_target(&current, None), Reload::Nothing);
+        assert_eq!(reload_target(&current, None, false), Reload::Nothing);
         let served = Url::parse("http://127.0.0.1:52011/#/runs").unwrap();
-        assert_eq!(reload_target(&served, Some(&page)), Reload::Page);
+        assert_eq!(reload_target(&served, Some(&page), false), Reload::Page);
         // Shown again, the page gets a ticket of its own, not the used-up one.
         let gate = crate::navigation::Gate::default();
         let first = gate.issue(&page);
@@ -505,6 +511,22 @@ mod tests {
         let args = crate::server::arguments(&settings);
         let at = args.iter().position(|a| a == "--operator").unwrap();
         assert_eq!(args[at + 1], "Ada Lovelace");
+    }
+
+    #[test]
+    fn an_operators_reload_is_a_real_load_that_leaves_no_token_in_the_address() {
+        // The operator's page, after the page took its token and cleared the address.
+        let served = Url::parse("http://127.0.0.1:52011/#/collaboration/approval-queue").unwrap();
+        // Not a navigation to the operator's address, which would be a fragment change on the
+        // same document: a restart, which loads the new address from the app's own page.
+        assert_eq!(reload_target(&served, None, true), Reload::Restart);
+        // The restart goes through the app's own page (another origin) to the new address, so
+        // the load is a new document, which takes the token and clears it from the address.
+        let own = Url::parse("tauri://localhost/index.html#starting").unwrap();
+        let next = Url::parse("http://127.0.0.1:52012/#act=fresh").unwrap();
+        assert_ne!(own.origin(), next.origin(), "a cross-document load");
+        // A read-only page holds no token: it reloads in place.
+        assert_eq!(reload_target(&served, None, false), Reload::Page);
     }
 
     #[test]

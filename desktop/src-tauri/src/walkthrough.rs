@@ -228,6 +228,35 @@ pub fn decide(app: AppHandle) {
             ),
             3500,
         );
+        // View > Reload, as the menu does it; then whether the address holds a token, as a
+        // yes or no only: the token itself is never written anywhere.
+        if let Some(window) = app.get_webview_window("main") {
+            app.state::<crate::shell::Shell>().reload(&app, &window);
+        }
+        thread::sleep(Duration::from_secs(8));
+        if let Some(window) = app.get_webview_window("main") {
+            let in_address = window
+                .url()
+                .ok()
+                .and_then(|u| u.fragment().map(|f| f.contains("act=")))
+                .unwrap_or(false);
+            let (sender, receiver) = std::sync::mpsc::channel();
+            let _ = window.eval_with_callback(
+                "JSON.stringify({ act_in_href: location.href.includes('act='), \
+                 act_in_hash: location.hash.includes('act='), ready: document.readyState })",
+                move |result| {
+                    let _ = sender.send(result);
+                },
+            );
+            let page = receiver
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap_or_default();
+            let _ = fs::write(
+                folder.join("after-reload.json"),
+                format!("{{\"act_in_window_address\": {in_address}, \"page\": {page}}}\n"),
+            );
+        }
+        step("reloaded", None, 500);
         let _ = fs::write(folder.join("finished"), "");
     });
 }
