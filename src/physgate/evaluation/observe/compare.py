@@ -8,7 +8,9 @@ run only), when a pinned model setting differs (the effort level, the
 output-token limit and whether role sessions' reasoning is summarized into their
 trajectories, which set what every request asks the model for; a run recorded
 before the last existed reads as not summarized), when the
-binary's version differs, or when the endpoint differs. The way past the
+binary's version differs, when the git binary both runs recorded differs (its
+path or its version; a run recorded before git was recorded is not compared on
+it, since nothing was measured), or when the endpoint differs. The way past the
 refusal is a fresh baseline under the candidate's pins.
 
 What an ablation changes on purpose is reported beside the numbers, never
@@ -104,6 +106,13 @@ def drift(baseline: RunConfig, candidate: RunConfig) -> list[str]:
         drifted.append("role_python")
     if baseline.claude_version != candidate.claude_version:
         drifted.append("claude_version")
+    # Only where both runs recorded it: ``None`` is a run that measured nothing, not a git.
+    if (
+        baseline.git_binary is not None
+        and candidate.git_binary is not None
+        and baseline.git_binary != candidate.git_binary
+    ):
+        drifted.append("git_binary")
     if baseline.endpoint != candidate.endpoint:
         drifted.append("endpoint")
     return drifted
