@@ -393,7 +393,9 @@ def test_a_position_past_the_queue_s_end_is_404(page: tuple[Page, Path]) -> None
 # keeps moving is never cut, however long it takes in all. Each test runs the server with a
 # timeout far shorter than the whole exchange, then shows a stall longer than it is dropped.
 
-TIMEOUT_S = 0.3
+#: The server's timeout in these tests: far shorter than the whole exchange, but long enough that
+#: a loaded machine's scheduling never counts as a client that stopped.
+TIMEOUT_S = 1.0
 
 
 @contextmanager
@@ -434,8 +436,14 @@ def _large_trajectory(run_dir: Path, size: int) -> str:
 def _read_slowly(
     port: int, target: str, *, chunk: int, gap: float, stall_after: int | None
 ) -> tuple[bytes, float]:
+    """Read a response a chunk at a time with a pause between reads, or stall once.
+
+    The socket keeps its default buffers. A receive buffer shrunk after connecting throttles a
+    Linux connection to a crawl, and the kernel then reports the server's socket writable only
+    once a large share of its send buffer has drained, which tests the kernel's pacing rather
+    than the server's timeout (found on CI, reproduced on the server).
+    """
     with socket.create_connection(("127.0.0.1", port), timeout=10) as sock:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 16 * 1024)
         sock.sendall(f"GET {target} HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\n\r\n".encode())
         received = bytearray()
         started = time.monotonic()
@@ -457,19 +465,21 @@ def test_a_large_trajectory_read_slowly_but_steadily_is_served_to_its_end(
     built: dict[str, Path], tmp_path: Path
 ) -> None:
     run_dir = _copy(built, tmp_path / "ui-root")
-    size = 4 << 20
+    # Far more than the kernel buffers on either side (Linux autotunes both to megabytes), so a
+    # body sent in one call cannot finish inside the timeout and the test tells the two apart.
+    size = 24 << 20
     session = _large_trajectory(run_dir, size)
     target = f"/api/runs/0/{RUN}/trajectories/{session}"
     with _short_timeout_server(run_dir, built["ui"]) as port:
-        whole, took = _read_slowly(port, target, chunk=64 * 1024, gap=0.02, stall_after=None)
-        cut, _ = _read_slowly(port, target, chunk=64 * 1024, gap=0.02, stall_after=3)
+        whole, took = _read_slowly(port, target, chunk=128 * 1024, gap=0.02, stall_after=None)
+        cut, _ = _read_slowly(port, target, chunk=128 * 1024, gap=0.02, stall_after=3)
     head, _, body = whole.partition(b"\r\n\r\n")
     assert head.startswith(b"HTTP/1.0 200")
     assert (
         len(body) == size - size % 1031
         and body == (run_dir / "sessions" / session / "stdout.jsonl").read_bytes()
     )
-    assert took > TIMEOUT_S * 3, f"the read took {took:.2f} s: too fast to prove anything"
+    assert took > TIMEOUT_S * 2, f"the read took {took:.2f} s: too fast to prove anything"
     assert len(cut) < len(whole), "a stall past the timeout was not dropped"
 
 
@@ -490,7 +500,7 @@ def test_a_decision_body_sent_slowly_but_steadily_is_taken_and_a_stall_is_droppe
             with socket.create_connection(("127.0.0.1", port), timeout=10) as sock:
                 sock.sendall(head)
                 started = time.monotonic()
-                pieces = [payload[i : i + 40] for i in range(0, len(payload), 40)]
+                pieces = [payload[i : i + 10] for i in range(0, len(payload), 10)]
                 for n, piece in enumerate(pieces):
                     time.sleep(TIMEOUT_S * 4 if n == stall_at else gap)
                     try:
