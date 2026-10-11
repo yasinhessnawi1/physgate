@@ -198,14 +198,14 @@ The flag concerns only how the app fetches its own update. The operator server's
   - `PHYSGATE_DESKTOP_HOME`: settings, logs and the update channel;
   - `PHYSGATE_DESKTOP_RUNS_ROOT`: the default run folder;
   - `PHYSGATE_DESKTOP_CLAUDE`: a stand-in Claude Code;
-  - `PHYSGATE_DESKTOP_KEYCHAIN_SERVICE`: a Keychain service of its own;
   - `PHYSGATE_DESKTOP_TOUR`: the click-through below;
   - `PHYSGATE_DESKTOP_ACCEPT_UPDATE`: accept an update without its dialog. The bundle is
     still verified against the built-in key.
 
   `PHYSGATE_DESKTOP_APPLICATIONS` is the build script's own: where `--install` puts the app.
-  Unit tests use a Keychain service of the test process's own, so they can't reach the
-  operator's items.
+  A trial build always uses the Keychain service `physgate-trial`, fixed when it is
+  compiled; it can't be pointed at `physgate`. Unit tests use a service of the test
+  process's own. The walkthrough refuses to start without a stand-in Claude Code.
 - **A click-through inside the app's own webview:**
   ```sh
   open -n --env PHYSGATE_DESKTOP_TOUR=/tmp/tour.json path/to/a-verification-build/physgate.app

@@ -3,9 +3,9 @@
 //! Compiled only with the `walkthrough` feature, never into a published build, and started
 //! only when `PHYSGATE_DESKTOP_WALKTHROUGH` names a folder. Before each screenshot it writes
 //! `<step>.ready` there and waits for `<step>.done`, which the script taking the screenshots
-//! writes. It is meant to run against a stand-in Claude Code (`PHYSGATE_DESKTOP_CLAUDE`) and a
-//! Keychain service of its own (`PHYSGATE_DESKTOP_KEYCHAIN_SERVICE`), with a made-up key in
-//! `PHYSGATE_DESKTOP_WALK_KEY`, so no real account or credential is involved.
+//! writes. It refuses to start without a stand-in Claude Code (`PHYSGATE_DESKTOP_CLAUDE`), and
+//! as a trial build it can use only the trial Keychain service, so no real account or
+//! credential is involved. The key it types is a made-up one, `PHYSGATE_DESKTOP_WALK_KEY`.
 //!
 //! The script it evaluates in the page is fixed here, with the one value it types encoded
 //! as a JSON string; nothing from outside the app becomes code.
@@ -22,6 +22,43 @@ fn click(text: &str) -> String {
         "[...document.querySelectorAll('button, .card')].find((b) => b.textContent.trim().startsWith({})).click()",
         serde_json::to_string(text).unwrap_or_default()
     )
+}
+
+/// Whether the walkthrough may start: not asked for (`Ok(false)`), or asked for with a
+/// stand-in Claude Code that is none of the places a real one is installed (`Ok(true)`).
+pub fn preflight(
+    asked: Option<&std::ffi::OsStr>,
+    claude: Option<&std::ffi::OsStr>,
+) -> Result<bool, String> {
+    if asked.is_none() {
+        return Ok(false);
+    }
+    let Some(claude) = claude.map(PathBuf::from) else {
+        return Err(
+            "the walkthrough needs a stand-in Claude Code in PHYSGATE_DESKTOP_CLAUDE; \
+                    it never runs the real one"
+                .into(),
+        );
+    };
+    let home = crate::config::home();
+    let real = [
+        home.join(".local/bin/claude"),
+        PathBuf::from("/opt/homebrew/bin/claude"),
+        PathBuf::from("/usr/local/bin/claude"),
+        home.join(".claude/local/claude"),
+        home.join(".npm-global/bin/claude"),
+    ];
+    let resolved = fs::canonicalize(&claude).unwrap_or_else(|_| claude.clone());
+    let is_real = real
+        .iter()
+        .any(|r| *r == claude || fs::canonicalize(r).is_ok_and(|r| r == resolved));
+    if is_real {
+        return Err(format!(
+            "{} is where Claude Code itself is installed; the walkthrough needs a stand-in",
+            claude.display()
+        ));
+    }
+    Ok(true)
 }
 
 #[allow(clippy::too_many_lines)] // one line per step of the script, read top to bottom
@@ -139,4 +176,26 @@ pub fn start(app: AppHandle) {
         );
         let _ = fs::write(folder.join("finished"), "");
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::OsStr;
+
+    #[test]
+    fn the_walkthrough_refuses_to_start_without_a_stand_in_claude_code() {
+        assert_eq!(preflight(None, None), Ok(false), "not asked for");
+        let folder = OsStr::new("/tmp/walk");
+        assert!(preflight(Some(folder), None)
+            .unwrap_err()
+            .contains("stand-in"));
+        let real = crate::config::home().join(".local/bin/claude");
+        assert!(preflight(Some(folder), Some(real.as_os_str())).is_err());
+        assert!(preflight(Some(folder), Some(OsStr::new("/opt/homebrew/bin/claude"))).is_err());
+        assert_eq!(
+            preflight(Some(folder), Some(OsStr::new("/tmp/walk/stand-in-claude"))),
+            Ok(true)
+        );
+    }
 }

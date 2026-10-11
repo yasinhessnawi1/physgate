@@ -39,6 +39,14 @@ use crate::config::Paths;
 use crate::shell::Shell;
 
 fn main() {
+    #[cfg(feature = "walkthrough")]
+    if let Err(problem) = walkthrough::preflight(
+        config::switch("PHYSGATE_DESKTOP_WALKTHROUGH").as_deref(),
+        config::switch("PHYSGATE_DESKTOP_CLAUDE").as_deref(),
+    ) {
+        eprintln!("physgate: {problem}");
+        std::process::exit(2);
+    }
     let tour = config::switch("PHYSGATE_DESKTOP_TOUR").map(PathBuf::from);
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())

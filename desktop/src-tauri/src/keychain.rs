@@ -43,13 +43,29 @@ impl Secret {
     }
 }
 
-/// The Keychain service: `physgate`, or, in a verification build,
-/// `PHYSGATE_DESKTOP_KEYCHAIN_SERVICE` for a trial run that must not touch the real items.
+/// The operator's own service. Only a published build names it.
+const PUBLISHED_SERVICE: &str = "physgate";
+
+/// The one service every trial build (verification, walkthrough) uses. Fixed when the app is
+/// compiled, never read from the environment, so no trial run can reach the operator's items.
+pub const TRIAL_SERVICE: &str = "physgate-trial";
+
+/// Whether this is a published build: no trial feature compiled in.
+pub const PUBLISHED_BUILD: bool = !cfg!(feature = "verification");
+
+/// The service a build of this kind uses: the operator's for a published build only.
+const fn service_for(published: bool) -> &'static str {
+    if published {
+        PUBLISHED_SERVICE
+    } else {
+        TRIAL_SERVICE
+    }
+}
+
+/// The Keychain service this build uses, fixed at compile time.
 #[cfg(not(test))]
 pub fn service() -> String {
-    crate::config::switch("PHYSGATE_DESKTOP_KEYCHAIN_SERVICE")
-        .and_then(|s| s.into_string().ok())
-        .unwrap_or_else(|| "physgate".into())
+    service_for(PUBLISHED_BUILD).into()
 }
 
 /// Under test, never the real service, by construction: a name of this test process's own.
@@ -135,6 +151,22 @@ mod tests {
         );
         assert!(line.contains("-a CLAUDE_CODE_OAUTH_TOKEN -w"));
         assert!(!line.contains("sk-ant-"));
+    }
+
+    #[test]
+    fn only_a_published_build_names_the_operators_service() {
+        assert_eq!(service_for(true), "physgate");
+        assert_eq!(service_for(false), TRIAL_SERVICE);
+        assert_ne!(TRIAL_SERVICE, PUBLISHED_SERVICE);
+        // What the build being tested would use outside its tests.
+        #[cfg(feature = "verification")]
+        assert_eq!(
+            service_for(PUBLISHED_BUILD),
+            TRIAL_SERVICE,
+            "a trial build named physgate"
+        );
+        #[cfg(not(feature = "verification"))]
+        assert_eq!(service_for(PUBLISHED_BUILD), PUBLISHED_SERVICE);
     }
 
     #[test]
