@@ -331,6 +331,34 @@ mod tests {
     }
 
     #[test]
+    fn a_spelling_only_identity_can_recognise_is_recognised() {
+        // The firmlink spelling (/System/Volumes/Data/...) of an existing folder: no link to
+        // follow and no case to fold, so only the device-and-inode check can tell it is the
+        // same folder.
+        let dir = TestDir::new("firmlink");
+        let folder = dir.path().join("Folder");
+        fs::create_dir(&folder).unwrap();
+        let firmlinked = PathBuf::from(format!(
+            "/System/Volumes/Data{}",
+            resolved(&folder).display()
+        ));
+        assert!(!starts_with_ignoring_case(
+            &resolved(&firmlinked),
+            &resolved(&folder)
+        ));
+        assert!(within(&firmlinked, &folder));
+        assert!(within(&firmlinked.join("inside/new"), &folder));
+        // And so for the installed folder, which exists on any machine that has the app.
+        if real_home().exists() {
+            let installed = PathBuf::from(format!(
+                "/System/Volumes/Data{}",
+                resolved(&real_home()).display()
+            ));
+            assert!(trial_home(Some(installed)).is_err());
+        }
+    }
+
+    #[test]
     fn another_capitalisation_of_the_installed_folder_is_refused() {
         let home = home();
         for spelling in [

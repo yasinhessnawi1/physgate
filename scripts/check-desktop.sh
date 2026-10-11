@@ -54,6 +54,8 @@ gate "build script refuses the installed app's folder" refuses "installed app's 
 gate "build script refuses a folder inside it" refuses "installed app's folder" PHYSGATE_DESKTOP_HOME="$real/trial"
 gate "build script refuses the installed app's folder for a walkthrough build" walkthrough_refused
 gate "build script refuses another capitalisation of it" refuses "installed app's folder" PHYSGATE_DESKTOP_HOME="$HOME/library/application support/PHYSGATE-DESKTOP"
+# The firmlink spelling: no link and no case difference, so only the identity check sees it.
+gate "build script refuses it by its firmlink spelling" refuses "installed app's folder" PHYSGATE_DESKTOP_HOME="/System/Volumes/Data$real"
 gate "build script refuses it through a link" refuses "installed app's folder" PHYSGATE_DESKTOP_HOME="$trial/looks-elsewhere/x"
 gate "build script lets a trial folder through to the next check" refuses "cargo is not on PATH" PHYSGATE_DESKTOP_HOME="$trial/own"
 install_refused() {
