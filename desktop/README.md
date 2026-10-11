@@ -173,8 +173,12 @@ The flag concerns only how the app fetches its own update. The operator server's
 
 ## For whoever works on the app
 
-- **One app at a time.** A second launch brings the running window forward and quits.
-  Trial builds have their own identifier, so one can run beside the installed app.
+- **One app per data folder.** A second launch brings the running window forward and
+  quits. The guard's socket is in your private temporary folder, not `/tmp`. A trial build
+  has its own folder, so one can run beside the installed app.
+- **A trial build makes nothing in `~/Library`.** It restarts itself once at start, with its
+  `~/Library` (WebKit's storage and caches) inside its trial folder, in `user-home/`. The
+  Keychain is not moved by this: a trial build still uses only `physgate-trial`.
 
 - **The intro** is a Remotion composition in `intro/`. To change it, edit `intro/src/Intro.tsx`
   and render it again:

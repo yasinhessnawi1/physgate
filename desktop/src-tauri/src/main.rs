@@ -55,6 +55,41 @@ fn paths_or_exit() -> Paths {
     })
 }
 
+/// Where a trial build's `~/Library` should be (its web storage and caches), if this
+/// process is not there yet: inside its trial folder, so a trial run makes nothing in the
+/// operator's `~/Library`. `None` for the published build, or once it is so.
+fn confinement(
+    published: bool,
+    root: &std::path::Path,
+    current: Option<&std::ffi::OsStr>,
+) -> Option<PathBuf> {
+    if published {
+        return None;
+    }
+    let wanted = root.join("user-home");
+    (current != Some(wanted.as_os_str())).then_some(wanted)
+}
+
+/// A trial build restarts itself, once and before anything else starts, with its home for
+/// `~/Library` inside its trial folder. The Keychain is not moved by this.
+fn confine_trial_build(paths: &Paths) {
+    use std::os::unix::process::CommandExt;
+    let current = std::env::var_os("CFFIXED_USER_HOME");
+    let Some(wanted) = confinement(config::PUBLISHED_BUILD, paths.root(), current.as_deref())
+    else {
+        return;
+    };
+    let _ = std::fs::create_dir_all(&wanted);
+    let problem = std::env::current_exe().map(|exe| {
+        std::process::Command::new(exe)
+            .args(std::env::args_os().skip(1))
+            .env("CFFIXED_USER_HOME", &wanted)
+            .exec()
+    });
+    eprintln!("physgate: a trial build could not restart inside its trial folder: {problem:?}");
+    std::process::exit(2);
+}
+
 /// Claim the data folder for this instance, before anything starts: if another instance has
 /// it, ask that one to come forward and quit here.
 fn claim_or_exit(paths: &Paths) -> (Option<std::os::unix::net::UnixListener>, Option<PathBuf>) {
@@ -107,6 +142,7 @@ fn main() {
         std::process::exit(2);
     }
     let paths = paths_or_exit();
+    confine_trial_build(&paths);
     let (listener, socket) = claim_or_exit(&paths);
     let tour = config::switch("PHYSGATE_DESKTOP_TOUR").map(PathBuf::from);
     let app = tauri::Builder::default()
@@ -197,4 +233,32 @@ fn main() {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::OsStr;
+    use std::path::Path;
+
+    #[test]
+    fn a_trial_build_keeps_its_library_inside_its_trial_folder() {
+        let root = Path::new("/trial/home");
+        let wanted = root.join("user-home");
+        assert_eq!(
+            confinement(true, root, None),
+            None,
+            "the published build stays put"
+        );
+        assert_eq!(confinement(false, root, None), Some(wanted.clone()));
+        assert_eq!(
+            confinement(false, root, Some(OsStr::new("/elsewhere"))),
+            Some(wanted.clone())
+        );
+        assert_eq!(
+            confinement(false, root, Some(wanted.as_os_str())),
+            None,
+            "once is enough"
+        );
+    }
 }
