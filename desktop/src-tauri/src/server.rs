@@ -506,7 +506,7 @@ mod tests {
 
     /// A made-up action token, put together so that no scanner takes it for a real one.
     fn made_up_token() -> String {
-        format!("{}-{}", "MadeUpToken", "q7Zp9Kx2Lw5Rv8Ty1Uu3Ii6Oo0Pp4Aa")
+        "MadeUpToken-".to_owned() + &"x".repeat(32)
     }
 
     /// The start-up line `physgate ui --operator` prints: indented, keys sorted.
