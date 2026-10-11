@@ -33,6 +33,12 @@ AUTHOR = ("physgate orchestrator", "orchestrator@physgate.invalid")
 #: clean/smudge filter ``git add`` applies; that is why content reads run against a clean store
 #: rather than relying on it, and why a write in a role worktree is a separate concern.)
 _EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+#: The empty tree under each object format git can store. A clean-store read takes its attribute
+#: source from the one matching the store, since git refuses an attribute source of the other hash.
+_EMPTY_TREES = {
+    "sha1": _EMPTY_TREE,
+    "sha256": "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321",
+}
 
 _ENV = {
     "GIT_CONFIG_NOSYSTEM": "1",
@@ -127,20 +133,38 @@ def _remove_stores() -> None:
         shutil.rmtree(store, ignore_errors=True)
 
 
+def _object_format(repo: Path) -> str:
+    """The hash the repository names its objects with (``sha1`` or ``sha256``).
+
+    The clean store must use the same one: a store of the other format cannot read a single
+    object through its alternates. Asked of git, which reports what the repository was created
+    with and runs nothing to say it.
+
+    Raises:
+        GitError: git cannot say, or names a format this module does not know.
+    """
+    found = git(repo, "rev-parse", "--show-object-format").strip()
+    if found not in _EMPTY_TREES:
+        msg = "the repository uses an object format the clean store cannot be made with"
+        raise GitError(msg, cwd=str(repo), object_format=found[:40])
+    return found
+
+
 @functools.cache
-def _object_store(object_dirs: tuple[str, ...]) -> str:
+def _object_store(object_dirs: tuple[str, ...], object_format: str) -> str:
     """A throwaway bare git directory reaching ``object_dirs`` through alternates, nothing else.
 
     A content read (a diff of two commits) runs against this instead of inside the repository,
     so the repository's own config, its ``.gitattributes``, its ``include`` paths and any
-    submodule's config are never read and can run nothing, and a committed submodule is shown
-    as its gitlink rather than recursed into.
+    submodule's config are never consulted by the read and can run nothing, and a committed
+    submodule is shown as its gitlink rather than recursed into. It is created with the
+    repository's ``object_format``, so a SHA-256 repository is read as readily as a SHA-1 one.
     """
     store = tempfile.mkdtemp(prefix="physgate-git-store-")
     _STORES.append(store)
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.devnull, **_ENV}
     done = subprocess.run(
-        ["git", *_FLAGS, "init", "-q", "--bare", store],
+        ["git", *_FLAGS, "init", "-q", "--bare", f"--object-format={object_format}", store],
         env=env,
         capture_output=True,
         text=True,
@@ -178,7 +202,9 @@ def git(
     """
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.devnull, **_ENV}
     if objects_only:
-        store = _object_store(_object_dirs(Path(cwd)))
+        object_format = _object_format(Path(cwd))
+        store = _object_store(_object_dirs(Path(cwd)), object_format)
+        env["GIT_ATTR_SOURCE"] = _EMPTY_TREES[object_format]
         argv = ["git", "--git-dir", store, *_FLAGS, *args]
         run_in: Path | str = store
     elif git_dir is not None:
