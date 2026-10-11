@@ -567,7 +567,7 @@ def test_a_run_directory_swapped_after_the_route_found_it_takes_no_decision(
 def test_a_local_process_that_reads_every_page_still_cannot_decide(
     built: dict[str, Path], tmp_path: Path
 ) -> None:
-    """The reviewer's script, with the standard library only: read the page, try to decide.
+    """A script using only the standard library reads the page, then tries to decide.
 
     Any local process, a role session's shell among them, can fetch every page the server
     serves. None carries the token, so a request built from them all is refused, and the run's
