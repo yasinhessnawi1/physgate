@@ -446,3 +446,41 @@ def test_a_resume_after_such_an_end_in_a_log_from_before_the_interface_is_refuse
     with pytest.raises(CorruptEventLogError) as caught:
         _replayed(old, tmp_path / "changed.jsonl")
     assert "not resumed" in caught.value.context["reason"]
+
+
+# -- a routed decision stops the next attempt --------------------------------------------
+
+
+def _next_attempt_after_the_decision(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The log cut after its routed decision, with attempt 2 starting where the queue was."""
+    at = _decision_index(lines, -1)
+    assert lines[at]["decision"]["basis"] is not None
+    kept = lines[: at + 1]
+    envelope = {k: kept[-1][k] for k in ("seq", "ts", "run_id", "gate_mode")}
+    resolve = {"subtask_id": "s1", "attempt": 2, "stage": "resolve", "decisions_bytes": None}
+    return [*kept, {**envelope, "kind": "stage_entered", **resolve}]
+
+
+def test_a_next_attempt_after_a_forced_route_is_refused(tmp_path: Path) -> None:
+    lines = _next_attempt_after_the_decision(_ended_run(tmp_path, "blocked"))
+    with pytest.raises(CorruptEventLogError) as caught:
+        _replayed(lines, tmp_path / "changed.jsonl")
+    assert "cannot start now" in caught.value.context["reason"]
+
+
+@pytest.mark.usefixtures("stand_in_registered")
+def test_a_next_attempt_after_a_route_that_was_not_forced_is_refused(tmp_path: Path) -> None:
+    rig = Rig(
+        tmp_path / "run",
+        reviewer=FakeReviewer(verdicts=["fail"]),
+        escalation=EscalationInterface(Answering(answer="no", confidence=0.5), STAND_IN),
+        config_overrides={"escalation_backend": "stand_in"},
+    )
+    drive(rig, "s1")
+    lines = _lines(rig.run_dir / "events.jsonl")
+    assert [
+        line["decision"]["basis"] for line in lines if line["kind"] == "escalation_decided"
+    ] == ["floor"]
+    with pytest.raises(CorruptEventLogError) as caught:
+        _replayed(_next_attempt_after_the_decision(lines), tmp_path / "changed.jsonl")
+    assert "cannot start now" in caught.value.context["reason"]
