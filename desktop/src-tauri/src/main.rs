@@ -123,6 +123,10 @@ fn build_window(app: &tauri::App, shell: &Shell) -> tauri::Result<()> {
         .title("physgate")
         .inner_size(1360.0, 900.0)
         .min_inner_size(760.0, 560.0)
+        // A data store that is never written to disk: no page, and no address the operator's
+        // page was opened at (it carries the action token), reaches WebKit's caches, whatever
+        // a server sends.
+        .incognito(true)
         .on_navigation(move |url| {
             let decision = gate.decide(url);
             if decision == navigation::Decision::Refused {
@@ -260,6 +264,13 @@ mod tests {
     use super::*;
     use std::ffi::OsStr;
     use std::path::Path;
+
+    #[test]
+    fn the_window_keeps_nothing_on_disk() {
+        // The window is built with a non-persistent data store: read from the source, so the
+        // call cannot drop out unnoticed.
+        assert!(include_str!("main.rs").contains(".incognito(true)"));
+    }
 
     #[test]
     fn a_trial_build_keeps_its_library_inside_its_trial_folder() {
