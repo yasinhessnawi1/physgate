@@ -207,11 +207,7 @@ impl Shell {
     /// Keep the view the window shows, so a relaunch after an update opens on it again.
     pub fn remember_view(&self, app: &AppHandle) {
         if let Some(window) = app.get_webview_window("main") {
-            // A fragment that carries an action token is never kept.
-            if let Some(fragment) = self
-                .server_fragment(&window)
-                .filter(|f| !f.contains("act="))
-            {
+            if let Some(fragment) = rememberable(self.server_fragment(&window)) {
                 let _ = fs::write(self.paths.root().join("view.txt"), fragment);
             }
         }
@@ -414,6 +410,12 @@ impl Shell {
     }
 }
 
+/// The view worth keeping across a relaunch: the window's fragment, unless it carries an
+/// action token, which is never written to a file.
+pub fn rememberable(fragment: Option<String>) -> Option<String> {
+    fragment.filter(|f| !f.contains("act="))
+}
+
 /// What the app says when the UI opens read-only, and how to change that.
 pub const READ_ONLY_NOTICE: &str = "No operator name is set, so the app can read everything \
     but approve or reject nothing. To decide from the app, choose physgate → Operator Name… \
@@ -527,6 +529,20 @@ mod tests {
         assert_ne!(own.origin(), next.origin(), "a cross-document load");
         // A read-only page holds no token: it reloads in place.
         assert_eq!(reload_target(&served, None, false), Reload::Page);
+    }
+
+    #[test]
+    fn a_view_holding_an_action_token_is_never_remembered() {
+        assert_eq!(
+            rememberable(Some("/collaboration/approval-queue?run=0%2Frun".into())),
+            Some("/collaboration/approval-queue?run=0%2Frun".into())
+        );
+        assert_eq!(rememberable(Some(format!("act={}", "made-up-token"))), None);
+        assert_eq!(
+            rememberable(Some(format!("/x?act={}", "made-up-token"))),
+            None
+        );
+        assert_eq!(rememberable(None), None);
     }
 
     #[test]
