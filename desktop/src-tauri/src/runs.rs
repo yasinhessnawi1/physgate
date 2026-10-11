@@ -38,15 +38,19 @@ pub fn default_root(paths: &crate::config::Paths) -> PathBuf {
         .map_or_else(|| paths.root().join("physgate-runs"), PathBuf::from)
 }
 
-/// A trial build's run root must not be the operator's, nor inside it.
-pub fn check_trial_root(root: &Path) -> Result<(), String> {
-    if crate::config::within(root, &real_root()) {
-        return Err(format!(
-            "{} is the operator's run folder, or inside it; a trial build needs its own",
-            shown(root)
-        ));
+/// A trial build's run root must lie inside its own trial folder, which must exist: decided by
+/// that folder's identity, so no spelling of the operator's run root (another case, a
+/// firmlink, a Unicode case-fold) can pass, whether or not that root exists yet.
+pub fn check_trial_root(root: &Path, trial_home: &Path) -> Result<(), String> {
+    if crate::config::inside_by_identity(root, trial_home) {
+        return Ok(());
     }
-    Ok(())
+    Err(format!(
+        "{} is not inside this trial build's own folder ({}); a trial build serves runs only \
+         from there, so it can never make or serve the operator's",
+        shown(root),
+        shown(trial_home)
+    ))
 }
 
 /// Serve `root` when no run folder is set. Returns whether the settings changed.
@@ -210,28 +214,54 @@ mod tests {
     }
 
     #[test]
-    fn a_trial_run_root_is_never_the_operators() {
-        assert!(check_trial_root(&real_root()).is_err());
-        assert!(check_trial_root(&real_root().join("a-run")).is_err());
+    fn a_trial_run_root_must_lie_in_the_trial_folder_itself() {
         let dir = TestDir::new("trial-root");
-        let link = dir.path().join("runs");
-        symlink(real_root(), &link).unwrap();
-        assert!(check_trial_root(&link).is_err(), "through a link");
-        assert!(check_trial_root(&dir.path().join("own-runs")).is_ok());
-        // Another capitalisation, whether or not the operator's run root exists yet.
-        assert!(check_trial_root(&home().join("PHYSGATE-RUNS")).is_err());
-        assert!(check_trial_root(&home().join("Physgate-Runs/a-run")).is_err());
+        let trial = dir.path().join("Trial");
+        fs::create_dir(&trial).unwrap();
+        // Inside the trial folder, whether or not the run root exists, by any spelling of it.
+        assert!(check_trial_root(&trial.join("physgate-runs"), &trial).is_ok());
+        assert!(check_trial_root(&trial.join("deeper/runs"), &trial).is_ok());
+        assert!(check_trial_root(&dir.path().join("TRIAL/physgate-runs"), &trial).is_ok());
+        let firmlinked = PathBuf::from(format!(
+            "/System/Volumes/Data{}",
+            crate::config::resolved(&trial).display()
+        ));
+        assert!(check_trial_root(&firmlinked.join("physgate-runs"), &trial).is_ok());
+        // Anything else is refused: the operator's run root in every spelling the reviewer
+        // found (as written, another case, through the firmlink, with a long s), whether or
+        // not it exists, and any place outside the trial folder.
+        let data = format!("/System/Volumes/Data{}", home().display());
+        for root in [
+            real_root(),
+            real_root().join("a-run"),
+            home().join("PHYSGATE-RUNS"),
+            PathBuf::from(&data).join("physgate-runs"),
+            home().join("phy\u{17f}gate-runs"),
+            dir.path().join("own-runs"),
+            trial.join("../elsewhere"),
+        ] {
+            assert!(
+                check_trial_root(&root, &trial).is_err(),
+                "{}",
+                root.display()
+            );
+        }
+        // A link inside the trial folder that leads out of it.
+        symlink(real_root(), trial.join("runs-link")).unwrap();
+        assert!(check_trial_root(&trial.join("runs-link"), &trial).is_err());
+        // A trial folder that does not exist accepts nothing.
+        assert!(check_trial_root(&dir.path().join("none/runs"), &dir.path().join("none")).is_err());
         // A trial build with no root named uses one inside its own folder.
         #[cfg(not(published))]
         {
-            let paths = crate::config::Paths::at(dir.path().to_path_buf());
+            let paths = crate::config::Paths::at(trial.clone());
             if crate::config::switch("PHYSGATE_DESKTOP_RUNS_ROOT").is_none() {
-                assert_eq!(default_root(&paths), dir.path().join("physgate-runs"));
+                assert_eq!(default_root(&paths), trial.join("physgate-runs"));
             }
         }
         #[cfg(published)]
         assert_eq!(
-            default_root(&crate::config::Paths::at(dir.path().to_path_buf())),
+            default_root(&crate::config::Paths::at(trial.clone())),
             real_root()
         );
     }

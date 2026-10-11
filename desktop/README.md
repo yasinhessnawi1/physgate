@@ -216,8 +216,8 @@ The flag concerns only how the app fetches its own update. The operator server's
     is (or is inside) the installed app's folder, compared after links are resolved. It
     also refuses `--install`.
   - **The built app checks the same.** It refuses to start without a trial folder of its
-    own. Its run root defaults to `physgate-runs` inside that folder, and it refuses one
-    that is (or is inside) `~/physgate-runs`. So it never reads the installed app's
+    own. Its run root defaults to `physgate-runs` inside that folder, and must lie inside
+    that folder (judged by the folder's identity); any other run root is refused. So it never reads the installed app's
     settings, `server.pid` or update channel.
 - **Trying it without touching the real install:** the `PHYSGATE_DESKTOP_…` switches exist
   only in a build with the `verification` feature (`walkthrough` includes it). A published

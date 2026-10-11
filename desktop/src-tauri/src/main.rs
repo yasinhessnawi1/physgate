@@ -45,7 +45,11 @@ use crate::shell::Shell;
 fn paths_or_exit() -> Paths {
     let checked = Paths::from_env().and_then(|paths| {
         if !config::PUBLISHED_BUILD {
-            runs::check_trial_root(&runs::default_root(&paths))?;
+            // The trial folder is made first, so the run root is judged against the folder
+            // itself, by identity.
+            std::fs::create_dir_all(paths.root())
+                .map_err(|e| format!("{} could not be made: {e}", paths.root().display()))?;
+            runs::check_trial_root(&runs::default_root(&paths), paths.root())?;
         }
         Ok(paths)
     });

@@ -77,6 +77,17 @@ pub fn within(path: &Path, folder: &Path) -> bool {
     })
 }
 
+/// Whether `path` lies in the existing folder `folder`, decided only by identity: some
+/// ancestor of the resolved `path` must be that very directory (same device and inode).
+/// No spelling of the path can stand in for that, and nothing outside `folder` passes.
+pub fn inside_by_identity(path: &Path, folder: &Path) -> bool {
+    identity(folder).is_some_and(|target| {
+        resolved(path)
+            .ancestors()
+            .any(|ancestor| identity(ancestor) == Some(target))
+    })
+}
+
 /// A directory's device and inode, if it exists.
 fn identity(path: &Path) -> Option<(u64, u64)> {
     use std::os::unix::fs::MetadataExt;
