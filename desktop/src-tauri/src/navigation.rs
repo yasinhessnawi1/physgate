@@ -261,6 +261,16 @@ mod tests {
     }
 
     #[test]
+    fn trusting_a_server_clears_every_pending_ticket_for_good() {
+        let gate = Gate::default();
+        let ticketed = gate.issue(&url("tauri://localhost/index.html#starting"));
+        gate.serve(Some(&url("http://127.0.0.1:52011/")));
+        // Once the server is stopped again, the old ticket must not come back to life.
+        gate.serve(None);
+        assert_eq!(gate.decide(&ticketed), Decision::Refused);
+    }
+
+    #[test]
     fn pending_tickets_are_each_used_once_and_only_the_newest_eight_are_kept() {
         let gate = Gate::default();
         let pages: Vec<Url> = (0..10)
