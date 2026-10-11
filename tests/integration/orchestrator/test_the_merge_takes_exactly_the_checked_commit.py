@@ -344,14 +344,20 @@ def test_a_removal_past_its_bound_is_recorded_and_left(
     run = run_layout(tmp_path)
     attempt_with(run, "s1", {"modules/power/a.py": "a\n"})
     asked: list[float] = []
+    pinned: list[Path | None] = []
 
-    def slow(cwd: Path, *args: str, timeout: float) -> tuple[int | None, str, float]:
+    def slow(
+        cwd: Path, *args: str, timeout: float, git_dir: Path | None = None
+    ) -> tuple[int | None, str, float]:
         asked.append(timeout)
+        pinned.append(git_dir)
         return None, "", timeout  # what git_timed returns when the bound passes
 
     monkeypatch.setattr(merge_module, "git_timed", slow)
     late = GitMerger(run, removal_timeout_s=2.5).remove_worktree("s1")
     assert (late.outcome, late.seconds, asked) == ("timed_out", 2.5, [2.5])
+    # The removal runs pinned to the repository's own git directory, as every merge-path call.
+    assert pinned == [(run.repo / ".git").resolve()]
     assert late.detail == "no answer within 2.5 s"
 
 
