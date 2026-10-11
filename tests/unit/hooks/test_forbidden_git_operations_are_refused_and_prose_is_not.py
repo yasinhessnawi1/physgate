@@ -258,7 +258,8 @@ def test_a_linked_worktree_is_followed_to_its_head(tmp_path: Path) -> None:
     worktree = tmp_path / "linked"
     worktree.mkdir()
     (worktree / ".git").write_text(f"gitdir: {git_dir}\n")
-    _, _, config = write_config(tmp_path)
+    # The session's worktree is the linked one, as a dispatched role's is.
+    _, _, config = write_config(tmp_path, worktree=str(worktree))
     decision = git_ops.pre_tool_use(
         HookInput.model_validate(bash("git reset --hard", cwd=str(worktree))), config
     )

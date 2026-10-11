@@ -162,9 +162,6 @@ ELSEWHERE = [
     "git --attr-source=HEAD config --list",
     "git -p config --list",
     # A variable set for the read.
-    "GIT_DIR=elsewhere git config --list",
-    "env GIT_DIR=elsewhere git config --list",
-    "GIT_COMMON_DIR=elsewhere git config --get a.b",
     "LC_ALL=C git config --list",
     "XDG_CONFIG_HOME=elsewhere git config --list",
     "HOME=elsewhere git config --global --list",

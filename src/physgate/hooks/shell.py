@@ -13,10 +13,14 @@ What it cannot model it refuses to guess about: an unterminated quote, a
 substitution with no end, a heredoc with no terminator all raise, and the caller
 refuses the call. A word whose value is only known at run time (a variable, a
 substitution) is marked dynamic, so a check can refuse when the dynamic part is
-the part that matters.
+the part that matters. A word the shell expands before the command sees it (an
+unquoted ``*``, ``?``, ``[`` or a ``{a,b}`` pattern) is marked expanding for the same
+reason: what it becomes depends on the files present, or is not the word written.
 """
 
 from __future__ import annotations
+
+import re
 
 from physgate.hooks.exceptions import UndecidableError
 
@@ -25,6 +29,15 @@ _REDIRECTS = ("<<<", "<<-", "&>>", "<<", ">>", ">|", "<>", "&>", ">&", "<&", ">"
 #: Programs that run their arguments as a command.
 _RUNS_ITS_ARGUMENTS = {"env", "command", "exec", "nohup", "time", "builtin", "sudo", "nice"}
 _SHELLS = {"sh", "bash", "zsh", "dash", "ksh"}
+#: The shells, for a check that looks for one among another program's words.
+SHELLS = frozenset(_SHELLS)
+#: Reserved words that may start a command and are followed by the command they govern:
+#: ``{ git …; }``, ``if git …``, ``then git …``, ``! git …``, ``coproc git …``. ``function``
+#: is followed by the function's name before its body.
+_RESERVED_PREFIXES = {"{", "!", "if", "then", "elif", "else", "do", "while", "until", "coproc"}
+#: Unquoted text that the shell turns into other words: a glob, or a brace expansion.
+#: Quoted characters are blanked to NUL before this is matched, so they never count.
+_EXPANDS = re.compile(r"[*?\[]|\{[^{}]*(,|\.\.)[^{}]*\}")
 
 
 class ShellSyntaxError(UndecidableError):
@@ -57,7 +70,7 @@ class Redirect:
 class SimpleCommand:
     """One command as the shell would run it."""
 
-    __slots__ = ("argv", "assignments", "background", "dynamic", "redirects")
+    __slots__ = ("argv", "assignments", "background", "dynamic", "expanding", "redirects")
 
     def __init__(
         self,
@@ -66,6 +79,7 @@ class SimpleCommand:
         redirects: tuple[Redirect, ...] = (),
         dynamic: frozenset[int] = frozenset(),
         background: bool = False,
+        expanding: frozenset[int] = frozenset(),
     ) -> None:
         """The words, and what the shell does around them."""
         self.argv = argv
@@ -73,6 +87,7 @@ class SimpleCommand:
         self.redirects = redirects
         self.dynamic = dynamic
         self.background = background
+        self.expanding = expanding
 
     def __repr__(self) -> str:
         """For test output."""
@@ -80,21 +95,24 @@ class SimpleCommand:
 
 
 class _Builder:
-    __slots__ = ("dynamic", "pending_redirect", "redirects", "words")
+    __slots__ = ("dynamic", "expanding", "pending_redirect", "redirects", "words")
 
     def __init__(self) -> None:
         self.words: list[str] = []
         self.dynamic: set[int] = set()
+        self.expanding: set[int] = set()
         self.redirects: list[Redirect] = []
         self.pending_redirect: str | None = None
 
-    def add(self, word: str, is_dynamic: bool) -> None:
+    def add(self, word: str, is_dynamic: bool, expands: bool = False) -> None:
         if self.pending_redirect is not None:
             self.redirects.append(Redirect(self.pending_redirect, word))
             self.pending_redirect = None
             return
         if is_dynamic:
             self.dynamic.add(len(self.words))
+        if expands:
+            self.expanding.add(len(self.words))
         self.words.append(word)
 
     def finish(self, background: bool) -> SimpleCommand | None:
@@ -108,9 +126,12 @@ class _Builder:
             i += 1
         argv = tuple(self.words[i:])
         dynamic = frozenset(n - i for n in self.dynamic if n >= i)
+        expanding = frozenset(n - i for n in self.expanding if n >= i)
         if not argv and not assignments and not self.redirects:
             return None
-        return SimpleCommand(argv, tuple(assignments), tuple(self.redirects), dynamic, background)
+        return SimpleCommand(
+            argv, tuple(assignments), tuple(self.redirects), dynamic, background, expanding
+        )
 
 
 def _is_assignment(word: str) -> bool:
@@ -179,14 +200,17 @@ def _parse_into(text: str, out: list[SimpleCommand], depth: int) -> None:
     cmd = _Builder()
     mine: list[SimpleCommand] = []
     word, word_dynamic, in_word = "", False, False
+    # The word as the shell sees its quoting: unquoted characters as written, every quoted,
+    # escaped or substituted character blanked, so only unquoted text can count as expanding.
+    bare = ""
     heredocs: list[tuple[str, bool]] = []
     i = 0
 
     def end_word() -> None:
-        nonlocal word, word_dynamic, in_word
+        nonlocal word, word_dynamic, in_word, bare
         if in_word:
-            cmd.add(word, word_dynamic)
-        word, word_dynamic, in_word = "", False, False
+            cmd.add(word, word_dynamic, _EXPANDS.search(bare) is not None)
+        word, word_dynamic, in_word, bare = "", False, False, ""
 
     def end_command(background: bool = False) -> None:
         nonlocal cmd
@@ -202,6 +226,7 @@ def _parse_into(text: str, out: list[SimpleCommand], depth: int) -> None:
         if c == "\\" and i + 1 < len(text):
             if text[i + 1] != "\n":
                 word += text[i + 1]
+                bare += "\0"
                 in_word = True
             i += 2
             continue
@@ -211,6 +236,7 @@ def _parse_into(text: str, out: list[SimpleCommand], depth: int) -> None:
                 msg = "an unterminated single quote"
                 raise ShellSyntaxError(msg)
             word += text[i + 1 : end]
+            bare += "\0" * (end - i - 1)
             in_word, i = True, end + 1
             continue
         if c == '"':
@@ -223,6 +249,7 @@ def _parse_into(text: str, out: list[SimpleCommand], depth: int) -> None:
             if "`" in inner or "$" in inner:
                 word_dynamic = True
             word += inner
+            bare += "\0" * len(inner)
             in_word, i = True, end + 1
             continue
         if c == "`":
@@ -232,12 +259,14 @@ def _parse_into(text: str, out: list[SimpleCommand], depth: int) -> None:
                 raise ShellSyntaxError(msg)
             _parse_into(text[i + 1 : end], out, depth + 1)
             word += text[i : end + 1]
+            bare += "\0" * (end + 1 - i)
             word_dynamic = in_word = True
             i = end + 1
             continue
         if c == "$" and text.startswith("$((", i):
             close = _matching(text, i + 3, "(", ")")
             word += text[i : close + 2]
+            bare += "\0" * (close + 2 - i)
             word_dynamic = in_word = True
             i = close + 2
             continue
@@ -245,11 +274,13 @@ def _parse_into(text: str, out: list[SimpleCommand], depth: int) -> None:
             close = _matching(text, i + 2, "(", ")")
             _parse_into(text[i + 2 : close], out, depth + 1)
             word += text[i : close + 1]
+            bare += "\0" * (close + 1 - i)
             word_dynamic = in_word = True
             i = close + 1
             continue
         if c == "$":
             word += c
+            bare += "\0"
             word_dynamic = in_word = True
             i += 1
             continue
@@ -265,7 +296,7 @@ def _parse_into(text: str, out: list[SimpleCommand], depth: int) -> None:
         if redirect is not None:
             op, length, fd_in_word = redirect
             if fd_in_word:
-                word, in_word = "", False
+                word, in_word, bare = "", False, ""
             end_word()
             cmd.pending_redirect = op
             i += length
@@ -292,6 +323,7 @@ def _parse_into(text: str, out: list[SimpleCommand], depth: int) -> None:
                 heredocs = []
             continue
         word += c
+        bare += c
         in_word = True
         i += 1
     if heredocs:
@@ -335,8 +367,19 @@ def _skip_heredoc_bodies(text: str, i: int, heredocs: list[tuple[str, bool]]) ->
 
 
 def unwrap(argv: tuple[str, ...]) -> tuple[str, ...]:
-    """The command a wrapper would run: ``env A=1 git …`` is ``git …``."""
+    """The command a wrapper would run: ``env A=1 git …`` is ``git …``.
+
+    A reserved word that governs the command after it (``{``, ``if``, ``then``, ``do``,
+    ``!``, ``coproc``, ``function name``) is stepped over the same way, so ``{ git …; }``
+    and ``if git …`` are ``git …``.
+    """
     while argv:
+        if argv[0] in _RESERVED_PREFIXES:
+            argv = argv[1:]
+            continue
+        if argv[0] == "function":
+            argv = argv[2:]
+            continue
         head = argv[0].rsplit("/", 1)[-1]
         if head not in _RUNS_ITS_ARGUMENTS:
             return argv
