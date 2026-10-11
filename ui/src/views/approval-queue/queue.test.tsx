@@ -354,7 +354,7 @@ describe("deciding goes through a confirmation naming the line it writes", () =>
     expect(dialog?.textContent).toContain("This cannot be edited or undone; the item closes.");
     expect(send).not.toHaveBeenCalled();
     const confirm = [...(dialog?.querySelectorAll("button") ?? [])].find(
-      (b) => b.textContent === "Reject",
+      (b) => b.textContent === "✕ Reject",
     );
     await act(async () => {
       confirm?.click();
@@ -379,7 +379,7 @@ describe("deciding goes through a confirmation naming the line it writes", () =>
       approve?.click();
     });
     const confirm = [...host.querySelectorAll("dialog button")].find(
-      (b) => b.textContent === "Approve",
+      (b) => b.textContent === "✓ Approve",
     ) as HTMLButtonElement | undefined;
     await act(async () => {
       confirm?.click();

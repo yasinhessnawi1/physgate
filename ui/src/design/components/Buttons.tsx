@@ -90,7 +90,7 @@ export function ActButton({
               close();
             }}
           >
-            {act.label}
+            <span aria-hidden="true">{glyph ?? (reject ? "✕" : "▶")}</span> {act.label}
           </button>
         </div>
       </dialog>

@@ -243,3 +243,44 @@ def test_queue_list_refuses_a_corrupt_queue_with_its_reason_and_no_traceback(
     refusal = json.loads(captured.err)
     assert refusal["error"] == "the approval queue holds a line this package could not have written"
     assert refusal["queue"].endswith(DECISIONS_NAME)
+
+
+def test_a_session_window_closes_where_a_resume_reads_the_session_left_over(
+    tmp_path: Path,
+) -> None:
+    """The window of a session the orchestrator died during ends at the resume's leftover read.
+
+    s1 is escalated; the run is killed while session 4 (s2's) runs, so that session's window is
+    open. A person decides s1 while nothing runs. The resume reads session 4 as left over, which
+    closes its window at the decisions file's length then; s3 is escalated after, and decided
+    once the run is over. The first decision is marked with session 4, the second is not.
+    """
+    from loop_fakes import KilledError, usage
+
+    from physgate.orchestrator.ports import Leftover
+    from physgate.orchestrator.protocols import MessageUsage
+
+    class LeftOver(FakeDispatcher):
+        def stop_leftovers(self) -> list[Leftover]:
+            spent = MessageUsage(message_id="m-left", usage=usage(1))
+            return [
+                Leftover(session_id="sess-4", pid=4242, killed=0, stopped=False, usage=(spent,))
+            ]
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    rig = Rig(run_dir, dispatcher=FakeDispatcher(kill_on=4))
+    rig.gate = FakeGate(verdicts=["fail"] * 3 + ["pass"] + ["fail"] * 3)
+    loop = rig.open()
+    loop.start(plan("s1", "s2", "s3"))
+    with pytest.raises(KilledError):
+        loop.run()
+    loop.close()
+    _decide(run_dir, "run-1-s1")
+    rig.dispatcher = LeftOver()
+    again = rig.open()
+    assert again.resume().kind == "done"
+    again.close()
+    _decide(run_dir, "run-1-s3")
+    flags = {d["item_id"]: d["flag"] for d in _decided(run_dir)}
+    assert flags == {"run-1-s1": "made while session sess-4 ran; confirm", "run-1-s3": None}

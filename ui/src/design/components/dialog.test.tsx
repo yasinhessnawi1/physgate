@@ -62,7 +62,9 @@ describe("acting goes through a confirmation that names what gets written", () =
     act(() => {
       trigger.click();
     });
-    const confirm = [...dialog.querySelectorAll("button")].find((b) => b.textContent === "Approve");
+    const confirm = [...dialog.querySelectorAll("button")].find(
+      (b) => b.textContent === "▶ Approve",
+    );
     act(() => {
       confirm?.click();
     });

@@ -610,3 +610,21 @@ def test_a_callback_running_beneath_the_decision_function_can_neither_write_nor_
         os.close(outside_fd)
     assert tried == {"append": "refused", "read": "refused"}
     assert (other / DECISIONS_NAME).read_bytes() == b""
+
+
+def test_the_write_rule_alone_admits_the_decisions_file_only_by_its_relative_name(
+    run: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With the issuing-frame check taken as met, the name is what the rule still decides on.
+
+    The real decision function always opens the file by its name relative to the run
+    directory's descriptor; a decision function changed to open it by an absolute path, which
+    could name any directory's file of that name, is refused here.
+    """
+    monkeypatch.setattr(guard, "_issued_by", lambda *_: True)
+    scope = guard.Scope(kind="act", readable=None)
+    flags = os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+    absolute = str(run / DECISIONS_NAME)
+    refused = guard.act_policy("open", (absolute, None, flags), scope)
+    assert refused is not None and "other than the decisions file" in refused
+    assert guard.act_policy("open", (DECISIONS_NAME, None, flags), scope) is None
