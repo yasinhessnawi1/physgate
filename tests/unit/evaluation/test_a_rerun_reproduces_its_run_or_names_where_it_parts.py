@@ -84,6 +84,28 @@ def test_a_fake_session_rerun_reproduces_every_record_exactly(tmp_path: Path, br
     assert result.recorded_manifest_id != result.rerun_manifest_id
 
 
+@pytest.mark.parametrize(
+    ("refused", "escalated"),
+    [({1}, False), ({1, 2, 3}, True)],
+    ids=["one_rejection_decided_and_repaired", "three_rejections_decided_and_escalated"],
+)
+def test_a_rerun_of_a_run_that_asked_the_escalation_question_reproduces_exactly(
+    tmp_path: Path, brief: Path, refused: set[int], escalated: bool
+) -> None:
+    repo = target_repo(tmp_path)
+    run = recorded(tmp_path, repo, gate=Gate(fail_on=set(refused)))
+    events = [json.loads(x) for x in (run / "events.jsonl").read_text().splitlines()]
+    decided = [e for e in events if e["kind"] == "escalation_decided"]
+    assert len(decided) == len(refused)
+    assert [e["decision"]["basis"] for e in decided][-1] == ("forced" if escalated else None)
+    assert any(e["kind"] == "escalated" for e in events) is escalated
+    result = do_rerun(tmp_path, run, repo, brief, gate=Gate(fail_on=set(refused)))
+    assert result.level == "exact" and result.reproduced and result.first is None
+    assert set(result.exact) == set(sequence.RECORDS)
+    rerun_events = (tmp_path / ELSEWHERE / "run-r" / "events.jsonl").read_text().splitlines()
+    assert sum(1 for x in rerun_events if '"kind":"escalation_decided"' in x) == len(refused)
+
+
 def test_a_proposal_with_a_bare_number_is_named_where_the_rerun_parts(
     tmp_path: Path, brief: Path
 ) -> None:
