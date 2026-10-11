@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>physgate</title>
+    <link rel="stylesheet" href="status.css" />
+    <link rel="stylesheet" href="onboarding.css" />
+    <script src="onboarding.js" defer></script>
+  </head>
+  <body class="onboarding">
+    <section id="intro" class="intro" hidden aria-label="Welcome">
+      <img id="intro-film" alt="physgate: design, gate, review" />
+      <button id="skip" class="skip" type="button">Skip</button>
+    </section>
+
+    <div id="setup" class="setup" hidden>
+      <header class="steps" aria-label="Setup steps">
+        <span class="mark" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3l8 4v6c0 4-3.5 7-8 8-4.5-1-8-4-8-8V7z" /><path d="M9 12l2 2 4-4" />
+          </svg>
+        </span>
+        <ol>
+          <li>Welcome</li>
+          <li aria-current="step">Engine</li>
+          <li>Operator UI</li>
+        </ol>
+      </header>
+
+      <main class="engine">
+        <h1>Connect the engine</h1>
+        <p class="lead">physgate's roles run on a model. Choose how they reach it.</p>
+        <p class="notice" role="note">
+          Runs use Claude Code today. What you choose here is stored for later: a run still
+          uses the credential and models its own parameters name, and the evaluation runs keep
+          their pinned models.
+        </p>
+
+        <div id="cards" class="cards" role="radiogroup" aria-label="Engines"></div>
+        <div id="panel" class="panel" aria-live="polite"></div>
+
+        <footer class="actions">
+          <button id="later" class="quiet" type="button">Set Up Later</button>
+          <button id="continue" class="primary" type="button" disabled>Continue to the Operator UI</button>
+        </footer>
+        <p id="problem" class="problem" role="alert" hidden></p>
+      </main>
+    </div>
+  </body>
+</html>

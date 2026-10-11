@@ -1,0 +1,9 @@
+# Nothing younger than a week is installed, as for the operator UI's package.
+minimumReleaseAge: 10080
+# No dependency's install script runs (pnpm runs none it is not told to). esbuild's is the
+# only one asked for, and it only checks the binary its platform package already installs,
+# so it is named as skipped rather than failing the install.
+onlyBuiltDependencies: []
+ignoredBuiltDependencies:
+  - esbuild
+strictDepBuilds: false
