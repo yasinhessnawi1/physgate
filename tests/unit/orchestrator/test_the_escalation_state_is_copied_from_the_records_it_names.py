@@ -120,6 +120,13 @@ def rich_rejection(n: int) -> ReviewResult:
             IndicatorReport(
                 kind="hard_coded_values", evidence="e", disposition="noted", reason="r"
             ),
+            # Each disposition, so a builder that wrote any one of them as a constant fails.
+            IndicatorReport(
+                kind="disabled_checks", evidence="e2", disposition="confirmed", reason="r"
+            ),
+            IndicatorReport(
+                kind="feature_isolation", evidence="e3", disposition="dismissed", reason="r"
+            ),
         ),
         spec_defects=(SpecDefect(finding="stated twice", blocking=False),),
         rubric_kind="paired",
@@ -241,7 +248,9 @@ def test_a_rejection_s_state_copies_each_part_from_its_own_record(tmp_path: Path
     ]
     assert state.review.criteria.model_dump() == {"met": 2, "unmet": 1, "not_evaluable": 1}
     assert [(i.kind, i.disposition) for i in state.review.indicators] == [
-        ("hard_coded_values", "noted")
+        ("hard_coded_values", "noted"),
+        ("disabled_checks", "confirmed"),
+        ("feature_isolation", "dismissed"),
     ]
     assert (state.review.spec_defects, state.review.blocking_spec_defects) == (1, 0)
     assert (state.attempt_end, state.attempt_count) == ("rejected", 2)
