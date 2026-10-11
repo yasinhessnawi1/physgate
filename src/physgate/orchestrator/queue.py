@@ -706,6 +706,8 @@ def decision_text(verb: Verb, note: str) -> str:
     if verb not in ("approve", "reject"):
         msg = "a decision is to approve or to reject"
         raise QueueError(msg, verb=str(verb))
+    # Blank means nothing but what ``str.strip`` removes; the operator UI's page mirrors this
+    # set exactly, so its confirmation shows the decision this function makes.
     if not note.strip():
         if verb == "reject":
             msg = "a rejection says why: its note is required"

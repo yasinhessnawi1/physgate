@@ -5,7 +5,7 @@
  */
 import type { Verdict } from "../../design/components/VerdictBadge";
 import type { ItemView, QueueSource, TrajectoryStatus, Verb } from "../../api/queue";
-import { decisionText } from "../../api/queue";
+import { decisionText, isBlank } from "../../api/queue";
 
 export const SOURCE_LABEL: Readonly<Record<QueueSource, string>> = {
   gate_escalation: "Physics-gate escalation",
@@ -61,6 +61,6 @@ export function lineToWrite(
 export function whyNot(verb: Verb, note: string, operator: string | null): string | null {
   if (operator === null)
     return "This server was started without naming an operator, so no decision can be taken here.";
-  if (verb === "reject" && note.trim() === "") return "A rejection says why: write the note first.";
+  if (verb === "reject" && isBlank(note)) return "A rejection says why: write the note first.";
   return null;
 }

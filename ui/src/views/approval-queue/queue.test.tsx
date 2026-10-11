@@ -7,6 +7,7 @@ import { actToken, pageOperator, postAction, ShapeError } from "../../api/client
 import {
   decisionRequest,
   decisionText,
+  isBlank,
   type ItemView,
   itemView,
   queueListing,
@@ -111,6 +112,32 @@ describe("the decision text is the queue's own", () => {
       note: "ok",
       shown: { item_sha256: DIGEST, trajectories: ["holds", "tampered"] },
     });
+  });
+});
+
+describe("a blank note is blank exactly as the server judges it", () => {
+  it("U+FEFF is a note, though JavaScript's trim would call it blank", () => {
+    expect("\ufeff".trim()).toBe("");
+    expect(isBlank("\ufeff")).toBe(false);
+    expect(decisionText("approve", "\ufeff")).toBe("approve: \ufeff");
+    expect(lineToWrite(VIEW, "approve", "\ufeff", "yasin")).toContain(
+      '"decision":"approve: \ufeff"',
+    );
+  });
+
+  it("U+001C to U+001F and U+0085 are blank, though JavaScript's trim keeps them", () => {
+    for (const char of ["\u001c", "\u001d", "\u001e", "\u001f", "\u0085"]) {
+      expect(char.trim()).toBe(char);
+      expect(isBlank(char)).toBe(true);
+      expect(decisionText("reject", char)).toBeNull();
+      expect(decisionText("approve", ` ${char}\n`)).toBe("approve");
+    }
+  });
+
+  it("the common blanks are blank and a word is not", () => {
+    expect(isBlank("")).toBe(true);
+    expect(isBlank(" \t\n\u00a0\u3000")).toBe(true);
+    expect(isBlank(" x ")).toBe(false);
   });
 });
 
