@@ -37,7 +37,7 @@ from physgate.orchestrator.git import (
     git,
     init_repo,
     merge_base,
-    verify_worktree_pointer,
+    verified_git_dir,
 )
 from physgate.orchestrator.merge import RunGit, write_scope_violations
 from physgate.orchestrator.ports import ChangeCheck
@@ -141,7 +141,7 @@ class GitChangeChecker:
         """Refuse an attempt out of scope or with a proposal the store would refuse."""
         repo = self._run.repo
         # Verified once; the base, the scope check and the proposals all read through it.
-        pinned = verify_worktree_pointer(repo)
+        pinned = verified_git_dir(repo, linked=False)
         base = merge_base(repo, self._run.run_branch, attempt_commit, git_dir=pinned)
         outside = write_scope_violations(
             repo, base, attempt_commit, self._module_dirs[subtask_id], git_dir=pinned
@@ -217,7 +217,7 @@ class StoreKeeper:
     def proposals(self, subtask_id: str, attempt_commit: str) -> list[Payload]:
         """The attempt's validated proposals, read from its commit."""
         repo = self._run.repo
-        pinned = verify_worktree_pointer(repo)
+        pinned = verified_git_dir(repo, linked=False)
         base = merge_base(repo, self._run.run_branch, attempt_commit, git_dir=pinned)
         return read_proposals(repo, base, attempt_commit, self._root, git_dir=pinned)
 

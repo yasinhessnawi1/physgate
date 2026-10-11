@@ -47,7 +47,7 @@ from physgate.orchestrator.git import (
     head_of,
     merge_base,
     merges_of,
-    verify_worktree_pointer,
+    verified_git_dir,
 )
 from physgate.orchestrator.ports import WorktreeRemoval
 
@@ -112,7 +112,7 @@ def commit_attempt(worktree: Path, subtask_id: str, attempt: int, session_id: st
         f"Attempt {attempt} of subtask {subtask_id}\n\n"
         f"Committed by the orchestrator at the end of session {session_id}.\n"
     )
-    return commit_all(worktree, message)
+    return commit_all(worktree, message, linked=True)
 
 
 def write_scope_violations(
@@ -174,7 +174,7 @@ class GitMerger:
         """
         run = self._run
         branch = run.subtask_branch(subtask_id)
-        pinned = verify_worktree_pointer(run.repo)
+        pinned = verified_git_dir(run.repo, linked=False)
         if (
             not branch_exists(run.repo, branch, git_dir=pinned)
             or head_of(run.repo, branch, git_dir=pinned) != attempt_commit
@@ -185,7 +185,7 @@ class GitMerger:
         already = merges_of(run.repo, run.run_branch, base, git_dir=pinned).get(attempt_commit)
         if already is not None:
             return already
-        admin = verify_worktree_pointer(run.integration)
+        admin = verified_git_dir(run.integration, linked=True)
         try:
             git(
                 run.integration, "merge", "--no-ff", "--no-edit", "-m", message, attempt_commit,
@@ -208,7 +208,7 @@ class GitMerger:
         is the merge a killed process made and did not record.
         """
         run = self._run
-        pinned = verify_worktree_pointer(run.repo)
+        pinned = verified_git_dir(run.repo, linked=False)
         head = head_of(run.repo, run.run_branch, git_dir=pinned)
         if head == expected:
             return None
@@ -237,9 +237,9 @@ class GitMerger:
         if not path.exists():
             return WorktreeRemoval(path=str(path), outcome="absent", seconds=0.0, detail=None)
         try:
-            pinned = verify_worktree_pointer(self._run.repo)
+            pinned = verified_git_dir(self._run.repo, linked=False)
         except GitError as exc:
-            detail = f"{exc}: the repository's .git pointer did not verify"
+            detail = f"{exc}: the repository's git directory did not verify"
             return WorktreeRemoval(path=str(path), outcome="refused", seconds=0.0, detail=detail)
         code, stderr, seconds = git_timed(
             self._run.repo, "worktree", "remove", str(path),
@@ -259,12 +259,12 @@ class GitMerger:
     def review_base(self, attempt_commit: str) -> str:
         """Where the attempt left the run branch: the commit its review diffs against."""
         run = self._run
-        pinned = verify_worktree_pointer(run.repo)
+        pinned = verified_git_dir(run.repo, linked=False)
         return merge_base(run.repo, run.run_branch, attempt_commit, git_dir=pinned)
 
     def artefact_diff(self, attempt_commit: str) -> str:
         """The attempt's patch against where it left the run branch."""
         run = self._run
-        pinned = verify_worktree_pointer(run.repo)
+        pinned = verified_git_dir(run.repo, linked=False)
         base = merge_base(run.repo, run.run_branch, attempt_commit, git_dir=pinned)
         return diff_text(run.repo, base, attempt_commit, git_dir=pinned)

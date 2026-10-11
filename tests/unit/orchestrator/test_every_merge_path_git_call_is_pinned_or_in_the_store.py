@@ -5,8 +5,9 @@ command pinned to the admin directory that check returned (``--git-dir``), so a 
 after the check cannot redirect a command. The merge path (opening worktrees, the write-scope
 check, the proposals, the merge and its idempotency check, the run branch's check, the review's
 base and patch, the worktree's removal) holds to the same rule: each command either runs pinned
-to the verified admin directory of the repository or worktree it runs in, or runs in the clean
-store. The repository here is itself a linked worktree, so its pointer is one a check can verify.
+to the verified git directory of the repository or worktree it runs in, or runs in the clean
+store. The repository is either an ordinary one, whose own ``.git`` directory is the one pinned,
+or itself a linked worktree, whose pointer is checked like any worktree's.
 
 Inert markers only: a decoy admin directory holds a ``HEAD``, a ``commondir`` and a ``gitdir``
 and nothing git runs; the decoy common directory is an empty repository git created.
@@ -53,14 +54,16 @@ def _git(cwd: Path, *args: str) -> str:
     ).stdout.strip()
 
 
-def _target(tmp_path: Path) -> tuple[Path, str]:
-    """A repository that is a linked worktree of another; it and its first commit."""
-    origin = tmp_path / "origin"
+def _target(tmp_path: Path, layout: str = "linked") -> tuple[Path, str]:
+    """A repository, ordinary or a linked worktree of another; it and its first commit."""
+    origin = tmp_path / ("target" if layout == "plain" else "origin")
     (origin / "m1").mkdir(parents=True)
     (origin / "m1" / "a.txt").write_text("0\n")
     _git(origin, "init", "-q", "-b", "main")
     _git(origin, "add", "-A")
     _git(origin, "commit", "-q", "-m", "start")
+    if layout == "plain":
+        return origin, _git(origin, "rev-parse", "HEAD")
     target = tmp_path / "target"
     _git(origin, "worktree", "add", "-q", "-b", "target", str(target))
     return target, _git(target, "rev-parse", "HEAD")
@@ -68,6 +71,8 @@ def _target(tmp_path: Path) -> tuple[Path, str]:
 
 def _admin(worktree: Path) -> Path:
     """The admin directory a linked worktree's ``.git`` pointer names, read from the file."""
+    if (worktree / ".git").is_dir():
+        return (worktree / ".git").resolve()  # an ordinary repository's own git directory
     pointer = (worktree / ".git").read_text().strip().removeprefix("gitdir:").strip()
     return Path(pointer).resolve()
 
@@ -110,10 +115,10 @@ def _unpinned(calls: list[tuple[list[str], str]], admins: dict[str, Path]) -> li
 
 
 def _flow(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, layout: str = "linked"
 ) -> tuple[list[tuple[list[str], str]], dict[str, Path], list[Path]]:
     """Every merge-path step once: (the git calls made, each directory's admin, the dirs)."""
-    repo, start = _target(tmp_path)
+    repo, start = _target(tmp_path, layout)
     run = RunGit(repo=repo, run_dir=tmp_path / "run", run_id="r1")
     graph = tmp_path / "graph"
     graph.mkdir()
@@ -138,10 +143,11 @@ def _flow(
     return calls, admins, [repo, run.integration, worktree]
 
 
+@pytest.mark.parametrize("layout", ["plain", "linked"])
 def test_every_merge_path_call_is_pinned_or_in_the_store(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, layout: str
 ) -> None:
-    calls, admins, places = _flow(tmp_path, monkeypatch)
+    calls, admins, places = _flow(tmp_path, monkeypatch, layout)
     # The control: the flow ran git in the repository and in both worktrees.
     ran_in = {cwd for argv, cwd in calls if "--work-tree" in argv}
     assert {str(place) for place in places} <= ran_in, ran_in

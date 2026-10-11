@@ -497,6 +497,48 @@ def verify_worktree_pointer(cwd: Path) -> Path | None:
     return admin
 
 
+def verified_git_dir(cwd: Path, *, linked: bool) -> Path:
+    """The git directory every command the harness runs in ``cwd`` is pinned to, or a refusal.
+
+    :func:`verify_worktree_pointer` checks a ``.git`` pointer file and leaves anything else
+    alone. Used on its own before a write, that let git choose: with no ``.git`` at all git
+    looks in the parent directories and commits into whichever repository it finds there, and
+    with a directory, or a link to one, it uses that directory as the repository. Here only a
+    git directory confirmed now is returned, and the caller pins every command to it:
+
+    - a ``.git`` pointer that :func:`verify_worktree_pointer` accepts: its admin directory;
+    - unless ``linked``, a ``.git`` that is a real directory (no link) holding ``HEAD`` and
+      ``objects``: that directory, as for a repository's main worktree.
+
+    ``linked`` is for a worktree the harness made with ``git worktree add``, whose ``.git`` is
+    always a pointer file, so a directory there is refused too.
+
+    Raises:
+        GitError: nothing above was found; the command must not run.
+    """
+    dot = Path(cwd) / ".git"
+    try:
+        is_link = dot.is_symlink()
+        is_dir = dot.is_dir()
+        holds_git = is_dir and (dot / "HEAD").is_file() and (dot / "objects").is_dir()
+    except OSError as exc:
+        msg = "a worktree's .git could not be examined"
+        raise GitError(msg, cwd=str(cwd), reason=str(exc)) from None
+    if is_link:
+        msg = "a worktree's .git is a link, so git would use whatever it names"
+        raise GitError(msg, cwd=str(cwd))
+    admin = verify_worktree_pointer(cwd)
+    if admin is not None:
+        return admin
+    if linked and is_dir:
+        msg = "a worktree the harness made has a git directory in place of its .git pointer"
+        raise GitError(msg, cwd=str(cwd))
+    if not holds_git:
+        msg = "the path has no .git the harness can verify, so git would look for one elsewhere"
+        raise GitError(msg, cwd=str(cwd))
+    return dot.resolve()
+
+
 def head_of(repo: Path, ref: str, *, git_dir: Path | None = None) -> str:
     """The commit ``ref`` points at, as a full SHA; ``git_dir`` pins it as for :func:`git`."""
     return git(repo, "rev-parse", "--verify", f"{ref}^{{commit}}", git_dir=git_dir).strip()
@@ -523,24 +565,24 @@ def add_worktree(repo: Path, path: Path, branch: str, start: str) -> None:
     An existing worktree at ``path`` on ``branch`` is kept as it is: a repair
     attempt continues in the worktree the rejected attempt left. That worktree is one a
     session ran in, so its pointer is verified and its branch read through the verified
-    admin directory, as a commit there is; the repository's own pointer likewise.
+    admin directory, as a commit there is; the repository's own git directory likewise.
     """
     if path.exists():
-        admin = verify_worktree_pointer(path)
+        admin = verified_git_dir(path, linked=True)
         current = git(path, "rev-parse", "--abbrev-ref", "HEAD", git_dir=admin).strip()
         if current != branch:
             msg = "a worktree exists at the path on another branch"
             raise GitError(msg, path=str(path), branch=current, expected=branch)
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    pinned = verify_worktree_pointer(repo)
+    pinned = verified_git_dir(repo, linked=False)
     if branch_exists(repo, branch, git_dir=pinned):
         git(repo, "worktree", "add", "--quiet", str(path), branch, git_dir=pinned)
     else:
         git(repo, "worktree", "add", "--quiet", "-b", branch, str(path), start, git_dir=pinned)
 
 
-def commit_all(worktree: Path, message: str) -> str:
+def commit_all(worktree: Path, message: str, *, linked: bool = False) -> str:
     """Stage everything in ``worktree`` and commit it, even if nothing changed.
 
     Empty commits are allowed on purpose: an attempt that changed nothing still
@@ -550,8 +592,11 @@ def commit_all(worktree: Path, message: str) -> str:
     repointed the worktree's ``.git`` at one it controls, would run that directory's config,
     so the pointer is verified here, immediately before, and the commit fails closed if it
     does not name a real git worktree admin whose back-pointer resolves to this worktree.
+    ``linked`` says the worktree is one the harness made, so it must have that pointer; a
+    repository's own ``.git`` directory is accepted otherwise. Anything else refuses
+    (:func:`verified_git_dir`): git is never left to find a repository of its own.
     """
-    admin = verify_worktree_pointer(worktree)
+    admin = verified_git_dir(worktree, linked=linked)
     git(worktree, "add", "--all", git_dir=admin)
     git(worktree, "commit", "--quiet", "--allow-empty", "--file", "-", stdin=message, git_dir=admin)
     return git(worktree, "rev-parse", "--verify", "HEAD^{commit}", git_dir=admin).strip()

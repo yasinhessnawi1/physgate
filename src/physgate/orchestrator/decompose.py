@@ -577,6 +577,7 @@ def start_run(
         run.integration,
         f"Specifications for run {config.run_id}\n\n"
         "Written at decomposition, with the curated library each planned role reads.\n",
+        linked=True,
     )
     store = Store(store_root)
     try:
