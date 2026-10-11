@@ -508,11 +508,16 @@ mod tests {
         assert!(READ_ONLY_NOTICE.contains("physgate → Operator Name…"));
         // A read-only start asks the server for no operator; a named one does.
         settings.operator = None;
-        assert!(!crate::server::arguments(&settings).contains(&"--operator".to_string()));
+        assert!(!crate::server::arguments(&settings)
+            .iter()
+            .any(|a| a.starts_with("--operator")));
         settings.operator = Some("Ada Lovelace".into());
-        let args = crate::server::arguments(&settings);
-        let at = args.iter().position(|a| a == "--operator").unwrap();
-        assert_eq!(args[at + 1], "Ada Lovelace");
+        assert!(
+            crate::server::arguments(&settings).contains(&"--operator=Ada Lovelace".to_string())
+        );
+        // One argument, so a name that starts with `-` is still taken as the name.
+        settings.operator = Some("-x".into());
+        assert!(crate::server::arguments(&settings).contains(&"--operator=-x".to_string()));
     }
 
     #[test]

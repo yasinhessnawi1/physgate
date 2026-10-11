@@ -50,9 +50,9 @@ pub fn arguments(settings: &Settings) -> Vec<String> {
         }
     }
     // The person decisions are recorded under. Without a name the UI reads and acts on nothing.
+    // One argument, `--operator=<name>`, so a name that starts with `-` is still a name.
     if let Some(name) = &settings.operator {
-        args.push("--operator".into());
-        args.push(name.clone());
+        args.push(format!("--operator={name}"));
     }
     args
 }
@@ -378,6 +378,14 @@ pub fn reap(pid_file: &Path) -> Option<i32> {
     Some(pid)
 }
 
+/// The announcement in `printed`, once it is complete; `printed` is then emptied, since what
+/// was printed holds the action token and is kept no longer than it takes to read it.
+fn take_announcement(printed: &mut String) -> Option<Result<Announced, String>> {
+    let result = announced(printed)?;
+    printed.clear();
+    Some(result)
+}
+
 /// Read standard output until it holds a complete announcement, then keep draining it.
 fn read_announcement(stdout: impl Read, sender: &mpsc::Sender<Result<Announced, String>>) {
     let mut reader = BufReader::new(stdout);
@@ -387,10 +395,8 @@ fn read_announcement(stdout: impl Read, sender: &mpsc::Sender<Result<Announced, 
     while matches!(reader.read_line(&mut line), Ok(n) if n > 0) {
         if !done {
             printed.push_str(&line);
-            if let Some(result) = announced(&printed) {
+            if let Some(result) = take_announcement(&mut printed) {
                 done = true;
-                // What was printed holds the token: kept no longer than it takes to read it.
-                printed.clear();
                 let _ = sender.send(result);
             }
         }
@@ -508,6 +514,34 @@ mod tests {
         format!(
             "{{\n \"operator\": \"Ada Lovelace\",\n \"operator_url\": \"http://127.0.0.1:{port}/#act={token}\",\n \"refused\": [],\n \"roots\": [\"/r\"],\n \"url\": \"http://127.0.0.1:{port}/\"\n}}\n"
         )
+    }
+
+    #[test]
+    fn an_empty_or_blank_name_is_refused_and_a_name_is_trimmed() {
+        for bad in ["", "   ", "\t", "a\nb", &"x".repeat(65)] {
+            assert!(valid_operator(bad).is_err(), "{bad:?}");
+        }
+        assert_eq!(valid_operator("  Ada Lovelace "), Ok("Ada Lovelace".into()));
+        assert_eq!(valid_operator(&"x".repeat(64)), Ok("x".repeat(64)));
+    }
+
+    #[test]
+    fn what_was_printed_is_emptied_once_the_announcement_is_read() {
+        let token = made_up_token();
+        let line = printed_for_operator(52011, &token);
+        let (head, rest) = line.split_at(line.len() / 2);
+        let mut printed = head.to_string();
+        assert!(
+            take_announcement(&mut printed).is_none(),
+            "not complete yet"
+        );
+        assert!(!printed.is_empty(), "kept while incomplete");
+        printed.push_str(rest);
+        assert!(take_announcement(&mut printed).is_some());
+        assert!(
+            printed.is_empty(),
+            "the token is not kept in what was printed"
+        );
     }
 
     #[test]
