@@ -155,7 +155,7 @@ pub fn on_event(app: &AppHandle, event: &MenuEvent) {
         SERVER_LOG => open_in_editor(app.state::<Shell>().paths.server_log()),
         RELOAD => {
             if let Some(window) = app.get_webview_window("main") {
-                let _ = window.eval("window.location.reload()");
+                app.state::<Shell>().reload(&window);
             }
         }
         RESTART => restart_in_background(app),

@@ -26,6 +26,8 @@ pub struct Shell {
     state: Mutex<State>,
     /// Held for the whole of a restart, so two never interleave.
     restarting: Mutex<()>,
+    /// The app's own page last shown, without its one-use value, so a reload can show it again.
+    shown: Mutex<Option<Url>>,
     /// Where a tour's findings go, when the app was started to take one.
     tour: Option<PathBuf>,
 }
@@ -55,6 +57,7 @@ impl Shell {
                 waiting_for_runs: false,
             }),
             restarting: Mutex::new(()),
+            shown: Mutex::new(None),
             tour,
         }
     }
@@ -76,8 +79,32 @@ impl Shell {
 
     /// Send the window to one of the app's own pages, with the ticket that lets it in.
     pub fn go(&self, window: &WebviewWindow, url: &Url) {
+        *self
+            .shown
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(url.clone());
         let ticketed = self.gate.issue(url);
         let _ = window.navigate(ticketed);
+    }
+
+    /// Reload what the window shows: the server's page as it is, or the app's own page again
+    /// through a fresh ticket (its old one is used up, so a plain reload would be refused).
+    pub fn reload(&self, window: &WebviewWindow) {
+        let Ok(current) = window.url() else {
+            return;
+        };
+        let shown = self
+            .shown
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        match reload_target(&current, shown.as_ref()) {
+            Reload::ShowAgain(page) => self.go(window, &page),
+            Reload::Page => {
+                let _ = window.eval("window.location.reload()");
+            }
+            Reload::Nothing => {}
+        }
     }
 
     /// Show the onboarding page at a step (`intro` or `engine`), with the server stopped.
@@ -312,11 +339,51 @@ impl Shell {
     }
 }
 
+/// What a reload does.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Reload {
+    /// Show the app's own page again, through a fresh ticket.
+    ShowAgain(Url),
+    /// Reload the server's page in place.
+    Page,
+    /// Nothing to reload.
+    Nothing,
+}
+
+/// What reloading `current` means, given the app's own page last shown.
+pub fn reload_target(current: &Url, shown: Option<&Url>) -> Reload {
+    if current.scheme() == "tauri" {
+        return shown.map_or(Reload::Nothing, |page| Reload::ShowAgain(page.clone()));
+    }
+    Reload::Page
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::navigation::Decision;
     use crate::testdir::TestDir;
+
+    #[test]
+    fn a_reload_shows_the_apps_own_page_again_through_a_fresh_ticket() {
+        let page = Url::parse("tauri://localhost/index.html#%7B%7D").unwrap();
+        let mut current = page.clone();
+        current.set_query(Some("t=used-up"));
+        assert_eq!(
+            reload_target(&current, Some(&page)),
+            Reload::ShowAgain(page.clone())
+        );
+        assert_eq!(reload_target(&current, None), Reload::Nothing);
+        let served = Url::parse("http://127.0.0.1:52011/#/runs").unwrap();
+        assert_eq!(reload_target(&served, Some(&page)), Reload::Page);
+        // Shown again, the page gets a ticket of its own, not the used-up one.
+        let gate = crate::navigation::Gate::default();
+        let first = gate.issue(&page);
+        assert_eq!(gate.decide(&first), Decision::OwnPage);
+        let again = gate.issue(&page);
+        assert_ne!(again, first);
+        assert_eq!(gate.decide(&again), Decision::OwnPage);
+    }
 
     #[test]
     fn stopping_the_server_stops_trusting_its_origin() {
