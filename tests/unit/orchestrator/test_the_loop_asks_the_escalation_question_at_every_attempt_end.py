@@ -381,3 +381,68 @@ def test_an_unfinished_old_log_waits_on_the_rules_route_not_a_decision(tmp_path:
     path.write_text("".join(json.dumps(line) + "\n" for line in cut))
     assert replay(read_events(path)).next_step().kind == "escalate"
     assert any(isinstance(e, Escalated) for e in events)
+
+
+# -- a resume never takes over an attempt that ended without a merge ---------------------
+
+
+def _ended_run(tmp_path: Path, ended_by: str) -> list[dict[str, Any]]:
+    """A run whose first attempt ends with a blocked review or a final unavailable one."""
+    reviewer = (
+        FakeReviewer(results={1: blocked_review(1)})
+        if ended_by == "blocked"
+        else FakeReviewer(unavailable={1: unavailable("refused")})
+    )
+    drive(Rig(tmp_path / "run", reviewer=reviewer), "s1")
+    return _lines(tmp_path / "run" / "events.jsonl")
+
+
+def _resumed_after(lines: list[dict[str, Any]], index: int) -> None:
+    """Plant a resume at the attempt's own checkpoint right after line ``index``."""
+    envelope = {k: lines[index][k] for k in ("seq", "ts", "run_id", "gate_mode")}
+    lines.insert(
+        index + 1,
+        {
+            **envelope,
+            "kind": "resumed",
+            "subtask_id": "s1",
+            "attempt": 1,
+            "point": "verify_reading",
+        },
+    )
+
+
+def _end_index(lines: list[dict[str, Any]]) -> int:
+    return next(
+        i
+        for i, line in enumerate(lines)
+        if (line["kind"] == "review_ran" and line["result"]["verdict"] == "blocked")
+        or (line["kind"] == "review_unavailable" and not line["retry"])
+    )
+
+
+@pytest.mark.parametrize("ended_by", ["blocked", "unavailable"])
+@pytest.mark.parametrize("where", ["before_its_decision", "after_its_routed_decision"])
+def test_a_resume_after_an_attempt_end_that_did_not_merge_is_refused(
+    tmp_path: Path, ended_by: str, where: str
+) -> None:
+    lines = _ended_run(tmp_path, ended_by)
+    _replayed([dict(line) for line in lines], tmp_path / "untouched.jsonl")
+    end = _end_index(lines)
+    assert lines[end + 1]["kind"] == "escalation_decided"
+    _resumed_after(lines, end if where == "before_its_decision" else end + 1)
+    with pytest.raises(CorruptEventLogError) as caught:
+        _replayed(lines, tmp_path / "changed.jsonl")
+    assert "not resumed" in caught.value.context["reason"]
+
+
+@pytest.mark.parametrize("ended_by", ["blocked", "unavailable"])
+def test_a_resume_after_such_an_end_in_a_log_from_before_the_interface_is_refused(
+    tmp_path: Path, ended_by: str
+) -> None:
+    old = _before_the_interface(_ended_run(tmp_path, ended_by))
+    _replayed([dict(line) for line in old], tmp_path / "untouched.jsonl")
+    _resumed_after(old, _end_index(old))
+    with pytest.raises(CorruptEventLogError) as caught:
+        _replayed(old, tmp_path / "changed.jsonl")
+    assert "not resumed" in caught.value.context["reason"]

@@ -519,6 +519,11 @@ class RunState:
         return reviewed and now.merged is None and self._gate_allows_review(now)
 
     def _resume(self, sub: SubtaskState, now: AttemptState, point: str) -> None:
+        if self._ended_without_merge(now):
+            # An attempt that ended without a merge is never taken over: what follows it is
+            # its escalation decision and the route that decision gives. A resume there would
+            # restart the attempt and drop a decision that is due, or one already recorded.
+            _refuse("an attempt that ended without a merge is not resumed; it is decided")
         if self.halted is not None and self.halted.reason not in RESUMABLE_HALTS:
             _refuse(f"a run halted for {self.halted.reason} is not resumed by the loop")
         if self.halted is not None:
