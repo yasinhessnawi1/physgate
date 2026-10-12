@@ -41,6 +41,7 @@ from physgate.orchestrator.git import (
     branch_exists,
     changes_between,
     commit_all,
+    common_dir,
     diff_text,
     git,
     git_timed,
@@ -103,16 +104,19 @@ class RunGit:
         return path
 
 
-def commit_attempt(worktree: Path, subtask_id: str, attempt: int, session_id: str) -> str:
+def commit_attempt(
+    worktree: Path, subtask_id: str, attempt: int, session_id: str, *, repo: Path
+) -> str:
     """The orchestrator's commit of whatever a session left in its worktree.
 
-    The message is a template. No text an agent wrote becomes a commit message.
+    The message is a template. No text an agent wrote becomes a commit message. ``repo`` is the
+    repository the worktree was made in: the worktree's admin directory must belong to it.
     """
     message = (
         f"Attempt {attempt} of subtask {subtask_id}\n\n"
         f"Committed by the orchestrator at the end of session {session_id}.\n"
     )
-    return commit_all(worktree, message, linked=True)
+    return commit_all(worktree, message, linked=True, common=common_dir(repo))
 
 
 def write_scope_violations(
@@ -185,7 +189,7 @@ class GitMerger:
         already = merges_of(run.repo, run.run_branch, base, git_dir=pinned).get(attempt_commit)
         if already is not None:
             return already
-        admin = verified_git_dir(run.integration, linked=True)
+        admin = verified_git_dir(run.integration, linked=True, common=common_dir(run.repo))
         try:
             git(
                 run.integration, "merge", "--no-ff", "--no-edit", "-m", message, attempt_commit,

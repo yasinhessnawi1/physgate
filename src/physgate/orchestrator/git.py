@@ -193,6 +193,14 @@ _ENV = {
 #: included. It is a file in the object directory, which a role session can write, so a graph
 #: that names other parents would move a merge base, hide a merge, or change what a merge
 #: merges. Read without it, git takes each commit's parents from the commit.
+#:
+#: Automatic maintenance is off as well. A commit or a merge otherwise starts ``git gc --auto``
+#: (or ``git maintenance run --auto``) once the repository holds enough loose objects or packs,
+#: and by default it detaches and keeps running after the command returns: it would repack
+#: objects and pack refs in the repository's git directory while the next role session runs,
+#: and that directory is protected from role sessions whole, so the session would see its
+#: tool calls refused for writes the harness made. With these off, every harness write to a
+#: git directory ends with the command that made it.
 _FLAGS = (
     "-c", f"core.hooksPath={os.devnull}",
     "-c", "commit.gpgsign=false",
@@ -203,6 +211,8 @@ _FLAGS = (
     "-c", "merge.verifySignatures=false",
     "-c", f"gpg.program={os.devnull}",
     "-c", "core.commitGraph=false",
+    "-c", "gc.auto=0",
+    "-c", "maintenance.auto=false",
 )  # fmt: skip
 #: Added to a diff: no external diff program, no textconv program, and a submodule shown as
 #: its gitlink rather than recursed into (recursion re-runs git in the submodule, where the
@@ -445,10 +455,11 @@ def git_timed(
     return done.returncode, done.stderr.strip()[-400:], time.monotonic() - started
 
 
-def verify_worktree_pointer(cwd: Path) -> Path | None:
+def verify_worktree_pointer(cwd: Path, *, common: Path | None = None) -> Path | None:
     """The verified admin directory of a linked worktree at ``cwd``, or ``None`` for a plain repo.
 
-    Fail closed unless a linked worktree's ``.git`` names a real git admin directory.
+    Fail closed unless a linked worktree's ``.git`` names a real git admin directory of the
+    repository it belongs to.
 
     A role session owns its worktree. If it rewrote the worktree's ``.git`` pointer file to
     name a directory it controls, the orchestrator's next commit or merge, run with its working
@@ -456,8 +467,18 @@ def verify_worktree_pointer(cwd: Path) -> Path | None:
     run a program. The pointer file is a protected root, so a tool write to it is refused and a
     shell write is put back; this is the second check, called immediately before the
     orchestrator stages, commits or merges in a live worktree (:func:`commit_all` and the
-    merger): the pointer must name an admin directory that is a git worktree's (it has
-    ``commondir`` and a ``gitdir`` back-pointer resolving to this very ``.git``), or it fails.
+    merger): the pointer must name an admin directory that is a git worktree's, or it fails.
+
+    An admin directory is a git worktree's when:
+
+    - it has a ``gitdir`` back-pointer resolving to this very ``.git``;
+    - it has a ``commondir`` resolving to the directory the admin directory sits in, as git
+      lays it out (``<common>/worktrees/<name>``). ``commondir`` names the directory whose
+      config, hooks, refs and objects git uses for the worktree, so one naming any other
+      directory would hand git a configuration the harness never checked;
+    - with ``common`` given, that common directory is ``common``: the repository the caller
+      made the worktree in, so an admin directory laid out like git's in another repository
+      is refused too.
 
     It guards a write, not a read: an observability command reading a run that was copied or
     moved sees stale absolute pointers git itself follows, and must not be refused for them.
@@ -482,6 +503,7 @@ def verify_worktree_pointer(cwd: Path) -> Path | None:
         admin = admin.resolve()
         has_admin = (admin / "commondir").is_file() and (admin / "gitdir").is_file()
         back = (admin / "gitdir").read_text().strip() if has_admin else ""
+        shared = (admin / "commondir").read_text().strip() if has_admin else ""
     except OSError as exc:
         msg = "a worktree's .git or its admin directory could not be read"
         raise GitError(msg, cwd=str(cwd), reason=str(exc)) from None
@@ -491,13 +513,21 @@ def verify_worktree_pointer(cwd: Path) -> Path | None:
     if not has_admin:
         msg = "a worktree's .git points at no git worktree admin directory"
         raise GitError(msg, cwd=str(cwd), admin=str(admin))
-    if Path(back).resolve() != dot.resolve():
+    if not back or Path(back).resolve() != dot.resolve():
         msg = "a worktree's .git and its admin directory disagree"
         raise GitError(msg, cwd=str(cwd), admin=str(admin))
+    named_common = Path(shared)
+    found = (named_common if named_common.is_absolute() else admin / named_common).resolve()
+    if not shared or admin.parent.name != "worktrees" or found != admin.parent.parent:
+        msg = "a worktree's admin directory names another common git directory than its own"
+        raise GitError(msg, cwd=str(cwd), admin=str(admin), commondir=shared[:200])
+    if common is not None and found != Path(common).resolve():
+        msg = "a worktree's admin directory belongs to another repository than the expected one"
+        raise GitError(msg, cwd=str(cwd), admin=str(admin), expected=str(common))
     return admin
 
 
-def verified_git_dir(cwd: Path, *, linked: bool) -> Path:
+def verified_git_dir(cwd: Path, *, linked: bool, common: Path | None = None) -> Path:
     """The git directory every command the harness runs in ``cwd`` is pinned to, or a refusal.
 
     :func:`verify_worktree_pointer` checks a ``.git`` pointer file and leaves anything else
@@ -508,26 +538,33 @@ def verified_git_dir(cwd: Path, *, linked: bool) -> Path:
 
     - a ``.git`` pointer that :func:`verify_worktree_pointer` accepts: its admin directory;
     - unless ``linked``, a ``.git`` that is a real directory (no link) holding ``HEAD`` and
-      ``objects``: that directory, as for a repository's main worktree.
+      ``objects`` and no ``commondir``: that directory, as for a repository's main worktree.
+      git follows a ``commondir`` file in any git directory, and a main worktree's has none.
 
     ``linked`` is for a worktree the harness made with ``git worktree add``, whose ``.git`` is
-    always a pointer file, so a directory there is refused too.
+    always a pointer file, so a directory there is refused too. Such a worktree is verified
+    against ``common``, the common git directory of the repository it was made in
+    (:func:`common_dir`), which the caller must give.
 
     Raises:
         GitError: nothing above was found; the command must not run.
     """
+    if linked and common is None:
+        msg = "a worktree the harness made is verified against its repository, and none was named"
+        raise GitError(msg, cwd=str(cwd))
     dot = Path(cwd) / ".git"
     try:
         is_link = dot.is_symlink()
         is_dir = dot.is_dir()
         holds_git = is_dir and (dot / "HEAD").is_file() and (dot / "objects").is_dir()
+        redirected = is_dir and os.path.lexists(dot / "commondir")
     except OSError as exc:
         msg = "a worktree's .git could not be examined"
         raise GitError(msg, cwd=str(cwd), reason=str(exc)) from None
     if is_link:
         msg = "a worktree's .git is a link, so git would use whatever it names"
         raise GitError(msg, cwd=str(cwd))
-    admin = verify_worktree_pointer(cwd)
+    admin = verify_worktree_pointer(cwd, common=common)
     if admin is not None:
         return admin
     if linked and is_dir:
@@ -535,6 +572,9 @@ def verified_git_dir(cwd: Path, *, linked: bool) -> Path:
         raise GitError(msg, cwd=str(cwd))
     if not holds_git:
         msg = "the path has no .git the harness can verify, so git would look for one elsewhere"
+        raise GitError(msg, cwd=str(cwd))
+    if redirected:
+        msg = "a repository's git directory names a common directory elsewhere (commondir)"
         raise GitError(msg, cwd=str(cwd))
     return dot.resolve()
 
@@ -545,13 +585,21 @@ def head_of(repo: Path, ref: str, *, git_dir: Path | None = None) -> str:
 
 
 def common_dir(repo: Path) -> Path:
-    """The git directory a repository's refs live in, whatever its layout.
+    """The common git directory of ``repo``: where its config, hooks, refs and objects are.
 
-    A repository that is itself a worktree, or keeps its git directory elsewhere
-    behind a ``.git`` file, has no ``<repo>/.git/refs``; git says where they are.
+    Read from the filesystem through :func:`verified_git_dir`, the check every write runs, never
+    by asking git inside the repository, which would follow whatever ``.git`` and ``commondir``
+    say now. For an ordinary repository it is the repository's own ``.git`` directory; for a
+    repository that is itself a linked worktree it is the directory that worktree's admin
+    directory sits in, which the check has confirmed its ``commondir`` names.
+
+    Raises:
+        GitError: the repository's git directory does not verify.
     """
-    found = Path(git(repo, "rev-parse", "--git-common-dir").strip())
-    return found if found.is_absolute() else (Path(repo) / found).resolve()
+    git_dir = verified_git_dir(repo, linked=False)
+    if (git_dir / "commondir").is_file():
+        return git_dir.parent.parent
+    return git_dir
 
 
 def branch_exists(repo: Path, branch: str, *, git_dir: Path | None = None) -> bool:
@@ -568,7 +616,7 @@ def add_worktree(repo: Path, path: Path, branch: str, start: str) -> None:
     admin directory, as a commit there is; the repository's own git directory likewise.
     """
     if path.exists():
-        admin = verified_git_dir(path, linked=True)
+        admin = verified_git_dir(path, linked=True, common=common_dir(repo))
         current = git(path, "rev-parse", "--abbrev-ref", "HEAD", git_dir=admin).strip()
         if current != branch:
             msg = "a worktree exists at the path on another branch"
@@ -582,7 +630,9 @@ def add_worktree(repo: Path, path: Path, branch: str, start: str) -> None:
         git(repo, "worktree", "add", "--quiet", "-b", branch, str(path), start, git_dir=pinned)
 
 
-def commit_all(worktree: Path, message: str, *, linked: bool = False) -> str:
+def commit_all(
+    worktree: Path, message: str, *, linked: bool = False, common: Path | None = None
+) -> str:
     """Stage everything in ``worktree`` and commit it, even if nothing changed.
 
     Empty commits are allowed on purpose: an attempt that changed nothing still
@@ -592,11 +642,12 @@ def commit_all(worktree: Path, message: str, *, linked: bool = False) -> str:
     repointed the worktree's ``.git`` at one it controls, would run that directory's config,
     so the pointer is verified here, immediately before, and the commit fails closed if it
     does not name a real git worktree admin whose back-pointer resolves to this worktree.
-    ``linked`` says the worktree is one the harness made, so it must have that pointer; a
-    repository's own ``.git`` directory is accepted otherwise. Anything else refuses
-    (:func:`verified_git_dir`): git is never left to find a repository of its own.
+    ``linked`` says the worktree is one the harness made, so it must have that pointer, into the
+    repository whose common git directory is ``common``; a repository's own ``.git`` directory
+    is accepted otherwise. Anything else refuses (:func:`verified_git_dir`): git is never left
+    to find a repository of its own.
     """
-    admin = verified_git_dir(worktree, linked=linked)
+    admin = verified_git_dir(worktree, linked=linked, common=common)
     git(worktree, "add", "--all", git_dir=admin)
     git(worktree, "commit", "--quiet", "--allow-empty", "--file", "-", stdin=message, git_dir=admin)
     return git(worktree, "rev-parse", "--verify", "HEAD^{commit}", git_dir=admin).strip()

@@ -127,7 +127,7 @@ def _flow(
     worktree = run.open_subtask("m1")
     admins = {str(path.resolve()): _admin(path) for path in (repo, run.integration, worktree)}
     (worktree / "m1" / "a.txt").write_text("1\n")
-    attempt = commit_attempt(worktree, "m1", 1, "sess-1")
+    attempt = commit_attempt(worktree, "m1", 1, "sess-1", repo=run.repo)
     assert run.open_subtask("m1") == worktree  # a repair attempt's worktree, already there
     assert (
         GitChangeChecker(run, graph, {"m1": "m1"}).check("m1", attempt, "role").refused_by is None
@@ -187,7 +187,7 @@ def test_the_merge_s_result_is_read_through_the_admin_directory_it_ran_in(
     run.open_run_branch(start)
     worktree = run.open_subtask("m1")
     (worktree / "m1" / "a.txt").write_text("1\n")
-    attempt = commit_attempt(worktree, "m1", 1, "sess-1")
+    attempt = commit_attempt(worktree, "m1", 1, "sess-1", repo=run.repo)
     decoy = _decoy_admin(tmp_path, run.integration, start)
 
     def swapping_git(cwd: Path, *args: str, **kwargs: Any) -> str:  # noqa: ANN401
@@ -212,7 +212,7 @@ def test_the_change_check_reads_through_the_pointer_it_verified(
     run.open_run_branch(start)
     worktree = run.open_subtask("m1")
     (worktree / "out.txt").write_text("outside the module\n")
-    attempt = commit_attempt(worktree, "m1", 1, "sess-1")
+    attempt = commit_attempt(worktree, "m1", 1, "sess-1", repo=run.repo)
     graph = tmp_path / "graph"
     graph.mkdir()
     real_admin = _admin(repo)

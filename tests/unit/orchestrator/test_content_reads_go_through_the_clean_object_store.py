@@ -161,7 +161,7 @@ def _merged_run(tmp_path: Path) -> tuple[RunGit, str, str, str]:
     run.open_run_branch(start)
     worktree = run.open_subtask("m1")
     (worktree / "m1.txt").write_text("attempt\n")
-    attempt = commit_attempt(worktree, "m1", 1, "sess-1")
+    attempt = commit_attempt(worktree, "m1", 1, "sess-1", repo=run.repo)
     before = head_of(repo, run.run_branch)
     merger = GitMerger(run, removal_timeout_s=60)
     merged = merger.merge("m1", 1, attempt, "merge m1")

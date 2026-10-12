@@ -90,7 +90,9 @@ def run_protected_roots(run: RunGit) -> tuple[tuple[Path, ...], tuple[Path, ...]
       with ``physgate queue resolve`` whenever they decide, sessions running or not.
     """
     # Where git keeps the run branch's loose ref, for any repository layout. A ref
-    # moved in packed-refs is seen by the loop's check of the branch instead.
+    # moved in packed-refs is seen by the loop's check of the branch instead. Read through
+    # the check every write runs, never by asking git in the repository: a repository whose
+    # git directory does not verify gives no protected set, so no session is installed.
     common = common_dir(run.repo)
     ref = common / "refs" / "heads" / run.run_branch
     reverted = (*(run.run_dir / name for name in RUN_RECORDS), run.integration, ref)
@@ -469,7 +471,9 @@ class ClaudeDispatcher:
                 raise InvocationError(msg, asked=request.model, answered=",".join(echoed))
         halted, appends = self._hook_log(sdir / "state", session_id)
         commit = (
-            commit_attempt(worktree, request.subtask_id, request.attempt, session_id)
+            commit_attempt(
+                worktree, request.subtask_id, request.attempt, session_id, repo=self._run.repo
+            )
             if end.outcome == "completed"
             else None
         )

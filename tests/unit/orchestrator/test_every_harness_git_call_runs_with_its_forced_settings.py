@@ -35,8 +35,16 @@ _ENV = {
     "GIT_COMMITTER_NAME": "t",
     "GIT_COMMITTER_EMAIL": "t@example.invalid",
 }
-#: Each forced setting and the value every harness git command must run with.
-FORCED = {"core.fsmonitor": "false", "core.attributesFile": "/dev/null"}
+#: Each forced setting and the value every harness git command must run with. The commit graph
+#: is a cache of parents git trusts over the commits, kept in the object directory.
+FORCED = {
+    "core.fsmonitor": "false",
+    "core.attributesFile": "/dev/null",
+    "core.commitGraph": "false",
+}
+#: What the orchestrator's commands force besides: no automatic maintenance, which would go on
+#: writing the repository's git directory after the command that started it had returned.
+NO_MAINTENANCE = {"gc.auto": "0", "maintenance.auto": "false"}
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -126,3 +134,37 @@ def test_the_reviewer_s_diff_turns_external_diff_and_textconv_programs_off(
     switches = diffs[0][diffs[0].index("diff") + 1 : -2]
     assert "--no-ext-diff" in switches, diffs[0]
     assert "--no-textconv" in switches, diffs[0]
+
+
+@pytest.mark.parametrize("key", sorted(NO_MAINTENANCE))
+def test_the_orchestrator_s_git_starts_no_maintenance_of_its_own(tmp_path: Path, key: str) -> None:
+    repo, _, _ = _repo(tmp_path)
+    plain = subprocess.run(
+        ["git", "config", "--get", key], cwd=repo, env=_ENV, capture_output=True, check=False
+    )
+    assert plain.returncode == 1, plain
+    for name, holds in _value_in_force(repo).items():
+        if name == "materialiser":
+            continue
+        assert holds(key, NO_MAINTENANCE[key]), (name, key)
+
+
+def test_the_materialiser_reads_no_shallow_or_graft_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, _, _ = _repo(tmp_path)
+    calls: list[tuple[list[str], dict[str, str]]] = []
+    real_run = subprocess.run
+
+    def recording_run(argv: list[str], **kwargs: Any) -> Any:  # noqa: ANN401
+        calls.append((list(argv), dict(kwargs.get("env") or {})))
+        return real_run(argv, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", recording_run)
+    materialise._git(repo, "rev-parse", "HEAD")
+    ran = [(argv, env) for argv, env in calls if argv[-2:] == ["rev-parse", "HEAD"]]
+    assert len(ran) == 1, calls
+    argv, env = ran[0]
+    assert env.get("GIT_SHALLOW_FILE") == "", env
+    assert env.get("GIT_GRAFT_FILE") == "", env
+    assert "core.commitGraph=false" in argv, argv

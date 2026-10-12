@@ -38,7 +38,7 @@ from physgate.orchestrator.credentials import (
     write_login,
 )
 from physgate.orchestrator.exceptions import DecompositionError, InvocationError, RunStateError
-from physgate.orchestrator.git import commit_all, git, init_repo
+from physgate.orchestrator.git import commit_all, common_dir, git, init_repo
 from physgate.orchestrator.invocation import (
     claude_binary,
     decomposition_argv,
@@ -578,6 +578,7 @@ def start_run(
         f"Specifications for run {config.run_id}\n\n"
         "Written at decomposition, with the curated library each planned role reads.\n",
         linked=True,
+        common=common_dir(run.repo),
     )
     store = Store(store_root)
     try:

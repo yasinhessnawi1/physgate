@@ -91,7 +91,9 @@ class StandInSession:
         stream = self.layout.run_dir / "sessions" / sid / "stdout.jsonl"
         stream.parent.mkdir(parents=True, exist_ok=True)
         stream.write_text(json.dumps({"type": "result", "session_id": sid}) + "\n")
-        commit = commit_attempt(worktree, request.subtask_id, request.attempt, sid)
+        commit = commit_attempt(
+            worktree, request.subtask_id, request.attempt, sid, repo=self.layout.repo
+        )
         usage = Usage(
             input_tokens=1200 * self.calls,
             output_tokens=310,

@@ -103,7 +103,9 @@ class GitDispatcher:
         if call in self.during:
             self.during[call](worktree)
         sid = f"sess-{call}"
-        commit = commit_attempt(worktree, request.subtask_id, request.attempt, sid)
+        commit = commit_attempt(
+            worktree, request.subtask_id, request.attempt, sid, repo=self.run.repo
+        )
         if call in self.after_commit:
             self.after_commit[call](worktree)
         return SessionReport(

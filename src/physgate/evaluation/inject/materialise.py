@@ -56,8 +56,13 @@ ANSWER_FIELDS: tuple[str, ...] = (
 _EMPTY_TREE = EMPTY_TREES["sha1"]
 #: ``GIT_NO_REPLACE_OBJECTS`` turns off ``refs/replace``, so every command reads and writes the
 #: exact objects it names, never a substitute a replace ref would silently show in their place.
+#: ``GIT_SHALLOW_FILE`` and ``GIT_GRAFT_FILE``, set empty, name no file, so git reads neither a
+#: ``shallow`` file nor ``info/grafts``, either of which makes a commit seem to have other
+#: parents than it holds: the same settings as the orchestrator's merge path.
 _GIT_ENV = {
     "GIT_NO_REPLACE_OBJECTS": "1",
+    "GIT_SHALLOW_FILE": "",
+    "GIT_GRAFT_FILE": "",
     "GIT_AUTHOR_NAME": "design",
     "GIT_AUTHOR_EMAIL": "design@example.invalid",
     "GIT_COMMITTER_NAME": "design",
@@ -71,12 +76,15 @@ _GIT_ENV = {
     "GIT_TERMINAL_PROMPT": "0",
 }
 #: Overrides on every command: hooks off, no signing, the file-system monitor off (a program a
-#: repository can name), and a repository's own attributes file off.
+#: repository can name), a repository's own attributes file off, and the commit graph off: a
+#: commit-graph file in the object directory is a cache of every commit's parents that git
+#: trusts in place of the commits, so with it off each commit's parents come from the commit.
 _GIT_FLAGS = (
     "-c", f"core.hooksPath={os.devnull}",
     "-c", "commit.gpgsign=false",
     "-c", "core.fsmonitor=false",
     "-c", "core.attributesFile=/dev/null",
+    "-c", "core.commitGraph=false",
 )  # fmt: skip
 
 

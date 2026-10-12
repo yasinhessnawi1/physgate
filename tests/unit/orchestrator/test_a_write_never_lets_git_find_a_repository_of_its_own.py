@@ -104,7 +104,7 @@ def test_a_role_worktree_s_commit_refuses_a_git_directory_it_cannot_verify(
     decoy_git = _swap(tmp_path, worktree, swap)
     before = _heads(outer, decoy_git)
     with pytest.raises(GitError):
-        commit_attempt(worktree, "m1", 1, "sess-1")
+        commit_attempt(worktree, "m1", 1, "sess-1", repo=run.repo)
     with pytest.raises(GitError):
         run.open_subtask("m1")  # a repair attempt's worktree is read the same way
     assert _heads(outer, decoy_git) == before
@@ -117,7 +117,7 @@ def test_the_merge_refuses_an_integration_worktree_it_cannot_verify(
     outer, run, start = _layout(tmp_path)
     worktree = run.open_subtask("m1")
     (worktree / "m1.txt").write_text("1\n")
-    attempt = commit_attempt(worktree, "m1", 1, "sess-1")
+    attempt = commit_attempt(worktree, "m1", 1, "sess-1", repo=run.repo)
     decoy_git = _swap(tmp_path, run.integration, swap)
     before = _heads(outer, decoy_git)
     with pytest.raises(GitError):
@@ -133,7 +133,7 @@ def test_the_target_repository_must_hold_a_git_directory_the_harness_can_verify(
     outer, run, start = _layout(tmp_path)
     worktree = run.open_subtask("m1")
     (worktree / "m1.txt").write_text("1\n")
-    attempt = commit_attempt(worktree, "m1", 1, "sess-1")
+    attempt = commit_attempt(worktree, "m1", 1, "sess-1", repo=run.repo)
     real = tmp_path / "real-git"
     shutil.move(str(run.repo / ".git"), str(real))
     if swap == "link":
@@ -158,8 +158,8 @@ def test_an_ordinary_repository_s_own_git_directory_is_the_one_pinned(tmp_path: 
     repo = tmp_path / "repo"
     _repository(repo, "a.txt")
     assert verified_git_dir(repo, linked=False) == (repo / ".git").resolve()
-    with pytest.raises(GitError):
-        verified_git_dir(repo, linked=True)  # not a worktree the harness made
+    with pytest.raises(GitError, match="in place of its .git pointer"):
+        verified_git_dir(repo, linked=True, common=repo / ".git")  # not a worktree the harness made
     (repo / "a.txt").write_text("1\n")
     commit = commit_all(repo, "the harness commits")
     assert _git(repo, "rev-parse", "HEAD") == commit
