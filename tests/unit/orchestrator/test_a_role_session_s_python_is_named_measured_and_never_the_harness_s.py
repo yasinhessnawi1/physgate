@@ -117,6 +117,7 @@ def _params(tmp_path: Path, role_python: object) -> object:
         "max_output_tokens": cfg.max_output_tokens,
         "thinking_display": cfg.thinking_display,
         "role_python": role_python,
+        "escalation_backend": "rules",
     }
     (tmp_path / "params.json").write_text(json.dumps(params))
     (tmp_path / "brief.md").write_text("brief\n")

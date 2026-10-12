@@ -239,6 +239,7 @@ def _decompose_args(tmp_path: Path, **extra: object) -> list[str]:
         "max_output_tokens": 64000,
         "thinking_display": "summarized",
         "role_python": None,
+        "escalation_backend": "rules",
         **extra,
     }
     (tmp_path / "brief.md").write_text("Build a robot.\n")

@@ -228,6 +228,7 @@ def _config(version: str) -> RunConfig:
         thinking_display="summarized",
         role_python=None,
         git_binary=None,
+        escalation_backend="rules",
     )
 
 

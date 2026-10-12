@@ -14,8 +14,8 @@ The binary exposes no seed and no temperature, so there are two levels:
   - *dropped:* ``ts`` on every line; the ``seconds`` a worktree removal and the
     installation check took; a token line's ``message_id``; the scratch
     ``graph_root`` of a proposal check; a review's usage ``message_id``s; a
-    trajectory's seal, whose stream carries
-    uuids and durations by design; and the first line's configuration digest,
+    trajectory's seal, whose stream carries uuids and durations by design; the
+    escalation decision's latency; and the first line's configuration digest,
     which is replaced by comparing the two configurations with the run id mapped.
 
   Then these must be equal: the configuration, every event line field by field,
@@ -26,7 +26,8 @@ The binary exposes no seed and no temperature, so there are two levels:
   (the binary's own context names the run's branch, a short commit id and the
   date) and it has no seed, so what must match is the sequence of decisions
   only: each planned subtask; per attempt the gate verdict and failing check, or
-  why the gate was skipped, the review verdict, and how the attempt ended; the
+  why the gate was skipped, the review verdict, how the attempt ended, and the
+  escalation decision's answer, confidence, backend and route; the
   integration gate; and a halt. Tokens, trees, trajectories and durations are
   reported as measured differences and never scored.
 
@@ -68,6 +69,9 @@ DROPPED: dict[str, frozenset[str]] = {
 #: a list. A review's message ids are random on any real API, like a token line's.
 DROPPED_AT: dict[str, tuple[tuple[str, ...], ...]] = {
     "review_ran": (("result", "usage", "*", "message_id"),),
+    # How long the escalation backend took is measured on the wall clock, never the same
+    # twice; what it answered, and how that routed, are compared.
+    "escalation_decided": (("decision", "latency_ms"),),
 }
 
 #: The records of an exact comparison, in the order a divergence is looked for.
@@ -395,6 +399,13 @@ def decisions(events: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
             step = {"step": "merged", **at}
         elif kind == "attempt_rejected":
             step = {"step": "rejected", **at, "finding_key": e["finding_key"]}
+        elif kind == "escalation_decided":
+            # What was answered and how it routed; never how long it took, which no two
+            # runs share.
+            decision = e["decision"]
+            step = {"step": "escalation", **at, "answer": decision["answer"]}
+            step |= {"confidence": decision["confidence"], "backend": decision["backend_id"]}
+            step["routed"] = decision["basis"] is not None
         elif kind == "escalated":
             step = {"step": "escalated", "subtask_id": e["subtask_id"]}
         elif kind == "session_ended" and e["outcome"] == "infrastructure":

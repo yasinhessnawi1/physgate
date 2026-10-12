@@ -44,7 +44,7 @@ from physgate.orchestrator.exceptions import OrchestratorError
 from physgate.orchestrator.run_config import RunConfig, load_run_config
 
 #: Reported when they differ, never refused: what an ablation varies on purpose.
-REPORTED = ("gate_mode", "auth", "harness")
+REPORTED = ("gate_mode", "auth", "harness", "escalation_backend")
 
 
 class _Frozen(BaseModel):
@@ -61,6 +61,9 @@ class RunNumbers(_Frozen):
     effort: str
     max_output_tokens: int
     thinking_display: str
+    #: The escalation backend the run was bound to; ``None`` for a run recorded before the
+    #: binding existed.
+    escalation_backend: str | None
     harness_commit: str | None
     harness_clean: bool
     reportable: bool
@@ -137,6 +140,7 @@ def _numbers(run_dir: Path, config: RunConfig) -> RunNumbers:
         effort=config.effort,
         max_output_tokens=config.max_output_tokens,
         thinking_display=config.thinking_display,
+        escalation_backend=config.escalation_backend,
         harness_commit=config.harness.commit,
         harness_clean=config.harness.clean,
         reportable=config.reportable,

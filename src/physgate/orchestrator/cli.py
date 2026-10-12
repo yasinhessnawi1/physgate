@@ -63,7 +63,7 @@ from physgate.orchestrator.install import (
     require_recorded_manifest,
 )
 from physgate.orchestrator.invocation import claude_binary
-from physgate.orchestrator.loop import Loop, refuse_unregistered, require_gate
+from physgate.orchestrator.loop import Loop, escalation_for, refuse_unregistered, require_gate
 from physgate.orchestrator.merge import GitMerger, RunGit
 from physgate.orchestrator.protocols import Gate, Reviewer
 from physgate.orchestrator.queue import queue_listing, record_decision
@@ -323,7 +323,13 @@ def _config(args: argparse.Namespace) -> RunConfig:
     }
     if isinstance(fields.get("role_python"), RolePython):
         fields["role_python"] = fields["role_python"].model_dump()
-    return RunConfig.model_validate_json(json.dumps(fields))
+    config = RunConfig.model_validate_json(json.dumps(fields))
+    if config.escalation_backend is None:
+        # A null binding is how a run recorded before the binding existed reads back; a new
+        # run names one, or it would be recorded as a run no loop drives.
+        msg = "a new run names its escalation backend; none is not a binding"
+        raise RunConfigError(msg)
+    return config
 
 
 def _harness_root() -> Path | None:
@@ -452,6 +458,8 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
                 )
             )
         refuse_unregistered(config, registrations.gate, reviewers)
+        # The binding the run recorded, through the register, before anything is built.
+        escalation = escalation_for(config)
         # The same provider, or the run's numbers would mean something else.
         require_endpoint(config, os.environ.get("ANTHROPIC_BASE_URL"))
         # A git at 2.42 or later, before the first guard that runs git: the floor alone. The
@@ -494,6 +502,7 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
             changes=GitChangeChecker(run, store_root, {e.subtask_id: e.module_dir for e in plan}),
             merger=GitMerger(run, removal_timeout_s=REMOVAL_TIMEOUT_S),
             graph=keeper,
+            escalation=escalation,
         )
     except (OrchestratorError, ReviewError) as exc:
         return _fail(str(exc), **exc.context)

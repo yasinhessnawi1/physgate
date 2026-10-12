@@ -20,6 +20,7 @@ from git_rig import DispatchPort, Gate, GitDispatcher, Reviewer, config, run_lay
 
 from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper
 from physgate.orchestrator.change_sets import change_history
+from physgate.orchestrator.escalation import bind
 from physgate.orchestrator.events import (
     AttemptRejected,
     Incident,
@@ -114,6 +115,7 @@ class Rig:
             changes=GitChangeChecker(self.run, self.store_root, {"s1": MODULE}),
             merger=GitMerger(self.run, removal_timeout_s=60.0),
             graph=keeper or self.keeper,
+            escalation=bind("rules"),
             sleep=lambda _: None,
         )
 

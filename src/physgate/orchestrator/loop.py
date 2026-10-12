@@ -26,6 +26,8 @@ from physgate.orchestrator.budget import infra_retry_delay
 from physgate.orchestrator.change_sets import change_history
 from physgate.orchestrator.common import utc_now
 from physgate.orchestrator.credentials import SECRET_VARIABLE
+from physgate.orchestrator.escalation import TO_THE_QUEUE, EscalationInterface, bind
+from physgate.orchestrator.escalation_state import escalation_state
 from physgate.orchestrator.events import (
     RESUMABLE_HALTS,
     AttemptRejected,
@@ -34,6 +36,7 @@ from physgate.orchestrator.events import (
     Envelope,
     EnvironmentRecorded,
     Escalated,
+    EscalationDecided,
     Event,
     GateRan,
     GateSkipped,
@@ -61,6 +64,7 @@ from physgate.orchestrator.events import (
     WriteIntended,
 )
 from physgate.orchestrator.exceptions import (
+    EscalationBackendError,
     GateNotRegisteredError,
     MergeConflictError,
     MergeRefusedError,
@@ -94,6 +98,7 @@ from physgate.orchestrator.protocols import (
 )
 from physgate.orchestrator.queue import (
     INTEGRATION,
+    decided_item,
     escalation_item,
     integration_item,
     unavailable_item,
@@ -143,6 +148,35 @@ def require_gate(config: RunConfig, gate: Gate | None) -> None:
         raise GateNotRegisteredError(msg, gate_mode=config.gate_mode)
 
 
+def escalation_for(config: RunConfig) -> EscalationInterface:
+    """The escalation interface over the backend the run names, through the register.
+
+    Raises:
+        EscalationBackendError: the run names no backend, or the register will not bind it.
+    """
+    if config.escalation_backend is None:
+        msg = "the run names no escalation backend; a run recorded without one is not driven"
+        raise EscalationBackendError(msg, run_id=config.run_id)
+    return bind(config.escalation_backend)
+
+
+def require_binding(config: RunConfig, escalation: EscalationInterface) -> None:
+    """Refuse a run asked through any interface but the one over the backend it names.
+
+    One check covers a run that names none (recorded before the interface existed): an
+    interface always asks a backend with a name, so it never matches none.
+
+    Raises:
+        EscalationBackendError: the interface asks a backend other than the one the run
+            names, or the run names none.
+    """
+    if escalation.backend_id != config.escalation_backend:
+        msg = "the escalation interface asks another backend than the one the run names"
+        raise EscalationBackendError(
+            msg, named=str(config.escalation_backend), asked=escalation.backend_id
+        )
+
+
 def refuse_unregistered(
     config: RunConfig, gate: Gate | None, reviewers: Mapping[str, Reviewer]
 ) -> None:
@@ -178,6 +212,7 @@ class Loop:
         changes: ChangeChecker,
         merger: Merger,
         graph: GraphPort,
+        escalation: EscalationInterface,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], datetime] = utc_now,
     ) -> None:
@@ -188,8 +223,10 @@ class Loop:
                 :func:`refuse_unregistered`.
             RunConfigError: the run directory holds another configuration, or a log
                 with no configuration.
+            EscalationBackendError: see :func:`require_binding`.
         """
         refuse_unregistered(config, gate, reviewers)
+        require_binding(config, escalation)
         self.config = config
         self.run_dir = Path(run_dir)
         self._gate = gate
@@ -198,6 +235,7 @@ class Loop:
         self._changes = changes
         self._merger = merger
         self._graph = graph
+        self._escalation = escalation
         self._sleep = sleep
         self._appends: tuple[str, ...] = ()
         self.record = RunRecord(config, self.run_dir, clock=clock)
@@ -397,7 +435,9 @@ class Loop:
             if step.subtask_id is None or step.attempt is None:
                 msg = "a step with no subtask or attempt"
                 raise RunStateError(msg, step=step.kind)
-            if step.kind == "escalate":
+            if step.kind == "decide":
+                self._decide(step.subtask_id, step.attempt)
+            elif step.kind == "escalate":
                 now = self.state.subtasks[step.subtask_id].attempts[-1]
                 if now.unavailable_final is not None:
                     self._escalate_unavailable(step.subtask_id, now.unavailable_final)
@@ -409,6 +449,24 @@ class Loop:
                 self._infra_failed(step.subtask_id, step.attempt)
             else:
                 self._attempt(step.subtask_id, step.attempt, step.point or "resolve")
+
+    def _decide(self, subtask_id: str, attempt: int) -> None:
+        """Ask the escalation question about the attempt that just ended, and record the answer.
+
+        The state is built from the run as its log replays, and recorded with the answer,
+        so the line says what the backend was shown as well as what it said.
+        """
+        state = escalation_state(self.state, subtask_id)
+        decision = self._escalation.decide(TO_THE_QUEUE, state)
+        self._emit(
+            EscalationDecided(
+                **self._env(),
+                subtask_id=subtask_id,
+                attempt=attempt,
+                decision=decision,
+                state=state,
+            )
+        )
 
     # -- one attempt ------------------------------------------------------------------
 
@@ -1081,8 +1139,22 @@ class Loop:
         commits = [s.attempt_commit for s in sessions if s.attempt_commit is not None]
         item_id = f"{self.config.run_id}-{subtask_id}"
         if item_id not in {item.item_id for item in self.queue.items()}:
-            self.queue.add(
-                escalation_item(
+            decided = attempts[-1].decided
+            if decided is not None and not decided.decision.forced:
+                # Sent to a person with attempts left, by the backend's answer or the
+                # confidence floor: an item of its own, with the attempts made so far.
+                item = decided_item(
+                    item_id=item_id,
+                    run_id=self.config.run_id,
+                    subtask_id=subtask_id,
+                    decision=decided.decision,
+                    findings=findings,
+                    artefact_diff=self._merger.artefact_diff(commits[-1]),
+                    trajectories=trajectories,
+                    ts=self.log.events[-1].ts,
+                )
+            else:
+                item = escalation_item(
                     item_id=item_id,
                     run_id=self.config.run_id,
                     subtask_id=subtask_id,
@@ -1091,5 +1163,5 @@ class Loop:
                     trajectories=trajectories,
                     ts=self.log.events[-1].ts,
                 )
-            )
+            self.queue.add(item)
         self._emit(Escalated(**self._env(), subtask_id=subtask_id, item_id=item_id))

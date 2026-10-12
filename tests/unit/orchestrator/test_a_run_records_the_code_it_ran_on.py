@@ -193,6 +193,7 @@ def _decompose_args(tmp_path: Path, reportable: bool) -> list[str]:
         "max_output_tokens": 64000,
         "thinking_display": "summarized",
         "role_python": None,
+        "escalation_backend": "rules",
         # A parameters file cannot name the harness: it is measured and overrules this.
         "harness": {"commit": "f" * 40, "clean": True, "uncommitted_sha256": None},
     }

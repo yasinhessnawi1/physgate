@@ -153,14 +153,20 @@ class GitChangeChecker:
             return ChangeCheck(
                 refused_by="write_scope", reason=reason, subject=subject, graph_root=str(scratch)
             )
+        proposed: tuple[str, ...] = ()
         try:
             proposals = read_proposals(repo, base, attempt_commit, self._store_root, git_dir=pinned)
+            proposed = tuple(str(p["id"]) for p in proposals)
             self._precheck(scratch, proposals, role)
         except ProposalRefusedError as exc:
             return ChangeCheck(
-                refused_by="proposal", reason=str(exc), subject=exc.subject, graph_root=str(scratch)
+                refused_by="proposal",
+                reason=str(exc),
+                subject=exc.subject,
+                graph_root=str(scratch),
+                proposed=proposed,
             )
-        return ChangeCheck(refused_by=None, reason=None, graph_root=str(scratch))
+        return ChangeCheck(refused_by=None, reason=None, graph_root=str(scratch), proposed=proposed)
 
     def _precheck(self, scratch: Path, proposals: list[Payload], role: str) -> None:
         """Apply every proposal to a scratch copy of the graph; refuse on the first refusal."""

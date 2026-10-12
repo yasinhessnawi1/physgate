@@ -12,6 +12,7 @@ from orch_helpers import gate_records, make_config, ticking_clock
 
 from physgate.orchestrator.budget import InfraCause, SessionEnd
 from physgate.orchestrator.common import GateMode
+from physgate.orchestrator.escalation import EscalationInterface, bind
 from physgate.orchestrator.exceptions import ReviewUnavailableError
 from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.ports import (
@@ -137,6 +138,8 @@ class FakeDispatcher:
 @dataclass
 class FakeChanges:
     refuse: dict[int, tuple[str, str]] = field(default_factory=dict)
+    #: Per call: the node ids the attempt proposed.
+    proposed: dict[int, tuple[str, ...]] = field(default_factory=dict)
     calls: int = 0
 
     def check(self, subtask_id: str, attempt_commit: str, role: str) -> ChangeCheck:
@@ -146,6 +149,7 @@ class FakeChanges:
             refused_by=refused[0] if refused else None,  # type: ignore[arg-type]
             reason=refused[1] if refused else None,
             graph_root="scratch/graph",
+            proposed=self.proposed.get(self.calls, ()),
         )
 
 
@@ -314,6 +318,8 @@ class Rig:
     delays: tuple[float, ...] = ()
     slept: list[float] = field(default_factory=list)
     config_overrides: dict[str, Any] = field(default_factory=dict)
+    #: The escalation interface the loop asks; the run's binding, through the register.
+    escalation: EscalationInterface = field(default_factory=lambda: bind("rules"))
 
     def open(self) -> Loop:
         from orch_helpers import SCRIPTED_BOUNDS
@@ -331,6 +337,7 @@ class Rig:
             changes=self.changes,
             merger=self.merger,
             graph=self.diff,
+            escalation=self.escalation,
             sleep=sleeper,
             clock=ticking_clock(),
         )

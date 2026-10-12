@@ -243,7 +243,9 @@ def test_the_replay_refuses_a_gate_run_on_an_incomplete_design(tmp_path: Path) -
     loop.start(plan("s1"))
     while loop.state.next_step().kind != "integrate":
         step = loop.state.next_step()
-        if step.kind == "escalate":
+        if step.kind == "decide":
+            loop._decide(step.subtask_id or "", step.attempt or 1)  # noqa: SLF001
+        elif step.kind == "escalate":
             loop._escalate(step.subtask_id or "")  # noqa: SLF001
         else:
             loop._attempt(step.subtask_id or "", step.attempt or 1, step.point or "resolve")  # noqa: SLF001

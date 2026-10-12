@@ -20,6 +20,7 @@ from git_rig import (
     target_repo,
 )
 
+from physgate.orchestrator.escalation import bind
 from physgate.orchestrator.events import GateRan, Incident, Merged, Resumed, read_events
 from physgate.orchestrator.exceptions import GitError, MergeConflictError, MergeRefusedError
 from physgate.orchestrator.git import head_of
@@ -171,6 +172,7 @@ def _loop(run: RunGit, dispatcher: GitDispatcher, gate: Gate, merger: object) ->
         changes=ScopeChecker(run, modules),
         merger=merger,  # type: ignore[arg-type]
         graph=EmptyGraph(),
+        escalation=bind("rules"),
         sleep=lambda _: None,
     )
 

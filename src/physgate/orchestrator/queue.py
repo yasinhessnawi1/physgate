@@ -50,6 +50,7 @@ from physgate.orchestrator.common import (
     utc_now,
     utc_stamp,
 )
+from physgate.orchestrator.escalation import CONFIDENCE_FLOOR, Decision
 from physgate.orchestrator.events import (
     Event,
     LeftoverRead,
@@ -63,13 +64,16 @@ from physgate.orchestrator.protocols import GateResult, QuantityRef, SpecDefect
 from physgate.orchestrator.repair import Finding
 from physgate.orchestrator.trajectory import Seal, seal
 
-#: The queue's sources (ARCH-130); a blocked review and one with no verdict are kept apart.
+#: The queue's sources (ARCH-130); a blocked review and one with no verdict are kept apart,
+#: and a subtask the escalation decision sent to a person while it had attempts left is its
+#: own source: no rule forced it there, a backend's answer or its confidence did (ARCH-131).
 QueueSource = Literal[
     "gate_escalation",
     "repair_budget_exhausted",
     "review_unavailable",
     "review_blocked",
     "arbitration",
+    "escalation_decision",
 ]
 
 
@@ -223,6 +227,58 @@ def escalation_item(
             f"Subtask {subtask_id} was rejected on all {REPAIR_BUDGET} attempts. Decide whether "
             "to accept the last attempt as it stands, rewrite the subtask's specification, or "
             "split the subtask."
+        ),
+        artefact_diff=artefact_diff,
+        triggering_finding=findings[-1].text,
+        quantities=with_quantities[-1].quantities if with_quantities else (),
+        trajectories=trajectories,
+    )
+
+
+def decided_item(
+    *,
+    item_id: str,
+    run_id: str,
+    subtask_id: str,
+    decision: Decision,
+    findings: tuple[Finding, ...],
+    artefact_diff: str,
+    trajectories: tuple[str, ...],
+    ts: str,
+) -> QueueItem:
+    """The item for a rejected subtask the escalation decision sent to a person, attempts left.
+
+    Only a decision that was not forced makes one: a backend that answered yes, or one whose
+    confidence fell below the floor. The finding and the quantities are chosen as for an
+    exhausted budget, from the attempts made so far, each of which links its trajectory.
+
+    Raises:
+        QueueError: the decision was forced or does not route, or the attempts made so far
+            are not each given with a finding and a trajectory.
+    """
+    if decision.forced or decision.basis not in ("answer", "floor"):
+        msg = "only a decision that routed by its answer or its confidence makes this item"
+        raise QueueError(msg, basis=str(decision.basis), forced=str(decision.forced))
+    if not findings or len(findings) != len(trajectories) or len(findings) >= REPAIR_BUDGET:
+        msg = "a decided escalation is sent with each attempt's finding and trajectory so far"
+        raise QueueError(msg, findings=str(len(findings)), trajectories=str(len(trajectories)))
+    why = (
+        f"it answered {decision.answer}"
+        if decision.basis == "answer"
+        else f"its confidence, {decision.confidence}, is below {CONFIDENCE_FLOOR}"
+    )
+    with_quantities = [f for f in findings if f.quantities]
+    return QueueItem(
+        item_id=item_id,
+        ts=ts,
+        run_id=run_id,
+        subtask_id=subtask_id,
+        source="escalation_decision",
+        decision_required=(
+            f"Subtask {subtask_id} was rejected on attempt {len(findings)} of {REPAIR_BUDGET}, "
+            f"and the escalation backend {decision.backend_id} sent it to a person because {why}. "
+            "Decide whether to accept the last attempt as it stands, rewrite the subtask's "
+            "specification, or split the subtask."
         ),
         artefact_diff=artefact_diff,
         triggering_finding=findings[-1].text,
