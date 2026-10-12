@@ -105,6 +105,38 @@ def run_protected_roots(run: RunGit) -> tuple[tuple[Path, ...], tuple[Path, ...]
     return reverted, (run.run_dir / "sessions", run.run_dir / DECISIONS_NAME)
 
 
+def session_protected_roots(
+    run: RunGit, store_root: Path, worktree: Path, install_root: Path
+) -> tuple[tuple[Path, ...], tuple[Path, ...]]:
+    """Everything a role session in ``worktree`` is given as protected roots by the dispatcher.
+
+    The run's roots (:func:`run_protected_roots`), and three more of the session's own:
+
+    - the installation's build record, which lives beside the installation, outside the
+      root the hook layer protects: a session that rewrote it would make the next run
+      refuse, or, with the manifest, pass;
+    - this session's worktree's ``.git`` pointer file, which names the admin directory the
+      orchestrator's commit runs against (the orchestrator also verifies it before every
+      git call);
+    - the graph store's own git directory. The store's directory is a protected root the
+      hook layer watches only for its journal and node files, but the orchestrator commits
+      the store in its own repository after an attempt is applied, and that commit reads the
+      repository's config and ``info/attributes``, where a filter would run. The orchestrator
+      writes it only between sessions (dispatch is serial, and the store is committed after
+      the session has ended), so the whole directory is put back.
+
+    Returns the roots put back, and the roots only refused.
+    """
+    reverted, refused = run_protected_roots(run)
+    reverted = (
+        *reverted,
+        build_record_path(install_root),
+        worktree / ".git",
+        Path(store_root) / ".git",
+    )
+    return reverted, refused
+
+
 #: The files and directories in a repository's common git directory through which a write
 #: makes a later git command run a program: its configuration (a diff, merge or filter driver,
 #: or the file-system monitor), the attributes and exclude files under ``info/``, the
@@ -349,16 +381,9 @@ class ClaudeDispatcher:
         if self._credential.mode == "api_key":
             key_helper = write_key_helper(state, self._credential.secret)
             helper = ["--api-key-helper", str(key_helper)]
-        reverted, refused = run_protected_roots(self._run)
-        # The installation's build record lives beside it, outside the installation
-        # root the hook layer protects; a session that rewrote it would make the
-        # next run refuse, or, with the manifest, pass. It is put back.
-        reverted = (*reverted, build_record_path(self._install_bin.parent.parent))
-        # This session's worktree is a linked worktree, so its ``.git`` is a pointer file to
-        # the admin directory the orchestrator's commits run against. A session that repointed
-        # it would make the commit take another directory's config as git's own, so the pointer
-        # is put back. (The orchestrator also verifies it before every git call.)
-        reverted = (*reverted, worktree / ".git")
+        reverted, refused = session_protected_roots(
+            self._run, self._store_root, worktree, self._install_bin.parent.parent
+        )
         protect = [arg for root in reverted for arg in ("--protect", str(root))]
         protect += [arg for root in refused for arg in ("--protect-refuse-only", str(root))]
         # A session in the target's worktree has nothing of its own in the harness

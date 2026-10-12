@@ -62,7 +62,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from physgate.knowledge import loader
 from physgate.knowledge.library import LibraryError, read_library
 from physgate.orchestrator.exceptions import GitError, TrajectoryTamperedError
-from physgate.orchestrator.git import EMPTY_TREES, attr_source, harness_git
+from physgate.orchestrator.git import EMPTY_TREES, attr_source, harness_git, verified_git_dir
 from physgate.orchestrator.protocols import Artefact, IssuedSpec
 from physgate.orchestrator.trajectory import Seal, read_sealed
 from physgate.reviewers.exceptions import ReviewError
@@ -178,21 +178,22 @@ _GIT_FLAGS = (
 
 
 def _git_dir(repo: Path) -> Path:
-    """The repository's git directory, resolved from the filesystem without running git.
+    """The repository's git directory, resolved and verified from the filesystem without git.
 
     A normal repository keeps it at ``.git``; a ``git worktree`` checkout keeps a ``.git``
-    file naming it. Read as bytes on disk, so no configuration, hook or program is consulted.
+    file naming its admin directory, whose ``commondir`` names the directory its objects and
+    config are read from. The packet reads through that ``commondir`` (the object store, the
+    object format), so it is held to the harness's own check first (``verified_git_dir``): a
+    pointer whose admin directory's ``gitdir`` does not point back at it, or whose
+    ``commondir`` names any directory but the one the admin directory sits in, a ``.git`` that
+    is a link, or a repository's own git directory that names a ``commondir``, is refused.
+    The check reads bytes on disk, so no configuration, hook or program is consulted.
     """
-    dot = Path(repo) / ".git"
-    if dot.is_dir():
-        return dot
-    if dot.is_file():
-        pointer = dot.read_text().strip()
-        if pointer.startswith("gitdir:"):
-            named = Path(pointer.removeprefix("gitdir:").strip())
-            return named if named.is_absolute() else (Path(repo) / named).resolve()
-    msg = "the attempt's repository has no git directory"
-    raise PacketError(msg, repo=str(repo))
+    try:
+        return verified_git_dir(Path(repo), linked=False)
+    except GitError as exc:
+        msg = f"the attempt's repository has no git directory the review can verify: {exc}"
+        raise PacketError(msg, **{**exc.context, "repo": str(repo)}) from None
 
 
 def _object_dirs(repo: Path) -> list[str]:

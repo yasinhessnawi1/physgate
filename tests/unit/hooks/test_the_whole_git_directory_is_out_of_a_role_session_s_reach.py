@@ -9,9 +9,13 @@ hook, recorded as ``put back``: a changed file restored from the bytes kept when
 started, anything new moved aside. Existing object files, packs, their indexes, the multi-pack
 index and the commit graph are held byte for byte that way.
 
-The protected set is the one the dispatcher passes the installer (:func:`run_protected_roots`
-and the session worktree's own pointer), built into the session configuration by the installer's
-own function.
+The run's graph store is a repository of its own, which the orchestrator commits after an
+attempt is applied; its git directory is put back the same way, so its config and its
+``info/attributes`` (which git reads whatever attribute source it is given) stay as they were.
+
+The protected set is the one the dispatcher passes the installer
+(:func:`session_protected_roots`), built into the session configuration by the installer's own
+function.
 
 Inert markers only: the git directory is a fresh one; a byte is appended to an object file, a
 ``commondir`` names an empty decoy directory, a ``shallow`` file and a ``packed-refs`` line name
@@ -29,15 +33,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from hook_helpers import SESSION, bash, event
+from hook_helpers import SESSION, bash, event, make_store
 
 from physgate.hooks import paths, sentinel
 from physgate.hooks.config import HookInput, SessionConfig
 from physgate.hooks.settings import InstallRequest, build_config
 from physgate.hooks.settings import current_installation as installation
 from physgate.hooks.state import LOG_NAME
-from physgate.orchestrator.dispatch import run_protected_roots
-from physgate.orchestrator.git import common_dir
+from physgate.orchestrator.dispatch import session_protected_roots
+from physgate.orchestrator.git import commit_all, common_dir, init_repo
 from physgate.orchestrator.merge import RunGit
 
 _ENV = {
@@ -103,9 +107,12 @@ def _layout(tmp_path: Path) -> Layout:
     run.open_run_branch(start)
     other = run.open_subtask("m2")
     worktree = run.open_subtask("m1")
-    reverted, refused = run_protected_roots(run)
-    # As the dispatcher adds it: the session worktree's own pointer.
-    reverted = (*reverted, worktree / ".git")
+    # The graph store as decomposition leaves it: written, then committed in its own repository.
+    store = run.run_dir / "store"
+    make_store(store)
+    init_repo(store)
+    commit_all(store, "interface nodes\n")
+    reverted, refused = session_protected_roots(run, store, worktree, tmp_path / "install")
     outside = tmp_path / "outside"
     config = build_config(
         InstallRequest(
@@ -113,7 +120,7 @@ def _layout(tmp_path: Path) -> Layout:
             role="electrical",
             worktree=str(worktree),
             own_branch=run.subtask_branch("m1"),
-            store_root=None,
+            store_root=str(store),
             state_dir=str(outside / "state"),
             target_dir=str(outside / "session"),
             claude_config_dir=str(outside / "cfg"),
@@ -288,3 +295,38 @@ def test_a_session_that_leaves_the_git_directory_alone_is_never_refused(tmp_path
     for event_name in ("PreToolUse", "PostToolUse", "Stop", "SessionEnd"):
         assert _check(layout, event_name) == "allow"
     assert [r for r in _log(layout) if r.get("hook") == "sentinel"] == []
+
+
+def _tree_bytes(directory: Path) -> dict[str, bytes | None]:
+    """Every path under ``directory``, with a file's bytes."""
+    return {
+        str(path.relative_to(directory)): path.read_bytes() if path.is_file() else None
+        for path in sorted(directory.rglob("*"))
+    }
+
+
+#: A role's write into the graph store's git directory: the store's config gains a filter
+#: definition naming a program that does not exist, and ``info/attributes`` selects it.
+STORE_WRITES = {
+    "config": b'[filter "planted"]\n\tclean = /nonexistent/planted-marker\n',
+    "info/attributes": b"* filter=planted\n",
+}
+
+
+@pytest.mark.parametrize("name", sorted(STORE_WRITES))
+def test_a_write_into_the_graph_store_s_git_directory_is_put_back(
+    tmp_path: Path, name: str
+) -> None:
+    layout = _layout(tmp_path)
+    git_dir = layout.run.run_dir / "store" / ".git"
+    path = git_dir / name
+    assert _file_tool(layout, "Write", path) is not None
+    before = _tree_bytes(git_dir)
+    assert _check(layout, "SessionStart") == "allow"
+    _shell_write(path, (path.read_bytes() if path.exists() else b"") + STORE_WRITES[name])
+    reason = _check(layout)
+    assert reason.startswith("Protected paths changed"), reason
+    assert str(path) in reason
+    assert _tree_bytes(git_dir) == before
+    assert _log(layout)[-1]["decision"] == "put back"
+    assert _check(layout) == "allow"
