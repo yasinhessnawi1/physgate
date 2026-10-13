@@ -113,7 +113,7 @@ def test_an_include_path_in_the_local_config_is_not_followed(tmp_path: Path) -> 
     extra.write_text("[diff]\n\tsubmodule = diff\n")
     # Replace the direct key with an include, so only a followed include could re-enable recursion.
     _git(repo, "config", "--unset", "diff.submodule")
-    with (_git_dir(repo) / "config").open("a") as handle:
+    with (_git_dir(repo).common / "config").open("a") as handle:
         handle.write(f"[include]\n\tpath = {extra}\n")
     _diff(repo, base, attempt)
     assert not marker.exists(), "the reviewer's git followed an include path in the local config"
@@ -122,9 +122,9 @@ def test_an_include_path_in_the_local_config_is_not_followed(tmp_path: Path) -> 
 def test_the_object_store_is_not_the_repository(tmp_path: Path) -> None:
     program, _ = _marker_program(tmp_path)
     repo, _, _ = _repo_with_moving_submodule(tmp_path, program)
-    dirs = _object_dirs(repo)
+    dirs = _object_dirs(_git_dir(repo))
     assert dirs and all(Path(d).is_dir() and d.endswith("objects") for d in dirs)
-    assert str((_git_dir(repo) / "objects").resolve()) in dirs
+    assert str((_git_dir(repo).common / "objects").resolve()) in dirs
 
 
 def test_a_git_worktree_s_objects_are_found_in_the_common_dir(tmp_path: Path) -> None:
@@ -134,11 +134,11 @@ def test_a_git_worktree_s_objects_are_found_in_the_common_dir(tmp_path: Path) ->
     _git(repo, "worktree", "add", "-q", "--detach", str(linked))
     # The worktree's own .git is a file; its objects live in the repository's common dir.
     assert (linked / ".git").is_file()
-    common_objects = str((_git_dir(repo) / "objects").resolve())
-    assert common_objects in _object_dirs(linked)
+    common_objects = str((_git_dir(repo).common / "objects").resolve())
+    assert common_objects in _object_dirs(_git_dir(linked))
 
 
 def test_a_path_that_is_not_a_repository_is_refused(tmp_path: Path) -> None:
     (tmp_path / "plain").mkdir()
     with pytest.raises(PacketError, match="no git directory"):
-        _object_dirs(tmp_path / "plain")
+        _object_dirs(_git_dir(tmp_path / "plain"))

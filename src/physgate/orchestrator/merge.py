@@ -37,6 +37,7 @@ from pathlib import Path, PurePosixPath
 
 from physgate.orchestrator.exceptions import GitError, MergeConflictError, MergeRefusedError
 from physgate.orchestrator.git import (
+    GitDir,
     add_worktree,
     branch_exists,
     changes_between,
@@ -120,7 +121,7 @@ def commit_attempt(
 
 
 def write_scope_violations(
-    repo: Path, base: str, commit: str, module_dir: str, *, git_dir: Path | None = None
+    repo: Path, base: str, commit: str, module_dir: str, *, git_dir: GitDir | None = None
 ) -> list[str]:
     """Every change from ``base`` to ``commit`` outside the attempt's own scope.
 

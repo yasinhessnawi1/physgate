@@ -26,7 +26,7 @@ import pytest
 
 from physgate.evaluation.inject import materialise
 from physgate.orchestrator import git as orchestrator_git
-from physgate.orchestrator.git import diff_text, git, git_timed, harness_git
+from physgate.orchestrator.git import diff_text, git, git_timed, harness_git, verified_git_dir
 
 _ENV = {
     "PATH": "/usr/bin:/bin",
@@ -81,7 +81,10 @@ def test_an_in_repository_read_returns_the_named_blob(tmp_path: Path) -> None:
 
 def test_a_read_pinned_to_the_git_directory_returns_the_named_blob(tmp_path: Path) -> None:
     repo, _, blob = _replaced_repo(tmp_path)
-    assert git(repo, "cat-file", "blob", blob, git_dir=repo / ".git") == "original\n"
+    assert (
+        git(repo, "cat-file", "blob", blob, git_dir=verified_git_dir(repo, linked=False))
+        == "original\n"
+    )
 
 
 def test_a_clean_store_read_returns_the_named_blob(tmp_path: Path) -> None:
@@ -113,7 +116,9 @@ def test_every_git_helper_runs_git_with_replace_objects_off(
     orchestrator_git._object_store.cache_clear()
     helpers: dict[str, Callable[[], object]] = {
         "in the repository": lambda: git(repo, "rev-parse", "HEAD"),
-        "pinned to a git directory": lambda: git(repo, "rev-parse", "HEAD", git_dir=repo / ".git"),
+        "pinned to a git directory": lambda: git(
+            repo, "rev-parse", "HEAD", git_dir=verified_git_dir(repo, linked=False)
+        ),
         "clean store (format read, store made, read)": lambda: git(
             repo, "cat-file", "blob", blob, objects_only=True
         ),

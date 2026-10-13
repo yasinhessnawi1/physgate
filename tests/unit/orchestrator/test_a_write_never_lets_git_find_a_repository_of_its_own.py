@@ -157,7 +157,8 @@ def test_the_target_repository_must_hold_a_git_directory_the_harness_can_verify(
 def test_an_ordinary_repository_s_own_git_directory_is_the_one_pinned(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     _repository(repo, "a.txt")
-    assert verified_git_dir(repo, linked=False) == (repo / ".git").resolve()
+    pinned = verified_git_dir(repo, linked=False)
+    assert (pinned.path, pinned.common) == ((repo / ".git").resolve(),) * 2
     with pytest.raises(GitError, match="in place of its .git pointer"):
         verified_git_dir(repo, linked=True, common=repo / ".git")  # not a worktree the harness made
     (repo / "a.txt").write_text("1\n")

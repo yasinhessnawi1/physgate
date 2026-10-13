@@ -141,7 +141,8 @@ def test_an_admin_directory_git_made_verifies_against_its_repository(tmp_path: P
     assert common == (run.repo / ".git").resolve()
     admin = verify_worktree_pointer(worktree, common=common)
     assert admin == _admin(worktree).resolve()
-    assert verified_git_dir(worktree, linked=True, common=common) == admin
+    pinned = verified_git_dir(worktree, linked=True, common=common)
+    assert (pinned.path, pinned.common) == (admin, common)
     assert len(commit_attempt(worktree, "m1", 1, "sess-1", repo=run.repo)) == 40
 
 

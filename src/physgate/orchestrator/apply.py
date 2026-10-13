@@ -32,6 +32,7 @@ from pathlib import Path
 
 from physgate.orchestrator.exceptions import StoreRefusalError
 from physgate.orchestrator.git import (
+    GitDir,
     changes_between,
     commit_all,
     git,
@@ -76,7 +77,7 @@ def _fixed(store_root: Path) -> dict[str, tuple[str, str]]:
 
 
 def read_proposals(
-    repo: Path, base: str, commit: str, store_root: Path, *, git_dir: Path | None = None
+    repo: Path, base: str, commit: str, store_root: Path, *, git_dir: GitDir | None = None
 ) -> list[Payload]:
     """The whole-node proposals ``commit`` added or changed since ``base``, validated.
 

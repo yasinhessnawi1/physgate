@@ -16,7 +16,7 @@ from typing import Any
 import pytest
 from packet_fixture import EDITED, ISSUED, SPEC, make_attempt, stream
 
-from physgate.reviewers.packet import _diff, _export, _object_format, issued_spec_sha256
+from physgate.reviewers.packet import _diff, _export, _git_dir, _object_format, issued_spec_sha256
 
 
 @pytest.mark.parametrize("object_format", ["sha1", "sha256"])
@@ -50,7 +50,7 @@ def test_the_packet_reads_the_format_without_running_git_inside_the_repository(
         return real_run(argv, **kwargs)
 
     monkeypatch.setattr(subprocess, "run", recording_run)
-    assert _object_format(repo) == object_format
+    assert _object_format(_git_dir(repo)) == object_format
     assert calls, "the format was not read through git"
     inside = repo.resolve()
     for argv, cwd, env in calls:

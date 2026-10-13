@@ -27,8 +27,10 @@ import shutil
 import subprocess
 import tempfile
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, StringConstraints
@@ -164,19 +166,28 @@ def attr_source(object_format: str = "sha1") -> str:
 #: a file neither saw. Measured on git 2.54: both variables, empty, restore the commit's own
 #: parents in ``merge-base`` and ``merge``. An ordinary repository has neither file, so nothing
 #: changes for it.
+#:
+#: This is the forced core of every git the harness runs: the orchestrator's, the review
+#: packet's and the materialiser's. Each runner adds what is its own (an author, a ``PATH``, the
+#: attribute source of the object format it reads) but none leaves any of these out.
+FORCED_ENV: Mapping[str, str] = MappingProxyType(
+    {
+        "GIT_NO_REPLACE_OBJECTS": "1",
+        "GIT_SHALLOW_FILE": "",
+        "GIT_GRAFT_FILE": "",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_ATTR_NOSYSTEM": "1",
+        "GIT_TERMINAL_PROMPT": "0",
+    }
+)
 _ENV = {
-    "GIT_NO_REPLACE_OBJECTS": "1",
-    "GIT_SHALLOW_FILE": "",
-    "GIT_GRAFT_FILE": "",
-    "GIT_CONFIG_NOSYSTEM": "1",
-    "GIT_CONFIG_GLOBAL": os.devnull,
-    "GIT_ATTR_NOSYSTEM": "1",
+    **FORCED_ENV,
     "GIT_ATTR_SOURCE": _EMPTY_TREE,
     "GIT_AUTHOR_NAME": AUTHOR[0],
     "GIT_AUTHOR_EMAIL": AUTHOR[1],
     "GIT_COMMITTER_NAME": AUTHOR[0],
     "GIT_COMMITTER_EMAIL": AUTHOR[1],
-    "GIT_TERMINAL_PROMPT": "0",
     "LC_ALL": "C",
 }
 #: Overrides on every command: hooks off, no signing, the file-system monitor off (it is a
@@ -201,7 +212,10 @@ _ENV = {
 #: and that directory is protected from role sessions whole, so the session would see its
 #: tool calls refused for writes the harness made. With these off, every harness write to a
 #: git directory ends with the command that made it.
-_FLAGS = (
+#:
+#: Like :data:`FORCED_ENV`, these are forced on every git the harness runs, whichever module
+#: runs it; a runner may add flags of its own after them.
+FORCED_FLAGS: tuple[str, ...] = (
     "-c", f"core.hooksPath={os.devnull}",
     "-c", "commit.gpgsign=false",
     "-c", "core.fsmonitor=false",
@@ -214,41 +228,63 @@ _FLAGS = (
     "-c", "gc.auto=0",
     "-c", "maintenance.auto=false",
 )  # fmt: skip
+_FLAGS = FORCED_FLAGS
 #: Added to a diff: no external diff program, no textconv program, and a submodule shown as
 #: its gitlink rather than recursed into (recursion re-runs git in the submodule, where the
 #: parent's ``--no-ext-diff``/``--no-textconv`` do not reach).
 _DIFF_FLAGS = ("--no-ext-diff", "--no-textconv", "--no-color", "--submodule=short")
 
 
-def _git_dir(repo: Path) -> Path:
-    """The repository's git directory, read from the filesystem without running git."""
+@dataclass(frozen=True)
+class GitDir:
+    """A git directory, and the common directory its objects, config and refs are read from.
+
+    :func:`verified_git_dir` returns one whose ``common`` is the directory its check confirmed,
+    so a reader given it uses that value and never reads ``commondir`` again.
+    """
+
+    path: Path
+    common: Path
+
+
+def _git_dir(repo: Path) -> GitDir:
+    """The repository's git directory as git would find it, read from the filesystem, unchecked.
+
+    For a read that does not verify (an observability command reading a run that may have been
+    copied or moved); every write, and every read the write path makes, takes a
+    :func:`verified_git_dir` instead.
+    """
     dot = Path(repo) / ".git"
+    git_dir: Path | None = None
     if dot.is_dir():
-        return dot
-    if dot.is_file():
+        git_dir = dot
+    elif dot.is_file():
         pointer = dot.read_text().strip()
         if pointer.startswith("gitdir:"):
             named = Path(pointer.removeprefix("gitdir:").strip())
-            return named if named.is_absolute() else (Path(repo) / named).resolve()
-    msg = "the path is not a git repository"
-    raise GitError(msg, cwd=str(repo))
+            git_dir = named if named.is_absolute() else (Path(repo) / named).resolve()
+    if git_dir is None:
+        msg = "the path is not a git repository"
+        raise GitError(msg, cwd=str(repo))
+    commondir = git_dir / "commondir"
+    common = git_dir
+    if commondir.is_file():
+        named = Path(commondir.read_text().strip())
+        common = named if named.is_absolute() else (git_dir / named).resolve()
+    return GitDir(path=git_dir, common=common)
 
 
-def _object_dirs(repo: Path, pinned: Path | None = None) -> tuple[str, ...]:
+def _object_dirs(repo: Path, pinned: GitDir | None = None) -> tuple[str, ...]:
     """Every object directory a repository's commits are read from, from the filesystem.
 
     A worktree's objects live in the repository's common directory; a repository may name
     more in ``objects/info/alternates``. Each is a store of content-addressed objects: naming
     one grants read access to objects a commit already pins, never a way to change them.
-    ``pinned`` is a git directory the caller already verified; without one, the repository's
-    ``.git`` is read here.
+    ``pinned`` is a git directory the caller already verified, with the common directory its
+    check confirmed; without one, the repository's ``.git`` is read here.
     """
-    git_dir = pinned if pinned is not None else _git_dir(repo)
-    roots = [git_dir]
-    commondir = git_dir / "commondir"
-    if commondir.is_file():
-        named = Path(commondir.read_text().strip())
-        roots.append(named if named.is_absolute() else (git_dir / named).resolve())
+    where = pinned if pinned is not None else _git_dir(repo)
+    roots = [where.path, where.common]
     found: list[str] = []
     seen: set[str] = set()
     pending = [root / "objects" for root in roots]
@@ -280,7 +316,7 @@ def _remove_stores() -> None:
         shutil.rmtree(store, ignore_errors=True)
 
 
-def _object_format(repo: Path, pinned: Path | None = None) -> str:
+def _object_format(repo: Path, pinned: GitDir | None = None) -> str:
     """The hash the repository names its objects with (``sha1`` or ``sha256``).
 
     The clean store must use the same one: a store of the other format cannot read a single
@@ -292,12 +328,8 @@ def _object_format(repo: Path, pinned: Path | None = None) -> str:
     Raises:
         GitError: the config cannot be read, or names a format this module does not know.
     """
-    git_dir = pinned if pinned is not None else _git_dir(repo)
-    commondir = git_dir / "commondir"
-    if commondir.is_file():
-        named = Path(commondir.read_text().strip())
-        git_dir = named if named.is_absolute() else (git_dir / named).resolve()
-    config = git_dir / "config"
+    where = pinned if pinned is not None else _git_dir(repo)
+    config = where.common / "config"
     if not config.is_file():
         msg = "the repository has no config to read its object format from"
         raise GitError(msg, cwd=str(repo))
@@ -371,7 +403,7 @@ def git(
     check: bool = True,
     stdin: str | None = None,
     objects_only: bool = False,
-    git_dir: Path | None = None,
+    git_dir: GitDir | None = None,
 ) -> str:
     """Run one git command in ``cwd`` and return its standard output.
 
@@ -398,7 +430,8 @@ def git(
         argv = [exe, attr_source(object_format), "--git-dir", store, *_FLAGS, *args]
         run_in: Path | str = store
     elif git_dir is not None:
-        argv = [exe, attr_source(), "--git-dir", str(git_dir), "--work-tree", str(cwd), *_FLAGS]
+        argv = [exe, attr_source(), "--git-dir", str(git_dir.path), "--work-tree", str(cwd)]
+        argv += _FLAGS
         argv += args
         run_in = cwd
     else:
@@ -426,7 +459,7 @@ def git(
 
 
 def git_timed(
-    cwd: Path, *args: str, timeout: float, git_dir: Path | None = None
+    cwd: Path, *args: str, timeout: float, git_dir: GitDir | None = None
 ) -> tuple[int | None, str, float]:
     """Run one git command with a time limit: (exit code or None on timeout, stderr, seconds).
 
@@ -438,7 +471,7 @@ def git_timed(
     """
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.devnull, **_ENV}
     exe = harness_git().path
-    pin = [] if git_dir is None else ["--git-dir", str(git_dir), "--work-tree", str(cwd)]
+    pin = [] if git_dir is None else ["--git-dir", str(git_dir.path), "--work-tree", str(cwd)]
     started = time.monotonic()
     try:
         done = subprocess.run(
@@ -455,7 +488,9 @@ def git_timed(
     return done.returncode, done.stderr.strip()[-400:], time.monotonic() - started
 
 
-def verify_worktree_pointer(cwd: Path, *, common: Path | None = None) -> Path | None:
+def verify_worktree_pointer(
+    cwd: Path, *, common: Path | None = None, repository: bool = False
+) -> Path | None:
     """The verified admin directory of a linked worktree at ``cwd``, or ``None`` for a plain repo.
 
     Fail closed unless a linked worktree's ``.git`` names a real git admin directory of the
@@ -479,6 +514,9 @@ def verify_worktree_pointer(cwd: Path, *, common: Path | None = None) -> Path | 
     - with ``common`` given, that common directory is ``common``: the repository the caller
       made the worktree in, so an admin directory laid out like git's in another repository
       is refused too.
+
+    ``repository`` says ``cwd`` is a repository's own checkout rather than a worktree the
+    harness made; only the wording of a refusal depends on it.
 
     It guards a write, not a read: an observability command reading a run that was copied or
     moved sees stale absolute pointers git itself follows, and must not be refused for them.
@@ -511,7 +549,12 @@ def verify_worktree_pointer(cwd: Path, *, common: Path | None = None) -> Path | 
         msg = "a worktree's .git is not a gitdir pointer"
         raise GitError(msg, cwd=str(cwd))
     if not has_admin:
-        msg = "a worktree's .git points at no git worktree admin directory"
+        msg = (
+            "the repository's .git is not a directory the harness made or a verified worktree "
+            "pointer"
+            if repository
+            else "a worktree's .git points at no git worktree admin directory"
+        )
         raise GitError(msg, cwd=str(cwd), admin=str(admin))
     if not back or Path(back).resolve() != dot.resolve():
         msg = "a worktree's .git and its admin directory disagree"
@@ -527,7 +570,7 @@ def verify_worktree_pointer(cwd: Path, *, common: Path | None = None) -> Path | 
     return admin
 
 
-def verified_git_dir(cwd: Path, *, linked: bool, common: Path | None = None) -> Path:
+def verified_git_dir(cwd: Path, *, linked: bool, common: Path | None = None) -> GitDir:
     """The git directory every command the harness runs in ``cwd`` is pinned to, or a refusal.
 
     :func:`verify_worktree_pointer` checks a ``.git`` pointer file and leaves anything else
@@ -545,6 +588,10 @@ def verified_git_dir(cwd: Path, *, linked: bool, common: Path | None = None) -> 
     always a pointer file, so a directory there is refused too. Such a worktree is verified
     against ``common``, the common git directory of the repository it was made in
     (:func:`common_dir`), which the caller must give.
+
+    Returned with the common directory the check confirmed: for a worktree, the directory its
+    admin directory sits in, which its ``commondir`` was found to name; for a repository's own
+    git directory, that directory. Readers take it from here and never read ``commondir`` again.
 
     Raises:
         GitError: nothing above was found; the command must not run.
@@ -564,9 +611,9 @@ def verified_git_dir(cwd: Path, *, linked: bool, common: Path | None = None) -> 
     if is_link:
         msg = "a worktree's .git is a link, so git would use whatever it names"
         raise GitError(msg, cwd=str(cwd))
-    admin = verify_worktree_pointer(cwd, common=common)
+    admin = verify_worktree_pointer(cwd, common=common, repository=not linked)
     if admin is not None:
-        return admin
+        return GitDir(path=admin, common=admin.parent.parent)
     if linked and is_dir:
         msg = "a worktree the harness made has a git directory in place of its .git pointer"
         raise GitError(msg, cwd=str(cwd))
@@ -576,10 +623,11 @@ def verified_git_dir(cwd: Path, *, linked: bool, common: Path | None = None) -> 
     if redirected:
         msg = "a repository's git directory names a common directory elsewhere (commondir)"
         raise GitError(msg, cwd=str(cwd))
-    return dot.resolve()
+    resolved = dot.resolve()
+    return GitDir(path=resolved, common=resolved)
 
 
-def head_of(repo: Path, ref: str, *, git_dir: Path | None = None) -> str:
+def head_of(repo: Path, ref: str, *, git_dir: GitDir | None = None) -> str:
     """The commit ``ref`` points at, as a full SHA; ``git_dir`` pins it as for :func:`git`."""
     return git(repo, "rev-parse", "--verify", f"{ref}^{{commit}}", git_dir=git_dir).strip()
 
@@ -596,13 +644,10 @@ def common_dir(repo: Path) -> Path:
     Raises:
         GitError: the repository's git directory does not verify.
     """
-    git_dir = verified_git_dir(repo, linked=False)
-    if (git_dir / "commondir").is_file():
-        return git_dir.parent.parent
-    return git_dir
+    return verified_git_dir(repo, linked=False).common
 
 
-def branch_exists(repo: Path, branch: str, *, git_dir: Path | None = None) -> bool:
+def branch_exists(repo: Path, branch: str, *, git_dir: GitDir | None = None) -> bool:
     """Whether ``refs/heads/<branch>`` exists; ``git_dir`` pins it as for :func:`git`."""
     return bool(git(repo, "branch", "--list", branch, git_dir=git_dir).strip())
 
@@ -630,6 +675,24 @@ def add_worktree(repo: Path, path: Path, branch: str, start: str) -> None:
         git(repo, "worktree", "add", "--quiet", "-b", branch, str(path), start, git_dir=pinned)
 
 
+def nested_git(worktree: Path) -> Path | None:
+    """The first ``.git`` below ``worktree``'s top level, of any kind, or ``None``.
+
+    Read from the filesystem, never following a link. ``git add --all`` opens a nested
+    repository to stage it as a submodule, and reads that repository's config to do it; a
+    session's worktree is the session's to write, so a nested ``.git`` there is a configuration
+    the harness never checked. The worktree's own ``.git`` at its top level is not looked into.
+    """
+    top = Path(worktree)
+    for directory, names, files in os.walk(top):
+        here = Path(directory)
+        for name in (*names, *files):
+            if name == ".git" and here != top:
+                return here / name
+        names[:] = [n for n in names if not (here == top and n == ".git")]
+    return None
+
+
 def commit_all(
     worktree: Path, message: str, *, linked: bool = False, common: Path | None = None
 ) -> str:
@@ -645,9 +708,14 @@ def commit_all(
     ``linked`` says the worktree is one the harness made, so it must have that pointer, into the
     repository whose common git directory is ``common``; a repository's own ``.git`` directory
     is accepted otherwise. Anything else refuses (:func:`verified_git_dir`): git is never left
-    to find a repository of its own.
+    to find a repository of its own. A worktree holding a repository of its own below its top
+    level (:func:`nested_git`) is refused before anything is staged.
     """
     admin = verified_git_dir(worktree, linked=linked, common=common)
+    nested = nested_git(worktree)
+    if nested is not None:
+        msg = "the worktree holds a git repository of its own, which staging would open"
+        raise GitError(msg, cwd=str(worktree), path=str(nested))
     git(worktree, "add", "--all", git_dir=admin)
     git(worktree, "commit", "--quiet", "--allow-empty", "--file", "-", stdin=message, git_dir=admin)
     return git(worktree, "rev-parse", "--verify", "HEAD^{commit}", git_dir=admin).strip()
@@ -664,7 +732,7 @@ class Change:
 
 
 def changes_between(
-    repo: Path, base: str, commit: str, *, git_dir: Path | None = None
+    repo: Path, base: str, commit: str, *, git_dir: GitDir | None = None
 ) -> list[Change]:
     """Every path changed from ``base`` to ``commit``, renames split in two.
 
@@ -686,7 +754,7 @@ def changes_between(
     return out
 
 
-def merge_base(repo: Path, one: str, other: str, *, git_dir: Path | None = None) -> str:
+def merge_base(repo: Path, one: str, other: str, *, git_dir: GitDir | None = None) -> str:
     """The best common ancestor of two commits.
 
     Each name is resolved to its commit in the repository (pinned to ``git_dir``), the only
@@ -698,13 +766,13 @@ def merge_base(repo: Path, one: str, other: str, *, git_dir: Path | None = None)
     return git(repo, "merge-base", *ends, objects_only=True, git_dir=git_dir).strip()
 
 
-def diff_text(repo: Path, base: str, commit: str, *, git_dir: Path | None = None) -> str:
+def diff_text(repo: Path, base: str, commit: str, *, git_dir: GitDir | None = None) -> str:
     """The patch from ``base`` to ``commit``, for a person to read."""
     return git(repo, "diff", *_DIFF_FLAGS, base, commit, objects_only=True, git_dir=git_dir)
 
 
 def merges_of(
-    repo: Path, branch: str, since: str, *, git_dir: Path | None = None
+    repo: Path, branch: str, since: str, *, git_dir: GitDir | None = None
 ) -> dict[str, str]:
     """Second parent to merge commit, for every merge on ``branch`` after ``since``.
 

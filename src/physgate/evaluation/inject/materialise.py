@@ -27,7 +27,13 @@ from pathlib import Path
 
 from physgate.evaluation.inject.corpus import Base, Patch, strings_of, telltales
 from physgate.evaluation.inject.exceptions import BlindnessError, CorpusError
-from physgate.orchestrator.git import EMPTY_TREES, attr_source, harness_git
+from physgate.orchestrator.git import (
+    EMPTY_TREES,
+    FORCED_ENV,
+    FORCED_FLAGS,
+    attr_source,
+    harness_git,
+)
 from physgate.state.store import Store
 
 #: Where the design sits in a materialised worktree.
@@ -54,38 +60,22 @@ ANSWER_FIELDS: tuple[str, ...] = (
 #: matching the orchestrator's git, not a reachable hole. The repository is created with git's
 #: default object format, SHA-1, whose empty tree this is.
 _EMPTY_TREE = EMPTY_TREES["sha1"]
-#: ``GIT_NO_REPLACE_OBJECTS`` turns off ``refs/replace``, so every command reads and writes the
-#: exact objects it names, never a substitute a replace ref would silently show in their place.
-#: ``GIT_SHALLOW_FILE`` and ``GIT_GRAFT_FILE``, set empty, name no file, so git reads neither a
-#: ``shallow`` file nor ``info/grafts``, either of which makes a commit seem to have other
-#: parents than it holds: the same settings as the orchestrator's merge path.
+#: The forced core every harness git runs with (``FORCED_ENV`` and ``FORCED_FLAGS``: replacement
+#: objects ignored, no shallow or graft file, no system or user configuration, no hooks, no
+#: signing, no file-system monitor, no attributes file, no commit graph, no automatic
+#: maintenance), and the materialiser's own fixed author, committer and dates, so a base and a
+#: patch commit to the same ids on every machine.
 _GIT_ENV = {
-    "GIT_NO_REPLACE_OBJECTS": "1",
-    "GIT_SHALLOW_FILE": "",
-    "GIT_GRAFT_FILE": "",
+    **FORCED_ENV,
     "GIT_AUTHOR_NAME": "design",
     "GIT_AUTHOR_EMAIL": "design@example.invalid",
     "GIT_COMMITTER_NAME": "design",
     "GIT_COMMITTER_EMAIL": "design@example.invalid",
     "GIT_AUTHOR_DATE": "2026-01-01T00:00:00Z",
     "GIT_COMMITTER_DATE": "2026-01-01T00:00:00Z",
-    "GIT_CONFIG_GLOBAL": os.devnull,
-    "GIT_CONFIG_NOSYSTEM": "1",
-    "GIT_ATTR_NOSYSTEM": "1",
     "GIT_ATTR_SOURCE": _EMPTY_TREE,
-    "GIT_TERMINAL_PROMPT": "0",
 }
-#: Overrides on every command: hooks off, no signing, the file-system monitor off (a program a
-#: repository can name), a repository's own attributes file off, and the commit graph off: a
-#: commit-graph file in the object directory is a cache of every commit's parents that git
-#: trusts in place of the commits, so with it off each commit's parents come from the commit.
-_GIT_FLAGS = (
-    "-c", f"core.hooksPath={os.devnull}",
-    "-c", "commit.gpgsign=false",
-    "-c", "core.fsmonitor=false",
-    "-c", "core.attributesFile=/dev/null",
-    "-c", "core.commitGraph=false",
-)  # fmt: skip
+_GIT_FLAGS = FORCED_FLAGS
 
 
 @dataclass(frozen=True)

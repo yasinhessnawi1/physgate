@@ -23,7 +23,14 @@ import pytest
 
 from physgate.evaluation.inject import materialise
 from physgate.orchestrator import git as orchestrator_git
-from physgate.orchestrator.git import EMPTY_TREES, commit_all, git, git_timed, harness_git
+from physgate.orchestrator.git import (
+    EMPTY_TREES,
+    commit_all,
+    git,
+    git_timed,
+    harness_git,
+    verified_git_dir,
+)
 
 _ENV = {
     "PATH": "/usr/bin:/bin",
@@ -89,7 +96,9 @@ def test_every_helper_runs_the_resolved_git_with_the_empty_tree_as_attribute_sou
     helpers: dict[str, tuple[Callable[[], object], list[str]]] = {
         "in the repository": (lambda: git(sha1_repo, "rev-parse", "HEAD"), [sha1]),
         "pinned to a git directory": (
-            lambda: git(sha1_repo, "rev-parse", "HEAD", git_dir=sha1_repo / ".git"),
+            lambda: git(
+                sha1_repo, "rev-parse", "HEAD", git_dir=verified_git_dir(sha1_repo, linked=False)
+            ),
             [sha1],
         ),
         # The format is read outside any repository; the store and the read use its own tree.
