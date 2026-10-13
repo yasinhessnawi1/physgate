@@ -69,6 +69,8 @@ from physgate.orchestrator.git import (
     GitDir,
     attr_source,
     harness_git,
+    object_dirs,
+    object_format,
     verified_git_dir,
 )
 from physgate.orchestrator.protocols import Artefact, IssuedSpec
@@ -199,34 +201,16 @@ def _place(repo: Path | GitDir) -> GitDir:
 
 
 def _object_dirs(where: GitDir) -> list[str]:
-    """Every object directory the attempt's commits are read from, resolved from the filesystem.
+    """Every object directory the attempt's commits are read from (``git.object_dirs``).
 
-    A worktree's objects live in the repository's common directory; a repository may name
-    further object directories in ``objects/info/alternates``. Each is a store of
-    content-addressed objects: naming one grants only read access to objects a commit already
-    pins, never a way to change what a commit holds, and never anything git would run.
+    Each is a store of content-addressed objects: naming one grants only read access to objects
+    a commit already pins, never a way to change what a commit holds, and never anything git
+    would run. Alternates are followed by the store's own git, as git reads them.
     """
-    roots = [where.path, where.common]
-    found: list[str] = []
-    seen: set[str] = set()
-    pending = [root / "objects" for root in roots]
-    while pending:
-        objects = pending.pop(0)
-        resolved = str(objects.resolve())
-        if resolved in seen or not objects.is_dir():
-            continue
-        seen.add(resolved)
-        found.append(resolved)
-        alternates = objects / "info" / "alternates"
-        if alternates.is_file():
-            for line in alternates.read_text().splitlines():
-                entry = line.strip()
-                if entry and not entry.startswith("#"):
-                    pending.append(Path(entry))
-    if not found:
-        msg = "the attempt's repository holds no object store"
-        raise PacketError(msg, repo=str(where.path))
-    return found
+    try:
+        return list(object_dirs(where))
+    except GitError as exc:
+        raise PacketError(str(exc), **{**exc.context, "repo": str(where.path)}) from None
 
 
 _STORES: list[str] = []
@@ -239,33 +223,18 @@ def _remove_stores() -> None:
 
 
 def _object_format(where: GitDir) -> str:
-    """The hash the attempt's repository names its objects with (``sha1`` or ``sha256``).
+    """The hash the attempt's repository names its objects with, as git decides it.
 
     The store must use the same one: a store of the other format cannot read a single object
-    through its alternates. Read as data from the repository's config file, by git run outside
-    the repository with ``--file`` (includes off), so nothing in that config is applied and no
-    git command runs inside the attempt's repository. A repository that names no format is
-    SHA-1, git's default.
+    through its alternates. Read by the harness's one reader (``git.object_format``): git's own
+    config parser run outside the repository on its config file, with git's rules for which
+    format versions honour the setting, so no git command runs inside the attempt's repository.
     """
-    config = where.common / "config"
-    if not config.is_file():
-        msg = "the attempt's repository has no config to read its object format from"
-        raise PacketError(msg, repo=str(where.path))
-    done = subprocess.run(
-        [_git_path(), attr_source(), *_GIT_FLAGS, "config", "--file", str(config),
-         "--no-includes", "--get", "extensions.objectformat"],
-        cwd="/",
-        capture_output=True,
-        check=False,
-        env={**_GIT_ENV, "GIT_ATTR_SOURCE": EMPTY_TREES["sha1"]},
-    )  # fmt: skip
-    if done.returncode == 1:  # the key is absent
-        return "sha1"
-    found = done.stdout.decode(errors="replace").strip()
-    if done.returncode != 0 or found not in {"sha1", "sha256"}:
+    try:
+        return object_format(where)
+    except GitError as exc:
         msg = "the attempt's object format cannot be read, or the review's store cannot use it"
-        raise PacketError(msg, repo=str(where.path), object_format=found[:40])
-    return found
+        raise PacketError(msg, **{**exc.context, "repo": str(where.path)}) from None
 
 
 @functools.cache

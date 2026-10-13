@@ -119,7 +119,7 @@ def test_every_git_helper_runs_git_with_replace_objects_off(
         "pinned to a git directory": lambda: git(
             repo, "rev-parse", "HEAD", git_dir=verified_git_dir(repo, linked=False)
         ),
-        "clean store (format read, store made, read)": lambda: git(
+        "clean store (format version and format read, store made, read)": lambda: git(
             repo, "cat-file", "blob", blob, objects_only=True
         ),
         "timed": lambda: git_timed(repo, "rev-parse", "HEAD", timeout=60),
@@ -131,7 +131,7 @@ def test_every_git_helper_runs_git_with_replace_objects_off(
         made = [argv for argv, _ in calls[before:] if argv and argv[0] == harness_git().path]
         assert made, f"the {name} helper ran no git call that was recorded"
         if name.startswith("clean store"):
-            assert len(made) == 3, made
+            assert len(made) == 4, made
 
     git_calls = [(argv, env) for argv, env in calls if argv and argv[0] == harness_git().path]
     for argv, env in git_calls:

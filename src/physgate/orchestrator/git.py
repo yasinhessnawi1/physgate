@@ -247,64 +247,119 @@ class GitDir:
     common: Path
 
 
+#: The prefix git requires of a ``.git`` file, space included: ``gitdir:`` without it is "an
+#: invalid gitfile format" to git (measured on 2.54).
+POINTER_PREFIX = "gitdir: "
+
+
+def _git_file_path(file: Path, text: str) -> str:
+    """The path in one of git's own small files, as git reads it, or a refusal.
+
+    git removes every trailing CR and LF from a ``.git`` pointer's path and from ``commondir``,
+    and nothing else: a leading or trailing blank is part of the path to git (measured on
+    2.54: ``commondir`` reading ``../..`` and two spaces named the directory ``..`` and two
+    spaces, not ``../..``). A path whose reading could depend on that (blank at either end, a
+    line break or NUL inside, nothing at all) is refused rather than guessed at, so whatever the
+    harness accepts, git reads the same way.
+    """
+    value = text.rstrip("\r\n")
+    if not value or value != value.strip() or any(c in value for c in "\r\n\0"):
+        msg = "a git file holds a path git would read differently from how it looks"
+        raise GitError(msg, file=str(file), value=value[:200])
+    return value
+
+
+def _read_git_file(file: Path) -> str:
+    """A small git file's text; bytes that are not UTF-8 are refused, never guessed at."""
+    data = file.read_bytes()
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        msg = "a git file is not text the harness can read as git does"
+        raise GitError(msg, file=str(file)) from None
+
+
+def _pointer_target(cwd: Path) -> Path:
+    """The git directory ``cwd``'s ``.git`` file names, resolved as git resolves it.
+
+    Relative to the directory holding the ``.git`` file.
+
+    Raises:
+        GitError: the file is not a pointer git would accept, or reads differently to git.
+        OSError: it cannot be read.
+    """
+    dot = Path(cwd) / ".git"
+    text = _read_git_file(dot)
+    if not text.startswith(POINTER_PREFIX):
+        msg = "a worktree's .git is not a gitdir pointer"
+        raise GitError(msg, cwd=str(cwd))
+    named = Path(_git_file_path(dot, text[len(POINTER_PREFIX) :]))
+    return (named if named.is_absolute() else Path(cwd) / named).resolve()
+
+
+def _named_from(admin: Path, name: str) -> Path:
+    """The path an admin directory's ``commondir`` or ``gitdir`` names, relative to that directory.
+
+    Raises:
+        GitError: it reads differently to git.
+        OSError: it cannot be read.
+    """
+    file = admin / name
+    named = Path(_git_file_path(file, _read_git_file(file)))
+    return (named if named.is_absolute() else admin / named).resolve()
+
+
 def _git_dir(repo: Path) -> GitDir:
     """The repository's git directory as git would find it, read from the filesystem, unchecked.
 
     For a read that does not verify (an observability command reading a run that may have been
     copied or moved); every write, and every read the write path makes, takes a
-    :func:`verified_git_dir` instead.
+    :func:`verified_git_dir` instead. The files are read as git reads them, so a pointer or a
+    ``commondir`` git would read another way is refused here too.
     """
     dot = Path(repo) / ".git"
-    git_dir: Path | None = None
-    if dot.is_dir():
-        git_dir = dot
-    elif dot.is_file():
-        pointer = dot.read_text().strip()
-        if pointer.startswith("gitdir:"):
-            named = Path(pointer.removeprefix("gitdir:").strip())
-            git_dir = named if named.is_absolute() else (Path(repo) / named).resolve()
-    if git_dir is None:
-        msg = "the path is not a git repository"
-        raise GitError(msg, cwd=str(repo))
-    commondir = git_dir / "commondir"
-    common = git_dir
-    if commondir.is_file():
-        named = Path(commondir.read_text().strip())
-        common = named if named.is_absolute() else (git_dir / named).resolve()
+    try:
+        if dot.is_dir():
+            git_dir = dot
+        elif dot.is_file():
+            git_dir = _pointer_target(Path(repo))
+        else:
+            msg = "the path is not a git repository"
+            raise GitError(msg, cwd=str(repo))
+        common = _named_from(git_dir, "commondir") if (git_dir / "commondir").is_file() else git_dir
+    except OSError as exc:
+        msg = "the repository's git files could not be read"
+        raise GitError(msg, cwd=str(repo), reason=str(exc)) from None
     return GitDir(path=git_dir, common=common)
 
 
-def _object_dirs(repo: Path, pinned: GitDir | None = None) -> tuple[str, ...]:
-    """Every object directory a repository's commits are read from, from the filesystem.
+def object_dirs(where: GitDir) -> tuple[str, ...]:
+    """The object directories of the git directory ``where``: its own and its common one's.
 
-    A worktree's objects live in the repository's common directory; a repository may name
-    more in ``objects/info/alternates``. Each is a store of content-addressed objects: naming
-    one grants read access to objects a commit already pins, never a way to change them.
-    ``pinned`` is a git directory the caller already verified, with the common directory its
-    check confirmed; without one, the repository's ``.git`` is read here.
+    A worktree's objects live in the repository's common directory. A repository may name more
+    in ``objects/info/alternates``, and those are not read here: the clean store that reaches
+    these directories through its own alternates follows theirs as git does, with git's own
+    reading of the file (comments, quoting, a relative entry taken against the object
+    directory that names it, and git's depth limit). Measured on 2.54: an object present only
+    in an alternate named by a relative entry is read through the store.
+
+    Raises:
+        GitError: neither directory holds an object store.
     """
-    where = pinned if pinned is not None else _git_dir(repo)
-    roots = [where.path, where.common]
     found: list[str] = []
-    seen: set[str] = set()
-    pending = [root / "objects" for root in roots]
-    while pending:
-        objects = pending.pop(0)
+    for objects in (where.path / "objects", where.common / "objects"):
         resolved = str(objects.resolve())
-        if resolved in seen or not objects.is_dir():
-            continue
-        seen.add(resolved)
-        found.append(resolved)
-        alternates = objects / "info" / "alternates"
-        if alternates.is_file():
-            for line in alternates.read_text().splitlines():
-                entry = line.strip()
-                if entry and not entry.startswith("#"):
-                    pending.append(Path(entry))
+        if objects.is_dir() and resolved not in found:
+            found.append(resolved)
     if not found:
         msg = "the repository holds no object store"
-        raise GitError(msg, cwd=str(repo))
+        raise GitError(msg, cwd=str(where.path))
     return tuple(found)
+
+
+def _object_dirs(repo: Path, pinned: GitDir | None = None) -> tuple[str, ...]:
+    """:func:`object_dirs` of ``pinned``, or of the repository's ``.git`` read here, unchecked."""
+    return object_dirs(pinned if pinned is not None else _git_dir(repo))
 
 
 _STORES: list[str] = []
@@ -316,43 +371,75 @@ def _remove_stores() -> None:
         shutil.rmtree(store, ignore_errors=True)
 
 
-def _object_format(repo: Path, pinned: GitDir | None = None) -> str:
-    """The hash the repository names its objects with (``sha1`` or ``sha256``).
+def _config_get(config: Path, key: str, *, as_int: bool = False) -> str | None:
+    """One key of a config file, as git's own parser reads it, or ``None`` if it is absent.
 
-    The clean store must use the same one: a store of the other format cannot read a single
-    object through its alternates. Read as data from the repository's config file, by git run
-    outside the repository with ``--file`` (includes off), so nothing in that config is applied
-    and no git command runs with the repository as its working or git directory. A repository
-    that names no format is SHA-1, git's default.
+    Read as data, by git run outside the repository with ``--file`` (includes off), so nothing
+    in that config is applied and no git command runs with the repository as its working or git
+    directory. ``as_int`` has git read the value as the integer it would use (``1k`` is 1024).
 
     Raises:
-        GitError: the config cannot be read, or names a format this module does not know.
+        GitError: git cannot read the file or the value.
     """
-    where = pinned if pinned is not None else _git_dir(repo)
-    config = where.common / "config"
-    if not config.is_file():
-        msg = "the repository has no config to read its object format from"
-        raise GitError(msg, cwd=str(repo))
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.devnull, **_ENV}
+    kind = ["--type=int"] if as_int else []
     done = subprocess.run(
         [harness_git().path, attr_source(), *_FLAGS, "config", "--file", str(config),
-         "--no-includes", "--get", "extensions.objectformat"],
+         "--no-includes", *kind, "--get", key],
         cwd="/",
         env=env,
         capture_output=True,
         text=True,
         check=False,
     )  # fmt: skip
-    if done.returncode == 1:  # the key is absent
-        return "sha1"
-    found = done.stdout.strip()
-    if done.returncode != 0 or found not in EMPTY_TREES:
-        msg = "the repository's object format cannot be read, or the clean store cannot use it"
+    if done.returncode == 1 and not done.stderr.strip():  # the key is absent
+        return None
+    if done.returncode != 0:
+        msg = "the repository's config cannot be read"
         raise GitError(
-            msg, cwd=str(repo), exit=str(done.returncode), object_format=found[:40],
+            msg, config=str(config), key=key, exit=str(done.returncode),
             stderr=done.stderr.strip()[-400:],
         )  # fmt: skip
+    return done.stdout.strip()
+
+
+def object_format(where: GitDir) -> str:
+    """The hash the repository names its objects with (``sha1`` or ``sha256``), as git decides it.
+
+    The clean store must use the same one: a store of the other format cannot read a single
+    object through its alternates. Read from the common directory's config by git's own config
+    parser (:func:`_config_get`). git honours ``extensions.objectformat`` only in a repository
+    of format version 1, refuses one of version 0 that names it, and refuses every version
+    above 1 (measured on 2.54); the same holds here, so the harness never reads a repository
+    git itself would refuse. A repository that names no format is SHA-1, git's default.
+
+    Raises:
+        GitError: the config cannot be read, git would refuse the repository, or it names a
+            format this module does not know.
+    """
+    config = where.common / "config"
+    if not config.is_file():
+        msg = "the repository has no config to read its object format from"
+        raise GitError(msg, cwd=str(where.path))
+    version = _config_get(config, "core.repositoryformatversion", as_int=True)
+    found = _config_get(config, "extensions.objectformat")
+    if version not in (None, "0", "1"):
+        msg = "the repository's format version is one git refuses"
+        raise GitError(msg, cwd=str(where.path), version=str(version)[:40])
+    if found is None:
+        return "sha1"
+    if version != "1":
+        msg = "the repository names an object format at a format version git refuses it at"
+        raise GitError(msg, cwd=str(where.path), version=str(version))
+    if found not in EMPTY_TREES:
+        msg = "the repository's object format cannot be read, or the clean store cannot use it"
+        raise GitError(msg, cwd=str(where.path), object_format=found[:40])
     return found
+
+
+def _object_format(repo: Path, pinned: GitDir | None = None) -> str:
+    """:func:`object_format` of ``pinned``, or of the repository's ``.git`` read here, unchecked."""
+    return object_format(pinned if pinned is not None else _git_dir(repo))
 
 
 @functools.cache
@@ -522,7 +609,9 @@ def verify_worktree_pointer(
     moved sees stale absolute pointers git itself follows, and must not be refused for them.
     A repository whose ``.git`` is an ordinary directory (not a linked worktree) is left alone.
     It fails closed: anything it cannot read or parse refuses the command, and it compares
-    paths only after resolving them, never as raw or prefixed strings.
+    paths only after resolving them, never as raw or prefixed strings. Each file is read as git
+    reads it (``gitdir: `` with its space, only trailing CR and LF removed, a relative path taken
+    against the directory holding the file), and a path git could read another way is refused.
     """
     dot = Path(cwd) / ".git"
     try:
@@ -535,20 +624,14 @@ def verify_worktree_pointer(
         # directory is a git dir; its absence lets git report "not a repository" on its own.
         return None
     try:
-        pointer = dot.read_text().strip()
-        named = Path(pointer.removeprefix("gitdir:").strip())
-        admin = named if named.is_absolute() else (Path(cwd) / named)
-        admin = admin.resolve()
+        admin = _pointer_target(Path(cwd))
         has_admin = (admin / "commondir").is_file() and (admin / "gitdir").is_file()
-        back = (admin / "gitdir").read_text().strip() if has_admin else ""
-        shared = (admin / "commondir").read_text().strip() if has_admin else ""
+        back = _named_from(admin, "gitdir") if has_admin else None
+        found = _named_from(admin, "commondir") if has_admin else None
     except OSError as exc:
         msg = "a worktree's .git or its admin directory could not be read"
         raise GitError(msg, cwd=str(cwd), reason=str(exc)) from None
-    if not pointer.startswith("gitdir:"):
-        msg = "a worktree's .git is not a gitdir pointer"
-        raise GitError(msg, cwd=str(cwd))
-    if not has_admin:
+    if not has_admin or back is None or found is None:
         msg = (
             "the repository's .git is not a directory the harness made or a verified worktree "
             "pointer"
@@ -556,14 +639,12 @@ def verify_worktree_pointer(
             else "a worktree's .git points at no git worktree admin directory"
         )
         raise GitError(msg, cwd=str(cwd), admin=str(admin))
-    if not back or Path(back).resolve() != dot.resolve():
+    if back != dot.resolve():
         msg = "a worktree's .git and its admin directory disagree"
         raise GitError(msg, cwd=str(cwd), admin=str(admin))
-    named_common = Path(shared)
-    found = (named_common if named_common.is_absolute() else admin / named_common).resolve()
-    if not shared or admin.parent.name != "worktrees" or found != admin.parent.parent:
+    if admin.parent.name != "worktrees" or found != admin.parent.parent:
         msg = "a worktree's admin directory names another common git directory than its own"
-        raise GitError(msg, cwd=str(cwd), admin=str(admin), commondir=shared[:200])
+        raise GitError(msg, cwd=str(cwd), admin=str(admin), commondir=str(found)[:200])
     if common is not None and found != Path(common).resolve():
         msg = "a worktree's admin directory belongs to another repository than the expected one"
         raise GitError(msg, cwd=str(cwd), admin=str(admin), expected=str(common))

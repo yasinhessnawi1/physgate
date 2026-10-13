@@ -101,10 +101,11 @@ def test_every_helper_runs_the_resolved_git_with_the_empty_tree_as_attribute_sou
             ),
             [sha1],
         ),
-        # The format is read outside any repository; the store and the read use its own tree.
+        # The format version and the format are read outside any repository; the store and the
+        # read use the format's own tree.
         "clean store": (
             lambda: git(repo, "cat-file", "-t", commit, objects_only=True),
-            [sha1, own, own],
+            [sha1, sha1, own, own],
         ),
         "timed": (lambda: git_timed(sha1_repo, "rev-parse", "HEAD", timeout=60), [sha1]),
         "materialiser": (lambda: materialise._git(sha1_repo, "rev-parse", sha1_commit), [sha1]),
