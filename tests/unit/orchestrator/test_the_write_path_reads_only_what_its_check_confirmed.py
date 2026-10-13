@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -107,7 +108,7 @@ def test_reads_take_the_common_directory_the_check_confirmed(tmp_path: Path) -> 
     assert kind.strip() == "commit"
 
 
-NESTED = {
+NESTED: dict[str, Callable[[Path], object]] = {
     "a nested repository": lambda place: _git(place.parent, "init", "-q", str(place.parent)),
     "an empty .git directory": lambda place: place.mkdir(),
     "a .git file": lambda place: place.write_text("gitdir: /nonexistent\n"),

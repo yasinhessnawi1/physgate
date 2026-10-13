@@ -22,6 +22,7 @@ from pathlib import Path
 
 import pytest
 
+from physgate.orchestrator.git import GitDir, verified_git_dir
 from physgate.reviewers import packet
 
 _ENV = {
@@ -103,11 +104,10 @@ def test_the_packet_verifies_once_per_sequence_of_reads(
     linked = tmp_path / "linked"
     _git(repo, "worktree", "add", "-q", "--detach", str(linked))
     checks: list[Path] = []
-    real = packet.verified_git_dir
 
-    def counting(cwd: Path, **kwargs: bool) -> packet.GitDir:
+    def counting(cwd: Path, *, linked: bool, common: Path | None = None) -> GitDir:
         checks.append(Path(cwd))
-        return real(cwd, **kwargs)  # type: ignore[arg-type]
+        return verified_git_dir(cwd, linked=linked, common=common)
 
     monkeypatch.setattr(packet, "verified_git_dir", counting)
     where = packet._git_dir(linked)
