@@ -21,7 +21,6 @@ ends and redacted from the captured stream before anything reads it.
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sysconfig
 import time
@@ -47,7 +46,7 @@ from physgate.orchestrator.credentials import (
 )
 from physgate.orchestrator.decompose import binary_version, read_stream
 from physgate.orchestrator.exceptions import AccountingError, InvocationError
-from physgate.orchestrator.git import common_dir
+from physgate.orchestrator.git import common_dir, named_from
 from physgate.orchestrator.install import InstallFacts, build_record_path, install_facts
 from physgate.orchestrator.invocation import isolated_env, role_argv
 from physgate.orchestrator.managed import drift, policy_limits_digest
@@ -172,7 +171,8 @@ def git_dir_roots(repo: Path, common_git_dir: Path) -> tuple[Path, ...]:
     indexes, the multi-pack index and the commit graph byte for byte to what they were when
     the session started; anything new is moved aside. Each worktree's ``.git`` pointer file,
     which names its admin directory, is put back too; the pointers are found from the admin
-    directories' own ``gitdir`` files, read from the filesystem. A repository that is itself a
+    directories' own ``gitdir`` files, read from the filesystem as git reads them (one that
+    git could read another way refuses the set). A repository that is itself a
     linked worktree has a pointer of its own.
     """
     roots = [common_git_dir]
@@ -181,10 +181,11 @@ def git_dir_roots(repo: Path, common_git_dir: Path) -> tuple[Path, ...]:
         roots.append(pointer)
     admins = common_git_dir / "worktrees"
     for gitdir in sorted(admins.glob("*/gitdir")) if admins.is_dir() else ():
-        named = Path(gitdir.read_text().strip())
-        pointer = named if named.is_absolute() else (gitdir.parent / named)
+        # Read as git reads it; one git would read another way refuses the whole set, so no
+        # session is installed on a protected set built from a guess.
+        pointer = named_from(gitdir.parent, "gitdir")
         if pointer.name == ".git":
-            roots.append(Path(os.path.normpath(pointer)))
+            roots.append(pointer)
     return tuple(roots)
 
 

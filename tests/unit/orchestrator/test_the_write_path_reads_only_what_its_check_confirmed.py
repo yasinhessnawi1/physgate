@@ -108,28 +108,51 @@ def test_reads_take_the_common_directory_the_check_confirmed(tmp_path: Path) -> 
     assert kind.strip() == "commit"
 
 
+def _nested_repository(place: Path) -> None:
+    """A repository git created, its git directory then given ``place``'s spelling."""
+    _git(place.parent, "init", "-q", str(place.parent))
+    if place.name != ".git":
+        (place.parent / ".git").rename(place.parent / "renamed")
+        (place.parent / "renamed").rename(place)
+
+
 NESTED: dict[str, Callable[[Path], object]] = {
-    "a nested repository": lambda place: _git(place.parent, "init", "-q", str(place.parent)),
+    "a nested repository": _nested_repository,
     "an empty .git directory": lambda place: place.mkdir(),
     "a .git file": lambda place: place.write_text("gitdir: /nonexistent\n"),
 }
 
 
+def _case_insensitive(directory: Path) -> bool:
+    probe = directory / "Case-Probe"
+    probe.write_text("")
+    try:
+        return (directory / "case-probe").exists()
+    finally:
+        probe.unlink()
+
+
+@pytest.mark.parametrize("spelling", [".git", ".GIT", ".Git"])
 @pytest.mark.parametrize("kind", sorted(NESTED))
 @pytest.mark.parametrize("where", ["m1/sub", "m1/deep/er"])
 def test_a_worktree_holding_a_git_of_its_own_is_not_staged(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str, where: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str, where: str, spelling: str
 ) -> None:
+    """Whatever the spelling, if the volume lets git open it as ``.git``, staging is refused."""
+    if spelling != ".git" and not _case_insensitive(tmp_path):
+        pytest.skip("on a case-sensitive volume git does not take this spelling for .git")
     run, worktree, _ = _run(tmp_path)
-    place = worktree / where / ".git"
+    place = worktree / where / spelling
     place.parent.mkdir(parents=True)
     (place.parent / "f.txt").write_text("x\n")
     NESTED[kind](place)
+    # The control: git itself takes the spelling for a .git here.
+    assert os.path.lexists(place.parent / ".git")
     before = _git(run.repo, "rev-parse", run.subtask_branch("m1"))
     calls = _git_runs(monkeypatch)
     with pytest.raises(GitError, match="a git repository of its own") as raised:
         commit_attempt(worktree, "m1", 1, "sess-1", repo=run.repo)
-    assert raised.value.context["path"] == str(place)
+    assert Path(raised.value.context["path"]) == place.parent / ".git"
     assert not [argv for argv in calls if "add" in argv], calls
     assert _git(run.repo, "rev-parse", run.subtask_branch("m1")) == before
 

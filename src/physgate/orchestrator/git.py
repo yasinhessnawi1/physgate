@@ -297,7 +297,7 @@ def _pointer_target(cwd: Path) -> Path:
     return (named if named.is_absolute() else Path(cwd) / named).resolve()
 
 
-def _named_from(admin: Path, name: str) -> Path:
+def named_from(admin: Path, name: str) -> Path:
     """The path an admin directory's ``commondir`` or ``gitdir`` names, relative to that directory.
 
     Raises:
@@ -326,7 +326,7 @@ def _git_dir(repo: Path) -> GitDir:
         else:
             msg = "the path is not a git repository"
             raise GitError(msg, cwd=str(repo))
-        common = _named_from(git_dir, "commondir") if (git_dir / "commondir").is_file() else git_dir
+        common = named_from(git_dir, "commondir") if (git_dir / "commondir").is_file() else git_dir
     except OSError as exc:
         msg = "the repository's git files could not be read"
         raise GitError(msg, cwd=str(repo), reason=str(exc)) from None
@@ -381,10 +381,17 @@ def _config_get(config: Path, key: str, *, as_int: bool = False) -> str | None:
     Raises:
         GitError: git cannot read the file or the value.
     """
+    # git runs from ``/``, so it is handed the file's absolute path: the one checked here.
+    # git exits 1 without a word for a file that is not there, as for a key that is not, so
+    # a missing file is refused here, never read as a key that is absent.
+    resolved = Path(config).resolve()
+    if not resolved.is_file():
+        msg = "the repository has no config file to read"
+        raise GitError(msg, config=str(resolved), key=key)
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.devnull, **_ENV}
     kind = ["--type=int"] if as_int else []
     done = subprocess.run(
-        [harness_git().path, attr_source(), *_FLAGS, "config", "--file", str(config),
+        [harness_git().path, attr_source(), *_FLAGS, "config", "--file", str(resolved),
          "--no-includes", *kind, "--get", key],
         cwd="/",
         env=env,
@@ -418,9 +425,6 @@ def object_format(where: GitDir) -> str:
             format this module does not know.
     """
     config = where.common / "config"
-    if not config.is_file():
-        msg = "the repository has no config to read its object format from"
-        raise GitError(msg, cwd=str(where.path))
     version = _config_get(config, "core.repositoryformatversion", as_int=True)
     found = _config_get(config, "extensions.objectformat")
     if version not in (None, "0", "1"):
@@ -626,8 +630,8 @@ def verify_worktree_pointer(
     try:
         admin = _pointer_target(Path(cwd))
         has_admin = (admin / "commondir").is_file() and (admin / "gitdir").is_file()
-        back = _named_from(admin, "gitdir") if has_admin else None
-        found = _named_from(admin, "commondir") if has_admin else None
+        back = named_from(admin, "gitdir") if has_admin else None
+        found = named_from(admin, "commondir") if has_admin else None
     except OSError as exc:
         msg = "a worktree's .git or its admin directory could not be read"
         raise GitError(msg, cwd=str(cwd), reason=str(exc)) from None
@@ -763,14 +767,22 @@ def nested_git(worktree: Path) -> Path | None:
     repository to stage it as a submodule, and reads that repository's config to do it; a
     session's worktree is the session's to write, so a nested ``.git`` there is a configuration
     the harness never checked. The worktree's own ``.git`` at its top level is not looked into.
+
+    The question asked of each directory is the one git asks: does ``<directory>/.git`` exist.
+    On a case-insensitive volume ``.GIT`` or ``.Git`` answers it as ``.git`` does (git opens
+    such a directory as a repository), so no spelling is compared here.
     """
     top = Path(worktree)
-    for directory, names, files in os.walk(top):
+    own = os.lstat(top / ".git") if os.path.lexists(top / ".git") else None
+    for directory, names, _files in os.walk(top):
         here = Path(directory)
-        for name in (*names, *files):
-            if name == ".git" and here != top:
-                return here / name
-        names[:] = [n for n in names if not (here == top and n == ".git")]
+        if here == top:
+            # The worktree's own .git, under whichever spelling the listing gives it.
+            if own is not None:
+                names[:] = [n for n in names if not os.path.samestat(os.lstat(here / n), own)]
+            continue
+        if os.path.lexists(here / ".git"):
+            return here / ".git"
     return None
 
 

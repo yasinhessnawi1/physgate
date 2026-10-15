@@ -28,6 +28,7 @@ from pathlib import Path
 import pytest
 
 import physgate.orchestrator.git as orchestrator_git
+from physgate.orchestrator.dispatch import run_protected_roots
 from physgate.orchestrator.exceptions import GitError
 from physgate.orchestrator.git import common_dir, git, verified_git_dir
 from physgate.orchestrator.merge import RunGit, commit_attempt
@@ -216,3 +217,50 @@ def test_an_object_format_git_would_refuse_is_refused(
     assert control.returncode != 0 and says in control.stderr, control.stderr
     with pytest.raises(GitError, match=refusal):
         orchestrator_git._object_format(repo)
+
+
+@pytest.mark.parametrize(
+    ("version", "named", "expected"),
+    [("1", "sha256", "sha256"), ("0", "sha256", None), ("2", None, None), ("1", None, "sha1")],
+)
+def test_a_repository_named_by_a_relative_path_is_read_from_its_own_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    version: str,
+    named: str | None,
+    expected: str | None,
+) -> None:
+    """The config git is handed is the file checked here, whatever the working directory."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    config = str(repo / ".git" / "config")
+    _git(repo, "config", "--file", config, "core.repositoryformatversion", version)
+    if named is not None:
+        _git(repo, "config", "--file", config, "extensions.objectformat", named)
+    monkeypatch.chdir(tmp_path)
+    if expected is None:
+        with pytest.raises(GitError, match="format version"):
+            orchestrator_git._object_format(Path("repo"))
+    else:
+        assert orchestrator_git._object_format(Path("repo")) == expected
+
+
+def test_a_missing_config_is_an_error_never_a_key_that_is_absent(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    (repo / ".git" / "config").unlink()
+    with pytest.raises(GitError, match="no config file"):
+        orchestrator_git._object_format(repo)
+
+
+def test_a_gitdir_git_would_read_another_way_refuses_the_protected_set(tmp_path: Path) -> None:
+    run, worktree = _run(tmp_path)
+    # The control: the ordinary layout gives a set holding the worktree's pointer.
+    reverted, _ = run_protected_roots(run)
+    assert (worktree / ".git").resolve() in [Path(p).resolve() for p in reverted]
+    admin = _admin(worktree)
+    (admin / "gitdir").write_text(f"{worktree / '.git'}  \n")
+    with pytest.raises(GitError, match="git would read differently"):
+        run_protected_roots(run)
