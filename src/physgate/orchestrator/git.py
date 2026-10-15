@@ -769,20 +769,32 @@ def nested_git(worktree: Path) -> Path | None:
     the harness never checked. The worktree's own ``.git`` at its top level is not looked into.
 
     The question asked of each directory is the one git asks: does ``<directory>/.git`` exist.
-    On a case-insensitive volume ``.GIT`` or ``.Git`` answers it as ``.git`` does (git opens
-    such a directory as a repository), so no spelling is compared here.
+    git asks it of every subdirectory in its parent's listing, which needs only the right to
+    pass through the subdirectory, not to list it; so it is asked here the same way, from the
+    parent. On a case-insensitive volume ``.GIT`` or ``.Git`` answers it as ``.git`` does (git
+    opens such a directory as a repository), so no spelling is compared. A symbolic link is
+    not looked through: git stages it as a link. A directory the harness cannot list refuses
+    the commit: what lies below it cannot be checked, and git may still reach it.
+
+    Raises:
+        GitError: a directory in the worktree cannot be listed.
     """
     top = Path(worktree)
     own = os.lstat(top / ".git") if os.path.lexists(top / ".git") else None
-    for directory, names, _files in os.walk(top):
+
+    def unlistable(error: OSError) -> None:
+        msg = "a directory in the worktree cannot be listed, so what it holds cannot be checked"
+        raise GitError(msg, cwd=str(top), path=str(error.filename))
+
+    for directory, names, _files in os.walk(top, onerror=unlistable):
         here = Path(directory)
-        if here == top:
+        if here == top and own is not None:
             # The worktree's own .git, under whichever spelling the listing gives it.
-            if own is not None:
-                names[:] = [n for n in names if not os.path.samestat(os.lstat(here / n), own)]
-            continue
-        if os.path.lexists(here / ".git"):
-            return here / ".git"
+            names[:] = [n for n in names if not os.path.samestat(os.lstat(here / n), own)]
+        for name in names:
+            child = here / name
+            if not child.is_symlink() and os.path.lexists(child / ".git"):
+                return child / ".git"
     return None
 
 

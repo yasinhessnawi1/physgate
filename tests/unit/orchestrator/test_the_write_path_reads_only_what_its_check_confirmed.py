@@ -169,3 +169,38 @@ def test_a_separate_git_directory_is_refused_in_words_for_a_repository(tmp_path:
     _git(tmp_path, "init", "-q", "--separate-git-dir", str(tmp_path / "gd"), str(repo))
     with pytest.raises(GitError, match="the repository's .git is not a directory the harness"):
         common_dir(repo)
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="permissions do not bind the superuser")
+@pytest.mark.parametrize("mode", [0o311, 0o111])
+@pytest.mark.parametrize(
+    ("depth", "refusal"),
+    [("in it", "a git repository of its own"), ("below it", "cannot be listed")],
+)
+def test_a_directory_the_harness_cannot_list_never_hides_a_repository(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: int, depth: str, refusal: str
+) -> None:
+    """A directory git can pass through but the harness cannot list never hides a repository.
+
+    git needs only to pass through a directory to find ``<directory>/.git``, so a nested
+    repository in it is found from the parent, and one further below, which nothing can see
+    without listing, refuses the commit.
+    """
+    run, worktree, _ = _run(tmp_path)
+    locked = worktree / "m1" / "locked"
+    repository = locked if depth == "in it" else locked / "inner"
+    repository.mkdir(parents=True)
+    (repository / "f.txt").write_text("x\n")
+    _git(repository, "init", "-q", str(repository))
+    before = _git(run.repo, "rev-parse", run.subtask_branch("m1"))
+    locked.chmod(mode)
+    try:
+        # The control: the nested repository is still reachable through the locked directory.
+        assert os.path.lexists(repository / ".git")
+        calls = _git_runs(monkeypatch)
+        with pytest.raises(GitError, match=refusal):
+            commit_attempt(worktree, "m1", 1, "sess-1", repo=run.repo)
+        assert not [argv for argv in calls if "add" in argv], calls
+    finally:
+        locked.chmod(0o755)
+    assert _git(run.repo, "rev-parse", run.subtask_branch("m1")) == before
