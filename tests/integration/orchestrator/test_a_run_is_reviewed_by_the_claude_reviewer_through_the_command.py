@@ -197,6 +197,10 @@ def test_a_run_through_the_command_is_reviewed_rejected_repaired_and_accepted(
         generalist_code = main(generalist)
         printed = capsys.readouterr()
         # Both figures reach one trend: the run's cost line, then the ratio from its baseline.
+        # The cost is read as the trend's figures are, with no review root named: its
+        # reviews' results are not reached, so the line is a lower bound, appended and
+        # marked, and the command exits 1 to say so. (A scripted endpoint's results do not
+        # split their cache writes by lifetime, so the per-call sheet cannot price them.)
         trend = tmp_path / "trend.jsonl"
         prices = ["--prices", "2026-09-27"]
         cost_code = main(["cost", "--run-dir", str(run_dir), *prices, "--append", str(trend)])
@@ -205,11 +209,16 @@ def test_a_run_through_the_command_is_reviewed_rejected_repaired_and_accepted(
         again = main([*ratio_args, "--append", str(trend)])
         trended = capsys.readouterr()
     assert generalist_code == 0, printed.err
-    assert (cost_code, ratio_code, again) == (0, 0, 2), trended.err
+    assert (cost_code, ratio_code, again) == (1, 0, 2), trended.err
+    assert "the cost is a lower bound" in trended.err
     assert "already holds this ratio" in trended.err
     cost_line, ratio_line = read_trend_lines(trend)
     assert isinstance(cost_line, CostLine) and isinstance(ratio_line, RatioLine)
     assert cost_line.run_id == "run-1" and set(cost_line.review_tokens) == {subtask}
+    # A lower bound by its reviews alone: every other call read, and none disagreeing.
+    held = cost_line.reconciliation
+    assert cost_line.lower_bound is True and held is not None and held.differs == ()
+    assert held.unread and all(call.startswith("reviewer:") for call in held.unread)
     assert ratio_line.run_id == "run-1-generalist" and ratio_line.paired_run_id == "run-1"
     assert ratio_line.ratio == Ratio.model_validate_json((baseline / "baseline.json").read_bytes())
     ratio = json.loads((baseline / "baseline.json").read_text())

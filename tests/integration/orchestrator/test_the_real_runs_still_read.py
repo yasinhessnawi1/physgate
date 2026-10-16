@@ -29,8 +29,11 @@ pytestmark = [
     pytest.mark.skipif(not RUNS, reason="PHYSGATE_REAL_RUNS names no directory of real runs"),
 ]
 NAMES = ("paired-1", "paired-2", "paired-3")
-#: The real runs' price sheet.
-PRICES = "2026-09-27"
+#: The sheet that prices each call's cache writes at the rate it paid. Read with the
+#: run's reviews under its review root, every call of each run is priced and agrees with
+#: the binary, so the cost line is whole and the command exits 0; at the first sheet the
+#: one-hour writes disagree, and without the review root the line is a lower bound.
+PRICES = "2026-10-16"
 
 
 def _digest(path: Path) -> str:
@@ -67,7 +70,10 @@ def test_every_reader_reads_the_copy(
 ) -> None:
     run_dir = str(copies[name] / RUN_ID)
     argv = {
-        "cost": ["cost", "--run-dir", run_dir, "--prices", PRICES],
+        "cost": [
+            *("cost", "--run-dir", run_dir, "--prices", PRICES),
+            *("--review-root", str(copies[name] / REVIEW_DIRNAME)),
+        ],
         "compare": ["compare", run_dir, run_dir],
         "queue list": ["queue", "list", "--run-dir", run_dir],
     }.get(command, [command, "--run-dir", run_dir])
