@@ -3,7 +3,8 @@
 Three things are held. The protected-root table, for a request touching every kind of root,
 equals the one the hook layer produced at this branch's starting point, entry for entry, once
 the two new roots are set aside: same path, reason, watch class, exceptions and order (the
-table at the branch point is committed beside this test). On and around every one of those
+table at the branch point is committed beside this test; the installation's own roots are
+placed by the machine's paths, so only their presence is held). On and around every one of those
 roots, the path layer and the shell layer decide exactly as they do without the new roots.
 And the new roots are no wider than they say: nothing beside them is refused.
 """
@@ -31,6 +32,10 @@ def _without_new(cfg: SessionConfig) -> SessionConfig:
     return cfg.model_copy(update={"protected_roots": kept})
 
 
+def _key(root: dict[str, object]) -> str:
+    return json.dumps(root, sort_keys=True)
+
+
 @pytest.fixture
 def base(tmp_path: Path) -> Path:
     return Path(os.path.realpath(tmp_path))
@@ -44,7 +49,13 @@ def test_every_root_that_existed_is_unchanged_and_only_two_are_added(base: Path)
         "<base>/run/worktrees/control-1/.physgate/lib",
         "<base>/run/worktrees/control-1/.physgate/series",
     ]
-    assert [r for r in now if r in before] == before
+    kept = [r for r in now if r in before]
+    # Every root that existed is still there, unchanged. The table is ordered by real path, so
+    # where the installation's own roots fall among the rest depends on the machine (its prefix
+    # is /usr on one, /Library/… on another); every other root keeps its order exactly.
+    assert sorted(kept, key=_key) == sorted(before, key=_key)
+    placed = [r for r in kept if str(r["path"]).startswith("<base>")]
+    assert placed == [r for r in before if str(r["path"]).startswith("<base>")]
 
 
 def _probes(cfg: SessionConfig) -> list[str]:

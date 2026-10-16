@@ -41,6 +41,10 @@ PREFACE = (
 )
 
 
+#: How a file of the interpreter's own installation is marked: admitted, never hidden.
+_ENVIRONMENT = " (the interpreter's own installation, outside every place the session can write)"
+
+
 def _number(value: float | int) -> str:
     return format(value, ".6g")
 
@@ -77,9 +81,9 @@ def _record(session_id: str, record: Record) -> str:
     if record.producer.loaded:
         count = len(record.producer.loaded)
         lines.append(f"- code it loaded besides the script: {count} file{'s' * (count != 1)}\n")
-        lines += [
-            f"  - {_quoted(code.path)}, sha256 {code.sha256}\n" for code in record.producer.loaded
-        ]
+        for code in record.producer.loaded:
+            marked = _ENVIRONMENT if code.path.startswith("/") else ""
+            lines.append(f"  - {_quoted(code.path)}, sha256 {code.sha256}{marked}\n")
     for name in sorted(record.inputs):
         given = record.inputs[name]
         lines.append(f"- input {name}: {_number(given.value)} {given.unit}\n")

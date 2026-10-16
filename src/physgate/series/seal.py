@@ -46,6 +46,13 @@ class CodeBlob(_Frozen):
     blob: BlobId
 
 
+class CodeDigest(_Frozen):
+    """A file of the interpreter's own installation a record names as loaded, by its digest."""
+
+    path: Annotated[str, StringConstraints(min_length=1, max_length=512)]
+    sha256: Sha256
+
+
 class SealedRecord(_Frozen):
     """One record the session left, as the collector sealed it."""
 
@@ -59,6 +66,11 @@ class SealedRecord(_Frozen):
     #: Every other file of code the producing process loaded from the worktree, the writer
     #: included, each with the blob id its bytes had when the record was collected.
     loaded: Annotated[tuple[CodeBlob, ...], Field(max_length=MAX_LOADED_FILES)] = ()
+    #: Files of the interpreter's own installation the process loaded from outside the
+    #: worktree (a distribution's ``sitecustomize``, for one), admitted because they lie
+    #: outside every place the session can write and its user cannot write them; recorded,
+    #: never bound to the commit.
+    environment: Annotated[tuple[CodeDigest, ...], Field(max_length=MAX_LOADED_FILES)] = ()
 
 
 class SetAside(_Frozen):

@@ -60,7 +60,7 @@ from physgate.orchestrator.run_config import RunConfig, harness_root
 from physgate.orchestrator.trajectory import Seal, forged_tail, seal, through_first_result
 from physgate.reviewers.packet import issued_spec_sha256
 from physgate.reviewers.places import SESSION_DIRNAME
-from physgate.series.collect import collect, empty_outbox
+from physgate.series.collect import collect, empty_outbox, temporary_roots
 
 REDACTED = REDACTED_TEXT.encode()
 
@@ -561,6 +561,9 @@ class ClaudeDispatcher:
             session_id=session_id,
             object_format=object_format(verified_git_dir(self._run.repo, linked=False)),
             discarded_before=left_over,
+            # The session's own directory holds its home; with the machine's temporary
+            # directories these are the places it can write besides its worktree.
+            writable_roots=(sdir, *temporary_roots()),
         )
         commit = (
             commit_attempt(

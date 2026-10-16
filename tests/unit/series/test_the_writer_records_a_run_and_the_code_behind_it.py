@@ -36,7 +36,10 @@ def test_a_record_written_from_a_script_is_one_the_schema_admits(tmp_path: Path)
     assert record.inputs["seed"].value == 7
     assert record.producer.script.path == "modules/control/sim.py"
     assert record.producer.script.sha256 == _sha(script)
-    loaded = {f.path: f.sha256 for f in record.producer.loaded}
+    # A distribution's interpreter may load a file of its own from outside its prefix (Ubuntu's
+    # /etc/python3.12/sitecustomize.py); the writer names it by its absolute path, and the
+    # collector judges it. Every file named in the worktree is held exactly.
+    loaded = {f.path: f.sha256 for f in record.producer.loaded if not f.path.startswith("/")}
     assert loaded == {
         ".physgate/lib/series_writer.py": hashlib.sha256(WRITER_SOURCE).hexdigest(),
         "modules/control/helper.py": _sha(base / "modules" / "control" / "helper.py"),

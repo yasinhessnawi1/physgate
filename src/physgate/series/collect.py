@@ -46,6 +46,7 @@ import hashlib
 import os
 import re
 import stat
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
@@ -57,6 +58,7 @@ from physgate.series.record import (
     MAX_FILE_BYTES,
     MAX_RECORDS_PER_SESSION,
     MAX_SESSION_BYTES,
+    CodeFile,
     Record,
     parse_record,
 )
@@ -64,6 +66,7 @@ from physgate.series.seal import (
     MAX_ENTRIES,
     NAME_PATTERN,
     CodeBlob,
+    CodeDigest,
     SealedRecord,
     SessionSeries,
     SetAside,
@@ -357,6 +360,74 @@ def _read_all(fd: int, bound: int) -> bytes:
     return b"".join(chunks)
 
 
+def temporary_roots() -> tuple[Path, ...]:
+    """The machine's temporary directories, which every session can write."""
+    found = {tempfile.gettempdir(), "/tmp", "/var/tmp", "/dev/shm"}  # noqa: S108 - named to refuse
+    return tuple(sorted({Path(os.path.realpath(p)) for p in found if os.path.isdir(p)}))
+
+
+def _writable_by_the_session(path: str) -> bool:
+    """Whether this process's user (the session's) can write ``path`` or replace it.
+
+    A file can be replaced through any directory above it the user can write, so each of
+    those is asked too, up to the root.
+    """
+    if os.access(path, os.W_OK):
+        return True
+    directory = os.path.dirname(path)
+    while True:
+        if os.access(directory, os.W_OK):
+            return True
+        parent = os.path.dirname(directory)
+        if parent == directory:
+            return False
+        directory = parent
+
+
+def _environment_code(named: CodeFile, roots: tuple[Path, ...]) -> CodeDigest:
+    """``named``, a file of code from outside the worktree, if it may stand as environment.
+
+    It may when it lies outside every place the session can write (``roots``: the worktree,
+    the session's home and temporary directories, and the machine's temporary directories)
+    and the session's user can neither write it nor replace it: then the role could not have
+    put it there, and it is the interpreter's own installation (a distribution's
+    ``sitecustomize``, say). It is still read, held to the digest the writer recorded, and
+    recorded with the record, never left out.
+
+    Raises:
+        _RefusedError: it lies in a place the session can write, its user can write it, it is
+            reached through a link or is not a regular file, or it changed.
+    """
+    path = named.path
+    if os.path.normpath(path) != path or os.path.realpath(path) != path:
+        msg = f"code from outside the worktree ran from a path that is not plain: {path}"
+        raise _RefusedError(msg)
+    if any(Path(path).is_relative_to(root) for root in roots):
+        msg = f"code from outside the worktree ran from a place the session can write: {path}"
+        raise _RefusedError(msg)
+    if _writable_by_the_session(path):
+        msg = f"code from outside the worktree ran from a file the session's user can write: {path}"
+        raise _RefusedError(msg)
+    try:
+        fd = os.open(path, _NOFOLLOW_READ)
+    except OSError as exc:
+        msg = f"the code file {path} cannot be read ({exc.strerror})"
+        raise _RefusedError(msg) from None
+    try:
+        found = os.fstat(fd)
+        if not stat.S_ISREG(found.st_mode) or found.st_size > MAX_CODE_BYTES:
+            msg = f"the code file {path} is not a regular file of at most {MAX_CODE_BYTES}"
+            raise _RefusedError(msg)
+        data = _read_all(fd, MAX_CODE_BYTES)
+    finally:
+        os.close(fd)
+    digest = hashlib.sha256(data).hexdigest()
+    if digest != named.sha256:
+        msg = f"{path} changed after the record was written; run the script again"
+        raise _RefusedError(msg)
+    return CodeDigest(path=path, sha256=digest)
+
+
 def _in_the_module(path: str, module: PurePosixPath) -> PurePosixPath:
     named = PurePosixPath(path)
     if named.is_absolute() or ".." in named.parts:
@@ -368,18 +439,33 @@ def _in_the_module(path: str, module: PurePosixPath) -> PurePosixPath:
     return named
 
 
-def _provenance(
-    record: Record, base: Path, module: PurePosixPath, object_format: str
-) -> tuple[bytes, tuple[CodeBlob, ...]]:
-    """The script's bytes and the blob of every other file of code the record names.
+@dataclass(frozen=True)
+class _Provenance:
+    """What a record's code comes to: the script's bytes, the module code, the environment."""
 
-    Each file must be the module's (the writer excepted) and unchanged since the record was
-    written. The blobs are what the change check holds the attempt commit to: code the attempt
-    does not commit with these bytes cannot stand behind the curve.
+    script: bytes
+    loaded: tuple[CodeBlob, ...]
+    environment: tuple[CodeDigest, ...]
+
+
+def _provenance(
+    record: Record,
+    base: Path,
+    module: PurePosixPath,
+    object_format: str,
+    roots: tuple[Path, ...],
+) -> _Provenance:
+    """The script's bytes, the blob of every other module file, and the environment code.
+
+    The script and every file of code the record names in the worktree must be the module's
+    (the writer excepted) and unchanged since the record was written. Their blobs are what the
+    change check holds the attempt commit to: code the attempt does not commit with these
+    bytes cannot stand behind the curve. A file outside the worktree is admitted only as the
+    interpreter's own (:func:`_environment_code`), and is recorded.
 
     Raises:
-        _RefusedError: a file lies outside the module, cannot be read, or changed since the record
-            was written.
+        _RefusedError: a file lies outside the module and is not admissible as the interpreter's
+            own, cannot be read, or changed since the record was written.
     """
     script = _in_the_module(record.producer.script.path, module)
     if script == WRITER_PATH:
@@ -387,7 +473,11 @@ def _provenance(
         raise _RefusedError(msg)
     script_bytes = b""
     loaded: dict[str, CodeBlob] = {}
+    environment: dict[str, CodeDigest] = {}
     for named in (record.producer.script, *record.producer.loaded):
+        if named is not record.producer.script and PurePosixPath(named.path).is_absolute():
+            environment[named.path] = _environment_code(named, roots)
+            continue
         relative = _in_the_module(named.path, module)
         data = _code_bytes(base, relative)
         if hashlib.sha256(data).hexdigest() != named.sha256:
@@ -397,7 +487,11 @@ def _provenance(
             script_bytes = data
         else:
             loaded[str(relative)] = CodeBlob(path=str(relative), blob=blob_id(data, object_format))
-    return script_bytes, tuple(loaded[path] for path in sorted(loaded))
+    return _Provenance(
+        script=script_bytes,
+        loaded=tuple(loaded[path] for path in sorted(loaded)),
+        environment=tuple(environment[path] for path in sorted(environment)),
+    )
 
 
 def _read_entry(fd: int, name: str) -> bytes:
@@ -455,11 +549,15 @@ def collect(
     session_id: str,
     object_format: str,
     discarded_before: tuple[SetAside, ...] = (),
+    writable_roots: tuple[Path, ...] | None = None,
 ) -> SessionSeries:
     """Take every entry out of the outbox: seal what holds, set the rest aside, list both.
 
     ``discarded_before`` is what was moved aside before the session began; it heads the
-    discarded list, under the same bound.
+    discarded list, under the same bound. ``writable_roots`` are the places the session can
+    write besides its worktree (its home and temporary directories); by default the
+    machine's temporary directories. Code a record names from outside the worktree is
+    admitted only from outside all of them.
 
     Raises:
         RecordRefusedError: an identifier is not one the run could have written.
@@ -469,6 +567,8 @@ def collect(
         msg = "a module directory is a relative path inside the worktree"
         raise RecordRefusedError(msg, module_dir=module_dir)
     base = Path(os.path.realpath(worktree))
+    chosen = temporary_roots() if writable_roots is None else tuple(writable_roots)
+    roots = (base, *(Path(os.path.realpath(r)) for r in chosen))
     record_path(run_dir, subtask_id, attempt, session_id, "x")  # every id held to its pattern
     run_base = Path(os.path.realpath(run_dir))
     sealed_at = _Place(run_base, (SERIES_DIR, subtask_id, str(attempt), session_id))
@@ -514,7 +614,7 @@ def collect(
                         f"the file is named for another record than the one it holds ({record.id})"
                     )
                     raise _RefusedError(msg)
-                script_bytes, loaded = _provenance(record, base, module, object_format)
+                found = _provenance(record, base, module, object_format, roots)
             except _RefusedError as exc:
                 _move_aside(fd, name, refused_at)
                 refused.add(name, str(exc))
@@ -529,9 +629,10 @@ def collect(
                     sha256=sealed.sha256,
                     length=sealed.length,
                     script=str(PurePosixPath(record.producer.script.path)),
-                    script_sha256=hashlib.sha256(script_bytes).hexdigest(),
-                    script_blob=blob_id(script_bytes, object_format),
-                    loaded=loaded,
+                    script_sha256=hashlib.sha256(found.script).hexdigest(),
+                    script_blob=blob_id(found.script, object_format),
+                    loaded=found.loaded,
+                    environment=found.environment,
                 )
             )
     finally:

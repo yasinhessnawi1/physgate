@@ -10,9 +10,11 @@ through a link, so a role cannot make it move or delete files outside its own ou
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -407,3 +409,118 @@ def test_a_link_planted_where_the_run_s_records_go_is_refused_and_written_throug
     with pytest.raises(RecordTamperedError, match="link or not a directory"):
         _collect(base, run_dir)
     _untouched(target)
+
+
+# ── code from the interpreter's own installation ─────────────────────────────
+
+
+def _with_loaded(base: Path, extra: Path) -> None:
+    """The written record, as if the producing process had also loaded ``extra``.
+
+    A distribution's interpreter can load a file of its own installation that lies outside
+    its prefix (Ubuntu's ``/etc/python3.12/sitecustomize.py``), and the writer names it. The
+    record is rewritten here to name a stand-in for it, with its digest, as the writer would.
+    """
+    written = _written(base)
+    body = json.loads(written.read_text())
+    digest = hashlib.sha256(extra.read_bytes()).hexdigest()
+    body["producer"]["loaded"].append({"path": str(extra), "sha256": digest})
+    written.write_text(json.dumps(body))
+
+
+def _sitecustomize(where: Path) -> Path:
+    where.mkdir(parents=True, exist_ok=True)
+    path = where / "sitecustomize.py"
+    path.write_text("# a distribution's own interpreter customisation\n")
+    return Path(os.path.realpath(path))
+
+
+def _collect_with(base: Path, run_dir: Path, writable: tuple[Path, ...]) -> SessionSeries:
+    return collect(
+        base,
+        module_dir=MODULE,
+        run_dir=run_dir,
+        subtask_id="control-1",
+        attempt=1,
+        session_id="session-1",
+        object_format="sha1",
+        writable_roots=writable,
+    )
+
+
+@pytest.fixture
+def unwritable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every file outside the worktree reads as one the session's user cannot write.
+
+    A test cannot make a root-owned file; the property under test here is the roots, and
+    the writability check has a test of its own.
+    """
+    monkeypatch.setattr(collect_module, "_writable_by_the_session", lambda path: False)
+
+
+@pytest.mark.usefixtures("unwritable")
+def test_interpreter_code_outside_every_session_writable_root_is_admitted_and_recorded(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    base = worktree(tmp_path)
+    system = _sitecustomize(Path(os.path.realpath(tmp_path)) / "system" / "etc" / "python3.12")
+    _with_loaded(base, system)
+    series = _collect_with(base, run_dir, writable=(base / ".home",))
+    assert series.refused == ()
+    (sealed,) = series.records
+    digest = hashlib.sha256(system.read_bytes()).hexdigest()
+    assert [(e.path, e.sha256) for e in sealed.environment] == [(str(system), digest)]
+    assert str(system) not in [c.path for c in sealed.loaded]
+
+
+@pytest.mark.usefixtures("unwritable")
+def test_the_same_file_in_the_session_home_s_user_site_is_refused(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    base = worktree(tmp_path)
+    home = base / ".home"
+    planted = _sitecustomize(home / ".local" / "lib" / "python3.12" / "site-packages")
+    _with_loaded(base, planted)
+    series = _collect_with(base, run_dir, writable=(home,))
+    assert series.records == ()
+    (refused,) = series.refused
+    assert "a place the session can write" in refused.reason
+
+
+@pytest.mark.usefixtures("unwritable")
+def test_the_same_file_in_the_temporary_directory_is_refused_by_default(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    base = worktree(tmp_path)
+    planted = _sitecustomize(Path(os.path.realpath(tempfile.mkdtemp(dir=tmp_path))))
+    _with_loaded(base, planted)
+    if not any(planted.is_relative_to(r) for r in collect_module.temporary_roots()):
+        pytest.skip("this test's directory is not under the machine's temporary directory")
+    series = _collect(base, run_dir)
+    assert series.records == ()
+    assert "a place the session can write" in series.refused[0].reason
+
+
+def test_interpreter_code_the_session_s_user_can_write_is_refused(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    base = worktree(tmp_path)
+    system = _sitecustomize(Path(os.path.realpath(tmp_path)) / "system" / "etc" / "python3.12")
+    _with_loaded(base, system)
+    series = _collect_with(base, run_dir, writable=(base / ".home",))
+    assert series.records == ()
+    (refused,) = series.refused
+    assert "the session's user can write" in refused.reason
+
+
+@pytest.mark.usefixtures("unwritable")
+def test_interpreter_code_changed_after_the_record_was_written_is_refused(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    base = worktree(tmp_path)
+    system = _sitecustomize(Path(os.path.realpath(tmp_path)) / "system" / "etc" / "python3.12")
+    _with_loaded(base, system)
+    system.write_text("# changed\n")
+    series = _collect_with(base, run_dir, writable=(base / ".home",))
+    assert series.records == ()
+    assert "changed after the record was written" in series.refused[0].reason
