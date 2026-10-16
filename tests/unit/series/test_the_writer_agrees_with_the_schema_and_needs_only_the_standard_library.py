@@ -20,6 +20,7 @@ from typing import Any
 import pytest
 
 import physgate.series.writer as writer
+from physgate import unit_spelling
 from physgate.series import record as schema
 from physgate.series.exceptions import RecordRefusedError
 from physgate.series.record import parse_record
@@ -206,7 +207,8 @@ def test_the_writer_s_constants_are_the_schema_s() -> None:
         "NAME_PATTERN",
     ):
         assert getattr(writer, name) == getattr(schema, name), name
-    assert schema.UNIT_GRAMMAR.pattern == writer.UNIT_GRAMMAR_PATTERN
+    assert unit_spelling.PATTERN == writer.UNIT_GRAMMAR_PATTERN
+    assert schema.UNIT_GRAMMAR is unit_spelling.UNIT_SPELLING
 
 
 ALLOWED_IMPORTS = {"__future__", "hashlib", "json", "math", "os", "re", "sys", "sysconfig"}

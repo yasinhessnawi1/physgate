@@ -38,7 +38,6 @@ which JSON cannot tell apart.
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Mapping
 from typing import Annotated, Any, Literal
 
@@ -54,6 +53,7 @@ from pydantic import (
 
 from physgate.gate import units
 from physgate.series.exceptions import RecordRefusedError
+from physgate.unit_spelling import UNIT_SPELLING, UnitSpellingError, require_bounded_spelling
 
 #: The marker every record carries. A later shape is a new marker and a new model.
 FORMAT = "series.v1"
@@ -80,15 +80,9 @@ Name = Annotated[str, StringConstraints(pattern=NAME_PATTERN)]
 Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 
 
-#: The spellings a unit may take before the registry ever sees it: unit names joined by
-#: ``*`` and ``/``, each with an optional one- or two-digit exponent, or a leading ``1``
-#: (``1/s``). The registry evaluates arithmetic in a unit string exactly, in fractions, so a
-#: twelve-character ``10**10**10*m`` kept one process busy until a 5 s CPU limit killed it
-#: (measured 16.10.2026, pint 0.26.1): a length bound alone does not bound the cost of a
-#: parse. Nothing a record needs is lost: every unit a simulation's axis carries is a
-#: product of named units with small integer powers.
-_UNIT_FACTOR = r"[A-Za-z_]+(?:(?:\*\*|\^)-?[0-9]{1,2})?"
-UNIT_GRAMMAR = re.compile(rf"^(?:1|{_UNIT_FACTOR})(?:\s*[*/]\s*{_UNIT_FACTOR})*$")
+#: How a unit must be spelt before the registry sees it, so that parsing it has a bounded
+#: cost: the shared guard for units written by roles (:mod:`physgate.unit_spelling`).
+UNIT_GRAMMAR = UNIT_SPELLING
 
 
 def _unit(unit: str) -> str:
@@ -96,12 +90,10 @@ def _unit(unit: str) -> str:
     if not unit.strip():
         msg = "a unit is required on every axis; an empty one is not a unit"
         raise ValueError(msg)
-    if not UNIT_GRAMMAR.match(unit):
-        msg = (
-            f"the unit {unit!r} is not a product of named units with small integer powers "
-            "(for example m, rad/s, kg*m/s**2); a unit holds no numbers or brackets"
-        )
-        raise ValueError(msg)
+    try:
+        require_bounded_spelling(unit)
+    except UnitSpellingError as exc:
+        raise ValueError(str(exc)) from None
     try:
         quantity = units.parse(1, unit)
     except units.UnitRefusedError as exc:

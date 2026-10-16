@@ -63,8 +63,8 @@ MAX_LOADED = 256
 MAX_TITLE = 200
 MAX_INPUT_INTEGER = 2**63 - 1
 NAME_PATTERN = r"^[a-z][a-z0-9_]{0,63}$"
-_UNIT_FACTOR = r"[A-Za-z_]+(?:(?:\*\*|\^)-?[0-9]{1,2})?"
-UNIT_GRAMMAR_PATTERN = rf"^(?:1|{_UNIT_FACTOR})(?:\s*[*/]\s*{_UNIT_FACTOR})*$"
+_UNIT_FACTOR = r"[^\W\d]+(?:(?:\*\*|\^)-?[0-9]{1,2})?"
+UNIT_GRAMMAR_PATTERN = rf"(?:1|{_UNIT_FACTOR})(?:[ ]*[*/][ ]*{_UNIT_FACTOR})*"
 
 #: Where records go, relative to the worktree.
 OUTBOX = os.path.join(".physgate", "series")
@@ -102,7 +102,7 @@ def _unit(value: object, what: str) -> str:
     if not isinstance(value, str) or not value.strip() or len(value) > 64:
         msg = f"{what} has no unit; every axis carries one"
         raise SeriesWriterError(msg)
-    if not _UNIT.match(value):
+    if not _UNIT.fullmatch(value):
         msg = (
             f"{what} has the unit {value!r}, which is not a product of named units with small "
             "integer powers (for example m, rad/s, kg*m/s**2)"
