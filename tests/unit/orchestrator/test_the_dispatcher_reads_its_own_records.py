@@ -37,6 +37,15 @@ def test_the_role_prompt_is_a_template_naming_the_spec_the_module_and_the_repair
     assert "rejected" not in first
 
 
+def test_the_role_prompt_says_a_simulation_is_recorded_by_a_module_script_through_the_writer() -> (
+    None
+):
+    text = role_prompt(REQUEST.model_copy(update={"repair_instruction": None}))
+    sentence = next(line for line in text.split(". ") if "series_writer" in line)
+    assert "a script under modules/power/" in sentence
+    assert ".physgate/lib/series_writer.py" in sentence and ".physgate/series/" in sentence
+
+
 def test_a_role_session_is_never_the_binarys_own_resume() -> None:
     argv = role_argv(
         "/bin/claude",

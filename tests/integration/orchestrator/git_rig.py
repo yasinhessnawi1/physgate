@@ -29,6 +29,7 @@ from physgate.orchestrator.protocols import (
 )
 from physgate.orchestrator.record import PlanEntry
 from physgate.orchestrator.run_config import ModelStrings, RunBounds, RunConfig, harness_state
+from physgate.series.seal import SessionSeries
 
 GITENV = {
     "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
@@ -153,7 +154,14 @@ class ScopeChecker:
     run: RunGit
     module_dirs: dict[str, str]
 
-    def check(self, subtask_id: str, attempt_commit: str, role: str) -> ChangeCheck:
+    def check(
+        self,
+        subtask_id: str,
+        attempt_commit: str,
+        role: str,
+        *,
+        series: SessionSeries | None = None,
+    ) -> ChangeCheck:
         base = sh(self.run.repo, "merge-base", self.run.run_branch, attempt_commit).strip()
         found = write_scope_violations(
             self.run.repo, base, attempt_commit, self.module_dirs[subtask_id]

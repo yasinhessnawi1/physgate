@@ -36,6 +36,7 @@ from physgate.state.protocol import (
 from physgate.state.schema import (
     Node,
     Quantity,
+    SeriesRef,
     quantities_are_valid,
     validate_node,
     validate_node_id,
@@ -71,6 +72,7 @@ __all__ = [
     "NodeChange",
     "NodeNotFoundError",
     "Quantity",
+    "SeriesRef",
     "RevisionNotFoundError",
     "Revision",
     "Store",

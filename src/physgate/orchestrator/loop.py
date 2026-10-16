@@ -113,6 +113,8 @@ from physgate.orchestrator.replay import (
 )
 from physgate.orchestrator.run_config import RunConfig
 from physgate.orchestrator.trajectory import read_sealed
+from physgate.series.reader import attempt_records
+from physgate.series.seal import AttemptRecord, AttemptSeries, SeriesCheck
 from physgate.state.exceptions import DesignStateError, StoreStaleError
 from physgate.state.store import payload_digest
 
@@ -547,6 +549,7 @@ class Loop:
                 decisions_bytes=self._decisions_bytes(),
                 policy_limits_sha256=report.policy_limits_sha256,
                 issued_spec_sha256=report.issued_spec_sha256,
+                series=report.series,
             )
         )
         if report.trajectory_tampered is not None:
@@ -734,7 +737,7 @@ class Loop:
             self._reject(subtask_id, attempt, Finding(source="reading", text=UNREAD))
             return False
         self._stage(subtask_id, attempt, "implement")
-        check = self._changes.check(subtask_id, session.attempt_commit, role)
+        check = self._changes.check(subtask_id, session.attempt_commit, role, series=session.series)
         self._emit(
             ProposalsChecked(
                 **self._env(),
@@ -763,6 +766,7 @@ class Loop:
             base_commit=self._merger.review_base(session.attempt_commit),
             issued_spec=self._issued_spec(sub.plan.spec_path, session),
             earlier_sessions=self._earlier_sessions(subtask_id, attempt),
+            series=self._attempt_series(subtask_id, attempt, check.series_checks),
         )
         self._stage(subtask_id, attempt, "gate")
         mode = self.config.gate_mode
@@ -1055,6 +1059,26 @@ class Loop:
                 )
             )
         return tuple(found)
+
+    def _attempt_series(
+        self, subtask_id: str, attempt: int, checks: tuple[SeriesCheck, ...]
+    ) -> AttemptSeries | None:
+        """The records the attempt's sessions sealed and its quantities' checks, if any.
+
+        Read from the attempt's own session-end lines, a later session's record superseding
+        an earlier one's of the same id, as the change check read them.
+        """
+        ended = self.state.subtasks[subtask_id].attempts[-1].ended
+        entries = attempt_records(ended, subtask_id, attempt)
+        if not entries and not checks:
+            return None
+        return AttemptSeries(
+            run_dir=str(self.run_dir),
+            subtask_id=subtask_id,
+            attempt=attempt,
+            records=tuple(AttemptRecord(session_id=e.session_id, record=e.record) for e in entries),
+            checks=checks,
+        )
 
     def _trajectories_hold(self, subtask_id: str, sessions: list[SessionEnded]) -> bool:
         """Every sealed trajectory is still what it was; otherwise an incident."""

@@ -106,7 +106,7 @@ class EndPart(_Frozen):
 class ChangesPart(_Frozen):
     """From the change check (``ProposalsChecked``): the changed-node summary."""
 
-    refused_by: Literal["proposal", "write_scope"] | None
+    refused_by: Literal["proposal", "write_scope", "series"] | None
     proposed: tuple[Identifier, ...]
 
 

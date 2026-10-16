@@ -14,12 +14,21 @@ their fields by code, never phrased by a model.
 
 from __future__ import annotations
 
-from typing import Annotated, Literal, Protocol, runtime_checkable
+from typing import Annotated, Any, Literal, Protocol, runtime_checkable
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    StringConstraints,
+    model_serializer,
+    model_validator,
+)
 
 from physgate.orchestrator.common import ModelString, NonEmptyStr
 from physgate.orchestrator.exceptions import GateContractError, ModelSeparationError
+from physgate.series.seal import AttemptSeries
 
 Count = Annotated[int, Field(ge=0)]
 
@@ -140,6 +149,17 @@ class Artefact(_Frozen):
     #: a fresh session in the same worktree. The attempt's trajectory is all of them, then
     #: :attr:`trajectory`.
     earlier_sessions: tuple[SessionTrajectory, ...] = ()
+    #: The simulation records the attempt sealed and how its quantities held to them, when it
+    #: sealed any or named one. Left out of a dump when absent, so an attempt with none is
+    #: recorded exactly as before.
+    series: AttemptSeries | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_absent_series(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if self.series is None:
+            data.pop("series", None)
+        return data
 
     @model_validator(mode="after")
     def _own_nodes_always(self) -> Artefact:
