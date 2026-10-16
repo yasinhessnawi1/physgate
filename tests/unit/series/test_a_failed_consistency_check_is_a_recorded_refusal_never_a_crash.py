@@ -190,3 +190,20 @@ def test_as_many_quantities_as_the_bound_are_all_checked(run_dir: Path) -> None:
     quantities = [(f"q{n}", 1.14, "rad", "phase_margin") for n in range(MAX_SERIES_CHECKS)]
     results = check_proposals([_proposal(*quantities)], [entry], run_dir)
     assert {r.outcome for r in results} == {"agrees"}
+
+
+@pytest.mark.parametrize(
+    ("quantity", "says"),
+    [
+        (("pm", 1e308, "krad", "phase_margin"), "too large"),
+        (("crossover", 1e308, "Hz", "gain_crossover_frequency"), "not a finite number"),
+    ],
+    ids=["through_the_registry", "through_two_pi"],
+)
+def test_a_declared_value_that_converts_past_the_largest_float_is_refused(
+    run_dir: Path, quantity: tuple[str, float, str, str], says: str
+) -> None:
+    entry = _sealed(run_dir, *PLAIN)
+    result = _one(run_dir, entry, quantity)
+    assert result.outcome == "unreadable"
+    assert result.reason is not None and says in result.reason

@@ -51,13 +51,22 @@ def _in_unit(value: float | int, unit: str, target: str) -> float:
     """``value`` in ``unit``, converted to ``target``; refused across kinds.
 
     Raises:
-        _UnitsDifferError: the unit is not spelt with a bounded parse, does not parse, or is
-            of another dimension or another power of the radian than ``target``.
+        _UnitsDifferError: the unit is not spelt with a bounded parse, does not parse, is of
+            another dimension or another power of the radian than ``target``, or the value
+            converted is not a finite number.
     """
     try:
         require_bounded_spelling(unit)
     except UnitSpellingError as exc:
         raise _UnitsDifferError(str(exc)) from None
+    converted = _converted(value, unit, target)
+    if not math.isfinite(converted):
+        msg = f"{value} {unit} is not a finite number in {target}"
+        raise _UnitsDifferError(msg)
+    return converted
+
+
+def _converted(value: float | int, unit: str, target: str) -> float:
     if unit == target:
         return float(value)
     if (unit, target) == ("Hz", "rad/s"):
@@ -73,9 +82,6 @@ def _in_unit(value: float | int, unit: str, target: str) -> float:
         raise _UnitsDifferError(str(exc) or type(exc).__name__) from None
     if converted is None:
         msg = f"{unit} is not the same kind of unit as {target}"
-        raise _UnitsDifferError(msg)
-    if not math.isfinite(converted):
-        msg = f"{value} {unit} is not a finite number in {target}"
         raise _UnitsDifferError(msg)
     return converted
 
