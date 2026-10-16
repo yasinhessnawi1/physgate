@@ -64,6 +64,8 @@ ALLOWED_MODULES = {
     # runs git to check commits, the run configuration measures a checkout); the server
     # calls neither of those functions, and inside a request the guard refuses a spawn.
     "physgate.evaluation.observe.cost",
+    # Each call's result, read from its stream through the server's allowlist; no process.
+    "physgate.evaluation.observe.calls",
     "physgate.evaluation.observe.exceptions",
     "physgate.evaluation.observe.manifest",
     "physgate.gate.exceptions",

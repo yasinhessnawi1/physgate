@@ -147,6 +147,9 @@ class FakeSession:
     content: dict[int, str] = field(default_factory=dict)
     #: The calls whose proposal writes a bare number.
     bare: set[int] = field(default_factory=set)
+    #: The result event each session's stream ends in, from its id and usage; by default a
+    #: bare result that records no usage. The stream is sealed as written, as a real end is.
+    result: Callable[[str, Usage], dict[str, Any]] | None = None
     calls: int = 0
 
     def environment(self) -> None:
@@ -166,17 +169,22 @@ class FakeSession:
         proposal.parent.mkdir(parents=True, exist_ok=True)
         proposal.write_text(json.dumps(node(node_id, bare=self.calls in self.bare)))
         sid = f"fake-{uuid.uuid4().hex[:12]}"
-        stream = self.layout.run_dir / "sessions" / sid / "stdout.jsonl"
-        stream.parent.mkdir(parents=True, exist_ok=True)
-        stream.write_text(json.dumps({"type": "result", "session_id": sid}) + "\n")
-        commit = commit_attempt(
-            worktree, request.subtask_id, request.attempt, sid, repo=self.layout.repo
-        )
         usage = Usage(
             input_tokens=10 * self.calls,
             output_tokens=3,
             cache_read_input_tokens=0,
             cache_creation_input_tokens=5,
+        )
+        stream = self.layout.run_dir / "sessions" / sid / "stdout.jsonl"
+        stream.parent.mkdir(parents=True, exist_ok=True)
+        ended = (
+            {"type": "result", "session_id": sid}
+            if self.result is None
+            else self.result(sid, usage)
+        )
+        stream.write_text(json.dumps(ended) + "\n")
+        commit = commit_attempt(
+            worktree, request.subtask_id, request.attempt, sid, repo=self.layout.repo
         )
         return SessionReport(
             session_id=sid,
@@ -334,6 +342,7 @@ def drive(
     reviewer_ids: str = "r",
     resume: bool = False,
     clock: Callable[[], datetime] | None = None,
+    session_result: Callable[[str, Usage], dict[str, Any]] | None = None,
 ) -> str:
     """Drive a started run with the real loop and ports; return the step it ended on."""
     run_dir = root / cfg.run_id
@@ -350,7 +359,9 @@ def drive(
         reviewers={
             role: Reviewer(model=m, ids=reviewer_ids) for role, m in cfg.models.reviewers.items()
         },
-        dispatcher=FakeSession(run, content=session_content or {}, bare=bare or set()),
+        dispatcher=FakeSession(
+            run, content=session_content or {}, bare=bare or set(), result=session_result
+        ),
         changes=GitChangeChecker(run, run_dir / "store", modules),
         merger=GitMerger(run, removal_timeout_s=60.0),
         graph=keeper,

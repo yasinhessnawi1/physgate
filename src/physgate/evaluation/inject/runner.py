@@ -11,19 +11,23 @@ reviewer finds another artefact, or an artefact's twin, beside its own. On
 request the clean twins are reviewed too, in the same phase, each under an id of
 its own, and their reviews go into the controls log.
 
-The gate then judges each injected artefact over a fresh copy of it (a reviewer
-that wrote to its worktree changes nothing the gate reads) in one call at all
+The gate then judges each injected artefact over a fresh copy of it, made in the
+run directory and never under the review root (a reviewer that wrote to its
+worktree, or anywhere under that root, changes nothing the gate reads) in one call at all
 three scopes, in ``observe``, with the patch as the one change set above the
 base. It also judges each clean patch, as a control that the artefact was
 otherwise valid; the controls have a log of their own, so the run's log counts
 the injected artefacts alone.
 
 The run's log is an ordinary run-event log: a start line, one planned subtask
-per artefact, then the review lines, then the gate lines. So ``physgate
-gate-events`` and ``physgate catches`` read it like any run, and the stamp on
-each gate event is the review that came before it on the same artefact. The
-loop's replay would refuse it (a review before a gate), and it is never
-resumed: a killed run is started again into new directories.
+per artefact, then the review lines, then the gate lines. So the gate-event
+derivation reads it like any run's, and the stamp on each gate event is the
+review that came before it on the same artefact. ``physgate catches`` reads the
+run directory and its ``controls`` directory, stamped with the digest of
+``instrument.json`` that the first line carries; ``physgate gate-events`` reads
+a driven run's ``run.json`` and does not read this directory. The loop's replay
+would refuse it (a review before a gate), and it is never resumed: a killed run
+is started again into new directories.
 
 A review that is not a verdict never stops the run and is never a pass or a fail.
 An infrastructure failure is retried once; after that, the review is recorded in
@@ -108,6 +112,8 @@ EVENTS_NAME = "events.jsonl"
 RESULTS_NAME = "results.jsonl"
 CONFIG_NAME = "instrument.json"
 CONTROLS_DIRNAME = "controls"
+#: Where, in the run directory, the gate's fresh copies are made: outside the review root.
+COPIES_DIRNAME = "copies"
 ReviewId = Annotated[str, StringConstraints(pattern=r"^r[0-9a-f]{12}$")]
 Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 
@@ -427,8 +433,10 @@ def run_instrument(
     """Review every artefact of ``corpus`` blind, then gate each, and write the results.
 
     Writes ``instrument.json``, ``events.jsonl``, ``controls/events.jsonl`` and
-    ``results.jsonl`` into ``run_dir``; the materialised worktrees go under
-    ``scratch``. Returns the rows written.
+    ``results.jsonl`` into ``run_dir``. The worktrees the reviewers read are made
+    under ``scratch``, the review root, and each is removed once judged; the fresh
+    copies the gate judges are made under ``run_dir/copies``, outside the review
+    root, after every review has ended. Returns the rows written.
 
     With ``review_clean_twins``, each clean twin is also reviewed, in the same blind
     phase and under its own id, interleaved with the injected artefacts by id, and
@@ -492,15 +500,19 @@ def run_instrument(
                 artefact,
             )
             reviews[subtask] = _reviewed(into, review, subtask)
+        # The gate's copies are made in the run directory, never under the review root: a
+        # reviewer session works under that root, and one still running, or anything a
+        # reviewer wrote there, must find nothing the gate will read.
+        copies = run_dir / COPIES_DIRNAME
         gated: dict[str, GateRan] = {}
         for rid, artefact in order:
-            made = materialise(corpus.base, artefact.injected, scratch / "gate" / rid)
+            made = materialise(corpus.base, artefact.injected, copies / "gate" / rid)
             gated[rid] = log.append(
                 GateRan(**log.envelope(), subtask_id=rid, attempt=1, result=_gate(gate, made, rid))
             )
         controlled: dict[str, GateResult] = {}
         for cid, artefact in twins:
-            made = materialise(corpus.base, artefact.clean, scratch / "control" / cid)
+            made = materialise(corpus.base, artefact.clean, copies / "control" / cid)
             controlled[cid] = _gate(gate, made, cid)
             controls.append(
                 GateRan(**controls.envelope(), subtask_id=cid, attempt=1, result=controlled[cid])

@@ -19,6 +19,23 @@ were billed at unless the account has terms the sheet does not know.
 A token is priced at the model that spent it: the decomposition model, the model of
 the role a session worked for, or the model a reviewer reported. A model the sheet
 does not price is refused, never priced at zero.
+
+**A cache write is priced at the rate of the cache it went to.** The five-minute and
+the one-hour cache are billed at different write rates, and the run's account does
+not say which a write went to. The first sheet priced every write at the five-minute
+rate, on the premise that the binary sets no time to live; on the subscription it
+writes one-hour entries, so every such line was low. A sheet that prices per call
+(``cache_write_ttl: per_call``) carries both rates, and each call's writes are split
+by what its own result event recorded (``calls.read_call``). A call whose split was
+not read is priced at the five-minute rate and named, and the line is marked a
+**lower bound** (``lower_bound``) wherever a call's cache lifetime was not read or its
+result was not reached, or its stream is not the one sealed when its session ended
+(named in ``seal_broken``, and read not at all). A result not reached is a review's under
+a review root the reader did not name, which the operator UI's server never can.
+
+**Every call is held to the binary's own figure.** Where a call's result reports
+``total_cost_usd``, the line keeps it beside the call's price, and the line's
+reconciliation names every call whose two figures disagree, never averaging them away.
 """
 
 from __future__ import annotations
@@ -26,6 +43,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from collections.abc import Mapping, Sequence
 from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Literal
@@ -39,6 +57,7 @@ from pydantic import (
     model_validator,
 )
 
+from physgate.evaluation.observe.calls import CacheWrites, RecordedCall, run_calls, stream_seals
 from physgate.evaluation.observe.exceptions import ManifestError, PriceSheetError, TrendError
 from physgate.evaluation.observe.manifest import Sha256, read_manifest, read_run_events
 from physgate.evaluation.observe.ratio import RATIO_KIND, RatioLine
@@ -68,7 +87,12 @@ PRICES = Path(__file__).resolve().parent / "prices"
 #: whose bytes differ from its digest here does not load.
 KNOWN_SHEETS: dict[str, str] = {
     "2026-09-27": "887b0f8875a04c5a0f482836dbaf6b0d9a1bfe42c2b1887f9bb8c9f3ea2dec54",
+    "2026-10-16": "7e41d3e899ecc07ca6f64cba2aa29aa17a6964ceba8e99c9cd7b3ab2024f1da6",
 }
+
+#: How far a call's price may lie from the binary's own figure and still agree with it: a
+#: billionth of a dollar, the noise of the binary's floating-point sum and never a token.
+RECONCILE_TOLERANCE_USD = Decimal("0.000000001")
 
 IsoDate = Annotated[str, StringConstraints(pattern=r"^\d{4}-\d\d-\d\d$")]
 Url = Annotated[str, StringConstraints(pattern=r"^https://\S+$")]
@@ -84,18 +108,47 @@ class _Frozen(BaseModel):
 
 
 class ModelPrice(_Frozen):
-    """One model's list prices, in USD per million tokens, per token class."""
+    """One model's list prices, in USD per million tokens, per token class.
+
+    ``cache_write`` is the five-minute cache's write rate; ``cache_write_1h`` the
+    one-hour cache's, on a sheet that prices each call's writes by the cache they went
+    to, and absent from one that prices every write at the five-minute rate.
+    """
 
     input: Price
     cache_write: Price
     cache_read: Price
     output: Price
+    cache_write_1h: Price | None = None
 
-    def usd(self, usage: Usage) -> Decimal:
-        """What ``usage`` costs at these prices."""
+    def usd(self, usage: Usage, writes: CacheWrites | None = None) -> Decimal:
+        """What ``usage`` costs at these prices.
+
+        With ``writes``, the call's cache writes by the cache they went to, each part is
+        priced at its own rate; without, every write is priced at the five-minute rate.
+
+        Raises:
+            PriceSheetError: ``writes`` does not add up to the cache writes in ``usage``,
+                or names one-hour writes these prices give no rate for.
+        """
+        written = usage.cache_creation_input_tokens * self.cache_write
+        if writes is not None:
+            if writes.total() != usage.cache_creation_input_tokens:
+                msg = "a call's cache writes by time to live do not add up to what it wrote"
+                raise PriceSheetError(
+                    msg,
+                    split=str(writes.total()),
+                    written=str(usage.cache_creation_input_tokens),
+                )
+            if writes.one_hour and self.cache_write_1h is None:
+                msg = "the sheet gives no one-hour cache-write rate for a call that paid it"
+                raise PriceSheetError(msg)
+            written = writes.five_minute * self.cache_write + writes.one_hour * (
+                self.cache_write_1h or Decimal(0)
+            )
         return (
             usage.input_tokens * self.input
-            + usage.cache_creation_input_tokens * self.cache_write
+            + written
             + usage.cache_read_input_tokens * self.cache_read
             + usage.output_tokens * self.output
         ) / _MTOK
@@ -121,11 +174,26 @@ class PriceSheet(_Frozen):
     #: The digest of the page as it was read, kept with the evidence of the reading.
     page_sha256: Sha256
     note: NonEmptyStr
-    #: Which cache-write rate ``cache_write`` is. The binary marks its breakpoints
-    #: ephemeral with no time to live, which is the five-minute cache.
-    cache_write_ttl: Literal["5m"]
+    #: How cache writes are priced. ``5m``: every write at ``cache_write``, the
+    #: five-minute rate (the first sheet's premise, that the binary marks its breakpoints
+    #: with no time to live; on the subscription it writes one-hour entries). ``per_call``:
+    #: each call's writes at the rate of the cache its own result says they went to, so
+    #: every model carries ``cache_write_1h`` as well.
+    cache_write_ttl: Literal["5m", "per_call"]
     usd_per_mtok: dict[ModelString, ModelPrice]
     exchange: ExchangeRate
+
+    @model_validator(mode="after")
+    def _one_hour_rate_follows_the_ttl(self) -> PriceSheet:
+        per_call = self.cache_write_ttl == "per_call"
+        for model, price in self.usd_per_mtok.items():
+            if (price.cache_write_1h is not None) != per_call:
+                msg = (
+                    f"{model}: a sheet that prices writes per call gives a one-hour rate for "
+                    "every model, and a five-minute sheet gives none"
+                )
+                raise ValueError(msg)
+        return self
 
 
 class DatedSheet(_Frozen):
@@ -177,6 +245,48 @@ class CostRow(_Frozen):
     usd: Decimal
 
 
+class CallCost(_Frozen):
+    """One call at the line's prices, beside what the binary itself said it cost."""
+
+    #: The account's attribution of the call: ``decomposition:``, ``session:`` or
+    #: ``reviewer:`` and its session id.
+    attribution: NonEmptyStr
+    model: ModelString
+    tokens: Usage
+    #: Its cache writes by the cache they went to, from its result; ``None`` where no
+    #: result was read, and then every write is priced at the five-minute rate.
+    cache_writes: CacheWrites | None
+    usd: Decimal
+    #: The binary's own figure for the call (``total_cost_usd``); ``None`` where no
+    #: result reporting one was read.
+    binary_usd: Decimal | None
+    #: Whether the two figures agree within ``RECONCILE_TOLERANCE_USD``; ``None``
+    #: where there is no binary figure to hold the call to.
+    agrees: bool | None
+    #: The call's stream is not the one sealed when its session ended: nothing in it was
+    #: read, and the call is priced as one whose result was not.
+    seal_broken: bool = False
+
+
+class Reconciliation(_Frozen):
+    """The line held to the binary's own figures, call by call. A disagreement is named."""
+
+    #: The binary's figures, summed over every call that has one.
+    binary_usd: Decimal
+    #: The line's figures over the same calls.
+    priced_usd: Decimal
+    #: The calls whose two figures disagree.
+    differs: tuple[NonEmptyStr, ...]
+    #: The calls with no binary figure read: no result, or no review root named for it.
+    unread: tuple[NonEmptyStr, ...]
+    #: The calls with cache writes whose time to live was not read: priced at the
+    #: five-minute rate, so the line is a lower bound for them.
+    ttl_unread: tuple[NonEmptyStr, ...]
+    #: The calls whose stream is not the one sealed when their session ended: none of it
+    #: read, so each is also unread. Absent from lines written before the seal was held.
+    seal_broken: tuple[NonEmptyStr, ...] = ()
+
+
 class CostLine(_Frozen):
     """One run's cost at one sheet's prices: a line of the trend file."""
 
@@ -202,12 +312,30 @@ class CostLine(_Frozen):
     #: A review left over from a killed orchestrator names no subtask, and is under
     #: ``(left over)``. Absent from lines written before reviews were real.
     review_tokens: dict[NonEmptyStr, Usage] = Field(default_factory=dict)
+    #: Every call priced, with the binary's own figure beside it. Empty on a line priced
+    #: without the calls' records, as every line before the per-call sheet was.
+    calls: tuple[CallCost, ...] = ()
+    #: The line held to the binary's figures; ``None`` where the records were not read.
+    reconciliation: Reconciliation | None = None
+    #: The figure is a lower bound: some call's cache writes were priced at the
+    #: five-minute rate because the cache they went to was not read, or some call's
+    #: result was not reached. With a reconciliation, exactly when it names a call
+    #: unread. Absent from lines written before the mark, which read as unmarked.
+    lower_bound: bool = False
 
     @model_validator(mode="after")
     def _basis_follows_auth(self) -> CostLine:
         wanted = "list_price_estimate" if self.auth == "subscription" else "list_price"
         if self.basis != wanted:
             msg = f"a run on {self.auth} is costed as {wanted}"
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _a_lower_bound_says_so(self) -> CostLine:
+        held = self.reconciliation
+        if held is not None and self.lower_bound != bool(held.unread or held.ttl_unread):
+            msg = "a line is a lower bound exactly when it names a call unread"
             raise ValueError(msg)
         return self
 
@@ -269,20 +397,77 @@ def _plus(left: Usage, right: Usage) -> Usage:
     return Usage(**{f: getattr(left, f) + getattr(right, f) for f in Usage.model_fields})
 
 
-def price_run(run_dir: Path, prices: DatedSheet) -> CostLine:
-    """The run's cost at ``prices``: every token the run's account holds, by model.
+def price_run(run_dir: Path, prices: DatedSheet, *, review_roots: Sequence[Path] = ()) -> CostLine:
+    """The run's cost at ``prices``: every token the run's account holds, by model and call.
+
+    Each call's result is read from its stream (the reviews' under ``review_roots``),
+    for the time to live of its cache writes and the binary's own figure.
 
     Raises:
-        ManifestError: the run's records do not make a manifest, or a token's model
-            cannot be told from them.
-        PriceSheetError: a model the run used has no price on the sheet.
+        ManifestError: the run's records do not make a manifest, a token's model cannot
+            be told from them, or a call's result is another session's.
+        PriceSheetError: a model the run used has no price on the sheet, or a call's
+            cache writes by time to live do not add up.
     """
     manifest = read_manifest(run_dir)
-    return price_events(manifest.config, manifest.manifest_id, read_run_events(run_dir), prices)
+    events = read_run_events(run_dir)
+    attributions = TokenAccount.from_events(events).by_attribution()
+    calls = run_calls(run_dir, attributions, review_roots, seals=stream_seals(events))
+    return price_events(manifest.config, manifest.manifest_id, events, prices, calls=calls)
+
+
+def _price(model: str, prices: DatedSheet) -> ModelPrice:
+    price = prices.sheet.usd_per_mtok.get(model)
+    if price is None:
+        msg = "the price sheet has no price for a model the run used"
+        raise PriceSheetError(msg, model=model, date=prices.sheet.date)
+    return price
+
+
+def _call_cost(
+    attribution: str, model: str, usage: Usage, recorded: RecordedCall | None, prices: DatedSheet
+) -> CallCost:
+    """One call at ``prices``: its writes split as its result says, on a per-call sheet."""
+    writes = recorded.cache_writes if recorded is not None else None
+    split = writes if prices.sheet.cache_write_ttl == "per_call" else None
+    usd = _price(model, prices).usd(usage, split)
+    binary = recorded.binary_usd if recorded is not None else None
+    return CallCost(
+        attribution=attribution,
+        model=model,
+        tokens=usage,
+        cache_writes=writes,
+        usd=usd,
+        binary_usd=binary,
+        agrees=None if binary is None else abs(usd - binary) <= RECONCILE_TOLERANCE_USD,
+        seal_broken=recorded is not None and recorded.seal_broken,
+    )
+
+
+def reconcile(calls: Sequence[CallCost]) -> Reconciliation:
+    """``calls`` held to the binary's own figures: what agrees, what differs, what was unread."""
+    held = [c for c in calls if c.binary_usd is not None]
+    return Reconciliation(
+        binary_usd=sum((c.binary_usd or Decimal(0) for c in held), Decimal(0)),
+        priced_usd=sum((c.usd for c in held), Decimal(0)),
+        differs=tuple(c.attribution for c in held if c.agrees is False),
+        unread=tuple(c.attribution for c in calls if c.binary_usd is None),
+        ttl_unread=tuple(
+            c.attribution
+            for c in calls
+            if c.cache_writes is None and c.tokens.cache_creation_input_tokens
+        ),
+        seal_broken=tuple(c.attribution for c in calls if c.seal_broken),
+    )
 
 
 def price_events(
-    config: RunConfig, manifest_id: str, events: list[Event], prices: DatedSheet
+    config: RunConfig,
+    manifest_id: str,
+    events: list[Event],
+    prices: DatedSheet,
+    *,
+    calls: Mapping[str, RecordedCall] | None = None,
 ) -> CostLine:
     """The cost of the tokens in ``events`` at ``prices``, from records already read.
 
@@ -291,27 +476,47 @@ def price_events(
     that step, for a reader that may start no process: the operator UI's server,
     which runs no git.
 
+    ``calls`` is what each call's result recorded (``calls.run_calls``). Given, every
+    call is priced on its own, its writes split by its result on a sheet that prices
+    per call, and held to the binary's own figure; a call it does not hold is priced
+    with every write at the five-minute rate and named as unread. Not given, the line
+    has the form every line before the per-call sheet had, and on a sheet that prices
+    per call every write is priced at the five-minute rate. Either way a line with a
+    write whose cache was not read, or a call whose result was not, is marked
+    ``lower_bound``.
+
     Raises:
         ManifestError: a token's model cannot be told from the records.
-        PriceSheetError: a model the run used has no price on the sheet.
+        PriceSheetError: a model the run used has no price on the sheet, or a call's
+            cache writes by time to live do not add up.
     """
     by_model: dict[str, Usage] = {}
+    usd_by_model: dict[str, Decimal] = {}
     reviews: dict[str, Usage] = {}
+    priced: list[CallCost] = []
     for attribution, usage in TokenAccount.from_events(events).by_attribution().items():
         model = _model_of(attribution, config, events)
         by_model[model] = _plus(by_model.get(model, _ZERO), usage)
+        recorded = None if calls is None else calls.get(attribution)
+        call = _call_cost(attribution, model, usage, recorded, prices)
+        priced.append(call)
+        usd_by_model[model] = usd_by_model.get(model, Decimal(0)) + call.usd
         if attribution.startswith("reviewer:"):
             subtask = _reviewed_subtask(attribution.split(":", 1)[1], events)
             reviews[subtask] = _plus(reviews.get(subtask, _ZERO), usage)
-    rows = []
-    for model, usage in sorted(by_model.items()):
-        price = prices.sheet.usd_per_mtok.get(model)
-        if price is None:
-            msg = "the price sheet has no price for a model the run used"
-            raise PriceSheetError(msg, model=model, date=prices.sheet.date)
-        rows.append(CostRow(model=model, tokens=usage, usd=price.usd(usage)))
+    rows = [
+        CostRow(model=model, tokens=usage, usd=usd_by_model[model])
+        for model, usage in sorted(by_model.items())
+    ]
     usd = sum((r.usd for r in rows), Decimal(0))
     rate = prices.sheet.exchange
+    reconciliation = None if calls is None else reconcile(priced)
+    lower_bound = (
+        bool(reconciliation.unread or reconciliation.ttl_unread)
+        if reconciliation is not None
+        # No call's record was read, so no write's cache was.
+        else any(c.tokens.cache_creation_input_tokens for c in priced)
+    )
     return CostLine(
         manifest_id=manifest_id,
         run_id=config.run_id,
@@ -328,6 +533,9 @@ def price_events(
         nok=usd * rate.usd_to_nok,
         partial=any(isinstance(e, TokensUsed) and e.partial for e in events),
         review_tokens=dict(sorted(reviews.items())),
+        calls=() if calls is None else tuple(priced),
+        reconciliation=reconciliation,
+        lower_bound=lower_bound,
     )
 
 

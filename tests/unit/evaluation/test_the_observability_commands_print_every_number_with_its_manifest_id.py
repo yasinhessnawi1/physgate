@@ -65,9 +65,13 @@ def test_cost_prints_its_line_and_appends_it_to_the_trend(
 ) -> None:
     run = run_of(tmp_path, auth="subscription")
     trend = tmp_path / "trend.jsonl"
-    line = printed(
-        capsys, ["cost", "--run-dir", str(run), "--prices", "2026-09-27", "--append", str(trend)]
-    )
+    # The run's streams record no cache lifetimes and its reviews' are not named: the line
+    # is a lower bound, printed and appended, and the command exits 1 to say so.
+    capsys.readouterr()
+    argv = ["cost", "--run-dir", str(run), "--prices", "2026-09-27", "--append", str(trend)]
+    assert main(argv) == 1
+    line: dict[str, Any] = json.loads(capsys.readouterr().out)
+    assert line["lower_bound"] is True and "lower bound" in line["basis_label"]
     assert line["manifest_id"] == read_manifest(run).manifest_id
     assert line["basis"] == "list_price_estimate" and "not billed" in line["basis_label"]
     assert line["prices_date"] == "2026-09-27" and line["appended_to"] == str(trend)

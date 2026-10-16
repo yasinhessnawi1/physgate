@@ -122,16 +122,47 @@ def test_a_corrupt_ledger_line_is_refused_by_both_and_left_on_disk(
     assert ledger.read_bytes() == before
 
 
-def test_the_api_s_cost_is_the_cli_s_line(world: dict[str, Path]) -> None:
-    printed = _cli("cost", "--run-dir", str(world["root"] / "run-on"), "--prices", "2026-09-27")
-    assert printed.returncode == 0, printed.stderr
+@pytest.mark.parametrize("date", ["2026-09-27", "2026-10-16"])
+def test_the_api_s_cost_is_the_cli_s_line(world: dict[str, Path], date: str) -> None:
+    printed = _cli("cost", "--run-dir", str(world["root"] / "run-on"), "--prices", date)
     expected = json.loads(printed.stdout)
+    # Its reviews' results are under no review root named, by the command or the server: a
+    # lower bound for both, and the command's exit says so.
+    assert expected["lower_bound"] is True
+    assert printed.returncode == 1, printed.stderr
     for added_by_the_command in ("basis_label", "appended_to"):
         expected.pop(added_by_the_command)
-    status, served = _api(world["root"], world["ui"], "/api/runs/0/run-on/cost/2026-09-27")
+    status, served = _api(world["root"], world["ui"], f"/api/runs/0/run-on/cost/{date}")
     assert status == 200
     assert json.loads(served) == expected
     assert expected["rows"], "a cost with no rows proves nothing"
+    # Both read each call's result from the run directory, the same way.
+    assert expected["calls"] and expected["reconciliation"] is not None
+
+
+def test_a_stream_changed_after_its_seal_is_named_by_the_api_as_by_the_cli(
+    world: dict[str, Path], tmp_path: Path
+) -> None:
+    """The cost route holds each stream to its session's seal, as the command does."""
+    root = _copy(world, tmp_path, "run-on")
+    run_dir = root / "run-on"
+    ended = [
+        json.loads(line)
+        for line in (run_dir / "events.jsonl").read_text().splitlines()
+        if '"session_ended"' in line
+    ]
+    session = next(e["session_id"] for e in ended if e.get("trajectory_seal"))
+    stream = run_dir / "sessions" / session / "stdout.jsonl"
+    # A line after the runtime's result changes no figure read from it, only the seal.
+    stream.write_bytes(stream.read_bytes() + b'{"type": "system"}\n')
+    printed = _cli("cost", "--run-dir", str(run_dir), "--prices", "2026-10-16")
+    expected = json.loads(printed.stdout)
+    for added_by_the_command in ("basis_label", "appended_to"):
+        expected.pop(added_by_the_command)
+    status, served = _api(root, world["ui"], "/api/runs/0/run-on/cost/2026-10-16")
+    assert status == 200
+    assert expected["reconciliation"]["seal_broken"] == [f"session:{session}"]
+    assert json.loads(served) == expected
 
 
 def test_an_unrecorded_price_sheet_is_refused(world: dict[str, Path]) -> None:
@@ -223,4 +254,4 @@ def test_the_events_route_serves_every_line_of_the_log(world: dict[str, Path]) -
 
 def test_the_prices_route_lists_the_recorded_sheets(world: dict[str, Path]) -> None:
     with serving(context_over(world["root"], ui_root=world["ui"])) as live:
-        assert live.json("/api/prices") == {"prices": ["2026-09-27"]}
+        assert live.json("/api/prices") == {"prices": ["2026-09-27", "2026-10-16"]}
