@@ -38,6 +38,7 @@ which JSON cannot tell apart.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping
 from typing import Annotated, Any, Literal
 
@@ -79,10 +80,27 @@ Name = Annotated[str, StringConstraints(pattern=NAME_PATTERN)]
 Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 
 
+#: The spellings a unit may take before the registry ever sees it: unit names joined by
+#: ``*`` and ``/``, each with an optional one- or two-digit exponent, or a leading ``1``
+#: (``1/s``). The registry evaluates arithmetic in a unit string exactly, in fractions, so a
+#: twelve-character ``10**10**10*m`` kept one process busy until a 5 s CPU limit killed it
+#: (measured 16.10.2026, pint 0.26.1): a length bound alone does not bound the cost of a
+#: parse. Nothing a record needs is lost: every unit a simulation's axis carries is a
+#: product of named units with small integer powers.
+_UNIT_FACTOR = r"[A-Za-z_]+(?:(?:\*\*|\^)-?[0-9]{1,2})?"
+UNIT_GRAMMAR = re.compile(rf"^(?:1|{_UNIT_FACTOR})(?:\s*[*/]\s*{_UNIT_FACTOR})*$")
+
+
 def _unit(unit: str) -> str:
     """``unit`` if it is one a record may carry; refused otherwise."""
     if not unit.strip():
         msg = "a unit is required on every axis; an empty one is not a unit"
+        raise ValueError(msg)
+    if not UNIT_GRAMMAR.match(unit):
+        msg = (
+            f"the unit {unit!r} is not a product of named units with small integer powers "
+            "(for example m, rad/s, kg*m/s**2); a unit holds no numbers or brackets"
+        )
         raise ValueError(msg)
     try:
         quantity = units.parse(1, unit)
@@ -126,10 +144,23 @@ class Column(_Frozen):
     values: Annotated[tuple[float, ...], Field(min_length=1, max_length=MAX_SAMPLES)]
 
 
+#: The largest integer an input may hold: a 64-bit seed fits, and every such integer is a
+#: finite float. JSON's integers are unbounded, and a 400-digit one would otherwise pass
+#: as a finite input that no float can hold (found by a review, 16.10.2026).
+MAX_INPUT_INTEGER = 2**63 - 1
+
+
+def _bounded(value: float | int) -> float | int:
+    if isinstance(value, int) and abs(value) > MAX_INPUT_INTEGER:
+        msg = f"an integer input is at most {MAX_INPUT_INTEGER} in size"
+        raise ValueError(msg)
+    return value
+
+
 class Input(_Frozen):
     """One input the run took: a value with its unit. A seed is ``dimensionless``."""
 
-    value: float | int
+    value: Annotated[float | int, AfterValidator(_bounded)]
     unit: Unit
 
 
@@ -207,6 +238,56 @@ def _refuse_repeated_keys(pairs: list[tuple[str, Any]]) -> Mapping[str, Any]:
     return found
 
 
+#: How deep a record nests: record, traces, a trace, its values, a value is five levels.
+MAX_DEPTH = 8
+
+
+def _as_validated(parsed: Mapping[str, Any]) -> dict[str, Any]:
+    """The parsed record with its arrays as tuples, held to the format's depth.
+
+    The walk that checks the depth is iterative, so a nesting the JSON parser accepted
+    cannot exhaust the stack here; the conversion after it recurses at most
+    :data:`MAX_DEPTH` levels. A string that cannot be written back as UTF-8 (a lone
+    surrogate, which the parser accepts from an escape) is refused, so every record read
+    can be served as it was read.
+
+    Raises:
+        RecordRefusedError: the nesting is deeper than the format's, or a string is not
+            encodable.
+    """
+    stack: list[tuple[Any, int]] = [(parsed, 1)]
+    while stack:
+        node, depth = stack.pop()
+        if depth > MAX_DEPTH:
+            msg = f"a record nests at most {MAX_DEPTH} levels deep"
+            raise RecordRefusedError(msg)
+        if isinstance(node, Mapping):
+            for name, value in node.items():
+                _encodable(name)
+                stack.append((value, depth + 1))
+        elif isinstance(node, list):
+            stack.extend((value, depth + 1) for value in node)
+        elif isinstance(node, str):
+            _encodable(node)
+    return {name: _tuples(value) for name, value in parsed.items()}
+
+
+def _encodable(text: str) -> None:
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        msg = "a record's text holds a character that is not valid UTF-8 (a lone surrogate)"
+        raise RecordRefusedError(msg) from None
+
+
+def _tuples(node: Any) -> Any:
+    if isinstance(node, Mapping):
+        return {name: _tuples(value) for name, value in node.items()}
+    if isinstance(node, list):
+        return tuple(_tuples(value) for value in node)
+    return node
+
+
 def _first_problem(exc: ValidationError) -> str:
     first = exc.errors()[0]
     where = ".".join(str(part) for part in first["loc"]) or "the record"
@@ -234,8 +315,12 @@ def parse_record(data: bytes) -> Record:
     if not isinstance(parsed, Mapping):
         msg = "a record is one JSON object"
         raise RecordRefusedError(msg)
+    # One parse, and the schema validates exactly what it produced. Validating the bytes a
+    # second time, with another JSON parser, would let the two disagree: the record's
+    # checks would run on one reading and the record returned would be the other.
+    normalised = _as_validated(parsed)
     try:
-        return Record.model_validate_json(data)
+        return Record.model_validate(normalised)
     except ValidationError as exc:
         msg = f"a record does not validate: {_first_problem(exc)}"
         raise RecordRefusedError(msg, record=str(parsed.get("id"))[:64]) from None
