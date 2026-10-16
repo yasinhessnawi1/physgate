@@ -171,9 +171,11 @@ elif MODE in ("halted", "forget", "link"):
             json.dump(base, open(record, "w"))
             write_marker()
         elif MODE == "forget":
-            # The sentinel's own record is gone: its check takes a new one, marker included.
+            # The sentinel's own record is gone: its check takes a new one, the change included.
+            # The change keeps the file's size and mode: only its bytes differ.
             os.unlink(record)
-            write_marker()
+            with open(os.path.join(ROOT, "kept.txt"), "w") as out:
+                out.write("KEPT\n")
         else:
             os.symlink(os.path.join(FLAGS, "victim.txt"), os.path.join(sdir, "ended.json"))
         open(os.path.join(FLAGS, "written"), "w").close()
@@ -627,7 +629,8 @@ def test_a_sentinel_record_rewritten_after_session_end_cannot_pass_a_changed_roo
     assert session.at_first_git is None
     (record,) = session.run.run_dir.glob("sessions/*/after_stop.json")
     settled = json.loads(record.read_text())
-    assert settled["protected_changed"] == [str(session.root / MARKER)]
+    changed = {"halted": MARKER, "forget": "kept.txt"}[mode]
+    assert settled["protected_changed"] == [str(session.root / changed)]
 
 
 def test_an_end_record_is_never_written_through_a_link_the_session_planted(
