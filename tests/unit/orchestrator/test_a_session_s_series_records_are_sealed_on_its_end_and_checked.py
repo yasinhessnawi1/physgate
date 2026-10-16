@@ -281,3 +281,27 @@ def test_the_script_binding_holds_without_the_write_scope_a_link_is_not_a_script
         run.repo, commit, SessionSeries(records=(claimed,)), pinned
     )
     assert refusal is not None and refusal[1] == "step"
+
+
+def test_the_script_binding_names_exactly_one_path_never_a_directory_s_first_file(
+    tmp_path: Path,
+) -> None:
+    # Given a directory with a trailing slash, git lists what is inside it, so the first file
+    # there could carry the blob a record claims. The collector never seals such a path; the
+    # binding holds against one it did not produce, such as a damaged or forged end line.
+    run, worktree, _ = _attempt(tmp_path)
+    commit = commit_attempt(worktree, "control-1", 1, "session-1", repo=run.repo)
+    base = (worktree / "modules" / "control" / "base.py").read_bytes()
+    claimed = SealedRecord(
+        record_id="step",
+        sha256=DIGEST,
+        length=10,
+        script="modules/control/",
+        script_sha256=DIGEST,
+        script_blob=blob_id(base, "sha1"),
+    )
+    pinned = verified_git_dir(run.repo, linked=False)
+    refusal = apply_module._series_refusal(
+        run.repo, commit, SessionSeries(records=(claimed,)), pinned
+    )
+    assert refusal is not None and refusal[1] == "step"
