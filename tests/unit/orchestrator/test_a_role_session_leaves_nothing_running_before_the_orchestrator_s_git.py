@@ -40,7 +40,7 @@ from orch_helpers import make_config
 
 from physgate.hooks.registry import REGISTRY
 from physgate.hooks.settings import InstallRequest, install
-from physgate.orchestrator import dispatch
+from physgate.orchestrator import dispatch, processes
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.dispatch import ClaudeDispatcher, Installed
 from physgate.orchestrator.exceptions import InvocationError
@@ -647,6 +647,97 @@ def test_an_end_record_is_never_written_through_a_link_the_session_planted(
     ended = session.run.run_dir / "sessions" / report.session_id / "ended.json"
     assert not ended.is_symlink()
     assert json.loads(ended.read_text())["exit"] == 0
+
+
+class FailingPs:
+    """Stands in for a module's ``subprocess``: ``ps`` fails once ``when`` holds, all else runs."""
+
+    SubprocessError = subprocess.SubprocessError
+    TimeoutExpired = subprocess.TimeoutExpired
+    CompletedProcess = subprocess.CompletedProcess
+
+    def __init__(self, how: str, when: Callable[[], bool] = lambda: True) -> None:
+        self.how, self.when = how, when
+
+    def run(self, argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:  # noqa: ANN401
+        if argv[0] != "ps" or not self.when():
+            return subprocess.run(argv, **kwargs)  # noqa: S603, PLW1510
+        if self.how == "raises":
+            raise OSError(1, "ps could not be started")
+        code = 1 if self.how == "fails" else 0
+        return subprocess.CompletedProcess(argv, code, stdout="", stderr="")
+
+
+@pytest.mark.parametrize("how", ["raises", "fails", "empty"])
+def test_a_process_table_that_cannot_be_read_never_reads_as_nothing_running(
+    monkeypatch: pytest.MonkeyPatch, how: str
+) -> None:
+    """An enumerator that failed is not an empty table: it raises, or names itself unread."""
+    with monkeypatch.context() as m:
+        m.setattr(processes, "subprocess", FailingPs(how))
+        with pytest.raises(processes.ProcessTableError):
+            processes.table()
+    with monkeypatch.context() as m:
+        m.setattr(dispatch, "subprocess", FailingPs(how))
+        assert dispatch.process_rows() is None
+
+
+def test_a_tree_that_cannot_be_enumerated_while_the_session_runs_refuses_the_attempt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    """The stop's polls cannot list the tree once the session has started its child.
+
+    The grandchild that leaves the group is then never seen, so nothing is confirmed.
+    """
+    session = Session(tmp_path, "setsid", pause=1.0, wall_clock_s=60.0)
+    dispatcher = session.dispatcher(monkeypatch)
+    started = session.flags / "pids"
+    monkeypatch.setattr(processes, "subprocess", FailingPs("fails", started.exists))
+    try:
+        settled = _refused_before_git(session, dispatcher)
+    finally:
+        monkeypatch.undo()
+        leftovers += session.pids()
+    assert "ProcessTableError" in settled["stop_unconfirmed"]
+
+
+def test_a_put_back_root_that_cannot_be_read_starts_no_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    """A directory in a root that cannot be listed starts no session.
+
+    What it holds cannot be confirmed, before the session or after it.
+    """
+    session = Session(tmp_path, "sleeper", pause=0.0, wall_clock_s=60.0)
+    locked = session.root / "locked"
+    locked.mkdir()
+    locked.chmod(0o300)  # writable and enterable, not listable
+    dispatcher = session.dispatcher(monkeypatch)
+    try:
+        with pytest.raises(InvocationError, match="could not be read"):
+            dispatcher.run(session.request())
+    finally:
+        locked.chmod(0o700)
+        leftovers += session.pids()
+    assert session.at_first_git is None
+    assert session.pids() == []
+
+
+def test_a_root_that_cannot_be_read_after_the_stop_refuses_the_attempt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    session = Session(tmp_path, "sleeper", pause=1.0, wall_clock_s=60.0)
+    dispatcher = session.dispatcher(monkeypatch)
+
+    def unreadable(_record: Any) -> list[str]:  # noqa: ANN401
+        raise PermissionError(13, "Permission denied", str(session.root))
+
+    monkeypatch.setattr(dispatch, "changed_since", unreadable)
+    try:
+        settled = _refused_before_git(session, dispatcher)
+    finally:
+        leftovers += session.pids()
+    assert "PermissionError" in settled["protected_unread"]
 
 
 @pytest.mark.parametrize(

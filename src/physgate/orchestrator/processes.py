@@ -42,15 +42,34 @@ class Proc:
     started: str
 
 
+#: How long ``ps`` has to list the processes.
+_PS_TIMEOUT_S = 30.0
+
+
+class ProcessTableError(OSError):
+    """The process table could not be read: an empty answer would be taken for "nothing runs"."""
+
+
 def table() -> dict[int, Proc]:
-    """Every running process on the machine, by pid; zombies are left out."""
-    out = subprocess.run(
-        ["ps", "-axo", "pid=,ppid=,stat=,lstart="],
-        capture_output=True,
-        text=True,
-        check=False,
-        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
-    ).stdout
+    """Every running process on the machine, by pid; zombies are left out.
+
+    Raises:
+        ProcessTableError: ``ps`` could not be run, failed, or listed no process of this one's;
+            what it printed is not a listing to conclude from.
+    """
+    try:
+        done = subprocess.run(
+            ["ps", "-axo", "pid=,ppid=,stat=,lstart="],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+            timeout=_PS_TIMEOUT_S,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        msg = f"ps could not be run: {exc!r}"
+        raise ProcessTableError(msg) from exc
+    out = done.stdout
     procs: dict[int, Proc] = {}
     for line in out.splitlines():
         parts = line.split(None, 3)
@@ -60,6 +79,9 @@ def table() -> dict[int, Proc]:
         if parts[2].startswith("Z"):
             continue
         procs[int(parts[0])] = Proc(int(parts[0]), int(parts[1]), " ".join(parts[3].split()))
+    if done.returncode != 0 or os.getpid() not in procs:
+        msg = f"ps exited {done.returncode} and listed {len(procs)} processes, not this one"
+        raise ProcessTableError(msg)
     return procs
 
 

@@ -27,6 +27,7 @@ import json
 import os
 import re
 import shlex
+import stat
 import subprocess
 import sysconfig
 import time
@@ -42,8 +43,7 @@ from physgate.hooks.config import SessionConfig
 from physgate.hooks.reading import outstanding
 from physgate.hooks.sentinel import _frozen_experiment_paths
 from physgate.hooks.settings import CONFIG_NAME, SETTINGS_NAME
-from physgate.hooks.snapshot import Signature, file_digest
-from physgate.hooks.snapshot import signatures as take_signatures
+from physgate.hooks.snapshot import Signature, file_digest, signature
 from physgate.hooks.state import LOG_NAME
 from physgate.knowledge import loader
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, canaries
@@ -64,7 +64,13 @@ from physgate.orchestrator.invocation import isolated_env, role_argv
 from physgate.orchestrator.managed import drift, policy_limits_digest
 from physgate.orchestrator.merge import RunGit, commit_attempt
 from physgate.orchestrator.ports import Leftover, SessionKind, SessionReport, SessionRequest
-from physgate.orchestrator.processes import Proc, is_session, started_at, stop_tree
+from physgate.orchestrator.processes import (
+    Proc,
+    ProcessTableError,
+    is_session,
+    started_at,
+    stop_tree,
+)
 from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.queue import DECISIONS_NAME
 from physgate.orchestrator.role_python import PROBE, require_same, session_bin
@@ -395,13 +401,17 @@ def process_rows() -> list[tuple[int, int, str, str]] | None:
 
     A table that does not list this very process was not read, whatever ``ps`` returned.
     """
-    done = subprocess.run(
-        ["ps", "-axo", "pid=,pgid=,stat=,lstart="],
-        capture_output=True,
-        text=True,
-        check=False,
-        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
-    )
+    try:
+        done = subprocess.run(
+            ["ps", "-axo", "pid=,pgid=,stat=,lstart="],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+            timeout=30.0,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
     rows = []
     for line in done.stdout.splitlines():
         parts = line.split(None, 3)
@@ -533,7 +543,11 @@ class RootsRecord:
 
 
 def record_roots(config_path: Path) -> RootsRecord:
-    """Record every root the session's sentinel puts back, as its configuration names them."""
+    """Record every root the session's sentinel puts back, as its configuration names them.
+
+    Raises:
+        OSError: a path under a root could not be read; no session may start on such a record.
+    """
     config = SessionConfig.model_validate_json(config_path.read_bytes())
     reverted = [r for r in config.protected_roots if r.watch == "revert"]
     frozen = _frozen_experiment_paths(config)
@@ -545,9 +559,40 @@ def record_roots(config_path: Path) -> RootsRecord:
             file_digest(path) if sig[0] == "file" else None,
             os.readlink(path) if sig[0] == "link" else None,
         )
-        for path, sig in take_signatures(list(roots), list(exclude)).items()
+        for path, sig in strict_signatures(roots, exclude).items()
     }
     return RootsRecord(roots, exclude, entries)
+
+
+def strict_signatures(roots: tuple[str, ...], exclude: tuple[str, ...]) -> dict[str, Signature]:
+    """The signature of every path under ``roots`` but ``exclude``, every directory listed.
+
+    Unlike the sentinel's walk, a directory that cannot be listed, or an entry that cannot be
+    read, raises: what could not be read is never taken for what is not there. A root that does
+    not exist is recorded as absent, and compared as such.
+
+    Raises:
+        OSError: a path under a root could not be read.
+    """
+
+    def excluded(path: str) -> bool:
+        return any(path == e or path.startswith(e.rstrip("/") + "/") for e in exclude)
+
+    found: dict[str, Signature] = {}
+    pending = sorted(roots, reverse=True)
+    while pending:
+        path = pending.pop()
+        if excluded(path):
+            continue
+        try:
+            st = os.lstat(path)
+        except FileNotFoundError:
+            continue
+        found[path] = signature(st)
+        if stat.S_ISDIR(st.st_mode):
+            with os.scandir(path) as listing:
+                pending.extend(sorted((e.path for e in listing), reverse=True))
+    return found
 
 
 def changed_since(record: RootsRecord) -> list[str]:
@@ -557,7 +602,7 @@ def changed_since(record: RootsRecord) -> list[str]:
     move when the sentinel moves something out of it, so a directory is held to its mode and
     its entries, not its times.
     """
-    now = take_signatures(list(record.roots), list(record.exclude))
+    now = strict_signatures(record.roots, record.exclude)
     changed = set(now) ^ set(record.entries)
     for path, sig in now.items():
         if path not in record.entries or sig == record.entries[path][0]:
@@ -815,7 +860,11 @@ class ClaudeDispatcher:
         stdout = sdir / "stdout.jsonl"
         # The orchestrator's own record of the put-back roots, taken before the session can
         # write anything: the check after the stop is held to it, not to the sentinel's alone.
-        roots = record_roots(Path(installed.config))
+        try:
+            roots = record_roots(Path(installed.config))
+        except OSError as exc:
+            msg = "a put-back root could not be read, so no session starts on it"
+            raise InvocationError(msg, error=repr(exc)) from exc
         with stdout.open("wb") as out, (sdir / "stderr.txt").open("wb") as err:
             process = subprocess.Popen(
                 argv,
@@ -826,9 +875,16 @@ class ClaudeDispatcher:
                 stderr=err,
                 start_new_session=True,
             )
+            try:
+                spawned = started_at(process.pid)
+            except ProcessTableError:
+                # Nothing of its own can be told apart yet: the session alone is stopped.
+                process.kill()
+                process.wait()
+                raise
             record = {
                 "pid": process.pid,
-                "started": started_at(process.pid),
+                "started": spawned,
                 "spawned_at": time.time(),
                 "session_id": session_id,
                 # Exactly what was spawned, so it can be held against what the hook
@@ -848,7 +904,12 @@ class ClaudeDispatcher:
                     request.bounds.session_wall_clock_s,
                 )
             except OSError as exc:
-                unconfirmed: str | None = f"the stop could not signal: {exc!r}"
+                unconfirmed: str | None = f"the stop could not be completed: {exc!r}"
+                # The session itself is this process's own child, unreaped, so its pid is still
+                # its own: it alone is stopped here; what it started waits for the resume.
+                with contextlib.suppress(OSError):
+                    process.kill()
+                    process.wait()
             stop_done = time.time()
         if ended is not None:
             # The table is read again: nothing the stop concluded is taken as its proof.
@@ -865,13 +926,23 @@ class ClaudeDispatcher:
         after_stop = check_after_stop(end_check, session_id, worktree, env, sdir / "state")
         # Read afresh after the check, against the record taken before the spawn: a check
         # skipped, or satisfied by a sentinel record the session's process rewrote, shows here.
-        moved = changed_since(roots)
-        if ended is None or unconfirmed is not None or after_stop["refused"] is not None or moved:
+        try:
+            moved, unread = changed_since(roots), None
+        except OSError as exc:
+            moved, unread = [], f"a put-back root could not be read: {exc!r}"
+        if (
+            ended is None
+            or unconfirmed is not None
+            or after_stop["refused"] is not None
+            or moved
+            or unread is not None
+        ):
             settled = {
                 "left_running": list(ended.left_running) if ended is not None else [],
                 "stop_unconfirmed": unconfirmed,
                 "sentinel_after_stop": after_stop,
                 "protected_changed": moved,
+                "protected_unread": unread,
             }
             # Beside the end record, not in it: a resume still finds the session unended,
             # stops and checks it again, and reads what it spent.
@@ -886,6 +957,7 @@ class ClaudeDispatcher:
                 stop=unconfirmed or "",
                 check=str(after_stop["refused"] or ""),
                 changed=", ".join(moved),
+                unread=unread or "",
             )
         exit_code: int | None = ended.exit_code
         timed_out = ended.timed_out
