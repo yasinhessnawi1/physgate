@@ -172,6 +172,13 @@ def review_prompt(
         else ""
     )
     reading = "".join(f"- {path}\n" for path in packet.required_reading)
+    listing = (
+        f"- {_parts(read, packet.files_parts)}: the list of every file here, by full path. "
+        "A directory cannot be read, and a name it does not list does not exist: open only "
+        "the paths it lists.\n"
+        if packet.files_parts
+        else ""
+    )
     if packet.indicators:
         shown = "".join(
             f"- {hit.kind}, evidence {hit.evidence}: {hit.what}\n" for hit in packet.indicators
@@ -186,6 +193,7 @@ def review_prompt(
     return (
         f"You review one attempt at a subtask, made by a session in the {role} role. "
         f"Everything you may read is under {read}/:\n\n"
+        f"{listing}"
         f"- {_parts(read, packet.transcript_parts)}: the attempt's full trajectory, in order, "
         "every session it ran, in numbered parts read in their order.\n"
         f"{issued}"
