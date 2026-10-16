@@ -58,7 +58,10 @@ def _record(record_id: str, **overrides: Any) -> dict[str, Any]:  # noqa: ANN401
             {"name": "tilt", "unit": "rad", "values": [0.0, -0.01, -0.005, 0]},
         ],
         "inputs": {"seed": {"value": 7, "unit": "dimensionless"}},
-        "producer": {"script": {"path": "modules/control/sim.py", "sha256": DIGEST}},
+        "producer": {
+            "script": {"path": "modules/control/sim.py", "sha256": DIGEST},
+            "loaded": [{"path": "modules/control/plant.py", "sha256": "e" * 64}],
+        },
     }
     body.update(overrides)
     return body
@@ -149,6 +152,8 @@ def test_the_listing_summarises_each_record_from_its_samples_and_each_check(
     assert "- group: step; axis: time; session: sess-1" in text
     assert f'- script: "modules/control/sim.py", sha256 {DIGEST}' in text
     assert "- input seed: 7 dimensionless" in text
+    assert "- code it loaded besides the script: 1 file\n" in text
+    assert f'  - "modules/control/plant.py", sha256 {"e" * 64}' in text
     assert "| x: time | s | 4 | 0 | 0.03 | 0 | 0.03 |" in text
     assert "| position | m | 4 | 0 | 0.07 | 0 | 0.09 |" in text
     assert "| tilt | rad | 4 | 0 | 0 | -0.01 | 0 |" in text

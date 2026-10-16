@@ -178,6 +178,13 @@ class FakeSession:
     #: object of quantities (each a value, a unit and the record it was read off), the proposed
     #: node carries them, as a session reporting what it read off its own records would.
     script: str = RECORDING_SCRIPT
+    #: Per call: the recording script that call writes, in place of ``script``.
+    scripts: dict[int, str] = field(default_factory=dict)
+    #: The calls that write their script but never run it, so they record nothing.
+    unrun: set[int] = field(default_factory=set)
+    #: The calls that end for infrastructure (an API error) after recording: nothing is
+    #: committed, and the loop retries the attempt in a fresh session.
+    infra: set[int] = field(default_factory=set)
     calls: int = 0
 
     def environment(self) -> None:
@@ -221,7 +228,13 @@ class FakeSession:
         if self.records is not None:
             # As the dispatcher does: whatever an earlier session left is moved aside first.
             left = empty_outbox(worktree, self.layout.run_dir, sid)
-            series, reported = self._record(worktree, request, sid, self.records, left)
+            reported: dict[str, Any]
+            if self.calls in self.unrun:
+                script = worktree / request.module_dir / "sim.py"
+                script.write_text(self.scripts.get(self.calls, self.script))
+                series, reported = SessionSeries(discarded=left), {}
+            else:
+                series, reported = self._record(worktree, request, sid, self.records, left)
             for name, quantity in reported.items():
                 payload["quantities"][name] = {
                     "source": "read off the session's own record",
@@ -229,6 +242,19 @@ class FakeSession:
                     **quantity,
                 }
         proposal.write_text(json.dumps(payload))
+        if self.calls in self.infra:
+            return SessionReport(
+                session_id=sid,
+                end=SessionEnd(outcome="infrastructure", cause="api_error"),
+                attempt_commit=None,
+                trajectory=str(stream),
+                trajectory_seal=seal(stream.read_bytes()),
+                worktree=str(worktree),
+                reading_verified=False,
+                node_files_halted=False,
+                usage=(),
+                series=series,
+            )
         commit = commit_attempt(
             worktree, request.subtask_id, request.attempt, sid, repo=self.layout.repo
         )
@@ -258,7 +284,7 @@ class FakeSession:
         Returns what was collected, and the quantities the script reported, if any.
         """
         script = worktree / request.module_dir / "sim.py"
-        script.write_text(self.script)
+        script.write_text(self.scripts.get(self.calls, self.script))
         done = subprocess.run(
             [sys.executable, "-E", "-s", str(script)],
             cwd=worktree,
@@ -446,11 +472,12 @@ def drive(
     role: str = "electrical",
     script: str = RECORDING_SCRIPT,
     reviewers: dict[str, Reviewer] | None = None,
+    session: dict[str, Any] | None = None,
 ) -> str:
     """Drive a started run with the real loop and ports; return the step it ended on.
 
     ``reviewers``, when given, are the reviewers the loop asks, so a test can see what each
-    was handed.
+    was handed. ``session`` sets further fields of the stand-in session.
     """
     run_dir = root / cfg.run_id
     run = RunGit(repo=repo, run_dir=run_dir, run_id=cfg.run_id)
@@ -474,6 +501,7 @@ def drive(
             linked=linked,
             role=role,
             script=script,
+            **(session or {}),
         ),
         changes=GitChangeChecker(run, run_dir / "store", modules),
         merger=GitMerger(run, removal_timeout_s=60.0),

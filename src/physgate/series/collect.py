@@ -15,11 +15,12 @@ outbox is taken out of the worktree:
 - its file is named for its id, is a regular file with one name, and fits the session's
   bounds on count and bytes;
 - the script that produced it, and every file of code the producing process loaded, lie in
-  the attempt's module directory (the writer itself excepted), so the code behind the curve
-  is code the attempt commits; code run from anywhere else, a scratch script under ``/tmp``
-  for instance, is refused;
+  the attempt's module directory (the writer itself excepted), where the attempt commits;
+  code run from anywhere else, a scratch script under ``/tmp`` for instance, is refused;
 - each of those files still has the digest the writer recorded, so the curve was not written
-  by an earlier version of the script than the one committed.
+  by an earlier version of that code; the blob of each is sealed with the record, and the
+  change check holds the attempt commit to every one of them, so the code is code the attempt
+  commits with exactly those bytes (ignored or never-added code refuses the record there).
 
 What this cannot prove is that the script produced the curve: a script that writes a curve
 it did not compute names itself honestly. Re-running the script is that proof, and it is not
@@ -59,7 +60,14 @@ from physgate.series.record import (
     Record,
     parse_record,
 )
-from physgate.series.seal import MAX_ENTRIES, NAME_PATTERN, SealedRecord, SessionSeries, SetAside
+from physgate.series.seal import (
+    MAX_ENTRIES,
+    NAME_PATTERN,
+    CodeBlob,
+    SealedRecord,
+    SessionSeries,
+    SetAside,
+)
 
 #: The outbox, relative to the worktree.
 OUTBOX = PurePosixPath(".physgate/series")
@@ -360,8 +368,14 @@ def _in_the_module(path: str, module: PurePosixPath) -> PurePosixPath:
     return named
 
 
-def _provenance(record: Record, base: Path, module: PurePosixPath) -> bytes:
-    """The script's bytes, once every file of code the record names is the module's, unchanged.
+def _provenance(
+    record: Record, base: Path, module: PurePosixPath, object_format: str
+) -> tuple[bytes, tuple[CodeBlob, ...]]:
+    """The script's bytes and the blob of every other file of code the record names.
+
+    Each file must be the module's (the writer excepted) and unchanged since the record was
+    written. The blobs are what the change check holds the attempt commit to: code the attempt
+    does not commit with these bytes cannot stand behind the curve.
 
     Raises:
         _RefusedError: a file lies outside the module, cannot be read, or changed since the record
@@ -372,6 +386,7 @@ def _provenance(record: Record, base: Path, module: PurePosixPath) -> bytes:
         msg = "a record names the writer as its script"
         raise _RefusedError(msg)
     script_bytes = b""
+    loaded: dict[str, CodeBlob] = {}
     for named in (record.producer.script, *record.producer.loaded):
         relative = _in_the_module(named.path, module)
         data = _code_bytes(base, relative)
@@ -380,7 +395,9 @@ def _provenance(record: Record, base: Path, module: PurePosixPath) -> bytes:
             raise _RefusedError(msg)
         if relative == script:
             script_bytes = data
-    return script_bytes
+        else:
+            loaded[str(relative)] = CodeBlob(path=str(relative), blob=blob_id(data, object_format))
+    return script_bytes, tuple(loaded[path] for path in sorted(loaded))
 
 
 def _read_entry(fd: int, name: str) -> bytes:
@@ -497,7 +514,7 @@ def collect(
                         f"the file is named for another record than the one it holds ({record.id})"
                     )
                     raise _RefusedError(msg)
-                script_bytes = _provenance(record, base, module)
+                script_bytes, loaded = _provenance(record, base, module, object_format)
             except _RefusedError as exc:
                 _move_aside(fd, name, refused_at)
                 refused.add(name, str(exc))
@@ -514,6 +531,7 @@ def collect(
                     script=str(PurePosixPath(record.producer.script.path)),
                     script_sha256=hashlib.sha256(script_bytes).hexdigest(),
                     script_blob=blob_id(script_bytes, object_format),
+                    loaded=loaded,
                 )
             )
     finally:

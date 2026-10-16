@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+from collections.abc import Iterable
 from pathlib import Path
 
 from physgate.orchestrator.events import SessionEnded, read_events
@@ -45,7 +46,7 @@ from physgate.orchestrator.merge import RunGit, write_scope_violations
 from physgate.orchestrator.ports import ChangeCheck
 from physgate.series.consistency import check_proposals
 from physgate.series.reader import SealedEntry, attempt_records
-from physgate.series.seal import FORMAT, MAX_FILE_BYTES, SessionSeries
+from physgate.series.seal import FORMAT, MAX_FILE_BYTES, SealedRecord, SessionSeries
 from physgate.state.divergence import divergence
 from physgate.state.exceptions import DesignStateError
 from physgate.state.schema import validate_node
@@ -166,48 +167,79 @@ def _committed_records(repo: Path, base: str, commit: str, pinned: GitDir) -> li
     return found
 
 
-def _series_refusal(
-    repo: Path, commit: str, series: SessionSeries | None, pinned: GitDir
-) -> tuple[str, str] | None:
-    """Why the session's series records refuse the attempt, and about which, or ``None``.
+def _committed_as(repo: Path, commit: str, path: str, blob: str, pinned: GitDir) -> bool:
+    """Whether ``commit`` holds a regular file at exactly ``path`` with the blob ``blob``."""
+    listing = git(repo, "ls-tree", "-z", commit, "--", path, objects_only=True, git_dir=pinned)
+    entry = listing.split("\0", 1)[0]
+    meta, _, listed = entry.partition("\t")
+    found = meta.split()
+    # A regular file or an executable, by exactly the path named: git lists a link as a blob
+    # too, whose bytes are its target, so the type alone would let a link stand in for code.
+    return (
+        len(found) == 3
+        and found[0] in _SCRIPT_MODES
+        and found[1] == "blob"
+        and listed == path
+        and found[2] == blob
+    )
 
-    A record the collector refused is the attempt's to fix, as a malformed proposal is. A
-    sealed record must name a script the attempt committed with exactly the bytes collected:
-    the script's git blob at the attempt commit, read through the clean object store, must be
-    the blob id sealed when the session ended.
+
+def _series_refusal(
+    repo: Path,
+    commit: str,
+    series: SessionSeries | None,
+    pinned: GitDir,
+    earlier: Iterable[SealedRecord] = (),
+) -> tuple[str, str] | None:
+    """Why the attempt's series records refuse it, and about which, or ``None``.
+
+    A record the collector refused in the session that completed the attempt is the attempt's
+    to fix, as a malformed proposal is. Every record the attempt sealed, in that session or in
+    an earlier one that ended for infrastructure (``earlier``), must name code the attempt
+    committed with exactly the bytes collected: the script, and every other file of code the
+    producing process loaded, each at its path in the attempt commit, read through the clean
+    object store, with the blob id sealed when its session ended.
     """
-    if series is None:
-        return None
-    if series.refused:
+    if series is not None and series.refused:
         shown = "; ".join(f"{e.name}: {e.reason}" for e in series.refused[:5])
         more = len(series.refused) - 5
         reason = "the session left series records that were refused: " + shown
         if more > 0:
             reason += f"; and {more} more"
         return reason, ",".join(sorted(e.name for e in series.refused))[:500]
-    for record in series.records:
-        listing = git(
-            repo, "ls-tree", "-z", commit, "--", record.script, objects_only=True, git_dir=pinned
-        )
-        entry = listing.split("\0", 1)[0]
-        meta, _, listed = entry.partition("\t")
-        found = meta.split()
-        # A regular file or an executable, by exactly the path the record names: git lists a
-        # link as a blob too, whose bytes are its target, so the type alone would let a link
-        # stand in for a script.
-        if (
-            len(found) != 3
-            or found[0] not in _SCRIPT_MODES
-            or found[1] != "blob"
-            or listed != record.script
-            or found[2] != record.script_blob
-        ):
+    records = {(r.record_id, r.sha256): r for r in (*(series.records if series else ()), *earlier)}
+    held: dict[tuple[str, str], bool] = {}
+    for key in sorted(records):
+        record = records[key]
+        if not _held(held, repo, commit, record.script, record.script_blob, pinned):
             reason = (
                 f"the record {record.record_id} names the script {record.script}, and the attempt "
                 "did not commit that script with the bytes the record was collected with"
             )
             return reason, record.record_id
+        for code in record.loaded:
+            if not _held(held, repo, commit, code.path, code.blob, pinned):
+                reason = (
+                    f"the record {record.record_id} names {code.path} as code its script loaded, "
+                    "and the attempt did not commit that file with the bytes the record was "
+                    "collected with; code the attempt does not commit cannot stand behind a curve"
+                )
+                return reason, record.record_id
     return None
+
+
+def _held(
+    held: dict[tuple[str, str], bool],
+    repo: Path,
+    commit: str,
+    path: str,
+    blob: str,
+    pinned: GitDir,
+) -> bool:
+    """:func:`_committed_as`, asked of git once per path and blob."""
+    if (path, blob) not in held:
+        held[(path, blob)] = _committed_as(repo, commit, path, blob, pinned)
+    return held[(path, blob)]
 
 
 class GitChangeChecker:
@@ -229,9 +261,10 @@ class GitChangeChecker:
     ) -> ChangeCheck:
         """Refuse an attempt out of scope, with a refused series record, or a refused proposal.
 
-        The order: what the attempt committed outside its scope; then its session's series
-        records (one the collector refused, or one whose script is not the one committed);
-        then its node proposals, against the store's own guards.
+        The order: what the attempt committed outside its scope; then its series records (one
+        the collector refused, or one, from any session of the attempt, whose script or loaded
+        code is not what was committed); then its node proposals, against the store's own
+        guards; last, every quantity that names a record, against that record.
         """
         repo = self._run.repo
         # Verified once; the base, the scope check and the proposals all read through it.
@@ -260,7 +293,9 @@ class GitChangeChecker:
                 subject=",".join(committed)[:500],
                 graph_root=str(scratch),
             )
-        refusal = _series_refusal(repo, attempt_commit, series, pinned)
+        sealed = self._attempt_records(subtask_id, attempt_commit)
+        earlier = tuple(entry.record for entry in sealed)
+        refusal = _series_refusal(repo, attempt_commit, series, pinned, earlier)
         if refusal is not None:
             reason, subject = refusal
             return ChangeCheck(
@@ -281,9 +316,7 @@ class GitChangeChecker:
             )
         # Last, once the store's own guards have passed: every proposed quantity that names a
         # simulation record is held to the record this attempt sealed.
-        checks = check_proposals(
-            proposals, self._attempt_records(subtask_id, attempt_commit), self._run.run_dir
-        )
+        checks = check_proposals(proposals, sealed, self._run.run_dir)
         failed = [c for c in checks if c.outcome != "agrees"]
         if failed:
             reason = "; ".join(c.reason for c in failed[:3] if c.reason)

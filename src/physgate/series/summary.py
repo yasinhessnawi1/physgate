@@ -75,7 +75,11 @@ def _record(session_id: str, record: Record) -> str:
         f"{record.producer.script.sha256}\n",
     ]
     if record.producer.loaded:
-        lines.append(f"- code it loaded besides the script: {len(record.producer.loaded)} files\n")
+        count = len(record.producer.loaded)
+        lines.append(f"- code it loaded besides the script: {count} file{'s' * (count != 1)}\n")
+        lines += [
+            f"  - {_quoted(code.path)}, sha256 {code.sha256}\n" for code in record.producer.loaded
+        ]
     for name in sorted(record.inputs):
         given = record.inputs[name]
         lines.append(f"- input {name}: {_number(given.value)} {given.unit}\n")

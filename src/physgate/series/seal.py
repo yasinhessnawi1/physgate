@@ -28,6 +28,8 @@ MAX_FILE_BYTES = 4 * 1024 * 1024
 NAME_PATTERN = r"^[a-z][a-z0-9_]{0,63}$"
 #: The most entries one session's end may list, sealed or set aside.
 MAX_ENTRIES = 512
+#: The most files of code one record may name as loaded: the record format's own bound.
+MAX_LOADED_FILES = 256
 
 Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 BlobId = Annotated[str, StringConstraints(pattern=r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")]
@@ -35,6 +37,13 @@ BlobId = Annotated[str, StringConstraints(pattern=r"^(?:[0-9a-f]{40}|[0-9a-f]{64
 
 class _Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+
+class CodeBlob(_Frozen):
+    """A file of code a record names as loaded, by its path in the worktree and its blob id."""
+
+    path: Annotated[str, StringConstraints(min_length=1, max_length=512)]
+    blob: BlobId
 
 
 class SealedRecord(_Frozen):
@@ -47,6 +56,9 @@ class SealedRecord(_Frozen):
     script: Annotated[str, StringConstraints(min_length=1, max_length=512)]
     script_sha256: Sha256
     script_blob: BlobId
+    #: Every other file of code the producing process loaded from the worktree, the writer
+    #: included, each with the blob id its bytes had when the record was collected.
+    loaded: Annotated[tuple[CodeBlob, ...], Field(max_length=MAX_LOADED_FILES)] = ()
 
 
 class SetAside(_Frozen):
