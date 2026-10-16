@@ -193,6 +193,7 @@ def test_a_call_whose_working_directory_is_unknown_is_refused(config: SessionCon
         "python3 modules/control/sim.py",
         "cd modules/control && python3 sim.py",
         "cat .physgate/series/earlier.json",
+        "cat .physgate/lib/series_writer.py",
         "ls -la .physgate/series",
         "grep -c x .physgate/series/earlier.json",
         "python3 -c 'print(1)' > modules/control/out.txt",
@@ -202,3 +203,11 @@ def test_running_a_script_and_reading_the_outbox_are_allowed(
     config: SessionConfig, command: str
 ) -> None:
     assert _bash(config, command) == "allow", command
+
+
+def test_the_writer_whose_opening_lines_the_skill_points_to_can_be_read(
+    config: SessionConfig,
+) -> None:
+    writer = f"{config.worktree}/.physgate/lib/series_writer.py"
+    assert _tool(config, "Read", writer) == "allow"
+    assert _tool(config, "Write", writer) != "allow"

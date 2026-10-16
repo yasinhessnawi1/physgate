@@ -250,8 +250,10 @@ def role_prompt(request: SessionRequest) -> str:
         f"You implement subtask {request.subtask_id} in the {request.assigned_role} role.\n\n"
         f"Your specification is {request.spec_path}; read it in full first. Change files only "
         f"under {request.module_dir}/. To propose a node of the design graph, write it whole as "
-        "JSON to .physgate/proposals/<node id>.json; never write the graph store itself. Stop "
-        "when the specification is met.\n"
+        "JSON to .physgate/proposals/<node id>.json; never write the graph store itself. To "
+        f"record a simulation's output, run a script under {request.module_dir}/ that writes "
+        "each run through the series writer, .physgate/lib/series_writer.py, into "
+        ".physgate/series/, which nothing else may write. Stop when the specification is met.\n"
     )
     if request.repair_instruction:
         text += f"\n{request.repair_instruction}\n"
