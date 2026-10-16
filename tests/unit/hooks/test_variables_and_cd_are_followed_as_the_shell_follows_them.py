@@ -116,6 +116,7 @@ def test_an_assignment_that_may_not_run_leaves_the_inherited_value_possible(
 ) -> None:
     monkeypatch.setenv("HOME", os.path.join(config.worktree, ".physgate"))
     assert _decide(config, f"false && HOME=/tmp; {MARKER} > ~/series/step.json") != "allow"
+    assert _decide(config, f"false && HOME=/tmp; {MARKER} > $HOME/series/step.json") != "allow"
     assert _decide(config, f"false && HOME=/tmp; {MARKER} > ~/notes.txt") == "allow"
 
 
