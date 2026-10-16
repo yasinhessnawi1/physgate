@@ -46,7 +46,7 @@ from physgate.orchestrator.dispatch import ClaudeDispatcher, Installed
 from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.git import head_of
 from physgate.orchestrator.install import InstallFacts
-from physgate.orchestrator.merge import RunGit
+from physgate.orchestrator.merge import RunGit, commit_attempt
 from physgate.orchestrator.ports import SessionRequest
 from physgate.orchestrator.processes import started_at
 from physgate.orchestrator.run_config import RunBounds
@@ -150,7 +150,7 @@ elif MODE == "tamper":
     if pid == 0:
         while not os.path.exists(os.path.join(FLAGS, "session-end-ran")):
             time.sleep(0.02)
-        config = argv[argv.index("--settings") + 1].replace("settings.json", "config.json")
+        config = argv[argv.index("--settings") + 1].replace("settings.json", "session-config.json")
         with open(config, "a") as out:
             out.write(" ")
         open(os.path.join(FLAGS, "written"), "w").close()
@@ -285,9 +285,9 @@ class Session:
                 spawn_env=dict(done.spawn_env),
             )
 
-        original = dispatch.commit_attempt
+        original = commit_attempt
 
-        def commit_attempt(*args: Any, **kwargs: Any) -> str:  # noqa: ANN401
+        def first_git_call(*args: Any, **kwargs: Any) -> str:  # noqa: ANN401
             running = [pid for pid in self.pids() if started_at(pid) is not None]
             self.at_first_git = (running, sorted(p.name for p in self.root.iterdir()))
             return original(*args, **kwargs)
@@ -295,7 +295,7 @@ class Session:
         monkeypatch.setattr(ClaudeDispatcher, "_install", _install)
         monkeypatch.setattr(ClaudeDispatcher, "environment", lambda _self: FACTS)
         monkeypatch.setattr(dispatch, "binary_version", lambda _binary: config.claude_version)
-        monkeypatch.setattr(dispatch, "commit_attempt", commit_attempt)
+        monkeypatch.setattr(dispatch, "commit_attempt", first_git_call)
         return ClaudeDispatcher(
             config=config,
             run=self.run,

@@ -5,7 +5,9 @@ open the subtask's worktree; give the session a directory of its own, outside
 the worktree, holding its scratch home and configuration directory, the hook
 state and the captured stream; generate its settings with the hook layer's
 installer, run from the read-only installation; spawn it exactly as those
-settings say; wait within the run's wall clock; then read what it left.
+settings say; wait within the run's wall clock; stop everything it left running and
+run the sentinel's last check once more, before any git call on the attempt; then read
+what it left.
 
 What the orchestrator reads afterwards is its own record and the hook layer's,
 never the session's say-so: the stream it captured itself (never the
@@ -21,6 +23,7 @@ ends and redacted from the captured stream before anything reads it.
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
 import sysconfig
 import time
@@ -33,6 +36,7 @@ from pydantic import BaseModel, ConfigDict
 
 from physgate.hooks.config import SessionConfig
 from physgate.hooks.reading import outstanding
+from physgate.hooks.state import LOG_NAME
 from physgate.knowledge import loader
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, canaries
 from physgate.orchestrator.accounting import require_matching_totals
@@ -58,6 +62,7 @@ from physgate.orchestrator.queue import DECISIONS_NAME
 from physgate.orchestrator.role_python import PROBE, require_same, session_bin
 from physgate.orchestrator.run_config import RunConfig, harness_root
 from physgate.orchestrator.trajectory import Seal, forged_tail, seal, through_first_result
+from physgate.reviewers.ending import await_session
 from physgate.reviewers.packet import issued_spec_sha256
 from physgate.reviewers.places import SESSION_DIRNAME
 
@@ -268,6 +273,107 @@ def read_in_full(config_path: Path, session_id: str) -> bool:
     return not outstanding(config, _Input(session_id=session_id))
 
 
+@dataclass(frozen=True)
+class EndCheck:
+    """The settings' SessionEnd command, which runs the sentinel's last check, and its timeout."""
+
+    argv: tuple[str, ...]
+    timeout_s: float
+
+
+def session_end_command(settings: Path) -> EndCheck:
+    """The SessionEnd hook command the installer wrote into a session's settings.
+
+    Read before the session is spawned, so it is the installer's command and nothing a
+    session's process wrote since.
+    """
+    try:
+        groups = json.loads(settings.read_bytes())["hooks"]["SessionEnd"]
+        (group,) = groups
+        (hook,) = group["hooks"]
+        return EndCheck(tuple(shlex.split(hook["command"])), float(hook["timeout"]))
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        msg = "the session's settings name no single SessionEnd check"
+        raise InvocationError(msg, settings=str(settings), error=repr(exc)) from exc
+
+
+#: What a sentinel check records when it could not do its work: the code the hooks run from
+#: changed, a protected path could not be put back, or the hook reached no decision.
+_FAILED_CHECKS = ("halt", "unrestorable", "error")
+
+
+def sentinel_refusal(exit_code: int | None, records: list[dict[str, Any]]) -> str | None:
+    """Why the attempt must go no further after the sentinel's check ran again, or ``None``.
+
+    ``records`` are the hook log's lines that check wrote. A change it put back is a refusal
+    of the check's own (exit 2) that needs nothing more; a node file or a journal append it
+    saw is read from the hook log as one seen during the session is (:meth:`_hook_log`), and
+    a sentinel already halted during the session refuses as it did then. A check that could
+    not compare or put back, or that left no record of a refusal, is not a check.
+    """
+    decisions = [str(r.get("decision")) for r in records]
+    failed = [d for d in decisions if d in _FAILED_CHECKS]
+    if failed:
+        return f"the check recorded {failed[0]!r}"
+    if exit_code == 0:
+        return None
+    if exit_code == 2 and decisions:
+        return None
+    return f"the check exited {exit_code} and recorded nothing"
+
+
+def check_after_stop(
+    check: EndCheck, session_id: str, cwd: Path, env: dict[str, str], state: Path
+) -> dict[str, Any]:
+    """Run the sentinel's SessionEnd check once more, after the session's processes are gone.
+
+    The session's own last check runs at its SessionEnd hook; a process it left could write a
+    put-back root after that and before it was stopped. This check, the same command on the
+    same record, puts any such write back. Returns what it did, for the session's end record.
+
+    What this still misses is what the stop misses (``reviewers.ending``): a process that left
+    the session's process group and outlived its parent between two polls is never stopped, and
+    a write it makes after this check is not put back. A role session's shell can start one;
+    the hook layer refuses the backgrounding it can see.
+
+    Raises:
+        InvocationError: the check could not do its work; no git call follows on this attempt.
+    """
+    log = state / LOG_NAME
+    offset = log.stat().st_size if log.exists() else 0
+    event = {"session_id": session_id, "cwd": str(cwd), "hook_event_name": "SessionEnd"}
+    try:
+        done = subprocess.run(
+            check.argv,
+            input=json.dumps(event | {"reason": "other"}),
+            capture_output=True,
+            text=True,
+            timeout=check.timeout_s,
+            cwd=cwd,
+            env=env,
+            check=False,
+        )
+        exit_code: int | None = done.returncode
+    except (OSError, subprocess.TimeoutExpired):
+        exit_code = None
+    written = log.read_bytes()[offset:] if log.exists() else b""
+    try:
+        records = [json.loads(line) for line in written.splitlines() if line.strip()]
+    except ValueError:
+        records, exit_code = [{"decision": "error"}], None
+    refusal = sentinel_refusal(exit_code, records)
+    if refusal is not None:
+        msg = "the sentinel's check after the session's stop failed; no git call follows"
+        raise InvocationError(msg, session_id=session_id, reason=refusal)
+    return {
+        "exit": exit_code,
+        "decisions": [r.get("decision") for r in records],
+        "put_back": sorted(
+            {p for r in records if r.get("decision") == "put back" for p in r.get("paths", [])}
+        ),
+    }
+
+
 def harness_protection() -> list[str]:
     """The installer's arguments that put the harness checkout out of a session's reach.
 
@@ -460,6 +566,8 @@ class ClaudeDispatcher:
         sdir = self._run.run_dir / "sessions" / session_id
         system_before = self.environment().system_managed
         installed = self._install(request, worktree, sdir)
+        # Read before the session starts, while nothing of it can have touched the file.
+        end_check = session_end_command(Path(installed.settings))
         (sdir / "home").mkdir(exist_ok=True)
         env = isolated_env(
             home=sdir / "home",
@@ -514,15 +622,20 @@ class ClaudeDispatcher:
                 "installer_spawn_args": list(installed.spawn_args),
             }
             (sdir / "process.json").write_text(json.dumps(record))
-            try:
-                exit_code: int | None = process.wait(timeout=request.bounds.session_wall_clock_s)
-                timed_out = False
-            except subprocess.TimeoutExpired:
-                stop_tree(process.pid, record["started"])  # type: ignore[arg-type]
-                exit_code, timed_out = process.wait(), True
+            # However the session ends, nothing it started is left running before any git
+            # call of the orchestrator's on this attempt; then the sentinel's last check runs
+            # once more, for what was written between SessionEnd and the stop.
+            ended = await_session(
+                process,
+                record["started"],  # type: ignore[arg-type]
+                request.bounds.session_wall_clock_s,
+            )
+        exit_code: int | None = ended.exit_code
+        timed_out = ended.timed_out
         # The credential is on disk only while its session runs.
         remove_secrets(sdir / "state", sdir / "config")
         redact(stdout, self._credential.secret)
+        after_stop = check_after_stop(end_check, session_id, worktree, env, sdir / "state")
         captured = read_captured(stdout)
         seen = review_material_seen(stdout, self._canaries)
         sealed, tampered = captured.seal, captured.tampered
@@ -542,7 +655,16 @@ class ClaudeDispatcher:
             if end.outcome == "completed"
             else None
         )
-        (sdir / "ended.json").write_text(json.dumps({"exit": exit_code, "timed_out": timed_out}))
+        (sdir / "ended.json").write_text(
+            json.dumps(
+                {
+                    "exit": exit_code,
+                    "timed_out": timed_out,
+                    "left_running": list(ended.left_running),
+                    "sentinel_after_stop": after_stop,
+                }
+            )
+        )
         return SessionReport(
             session_id=session_id,
             end=end,
