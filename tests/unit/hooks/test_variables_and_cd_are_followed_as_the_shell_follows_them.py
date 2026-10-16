@@ -176,7 +176,7 @@ def test_ordinary_variables_and_cds_are_allowed(config: SessionConfig, command: 
     ("body", "readings"),
     [
         ("\\q", {"\\q", "q", "$\\q"}),
-        ("\\u00e9", {"é", "\\u00e9", "$\\u00e9"}),
+        ("\\u0041", {"A", "\\u0041", "$\\u0041"}),
         ("\\x2ephysgate", {".physgate", "$\\x2ephysgate"}),
     ],
 )
@@ -186,7 +186,9 @@ def test_every_shell_s_reading_of_ansi_c_quoting_is_kept(body: str, readings: se
     assert set(cmd.alternatives.get(1) or ()) | {cmd.argv[1]} == readings
 
 
-@pytest.mark.parametrize("body", ["\\cA", "\\c", "\\u", "\\xZZ", "\\U", "\\400", "a\\x"])
+@pytest.mark.parametrize(
+    "body", ["\\cA", "\\c", "\\u", "\\xZZ", "\\U", "\\400", "a\\x", "\\u00e9", "\\U0001F600"]
+)
 def test_ansi_c_that_shells_read_too_differently_is_refused(body: str) -> None:
     with pytest.raises(shell.ShellSyntaxError):
         shell.ansi_c_readings(body)

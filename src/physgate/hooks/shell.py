@@ -449,11 +449,19 @@ def ansi_c_readings(body: str) -> dict[str, str]:
         ShellSyntaxError: a construct the shells read so differently that no list of
             readings is safe: ``\c`` (a control character in bash, a plain ``c`` in
             zsh, and it ends the word in some), a ``\x``, ``\u`` or ``\U`` with no
-            digits (a NUL in zsh), or a body that decodes to a NUL in any shell.
+            digits (a NUL in zsh), a ``\u`` or ``\U`` beyond ASCII (bash 5 writes it
+            out as an escape where the locale cannot encode it), or a body that decodes
+            to a NUL in any shell.
     """
     if re.search(r"\\c|\\[xuU](?![0-9A-Fa-f])", _unescaped_backslashes(body)):
         msg = "a $'...' quote with \\c, or a \\x, \\u or \\U with no digits"
         raise ShellSyntaxError(msg)
+    for escape in re.finditer(
+        r"\\u([0-9A-Fa-f]{1,4})|\\U([0-9A-Fa-f]{1,8})", _unescaped_backslashes(body)
+    ):
+        if int(escape.group(1) or escape.group(2), 16) > 0x7F:  # noqa: PLR2004 - beyond ASCII
+            msg = "a $'...' quote with a \\u or \\U beyond ASCII, which depends on the locale"
+            raise ShellSyntaxError(msg)
     readings = {
         "bash": _decode(body, unicode=True, keep_unknown=True),
         "bash-3": _decode(body, unicode=False, keep_unknown=True),

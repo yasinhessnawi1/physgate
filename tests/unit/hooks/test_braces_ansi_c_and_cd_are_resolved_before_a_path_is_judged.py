@@ -155,7 +155,7 @@ def test_an_ordinary_brace_pattern_is_allowed(config: SessionConfig, command: st
         ("echo $'\\056physgate'", ".physgate"),
         ("echo $'it\\'s'", "it's"),
         ("echo $'a\\tb\\n'", "a\tb\n"),
-        ("echo $'\\u00e9'", "\u00e9"),
+        ("echo $'\\u0041'", "A"),
         ("echo $'\\q'", "\\q"),
         ("echo x$'y'z", "xyz"),
     ],
