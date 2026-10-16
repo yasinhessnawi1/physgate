@@ -197,7 +197,9 @@ class SlowFakeSession:
         proposal.parent.mkdir(parents=True, exist_ok=True)
         proposal.write_text(json.dumps(node(node_id)))
         sid = f"fake-{uuid.uuid4().hex[:12]}"
-        commit = commit_attempt(worktree, request.subtask_id, request.attempt, sid)
+        commit = commit_attempt(
+            worktree, request.subtask_id, request.attempt, sid, repo=self.run.repo
+        )
         return SessionReport(
             session_id=sid,
             end=SessionEnd(outcome="completed", cause=None),

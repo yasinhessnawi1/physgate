@@ -38,6 +38,9 @@ as floats.
 The runs measured together must be repeats of one configuration: their
 ``run.json`` files equal in everything but the run id, so the seed, the brief,
 every pinned model, the binary, the endpoint and the harness commit are shared.
+The git binary is shared too when every run recorded it; when any run of the set
+was recorded before git was, it is left out of every run's comparison, since
+nothing was measured to compare.
 ``measure_variance`` reads recorded runs; ``repeat_run`` makes the repeats as
 reruns of one recorded run, and measures them with it.
 """
@@ -162,8 +165,14 @@ class VarianceReport(_Frozen):
     distinct_decisions: int
 
 
-def _group(config: RunConfig) -> dict[str, Any]:
-    group: dict[str, Any] = config.model_dump(mode="json", exclude={"run_id"})
+def _group(config: RunConfig, *, with_git: bool) -> dict[str, Any]:
+    """What repeats of one configuration share: everything but the run id.
+
+    ``with_git`` is false when any run of the set did not record its git binary; it
+    is then left out of every run's group, ``None`` being nothing measured.
+    """
+    exclude = {"run_id"} if with_git else {"run_id", "git_binary"}
+    group: dict[str, Any] = config.model_dump(mode="json", exclude=exclude)
     return group
 
 
@@ -180,9 +189,10 @@ def measure_variance(run_dirs: Sequence[Path]) -> VarianceReport:
         raise VarianceError(msg)
     runs: list[RunDecisions] = []
     first: dict[str, Any] | None = None
-    for run_dir in run_dirs:
-        manifest = read_manifest(run_dir)
-        group = _group(manifest.config)
+    manifests = [(run_dir, read_manifest(run_dir)) for run_dir in run_dirs]
+    with_git = all(manifest.config.git_binary is not None for _, manifest in manifests)
+    for run_dir, manifest in manifests:
+        group = _group(manifest.config, with_git=with_git)
         if first is None:
             first = group
         elif group != first:

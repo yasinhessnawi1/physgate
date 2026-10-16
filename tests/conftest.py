@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 from knowledge_fixture import build_fixture_library
 
+from physgate.orchestrator.git import harness_git
 from physgate.state.store import Store
 
 
@@ -42,3 +43,15 @@ def _decompose_against_the_fixture_library(
     that role throughout. A test of the real library asks for it explicitly.
     """
     monkeypatch.setattr("physgate.orchestrator.cli._library_root", lambda: fixture_library)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _git_resolved_once_at_the_start() -> None:
+    """The harness's git, resolved from the suite's own PATH before any test changes it.
+
+    The harness resolves its git once per process, at the first git command. Resolving it
+    here makes every test see the same binary whatever order they run in, including tests
+    that empty PATH to hide the Claude Code binary. A test of the resolution itself calls
+    ``resolve_git`` with a PATH of its own, or clears the cache and restores it.
+    """
+    harness_git()

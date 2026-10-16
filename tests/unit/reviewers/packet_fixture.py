@@ -121,11 +121,11 @@ class Attempt:
     trajectory: Path
 
 
-def make_attempt(root: Path, stream_text: str) -> Attempt:
+def make_attempt(root: Path, stream_text: str, object_format: str = "sha1") -> Attempt:
     """A repository whose decomposition issued SPEC, and an attempt that edits it."""
     repo = root / "target"
     (repo / ".physgate" / "specs").mkdir(parents=True)
-    _git(repo, "init", "-q", "-b", "run")
+    _git(repo, "init", "-q", "-b", "run", f"--object-format={object_format}")
     (repo / SPEC).write_text(ISSUED)
     _git(repo, "add", "-A")
     _git(repo, "commit", "-q", "-m", "issued")

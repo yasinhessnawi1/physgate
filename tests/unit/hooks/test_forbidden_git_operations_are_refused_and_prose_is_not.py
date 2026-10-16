@@ -1,7 +1,9 @@
 """Forbidden git operations are refused wherever they run; text that names them passes.
 
 Every refused row has an allowed twin close to it, so a rule that matched text
-instead of commands would fail the twin. The prose rows are the trap this
+instead of commands would fail the twin. The rows are decided for the
+orchestrator profile, which may run git: a role session runs none, and is
+refused every git command before any of these rules is reached. The prose rows are the trap this
 machine's own commit-flag hook falls into: it refuses a heredoc that writes a
 document naming the flag.
 """
@@ -66,33 +68,6 @@ REFUSED = [
     ("git update-ref refs/heads/main HEAD", G.REF_WRITE),
     ("g=git; $g push --force", G.DYNAMIC_GIT),
     ("git push $FLAGS", G.DYNAMIC_GIT),
-    ("git push", G.ROLE_PUSH),
-    ("git push origin subtask/electrical-1", G.ROLE_PUSH),
-    # A role session may not write git's configuration: any set key could make a later
-    # command run a program. The rule is the action, not a list of keys. (These strings are
-    # only parsed by the hook; no git runs.)
-    ("git config user.email me@example.invalid", G.ROLE_CONFIG_WRITE),
-    ("git config filter.x.clean somecommand", G.ROLE_CONFIG_WRITE),
-    ("git config diff.external somecommand", G.ROLE_CONFIG_WRITE),
-    ("git config core.fsmonitor somecommand", G.ROLE_CONFIG_WRITE),
-    ("git config --add remote.o.url x", G.ROLE_CONFIG_WRITE),
-    ("git config --unset user.email", G.ROLE_CONFIG_WRITE),
-    ("git config --unset-all a.b", G.ROLE_CONFIG_WRITE),
-    ("git config --replace-all a.b c", G.ROLE_CONFIG_WRITE),
-    ("git config --remove-section foo", G.ROLE_CONFIG_WRITE),
-    ("git config --rename-section foo bar", G.ROLE_CONFIG_WRITE),
-    ("git config -e", G.ROLE_CONFIG_WRITE),
-    ("git config --edit", G.ROLE_CONFIG_WRITE),
-    ("git config --file custom a.b c", G.ROLE_CONFIG_WRITE),
-    ("git -C sub config user.name me", G.ROLE_CONFIG_WRITE),
-    # Inline config, in every spelling git accepts, is also setting config.
-    ("git -c filter.x.clean=somecommand add -A", G.ROLE_CONFIG_WRITE),
-    ("git -c core.fsmonitor=somecommand status", G.ROLE_CONFIG_WRITE),
-    ("git -c core.pager=somecommand log", G.ROLE_CONFIG_WRITE),
-    ("GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.pager git log", G.ROLE_CONFIG_WRITE),
-    ("GIT_CONFIG_PARAMETERS=\"'core.pager=x'\" git log", G.ROLE_CONFIG_WRITE),
-    # A shape the rule cannot read as a plain read is refused, not passed.
-    ("git config --unknownflag a b", G.ROLE_CONFIG_WRITE),
 ]
 
 ALLOWED = [
@@ -135,7 +110,7 @@ def _repo(tmp: Path, branch: str = "subtask/electrical-1") -> Path:
 
 
 def _decide(
-    tmp: Path, command: str, profile: str = "role", branch: str = "subtask/electrical-1"
+    tmp: Path, command: str, profile: str = "orchestrator", branch: str = "subtask/electrical-1"
 ) -> str:
     worktree = _repo(tmp, branch)
     _, _, config = write_config(tmp, profile=profile)
@@ -155,12 +130,12 @@ def test_an_ordinary_command_or_text_naming_a_flag_passes(tmp_path: Path, comman
     assert _decide(tmp_path, command) == "allow"
 
 
-def test_the_config_write_refusal_is_for_role_sessions_only(tmp_path: Path) -> None:
+def test_a_role_session_is_refused_git_the_orchestrator_may_run(tmp_path: Path) -> None:
     # The orchestrator owns the repository and writes its own identity and settings.
-    assert _decide(tmp_path, "git config user.email x@y.invalid", profile="orchestrator") == "allow"
-    # A role session is refused the same write, and still allowed to read a value.
-    assert _decide(tmp_path, "git config user.email x@y.invalid") == G.ROLE_CONFIG_WRITE
-    assert _decide(tmp_path, "git config --get user.email") == "allow"
+    assert _decide(tmp_path, "git config user.email x@y.invalid") == "allow"
+    # A role session runs no git: not the write, not a read.
+    assert _decide(tmp_path, "git config user.email x@y.invalid", profile="role") == G.ROLE_NO_GIT
+    assert _decide(tmp_path, "git config --get user.email", profile="role") == G.ROLE_NO_GIT
 
 
 #: git accepts any unique prefix of a subcommand's long option, so every
@@ -244,7 +219,7 @@ def test_a_hard_reset_on_a_branch_that_is_not_the_sessions_own_is_refused(
 
 def test_a_hard_reset_with_no_own_branch_configured_is_refused(tmp_path: Path) -> None:
     worktree = _repo(tmp_path)
-    _, _, config = write_config(tmp_path, own_branch=None)
+    _, _, config = write_config(tmp_path, own_branch=None, profile="orchestrator")
     decision = git_ops.pre_tool_use(
         HookInput.model_validate(bash("git reset --hard", cwd=str(worktree))), config
     )
@@ -258,7 +233,8 @@ def test_a_linked_worktree_is_followed_to_its_head(tmp_path: Path) -> None:
     worktree = tmp_path / "linked"
     worktree.mkdir()
     (worktree / ".git").write_text(f"gitdir: {git_dir}\n")
-    _, _, config = write_config(tmp_path)
+    # The session's worktree is the linked one, as a dispatched role's is.
+    _, _, config = write_config(tmp_path, worktree=str(worktree), profile="orchestrator")
     decision = git_ops.pre_tool_use(
         HookInput.model_validate(bash("git reset --hard", cwd=str(worktree))), config
     )

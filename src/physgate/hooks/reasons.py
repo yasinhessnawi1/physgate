@@ -38,3 +38,8 @@ REVIEW_MATERIAL_REASON = (
     "it is material only the paired reviewer reads; an implementing session that read "
     "what its reviewer looks for could steer its work around it"
 )
+GIT_USER_CONFIG_REASON = (
+    "it is git's user configuration for this session, where a key could make a later git "
+    "command run a program the session chose; a role session reads git's configuration and "
+    "never writes it"
+)

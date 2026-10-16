@@ -45,6 +45,7 @@ from physgate.hooks.config import (
 )
 from physgate.hooks.reasons import ANSWER_KEY_REASON as ANSWER_KEY_REASON
 from physgate.hooks.reasons import GATE_REASON as GATE_REASON
+from physgate.hooks.reasons import GIT_USER_CONFIG_REASON as GIT_USER_CONFIG_REASON
 from physgate.hooks.reasons import HARNESS_REASON as HARNESS_REASON
 from physgate.hooks.reasons import HELD_OUT_REASON as HELD_OUT_REASON
 from physgate.hooks.reasons import KNOWLEDGE_REASON as KNOWLEDGE_REASON
@@ -318,6 +319,13 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         ),
         _knowledge_root(worktree): (KNOWLEDGE_REASON, "revert"),
     }
+    if request.profile == "role":
+        # git's user configuration in the session's own home: a key written there (a hook
+        # path, an alias, a program to run) holds for every later git command the session
+        # runs. The session's environment is built without XDG_CONFIG_HOME, so git looks in
+        # ``$HOME/.config/git``; that directory also holds git's user attributes and ignore.
+        for git_config in (home / ".gitconfig", home / ".config" / "git"):
+            protected[str(git_config)] = (GIT_USER_CONFIG_REASON, "revert")
     #: Paths that are not protected by the root they sit under, despite the
     #: string/inode tests otherwise reaching it. Only one root needs this today.
     root_exceptions: dict[str, tuple[str, ...]] = {

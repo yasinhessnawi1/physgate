@@ -36,7 +36,7 @@ from physgate.orchestrator.common import (
 )
 from physgate.orchestrator.escalation import REGISTER, BackendName
 from physgate.orchestrator.exceptions import EscalationBackendError, GitError, RunConfigError
-from physgate.orchestrator.git import git
+from physgate.orchestrator.git import GitBinary, git
 from physgate.orchestrator.role_python import RolePython
 
 
@@ -157,6 +157,19 @@ class HarnessState(_Frozen):
         return self
 
 
+#: The patch a dirty checkout's digest is taken over has no colour, the ``a/`` and ``b/`` path
+#: prefixes and no external diff or textconv program, whatever the checkout's own config says
+#: about those (other diff settings, such as the context lines, still apply). On a checkout that
+#: sets none of them the patch is byte for byte git's default, so recorded digests are unchanged.
+_CHECKOUT_DIFF_FLAGS = (
+    "--no-color",
+    "--no-ext-diff",
+    "--no-textconv",
+    "--src-prefix=a/",
+    "--dst-prefix=b/",
+)
+
+
 def harness_root() -> Path | None:
     """The source checkout this orchestrator runs from, or ``None`` if it runs from none.
 
@@ -184,7 +197,7 @@ def harness_state(root: Path | None) -> HarnessState:
         return HarnessState(commit=None, clean=False, uncommitted_sha256=None)
     try:
         commit = git(root, "rev-parse", "HEAD").strip()
-        diff = git(root, "diff", "--binary", "HEAD")
+        diff = git(root, "diff", "--binary", *_CHECKOUT_DIFF_FLAGS, "HEAD")
         untracked = git(root, "ls-files", "--others", "--exclude-standard", "-z").split("\0")
     except GitError as exc:
         msg = "the harness checkout could not be read"
@@ -236,6 +249,12 @@ class RunConfig(_Frozen):
     #: configured (``role_python.measure``), or ``None`` for none: the parameters name a
     #: path or null. A run recorded before the field existed named none, and reads so.
     role_python: RolePython | None
+    #: The git binary every harness git command ran, as resolved when the run was configured
+    #: (``git.harness_git``): its absolute path and its version. Recorded, not held to: a
+    #: resume runs whatever git the resuming process resolves, at 2.42 or later. A run recorded
+    #: before the field existed names none, and reads so.
+    git_binary: GitBinary | None
+
     #: The escalation backend that answers "does this subtask go to the approval queue"
     #: (ARCH-131), by its register name (ARCH-132). Required, like the gate mode, and never
     #: taken from the environment. ``None`` only on a run recorded before the field existed,
@@ -267,15 +286,18 @@ class RunConfig(_Frozen):
         """The recorded form: stable key order, so equal configs are equal bytes.
 
         ``thinking_display`` is left out when it is ``omitted``, what every run before
-        the field existed ran with, and ``role_python`` and ``escalation_backend`` when
-        they are ``None``, so their recorded digests still name them. A run that names a
-        binding always records it, so the binding is part of its manifest id.
+        the field existed ran with, and ``role_python``, ``git_binary`` and
+        ``escalation_backend`` when they are ``None``, so their recorded digests still name
+        them. A run that names a binding always records it, so the binding is part of its
+        manifest id.
         """
         exclude = set()
         if self.thinking_display == "omitted":
             exclude.add("thinking_display")
         if self.role_python is None:
             exclude.add("role_python")
+        if self.git_binary is None:
+            exclude.add("git_binary")
         if self.escalation_backend is None:
             exclude.add("escalation_backend")
         return self.model_dump_json(indent=None, exclude=exclude or None).encode() + b"\n"
@@ -358,9 +380,14 @@ def load_run_config(path: Path) -> RunConfig:
         # Recorded before the field existed: no interpreter was named.
         recorded = {**recorded, "role_python": None}
         raw = json.dumps(recorded).encode()
+    if isinstance(recorded, dict) and "git_binary" not in recorded:
+        # Recorded before the field existed: the git it ran was not recorded.
+        recorded = {**recorded, "git_binary": None}
+        raw = json.dumps(recorded).encode()
     if isinstance(recorded, dict) and "escalation_backend" not in recorded:
         # Recorded before the field existed: the loop asked no escalation interface.
-        raw = json.dumps({**recorded, "escalation_backend": None}).encode()
+        recorded = {**recorded, "escalation_backend": None}
+        raw = json.dumps(recorded).encode()
     try:
         return RunConfig.model_validate_json(raw)
     except ValidationError as exc:

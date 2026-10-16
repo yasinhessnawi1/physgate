@@ -27,6 +27,7 @@ from physgate.orchestrator.git import (
     commit_all,
     common_dir,
     git,
+    verified_git_dir,
     verify_worktree_pointer,
 )
 from physgate.orchestrator.merge import RunGit
@@ -152,8 +153,7 @@ def test_a_pointer_swapped_after_the_check_cannot_redirect_the_commit(tmp_path: 
     _commit_base(repo)
     worktree = tmp_path / "wt"
     add_worktree(repo, worktree, "feat/x", "HEAD")
-    admin = verify_worktree_pointer(worktree)
-    assert admin is not None
+    admin = verified_git_dir(worktree, linked=True, common=common_dir(repo))
     # Swap the pointer at a decoy directory after the check. commit_all re-verifies and would
     # refuse; to show the pinning itself, drive git with the resolved admin directly.
     decoy = tmp_path / "decoy"

@@ -46,7 +46,7 @@ from physgate.orchestrator.credentials import (
 )
 from physgate.orchestrator.decompose import binary_version, read_stream
 from physgate.orchestrator.exceptions import AccountingError, InvocationError
-from physgate.orchestrator.git import common_dir
+from physgate.orchestrator.git import common_dir, named_from
 from physgate.orchestrator.install import InstallFacts, build_record_path, install_facts
 from physgate.orchestrator.invocation import isolated_env, role_argv
 from physgate.orchestrator.managed import drift, policy_limits_digest
@@ -81,38 +81,112 @@ def run_protected_roots(run: RunGit) -> tuple[tuple[Path, ...], tuple[Path, ...]
 
     - Put back: the run's records (the event log, the task ledger, the run
       configuration, the approval queue, the decomposition call's files), the
-      orchestrator's integration worktree, and the run branch's ref in the target
-      repository. The orchestrator writes none of them while a session runs.
+      orchestrator's integration worktree, the target repository's whole common git
+      directory, and the ``.git`` pointer file of every worktree it has. The
+      orchestrator writes none of them while a session runs: dispatch is serial, and
+      its own git commands start no maintenance that outlives them.
     - Refused only: every session's directory, which holds each session's
       captured stream (the trajectory the reviewer and the token account read)
       and its process record, written by the runtime and the spawner during the
       session; and the approval queue's decisions file, which a person appends to
       with ``physgate queue resolve`` whenever they decide, sessions running or not.
+
+    The common git directory is read through the check every write runs
+    (:func:`common_dir`), so a repository whose git directory does not verify gives no
+    protected set and no session is installed.
     """
+    common = common_dir(run.repo)
     # Where git keeps the run branch's loose ref, for any repository layout. A ref
     # moved in packed-refs is seen by the loop's check of the branch instead.
-    common = common_dir(run.repo)
     ref = common / "refs" / "heads" / run.run_branch
     reverted = (*(run.run_dir / name for name in RUN_RECORDS), run.integration, ref)
-    reverted = (*reverted, *git_config_roots(common))
+    reverted = (*reverted, *git_config_roots(common), *git_dir_roots(run.repo, common))
     return reverted, (run.run_dir / "sessions", run.run_dir / DECISIONS_NAME)
+
+
+def session_protected_roots(
+    run: RunGit, store_root: Path, worktree: Path, install_root: Path
+) -> tuple[tuple[Path, ...], tuple[Path, ...]]:
+    """Everything a role session in ``worktree`` is given as protected roots by the dispatcher.
+
+    The run's roots (:func:`run_protected_roots`), and three more of the session's own:
+
+    - the installation's build record, which lives beside the installation, outside the
+      root the hook layer protects: a session that rewrote it would make the next run
+      refuse, or, with the manifest, pass;
+    - this session's worktree's ``.git`` pointer file, which names the admin directory the
+      orchestrator's commit runs against (the orchestrator also verifies it before every
+      git call);
+    - the graph store's own git directory. The store's directory is a protected root the
+      hook layer watches only for its journal and node files, but the orchestrator commits
+      the store in its own repository after an attempt is applied, and that commit reads the
+      repository's config and ``info/attributes``, where a filter would run. The orchestrator
+      writes it only between sessions (dispatch is serial, and the store is committed after
+      the session has ended), so the whole directory is put back.
+
+    Returns the roots put back, and the roots only refused.
+    """
+    reverted, refused = run_protected_roots(run)
+    reverted = (
+        *reverted,
+        build_record_path(install_root),
+        worktree / ".git",
+        Path(store_root) / ".git",
+    )
+    return reverted, refused
 
 
 #: The files and directories in a repository's common git directory through which a write
 #: makes a later git command run a program: its configuration (a diff, merge or filter driver,
 #: or the file-system monitor), the attributes and exclude files under ``info/``, the
 #: repository hooks, and a submodule's own git directory under ``modules/`` (its config and
-#: hooks). A role session has no legitimate need to write any of them, so they are protected
-#: roots: the path layer refuses a file tool's write, and the sentinel puts back a shell write.
-#: The per-worktree ``config.worktree`` is covered too, because git reads it only when
-#: ``extensions.worktreeConfig`` is set in this same ``config``, which is now protected, and a
-#: role cannot set it (``git config`` writes are refused at the shell layer).
+#: hooks). Each lies inside the common git directory, which is protected whole
+#: (:func:`git_dir_roots`); they stay named on their own as well.
 GIT_CONFIG_NAMES = ("config", "config.worktree", "info", "hooks", "modules")
 
 
 def git_config_roots(common_git_dir: Path) -> tuple[Path, ...]:
     """The common git directory's exec-config surface, as protected roots."""
     return tuple(common_git_dir / name for name in GIT_CONFIG_NAMES)
+
+
+def git_dir_roots(repo: Path, common_git_dir: Path) -> tuple[Path, ...]:
+    """The whole common git directory, and the ``.git`` pointer file of each of its worktrees.
+
+    A role session runs no git at all: the orchestrator stages, commits and merges its work.
+    So nothing in the git directory is the session's to write, and every file in it changes
+    what a later git command of the orchestrator's does or reads:
+
+    - ``objects/``: git trusts an object file's bytes to be what its name says and does not
+      check them again, so a byte changed there changes a commit, a tree or a file the
+      orchestrator reads; ``objects/info/`` holds the alternates and the commit graph;
+    - ``refs/``, ``packed-refs``, ``HEAD`` and ``shallow``: where every branch points, and which
+      commits git treats as having no parents;
+    - ``index`` and ``worktrees/``: each linked worktree's admin directory, whose ``commondir``
+      names the directory git takes the configuration from and whose ``gitdir``, ``HEAD`` and
+      ``index`` are that worktree's state;
+    - everything else git keeps there, named here or not.
+
+    All of it is put back if it changes, which holds existing object files, packs and their
+    indexes, the multi-pack index and the commit graph byte for byte to what they were when
+    the session started; anything new is moved aside. Each worktree's ``.git`` pointer file,
+    which names its admin directory, is put back too; the pointers are found from the admin
+    directories' own ``gitdir`` files, read from the filesystem as git reads them (one that
+    git could read another way refuses the set). A repository that is itself a
+    linked worktree has a pointer of its own.
+    """
+    roots = [common_git_dir]
+    pointer = repo / ".git"
+    if pointer.is_file():
+        roots.append(pointer)
+    admins = common_git_dir / "worktrees"
+    for gitdir in sorted(admins.glob("*/gitdir")) if admins.is_dir() else ():
+        # Read as git reads it; one git would read another way refuses the whole set, so no
+        # session is installed on a protected set built from a guess.
+        pointer = named_from(gitdir.parent, "gitdir")
+        if pointer.name == ".git":
+            roots.append(pointer)
+    return tuple(roots)
 
 
 @dataclass(frozen=True)
@@ -308,16 +382,9 @@ class ClaudeDispatcher:
         if self._credential.mode == "api_key":
             key_helper = write_key_helper(state, self._credential.secret)
             helper = ["--api-key-helper", str(key_helper)]
-        reverted, refused = run_protected_roots(self._run)
-        # The installation's build record lives beside it, outside the installation
-        # root the hook layer protects; a session that rewrote it would make the
-        # next run refuse, or, with the manifest, pass. It is put back.
-        reverted = (*reverted, build_record_path(self._install_bin.parent.parent))
-        # This session's worktree is a linked worktree, so its ``.git`` is a pointer file to
-        # the admin directory the orchestrator's commits run against. A session that repointed
-        # it would make the commit take another directory's config as git's own, so the pointer
-        # is put back. (The orchestrator also verifies it before every git call.)
-        reverted = (*reverted, worktree / ".git")
+        reverted, refused = session_protected_roots(
+            self._run, self._store_root, worktree, self._install_bin.parent.parent
+        )
         protect = [arg for root in reverted for arg in ("--protect", str(root))]
         protect += [arg for root in refused for arg in ("--protect-refuse-only", str(root))]
         # A session in the target's worktree has nothing of its own in the harness
@@ -469,7 +536,9 @@ class ClaudeDispatcher:
                 raise InvocationError(msg, asked=request.model, answered=",".join(echoed))
         halted, appends = self._hook_log(sdir / "state", session_id)
         commit = (
-            commit_attempt(worktree, request.subtask_id, request.attempt, session_id)
+            commit_attempt(
+                worktree, request.subtask_id, request.attempt, session_id, repo=self._run.repo
+            )
             if end.outcome == "completed"
             else None
         )

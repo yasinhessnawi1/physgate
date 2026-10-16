@@ -100,7 +100,7 @@ def test_with_the_parser_off_the_sentinel_alone_puts_back_a_heredoc_into_the_gat
         "python3 -c \"import os; open(os.path.join('src','physgate','ga'+'te','check.py'),'w')"
         ".write('CHECK = False')\" && echo ran > ran.txt",
         "tar -xf payload.tar && echo ran > ran.txt",
-        "git apply payload.patch && echo ran > ran.txt",
+        "patch -p1 < payload.patch && echo ran > ran.txt",
     ],
     ids=["variable", "substitution", "string-built-path", "archive", "patch"],
 )

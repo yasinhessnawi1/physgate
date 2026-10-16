@@ -61,7 +61,16 @@ from physgate.orchestrator.run_config import (
 #: The configuration fields ``decompose`` measures or is given on its command line;
 #: every other field is a parameter, passed as the recorded run had it.
 MEASURED = frozenset(
-    {"run_id", "seed", "brief_sha256", "target_head", "claude_version", "endpoint", "harness"}
+    {
+        "run_id",
+        "seed",
+        "brief_sha256",
+        "target_head",
+        "claude_version",
+        "endpoint",
+        "harness",
+        "git_binary",
+    }
 )
 
 

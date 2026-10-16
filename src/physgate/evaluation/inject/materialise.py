@@ -27,6 +27,13 @@ from pathlib import Path
 
 from physgate.evaluation.inject.corpus import Base, Patch, strings_of, telltales
 from physgate.evaluation.inject.exceptions import BlindnessError, CorpusError
+from physgate.orchestrator.git import (
+    EMPTY_TREES,
+    FORCED_ENV,
+    FORCED_FLAGS,
+    attr_source,
+    harness_git,
+)
 from physgate.state.store import Store
 
 #: Where the design sits in a materialised worktree.
@@ -46,33 +53,29 @@ ANSWER_FIELDS: tuple[str, ...] = (
     "injected",
 )
 
-#: Git's empty tree: attribute lookup reads ``.gitattributes`` from it, so no committed
-#: attribute selects a diff or a merge driver. The instrument commits a worktree of a fresh
-#: repository it creates itself, with no configuration a role session wrote, so no clean or
-#: smudge filter is defined for ``git add`` to run; the hardening here is defence in depth,
-#: matching the orchestrator's git, not a reachable hole.
-_EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+#: Git's empty tree: every command takes its attributes from it (``--attr-source`` and
+#: ``GIT_ATTR_SOURCE``), so no ``.gitattributes`` selects a diff or a merge driver or changes
+#: what ``git add`` stages. The instrument commits a worktree of a fresh repository it creates
+#: itself, with no configuration a role session wrote; the hardening here is defence in depth,
+#: matching the orchestrator's git, not a reachable hole. The repository is created with git's
+#: default object format, SHA-1, whose empty tree this is.
+_EMPTY_TREE = EMPTY_TREES["sha1"]
+#: The forced core every harness git runs with (``FORCED_ENV`` and ``FORCED_FLAGS``: replacement
+#: objects ignored, no shallow or graft file, no system or user configuration, no hooks, no
+#: signing, no file-system monitor, no attributes file, no commit graph, no automatic
+#: maintenance), and the materialiser's own fixed author, committer and dates, so a base and a
+#: patch commit to the same ids on every machine.
 _GIT_ENV = {
+    **FORCED_ENV,
     "GIT_AUTHOR_NAME": "design",
     "GIT_AUTHOR_EMAIL": "design@example.invalid",
     "GIT_COMMITTER_NAME": "design",
     "GIT_COMMITTER_EMAIL": "design@example.invalid",
     "GIT_AUTHOR_DATE": "2026-01-01T00:00:00Z",
     "GIT_COMMITTER_DATE": "2026-01-01T00:00:00Z",
-    "GIT_CONFIG_GLOBAL": os.devnull,
-    "GIT_CONFIG_NOSYSTEM": "1",
-    "GIT_ATTR_NOSYSTEM": "1",
     "GIT_ATTR_SOURCE": _EMPTY_TREE,
-    "GIT_TERMINAL_PROMPT": "0",
 }
-#: Overrides on every command: hooks off, no signing, the file-system monitor off (a program a
-#: repository can name), and a repository's own attributes file off.
-_GIT_FLAGS = (
-    "-c", f"core.hooksPath={os.devnull}",
-    "-c", "commit.gpgsign=false",
-    "-c", "core.fsmonitor=false",
-    "-c", "core.attributesFile=/dev/null",
-)  # fmt: skip
+_GIT_FLAGS = FORCED_FLAGS
 
 
 @dataclass(frozen=True)
@@ -93,8 +96,13 @@ class Materialised:
 
 
 def _git(worktree: Path, *args: str) -> str:
+    """Run the harness's one git binary (never a lookup on ``PATH``) in ``worktree``.
+
+    Raises:
+        GitError: no git at 2.42 or later is found.
+    """
     done = subprocess.run(
-        ["git", *_GIT_FLAGS, *args],
+        [harness_git().path, attr_source(), *_GIT_FLAGS, *args],
         cwd=worktree,
         env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.devnull, **_GIT_ENV},
         capture_output=True,

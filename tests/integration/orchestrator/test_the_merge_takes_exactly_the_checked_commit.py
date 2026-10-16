@@ -23,7 +23,7 @@ from git_rig import (
 from physgate.orchestrator.escalation import bind
 from physgate.orchestrator.events import GateRan, Incident, Merged, Resumed, read_events
 from physgate.orchestrator.exceptions import GitError, MergeConflictError, MergeRefusedError
-from physgate.orchestrator.git import head_of
+from physgate.orchestrator.git import GitDir, head_of
 from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.merge import (
     GitMerger,
@@ -48,7 +48,7 @@ def attempt_with(run: RunGit, subtask: str, files: dict[str, str | None]) -> tup
         else:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content)
-    return base, commit_attempt(worktree, subtask, 1, "sess-1")
+    return base, commit_attempt(worktree, subtask, 1, "sess-1", repo=run.repo)
 
 
 def test_changes_inside_the_module_and_proposals_are_in_scope(tmp_path: Path) -> None:
@@ -97,7 +97,7 @@ def test_a_symbolic_link_is_out_of_scope_even_inside_the_module(tmp_path: Path) 
     worktree = run.open_subtask("s1")
     base = head_of(worktree, "HEAD")
     os.symlink("../../README.md", worktree / "modules" / "power" / "link.md")
-    commit = commit_attempt(worktree, "s1", 1, "sess-1")
+    commit = commit_attempt(worktree, "s1", 1, "sess-1", repo=run.repo)
     found = write_scope_violations(run.repo, base, commit, "modules/power")
     assert found == ["modules/power/link.md (not a regular file)"]
 
@@ -269,7 +269,7 @@ def test_a_branch_moved_after_the_check_halts_the_run_as_an_incident(tmp_path: P
         def merge(self, subtask_id: str, attempt: int, attempt_commit: str, message: str) -> str:
             worktree = run.subtask_worktree(subtask_id)
             (worktree / "modules" / "power" / "late.py").write_text("late\n")
-            commit_attempt(worktree, subtask_id, attempt, "late")
+            commit_attempt(worktree, subtask_id, attempt, "late", repo=run.repo)
             return super().merge(subtask_id, attempt, attempt_commit, message)
 
     before = head_of(run.repo, run.run_branch)
@@ -308,7 +308,7 @@ def test_asking_again_after_later_merges_returns_the_original_merge(tmp_path: Pa
     )
     worktree = run.open_subtask("s2")
     (worktree / "modules" / "control" / "b.py").write_text("b\n")
-    two = commit_attempt(worktree, "s2", 1, "sess-2")
+    two = commit_attempt(worktree, "s2", 1, "sess-2", repo=run.repo)
     later = GitMerger(run, removal_timeout_s=60.0).merge(
         "s2", 1, two, merge_message("s2", 1, two, "pass", "pass")
     )
@@ -346,14 +346,20 @@ def test_a_removal_past_its_bound_is_recorded_and_left(
     run = run_layout(tmp_path)
     attempt_with(run, "s1", {"modules/power/a.py": "a\n"})
     asked: list[float] = []
+    pinned: list[GitDir | None] = []
 
-    def slow(cwd: Path, *args: str, timeout: float) -> tuple[int | None, str, float]:
+    def slow(
+        cwd: Path, *args: str, timeout: float, git_dir: GitDir | None = None
+    ) -> tuple[int | None, str, float]:
         asked.append(timeout)
+        pinned.append(git_dir)
         return None, "", timeout  # what git_timed returns when the bound passes
 
     monkeypatch.setattr(merge_module, "git_timed", slow)
     late = GitMerger(run, removal_timeout_s=2.5).remove_worktree("s1")
     assert (late.outcome, late.seconds, asked) == ("timed_out", 2.5, [2.5])
+    # The removal runs pinned to the repository's own git directory, as every merge-path call.
+    assert [p.path if p else None for p in pinned] == [(run.repo / ".git").resolve()]
     assert late.detail == "no answer within 2.5 s"
 
 

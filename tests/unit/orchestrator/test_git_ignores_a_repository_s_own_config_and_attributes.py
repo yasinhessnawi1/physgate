@@ -7,9 +7,11 @@ against a clean object store, and every command runs with attributes, the file-s
 hooks and submodule recursion off.
 
 These tests use only inert markers: a repository-local setting or attribute whose sole effect is
-visible in git's own output (an abbreviation length, a diff prefix, a diff driver that only
-changes how a path is listed, a gitlink that must stay a gitlink). None runs a program. The test
-asserts the harness's read does not change, so the repository's configuration was not consulted.
+visible in git's own output (an abbreviation length, a diff prefix, a diff order file, a diff
+driver that only changes how a path is listed, a gitlink that must stay a gitlink). None runs a
+program. The test asserts the harness's read does not change, so the repository's configuration
+was not consulted. A linked worktree, whose git directory holds no objects of its own, is read
+through the same store.
 """
 
 from __future__ import annotations
@@ -72,6 +74,46 @@ def test_a_local_abbrev_and_diff_prefix_do_not_change_what_the_harness_reads(
     assert changes_between(repo, base, commit) == clean_changes
     # The reader shows full hashes and the a/ b/ prefixes, not the local settings' output.
     assert "a/m.py" in clean_diff and "b/m.py" in clean_diff
+
+
+def test_a_local_diff_order_file_does_not_change_the_listed_changes(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "run")
+    for content in ("one\n", "two\n"):
+        (repo / "a.txt").write_text(content)
+        (repo / "b.txt").write_text(content)
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-q", "-m", content.strip())
+    base, commit = _git(repo, "rev-parse", "HEAD~1"), _git(repo, "rev-parse", "HEAD")
+    assert [c.path for c in changes_between(repo, base, commit)] == ["a.txt", "b.txt"]
+    # An inert local setting: a file of path patterns that reorders git diff's output and does
+    # nothing else. ``changes_between`` lists in git's order, so a read inside the repository
+    # would list b.txt first.
+    order = tmp_path / "order"
+    order.write_text("b.txt\na.txt\n")
+    _git(repo, "config", "diff.orderFile", str(order))
+    raw = _git(repo, "diff", "--raw", "-z", "--no-renames", "--no-abbrev", base, commit)
+    assert raw.split("\0")[1] == "b.txt"  # the control: git honours it inside the repository
+    assert [c.path for c in changes_between(repo, base, commit)] == ["a.txt", "b.txt"]
+
+
+def test_a_linked_worktree_s_change_is_read_through_the_common_object_store(
+    tmp_path: Path,
+) -> None:
+    repo, base, _ = _two_commit_repo(tmp_path)
+    linked = tmp_path / "linked"
+    _git(repo, "worktree", "add", "-q", "-b", "attempt", str(linked), base)
+    # A linked worktree's git directory holds no objects: its ``commondir`` names the
+    # repository's, which the clean store must reach.
+    assert (linked / ".git").is_file()
+    (linked / "m.py").write_text("three\n")
+    _git(linked, "add", "-A")
+    _git(linked, "commit", "-q", "-m", "attempt")
+    commit = _git(linked, "rev-parse", "HEAD")
+    diff = diff_text(linked, base, commit)
+    assert "-one" in diff and "+three" in diff
+    assert [(c.status, c.path) for c in changes_between(linked, base, commit)] == [("M", "m.py")]
 
 
 def test_a_committed_gitattributes_driver_does_not_change_what_the_harness_reads(

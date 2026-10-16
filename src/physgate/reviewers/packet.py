@@ -61,7 +61,18 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from physgate.knowledge import loader
 from physgate.knowledge.library import LibraryError, read_library
-from physgate.orchestrator.exceptions import TrajectoryTamperedError
+from physgate.orchestrator.exceptions import GitError, TrajectoryTamperedError
+from physgate.orchestrator.git import (
+    EMPTY_TREES,
+    FORCED_ENV,
+    FORCED_FLAGS,
+    GitDir,
+    attr_source,
+    harness_git,
+    object_dirs,
+    object_format,
+    verified_git_dir,
+)
 from physgate.orchestrator.protocols import Artefact, IssuedSpec
 from physgate.orchestrator.trajectory import Seal, read_sealed
 from physgate.reviewers.exceptions import ReviewError
@@ -150,82 +161,56 @@ def _digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-#: Git as the packet runs it: replacement objects ignored, no system or user
-#: configuration, no attributes file. An attempt's session can add a replacement
-#: object, which would change what a commit is shown to hold, or commit an
-#: attribute file, which would hide or rewrite a file in an archive or a diff.
-_GIT_ENV = {
-    "PATH": "/usr/bin:/bin",
-    "HOME": "/dev/null",
-    "GIT_NO_REPLACE_OBJECTS": "1",
-    "GIT_CONFIG_NOSYSTEM": "1",
-    "GIT_CONFIG_GLOBAL": "/dev/null",
-    "GIT_ATTR_NOSYSTEM": "1",
-}
-_GIT_FLAGS = (
-    "-c",
-    "core.attributesFile=/dev/null",
-    "-c",
-    "core.fsmonitor=false",
-    "-c",
-    "core.hooksPath=/dev/null",
-    "-c",
-    "core.quotePath=false",
-)
+#: Git as the packet runs it: the harness's one git binary (``harness_git``, never a
+#: lookup on ``PATH``), with the forced core every harness git runs with (``FORCED_ENV`` and
+#: ``FORCED_FLAGS``: replacement objects ignored, no system or user configuration, no
+#: attributes file, no hooks, no file-system monitor, no shallow, graft or commit-graph file),
+#: and attributes taken from the empty tree of the store's object format (``--attr-source``
+#: and ``GIT_ATTR_SOURCE``). An attempt's session can add a replacement object, which would
+#: change what a commit is shown to hold, commit an attribute file, which would hide or
+#: rewrite a file in an archive or a diff, or leave a commit graph in an object directory the
+#: store reaches, whose stored root trees would change the diff the reviewer reads.
+_GIT_ENV = {"PATH": "/usr/bin:/bin", "HOME": "/dev/null", **FORCED_ENV}
+_GIT_FLAGS = (*FORCED_FLAGS, "-c", "core.quotePath=false")
 
 
-def _git_dir(repo: Path) -> Path:
-    """The repository's git directory, resolved from the filesystem without running git.
+def _git_dir(repo: Path) -> GitDir:
+    """The repository's git directory, resolved and verified from the filesystem without git.
 
     A normal repository keeps it at ``.git``; a ``git worktree`` checkout keeps a ``.git``
-    file naming it. Read as bytes on disk, so no configuration, hook or program is consulted.
+    file naming its admin directory, whose ``commondir`` names the directory its objects and
+    config are read from. The packet reads through that ``commondir`` (the object store, the
+    object format), so it is held to the harness's own check first (``verified_git_dir``): a
+    pointer whose admin directory's ``gitdir`` does not point back at it, or whose
+    ``commondir`` names any directory but the one the admin directory sits in, a ``.git`` that
+    is a link, or a repository's own git directory that names a ``commondir``, is refused.
+    What is returned carries the common directory the check confirmed, and every reader takes
+    it from there, never reading ``commondir`` again. The check reads bytes on disk, so no
+    configuration, hook or program is consulted.
     """
-    dot = Path(repo) / ".git"
-    if dot.is_dir():
-        return dot
-    if dot.is_file():
-        pointer = dot.read_text().strip()
-        if pointer.startswith("gitdir:"):
-            named = Path(pointer.removeprefix("gitdir:").strip())
-            return named if named.is_absolute() else (Path(repo) / named).resolve()
-    msg = "the attempt's repository has no git directory"
-    raise PacketError(msg, repo=str(repo))
+    try:
+        return verified_git_dir(Path(repo), linked=False)
+    except GitError as exc:
+        msg = f"the attempt's repository has no git directory the review can verify: {exc}"
+        raise PacketError(msg, **{**exc.context, "repo": str(repo)}) from None
 
 
-def _object_dirs(repo: Path) -> list[str]:
-    """Every object directory the attempt's commits are read from, resolved from the filesystem.
+def _place(repo: Path | GitDir) -> GitDir:
+    """``repo`` verified, unless it already is: one check per sequence of reads."""
+    return repo if isinstance(repo, GitDir) else _git_dir(repo)
 
-    A worktree's objects live in the repository's common directory; a repository may name
-    further object directories in ``objects/info/alternates``. Each is a store of
-    content-addressed objects: naming one grants only read access to objects a commit already
-    pins, never a way to change what a commit holds, and never anything git would run.
+
+def _object_dirs(where: GitDir) -> list[str]:
+    """Every object directory the attempt's commits are read from (``git.object_dirs``).
+
+    Each is a store of content-addressed objects: naming one grants only read access to objects
+    a commit already pins, never a way to change what a commit holds, and never anything git
+    would run. Alternates are followed by the store's own git, as git reads them.
     """
-    git_dir = _git_dir(repo)
-    roots = [git_dir]
-    commondir = git_dir / "commondir"
-    if commondir.is_file():
-        named = Path(commondir.read_text().strip())
-        roots.append(named if named.is_absolute() else (git_dir / named).resolve())
-    found: list[str] = []
-    seen: set[str] = set()
-    pending = [root / "objects" for root in roots]
-    while pending:
-        objects = pending.pop(0)
-        resolved = str(objects.resolve())
-        if resolved in seen or not objects.is_dir():
-            continue
-        seen.add(resolved)
-        found.append(resolved)
-        alternates = objects / "info" / "alternates"
-        if alternates.is_file():
-            for line in alternates.read_text().splitlines():
-                entry = line.strip()
-                if entry and not entry.startswith("#"):
-                    pending.append(Path(entry))
-    if not found:
-        msg = "the attempt's repository holds no object store"
-        raise PacketError(msg, repo=str(repo))
-    return found
+    try:
+        return list(object_dirs(where))
+    except GitError as exc:
+        raise PacketError(str(exc), **{**exc.context, "repo": str(where.path)}) from None
 
 
 _STORES: list[str] = []
@@ -237,8 +222,23 @@ def _remove_stores() -> None:
         shutil.rmtree(store, ignore_errors=True)
 
 
+def _object_format(where: GitDir) -> str:
+    """The hash the attempt's repository names its objects with, as git decides it.
+
+    The store must use the same one: a store of the other format cannot read a single object
+    through its alternates. Read by the harness's one reader (``git.object_format``): git's own
+    config parser run outside the repository on its config file, with git's rules for which
+    format versions honour the setting, so no git command runs inside the attempt's repository.
+    """
+    try:
+        return object_format(where)
+    except GitError as exc:
+        msg = "the attempt's object format cannot be read, or the review's store cannot use it"
+        raise PacketError(msg, **{**exc.context, "repo": str(where.path)}) from None
+
+
 @functools.cache
-def _object_store(object_dirs: tuple[str, ...]) -> str:
+def _object_store(object_dirs: tuple[str, ...], object_format: str) -> str:
     """A throwaway bare git directory that reaches ``object_dirs`` and holds nothing else.
 
     Every packet git command runs against this, never with its working directory inside the
@@ -247,16 +247,17 @@ def _object_store(object_dirs: tuple[str, ...]) -> str:
     The store reaches the attempt's objects through ``alternates`` (read-only), carries a clean
     configuration, and has no working tree and no submodules, so a committed submodule is shown
     as its gitlink rather than recursed into — which is where the local configuration otherwise
-    runs a program.
+    runs a program. It is created with the attempt's ``object_format``.
     """
     store = tempfile.mkdtemp(prefix="physgate-review-store-")
     _STORES.append(store)
     done = subprocess.run(
-        ["git", *_GIT_FLAGS, "init", "-q", "--bare", store],
+        [_git_path(), attr_source(object_format), *_GIT_FLAGS, "init", "-q", "--bare",
+         f"--object-format={object_format}", store],
         capture_output=True,
         check=False,
-        env=_GIT_ENV,
-    )
+        env={**_GIT_ENV, "GIT_ATTR_SOURCE": EMPTY_TREES[object_format]},
+    )  # fmt: skip
     if done.returncode != 0:
         msg = "git could not prepare the object store the review reads"
         raise PacketError(msg, stderr=done.stderr.decode()[-300:])
@@ -264,14 +265,28 @@ def _object_store(object_dirs: tuple[str, ...]) -> str:
     return store
 
 
-def _git_bytes(repo: Path, *args: str) -> bytes:
-    store = _object_store(tuple(_object_dirs(Path(repo))))
+def _git_path() -> str:
+    """The harness's git binary, by absolute path.
+
+    Raises:
+        PacketError: no git at 2.42 or later is found.
+    """
+    try:
+        return harness_git().path
+    except GitError as exc:
+        raise PacketError(str(exc), **exc.context) from None
+
+
+def _git_bytes(repo: Path | GitDir, *args: str) -> bytes:
+    where = _place(repo)
+    object_format = _object_format(where)
+    store = _object_store(tuple(_object_dirs(where)), object_format)
     done = subprocess.run(
-        ["git", "--git-dir", store, *_GIT_FLAGS, *args],
+        [_git_path(), attr_source(object_format), "--git-dir", store, *_GIT_FLAGS, *args],
         cwd=store,
         capture_output=True,
         check=False,
-        env=_GIT_ENV,
+        env={**_GIT_ENV, "GIT_ATTR_SOURCE": EMPTY_TREES[object_format]},
     )
     if done.returncode != 0:
         msg = "git could not produce what the review is shown"
@@ -288,7 +303,7 @@ def issued_spec_sha256(repo: Path, commit: str, path: str) -> str:
     Raises:
         PacketError: git cannot read it.
     """
-    return _digest(_git_bytes(Path(repo), "cat-file", "blob", f"{commit}:{path}"))
+    return _digest(_git_bytes(_git_dir(Path(repo)), "cat-file", "blob", f"{commit}:{path}"))
 
 
 def _sealed(artefact: Artefact) -> list[tuple[str, bytes, Seal]]:
@@ -420,7 +435,7 @@ def _write_parts(read: Path, parts: list[tuple[str, bytes]]) -> tuple[Part, ...]
     return tuple(written)
 
 
-def _export(repo: Path, commit: str, into: Path) -> int:
+def _export(repo: Path | GitDir, commit: str, into: Path) -> int:
     """Write ``commit``'s files under ``into``, from git's objects, no attribute applied.
 
     Not ``git archive``, which honours an attribute file committed in the tree: one
@@ -432,6 +447,7 @@ def _export(repo: Path, commit: str, into: Path) -> int:
     Raises:
         PacketError: git cannot list or read the tree, or a path leaves the export.
     """
+    repo = _place(repo)
     listing = _git_bytes(repo, "ls-tree", "-r", "-z", "--full-tree", commit)
     entries = []
     for entry in listing.split(b"\0"):
@@ -504,7 +520,7 @@ def _refuse_merging_paths(paths: list[str]) -> None:
         raise PacketError(msg, first=spelling[clash], second=f"{spelling[clash]}/")
 
 
-def _diff(repo: Path, base: str, commit: str) -> bytes:
+def _diff(repo: Path | GitDir, base: str, commit: str) -> bytes:
     """The change from ``base`` to ``commit``, every file as text, no driver or filter applied."""
     return _git_bytes(
         repo,
@@ -554,8 +570,10 @@ def build_packet(
     read.mkdir(parents=True)
     transcript, indicators, nonces = _rendered(artefact, sessions)
     transcript_parts = _write_parts(read, split_parts(transcript, TRANSCRIPT_PART))
-    files = _export(Path(repo), artefact.attempt_commit, read / WORKTREE_NAME)
-    diff = _diff(Path(repo), base_commit, artefact.attempt_commit)
+    # Verified once, and every read below goes through the directory that check confirmed.
+    where = _git_dir(Path(repo))
+    files = _export(where, artefact.attempt_commit, read / WORKTREE_NAME)
+    diff = _diff(where, base_commit, artefact.attempt_commit)
     diff_parts = _write_parts(read, split_parts(diff, DIFF_PART))
     reading = [
         *(read / part.name for part in transcript_parts),
@@ -564,7 +582,7 @@ def build_packet(
     ]
     issued_digest = None
     if spec is not None:
-        issued = _git_bytes(Path(repo), "cat-file", "blob", f"{spec.commit}:{spec.path}")
+        issued = _git_bytes(where, "cat-file", "blob", f"{spec.commit}:{spec.path}")
         if _digest(issued) != spec.sha256:
             msg = "the issued specification is not the one recorded before dispatch"
             raise PacketError(msg, path=spec.path, recorded=spec.sha256, found=_digest(issued))

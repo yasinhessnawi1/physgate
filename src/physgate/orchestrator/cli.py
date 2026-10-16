@@ -55,7 +55,7 @@ from physgate.orchestrator.exceptions import (
     RunStateError,
 )
 from physgate.orchestrator.gate_events import GateEvent, gate_events, recorded_gate_events
-from physgate.orchestrator.git import head_of
+from physgate.orchestrator.git import harness_git, head_of
 from physgate.orchestrator.install import (
     manifest_entries,
     prepare_install,
@@ -296,6 +296,9 @@ def _fail(message: str, **context: str) -> int:
 
 def _config(args: argparse.Namespace) -> RunConfig:
     params = json.loads(args.params.read_text())
+    # The git every harness git command will run, first: below 2.42 git ignores the attribute
+    # source the harness sets, and the run is refused here. Measured, never chosen.
+    found_git = harness_git()
     # Measured, never chosen: a parameters file that names the harness is overruled.
     harness = harness_state(_harness_root())
     require_reportable(harness, reportable=params.get("reportable") is True)
@@ -316,6 +319,7 @@ def _config(args: argparse.Namespace) -> RunConfig:
         "claude_version": binary_version(),
         "endpoint": endpoint_of(os.environ.get("ANTHROPIC_BASE_URL")),
         "harness": harness.model_dump(),
+        "git_binary": found_git.model_dump(),
     }
     if isinstance(fields.get("role_python"), RolePython):
         fields["role_python"] = fields["role_python"].model_dump()
@@ -458,6 +462,10 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
         escalation = escalation_for(config)
         # The same provider, or the run's numbers would mean something else.
         require_endpoint(config, os.environ.get("ANTHROPIC_BASE_URL"))
+        # A git at 2.42 or later, before the first guard that runs git: the floor alone. The
+        # recorded binary is not held to; a run or resume uses whichever git this process
+        # resolves.
+        harness_git()
         # The same code: a run continued on other code is two runs under one name.
         require_harness(config, harness_state(_harness_root()))
         if not (run_dir / "events.jsonl").exists():

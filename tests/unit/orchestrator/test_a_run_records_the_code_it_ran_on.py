@@ -9,7 +9,9 @@ reportable refuses to start from a dirty tree or from no checkout at all.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -68,6 +70,46 @@ def test_an_edited_file_and_an_untracked_file_each_make_the_tree_dirty(tmp_path:
     assert not added.clean and added.uncommitted_sha256 not in (None, edited.uncommitted_sha256)
     (root / "new.py").write_text("y = 2\n")  # the untracked file's content is in the digest
     assert harness_state(root).uncommitted_sha256 != added.uncommitted_sha256
+
+
+def _dirty(root: Path) -> None:
+    """An edit to a tracked file, and a binary one: what the digest's patch holds."""
+    (root / "a.py").write_text("x = 2\n")
+    (root / "b.bin").write_bytes(b"\0\1\2")
+    subprocess.run(["git", "add", "b.bin"], cwd=root, check=True)
+    (root / "b.bin").write_bytes(b"\0\1\3")
+
+
+def test_a_dirty_checkout_s_digest_is_of_git_s_default_patch(tmp_path: Path) -> None:
+    # Digests recorded before the patch was read with explicit flags stay valid: on a checkout
+    # that sets nothing, the digest is still that of the patch plain git writes.
+    root = checkout(tmp_path / "h")
+    _dirty(root)
+    plain = subprocess.run(
+        ["git", "-c", "core.attributesFile=/dev/null", "diff", "--binary", "HEAD"],
+        cwd=root,
+        env={"PATH": "/usr/bin:/bin", "HOME": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
+             "GIT_CONFIG_GLOBAL": os.devnull},
+        capture_output=True,
+        check=True,
+    ).stdout  # fmt: skip
+    assert plain.startswith(b"diff --git a/a.py b/a.py")
+    assert harness_state(root).uncommitted_sha256 == hashlib.sha256(plain).hexdigest()
+
+
+def test_the_checkout_s_own_diff_settings_do_not_change_its_digest(tmp_path: Path) -> None:
+    root = checkout(tmp_path / "h")
+    _dirty(root)
+    before = harness_state(root)
+    # Inert local settings, visible only in the patch git writes: no path prefixes, mnemonic
+    # prefixes, and colour codes even into a pipe.
+    for key, value in (
+        ("diff.noprefix", "true"),
+        ("diff.mnemonicPrefix", "true"),
+        ("color.ui", "always"),
+    ):
+        subprocess.run(["git", "config", key, value], cwd=root, check=True)
+    assert harness_state(root) == before
 
 
 def test_no_checkout_is_recorded_as_none_and_not_clean(tmp_path: Path) -> None:
