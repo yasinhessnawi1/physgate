@@ -6,6 +6,8 @@ Run as a script, never collected as a test, and never without saying which kind:
     python real_domain_reviewers.py preflight --real --criteria <stamp> --out <dir>
     python real_domain_reviewers.py reviews --dry-run --criteria <stamp> --out <dir>
     python real_domain_reviewers.py reviews --real --criteria <stamp> --out <dir>
+    python real_domain_reviewers.py reviews --real --criteria <stamp> --out <dir> \
+        --only e-consistent,m-consistent,m-attempt
 
 **The pre-flight.** One short session per schema a review below is offered, four in all: each
 role, once for a revision issued with no specification and once for an attempt whose issued
@@ -31,6 +33,9 @@ Each review is retried once for an infrastructure cause, as the loop's review is
 outcome is recorded as it ended. A review with no verdict is ``review_unavailable``, never an
 accept or a reject. Every review and its tokens go to this run's own event log. Its cost is
 priced at the dated sheet, as a list-price estimate.
+
+**A re-run** of some of the reviews names them with ``--only``; the run's first line records
+which, and nothing else is made or reviewed.
 
 **What is reported, and what is not.** Each artefact's verdict is set beside the verdict its
 author expected (``EXPECTED``), and the run says which verdict forms it observed. It claims
@@ -66,6 +71,7 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
 import domain_review_artefacts as artefacts  # noqa: E402
+from record_scan import INSTALL_DIRNAME  # noqa: E402
 from record_scan import scan as record_scan  # noqa: E402
 from scripted_endpoint import DUMMY_OAUTH_TOKEN, Script, serving, text, tool  # noqa: E402
 
@@ -325,17 +331,37 @@ def attempt_artefact(artefact_id: str, place: Path) -> Artefact:
     )
 
 
-def all_artefacts(root: Path) -> list[tuple[str, Artefact]]:
-    """Every artefact, made, in a fixed order: the revisions, then the attempts."""
+def selected(only: str | None) -> tuple[str, ...]:
+    """The artefacts to review, in the driver's order: every one, or those ``only`` names.
+
+    ``only`` is a comma-separated list of artefact ids.
+
+    Raises:
+        ValueError: ``only`` is empty, or names an artefact twice or one the driver lacks.
+    """
+    every = (*artefacts.REVISIONS, *artefacts.ATTEMPTS)
+    if only is None:
+        return every
+    names = only.split(",")
+    unknown = [n for n in names if n not in every]
+    if not only or unknown or len(set(names)) != len(names):
+        msg = f"a re-run names each review it runs once, from {', '.join(every)}: {only!r}"
+        raise ValueError(msg)
+    return tuple(aid for aid in every if aid in names)
+
+
+def all_artefacts(root: Path, only: tuple[str, ...] | None = None) -> list[tuple[str, Artefact]]:
+    """Every artefact, or those in ``only``, made in a fixed order: revisions, then attempts."""
+    chosen = selected(None) if only is None else only
     made = []
     for artefact_id in artefacts.REVISIONS:
-        made.append(
-            (artefact_id, revision_artefact(artefact_id, root / "made" / review_id(artefact_id)))
-        )
+        if artefact_id in chosen:
+            place = root / "made" / review_id(artefact_id)
+            made.append((artefact_id, revision_artefact(artefact_id, place)))
     for artefact_id in artefacts.ATTEMPTS:
-        made.append(
-            (artefact_id, attempt_artefact(artefact_id, root / "made" / review_id(artefact_id)))
-        )
+        if artefact_id in chosen:
+            place = root / "made" / review_id(artefact_id)
+            made.append((artefact_id, attempt_artefact(artefact_id, place)))
     return made
 
 
@@ -513,11 +539,16 @@ def _total(result: ReviewResult) -> Usage:
     return total
 
 
-def reviews(root: Path, credential: Credential, base_url: str | None) -> dict[str, Any]:
-    """Review every artefact once, each retried once for an infrastructure cause."""
-    install = root / "install"
+def reviews(
+    root: Path,
+    credential: Credential,
+    base_url: str | None,
+    only: tuple[str, ...] | None = None,
+) -> dict[str, Any]:
+    """Review every artefact, or those in ``only``, once each, retried once for infrastructure."""
+    install = root / INSTALL_DIRNAME
     prepare_install(install, REPO_ROOT)
-    made = all_artefacts(root)
+    made = all_artefacts(root, only)
     review_root = require_review_root(root / REVIEW_DIRNAME)
     binary = claude_binary()
     setup = ReviewerSetup(
@@ -688,7 +719,14 @@ def main() -> None:
     parser.add_argument("--criteria", type=Path, required=True, help="the criteria stamped first")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--env-file", type=Path, default=Path.home() / "dev" / "physgate" / ".env")
+    parser.add_argument(
+        "--only", help="reviews only these artefacts, comma-separated ids (default: all six)"
+    )
     args = parser.parse_args()
+    try:
+        only = selected(args.only)
+    except ValueError as exc:
+        parser.error(str(exc))
     root = args.out.resolve()
     require_review_root(root / REVIEW_DIRNAME)  # before anything exists or runs
     root.mkdir(parents=True)
@@ -713,6 +751,7 @@ def main() -> None:
         "promoted_rubrics": promoted_rubrics(),
         "reviewer": REVIEWER,
         "bounds": BOUNDS.model_dump(mode="json"),
+        "only": list(only),
         "started_utc": utc(),
     }
     print(json.dumps(stamp), flush=True)
@@ -736,11 +775,11 @@ def main() -> None:
         with serving(Script(main=[])) as (api, url):
             scripted_reviews(api, verdicts)
             os.environ["ANTHROPIC_BASE_URL"] = url
-            result = {"reviews": reviews(root, credential, url)}
+            result = {"reviews": reviews(root, credential, url, only)}
             result["endpoint_failures"] = list(api.failures)
             result["endpoint_requests"] = len(api.requests)
     else:
-        result = {"reviews": reviews(root, credential, None)}
+        result = {"reviews": reviews(root, credential, None, only)}
     result["finished_utc"] = utc()
     result["scan"] = record_scan(root, token)
     (root / "result.json").write_text(json.dumps({**stamp, **result}, indent=1, sort_keys=True))

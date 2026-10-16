@@ -26,7 +26,10 @@ out items the rubrics require (thermal quantities and a junction-temperature mar
 budget, a static-weight case, a material record with its test temperature and settings), and
 that some of those need inputs the given designs do not hold (an ambient temperature, a named
 cell, the motor's mass). So ``accept`` is out of reach for them, and their expectation says so
-rather than claim an accept.
+rather than claim an accept. The electrical one is expected ``blocked`` (second criteria
+stamp): every record it leaves out needs such an input, and the rubric blocks on a missing
+input. The mechanical one is expected ``reject``: the allowable it writes is a typical value
+with no test behind it.
 
 **The numbers and their sources.**
 
@@ -487,12 +490,16 @@ ATTEMPTS: dict[str, tuple[str, str, dict[str, Any], str]] = {
 #: What each artefact is expected to draw: the verdict, the rubric items that must carry a
 #: twin's rejection (any one of them), and why. Never shown to a reviewer.
 EXPECTED: dict[str, tuple[str, tuple[str, ...], str]] = {
+    # Was "reject" under the first criteria stamp. The thermal records it leaves out (ES-19,
+    # ES-35, ES-21) need inputs the given design lacks altogether: an ambient (ES-20), the
+    # driver's on-resistance and thermal data, the cell (ES-10). The rubric blocks on a missing
+    # input rather than charging the record to the revision, so it is "blocked".
     "e-consistent": (
-        "reject",
+        "blocked",
         (),
-        "not accept: no dissipation or thermal-resistance records and no power or temperature "
-        "ratio (ES-19, ES-35, ES-21); the battery's missing ratings land under Given values; "
-        "blocking defects ride along (ES-20 ambient, ES-10 cell); reject wins",
+        "not accept: the thermal records and the power and temperature ratios need an ambient, "
+        "the driver's on-resistance and thermal data and a named cell, none of them in the "
+        "given design, so those sub-checks block; no rejecting finding",
     ),
     "e-with-error": (
         "reject",
