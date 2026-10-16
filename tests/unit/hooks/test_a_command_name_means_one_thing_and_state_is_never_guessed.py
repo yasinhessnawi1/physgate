@@ -25,7 +25,7 @@ from pathlib import Path
 import pytest
 from hook_helpers import bash
 
-from physgate.hooks import shell
+from physgate.hooks import git_ops, shell
 from physgate.hooks import shell_paths as sp
 from physgate.hooks.config import HookInput, SessionConfig
 from physgate.hooks.settings import InstallRequest, build_config, current_installation
@@ -181,3 +181,9 @@ def test_after_a_sourced_file_a_cd_through_a_variable_is_not_guessed(
     config: SessionConfig, command: str, told: str
 ) -> None:
     assert _decide(config, command) == sp.CD_UNKNOWN.format(what=told)
+
+
+@pytest.mark.parametrize("word", ["git", "/usr/bin/git", "GIT", "Git", "\\git", "g''it", "=git"])
+def test_a_role_runs_no_git_however_git_is_spelt(config: SessionConfig, word: str) -> None:
+    hook_input = HookInput.model_validate(bash(f"{word} status", cwd=config.worktree))
+    assert not git_ops.pre_tool_use(hook_input, config).allow
