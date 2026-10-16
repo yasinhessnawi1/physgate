@@ -53,10 +53,25 @@ The call's working directory is the hook's input, not the agent's command: one
 that is not an absolute path is refused, since no relative word could be
 resolved against it.
 
-A word built from a value known only at run time (a command substitution,
-``read``, a variable neither inherited nor assigned a literal), cannot be known
-before it runs, nor can the directory after ``cd $(…)``; those are left to the
-sentinel, for the roots it puts back.
+What a command's own text decides is resolved or refused, never skipped: a quoted
+``$`` is a literal character, a word whose written prefix is already inside a root
+is judged by that prefix, a variable that could hold too many values is refused,
+``eval``'s line runs where it stands, ``chdir`` is ``cd``, ``$"…"`` is its string,
+``~N`` is a directory the call has been in, a ``~name`` that names no user is
+refused, and a script read from ``/dev/stdin`` is parsed.
+
+What is left, because only running the command decides it, is the residual. It is
+left to the sentinel for the roots it puts back, and reaches a root watched
+``none``; an OS write allowlist is the proposed closing layer:
+
+- a value known only at run time: a command substitution, ``read``, ``$$``,
+  ``${x:-…}`` and the other parameter forms, arrays, namerefs, positional
+  parameters and ``IFS``, a variable neither inherited nor assigned a literal;
+- the directory after ``cd $(…)`` or ``cd "$(pwd)/…"``;
+- a script a shell reads by another route: piped in (``… | sh``), run through
+  ``xargs``, or a file given to ``source``;
+- a path a program builds from its input (``python -``, ``node``, ``awk``,
+  ``sqlite3``).
 """
 
 from __future__ import annotations
@@ -116,13 +131,23 @@ CWD_UNBOUNDED = (
     "Split it into separate calls."
 )
 #: The most directories a command is checked from, after the ``cd`` commands in it.
-CWD_LIMIT = 64
+CWD_LIMIT = 1024
 #: The most words one word is checked as, after the variables the call assigns.
-VARIABLE_LIMIT = 64
+VARIABLE_LIMIT = 1024
 CD_UNKNOWN = (
     "This command changes directory through {what}, which this call sets to a value known "
     "only when it runs, so where it lands cannot be known and it is refused. Set it to a "
     "literal value, or change directory by an explicit path."
+)
+VARIABLE_UNBOUNDED = (
+    "This command uses {word}, whose variables could hold so many values that it becomes "
+    "more than {limit} words, too many to check each one, so it is refused. Split the work "
+    "into smaller loops or calls."
+)
+TILDE_UNKNOWN = (
+    "This command uses {word}, which names no user here; zsh reads it as a named directory "
+    "or a variable holding a path, which cannot be known before it runs, so it is refused. "
+    "Write the path out."
 )
 CD_OPTION = (
     "This command sets {what}, which makes a later cd go somewhere its words do not say, "
@@ -306,17 +331,22 @@ def _first_protected(
     for word, dynamic in words:
         if env is None:
             one = _expand(word, dynamic)
-            expansions = None if one is None else [one]
+            expansions = [] if one is None else [one]
         else:
             expansions = env.expand(word, dynamic, [cwd])
-        if expansions is None:
-            continue
-        for candidate in (c for e in expansions for c in _candidates(e, cwd)):
-            if _cannot_reach(candidate, cwd, names, cwd_protected):
-                continue
-            reason = protection(candidate, cwd, config, writing=not reading)
-            if reason is not None and not (mention and reason not in _NAMED_ANYWHERE):
-                return candidate, reason
+        readings = [(e, mention) for e in expansions]
+        if dynamic and "$" in word:
+            # The word as written: a quoted or escaped ``$`` is a literal character, and a
+            # word whose written prefix is already inside a root reaches it whatever the
+            # rest becomes. For a reader it is only a mention.
+            readings.append((word, mention or reading))
+        for expansion, only_named in readings:
+            for candidate in _candidates(expansion, cwd):
+                if _cannot_reach(candidate, cwd, names, cwd_protected):
+                    continue
+                reason = protection(candidate, cwd, config, writing=not reading)
+                if reason is not None and not (only_named and reason not in _NAMED_ANYWHERE):
+                    return candidate, reason
     return None
 
 
@@ -410,7 +440,7 @@ AMBIGUOUS_CD = (
 def _cd_target(cmd: SimpleCommand) -> tuple[str, bool] | None:
     """The word a ``cd`` or ``pushd`` moves to, with whether it is dynamic, if ``cmd`` is one."""
     argv = unwrap(cmd.argv)
-    if not argv or _name(argv[0]) not in ("cd", "pushd"):
+    if not argv or _name(argv[0]) not in _CHANGES_DIRECTORY:
         return None
     offset = len(cmd.argv) - len(argv)
     targets = [
@@ -434,9 +464,19 @@ def _ambiguous_cd(cmd: SimpleCommand, cwd: str) -> str | None:
 
 
 _ASSIGNERS = {"export", "declare", "typeset", "local", "readonly"}
+#: Commands that change the working directory: ``chdir`` is ``cd`` in zsh and dash.
+_CHANGES_DIRECTORY = ("cd", "chdir", "pushd")
 _READS_INTO = {"read", "mapfile", "readarray", "select"}
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _REFERENCE = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
+
+
+class _UnboundedError(Exception):
+    """A word could become more than :data:`VARIABLE_LIMIT` words."""
+
+
+class _UnknownTildeError(Exception):
+    """A ``~name`` that names no user, which zsh reads as a directory known only at run time."""
 
 
 class _Env:
@@ -445,77 +485,96 @@ class _Env:
     A variable the call never assigns is read from the hook's own environment, as the
     shell inherits it. One it assigns could hold the inherited value (the assignment may
     not run) or any literal value assigned; one assigned a value known only at run time
-    (a substitution, ``read``) is unknown. ``PWD`` is the directory being judged from;
-    ``OLDPWD`` is also every directory a ``cd`` left.
+    (a substitution, ``read``) is incomplete: its known values are still checked, the rest
+    is not known. One that could hold too many values to check is unbounded, and any word
+    that uses it is refused. ``PWD`` is the directory being judged from; ``OLDPWD`` is
+    also every directory a ``cd`` left.
     """
 
-    __slots__ = ("known", "unknown")
+    __slots__ = ("known", "unbounded", "unknown")
 
     def __init__(self) -> None:
         self.known: dict[str, set[str]] = {}
         self.unknown: set[str] = set()
+        self.unbounded: set[str] = set()
 
-    def values(self, name: str, cwds: list[str]) -> list[str] | None:
-        """Every value ``name`` could hold, or ``None`` if one of them cannot be known."""
+    def values(self, name: str, cwds: list[str]) -> tuple[list[str], bool]:
+        """Every known value ``name`` could hold, and whether those are all of them.
+
+        Raises:
+            _UnboundedError: it could hold more values than can be checked.
+        """
         if name == "PWD":
-            return cwds
-        if name in self.unknown:
-            return None
+            return cwds, True
+        if name in self.unbounded:
+            raise _UnboundedError(name)
         inherited = os.environ.get(name)
-        known = self.known.get(name, set())
-        if inherited is None and not known:
-            return None
-        return sorted(known | ({inherited} if inherited is not None else set()))
+        known = self.known.get(name, set()) | ({inherited} if inherited is not None else set())
+        complete = name not in self.unknown and (inherited is not None or name in self.known)
+        return sorted(known), complete
 
     def cd_values(self, name: str) -> list[str] | None:
-        """As :meth:`values` for a variable ``cd`` reads, where unset means unset: ``[]``."""
+        """As :meth:`values` for a variable ``cd`` reads, where unset means unset: ``[]``.
+
+        ``None`` if one of its values is known only at run time.
+        """
         if name in self.unknown:
             return None
+        if name in self.unbounded:
+            raise _UnboundedError(name)
         inherited = os.environ.get(name)
         return sorted(self.known.get(name, set()) | ({inherited} if inherited else set()))
 
-    def expand(self, word: str, dynamic: bool, cwds: list[str]) -> list[str] | None:
-        """Every word ``word`` could become, or ``None`` if a part of it cannot be known."""
+    def expand(self, word: str, dynamic: bool, cwds: list[str]) -> list[str]:
+        """Every word ``word`` could become, as far as its parts are known.
+
+        A part known only at run time (a substitution, ``$$``, ``${x:-y}``, a variable with
+        no known value) contributes nothing: what is returned is checked, the rest is the
+        residual. Raises :class:`_UnboundedError` for more than :data:`VARIABLE_LIMIT` words,
+        and :class:`_UnknownTildeError` for a ``~name`` that names no user.
+        """
         words = [word]
         if dynamic:
-            if any(m in word for m in ("$(", "`", "<(", ">(")):
-                return None
-            refs = list(_REFERENCE.finditer(word))
-            if "$" in _REFERENCE.sub("", word):
-                return None
-            choices = []
-            for ref in refs:
-                found = self.values(ref.group(1) or ref.group(2), cwds)
-                if found is None:
-                    return None
-                choices.append(found)
-            literal = _REFERENCE.split(word)[::3]  # the text between references
             words = []
-            for combination in itertools.product(*choices):
-                if len(words) >= VARIABLE_LIMIT:
-                    return None
-                words.append(
+            refs = list(_REFERENCE.finditer(word))
+            opaque = any(m in word for m in ("$(", "`", "<(", ">(")) or (
+                "$" in _REFERENCE.sub("", word)
+            )
+            choices = [self.values(ref.group(1) or ref.group(2), cwds)[0] for ref in refs]
+            count = 1
+            for choice in choices:
+                count *= len(choice)
+            if count > VARIABLE_LIMIT:
+                raise _UnboundedError(word)
+            if not opaque:
+                literal = _REFERENCE.split(word)[::3]  # the text between references
+                words = [
                     "".join(t + v for t, v in zip(literal, (*combination, ""), strict=True))
-                )
+                    for combination in itertools.product(*choices)
+                ]
         out: list[str] = []
         for w in words:
-            tilde = self._tilde(w, cwds)
-            if tilde is None:
-                return None
-            out += tilde
+            out += self._tilde(w, cwds)
         return out
 
-    def _tilde(self, word: str, cwds: list[str]) -> list[str] | None:
+    def _tilde(self, word: str, cwds: list[str]) -> list[str]:
         head, sep, rest = word.partition("/")
         if not head.startswith("~"):
             return [word]
         if head == "~":
-            homes = self.cd_values("HOME")
-            return None if homes is None else [h + sep + rest for h in homes]
-        if head in ("~-", "~+"):
-            dirs = self.cd_values("OLDPWD") if head == "~-" else cwds
-            return None if dirs is None else [d + sep + rest for d in dirs]
-        return [os.path.expanduser(word)]
+            return [h + sep + rest for h in self.values("HOME", cwds)[0]]
+        if head == "~-":
+            return [d + sep + rest for d in self.values("OLDPWD", cwds)[0]]
+        if head == "~+" or re.fullmatch(r"~[+-]?\d+", head):
+            # ``~+`` is the directory itself; ``~N``, ``~+N`` and ``~-N`` are entries of the
+            # directory stack, each a directory this call has been in: every one is counted.
+            return [d + sep + rest for d in cwds]
+        expanded = os.path.expanduser(word)
+        if expanded != word:
+            return [expanded]
+        if re.fullmatch(r"~[A-Za-z_][\w.-]*", head):
+            raise _UnknownTildeError(head)
+        return [word]
 
     def assign(self, name: str, value: str, dynamic: bool, cwds: list[str]) -> None:
         """Record that ``name`` may now hold ``value``."""
@@ -523,11 +582,17 @@ class _Env:
             # zsh's array tied to CDPATH: its value is not this word.
             self.unknown.add("CDPATH")
             return
-        found = self.expand(value, dynamic, cwds)
-        if found is None:
+        try:
+            found = self.expand(value, dynamic, cwds)
+        except _UnboundedError:
+            self.unbounded.add(name)
+            return
+        if dynamic:
+            # Known only in part: what is known is kept, and the variable is incomplete. The
+            # value as written is kept too, for a quoted ``$`` is a literal character.
             self.unknown.add(name)
-        else:
-            self.known.setdefault(name, set()).update(found)
+            found = [*found, value]
+        self.known.setdefault(name, set()).update(found)
 
     def record(self, cmd: SimpleCommand, cwds: list[str]) -> None:
         """Every variable ``cmd`` may assign, and what it may assign."""
@@ -548,6 +613,9 @@ class _Env:
             name = argv[1]
             if len(argv) > 2 and argv[2] == "in":  # noqa: PLR2004 - `for NAME in ...`
                 for n, word in enumerate(argv[3:], offset + 3):
+                    if n in cmd.alternatives and cmd.alternatives[n] is None:
+                        self.unbounded.add(name)
+                        continue
                     for alternative in (word, *(cmd.alternatives.get(n) or ())):
                         self.assign(name, alternative, n in cmd.dynamic, cwds)
             else:
@@ -593,7 +661,7 @@ def _next_cwds(cmd: SimpleCommand, cwds: list[str], env: _Env | None = None) -> 
     """
     env = env if env is not None else _Env()
     argv = unwrap(cmd.argv)
-    if not argv or _name(argv[0]) not in ("cd", "pushd"):
+    if not argv or _name(argv[0]) not in _CHANGES_DIRECTORY:
         return cwds
     offset = len(cmd.argv) - len(argv)
     # `pushd +2` rotates the stack; for cd, only a leading dash is an option.
@@ -611,7 +679,7 @@ def _next_cwds(cmd: SimpleCommand, cwds: list[str], env: _Env | None = None) -> 
     elif words:
         n, first = words[0]
         for alternative in (first, *(cmd.alternatives.get(n) or ())):
-            for target in env.expand(alternative, n in cmd.dynamic, cwds) or ():
+            for target in env.expand(alternative, n in cmd.dynamic, cwds):
                 found += [os.path.join(cwd, target) for cwd in cwds]
                 if not _cdpath_skips(target):
                     for entry in (e for v in _cd_values(env, "CDPATH") for e in v.split(":")):
@@ -661,15 +729,19 @@ def pre_tool_use(hook_input: InputView, config: ConfigView) -> Decision:
             construct = _refused_construct(cmd)
             if construct is not None:
                 return refuse(construct)
-            env.record(cmd, cwds)
-            for cwd in cwds:
-                reason = check(cmd, cwd, config, env)
-                if reason is not None:
-                    return refuse(reason)
             try:
+                env.record(cmd, cwds)
+                for cwd in cwds:
+                    reason = check(cmd, cwd, config, env)
+                    if reason is not None:
+                        return refuse(reason)
                 cwds = _next_cwds(cmd, cwds, env)
             except _UnknownDirectoryError as exc:
                 return refuse(CD_UNKNOWN.format(what=f"${exc.args[0]}"))
+            except _UnboundedError as exc:
+                return refuse(VARIABLE_UNBOUNDED.format(word=exc.args[0], limit=VARIABLE_LIMIT))
+            except _UnknownTildeError as exc:
+                return refuse(TILDE_UNKNOWN.format(word=exc.args[0]))
             if len(cwds) > CWD_LIMIT:
                 return refuse(CWD_UNBOUNDED.format(limit=CWD_LIMIT))
     return ALLOW

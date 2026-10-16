@@ -41,6 +41,8 @@ _REDIRECTS = ("<<<", "<<-", "&>>", "<<", ">>", ">|", "<>", "&>", ">&", "<&", ">"
 _RUNS_ITS_ARGUMENTS = {"env", "command", "exec", "nohup", "time", "builtin", "sudo", "nice"}
 _SHELLS = {"sh", "bash", "zsh", "dash", "ksh", "mksh", "ksh93"}
 _KSH = {"ksh", "mksh", "ksh93"}
+#: Script files that are the shell's own standard input.
+_STDIN_FILES = {"/dev/stdin", "/dev/fd/0", "/proc/self/fd/0"}
 #: The shells, for a check that looks for one among another program's words.
 SHELLS = frozenset(_SHELLS)
 #: Reserved words that may start a command and are followed by the command they govern:
@@ -357,6 +359,11 @@ def _parse_into(text: str, out: list[SimpleCommand], depth: int) -> None:
             word_dynamic = in_word = True
             i = close + 1
             continue
+        if c == "$" and text.startswith('"', i + 1):
+            # bash's locale-translated string: in the C locale, and whenever no catalogue
+            # holds it, it is the double-quoted string itself.
+            i += 1
+            continue
         if c == "$":
             word += c
             bare += "\0"
@@ -412,9 +419,14 @@ def _parse_into(text: str, out: list[SimpleCommand], depth: int) -> None:
         msg = "a heredoc with no terminating line"
         raise ShellSyntaxError(msg)
     end_command()
-    # Only this level's own commands: a nested level expands its own.
+    # Only this level's own commands: a nested level expands its own. What a runner runs
+    # goes right after it, so a later command sees the directory and the variables it set.
     for sub in mine:
-        _expand_runners(sub, out, depth)
+        nested: list[SimpleCommand] = []
+        _expand_runners(sub, nested, depth)
+        if nested:
+            at = next(n for n, c in enumerate(out) if c is sub)
+            out[at + 1 : at + 1] = nested
 
 
 def _end_of_ansi_c(text: str, i: int) -> int:
@@ -753,6 +765,8 @@ def _expand_runners(sub: SimpleCommand, out: list[SimpleCommand], depth: int) ->
     head = argv[0].rsplit("/", 1)[-1]
     if head == "eval":
         _parse_into(" ".join(argv[1:]), out, depth + 1)
+    elif head in ("source", ".") and len(argv) > 1 and argv[1] in _STDIN_FILES:
+        _parse_fed_script(sub, out, depth)
     elif head in _SHELLS:
         if head in _KSH and (
             _reads_its_script_from_stdin(argv)
@@ -766,11 +780,16 @@ def _expand_runners(sub: SimpleCommand, out: list[SimpleCommand], depth: int) ->
                     _parse_into(argv[n + 1], out, depth + 1)
                 return
         if _reads_its_script_from_stdin(argv):
-            for redirect in sub.redirects:
-                if redirect.body is not None:
-                    _parse_into(redirect.body, out, depth + 1)
-                elif redirect.op == "<<<":
-                    _parse_into(redirect.target, out, depth + 1)
+            _parse_fed_script(sub, out, depth)
+
+
+def _parse_fed_script(sub: SimpleCommand, out: list[SimpleCommand], depth: int) -> None:
+    """Parse what ``sub`` is fed on its input, as the script it runs."""
+    for redirect in sub.redirects:
+        if redirect.body is not None:
+            _parse_into(redirect.body, out, depth + 1)
+        elif redirect.op == "<<<":
+            _parse_into(redirect.target, out, depth + 1)
 
 
 def _reads_its_script_from_stdin(argv: tuple[str, ...]) -> bool:
@@ -780,6 +799,8 @@ def _reads_its_script_from_stdin(argv: tuple[str, ...]) -> bool:
     other words are arguments, not a script.
     """
     for arg in argv[1:]:
+        if arg in _STDIN_FILES:
+            return True
         if arg == "--":
             return False
         if arg.startswith(("-", "+")) and not arg.startswith("--"):

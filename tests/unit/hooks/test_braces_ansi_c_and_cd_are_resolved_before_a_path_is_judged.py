@@ -251,10 +251,12 @@ def test_cd_dash_returns_only_to_a_directory_already_counted(
 def test_a_command_that_could_be_in_too_many_directories_is_refused(
     config: SessionConfig,
 ) -> None:
-    command = " && ".join(f"cd d{n}" for n in range(7)) + " && touch x"
+    command = " && ".join(f"cd d{n}" for n in range(11)) + " && touch x"
     assert _decide(config, command) == sp.CWD_UNBOUNDED.format(limit=sp.CWD_LIMIT)
-    fewer = " && ".join(f"cd d{n}" for n in range(5)) + " && touch x"
-    assert _decide(config, fewer) == "allow"
+    # Seven relative cds, as a build chain might take, and ten, the most that fit.
+    for count in (7, 10):
+        fewer = " && ".join(f"cd d{n}" for n in range(count)) + " && touch x"
+        assert _decide(config, fewer) == "allow"
 
 
 # --- the call's own working directory -----------------------------------------------------
