@@ -150,9 +150,14 @@ def test_a_dispatched_session_plants_nothing_in_the_harness(
         assert planted == [], f"a session planted {planted} in the harness checkout"
         stream = next((run_dir / "sessions").glob("*/stdout.jsonl")).read_text()
         assert HARNESS_REASON in stream, "the Write was not refused for the harness's reason"
-        # The command holds the assigned path only in two halves, so the whole path in the
-        # stream is the shell layer's refusal naming what the joined variables reach.
-        assert str(by_assigned) in stream, "the shell layer did not refuse the assigned path"
+        refused = _result_of(stream, f"b={assigned_tail};")
+        assert refused is not None, "the assigned-path command left no result"
+        # Refused before it ran, by the shell layer, naming the whole path the halves join to;
+        # a write that ran and was put back afterwards would not be told this.
+        assert refused[0], "the assigned-path command ran; the shell layer did not refuse it"
+        assert f"redirects output into {by_assigned}, which is protected" in refused[1]
+        ran = _result_of(stream, f"b={tail};")
+        assert ran is not None and not ran[0], "the run-time write was refused, not put back"
         assert "put back" in stream, "the sentinel did not report putting anything back"
         worktree_markers = list((run_dir / "worktrees").rglob("ran.txt"))
         attempts = (run_dir / "events.jsonl").read_text()
@@ -163,3 +168,28 @@ def test_a_dispatched_session_plants_nothing_in_the_harness(
     finally:
         for path in (by_tool, by_assigned, by_interpreter):
             path.unlink(missing_ok=True)
+
+
+def _result_of(stream: str, marker: str) -> tuple[bool, str] | None:
+    """Whether the Bash call whose command holds ``marker`` ended in an error, and its text."""
+    call_id = None
+    for line in stream.splitlines():
+        event = json.loads(line)
+        content = (event.get("message") or {}).get("content")
+        for block in content if isinstance(content, list) else []:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "tool_use" and marker in str(
+                (block.get("input") or {}).get("command", "")
+            ):
+                call_id = block.get("id")
+            if (
+                block.get("type") == "tool_result"
+                and call_id
+                and block.get("tool_use_id") == call_id
+            ):
+                text = block.get("content")
+                return bool(block.get("is_error")), text if isinstance(text, str) else json.dumps(
+                    text
+                )
+    return None
