@@ -18,11 +18,13 @@ from pathlib import Path
 import pytest
 from loop_fakes import FakeChanges, FakeDispatcher, Rig, plan
 
+from physgate.orchestrator import apply as apply_module
 from physgate.orchestrator.apply import GitChangeChecker
 from physgate.orchestrator.events import AttemptRejected, SessionEnded, read_events
+from physgate.orchestrator.git import verified_git_dir
 from physgate.orchestrator.merge import RunGit, commit_attempt
 from physgate.orchestrator.repair import repair_instruction
-from physgate.series.collect import WRITER_PATH, collect, writer_source
+from physgate.series.collect import WRITER_PATH, blob_id, collect, writer_source
 from physgate.series.reader import attempt_records, read_record
 from physgate.series.seal import SealedRecord, SessionSeries, SetAside
 
@@ -255,3 +257,27 @@ def test_an_attempt_with_no_series_is_checked_as_before(
     run, worktree, _ = _attempt(tmp_path)
     commit = commit_attempt(worktree, "control-1", 1, "session-1", repo=run.repo)
     assert _checker(run).check("control-1", commit, "control", series=series).refused_by is None
+
+
+def test_the_script_binding_holds_without_the_write_scope_a_link_is_not_a_script(
+    tmp_path: Path,
+) -> None:
+    # The write scope refuses a link first in the change check; this holds the binding to
+    # the same on its own, since git lists a link as a blob whose bytes are its target.
+    run, worktree, _ = _attempt(tmp_path)
+    target = "x = 1\n"
+    (worktree / "modules" / "control" / "linked.py").symlink_to(target)
+    commit = commit_attempt(worktree, "control-1", 1, "session-1", repo=run.repo)
+    claimed = SealedRecord(
+        record_id="step",
+        sha256=DIGEST,
+        length=10,
+        script="modules/control/linked.py",
+        script_sha256=DIGEST,
+        script_blob=blob_id(target.encode(), "sha1"),
+    )
+    pinned = verified_git_dir(run.repo, linked=False)
+    refusal = apply_module._series_refusal(
+        run.repo, commit, SessionSeries(records=(claimed,)), pinned
+    )
+    assert refusal is not None and refusal[1] == "step"

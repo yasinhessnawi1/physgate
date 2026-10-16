@@ -145,8 +145,14 @@ class SealedEntry:
 
     def path(self, run_dir: Path) -> Path:
         """Where the record lives in ``run_dir``, built from its identifiers."""
+        # From the run directory's real path: the directory itself may be spelt through a
+        # link (a temporary directory on macOS is), and nothing beneath it may be.
         return record_path(
-            run_dir, self.subtask_id, self.attempt, self.session_id, self.record.record_id
+            Path(os.path.realpath(run_dir)),
+            self.subtask_id,
+            self.attempt,
+            self.session_id,
+            self.record.record_id,
         )
 
     def seal(self) -> Seal:

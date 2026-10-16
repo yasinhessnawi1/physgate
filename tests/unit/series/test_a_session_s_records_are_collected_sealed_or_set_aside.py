@@ -21,6 +21,7 @@ from writer_rig import run, worktree, write_script
 from physgate.orchestrator.trajectory import Seal
 from physgate.series import collect as collect_module
 from physgate.series.collect import DISCARDED_DIR, REFUSED_DIR, collect, empty_outbox
+from physgate.series.exceptions import RecordTamperedError
 from physgate.series.reader import read_record, record_path
 from physgate.series.seal import SessionSeries
 
@@ -342,3 +343,67 @@ def test_a_cache_directory_that_is_a_link_is_left_as_it_is(tmp_path: Path, run_d
     series = _collect(base, run_dir)
     assert _caches(series) == []
     assert (target / "series_writer.cpython-312.pyc").exists()
+
+
+def _no_link_seen(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make every path check see no link, as it would if one were swapped in just after it."""
+    monkeypatch.setattr(os.path, "realpath", os.path.normpath)
+
+
+def test_a_parent_swapped_for_a_link_after_the_check_is_still_not_followed(
+    tmp_path: Path, run_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    base = Path(os.path.realpath(tmp_path)) / "wt"
+    base.mkdir()
+    target = _elsewhere(tmp_path)
+    (target / "series").mkdir()
+    (target / "series" / "step_nominal.json").write_text("{}")
+    (base / ".physgate").symlink_to(target, target_is_directory=True)
+    _no_link_seen(monkeypatch)
+    series = _collect(base, run_dir)
+    assert series.records == ()
+    assert (target / "series" / "step_nominal.json").read_text() == "{}"
+    names = sorted(p.name for p in target.iterdir())
+    assert names == ["precious.py", "series", "step_nominal.json"]
+
+
+def test_code_reached_through_a_directory_swapped_for_a_link_is_refused(
+    tmp_path: Path, run_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    base = worktree(tmp_path)
+    lib = base / MODULE / "lib"
+    lib.mkdir()
+    (lib / "shared.py").write_text("SHARED = 3\n")
+    _written(base, extra=f"sys.path.insert(0, {str(lib)!r})\nimport shared")
+    elsewhere = Path(os.path.realpath(tmp_path)) / "elsewhere-lib"
+    lib.rename(elsewhere)
+    lib.symlink_to(elsewhere, target_is_directory=True)
+    _no_link_seen(monkeypatch)
+    reason = _refused_reason(base, run_dir, "step_nominal.json")
+    assert "link" in reason
+
+
+def test_what_is_set_aside_never_replaces_what_was_set_aside_before(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    base = worktree(tmp_path)
+    earlier = run_dir / "series" / DISCARDED_DIR / "session-2" / "step_nominal.json"
+    earlier.parent.mkdir(parents=True)
+    earlier.write_text("set aside earlier\n")
+    _written(base)
+    empty_outbox(base, run_dir, "session-2")
+    assert earlier.read_text() == "set aside earlier\n"
+    assert (earlier.parent / "step_nominal.json.1").exists()
+
+
+def test_a_link_planted_where_the_run_s_records_go_is_refused_and_written_through_never(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    base = worktree(tmp_path)
+    _written(base)
+    target = _elsewhere(tmp_path)
+    (run_dir / "series").mkdir(parents=True)
+    (run_dir / "series" / "control-1").symlink_to(target, target_is_directory=True)
+    with pytest.raises(RecordTamperedError, match="link or not a directory"):
+        _collect(base, run_dir)
+    _untouched(target)

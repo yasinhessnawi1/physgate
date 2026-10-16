@@ -130,6 +130,10 @@ def read_proposals(
     return sorted(found, key=lambda p: str(p["id"]))
 
 
+#: The modes a script may have in the commit: a regular file, or an executable one.
+_SCRIPT_MODES = frozenset({"100644", "100755"})
+
+
 def _series_refusal(
     repo: Path, commit: str, series: SessionSeries | None, pinned: GitDir
 ) -> tuple[str, str] | None:
@@ -153,8 +157,19 @@ def _series_refusal(
         listing = git(
             repo, "ls-tree", "-z", commit, "--", record.script, objects_only=True, git_dir=pinned
         )
-        found = listing.split("\0", 1)[0].split("\t", 1)[0].split()
-        if len(found) != 3 or found[1] != "blob" or found[2] != record.script_blob:
+        entry = listing.split("\0", 1)[0]
+        meta, _, listed = entry.partition("\t")
+        found = meta.split()
+        # A regular file or an executable, by exactly the path the record names: git lists a
+        # link as a blob too, whose bytes are its target, so the type alone would let a link
+        # stand in for a script.
+        if (
+            len(found) != 3
+            or found[0] not in _SCRIPT_MODES
+            or found[1] != "blob"
+            or listed != record.script
+            or found[2] != record.script_blob
+        ):
             reason = (
                 f"the record {record.record_id} names the script {record.script}, and the attempt "
                 "did not commit that script with the bytes the record was collected with"
