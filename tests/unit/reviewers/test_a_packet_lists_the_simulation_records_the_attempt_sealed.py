@@ -250,3 +250,18 @@ def test_an_attempt_with_no_records_is_packed_and_recorded_exactly_as_before(
     assert not list(read.glob("series-*"))
     assert "simulation records" not in review_prompt("control", packet)
     check_parts(packet, repo=attempt.worktree, base_commit=attempt.spec_commit)
+
+
+def test_a_listing_part_rewritten_with_its_digest_to_match_is_still_refused(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    packet, read, attempt = _with_series(tmp_path, run_dir)
+    first = read / packet.series_parts[0].name
+    forged = first.read_bytes().replace(b"agrees", b"differs")
+    first.write_bytes(forged)
+    part = packet.series_parts[0].model_copy(
+        update={"sha256": hashlib.sha256(forged).hexdigest(), "bytes": len(forged)}
+    )
+    rewritten = packet.model_copy(update={"series_parts": (part, *packet.series_parts[1:])})
+    with pytest.raises(PacketError, match="not the listing of the attempt's sealed records"):
+        check_parts(rewritten, repo=attempt.worktree, base_commit=attempt.spec_commit)
