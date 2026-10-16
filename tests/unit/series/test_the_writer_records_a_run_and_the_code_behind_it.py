@@ -170,3 +170,30 @@ def test_the_writer_runs_on_the_oldest_interpreter_a_session_may_find(tmp_path: 
         ".physgate/lib/series_writer.py",
         "modules/control/helper.py",
     }
+
+
+def test_writing_a_record_again_replaces_it_whole(tmp_path: Path) -> None:
+    base = worktree(tmp_path)
+    first = run(write_script(base))
+    assert first.returncode == 0, first.stderr
+    again = run(write_script(base, name="again.py"))
+    assert again.returncode == 0, again.stderr
+    outbox = base / ".physgate" / "series"
+    assert sorted(p.name for p in outbox.iterdir()) == ["step_nominal.json"]
+    record = parse_record((outbox / "step_nominal.json").read_bytes())
+    assert record.producer.script.path == "modules/control/again.py"
+
+
+def test_a_rewrite_that_fails_part_way_leaves_the_earlier_record_whole(tmp_path: Path) -> None:
+    base = worktree(tmp_path)
+    first = run(write_script(base))
+    assert first.returncode == 0, first.stderr
+    outbox = base / ".physgate" / "series"
+    before = (outbox / "step_nominal.json").read_bytes()
+
+    failing = "def _fail(fd):\n    raise OSError('the disk went away')\nos.fsync = _fail"
+    done = run(write_script(base, name="failing.py", extra=failing))
+    assert done.returncode != 0
+    assert "the disk went away" in done.stderr
+    assert sorted(p.name for p in outbox.iterdir()) == ["step_nominal.json"]
+    assert (outbox / "step_nominal.json").read_bytes() == before
