@@ -117,6 +117,8 @@ def test_pwd_after_a_cd_is_every_directory_the_command_could_be_in(
 ) -> None:
     command = f"cd modules; p=$PWD/..; {M} > $p/.physgate/series/f"
     assert _decide(config, command) != "allow"
+    # No '..' to cancel: only $PWD's every directory reaches the root.
+    assert _decide(config, f"cd .physgate; p=$PWD/series; {M} > $p/f") != "allow"
 
 
 def test_eval_runs_where_it_stands() -> None:
