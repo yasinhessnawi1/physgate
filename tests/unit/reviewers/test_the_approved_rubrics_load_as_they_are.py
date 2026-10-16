@@ -39,6 +39,9 @@ APPROVED = {
             # with no specification and no trajectory is judged on what it wrote, a condition of
             # the design it changes being recorded, not charged to it.
             ("final_v3", "af736f6a827f204fcf57c04ce4315bf868a82feca52f5425afe274e777a8eea9", 56),
+            # Given values are decided per value written, never per node; missing evidence has
+            # one rule, unmet when every input was there, not evaluable when one is missing.
+            ("final_v4", "39d54707edfbd283e1b39a3fd98d6900b105b812647bbbd3731fa4ec8f852a8f", 56),
         ),
         ("A", "D", "S", "R"),
     ),
@@ -47,15 +50,25 @@ APPROVED = {
             ("final", "a89e71572901d4a2d44c27f3f9029d2817c714ca1c2926e47965de1c9498c1ce", 53),
             # The same two changes as control's third version.
             ("final_v2", "4ee697be3577a11048eb504513c0d1c0996bf935eb09f033f254c694061b3357", 54),
+            # The same two clarifications as control's fourth version.
+            ("final_v3", "44461085e65aeec5bdada9d7f404e4a649c499ac1f324f5ede5364f3e7362200", 54),
         ),
         ("AC", "DS", "AP", "RH"),
     ),
     "electrical": (
-        (("final", "8d989189695fad474ee0ab60e0fe8bc2b685e2f356ca5d551dd29cba45565dcf", 66),),
+        (
+            ("final", "8d989189695fad474ee0ab60e0fe8bc2b685e2f356ca5d551dd29cba45565dcf", 66),
+            # The same two clarifications as control's fourth version.
+            ("final_v2", "e2d0bb8e2f50014f2d40e2545fdf5224fdea85ae4c9a3d1989239612e9312f24", 66),
+        ),
         ("EA", "ES", "EP", "EH"),
     ),
     "mechanical": (
-        (("final", "b53ae125c8e63c22794c708f7dc28eba923c5cc7901d47b488873dad94203e09", 61),),
+        (
+            ("final", "b53ae125c8e63c22794c708f7dc28eba923c5cc7901d47b488873dad94203e09", 61),
+            # The same two clarifications as control's fourth version.
+            ("final_v2", "5a19d543316e4154518c407c1df8df1802a98e7b891e195491f2cd6ac66b3836", 61),
+        ),
         ("MA", "MS", "MP", "MH"),
     ),
 }
