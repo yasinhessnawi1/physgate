@@ -899,3 +899,27 @@ def test_what_the_check_after_the_stop_refuses(
     """Put back, or left to the readers that already handle it; else the attempt goes no further."""
     records = [{"decision": d} for d in decisions]
     assert (dispatch.sentinel_refusal(exit_code, records) is not None) is refused
+
+
+def test_the_loop_records_each_spawn_in_its_event_log_as_the_dispatcher_reports_it(
+    tmp_path: Path,
+) -> None:
+    """What a resume holds a process record to is written by the loop, at the spawn."""
+    from loop_fakes import FakeDispatcher, Rig, plan
+
+    from physgate.orchestrator.events import SessionSpawned, read_events
+    from physgate.orchestrator.ports import SessionReport, SpawnHook
+
+    class Spawning(FakeDispatcher):
+        def run(self, request: SessionRequest, on_spawn: SpawnHook | None = None) -> SessionReport:
+            assert on_spawn is not None, "the loop gave the dispatcher no way to record a spawn"
+            on_spawn(f"sess-{request.attempt}", 4242, "Mon Jan  1 00:00:00 2001")
+            return super().run(request, on_spawn)
+
+    rig = Rig(tmp_path, dispatcher=Spawning())
+    loop = rig.open()
+    loop.start(plan("s1"))
+    loop.run()
+    loop.close()
+    spawns = [e for e in read_events(tmp_path / "events.jsonl") if isinstance(e, SessionSpawned)]
+    assert [(e.session_id, e.pid) for e in spawns][:1] == [("sess-1", 4242)]
