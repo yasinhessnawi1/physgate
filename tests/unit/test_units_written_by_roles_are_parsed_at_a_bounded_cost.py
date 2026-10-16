@@ -99,3 +99,22 @@ def test_the_guard_imports_nothing_but_the_standard_library_s_re() -> None:
         elif isinstance(node, ast.ImportFrom):
             imported.add(node.module or "")
     assert imported == {"__future__", "re"}
+
+
+@pytest.mark.parametrize("unit", ["m²", "km⁹⁹⁹⁹⁹⁹⁹⁹", "m½", "Ⅹ", "ｍ", "m٣", "s⁻¹"])
+def test_a_character_the_registry_could_read_as_a_number_is_refused(unit: str) -> None:
+    # The registry reads superscript digits as an exponent: "km⁹⁹⁹⁹⁹⁹⁹⁹" parses as the
+    # kilometre to the 99,999,999th power, and converting it ran until a CPU limit killed
+    # it. A guard that took every letter in Unicode admitted them as letters.
+    with pytest.raises(UnitSpellingError):
+        require_bounded_spelling(unit)
+
+
+def test_a_name_holds_only_ascii_letters_the_underscore_and_three_unit_letters() -> None:
+    admitted = {
+        chr(code)
+        for code in range(0x110000)
+        if not 0xD800 <= code <= 0xDFFF and spelling.UNIT_SPELLING.fullmatch("m" + chr(code))
+    }
+    letters = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_")
+    assert admitted == letters | {"µ", "μ", "Ω"}

@@ -63,7 +63,7 @@ MAX_LOADED = 256
 MAX_TITLE = 200
 MAX_INPUT_INTEGER = 2**63 - 1
 NAME_PATTERN = r"^[a-z][a-z0-9_]{0,63}$"
-_UNIT_FACTOR = r"[^\W\d]+(?:(?:\*\*|\^)-?[0-9]{1,2})?"
+_UNIT_FACTOR = r"[A-Za-z_\u00b5\u03bc\u03a9]+(?:(?:\*\*|\^)-?[0-9]{1,2})?"
 UNIT_GRAMMAR_PATTERN = rf"(?:1|{_UNIT_FACTOR})(?:[ ]*[*/][ ]*{_UNIT_FACTOR})*"
 
 #: Where records go, relative to the worktree.

@@ -6,8 +6,13 @@ fractions. A length bound does not bound that work: the twelve characters ``10**
 kept one process busy until a 5 s CPU limit killed it (16.10.2026, pint 0.26.1). So a unit
 is held to a spelling before the registry ever sees it:
 
-- named units (any letters, so ``µm`` and ``Ω`` too, and underscores; no digits), joined
-  by ``*`` and ``/`` with optional spaces;
+- named units, spelt in ASCII letters and underscores and three letters units use, the
+  micro sign ``µ``, the Greek ``μ`` and the ohm ``Ω``; joined by ``*`` and ``/`` with
+  optional spaces. Not "any letter": the registry reads a superscript digit as an
+  exponent, which a Unicode letter class admits as a letter, so ``km⁹⁹⁹⁹⁹⁹⁹⁹`` parsed as
+  the kilometre to the 99,999,999th power and converting it ran until a 5 s CPU limit
+  killed it (16.10.2026, n = 1); and a full-width or numeral letter reads differently to
+  the registry than to this check;
 - each with an optional exponent of one or two digits, which may be negative;
 - or a leading ``1`` (``1/s``);
 - at most :data:`MAX_LENGTH` characters, matched whole (a trailing newline does not slip
@@ -15,8 +20,9 @@ is held to a spelling before the registry ever sees it:
 
 Nothing else: no numbers as factors, no brackets, no exponent towers. Every unit a
 simulation's axis or the physics gate's catalogue carries fits it. The worst a matching
-unit can cost is about a millisecond: a 64-character unit of maximal exponents parsed in
-0.91 ms (n = 1, laptop, pint 0.26.1).
+unit costs is milliseconds, conversion included: the largest prefix at the largest exponent,
+``Ym**99`` nine times over (62 characters), parsed in 0.54 ms and converted to base units in
+2.21 ms, a factor near 10**21384; n = 1 each, laptop, pint 0.26.1.
 
 This module imports nothing but the standard library's ``re``, so that the physics gate
 can use it too without widening what its import fence admits by more than this one name.
@@ -30,7 +36,7 @@ import re
 #: The longest unit, the same bound the physics gate's parser holds a unit to.
 MAX_LENGTH = 64
 #: One named unit with an optional small exponent.
-FACTOR = r"[^\W\d]+(?:(?:\*\*|\^)-?[0-9]{1,2})?"
+FACTOR = r"[A-Za-z_\u00b5\u03bc\u03a9]+(?:(?:\*\*|\^)-?[0-9]{1,2})?"
 #: A whole unit, matched with ``fullmatch``.
 PATTERN = rf"(?:1|{FACTOR})(?:[ ]*[*/][ ]*{FACTOR})*"
 UNIT_SPELLING = re.compile(PATTERN)
