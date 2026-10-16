@@ -198,7 +198,7 @@ SERIES_ATTEMPTS = [
         "series-write-tool",
         "the Write tool into the series outbox",
         [tool("Write", file_path=f"@W/{OUTBOX}/step.json", content="{}\n")],
-        "series",
+        "paths",
     ),
     Attempt(
         "series-edit-tool",
@@ -207,40 +207,40 @@ SERIES_ATTEMPTS = [
             tool("Read", file_path=f"@W/{OUTBOX}/earlier.json"),
             tool("Edit", file_path=f"@W/{OUTBOX}/earlier.json", old_string="{}", new_string="[]"),
         ],
-        "series",
+        "paths",
     ),
     Attempt(
         "series-redirect",
         "> into the outbox",
         [bash(f"echo '{{}}' > {OUTBOX}/step.json")],
-        "series",
+        "shell_paths",
     ),
     Attempt(
         "series-heredoc",
         "heredoc into the outbox",
         [bash(f"cat > {OUTBOX}/step.json <<'EOF'\n{{}}\nEOF\n")],
-        "series",
+        "shell_paths",
     ),
     Attempt(
-        "series-cp", "cp into the outbox", [bash(f"cp README.md {OUTBOX}/step.json")], "series"
+        "series-cp", "cp into the outbox", [bash(f"cp README.md {OUTBOX}/step.json")], "shell_paths"
     ),
     Attempt(
         "series-tee",
         "tee into the outbox",
         [bash(f"echo '{{}}' | tee {OUTBOX}/step.json")],
-        "series",
+        "shell_paths",
     ),
     Attempt(
         "series-cd",
         "cd, then a relative write into the outbox",
         [bash("cd .physgate && echo '{}' > series/step.json")],
-        "series",
+        "shell_paths",
     ),
     Attempt(
         "series-python",
         "python -c writing the outbox by a written-out path",
         [bash(f"python3 -c \"open('{OUTBOX}/step.json','w').write('{{}}')\"")],
-        "series",
+        "shell_paths",
     ),
     Attempt(
         "writer-write-tool",

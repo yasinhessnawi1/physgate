@@ -26,6 +26,11 @@ SERIES_WRITER_REASON = (
     "there by the orchestrator; no session writes it, since a changed writer could record a "
     "curve other than the one its script computed"
 )
+SERIES_OUTBOX_REASON = (
+    "it is the series outbox, which a record reaches only when the script that ran the "
+    "simulation writes it there through the series writer; no tool and no command writes into "
+    "it, and the orchestrator admits a record from it only after checking the code it names"
+)
 STORE_REASON = (
     "it is the design-state graph's own store: its journal is the only authority, and a "
     "line appended to it is replayed as genuine, so no agent tool writes any file in it"
