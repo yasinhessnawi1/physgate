@@ -159,9 +159,73 @@ def test_a_literal_form_the_shell_resolves_is_resolved(config: SessionConfig, co
     assert _decide(config, command) != "allow"
 
 
-def test_a_tilde_name_that_is_no_user_is_refused(config: SessionConfig) -> None:
-    told = _decide(config, f"p=$PWD/.physgate; {M} > ~p/series/f")
-    assert told == sp.TILDE_UNKNOWN.format(word="~p")
+def test_a_tilde_name_whose_directory_only_running_decides_is_refused(
+    config: SessionConfig,
+) -> None:
+    for command in (
+        f"p=$(pwd)/.physgate; {M} > ~p/series/f",
+        f"{M} > ~no_such_name_here/series/f",
+    ):
+        told = _decide(config, command)
+        assert told.startswith(sp.TILDE_UNKNOWN.split("{word}")[0]), told
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        f"PWD=@W/.physgate; {M} > $PWD/series/f",
+        f"p=@W/.physgate; {M} > ~p/series/f",
+        f"root=@W/.physgate; {M} > ~root/series/f",
+        f"TMPDIR=@W/.physgate; {M} > ~TMPDIR/series/f",
+        f"HOME=@W; CDPATH=/tmp:~/.physgate; cd series; {M} > f",
+        f"x=.phys; x+=gate; {M} > $x/series/f",
+        f"export x=.phys; export x+=gate; {M} > $x/series/f",
+        f"cat .physgate/series/earlier.json > /dev/null; {M} > $_",
+        f"x=.physgate; {M} > ${{x%/}}/series/f",
+        f"x=.physgate; {M} > ${{x#}}/series/f",
+        f"x=a.physgate; {M} > ${{x#a}}/series/f",
+        f"x=.physgate/series/q; {M} > ${{x%/*}}/f",
+        f"{M} > ${{x:-.physgate}}/series/f",
+        f"x=y; {M} > ${{x:+.physgate}}/series/f",
+        f"{M} > ${{x:=.physgate}}/series/f",
+    ],
+    ids=[
+        "pwd-assigned",
+        "zsh-tilde-parameter",
+        "zsh-tilde-parameter-over-user",
+        "zsh-tilde-inherited",
+        "tilde-after-colon",
+        "append",
+        "export-append",
+        "last-argument",
+        "trim-suffix",
+        "trim-nothing",
+        "trim-prefix",
+        "trim-pattern",
+        "default",
+        "alternative",
+        "assign-default",
+    ],
+)
+def test_a_parameter_form_the_command_decides_is_resolved(
+    config: SessionConfig, command: str
+) -> None:
+    assert _decide(config, command.replace("@W", config.worktree)) != "allow"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        f"x=.physgateZ; {M} > ${{x/Z/}}/series/f",
+        f"x=.physgateZZ; {M} > ${{x:0:9}}/series/f",
+        f"x=.PHYSGATE; {M} > ${{x,,}}/series/f",
+        f"y=.physgate; x=y; {M} > ${{!x}}/series/f",
+    ],
+    ids=["replace", "substring", "case", "indirect"],
+)
+def test_a_parameter_form_not_evaluated_is_refused(config: SessionConfig, command: str) -> None:
+    told = _decide(config, command)
+    assert told.startswith(sp.PARAMETER_FORM.split("{word}")[0]), told
 
 
 @pytest.mark.parametrize(
@@ -173,6 +237,10 @@ def test_a_tilde_name_that_is_no_user_is_refused(config: SessionConfig) -> None:
         "eval echo hi",
         "for f in a b c; do touch modules/control/$f.py; done",
         "for i in {1..200}; do echo $i; done > modules/control/n.txt",
+        'cd modules/control && for f in *.py; do mv "$f" "${f%.py}.txt"; done',
+        "x=${TMPDIR:-/tmp}/build; mkdir -p $x",
+        "echo ${#HOME} ${HOME:-/tmp}",
+        "mkdir -p modules/control/out && cd $_ && touch f",
         "pushd modules >/dev/null && ls ~1 && popd",
         f"cd ~ && {M} > /dev/null",
     ],
@@ -189,8 +257,18 @@ def test_ordinary_commands_stay_allowed(config: SessionConfig, command: str) -> 
         f'IFS=/; set -- .physgate series f; {M} > "$*"',
         f"a=(.physgate series); {M} > ${{a[0]}}/series/f",
         f'cd "$(pwd)/.physgate"; {M} > series/f',
+        f"set -- .physgate; {M} > $1/series/f",
+        f"f() {{ {M} > $1/series/f; }}; f .physgate",
     ],
-    ids=["piped-into-a-shell", "xargs", "positional", "array", "cd-substitution"],
+    ids=[
+        "piped-into-a-shell",
+        "xargs",
+        "positional",
+        "array",
+        "cd-substitution",
+        "set-positional",
+        "function-argument",
+    ],
 )
 def test_the_recorded_residual_is_not_seen(config: SessionConfig, command: str) -> None:
     # Allowed on purpose: each reaches the root only through a value or a script the
