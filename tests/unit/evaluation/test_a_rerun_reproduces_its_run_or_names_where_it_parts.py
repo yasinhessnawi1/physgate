@@ -126,7 +126,8 @@ def test_a_proposal_with_a_bare_number_is_named_where_the_rerun_parts(
 
 #: Each dropped field, and the lines it differs on between two fake-session runs. The
 #: installation check's ``seconds`` is not here: a fake-session run has no
-#: installation, so the scripted rerun through the command is where it is needed.
+#: installation, so the scripted rerun through the command is where it is needed; nor is a
+#: spawn line's ``pid`` and ``started``, since a fake session spawns no process.
 NEEDED_DROPS = [
     ("run_started", "config_sha256"),
     ("proposals_checked", "graph_root"),
