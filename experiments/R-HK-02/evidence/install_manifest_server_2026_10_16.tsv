@@ -1,0 +1,139 @@
+binary	package	found_path	runnable	reason
+7z	7zip	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/7z	yes	script/static
+alpine	alpine	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/alpine	yes	elf ok
+apache2	apache2-bin	/home/coder/physgate-scratch/r-hk-02/prefix/usr/sbin/apache2	no	missing shared library
+apache2ctl	apache2	/home/coder/physgate-scratch/r-hk-02/prefix/usr/sbin/apache2ctl	yes	script/static
+aria2c	aria2	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/aria2c	no	missing shared library
+arj	arj	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/arj	yes	elf ok
+arp	net-tools	/home/coder/physgate-scratch/r-hk-02/prefix/usr/sbin/arp	yes	elf ok
+ascii-xfr	minicom	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/ascii-xfr	yes	elf ok
+ascii85	ruby-ascii85	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/ascii85	no	interpreter /usr/bin/ruby missing
+ash	ash	-	no	not found in prefix or system
+aspell	aspell	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/aspell	no	missing shared library
+atobm	x11-apps	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/atobm	yes	elf ok
+base58	base58	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/base58	no	interpreter /usr/bin/python3 missing
+basez	basez	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/basez	yes	elf ok
+bc	9base	/home/coder/physgate-scratch/r-hk-02/prefix/usr/lib/plan9/bin/bc	yes	elf ok
+bridge	iproute2	/home/coder/physgate-scratch/r-hk-02/prefix/sbin/bridge	no	missing shared library
+check_cups	monitoring-plugins-contrib (/usr/lib/nagios/plugins)	/home/coder/physgate-scratch/r-hk-02/prefix/usr/lib/nagios/plugins/check_cups	yes	script/static
+check_log	monitoring-plugins-basic (/usr/lib/nagios/plugins)	/home/coder/physgate-scratch/r-hk-02/prefix/usr/lib/nagios/plugins/check_log	yes	script/static
+check_memory	monitoring-plugins-contrib (/usr/lib/nagios/plugins)	/home/coder/physgate-scratch/r-hk-02/prefix/usr/lib/nagios/plugins/check_memory	yes	elf ok
+check_raid	monitoring-plugins-contrib (/usr/lib/nagios/plugins)	/home/coder/physgate-scratch/r-hk-02/prefix/usr/lib/nagios/plugins/check_raid	yes	script/static
+check_statusfile	monitoring-plugins-contrib (/usr/lib/nagios/plugins)	/home/coder/physgate-scratch/r-hk-02/prefix/usr/lib/nagios/plugins/check_statusfile	no	interpreter /usr/bin/python3 missing
+clamscan	clamav	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/clamscan	no	missing shared library
+cmake	cmake	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/cmake	no	missing shared library
+column	bsdextrautils	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/column	yes	elf ok
+cpio	cpio	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/cpio	yes	elf ok
+csh	tcsh (alt /usr/bin/csh)	-	no	not found in prefix or system
+csvtool	csvtool	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/csvtool	yes	elf ok
+cupsfilter	cups	/home/coder/physgate-scratch/r-hk-02/prefix/usr/sbin/cupsfilter	no	missing shared library
+dialog	crossfire-maps	-	no	not found in prefix or system
+dig	bind9-dnsutils	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/dig	no	missing shared library
+dmidecode	dmidecode	/home/coder/physgate-scratch/r-hk-02/prefix/usr/sbin/dmidecode	yes	elf ok
+docker	docker.io	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/docker	yes	elf ok
+dos2unix	dos2unix	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/dos2unix	yes	elf ok
+dotnet	dotnet-host-10.0	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/dotnet	yes	elf ok
+ed	9base	/home/coder/physgate-scratch/r-hk-02/prefix/usr/lib/plan9/bin/ed	yes	elf ok
+efax	efax	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/efax	yes	elf ok
+elvish	elvish	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/elvish	yes	elf ok
+emacs	emacs (alt /usr/bin/emacs)	-	no	not found in prefix or system
+eqn	groff-base	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/eqn	yes	elf ok
+espeak	espeak-ng-espeak	-	no	not found in prefix or system
+exiftool	libimage-exiftool-perl	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/exiftool	yes	script/static
+expect	expect	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/expect	no	missing shared library
+file	file	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/file	no	missing shared library
+fping	fping	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/fping	yes	elf ok
+gawk	gawk	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/gawk	no	missing shared library
+gdb	gdb	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/gdb	no	missing shared library
+genisoimage	genisoimage	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/genisoimage	no	missing shared library
+go	gccgo-go	-	no	not found in prefix or system
+gtester	libglib2.0-dev-bin	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/gtester	no	missing shared library
+hashcat	hashcat	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/hashcat	no	missing shared library
+hexdump	bsdextrautils	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/hexdump	yes	elf ok
+highlight	highlight	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/highlight	no	missing shared library
+ip	iproute2	/home/coder/physgate-scratch/r-hk-02/prefix/bin/ip	no	missing shared library
+iptables-save	iptables (/usr/sbin/iptables-save)	-	no	not found in prefix or system
+jjs	openjdk-11-jre-headless	/home/coder/physgate-scratch/r-hk-02/prefix/usr/lib/jvm/java-11-openjdk-amd64/bin/jjs	yes	elf ok
+jrunscript	openjdk-11-jdk-headless	/home/coder/physgate-scratch/r-hk-02/prefix/usr/lib/jvm/java-11-openjdk-amd64/bin/jrunscript	yes	elf ok
+jshell	openjdk-11-jdk-headless	/home/coder/physgate-scratch/r-hk-02/prefix/usr/lib/jvm/java-11-openjdk-amd64/bin/jshell	yes	elf ok
+latex	texlive-latex-base	-	no	not found in prefix or system
+latexmk	latexmk	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/latexmk	yes	script/static
+less	less	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/less	yes	elf ok
+links	freespace2	-	no	not found in prefix or system
+logrotate	logrotate	/home/coder/physgate-scratch/r-hk-02/prefix/usr/sbin/logrotate	no	missing shared library
+look	9base	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/look	yes	elf ok
+ltrace	ltrace	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/ltrace	no	missing shared library
+lua	lua5.4 (no plain `lua`)	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/lua5.4	yes	elf ok
+lwp-download	libwww-perl	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/lwp-download	yes	script/static
+lwp-request	libwww-perl	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/lwp-request	yes	script/static
+m4	m4	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/m4	yes	elf ok
+mosquitto	mosquitto	/home/coder/physgate-scratch/r-hk-02/prefix/usr/sbin/mosquitto	no	missing shared library
+msgattrib	gettext	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/msgattrib	no	missing shared library
+msgcat	gettext	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/msgcat	no	missing shared library
+msgconv	gettext	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/msgconv	no	missing shared library
+msgfilter	gettext	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/msgfilter	no	missing shared library
+msgmerge	gettext	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/msgmerge	no	missing shared library
+msguniq	gettext	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/msguniq	no	missing shared library
+mtr	mtr-tiny	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/mtr	no	missing shared library
+mutt	mutt	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/mutt	no	missing shared library
+nano	endless-sky-data	-	no	not found in prefix or system
+nasm	nasm	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/nasm	yes	elf ok
+nc	netcat-openbsd (alt /usr/bin/nc)	-	no	not found in prefix or system
+neofetch	neofetch	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/neofetch	yes	script/static
+nft	nftables	/home/coder/physgate-scratch/r-hk-02/prefix/usr/sbin/nft	no	missing shared library
+nmap	nmap	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/nmap	no	missing shared library
+nroff	groff-base	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/nroff	yes	script/static
+ntpdate	ntpsec-ntpdate	/home/coder/physgate-scratch/r-hk-02/prefix/usr/sbin/ntpdate	yes	script/static
+octave	octave	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/octave	no	missing shared library
+openvpn	openvpn	/home/coder/physgate-scratch/r-hk-02/prefix/usr/sbin/openvpn	no	missing shared library
+pandoc	pandoc	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/pandoc	no	missing shared library
+pax	pax	/home/coder/physgate-scratch/r-hk-02/prefix/bin/pax	yes	elf ok
+pdflatex	texlive-latex-base	-	no	not found in prefix or system
+php	php-cli (alt /usr/bin/php)	-	no	not found in prefix or system
+pic	groff-base	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/pic	yes	elf ok
+puppet	puppet-agent	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/puppet	no	interpreter /usr/bin/ruby missing
+qpdf	qpdf	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/qpdf	no	missing shared library
+rake	rake	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/rake	no	interpreter /usr/bin/ruby missing
+redcarpet	ruby-redcarpet	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/redcarpet	no	interpreter /usr/bin/ruby missing
+redis	redis-tools (redis-cli; no `redis` exe)	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/redis-cli	no	missing shared library
+rlwrap	rlwrap	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/rlwrap	yes	elf ok
+ruby	ruby-haml	/home/coder/physgate-scratch/r-hk-02/prefix/usr/lib/x86_64-linux-gnu/rubygems-integration/3.2.0/gems/haml-6.1.2/bin/ruby	yes	script/static
+rustc	rustc-1.74	/home/coder/physgate-scratch/r-hk-02/prefix/usr/lib/rust-1.74/bin/rustc	no	missing shared library
+rustdoc	rustc-1.74	/home/coder/physgate-scratch/r-hk-02/prefix/usr/lib/rust-1.74/bin/rustdoc	no	missing shared library
+rustfmt	rustfmt-1.74	/home/coder/physgate-scratch/r-hk-02/prefix/usr/lib/rust-1.74/bin/rustfmt	no	missing shared library
+scp	openssh-client	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/scp	yes	elf ok
+screen	screen	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/screen	no	missing shared library
+sftp	openssh-client	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/sftp	no	missing shared library
+smbclient	smbclient	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/smbclient	no	missing shared library
+socat	socat	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/socat	no	missing shared library
+soelim	groff-base	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/soelim	yes	elf ok
+sqlite3	sqlite3	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/sqlite3	yes	elf ok
+ss	iproute2	/home/coder/physgate-scratch/r-hk-02/prefix/bin/ss	no	missing shared library
+ssh	openssh-client	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/ssh	yes	elf ok
+ssh-copy-id	openssh-client	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/ssh-copy-id	yes	script/static
+ssh-keyscan	openssh-client	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/ssh-keyscan	yes	elf ok
+sshfs	sshfs	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/sshfs	no	missing shared library
+strace	strace	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/strace	no	missing shared library
+tbl	groff-base	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/tbl	yes	elf ok
+tcpdump	tcpdump	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/tcpdump	no	missing shared library
+tcsh	tcsh	/home/coder/physgate-scratch/r-hk-02/prefix/bin/tcsh	yes	elf ok
+tmux	tmux	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/tmux	no	missing shared library
+troff	9base	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/troff	yes	elf ok
+tsc	node-typescript	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/tsc	yes	script/static
+ul	bsdextrautils	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/ul	yes	elf ok
+urlget	emboss	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/urlget	no	missing shared library
+uuencode	sharutils	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/uuencode	yes	elf ok
+varnishncsa	varnish	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/varnishncsa	no	missing shared library
+vi	endless-sky-data	-	no	not found in prefix or system
+virsh	libvirt-clients	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/virsh	no	missing shared library
+w3m	w3m	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/w3m	no	missing shared library
+wget	wget	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/wget	yes	elf ok
+whiptail	whiptail	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/whiptail	no	missing shared library
+xmodmap	x11-xserver-utils	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/xmodmap	no	missing shared library
+xmore	x11-apps	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/xmore	no	missing shared library
+xpad	xpad	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/xpad	no	missing shared library
+xxd	xxd	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/xxd	yes	elf ok
+yelp	yelp	/home/coder/physgate-scratch/r-hk-02/prefix/usr/bin/yelp	no	missing shared library
+zip	neverball-common	-	no	not found in prefix or system
+zsh	zsh	/home/coder/physgate-scratch/r-hk-02/prefix/bin/zsh	yes	elf ok
+zsoelim	man-db (/usr/libexec/man-db)	/home/coder/physgate-scratch/r-hk-02/prefix/usr/libexec/man-db/zsoelim	no	missing shared library

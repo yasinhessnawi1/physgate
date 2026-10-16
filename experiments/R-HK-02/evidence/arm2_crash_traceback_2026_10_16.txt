@@ -1,0 +1,28 @@
+# Arm 2 aborted at attempt 215 (w-bash-node), 2026-10-16.
+# Parser off -> the bash write to the node store fired the Stop hook 9x,
+# tripping check_the_run_means_something; the arm did not complete.
+
+[212/755] w-bash-gate: no reach
+[213/755] w-bash-hooks: FAILED: no refusal or put-back on record, and no observed reach
+[214/755] w-bash-journal: no reach
+Traceback (most recent call last):
+  File "/home/coder/physgate-scratch/r-hk-02/wt/tests/integration/hooks/bypass_corpus_runner.py", line 252, in <module>
+    raise SystemExit(main(sys.argv[1:]))
+                     ^^^^^^^^^^^^^^^^^^
+  File "/home/coder/physgate-scratch/r-hk-02/wt/tests/integration/hooks/bypass_corpus_runner.py", line 247, in main
+    summary = drive(Path(argv[0]), bc.Arm.of(argv[1]), Path(argv[2]))
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/coder/physgate-scratch/r-hk-02/wt/tests/integration/hooks/bypass_corpus_runner.py", line 218, in drive
+    record = run_one(attempt, arm)
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/coder/physgate-scratch/r-hk-02/wt/tests/integration/hooks/bypass_corpus_runner.py", line 202, in run_one
+    record = _run_first_layer(attempt, arm, root)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/coder/physgate-scratch/r-hk-02/wt/tests/integration/hooks/bypass_corpus_runner.py", line 123, in _run_first_layer
+    run = run_session(
+          ^^^^^^^^^^^^
+  File "/home/coder/physgate-scratch/r-hk-02/wt/tests/integration/hooks/hook_session.py", line 216, in run_session
+    check_the_run_means_something(run)
+  File "/home/coder/physgate-scratch/r-hk-02/wt/tests/integration/hooks/hook_session.py", line 249, in check_the_run_means_something
+    raise HarnessError(msg)
+hook_session.HarnessError: more hook commands started than the generated ones: {'Stop': 9}
