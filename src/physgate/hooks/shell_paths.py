@@ -76,6 +76,7 @@ left to the sentinel for the roots it puts back, and reaches a root watched
 
 from __future__ import annotations
 
+import fnmatch
 import glob
 import itertools
 import os
@@ -144,10 +145,15 @@ VARIABLE_UNBOUNDED = (
     "more than {limit} words, too many to check each one, so it is refused. Split the work "
     "into smaller loops or calls."
 )
+PARAMETER_FORM = (
+    "This command uses {word}, a parameter expansion this layer does not evaluate "
+    "(replacement, substring, case change or indirection), so where it leads cannot be "
+    "checked and it is refused. Write the value out, or use a separate step."
+)
 TILDE_UNKNOWN = (
-    "This command uses {word}, which names no user here; zsh reads it as a named directory "
-    "or a variable holding a path, which cannot be known before it runs, so it is refused. "
-    "Write the path out."
+    "This command uses {word}, which zsh reads as a named directory or as a variable "
+    "holding a path, and which directory that is cannot be known before it runs, so it is "
+    "refused. Write the path out."
 )
 CD_OPTION = (
     "This command sets {what}, which makes a later cd go somewhere its words do not say, "
@@ -468,7 +474,6 @@ _ASSIGNERS = {"export", "declare", "typeset", "local", "readonly"}
 _CHANGES_DIRECTORY = ("cd", "chdir", "pushd")
 _READS_INTO = {"read", "mapfile", "readarray", "select"}
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-_REFERENCE = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
 
 
 class _UnboundedError(Exception):
@@ -476,19 +481,52 @@ class _UnboundedError(Exception):
 
 
 class _UnknownTildeError(Exception):
-    """A ``~name`` that names no user, which zsh reads as a directory known only at run time."""
+    """A ``~name`` whose directory is known only at run time."""
+
+
+class _UnresolvedParameterError(Exception):
+    """A ``${…}`` form this layer does not evaluate, and which agents rarely write."""
+
+
+#: Variables the shell sets itself: the hook's own value of one is never the shell's.
+_SHELL_SET = frozenset(
+    {
+        "_", "RANDOM", "SRANDOM", "SECONDS", "EPOCHSECONDS", "EPOCHREALTIME", "LINENO",
+        "BASHPID", "PPID", "SHLVL", "HISTCMD", "BASH_COMMAND", "BASH_SUBSHELL", "OPTIND",
+        "OPTARG", "REPLY", "PIPESTATUS", "FUNCNAME", "BASH_SOURCE", "BASH_LINENO",
+    }
+)  # fmt: skip
+#: ``${name<op>operand}`` for the operators this layer evaluates.
+_PARAMETER_OP = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)(:?[-=+?]|##?|%%?)(.*)", re.DOTALL)
+#: Positional and special parameters, and arrays: values only running decides (the residual).
+_PARAMETER_OPAQUE = re.compile(r"#?(?:[0-9]+|[@*#?$!-]|[A-Za-z_][A-Za-z0-9_]*\[.*\])", re.DOTALL)
+
+
+def _trim(value: str, pattern: str, op: str) -> str:
+    """``${value<op>pattern}`` for ``#``, ``##``, ``%`` and ``%%``, as bash trims."""
+    n = len(value)
+    if op in ("#", "##"):
+        for i in range(n + 1) if op == "#" else range(n, -1, -1):
+            if fnmatch.fnmatchcase(value[:i], pattern):
+                return value[i:]
+    else:
+        for i in range(n, -1, -1) if op == "%" else range(n + 1):
+            if fnmatch.fnmatchcase(value[i:], pattern):
+                return value[:i]
+    return value
 
 
 class _Env:
     """The values a call could give each variable it assigns, as far as they are known.
 
     A variable the call never assigns is read from the hook's own environment, as the
-    shell inherits it. One it assigns could hold the inherited value (the assignment may
-    not run) or any literal value assigned; one assigned a value known only at run time
-    (a substitution, ``read``) is incomplete: its known values are still checked, the rest
-    is not known. One that could hold too many values to check is unbounded, and any word
-    that uses it is refused. ``PWD`` is the directory being judged from; ``OLDPWD`` is
-    also every directory a ``cd`` left.
+    shell inherits it, except one the shell sets itself. One it assigns could hold the
+    inherited value (the assignment may not run) or any value assigned; one assigned a
+    value known only at run time (a substitution, ``read``) is incomplete: its known
+    values are still checked, the rest is not known. One that could hold too many values
+    to check is unbounded, and any word that uses it is refused. ``PWD`` is also every
+    directory being judged from; ``OLDPWD`` is also every directory a ``cd`` left; ``_``
+    is the last word of any command before.
     """
 
     __slots__ = ("known", "unbounded", "unknown")
@@ -498,18 +536,26 @@ class _Env:
         self.unknown: set[str] = set()
         self.unbounded: set[str] = set()
 
+    def _holds(self, name: str) -> bool:
+        """True if ``name`` has any value this layer knows of."""
+        if name in self.known or name in self.unknown or name in self.unbounded:
+            return True
+        return name not in _SHELL_SET and name in os.environ
+
     def values(self, name: str, cwds: list[str]) -> tuple[list[str], bool]:
         """Every known value ``name`` could hold, and whether those are all of them.
 
         Raises:
             _UnboundedError: it could hold more values than can be checked.
         """
-        if name == "PWD":
-            return cwds, True
         if name in self.unbounded:
             raise _UnboundedError(name)
-        inherited = os.environ.get(name)
-        known = self.known.get(name, set()) | ({inherited} if inherited is not None else set())
+        known = set(self.known.get(name, set()))
+        if name == "PWD":
+            return sorted(known | set(cwds)), name not in self.unknown
+        inherited = None if name in _SHELL_SET else os.environ.get(name)
+        if inherited is not None:
+            known.add(inherited)
         complete = name not in self.unknown and (inherited is not None or name in self.known)
         return sorted(known), complete
 
@@ -528,34 +574,101 @@ class _Env:
     def expand(self, word: str, dynamic: bool, cwds: list[str]) -> list[str]:
         """Every word ``word`` could become, as far as its parts are known.
 
-        A part known only at run time (a substitution, ``$$``, ``${x:-y}``, a variable with
-        no known value) contributes nothing: what is returned is checked, the rest is the
-        residual. Raises :class:`_UnboundedError` for more than :data:`VARIABLE_LIMIT` words,
-        and :class:`_UnknownTildeError` for a ``~name`` that names no user.
+        A part known only at run time (a substitution, ``$$``, a positional parameter, a
+        variable with no known value) contributes nothing: what is returned is checked,
+        the rest is the residual. Raises :class:`_UnboundedError` for more than
+        :data:`VARIABLE_LIMIT` words, :class:`_UnknownTildeError` for a ``~name`` whose
+        directory cannot be known, and :class:`_UnresolvedParameterError` for a ``${…}``
+        form this layer does not evaluate.
         """
-        words = [word]
-        if dynamic:
-            words = []
-            refs = list(_REFERENCE.finditer(word))
-            opaque = any(m in word for m in ("$(", "`", "<(", ">(")) or (
-                "$" in _REFERENCE.sub("", word)
-            )
-            choices = [self.values(ref.group(1) or ref.group(2), cwds)[0] for ref in refs]
-            count = 1
-            for choice in choices:
-                count *= len(choice)
-            if count > VARIABLE_LIMIT:
-                raise _UnboundedError(word)
-            if not opaque:
-                literal = _REFERENCE.split(word)[::3]  # the text between references
-                words = [
-                    "".join(t + v for t, v in zip(literal, (*combination, ""), strict=True))
-                    for combination in itertools.product(*choices)
-                ]
+        return self._expand(word, dynamic, cwds)[0]
+
+    def _expand(self, word: str, dynamic: bool, cwds: list[str]) -> tuple[list[str], bool]:
+        if not dynamic:
+            return self._tilde(word, cwds), True
+        parts = self._parts(word, cwds)
+        if parts is None:
+            return [], False
+        choices, complete = parts
+        count = 1
+        for choice in choices:
+            count *= len(choice)
+        if count > VARIABLE_LIMIT:
+            raise _UnboundedError(word)
         out: list[str] = []
-        for w in words:
-            out += self._tilde(w, cwds)
-        return out
+        for combination in itertools.product(*choices):
+            out += self._tilde("".join(combination), cwds)
+        return out, complete
+
+    def _parts(self, word: str, cwds: list[str]) -> tuple[list[list[str]], bool] | None:
+        """The word as a sequence of choices: literal text, and each reference's values.
+
+        ``None`` if a part is a substitution, or a parameter only running decides.
+        """
+        if any(m in word for m in ("`", "$(", "<(", ">(")):
+            return None
+        choices: list[list[str]] = []
+        complete = True
+        text = ""
+        i = 0
+        while i < len(word):
+            if word[i] != "$" or i + 1 == len(word):
+                text += word[i]
+                i += 1
+                continue
+            if word[i + 1] == "{":
+                close = word.find("}", i + 2)
+                if close < 0:
+                    return None
+                found = self._braced(word[i + 2 : close], cwds)
+                i = close + 1
+            elif match := _NAME.match(word, i + 1):
+                found = self.values(match.group(), cwds)
+                i = match.end()
+            elif word[i + 1].isdigit() or word[i + 1] in "@*#?$!-":
+                return None
+            else:
+                text += "$"  # a ``$`` before nothing a parameter can be named by is itself
+                i += 1
+                continue
+            if found is None:
+                return None
+            choices += [[text], found[0]]
+            complete = complete and found[1]
+            text = ""
+        return [*choices, [text]], complete
+
+    def _braced(self, inner: str, cwds: list[str]) -> tuple[list[str], bool] | None:
+        """``${inner}``'s possible values, ``None`` if only running decides them."""
+        if _NAME.fullmatch(inner):
+            return self.values(inner, cwds)
+        if inner.startswith("#") and _NAME.fullmatch(inner[1:]):
+            values, complete = self.values(inner[1:], cwds)
+            return sorted({str(len(v)) for v in values}), complete
+        if _PARAMETER_OPAQUE.fullmatch(inner):
+            return None
+        match = _PARAMETER_OP.fullmatch(inner)
+        if match is None or "${" in inner:
+            raise _UnresolvedParameterError("${" + inner + "}")
+        name, op, operand = match.groups()
+        values, complete = self.values(name, cwds)
+        operands, known = self._expand(operand, "$" in operand, cwds)
+        operands = sorted({*operands, operand})
+        if op in (":-", "-", ":=", "="):
+            if op in (":=", "="):
+                self.known.setdefault(name, set()).update(operands)
+            return sorted({*values, *operands}), complete and known
+        if op in (":+", "+"):
+            return sorted({*operands, ""}), known
+        if op in (":?", "?"):
+            return values, complete
+        trimmed = {
+            _trim(v, pattern, op)
+            for v in values
+            for o in operands
+            for pattern in (o, re.sub(r"([*?\[])", r"[\1]", o))
+        }
+        return sorted(trimmed), complete and known
 
     def _tilde(self, word: str, cwds: list[str]) -> list[str]:
         head, sep, rest = word.partition("/")
@@ -568,30 +681,60 @@ class _Env:
         if head == "~+" or re.fullmatch(r"~[+-]?\d+", head):
             # ``~+`` is the directory itself; ``~N``, ``~+N`` and ``~-N`` are entries of the
             # directory stack, each a directory this call has been in: every one is counted.
-            return [d + sep + rest for d in cwds]
-        expanded = os.path.expanduser(word)
-        if expanded != word:
-            return [expanded]
-        if re.fullmatch(r"~[A-Za-z_][\w.-]*", head):
-            raise _UnknownTildeError(head)
-        return [word]
+            return [d + sep + rest for d in self.values("PWD", cwds)[0]]
+        name = head[1:]
+        found: list[str] = []
+        user = os.path.expanduser(head)
+        if user != head:
+            found.append(user)
+        if _NAME.fullmatch(name) and self._holds(name):
+            # zsh reads ``~name`` as the directory a parameter holds, before a user's.
+            values, complete = self.values(name, cwds)
+            if not complete:
+                raise _UnknownTildeError(head)
+            found += [v for v in values if v.startswith("/")]
+        if not found:
+            if re.fullmatch(r"[A-Za-z_][\w.-]*", name):
+                raise _UnknownTildeError(head)  # a zsh named directory, or nothing
+            return [word]
+        if user == head:
+            found.append(head)  # bash reads a name that is no user as written
+        return [f + sep + rest for f in found]
+
+    def _assignment_tildes(self, value: str, cwds: list[str]) -> list[str]:
+        """``value`` with a ``~`` after each ``:`` expanded, as an assignment expands it."""
+        segments = [self._tilde(s, cwds) if s.startswith("~") else [s] for s in value.split(":")]
+        count = 1
+        for segment in segments:
+            count *= len(segment)
+        if count > VARIABLE_LIMIT:
+            raise _UnboundedError(value)
+        return [":".join(c) for c in itertools.product(*segments)]
 
     def assign(self, name: str, value: str, dynamic: bool, cwds: list[str]) -> None:
-        """Record that ``name`` may now hold ``value``."""
+        """Record that ``name`` may now hold ``value`` (appended to, for ``name+``)."""
+        append = name.endswith("+")
+        name = name.removesuffix("+")
         if name.casefold() == "cdpath" and name != "CDPATH":
             # zsh's array tied to CDPATH: its value is not this word.
             self.unknown.add("CDPATH")
             return
         try:
-            found = self.expand(value, dynamic, cwds)
+            found, complete = self._expand(value, dynamic, cwds)
+            found = [t for f in found for t in self._assignment_tildes(f, cwds)]
+            if dynamic:
+                found = [*found, value]  # a quoted ``$`` is a literal character
+            if append:
+                before, known = self.values(name, cwds)
+                complete = complete and known
+                found = [b + f for b in (before or [""]) for f in found]
+                if len(found) > VARIABLE_LIMIT:
+                    raise _UnboundedError(name)
         except _UnboundedError:
             self.unbounded.add(name)
             return
-        if dynamic:
-            # Known only in part: what is known is kept, and the variable is incomplete. The
-            # value as written is kept too, for a quoted ``$`` is a literal character.
+        if not complete:
             self.unknown.add(name)
-            found = [*found, value]
         self.known.setdefault(name, set()).update(found)
 
     def record(self, cmd: SimpleCommand, cwds: list[str]) -> None:
@@ -604,10 +747,13 @@ class _Env:
             return
         head = _name(argv[0])
         offset = len(cmd.argv) - len(argv)
+        last = len(cmd.argv) - 1
+        for word in (cmd.argv[last], *(cmd.alternatives.get(last) or ())):
+            self.assign("_", word, last in cmd.dynamic, cwds)
         if head in _ASSIGNERS:
             for n, word in enumerate(argv[1:], offset + 1):
                 name, eq, value = word.partition("=")
-                if eq and _NAME.fullmatch(name):
+                if eq and _NAME.fullmatch(name.removesuffix("+")):
                     self.assign(name, value, n in cmd.dynamic, cwds)
         elif head == "for" and len(argv) > 1:
             name = argv[1]
@@ -742,6 +888,8 @@ def pre_tool_use(hook_input: InputView, config: ConfigView) -> Decision:
                 return refuse(VARIABLE_UNBOUNDED.format(word=exc.args[0], limit=VARIABLE_LIMIT))
             except _UnknownTildeError as exc:
                 return refuse(TILDE_UNKNOWN.format(word=exc.args[0]))
+            except _UnresolvedParameterError as exc:
+                return refuse(PARAMETER_FORM.format(word=exc.args[0]))
             if len(cwds) > CWD_LIMIT:
                 return refuse(CWD_UNBOUNDED.format(limit=CWD_LIMIT))
     return ALLOW

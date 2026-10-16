@@ -203,8 +203,10 @@ class _Builder:
 
 
 def _is_assignment(word: str) -> bool:
+    """``NAME=value``, or ``NAME+=value``, which appends."""
     name, eq, _ = word.partition("=")
-    return bool(eq) and name.replace("_", "a").isalnum() and not name[0].isdigit()
+    name = name.removesuffix("+")
+    return bool(eq) and bool(name) and name.replace("_", "a").isalnum() and not name[0].isdigit()
 
 
 def _matching(text: str, start: int, open_: str, close: str) -> int:
