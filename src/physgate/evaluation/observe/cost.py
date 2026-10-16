@@ -29,8 +29,9 @@ writes one-hour entries, so every such line was low. A sheet that prices per cal
 by what its own result event recorded (``calls.read_call``). A call whose split was
 not read is priced at the five-minute rate and named, and the line is marked a
 **lower bound** (``lower_bound``) wherever a call's cache lifetime was not read or its
-result was not reached: a review under a review root the reader did not name, which
-the operator UI's server never can.
+result was not reached, or its stream is not the one sealed when its session ended
+(named in ``seal_broken``, and read not at all). A result not reached is a review's under
+a review root the reader did not name, which the operator UI's server never can.
 
 **Every call is held to the binary's own figure.** Where a call's result reports
 ``total_cost_usd``, the line keeps it beside the call's price, and the line's
@@ -262,6 +263,9 @@ class CallCost(_Frozen):
     #: Whether the two figures agree within ``RECONCILE_TOLERANCE_USD``; ``None``
     #: where there is no binary figure to hold the call to.
     agrees: bool | None
+    #: The call's stream is not the one sealed when its session ended: nothing in it was
+    #: read, and the call is priced as one whose result was not.
+    seal_broken: bool = False
 
 
 class Reconciliation(_Frozen):
@@ -278,6 +282,9 @@ class Reconciliation(_Frozen):
     #: The calls with cache writes whose time to live was not read: priced at the
     #: five-minute rate, so the line is a lower bound for them.
     ttl_unread: tuple[NonEmptyStr, ...]
+    #: The calls whose stream is not the one sealed when their session ended: none of it
+    #: read, so each is also unread. Absent from lines written before the seal was held.
+    seal_broken: tuple[NonEmptyStr, ...] = ()
 
 
 class CostLine(_Frozen):
@@ -398,8 +405,7 @@ def price_run(run_dir: Path, prices: DatedSheet, *, review_roots: Sequence[Path]
 
     Raises:
         ManifestError: the run's records do not make a manifest, a token's model cannot
-            be told from them, a call's stream is not the one sealed when its session
-            ended, or a call's result is another session's.
+            be told from them, or a call's result is another session's.
         PriceSheetError: a model the run used has no price on the sheet, or a call's
             cache writes by time to live do not add up.
     """
@@ -434,6 +440,7 @@ def _call_cost(
         usd=usd,
         binary_usd=binary,
         agrees=None if binary is None else abs(usd - binary) <= RECONCILE_TOLERANCE_USD,
+        seal_broken=recorded is not None and recorded.seal_broken,
     )
 
 
@@ -450,6 +457,7 @@ def reconcile(calls: Sequence[CallCost]) -> Reconciliation:
             for c in calls
             if c.cache_writes is None and c.tokens.cache_creation_input_tokens
         ),
+        seal_broken=tuple(c.attribution for c in calls if c.seal_broken),
     )
 
 

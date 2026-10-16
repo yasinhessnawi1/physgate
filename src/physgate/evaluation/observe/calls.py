@@ -25,8 +25,11 @@ read from a stream's bytes as its session ended, and the end recorded their seal
 (``session_ended`` and ``leftover_read``); a stream rewritten since could move writes
 from the one-hour to the five-minute cache, keep them adding up, and carry a figure
 that agrees with the lower price. So a stream with a recorded seal is read only if
-its bytes are still the sealed ones, and refused otherwise. The decomposition's and a
-review's stream have no seal in the run's log; they are read as they are.
+its bytes are still the sealed ones. A stream that is not is not read at all: the call
+is named as one whose seal broke, and priced as a call whose result was not read, so
+its line is a lower bound and every other call of the run is still priced. The
+decomposition's and a review's stream have no seal in the run's log; they are read as
+they are.
 """
 
 from __future__ import annotations
@@ -75,6 +78,9 @@ class RecordedCall(_Frozen):
     cache_writes: CacheWrites | None
     #: The binary's own figure for the call, at list price; ``None`` where it reports none.
     binary_usd: Decimal | None
+    #: The call's stream is not the one sealed when its session ended, so nothing in it
+    #: was read: no split and no figure.
+    seal_broken: bool = False
 
 
 def _count(value: object) -> int | None:
@@ -107,21 +113,17 @@ def stream_seals(events: Iterable[Event]) -> dict[str, Seal]:
 def read_call(stream: Path, session_id: str, sealed: Seal | None = None) -> RecordedCall | None:
     """What the call's result event recorded, or ``None`` if its stream holds no result.
 
-    ``sealed`` is the seal the call's end recorded for its stream, if it recorded one.
+    ``sealed`` is the seal the call's end recorded for its stream, if it recorded one. A
+    stream that is not the sealed one is not read: the call is returned with nothing read
+    and ``seal_broken`` set.
 
     Raises:
-        ManifestError: the stream is not the one sealed when its session ended, or the
-            result is another session's than the call it is read for.
+        ManifestError: the result is another session's than the call it is read for.
     """
     data = Path(stream).read_bytes()
-    if sealed is not None and (found := seal(data)) != sealed:
-        msg = "the call's stream is not what it was when its session ended"
-        raise ManifestError(
-            msg,
-            stream=str(stream),
-            call=session_id,
-            sealed=f"{sealed.sha256}:{sealed.length}",
-            found=f"{found.sha256}:{found.length}",
+    if sealed is not None and seal(data) != sealed:
+        return RecordedCall(
+            session_id=session_id, cache_writes=None, binary_usd=None, seal_broken=True
         )
     result = _runtime_result(data.decode(errors="replace"))
     if result is None:
@@ -173,11 +175,11 @@ def run_calls(
     ``resolve`` is how a path is opened: a reader that may open only some paths (the
     operator UI's server) passes its own check, which refuses the others. ``seals`` is
     the seal each session's end recorded for its stream (``stream_seals``), by session
-    id; a stream it names is held to it.
+    id; a stream it names is held to it, and a call whose stream does not hold is
+    returned with nothing read and ``seal_broken`` set.
 
     Raises:
-        ManifestError: a stream is not the one sealed when its session ended, or a
-            result is another session's than its call's.
+        ManifestError: a result is another session's than its call's.
     """
     found: dict[str, RecordedCall] = {}
     for attribution in attributions:

@@ -47,8 +47,9 @@ from physgate.evaluation.observe.cost import (
 from physgate.evaluation.observe.exceptions import ManifestError, PriceSheetError
 from physgate.evaluation.observe.manifest import read_manifest, read_run_events
 from physgate.orchestrator.accounting import TokenAccount
-from physgate.orchestrator.events import ReviewRan, read_events
+from physgate.orchestrator.events import Event, LeftoverRead, ReviewRan, TokensUsed, read_events
 from physgate.orchestrator.protocols import Usage
+from physgate.orchestrator.trajectory import seal
 
 OLD, NEW = "2026-09-27", "2026-10-16"
 MTOK = Decimal(1_000_000)
@@ -354,23 +355,8 @@ def test_a_call_with_no_result_read_is_named_and_its_writes_are_a_lower_bound(
     assert priced.usd == rates.usd(priced.tokens)
 
 
-def test_a_stream_rewritten_after_its_session_ended_is_refused(
-    tmp_path: Path, new: DatedSheet, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """A rewritten split with a matching figure would agree on the lower sum; its seal does not.
-
-    The rewrite moves a session's one-hour writes to the five-minute cache, keeps them
-    adding up, and gives the binary's figure at that split: read raw, the call would be
-    priced lower and agree with it.
-    """
-    from physgate.cli import main
-
-    run, review_root = _priced_run(tmp_path)
-    events = read_events(run / "events.jsonl")
-    who = next(a for a in TokenAccount.from_events(events).by_attribution() if "session:" in a)
-    sid = who.split(":", 1)[1]
-    stream = run / "sessions" / sid / "stdout.jsonl"
-    (usage,) = [u for a, u in TokenAccount.from_events(events).by_attribution().items() if a == who]
+def _rewrite_to_five_minute(stream: Path, sid: str, usage: Usage, new: DatedSheet) -> None:
+    """Rewrite a call's result: one-hour writes moved to five-minute, its figure to match."""
     five = CacheWrites(five_minute=usage.cache_creation_input_tokens, one_hour=0)
     lower = new.sheet.usd_per_mtok["claude-sonnet-5"].usd(usage, five)
     write_stream(
@@ -379,13 +365,93 @@ def test_a_stream_rewritten_after_its_session_ended_is_refused(
             sid, usage, five_minute=five.five_minute, one_hour=0, total_cost_usd=float(lower)
         ),
     )
-    with pytest.raises(ManifestError, match="not what it was when its session ended") as refused:
-        price_run(run, new, review_roots=(review_root,))
-    assert refused.value.context["call"] == sid
+
+
+def test_a_stream_rewritten_after_its_session_ended_is_named_and_priced_as_unread(
+    tmp_path: Path, new: DatedSheet, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A rewritten split with a matching figure would agree on the lower sum; its seal does not.
+
+    Read raw, the call would be priced lower and agree with its figure. Held to its seal,
+    nothing in it is read: the call is priced as one whose result was not read, named as
+    the call whose seal broke, and the line is a lower bound. The rest of the run is
+    priced as before.
+    """
+    from physgate.cli import main
+
+    run, review_root = _priced_run(tmp_path)
+    whole = price_run(run, new, review_roots=(review_root,))
+    events = read_events(run / "events.jsonl")
+    account = TokenAccount.from_events(events).by_attribution()
+    who = next(a for a in account if a.startswith("session:"))
+    sid = who.split(":", 1)[1]
+    _rewrite_to_five_minute(run / "sessions" / sid / "stdout.jsonl", sid, account[who], new)
+    line = price_run(run, new, review_roots=(review_root,))
+    assert line.reconciliation is not None and line.lower_bound is True
+    assert line.reconciliation.seal_broken == (who,)
+    assert line.reconciliation.unread == (who,) and line.reconciliation.differs == ()
+    (broken,) = [c for c in line.calls if c.attribution == who]
+    assert (broken.cache_writes, broken.binary_usd, broken.seal_broken) == (None, None, True)
+    assert broken.usd == new.sheet.usd_per_mtok["claude-sonnet-5"].usd(broken.tokens)
+    # Every other call is priced exactly as it was before the rewrite.
+    before = {c.attribution: c for c in whole.calls}
+    assert all(c == before[c.attribution] for c in line.calls if c.attribution != who)
     capsys.readouterr()
     args = ["cost", "--run-dir", str(run), "--prices", NEW, "--review-root", str(review_root)]
-    assert main(args) == 2
-    assert capsys.readouterr().out == ""
+    assert main(args) == 1
+    printed = capsys.readouterr()
+    assert json.loads(printed.out)["reconciliation"]["seal_broken"] == [who]
+    assert json.loads(printed.err)["seal_broken"] == [who]
+
+
+def test_a_left_over_session_s_stream_is_held_to_the_seal_its_resume_recorded(
+    tmp_path: Path, new: DatedSheet
+) -> None:
+    """A session a killed orchestrator left behind is sealed when the resume reads it."""
+    run, review_root = _priced_run(tmp_path)
+    events = read_run_events(run)
+    last = events[-1]
+    sid = "left-over-1"
+    usage = Usage(
+        input_tokens=7, output_tokens=2, cache_read_input_tokens=0, cache_creation_input_tokens=9
+    )
+    stream = write_stream(run / "sessions" / sid / "stdout.jsonl", _subscription_result(sid, usage))
+    ts, run_id, mode = last.ts, last.run_id, last.gate_mode
+    left: list[Event] = [
+        LeftoverRead(
+            seq=last.seq + 1,
+            ts=ts,
+            run_id=run_id,
+            gate_mode=mode,
+            session_id=sid,
+            stopped=True,
+            complete=True,
+            trajectory_seal=seal(stream.read_bytes()),
+        ),
+        TokensUsed(
+            seq=last.seq + 2,
+            ts=ts,
+            run_id=run_id,
+            gate_mode=mode,
+            attribution=f"session:{sid}",
+            message_id="m-left",
+            usage=usage,
+        ),
+    ]
+    resumed = [*events, *left]
+    config, manifest_id = read_manifest(run).config, read_manifest(run).manifest_id
+
+    def priced() -> CostLine:
+        account = TokenAccount.from_events(resumed).by_attribution()
+        calls = run_calls(run, account, (review_root,), seals=stream_seals(resumed))
+        return price_events(config, manifest_id, resumed, new, calls=calls)
+
+    intact = priced()
+    assert intact.reconciliation is not None and intact.lower_bound is False
+    _rewrite_to_five_minute(stream, sid, usage, new)
+    line = priced()
+    assert line.reconciliation is not None and line.lower_bound is True
+    assert line.reconciliation.seal_broken == (f"session:{sid}",)
 
 
 def test_a_line_priced_without_the_records_carries_no_reconciliation(

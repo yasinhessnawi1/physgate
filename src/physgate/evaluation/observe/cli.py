@@ -96,7 +96,9 @@ def _cost(args: argparse.Namespace) -> int:
         unread = () if held is None else held.unread
         ttl = () if held is None else tuple(c for c in held.ttl_unread if c not in unread)
         warning = "the cost is a lower bound" + LOWER_BOUND_LABEL
-        print(json.dumps({"warning": warning, "unpriced": [*unread, *ttl]}), file=sys.stderr)
+        broken = [] if held is None else list(held.seal_broken)
+        said = {"warning": warning, "unpriced": [*unread, *ttl], "seal_broken": broken}
+        print(json.dumps(said), file=sys.stderr)
     return 1 if line.lower_bound or (held is not None and held.differs) else 0
 
 
