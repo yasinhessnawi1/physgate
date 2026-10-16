@@ -458,28 +458,47 @@ def unwritable(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(collect_module, "_writable_by_the_session", lambda path: False)
 
 
+def _installed_at(
+    monkeypatch: pytest.MonkeyPatch, prefixes: tuple[Path, ...], system: Path
+) -> None:
+    """The harness's interpreter, as if installed at stand-ins under the test's own directory.
+
+    Its prefix is ``prefixes``, and its distribution's ``sitecustomize`` is ``system``.
+    """
+    # Added to the real installation, which a distribution's interpreter loads code from
+    # in every process (Ubuntu's own sitecustomize, for one).
+    real = collect_module.trusted_installation()
+    trusted = collect_module.Installation(
+        prefixes=(*real.prefixes, *(Path(os.path.realpath(p)) for p in prefixes)),
+        system_customize=(*real.system_customize, system),
+    )
+    monkeypatch.setattr(collect_module, "trusted_installation", lambda: trusted)
+
+
 @pytest.mark.usefixtures("unwritable")
 def test_interpreter_code_outside_every_session_writable_root_is_admitted_and_recorded(
-    tmp_path: Path, run_dir: Path
+    tmp_path: Path, run_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     base = worktree(tmp_path)
     system = _sitecustomize(Path(os.path.realpath(tmp_path)) / "system" / "etc" / "python3.12")
+    _installed_at(monkeypatch, (), system)
     _with_loaded(base, system)
     series = _collect_with(base, run_dir, writable=(base / ".home",))
     assert series.refused == ()
     (sealed,) = series.records
     digest = hashlib.sha256(system.read_bytes()).hexdigest()
-    assert [(e.path, e.sha256) for e in sealed.environment] == [(str(system), digest)]
+    assert (str(system), digest) in [(e.path, e.sha256) for e in sealed.environment]
     assert str(system) not in [c.path for c in sealed.loaded]
 
 
 @pytest.mark.usefixtures("unwritable")
 def test_the_same_file_in_the_session_home_s_user_site_is_refused(
-    tmp_path: Path, run_dir: Path
+    tmp_path: Path, run_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     base = worktree(tmp_path)
     home = base / ".home"
     planted = _sitecustomize(home / ".local" / "lib" / "python3.12" / "site-packages")
+    _installed_at(monkeypatch, (), planted)
     _with_loaded(base, planted)
     series = _collect_with(base, run_dir, writable=(home,))
     assert series.records == ()
@@ -489,10 +508,11 @@ def test_the_same_file_in_the_session_home_s_user_site_is_refused(
 
 @pytest.mark.usefixtures("unwritable")
 def test_the_same_file_in_the_temporary_directory_is_refused_by_default(
-    tmp_path: Path, run_dir: Path
+    tmp_path: Path, run_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     base = worktree(tmp_path)
     planted = _sitecustomize(Path(os.path.realpath(tempfile.mkdtemp(dir=tmp_path))))
+    _installed_at(monkeypatch, (), planted)
     _with_loaded(base, planted)
     if not any(planted.is_relative_to(r) for r in collect_module.temporary_roots()):
         pytest.skip("this test's directory is not under the machine's temporary directory")
@@ -502,10 +522,11 @@ def test_the_same_file_in_the_temporary_directory_is_refused_by_default(
 
 
 def test_interpreter_code_the_session_s_user_can_write_is_refused(
-    tmp_path: Path, run_dir: Path
+    tmp_path: Path, run_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     base = worktree(tmp_path)
     system = _sitecustomize(Path(os.path.realpath(tmp_path)) / "system" / "etc" / "python3.12")
+    _installed_at(monkeypatch, (), system)
     _with_loaded(base, system)
     series = _collect_with(base, run_dir, writable=(base / ".home",))
     assert series.records == ()
@@ -515,12 +536,121 @@ def test_interpreter_code_the_session_s_user_can_write_is_refused(
 
 @pytest.mark.usefixtures("unwritable")
 def test_interpreter_code_changed_after_the_record_was_written_is_refused(
-    tmp_path: Path, run_dir: Path
+    tmp_path: Path, run_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     base = worktree(tmp_path)
     system = _sitecustomize(Path(os.path.realpath(tmp_path)) / "system" / "etc" / "python3.12")
+    _installed_at(monkeypatch, (), system)
     _with_loaded(base, system)
     system.write_text("# changed\n")
     series = _collect_with(base, run_dir, writable=(base / ".home",))
     assert series.records == ()
     assert "changed after the record was written" in series.refused[0].reason
+
+
+def _module_file(where: Path, name: str = "extra.py") -> Path:
+    where.mkdir(parents=True, exist_ok=True)
+    path = where / name
+    path.write_text("VALUE = 1\n")
+    return Path(os.path.realpath(path))
+
+
+@pytest.mark.usefixtures("unwritable")
+def test_code_outside_the_interpreter_s_own_installation_is_refused(
+    tmp_path: Path, run_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Unwritable and outside every session-writable root, but not the harness interpreter's.
+    base = worktree(tmp_path)
+    root = Path(os.path.realpath(tmp_path))
+    _installed_at(monkeypatch, (root / "prefix",), root / "etc" / "python3.12" / "sitecustomize.py")
+    elsewhere = _module_file(root / "opt" / "vendor")
+    _with_loaded(base, elsewhere)
+    series = _collect_with(base, run_dir, writable=(base / ".home",))
+    assert series.records == ()
+    assert "not the interpreter's own installation" in series.refused[0].reason
+
+
+@pytest.mark.usefixtures("unwritable")
+def test_code_under_the_interpreter_s_own_prefix_is_admitted(
+    tmp_path: Path, run_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    base = worktree(tmp_path)
+    root = Path(os.path.realpath(tmp_path))
+    _installed_at(monkeypatch, (root / "prefix",), root / "etc" / "python3.12" / "sitecustomize.py")
+    library = _module_file(root / "prefix" / "lib" / "python3.12")
+    _with_loaded(base, library)
+    (sealed,) = _collect_with(base, run_dir, writable=(base / ".home",)).records
+    assert str(library) in [e.path for e in sealed.environment]
+
+
+@pytest.mark.usefixtures("unwritable")
+@pytest.mark.parametrize("name", ["sitecustomize.py", "usercustomize.py", "extra.pth"])
+def test_a_customisation_hook_anywhere_but_the_system_location_is_refused(
+    tmp_path: Path, run_dir: Path, monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    # Inside the interpreter's own prefix, unwritable: still refused, since a customisation
+    # hook runs in every process and only the distribution's own one is expected.
+    base = worktree(tmp_path)
+    root = Path(os.path.realpath(tmp_path))
+    _installed_at(monkeypatch, (root / "prefix",), root / "etc" / "python3.12" / "sitecustomize.py")
+    hook = _module_file(root / "prefix" / "lib" / "python3.12" / "site-packages", name)
+    _with_loaded(base, hook)
+    series = _collect_with(base, run_dir, writable=(base / ".home",))
+    assert series.records == ()
+    assert "customisation" in series.refused[0].reason
+
+
+@pytest.mark.usefixtures("unwritable")
+def test_a_session_writable_root_spelt_in_another_case_is_still_that_root(
+    tmp_path: Path, run_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    base = worktree(tmp_path)
+    home = Path(os.path.realpath(tmp_path)) / "session" / "home"
+    planted = _module_file(home / "lib")
+    variant = Path(str(planted).replace("/session/home/", "/SESSION/HOME/"))
+    if not variant.exists() or os.path.realpath(variant) != str(variant):
+        pytest.skip("this volume is case-sensitive, or resolves case; the variant is not one")
+    root = Path(os.path.realpath(tmp_path))
+    _installed_at(monkeypatch, (root,), root / "etc" / "python3.12" / "sitecustomize.py")
+    _with_loaded(base, variant)
+    series = _collect_with(base, run_dir, writable=(home,))
+    assert series.records == ()
+    assert "a place the session can write" in series.refused[0].reason
+
+
+def test_a_read_only_file_in_a_directory_the_session_can_write_is_refused(
+    tmp_path: Path, run_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The file itself cannot be written, but its directory can: the file can be replaced.
+    base = worktree(tmp_path)
+    root = Path(os.path.realpath(tmp_path))
+    _installed_at(monkeypatch, (root / "prefix",), root / "etc" / "python3.12" / "sitecustomize.py")
+    library = _module_file(root / "prefix" / "lib")
+    library.chmod(0o444)
+    _with_loaded(base, library)
+    series = _collect_with(base, run_dir, writable=(base / ".home",))
+    assert series.records == ()
+    assert "the session's user can write" in series.refused[0].reason
+
+
+def test_the_trusted_installation_is_the_harness_interpreter_s_own() -> None:
+    found = collect_module.trusted_installation()
+    assert Path(os.path.realpath(sys.base_prefix)) in found.prefixes
+    major, minor = sys.version_info[:2]
+    assert found.system_customize == (Path(f"/etc/python{major}.{minor}/sitecustomize.py"),)
+
+
+@pytest.mark.usefixtures("unwritable")
+@pytest.mark.parametrize("name", ["usercustomize.py", "extra.pth"])
+def test_a_customisation_hook_beside_the_system_one_is_refused(
+    tmp_path: Path, run_dir: Path, monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    # Admission is by the system file's exact path, never by the directory it lies in.
+    base = worktree(tmp_path)
+    system = _sitecustomize(Path(os.path.realpath(tmp_path)) / "system" / "etc" / "python3.12")
+    _installed_at(monkeypatch, (), system)
+    beside = _module_file(system.parent, name)
+    _with_loaded(base, beside)
+    series = _collect_with(base, run_dir, writable=(base / ".home",))
+    assert series.records == ()
+    assert "customisation" in series.refused[0].reason

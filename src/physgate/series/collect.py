@@ -46,6 +46,7 @@ import hashlib
 import os
 import re
 import stat
+import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
@@ -360,6 +361,28 @@ def _read_all(fd: int, bound: int) -> bytes:
     return b"".join(chunks)
 
 
+@dataclass(frozen=True)
+class Installation:
+    """Where the harness's own interpreter is installed.
+
+    It is the only code outside a worktree a record may name.
+    """
+
+    prefixes: tuple[Path, ...]
+    #: The distribution's own ``sitecustomize`` files, by exact path.
+    system_customize: tuple[Path, ...]
+
+
+def trusted_installation() -> Installation:
+    """The harness's own interpreter's installation, from this process alone."""
+    major, minor = sys.version_info[:2]
+    prefixes = {sys.base_prefix, sys.base_exec_prefix}
+    return Installation(
+        prefixes=tuple(sorted({Path(os.path.realpath(p)) for p in prefixes if p})),
+        system_customize=(Path(f"/etc/python{major}.{minor}/sitecustomize.py"),),
+    )
+
+
 def temporary_roots() -> tuple[Path, ...]:
     """The machine's temporary directories, which every session can write."""
     found = {tempfile.gettempdir(), "/tmp", "/var/tmp", "/dev/shm"}  # noqa: S108 - named to refuse
@@ -384,26 +407,84 @@ def _writable_by_the_session(path: str) -> bool:
         directory = parent
 
 
-def _environment_code(named: CodeFile, roots: tuple[Path, ...]) -> CodeDigest:
-    """``named``, a file of code from outside the worktree, if it may stand as environment.
+#: Files that run in every process of the interpreter: admitted only as the distribution's own.
+_CUSTOMISATION_NAMES = frozenset({"sitecustomize.py", "usercustomize.py"})
 
-    It may when it lies outside every place the session can write (``roots``: the worktree,
-    the session's home and temporary directories, and the machine's temporary directories)
-    and the session's user can neither write it nor replace it: then the role could not have
-    put it there, and it is the interpreter's own installation (a distribution's
-    ``sitecustomize``, say). It is still read, held to the digest the writer recorded, and
-    recorded with the record, never left out.
+
+def _identity(path: str | Path) -> tuple[int, int] | None:
+    """The file system's own name for ``path`` (device and inode), or ``None`` if it is not."""
+    try:
+        found = os.stat(path)
+    except OSError:
+        return None
+    return found.st_dev, found.st_ino
+
+
+def _chain(path: str) -> set[tuple[int, int]]:
+    """The identity of ``path`` and of every directory above it, up to the root.
+
+    Compared by identity, not by spelling: a root reached through a link, another case on a
+    case-insensitive volume, or ``..`` is the same directory here.
+    """
+    found: set[tuple[int, int]] = set()
+    current = path
+    while True:
+        identity = _identity(current)
+        if identity is not None:
+            found.add(identity)
+        parent = os.path.dirname(current)
+        if parent == current:
+            return found
+        current = parent
+
+
+def _environment_code(named: CodeFile, roots: tuple[Path, ...]) -> CodeDigest:
+    """``named``, a file of code from outside the worktree, if it is the interpreter's own.
+
+    The harness's own interpreter says where its installation is (:func:`trusted_installation`);
+    nothing a record or a session supplies does. A file is admitted only when all of these
+    hold, and is then recorded with the record by path and digest, never left out:
+
+    - its path is plain (absolute, normalised, through no link);
+    - it lies under none of ``roots`` (the worktree, the session's own directory with its home,
+      and the machine's temporary directories), judged by file identity, not by spelling;
+    - it lies in the installation: under one of its prefixes, or exactly the distribution's
+      ``sitecustomize``; a customisation hook (``sitecustomize``, ``usercustomize``, a ``.pth``
+      file) is admitted only as that exact file;
+    - neither it nor any directory above it is writable by the session's user, who could
+      otherwise replace it;
+    - it is a regular file, read through no link, with the digest the writer recorded.
 
     Raises:
-        _RefusedError: it lies in a place the session can write, its user can write it, it is
-            reached through a link or is not a regular file, or it changed.
+        _RefusedError: any of these does not hold.
     """
     path = named.path
     if os.path.normpath(path) != path or os.path.realpath(path) != path:
         msg = f"code from outside the worktree ran from a path that is not plain: {path}"
         raise _RefusedError(msg)
-    if any(Path(path).is_relative_to(root) for root in roots):
+    chain = _chain(path)
+    if any(_identity(root) in chain for root in roots):
         msg = f"code from outside the worktree ran from a place the session can write: {path}"
+        raise _RefusedError(msg)
+    installed = trusted_installation()
+    is_system = any(
+        Path(path) == own and _identity(own) is not None and _identity(own) == _identity(path)
+        for own in installed.system_customize
+    )
+    hook = PurePosixPath(path).name in _CUSTOMISATION_NAMES or path.endswith(".pth")
+    if hook and not is_system:
+        shown = ", ".join(str(own) for own in installed.system_customize)
+        msg = (
+            f"a customisation hook ran from {path}; only the distribution's own ({shown}) "
+            "is admitted"
+        )
+        raise _RefusedError(msg)
+    inside = any(_identity(prefix) in chain for prefix in installed.prefixes)
+    if not (inside or is_system):
+        msg = (
+            "code from outside the worktree ran that is not the interpreter's own "
+            f"installation: {path}"
+        )
         raise _RefusedError(msg)
     if _writable_by_the_session(path):
         msg = f"code from outside the worktree ran from a file the session's user can write: {path}"
@@ -417,6 +498,9 @@ def _environment_code(named: CodeFile, roots: tuple[Path, ...]) -> CodeDigest:
         found = os.fstat(fd)
         if not stat.S_ISREG(found.st_mode) or found.st_size > MAX_CODE_BYTES:
             msg = f"the code file {path} is not a regular file of at most {MAX_CODE_BYTES}"
+            raise _RefusedError(msg)
+        if (found.st_dev, found.st_ino) != _identity(path):
+            msg = f"the code file {path} changed while it was read"
             raise _RefusedError(msg)
         data = _read_all(fd, MAX_CODE_BYTES)
     finally:
