@@ -16,11 +16,19 @@ substitution) is marked dynamic, so a check can refuse when the dynamic part is
 the part that matters. A word the shell expands before the command sees it (an
 unquoted ``*``, ``?``, ``[`` or a ``{a,b}`` pattern) is marked expanding for the same
 reason: what it becomes depends on the files present, or is not the word written.
+
+Two expansions do not depend on anything outside the command, so they are done here
+exactly rather than left as unknowns: ANSI-C quoting (``$'…'``) is decoded to the bytes
+the shell would pass, and a brace pattern is expanded to every word it becomes, up to
+:data:`BRACE_LIMIT` words (beyond that the word is recorded as unbounded, and a check
+decides what that means for it).
 """
 
 from __future__ import annotations
 
+import os
 import re
+from collections.abc import Mapping
 
 from physgate.hooks.exceptions import UndecidableError
 
@@ -40,19 +48,37 @@ _RESERVED_PREFIXES = {"{", "!", "if", "then", "elif", "else", "do", "while", "un
 _EXPANDS = re.compile(r"[*?\[]|\{[^{}]*(,|\.\.)[^{}]*\}")
 
 
+#: The most words one brace pattern is expanded to. Beyond it, the word is unbounded.
+BRACE_LIMIT = 1024
+#: The escapes of ANSI-C quoting that stand for one fixed character.
+_ANSI_C_SIMPLE = {
+    "a": "\a", "b": "\b", "e": "\x1b", "E": "\x1b", "f": "\f", "n": "\n", "r": "\r",
+    "t": "\t", "v": "\v", "\\": "\\", "'": "'", '"': '"', "?": "?",
+}  # fmt: skip
+_ANSI_C_NUMERIC = {"x": (16, 2), "u": (16, 4), "U": (16, 8)}
+_SEQUENCE = re.compile(
+    r"(-?\d+)\.\.(-?\d+)(?:\.\.(-?\d+))?|([A-Za-z])\.\.([A-Za-z])(?:\.\.(-?\d+))?"
+)
+
+
 class ShellSyntaxError(UndecidableError):
     """The command could not be split with confidence."""
 
 
 class Redirect:
-    """A redirection: the operator and its target word (a heredoc's delimiter)."""
+    """A redirection: the operator and its target word (a heredoc's delimiter).
 
-    __slots__ = ("op", "target")
+    ``braces`` is every word an unquoted brace pattern in the target becomes, empty when
+    it has none, or ``None`` when there are more than :data:`BRACE_LIMIT`.
+    """
 
-    def __init__(self, op: str, target: str) -> None:
+    __slots__ = ("braces", "op", "target")
+
+    def __init__(self, op: str, target: str, braces: tuple[str, ...] | None = ()) -> None:
         """The operator and its target."""
         self.op = op
         self.target = target
+        self.braces = braces
 
     def __eq__(self, other: object) -> bool:
         """Equal when operator and target are."""
@@ -70,7 +96,9 @@ class Redirect:
 class SimpleCommand:
     """One command as the shell would run it."""
 
-    __slots__ = ("argv", "assignments", "background", "dynamic", "expanding", "redirects")
+    __slots__ = (
+        "argv", "assignments", "background", "braces", "dynamic", "expanding", "redirects",
+    )  # fmt: skip
 
     def __init__(
         self,
@@ -80,14 +108,20 @@ class SimpleCommand:
         dynamic: frozenset[int] = frozenset(),
         background: bool = False,
         expanding: frozenset[int] = frozenset(),
+        braces: Mapping[int, tuple[str, ...] | None] | None = None,
     ) -> None:
-        """The words, and what the shell does around them."""
+        """The words, and what the shell does around them.
+
+        ``braces`` maps the index of each word with an unquoted brace pattern to every
+        word it becomes, or to ``None`` when there are more than :data:`BRACE_LIMIT`.
+        """
         self.argv = argv
         self.assignments = assignments
         self.redirects = redirects
         self.dynamic = dynamic
         self.background = background
         self.expanding = expanding
+        self.braces: Mapping[int, tuple[str, ...] | None] = braces or {}
 
     def __repr__(self) -> str:
         """For test output."""
@@ -95,24 +129,33 @@ class SimpleCommand:
 
 
 class _Builder:
-    __slots__ = ("dynamic", "expanding", "pending_redirect", "redirects", "words")
+    __slots__ = ("braces", "dynamic", "expanding", "pending_redirect", "redirects", "words")
 
     def __init__(self) -> None:
         self.words: list[str] = []
         self.dynamic: set[int] = set()
         self.expanding: set[int] = set()
+        self.braces: dict[int, tuple[str, ...] | None] = {}
         self.redirects: list[Redirect] = []
         self.pending_redirect: str | None = None
 
-    def add(self, word: str, is_dynamic: bool, expands: bool = False) -> None:
+    def add(
+        self,
+        word: str,
+        is_dynamic: bool,
+        expands: bool = False,
+        braces: tuple[str, ...] | None = (),
+    ) -> None:
         if self.pending_redirect is not None:
-            self.redirects.append(Redirect(self.pending_redirect, word))
+            self.redirects.append(Redirect(self.pending_redirect, word, braces))
             self.pending_redirect = None
             return
         if is_dynamic:
             self.dynamic.add(len(self.words))
         if expands:
             self.expanding.add(len(self.words))
+        if braces != ():
+            self.braces[len(self.words)] = braces
         self.words.append(word)
 
     def finish(self, background: bool) -> SimpleCommand | None:
@@ -127,10 +170,11 @@ class _Builder:
         argv = tuple(self.words[i:])
         dynamic = frozenset(n - i for n in self.dynamic if n >= i)
         expanding = frozenset(n - i for n in self.expanding if n >= i)
+        braces = {n - i: b for n, b in self.braces.items() if n >= i}
         if not argv and not assignments and not self.redirects:
             return None
         return SimpleCommand(
-            argv, tuple(assignments), tuple(self.redirects), dynamic, background, expanding
+            argv, tuple(assignments), tuple(self.redirects), dynamic, background, expanding, braces
         )
 
 
@@ -209,7 +253,12 @@ def _parse_into(text: str, out: list[SimpleCommand], depth: int) -> None:
     def end_word() -> None:
         nonlocal word, word_dynamic, in_word, bare
         if in_word:
-            cmd.add(word, word_dynamic, _EXPANDS.search(bare) is not None)
+            braces: tuple[str, ...] | None = ()
+            if "{" in bare:
+                braces = expand_braces(word, bare)
+                if braces == (word,):
+                    braces = ()
+            cmd.add(word, word_dynamic, _EXPANDS.search(bare) is not None, braces)
         word, word_dynamic, in_word, bare = "", False, False, ""
 
     def end_command(background: bool = False) -> None:
@@ -262,6 +311,14 @@ def _parse_into(text: str, out: list[SimpleCommand], depth: int) -> None:
             bare += "\0" * (end + 1 - i)
             word_dynamic = in_word = True
             i = end + 1
+            continue
+        if c == "$" and text.startswith("'", i + 1):
+            # ANSI-C quoting: decoded, so the word is the one the command receives.
+            end = _end_of_ansi_c(text, i + 2)
+            decoded = decode_ansi_c(text[i + 2 : end])
+            word += decoded
+            bare += "\0" * len(decoded)
+            in_word, i = True, end + 1
             continue
         if c == "$" and text.startswith("$((", i):
             close = _matching(text, i + 3, "(", ")")
@@ -333,6 +390,162 @@ def _parse_into(text: str, out: list[SimpleCommand], depth: int) -> None:
     # Only this level's own commands: a nested level expands its own.
     for sub in mine:
         _expand_runners(sub, out, depth)
+
+
+def _end_of_ansi_c(text: str, i: int) -> int:
+    """Index of the quote closing a ``$'…'`` whose body starts at ``i``."""
+    while i < len(text):
+        if text[i] == "\\":
+            i += 2
+            continue
+        if text[i] == "'":
+            return i
+        i += 1
+    msg = "an unterminated $'...' quote"
+    raise ShellSyntaxError(msg)
+
+
+def decode_ansi_c(body: str) -> str:
+    """The word a ``$'…'`` quote with this body stands for, as the shell decodes it.
+
+    Bytes from a numeric escape are kept as the bytes they are, in the form the
+    operating system's path functions take them back (:func:`os.fsdecode`).
+
+    Raises:
+        ShellSyntaxError: the body decodes to a NUL, where shells disagree on what
+            the word becomes.
+    """
+    out = bytearray()
+    i = 0
+    while i < len(body):
+        c = body[i]
+        nxt = body[i + 1] if i + 1 < len(body) else ""
+        if c != "\\" or not nxt:
+            out += c.encode("utf-8", "surrogateescape")
+            i += 1
+        elif nxt in _ANSI_C_SIMPLE:
+            out += _ANSI_C_SIMPLE[nxt].encode()
+            i += 2
+        elif nxt in "01234567":
+            digits = re.match(r"[0-7]{1,3}", body[i + 1 :])
+            assert digits is not None  # noqa: S101 - nxt is an octal digit
+            out.append(int(digits.group(), 8) & 0xFF)
+            i += 1 + len(digits.group())
+        elif nxt in _ANSI_C_NUMERIC:
+            base, width = _ANSI_C_NUMERIC[nxt]
+            digits = re.match(rf"[0-9A-Fa-f]{{1,{width}}}", body[i + 2 :])
+            if digits is None:
+                out += ("\\" + nxt).encode()
+                i += 2
+                continue
+            value = int(digits.group(), base)
+            if nxt == "x":
+                out.append(value)
+            else:
+                out += chr(value).encode("utf-8", "surrogatepass")
+            i += 2 + len(digits.group())
+        elif nxt == "c" and i + 2 < len(body):
+            out.append(ord(body[i + 2]) & 0x1F)
+            i += 3
+        else:
+            out += ("\\" + nxt).encode("utf-8", "surrogateescape")
+            i += 2
+    if 0 in out:
+        msg = "a $'...' quote that decodes to a NUL"
+        raise ShellSyntaxError(msg)
+    return os.fsdecode(bytes(out))
+
+
+class _TooManyWordsError(Exception):
+    """A brace pattern became more than :data:`BRACE_LIMIT` words."""
+
+
+def expand_braces(word: str, bare: str) -> tuple[str, ...] | None:
+    """Every word an unquoted brace pattern in ``word`` becomes, in the shell's order.
+
+    ``bare`` is ``word`` with every quoted character blanked to NUL, so only an
+    unquoted brace, comma or ``..`` is syntax. A word with no pattern becomes itself.
+    ``None`` if it becomes more than :data:`BRACE_LIMIT` words.
+    """
+    chars = [(c, b == "\0") for c, b in zip(word, bare, strict=True)]
+    try:
+        return tuple("".join(c for c, _ in w) for w in _brace(chars))
+    except _TooManyWordsError:
+        return None
+
+
+def _brace(chars: list[tuple[str, bool]]) -> list[list[tuple[str, bool]]]:
+    for start, (c, quoted) in enumerate(chars):
+        if c != "{" or quoted:
+            continue
+        found = _brace_body(chars, start)
+        if found is None:
+            continue
+        end, alternatives = found
+        suffixes = _brace(chars[end + 1 :])
+        out: list[list[tuple[str, bool]]] = []
+        for alternative in alternatives:
+            for middle in _brace(alternative):
+                for suffix in suffixes:
+                    out.append(chars[:start] + middle + suffix)
+                    if len(out) > BRACE_LIMIT:
+                        raise _TooManyWordsError
+        return out
+    return [chars]
+
+
+def _brace_body(
+    chars: list[tuple[str, bool]], start: int
+) -> tuple[int, list[list[tuple[str, bool]]]] | None:
+    """The closing index and the alternatives of the pattern opening at ``start``, if valid."""
+    depth, commas = 0, list[int]()
+    for n in range(start + 1, len(chars)):
+        c, quoted = chars[n]
+        if quoted:
+            continue
+        if c == "{":
+            depth += 1
+        elif c == "}" and depth:
+            depth -= 1
+        elif c == "}":
+            if commas:
+                edges = [start, *commas, n]
+                return n, [chars[a + 1 : b] for a, b in zip(edges, edges[1:], strict=False)]
+            body = chars[start + 1 : n]
+            if any(q for _, q in body):
+                return None
+            sequence = _sequence("".join(ch for ch, _ in body))
+            if sequence is None:
+                return None
+            return n, [[(ch, True) for ch in item] for item in sequence]
+        elif c == "," and not depth:
+            commas.append(n)
+    return None
+
+
+def _sequence(body: str) -> list[str] | None:
+    """The words a ``{x..y[..step]}`` sequence becomes, or ``None`` if ``body`` is not one."""
+    match = _SEQUENCE.fullmatch(body)
+    if match is None:
+        return None
+    if match.group(1) is not None:
+        first, last, step = match.group(1), match.group(2), match.group(3)
+        a, b = int(first), int(last)
+        padded = any(
+            x.lstrip("-").startswith("0") and len(x.lstrip("-")) > 1 for x in (first, last)
+        )
+        width = max(len(first), len(last)) if padded else 0
+    else:
+        a, b, step = ord(match.group(4)), ord(match.group(5)), match.group(6)
+        width = -1
+    stride = abs(int(step)) if step else 1
+    stride = stride or 1
+    if abs(b - a) // stride + 1 > BRACE_LIMIT:
+        raise _TooManyWordsError
+    values = range(a, b + 1, stride) if a <= b else range(a, b - 1, -stride)
+    if width < 0:
+        return [chr(v) for v in values]
+    return [f"{v:0{width}d}" if width else str(v) for v in values]
 
 
 def _substitution_starts(text: str) -> list[int]:

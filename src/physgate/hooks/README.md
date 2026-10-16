@@ -114,10 +114,17 @@ without calling the Write tool. So the shell is covered twice.
    - `none`: the hooks' own state and the session's Claude Code directory,
      which the hooks and Claude Code write themselves.
 
-What the first layer cannot see — a path built from a variable, a
-substitution, a string assembled in a script, an archive, a patch — is the
-second layer's, and the tests assert those forms as allowed by the first layer
-so that the boundary is on record. The bypass suite runs thirty-four attempts
+What the first layer can work out from the command alone it does: a brace
+pattern is checked as every word it becomes (up to 1,024; a writing word with
+more is refused), ANSI-C quoting (`$'…'`) is decoded, and a `cd` is followed to
+every directory the command could then be in, since a `cd` can fail, be
+skipped or run in a subshell. A call whose working directory is not absolute
+is refused. What the first layer cannot see — a path built from a variable, a
+substitution, the directory after `cd $(…)`, a string assembled in a script,
+an archive, a patch — is the second layer's, and the tests assert those forms
+as allowed by the first layer so that the boundary is on record. For a root
+watched `none` there is no second layer, so those forms reach it: a recorded
+residual of the same-user kind. The bypass suite runs thirty-four attempts
 through the real Claude Code binary, each judged by the bytes of the protected
 trees and by which layer logged the refusal; its tolerance is zero.
 

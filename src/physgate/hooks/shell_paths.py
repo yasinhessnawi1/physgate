@@ -24,9 +24,23 @@ What this layer refuses, for every profile that has a shell:
 A path is found in a word and in every path-like token inside it (a token
 ends at ``=``, a quote, a comma or a bracket), so the target of ``dd of=…`` and
 a path inside ``python -c "open('…')"`` are both seen. Globs are expanded, ``~`` and plain
-variables such as ``$HOME`` are expanded, and ``cd`` is followed. A word built
-from a command substitution cannot be known before it runs; that is left to
-the sentinel.
+variables such as ``$HOME`` are expanded, a brace pattern is checked as every word
+it becomes, and ANSI-C quoting arrives decoded from the splitter.
+
+``cd`` is followed to every directory the command could be in. A ``cd`` may fail
+(its target does not exist), may not run (after ``&&`` or ``||``), or may run in a
+subshell that the next command does not share, and the splitter does not keep
+those boundaries; so after ``cd x`` both the directory before it and ``x`` are
+possible, and each later command is checked from each. ``cd old new``, which zsh
+reads as a substitution in the working directory, adds that directory too.
+
+The call's working directory is the hook's input, not the agent's command: one
+that is not an absolute path is refused, since no relative word could be
+resolved against it.
+
+A word built from a variable this hook cannot expand, or from a command
+substitution, cannot be known before it runs, nor can the directory after
+``cd $(…)``; those are left to the sentinel, for the roots it puts back.
 """
 
 from __future__ import annotations
@@ -38,7 +52,7 @@ from typing import TYPE_CHECKING
 
 from physgate.hooks.paths import protection
 from physgate.hooks.runtime import ALLOW, Decision, HookSpec, refuse
-from physgate.hooks.shell import ShellSyntaxError, SimpleCommand, parse, unwrap
+from physgate.hooks.shell import BRACE_LIMIT, ShellSyntaxError, SimpleCommand, parse, unwrap
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -62,6 +76,23 @@ COMMIT_MESSAGE_ROUTE = (
     " To mention a protected path in a commit message, write the message to a file and "
     "commit with git commit -F <file>: the file's content is not read as part of the command."
 )
+UNKNOWN_CWD = (
+    "This call's working directory ({cwd!r}) is not an absolute path, so no relative path in "
+    "the command can be resolved against it, and the call is refused. The working directory "
+    "comes from the tool call itself, not from the command."
+)
+BRACE_UNBOUNDED = (
+    "This command writes, and its word {word} is a brace pattern that becomes more than "
+    "{limit} words, too many to check each one, so it is refused. Write fewer alternatives, "
+    "or use a loop."
+)
+CWD_UNBOUNDED = (
+    "This command changes directory so many times that it could be in more than {limit} "
+    "directories when a later part runs, too many to check each one, so it is refused. "
+    "Split it into separate calls."
+)
+#: The most directories a command is checked from, after the ``cd`` commands in it.
+CWD_LIMIT = 64
 UNPARSEABLE = (
     "This command could not be split into the commands it would run ({detail}), so it is "
     "refused. Simplify the quoting and try again."
@@ -232,6 +263,8 @@ def _first_protected(
 def _command_words(cmd: SimpleCommand) -> Iterator[tuple[str, bool]]:
     for n, word in enumerate(cmd.argv):
         yield word, n in cmd.dynamic
+        for alternative in cmd.braces.get(n) or ():
+            yield alternative, n in cmd.dynamic
     for assignment in cmd.assignments:
         yield assignment.partition("=")[2], "$" in assignment
 
@@ -255,9 +288,11 @@ def check(cmd: SimpleCommand, cwd: str, config: ConfigView) -> str | None:
         writing = redirect.op in _WRITE_REDIRECTS or (
             redirect.op == ">&" and not redirect.target.isdigit() and redirect.target != "-"
         )
-        found = _first_protected(
-            iter([(redirect.target, "$" in redirect.target)]), cwd, config, reading=not writing
-        )
+        if writing and redirect.braces is None:
+            return BRACE_UNBOUNDED.format(word=redirect.target, limit=BRACE_LIMIT)
+        dynamic = "$" in redirect.target
+        targets = [(t, dynamic) for t in (redirect.target, *(redirect.braces or ()))]
+        found = _first_protected(iter(targets), cwd, config, reading=not writing)
         if found is not None:
             template = REDIRECT_INTO if writing else NAMES_PROTECTED
             return template.format(path=found[0], reason=found[1])
@@ -265,6 +300,9 @@ def check(cmd: SimpleCommand, cwd: str, config: ConfigView) -> str | None:
     # name included, so a writing command run from inside a protected directory
     # is refused here without a separate rule for it.
     reads_only = bool(argv) and _only_reads(argv)
+    unbounded = next((n for n, b in cmd.braces.items() if b is None), None)
+    if unbounded is not None and not reads_only:
+        return BRACE_UNBOUNDED.format(word=cmd.argv[unbounded], limit=BRACE_LIMIT)
     found = _first_protected(_command_words(cmd), cwd, config, reading=reads_only)
     if found is not None:
         reason = NAMES_PROTECTED.format(path=found[0], reason=found[1])
@@ -307,18 +345,42 @@ def _ambiguous_cd(cmd: SimpleCommand, cwd: str) -> str | None:
     return None
 
 
-def _next_cwd(cmd: SimpleCommand, cwd: str | None) -> str | None:
-    """The working directory after ``cmd``: ``cd`` is followed, anything unknowable is None."""
+def _next_cwds(cmd: SimpleCommand, cwds: list[str]) -> list[str]:
+    """Every directory a later command could run in, after ``cmd`` from any of ``cwds``.
+
+    Nothing is ever removed: a ``cd`` may fail, may not run, or may run in a
+    subshell. ``cd -``, ``popd`` and a ``pushd`` that only rotates the stack return
+    to a directory already in the list, or to one left from before this call, which
+    cannot be known. A target that cannot be expanded adds nothing.
+    """
     argv = unwrap(cmd.argv)
     if not argv or _name(argv[0]) not in ("cd", "pushd"):
-        return cwd
-    targets = [(w, n + 1 in cmd.dynamic) for n, w in enumerate(argv[1:]) if not w.startswith("-")]
-    if not targets:
-        return os.path.expanduser("~")
-    target = _expand(*targets[0])
-    if target is None or cwd is None:
-        return None
-    return os.path.normpath(os.path.join(cwd, target))
+        return cwds
+    offset = len(cmd.argv) - len(argv)
+    # `pushd +2` rotates the stack; for cd, only a leading dash is an option.
+    stack_flags = ("-", "+") if _name(argv[0]) == "pushd" else ("-",)
+    words = [
+        (n, w)
+        for n, w in enumerate(argv[1:], offset + 1)
+        if w == "-" or not w.startswith(stack_flags)
+    ]
+    if any(w == "-" for _, w in words) or (not words and _name(argv[0]) == "pushd"):
+        return cwds
+    if not words:
+        found = [os.path.expanduser("~")]
+    else:
+        n, first = words[0]
+        found = []
+        for alternative in (first, *(cmd.braces.get(n) or ())):
+            target = _expand(alternative, n in cmd.dynamic)
+            if target is not None:
+                found += [os.path.normpath(os.path.join(cwd, target)) for cwd in cwds]
+        if len(words) == 2:  # noqa: PLR2004 - zsh's `cd old new`
+            old = _expand(words[0][1], words[0][0] in cmd.dynamic)
+            new = _expand(words[1][1], words[1][0] in cmd.dynamic)
+            if old and new is not None:
+                found += [os.path.normpath(c.replace(old, new, 1)) for c in cwds if old in c]
+    return list(dict.fromkeys([*cwds, *found]))
 
 
 def pre_tool_use(hook_input: InputView, config: ConfigView) -> Decision:
@@ -335,16 +397,17 @@ def pre_tool_use(hook_input: InputView, config: ConfigView) -> Decision:
         commands = parse(command)
     except ShellSyntaxError as exc:
         return refuse(UNPARSEABLE.format(detail=exc))
-    start = hook_input.cwd if os.path.isabs(hook_input.cwd) else config.worktree
-    cwd: str | None = start
+    if not os.path.isabs(hook_input.cwd):
+        return refuse(UNKNOWN_CWD.format(cwd=hook_input.cwd))
+    cwds = [os.path.normpath(hook_input.cwd)]
     for cmd in commands:
-        # After a cd the shell cannot follow, relative words are still checked
-        # against the directory the call started in; what that misses is the
-        # sentinel's.
-        reason = check(cmd, cwd or start, config)
-        if reason is not None:
-            return refuse(reason)
-        cwd = _next_cwd(cmd, cwd)
+        for cwd in cwds:
+            reason = check(cmd, cwd, config)
+            if reason is not None:
+                return refuse(reason)
+        cwds = _next_cwds(cmd, cwds)
+        if len(cwds) > CWD_LIMIT:
+            return refuse(CWD_UNBOUNDED.format(limit=CWD_LIMIT))
     return ALLOW
 
 
