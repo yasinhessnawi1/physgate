@@ -171,6 +171,43 @@ def test_every_recorded_call_reproduces_the_binary_s_figure_at_the_new_sheet(
     assert priced - at_old == one_hour * (rates.cache_write_1h - rates.cache_write) / MTOK
 
 
+@pytest.mark.parametrize(
+    ("five_minute", "one_hour", "figure"),
+    [
+        # A mixed split: 2000 tokens at the five-minute rate ($5), 1000 at the one-hour ($8).
+        (2000, 1000, "0.02024"),
+        # Every write to the five-minute cache, as a call on an API key may write them.
+        (3000, 0, "0.01724"),
+    ],
+)
+def test_five_minute_writes_are_priced_at_the_five_minute_rate(
+    tmp_path: Path, new: DatedSheet, five_minute: int, one_hour: int, figure: str
+) -> None:
+    """Each half of a split at its own rate, held to a figure worked by hand from the sheet.
+
+    claude-opus-5-5 at 2026-10-16, per million: input 4, output 20, cache read 0.20,
+    five-minute write 5, one-hour write 8. With 10 input, 100 output and 1000 read:
+    40 + 2000 + 200 = 2240, plus the writes, over a million.
+    """
+    usage = Usage(
+        input_tokens=10,
+        output_tokens=100,
+        cache_read_input_tokens=1000,
+        cache_creation_input_tokens=five_minute + one_hour,
+    )
+    stream = write_stream(
+        tmp_path / "stdout.jsonl",
+        result_event(
+            "s1", usage, five_minute=five_minute, one_hour=one_hour, total_cost_usd=float(figure)
+        ),
+    )
+    recorded = read_call(stream, "s1")
+    assert recorded is not None
+    assert recorded.cache_writes == CacheWrites(five_minute=five_minute, one_hour=one_hour)
+    priced = new.sheet.usd_per_mtok["claude-opus-5-5"].usd(usage, recorded.cache_writes)
+    assert priced == Decimal(figure) == recorded.binary_usd
+
+
 def test_a_split_that_is_not_the_call_s_writes_is_refused(new: DatedSheet) -> None:
     usage = Usage(
         input_tokens=1, output_tokens=1, cache_read_input_tokens=0, cache_creation_input_tokens=10
