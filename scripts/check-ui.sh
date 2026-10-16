@@ -36,4 +36,24 @@ run "lint" pnpm run lint
 run "format" pnpm run format:check
 run "unit tests" pnpm run test
 run "build" "$root/scripts/build-ui.sh"
+
+# The browser tests serve on PHYSGATE_UI_E2E_PORT. Unset, every worktree used to ask for the same
+# port, so two worktrees' checks running at once collided and the second refused to start. Unset
+# now means a free loopback port, taken for this run alone, and the runs it built (named by the
+# port, under the system's temporary directory) are removed when the run ends. A port that is
+# named is used as before, and its runs are kept.
+if [ -z "${PHYSGATE_UI_E2E_PORT:-}" ]; then
+  PHYSGATE_UI_E2E_PORT=$(node -e '
+    const net = require("node:net");
+    const take = () => {
+      const s = net.createServer().listen(0, "127.0.0.1", () => {
+        const { port } = s.address();
+        s.close(() => (port < 65535 ? console.log(port) : take()));
+      });
+    };
+    take();') || fail "ui — no free loopback port for the browser tests"
+  export PHYSGATE_UI_E2E_PORT
+  e2e_runs="$(node -p 'require("node:os").tmpdir()')/physgate-ui-e2e-$PHYSGATE_UI_E2E_PORT"
+  trap 'rm -rf "$e2e_runs"' EXIT
+fi
 run "browser tests" pnpm run e2e

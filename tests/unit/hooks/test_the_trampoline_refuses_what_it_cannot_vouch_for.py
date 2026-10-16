@@ -7,6 +7,7 @@ These tests run the wrapper directly around each of those outcomes.
 
 from __future__ import annotations
 
+import secrets
 import subprocess
 import sys
 import time
@@ -69,9 +70,13 @@ def test_a_hung_hook_is_killed_by_the_watchdog_and_refused() -> None:
 
 
 def test_a_fast_pass_does_not_wait_for_the_watchdog_and_leaves_no_sleeper() -> None:
-    rc, _, elapsed = _through("7.391", *_py("pass"))
+    # The sleeper is found by its argument among every process on the machine, so the argument
+    # is this run's own: another suite running this test at the same moment, in another
+    # worktree or another worker, has a sleeper of its own that is not this one's.
+    watchdog = f"7.{secrets.randbelow(10**6):06d}"
+    rc, _, elapsed = _through(watchdog, *_py("pass"))
     assert rc == 0
     assert elapsed < 3, f"a clean pass took {elapsed:.1f} s; the watchdog is holding the pipe"
     time.sleep(0.2)
     ps = subprocess.run(["ps", "-A", "-o", "command="], capture_output=True, text=True, check=True)
-    assert "sleep 7.391" not in ps.stdout
+    assert f"sleep {watchdog}" not in ps.stdout

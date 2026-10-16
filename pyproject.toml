@@ -23,6 +23,7 @@ dev = [
   "pytest>=9,<10",
   "mypy>=2.3,<3",
   "ruff>=0.16,<0.17",
+  "pytest-xdist>=3.8,<4",
 ]
 
 [build-system]
@@ -100,7 +101,7 @@ strict = true
 # a validation error at run time. Without it, a record built through keyword
 # arguments is checked by nothing until it runs.
 plugins = ["pydantic.mypy"]
-files = ["src", "tests"]
+files = ["src", "tests", "scripts"]
 # Same reason as the lint exclusion above: frozen measured artefacts.
 exclude = ["^experiments/"]
 
@@ -122,6 +123,8 @@ warn_required_dynamic_aliases = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The check scripts' helper, so its tests import it by name as the scripts run it.
+pythonpath = ["scripts"]
 # An unregistered marker must be a collection error, never a silent skip.
 addopts = "--strict-markers -m 'not integration'"
 markers = [
