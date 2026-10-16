@@ -27,8 +27,10 @@ rate, on the premise that the binary sets no time to live; on the subscription i
 writes one-hour entries, so every such line was low. A sheet that prices per call
 (``cache_write_ttl: per_call``) carries both rates, and each call's writes are split
 by what its own result event recorded (``calls.read_call``). A call whose split was
-not read is priced at the five-minute rate and named, so the line says where it is a
-lower bound.
+not read is priced at the five-minute rate and named, and the line is marked a
+**lower bound** (``lower_bound``) wherever a call's cache lifetime was not read or its
+result was not reached: a review under a review root the reader did not name, which
+the operator UI's server never can.
 
 **Every call is held to the binary's own figure.** Where a call's result reports
 ``total_cost_usd``, the line keeps it beside the call's price, and the line's
@@ -308,12 +310,25 @@ class CostLine(_Frozen):
     calls: tuple[CallCost, ...] = ()
     #: The line held to the binary's figures; ``None`` where the records were not read.
     reconciliation: Reconciliation | None = None
+    #: The figure is a lower bound: some call's cache writes were priced at the
+    #: five-minute rate because the cache they went to was not read, or some call's
+    #: result was not reached. With a reconciliation, exactly when it names a call
+    #: unread. Absent from lines written before the mark, which read as unmarked.
+    lower_bound: bool = False
 
     @model_validator(mode="after")
     def _basis_follows_auth(self) -> CostLine:
         wanted = "list_price_estimate" if self.auth == "subscription" else "list_price"
         if self.basis != wanted:
             msg = f"a run on {self.auth} is costed as {wanted}"
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _a_lower_bound_says_so(self) -> CostLine:
+        held = self.reconciliation
+        if held is not None and self.lower_bound != bool(held.unread or held.ttl_unread):
+            msg = "a line is a lower bound exactly when it names a call unread"
             raise ValueError(msg)
         return self
 
@@ -458,7 +473,9 @@ def price_events(
     per call, and held to the binary's own figure; a call it does not hold is priced
     with every write at the five-minute rate and named as unread. Not given, the line
     has the form every line before the per-call sheet had, and on a sheet that prices
-    per call every write is priced at the five-minute rate, a lower bound.
+    per call every write is priced at the five-minute rate. Either way a line with a
+    write whose cache was not read, or a call whose result was not, is marked
+    ``lower_bound``.
 
     Raises:
         ManifestError: a token's model cannot be told from the records.
@@ -485,6 +502,13 @@ def price_events(
     ]
     usd = sum((r.usd for r in rows), Decimal(0))
     rate = prices.sheet.exchange
+    reconciliation = None if calls is None else reconcile(priced)
+    lower_bound = (
+        bool(reconciliation.unread or reconciliation.ttl_unread)
+        if reconciliation is not None
+        # No call's record was read, so no write's cache was.
+        else any(c.tokens.cache_creation_input_tokens for c in priced)
+    )
     return CostLine(
         manifest_id=manifest_id,
         run_id=config.run_id,
@@ -502,7 +526,8 @@ def price_events(
         partial=any(isinstance(e, TokensUsed) and e.partial for e in events),
         review_tokens=dict(sorted(reviews.items())),
         calls=() if calls is None else tuple(priced),
-        reconciliation=None if calls is None else reconcile(priced),
+        reconciliation=reconciliation,
+        lower_bound=lower_bound,
     )
 
 

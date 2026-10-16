@@ -156,8 +156,9 @@ function Timeline({
             <div className="headline">
               <span className="label">
                 {cost.value.basis === "list_price_estimate"
-                  ? "Cost (list-price estimate)"
-                  : "Cost (list price)"}
+                  ? "Cost (list-price estimate"
+                  : "Cost (list price"}
+                {cost.value.lowerBound ? ", lower bound)" : ")"}
               </span>
               <Figure q={cost.value.usd} source={source} />
             </div>

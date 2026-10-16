@@ -208,6 +208,27 @@ export interface CostRecord {
   readonly partial: boolean;
   /** Per model: its output tokens and what all its tokens cost, as the cost line recorded. */
   readonly rows: readonly CostRow[];
+  /**
+   * The figure is a lower bound: some call's cache writes were priced at the five-minute rate,
+   * or its result was not reached (a review, whose root the server is never told).
+   */
+  readonly lowerBound: boolean;
+  /** The calls the figure is short by, by attribution: unread, or their writes' cache unread. */
+  readonly unpriced: readonly string[];
+}
+
+function names(value: unknown, what: string): readonly string[] {
+  if (!Array.isArray(value)) throw new ShapeError(what);
+  return value.map((name) => text(name, what));
+}
+
+/** The calls a line's reconciliation names unread, or with their writes' cache unread, once each. */
+function unpriced(value: unknown): readonly string[] {
+  if (value === null || value === undefined) return [];
+  const held = object(value, "a cost line's reconciliation");
+  const unread = names(held.unread, "the calls with no result read");
+  const ttl = names(held.ttl_unread, "the calls with no cache lifetime read");
+  return [...unread, ...ttl.filter((call) => !unread.includes(call))];
 }
 
 function costRows(value: unknown): readonly unknown[] {
@@ -219,6 +240,8 @@ export function costRecord(value: unknown): CostRecord {
   const line = object(value, "a cost line");
   const partial = line.partial;
   if (typeof partial !== "boolean") throw new ShapeError("a partial flag");
+  const lowerBound = line.lower_bound;
+  if (typeof lowerBound !== "boolean") throw new ShapeError("a lower-bound flag");
   return {
     usd: requireQuantity({ value: text(line.usd, "an exact amount"), unit: "USD" }),
     nok: requireQuantity({ value: text(line.nok, "an exact amount"), unit: "NOK" }),
@@ -237,6 +260,8 @@ export function costRecord(value: unknown): CostRecord {
         usd: requireQuantity({ value: text(row.usd, "an exact amount"), unit: "USD" }),
       };
     }),
+    lowerBound,
+    unpriced: unpriced(line.reconciliation),
   };
 }
 

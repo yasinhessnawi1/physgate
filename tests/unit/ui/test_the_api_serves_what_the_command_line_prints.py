@@ -125,8 +125,11 @@ def test_a_corrupt_ledger_line_is_refused_by_both_and_left_on_disk(
 @pytest.mark.parametrize("date", ["2026-09-27", "2026-10-16"])
 def test_the_api_s_cost_is_the_cli_s_line(world: dict[str, Path], date: str) -> None:
     printed = _cli("cost", "--run-dir", str(world["root"] / "run-on"), "--prices", date)
-    assert printed.returncode == 0, printed.stderr
     expected = json.loads(printed.stdout)
+    # Its reviews' results are under no review root named, by the command or the server: a
+    # lower bound for both, and the command's exit says so.
+    assert expected["lower_bound"] is True
+    assert printed.returncode == 1, printed.stderr
     for added_by_the_command in ("basis_label", "appended_to"):
         expected.pop(added_by_the_command)
     status, served = _api(world["root"], world["ui"], f"/api/runs/0/run-on/cost/{date}")

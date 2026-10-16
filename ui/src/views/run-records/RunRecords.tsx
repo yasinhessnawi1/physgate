@@ -30,6 +30,7 @@ import { EmptyState, ErrorState, LoadingState } from "../../design/components/St
 import { Tally, VerdictBadge } from "../../design/components/VerdictBadge";
 import { tallyOf } from "../../design/tally";
 import type { ViewProps } from "../../shell/header";
+import { CostCaveat } from "../common/cost";
 import { RunPicker } from "../common/runs";
 import { useResult } from "../common/useResult";
 
@@ -262,6 +263,7 @@ function RunView({ listing, config }: { listing: RunListing; config: RunConfig }
                 : "The tokens at the sheet's list prices."}{" "}
               Price sheet of <span className="mono">{line.pricesDate}</span>
               {line.partial ? " · partial: some usage was read from an unfinished stream" : ""}.
+              <CostCaveat cost={line} />
             </p>
             <div className="figures">
               <Figure q={line.usd} source={source} />

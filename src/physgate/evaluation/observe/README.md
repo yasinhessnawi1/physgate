@@ -43,8 +43,11 @@ Output is JSON on standard output. A refusal, or a record that does not hold,
 prints `{"error": …, <context>}` on standard error and exits 2. `rerun` prints
 the comparison with `reproduced`, the `rule` that judged it and the `first`
 divergence that decided, and exits 1 when the rerun did not reproduce the run.
-`cost` exits 1 when a call's price disagrees with the binary's own figure for it;
-the line, with the disagreement named, is printed and appended either way.
+`cost` exits 1 when a call's price disagrees with the binary's own figure for it,
+or when the line is a lower bound (`lower_bound`: a call's cache lifetime was not
+read, or its result was not reached, as a review's is when no `--review-root` names
+where it ran); a lower bound is said on standard error too, with the calls it is
+short by. The line, with what it found named, is printed and appended either way.
 
 ## Reproduction
 

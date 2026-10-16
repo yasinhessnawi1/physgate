@@ -198,6 +198,11 @@ for (const theme of THEMES) {
     }
     await observedNeverFilled(page, 'section[aria-label="Gate checks"]');
     await expect(page.locator('table[aria-label="By attribution"]')).toContainText("all routing");
+    // The server reads no review root, so the run's cost is a lower bound, and says so.
+    await expect(page.locator('section[aria-label="Tokens and cost"]')).toContainText(
+      "Lower bound",
+    );
+    await expect(page.locator(".run-head-figures")).toContainText("lower bound)");
     await labelsWhole(page);
     await nothingCut(page);
     await runsDistinct(page);

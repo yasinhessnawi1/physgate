@@ -26,6 +26,7 @@ from typing import Any
 
 import pytest
 from observe_rig import fake_run, target_repo
+from pydantic import ValidationError
 
 from physgate.evaluation.observe.calls import (
     CacheWrites,
@@ -37,6 +38,7 @@ from physgate.evaluation.observe.calls import (
 from physgate.evaluation.observe.cost import (
     KNOWN_SHEETS,
     PRICES,
+    CostLine,
     DatedSheet,
     load_price_sheet,
     price_events,
@@ -299,6 +301,8 @@ def test_a_run_s_line_holds_each_call_to_the_binary_and_agrees_when_priced_right
     assert all(c.agrees for c in line.calls)
     assert line.reconciliation.differs == () and line.reconciliation.unread == ()
     assert line.reconciliation.binary_usd == line.usd == sum(c.usd for c in line.calls)
+    # Every call read at the rate it paid: the figure is the run's cost, not a bound on it.
+    assert line.lower_bound is False
 
     # The same records at the old sheet: every role session's line is low, and each is named.
     low = price_run(run, old, review_roots=(review_root,))
@@ -332,6 +336,8 @@ def test_a_call_with_no_result_read_is_named_and_its_writes_are_a_lower_bound(
     assert line.reconciliation is not None
     reviews = sorted(c.attribution for c in line.calls if c.attribution.startswith("reviewer:"))
     assert reviews and list(line.reconciliation.unread) == reviews
+    # Reviews the reader could not reach: the figure itself says it is a lower bound.
+    assert line.lower_bound is True
     # A session whose stream is gone: its writes are priced at the five-minute rate and named.
     events = read_run_events(run)
     (session, *_) = sorted(c.attribution for c in line.calls if c.attribution.startswith("session"))
@@ -341,6 +347,7 @@ def test_a_call_with_no_result_read_is_named_and_its_writes_are_a_lower_bound(
     missing = price_events(read_manifest(run).config, line.manifest_id, events, new, calls=calls)
     assert missing.reconciliation is not None
     assert session in missing.reconciliation.ttl_unread
+    assert missing.lower_bound is True
     (priced,) = [c for c in missing.calls if c.attribution == session]
     assert priced.cache_writes is None
     rates = new.sheet.usd_per_mtok["claude-sonnet-5"]
@@ -392,6 +399,31 @@ def test_a_line_priced_without_the_records_carries_no_reconciliation(
     assert line.usd == price_run(run, old).usd
 
 
+def test_a_line_cannot_claim_to_be_whole_while_it_names_a_call_unread(
+    tmp_path: Path, new: DatedSheet
+) -> None:
+    run, _ = _priced_run(tmp_path)
+    line = price_run(run, new)
+    assert line.lower_bound and line.reconciliation is not None and line.reconciliation.unread
+    claimed = json.loads(line.model_dump_json()) | {"lower_bound": False}
+    with pytest.raises(ValidationError, match="lower bound"):
+        CostLine.model_validate_json(json.dumps(claimed))
+
+
+def test_a_line_priced_without_the_calls_records_at_a_per_call_sheet_is_a_lower_bound(
+    tmp_path: Path, new: DatedSheet, old: DatedSheet
+) -> None:
+    """No call's cache lifetime was read, so every write is at the five-minute rate."""
+    run, _ = _priced_run(tmp_path)
+    events = read_run_events(run)
+    config, manifest_id = read_manifest(run).config, read_manifest(run).manifest_id
+    assert price_events(config, manifest_id, events, new).lower_bound is True
+    # A line read back from a trend written before the mark: it parses, unmarked.
+    earlier = json.loads(price_events(config, manifest_id, events, old).model_dump_json())
+    del earlier["lower_bound"]
+    assert CostLine.model_validate_json(json.dumps(earlier)).lower_bound is False
+
+
 def test_a_review_s_result_is_found_under_each_review_root_named(tmp_path: Path) -> None:
     run = fake_run(tmp_path, "run-a", target_repo(tmp_path))
     events = read_events(run / "events.jsonl")
@@ -422,7 +454,28 @@ def test_the_command_reads_the_reviews_under_their_root_and_exits_one_on_a_disag
     assert main([*args, "--append", str(trend)]) == code
     printed = json.loads(capsys.readouterr().out)
     assert printed["reconciliation"]["unread"] == []
+    assert printed["lower_bound"] is False
+    assert "lower bound" not in printed["basis_label"]
     assert len(printed["reconciliation"]["differs"]) == (1 if code else 0)
     # Appended either way: the disagreement is recorded on the run's line.
     (line,) = [json.loads(x) for x in trend.read_text().splitlines()]
     assert line["reconciliation"] == printed["reconciliation"]
+
+
+def test_the_command_says_a_lower_bound_is_one_in_its_figure_and_its_exit(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """No review root named: every review is unread, so the line is a lower bound, and says so."""
+    from physgate.cli import main
+
+    run, _ = _priced_run(tmp_path)
+    capsys.readouterr()
+    assert main(["cost", "--run-dir", str(run), "--prices", NEW]) == 1
+    out = capsys.readouterr()
+    printed = json.loads(out.out)
+    assert printed["lower_bound"] is True
+    assert printed["reconciliation"]["differs"] == []
+    assert "lower bound" in printed["basis_label"]
+    warned = json.loads(out.err)
+    assert "lower bound" in warned["warning"]
+    assert warned["unpriced"] == printed["reconciliation"]["unread"]

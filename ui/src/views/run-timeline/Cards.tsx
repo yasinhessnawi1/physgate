@@ -4,6 +4,7 @@ import type { SessionTrace, TimelineEvents, Tokens, Usage } from "../../api/run"
 import { Quantity } from "../../design/components/Quantity";
 import { type Source, SourceChip, sourceAttribute } from "../../design/components/SourceChip";
 import { VerdictBadge } from "../../design/components/VerdictBadge";
+import { CostCaveat } from "../common/cost";
 
 function tok(value: number) {
   return <Quantity q={{ value, unit: "tok" }} />;
@@ -124,6 +125,7 @@ export function TokensCard({
               ? "A list-price estimate: the subscription is not billed per token."
               : "The tokens at the sheet's list prices."}
             {cost.partial ? " Partial: some usage was read from an unfinished stream." : ""}
+            <CostCaveat cost={cost} />
           </p>
           <ScrollTable label="By model">
             <table className="table" aria-label="By model">
