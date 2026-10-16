@@ -136,30 +136,35 @@ REFUSED = [
 ]
 
 
-#: Why the forms below still reach the outbox, until the hook layer refuses when in doubt. Its
-#: other protected roots are put back by the sentinel after such a write; a refuse-only root is
-#: not, so the shell layer must refuse what it cannot resolve. The change that does is the hook
-#: layer's own, made separately; each case turns this test red the day it lands.
-AWAITING_THE_HOOK_LAYER = (
-    "the shell layer does not yet refuse a write it cannot resolve into a refuse-only root "
-    "(brace expansion, ANSI-C quoting, a path built from variables, an unknown working directory)"
-)
-
-AWAITING = [
+#: The forms the shell layer once could not resolve, and now refuses.
+RESOLVED = [
     "echo '{}' > .physgate/{series,x}/step.json",
     "echo '{}' > .phys{gate,x}/series/step.json",
     "echo '{}' > $'.physgate/series/step.json'",
     "a=.phys; b=gate; echo '{}' > $a$b/series/step.json",
-    "cd $(printf .physgate) && echo '{}' > series/step.json",
 ]
 
+#: Why one form still reaches the outbox: the hook layer's README lists "the directory after
+#: `cd $(…)`" among what the first layer cannot see, and the outbox, refused only, has no second
+#: layer. The collector, which seals a record only from committed module code, is the authority.
+RESIDUAL = (
+    "the directory after a command substitution in a cd is known only at run time, which the "
+    "hook layer's README lists as beyond the first layer"
+)
 
-@pytest.mark.xfail(strict=True, reason=AWAITING_THE_HOOK_LAYER)
-@pytest.mark.parametrize("command", AWAITING)
-def test_a_write_the_shell_layer_cannot_resolve_is_refused(
+
+@pytest.mark.parametrize("command", RESOLVED)
+def test_a_write_the_shell_layer_once_could_not_resolve_is_refused(
     config: SessionConfig, command: str
 ) -> None:
     assert _bash(config, command) != "allow", command
+
+
+@pytest.mark.xfail(strict=True, reason=RESIDUAL)
+def test_a_cd_into_a_substitution_s_directory_then_a_relative_write_is_refused(
+    config: SessionConfig,
+) -> None:
+    assert _bash(config, "cd $(printf .physgate) && echo '{}' > series/step.json") != "allow"
 
 
 @pytest.mark.parametrize("command", REFUSED)
@@ -182,7 +187,6 @@ def test_a_case_variant_names_the_outbox_on_a_case_insensitive_volume(
     assert _tool(config, "Write", variant) != "allow"
 
 
-@pytest.mark.xfail(strict=True, reason=AWAITING_THE_HOOK_LAYER)
 def test_a_call_whose_working_directory_is_unknown_is_refused(config: SessionConfig) -> None:
     assert _bash(config, "echo '{}' > series/step.json", cwd="relative/somewhere") != "allow"
 

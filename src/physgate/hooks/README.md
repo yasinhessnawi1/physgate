@@ -151,7 +151,10 @@ a link of that one name is not seen), the directory after `cd $(…)`, a
 script a shell reads by another route (`… | sh`, `xargs`, `source <file>`, which
 can also set any variable or directory unseen), a
 path a program builds from its input (`python -`, `node`, `awk`, `sqlite3`), a
-string assembled in a script, an archive, a patch. The tests assert those forms
+variable with an operator inside an unquoted heredoc or here-string fed to such a
+program (`${d:-y}`, `${d%X}`, `${HOME:+…}`: the body is cut into words before the
+variable is expanded, so `.output ${d:-y}/series/f` read by `sqlite3` is not
+followed), a string assembled in a script, an archive, a patch. The tests assert those forms
 as allowed by the first layer so that the boundary is on record. For a root
 watched `none` there is no second layer, so those forms reach it: a recorded
 residual of the same-user kind. One more residual underlies all of these: the
