@@ -90,6 +90,8 @@ def test_a_brace_pattern_becomes_every_word_the_shell_makes_of_it(
 def test_a_quoted_brace_or_comma_is_not_a_pattern() -> None:
     (cmd,) = shell.parse("touch '{a,b}' \\{c,d} {e','f}")
     assert dict(cmd.braces) == {}
+    (cmd,) = shell.parse("touch \\{a,b}{c,d}")
+    assert dict(cmd.braces) == {1: ("{a,b}c", "{a,b}d")}
 
 
 def test_a_brace_pattern_in_a_redirection_is_expanded_too() -> None:
@@ -234,6 +236,15 @@ def test_zsh_s_two_word_cd_is_followed_as_a_substitution(config: SessionConfig) 
 )
 def test_an_ordinary_cd_is_allowed(config: SessionConfig, command: str) -> None:
     assert _decide(config, command) == "allow"
+
+
+def test_cd_dash_returns_only_to_a_directory_already_counted(
+    config: SessionConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # `cd -` goes to the directory before the last cd, never home; a bare `cd` goes home.
+    monkeypatch.setenv("HOME", os.path.join(config.worktree, ".physgate"))
+    assert _decide(config, f"cd - && {MARKER} > series/step.json") == "allow"
+    assert _decide(config, f"cd && {MARKER} > series/step.json") != "allow"
 
 
 def test_a_command_that_could_be_in_too_many_directories_is_refused(
