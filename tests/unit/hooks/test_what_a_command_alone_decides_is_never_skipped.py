@@ -97,19 +97,56 @@ def test_every_value_a_loop_variable_could_hold_is_checked(
 @pytest.mark.parametrize(
     "command",
     [
-        f"for a in {{1..40}}; do for b in {{1..40}}; do {M} > $a$b; done; done",
-        f"for x in {{1..2000}}; do {M} > $x; done",
-        f"for a in {{1..40}}; do :; done; for b in {{1..40}}; do :; done; x=$a$b; {M} > $x",
+        f"for x in {{a..z}}{{a..z}}{{a..z}}; do {M} > $x; done",
+        f"for a in {{a..z}}{{a..z}}; do for b in {{a..z}}{{a..z}}; do {M} > $a$b; done; done",
     ],
-    ids=["product", "unbounded-list", "assigned-from-too-many"],
+    ids=["unbounded-letters", "product-of-letters"],
 )
 def test_a_word_that_could_become_too_many_words_is_refused(
     config: SessionConfig, command: str
 ) -> None:
-    # Refused, never skipped: by the variable bound, or (the list itself) the brace bound.
+    # Refused, never skipped: past the bound, a value that is not a number cannot be
+    # stood for by one.
     told = _decide(config, command)
     bounds = (sp.VARIABLE_UNBOUNDED.split("{word}")[0], sp.BRACE_UNBOUNDED.split("{word}")[0])
     assert any(b in told for b in bounds), told
+
+
+@pytest.mark.parametrize(
+    ("command", "allowed"),
+    [
+        ("for i in {1..2000}; do echo $i; done | wc -l", True),
+        ("for i in {1..1500}; do touch modules/control/$i.txt; done", True),
+        (
+            f"for a in {{1..40}}; do for b in {{1..40}}; do {M} > modules/control/$a$b; done; done",
+            True,
+        ),
+        (f"for i in {{1..2000}}; do {M} > {ROOT}/$i; done", False),
+        (f"for a in {{1..40}}; do for b in {{1..40}}; do {M} > {ROOT}/$a$b; done; done", False),
+        (f"for i in {{1..2000}} .physgate; do {M} > $i/series/f; done", False),
+    ],
+)
+def test_a_long_loop_over_numbers_is_judged_by_where_its_words_lead(
+    config: SessionConfig, command: str, allowed: bool
+) -> None:
+    # Numbers are alike as path parts, so one stands for them all: a loop's length alone
+    # refuses nothing, and a word that reaches a root through it is refused.
+    assert (_decide(config, command) == "allow") is allowed, command
+
+
+@pytest.mark.parametrize(
+    ("command", "allowed"),
+    [
+        ('name=${1:-default}; echo "$name"', True),
+        ('echo "${@:-none}"', True),
+        (f"{M} > ${{1:-modules}}/control/out.txt", True),
+        (f"{M} > ${{1:-.physgate}}/series/f", False),
+    ],
+)
+def test_a_positional_parameter_with_an_operator_is_the_residual_plus_its_operand(
+    config: SessionConfig, command: str, allowed: bool
+) -> None:
+    assert (_decide(config, command) == "allow") is allowed, command
 
 
 def test_pwd_after_a_cd_is_every_directory_the_command_could_be_in(

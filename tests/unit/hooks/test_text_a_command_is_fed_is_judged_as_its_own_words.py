@@ -206,3 +206,37 @@ def test_a_path_a_program_builds_from_its_input_is_not_seen(config: SessionConfi
         "EOF\n"
     )
     assert _decide(config, command) == "allow"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat > modules/control/a.js <<'EOF'\nconst s = `${a.b}`;\nEOF\n",
+        "cat > modules/control/a.ts <<'EOF'\nconst n = `${items.length} in ${cfg.dir}`;\nEOF\n",
+        "cat > modules/control/f.py <<'EOF'\nn = (~valid).sum()\nEOF\n",
+        "python3 - <<'EOF'\nprint(~flags)\nEOF\n",
+        "cat > modules/control/notes.md <<'EOF'\nresult is ~approx 3\nEOF\n",
+        "tee modules/control/notes.md <<'EOF'\nresult is ~approx 3\nEOF\n",
+        "cat > modules/control/run.sh <<'EOF'\nout=${name/sim/run}\nEOF\n",
+        "cat > modules/control/u.sh <<EOF\nx=${a.b} ~approx ${name/sim/run}\nEOF\n",
+        "python3 - <<< 'print(~flags, f\"${a.b}\")'",
+    ],
+    ids=[
+        "js-template",
+        "ts-template",
+        "numpy-invert",
+        "python-stdin-invert",
+        "markdown-approx",
+        "tee-approx",
+        "shell-replace",
+        "unquoted-body",
+        "here-string",
+    ],
+)
+def test_text_never_refuses_for_a_form_the_layer_does_not_evaluate(
+    config: SessionConfig, command: str
+) -> None:
+    # The shell expands nothing in a quoted body, and in an unquoted one this layer
+    # follows only the substitutions it runs: text is judged by the paths it names, as
+    # written, and nothing else in it can refuse.
+    assert _decide(config, command) == "allow"
