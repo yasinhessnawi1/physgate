@@ -300,7 +300,8 @@ class Session:
             config=config,
             run=self.run,
             store_root=self.store_root,
-            install_bin=Path("/nonexistent/bin/physgate"),
+            # The installation is this interpreter's environment, as the hooks are installed.
+            install_bin=Path(sys.executable).parent / "physgate",
             binary=str(self.binary),
             base_url=None,
             credential=Credential(mode="api_key", secret="not-a-key"),
@@ -406,6 +407,110 @@ def test_a_session_stopped_at_its_clock_leaves_no_setsid_grandchild(
         (session.run.run_dir / "sessions" / report.session_id / "ended.json").read_text()
     )
     assert ended["timed_out"] and set(children) <= set(ended["left_running"])
+
+
+def _refused_before_git(session: Session, dispatcher: ClaudeDispatcher) -> dict[str, Any]:
+    """Run the attempt, which must be refused before any git call; return what it recorded."""
+    with pytest.raises(InvocationError, match="no git call follows"):
+        dispatcher.run(session.request())
+    assert session.at_first_git is None
+    (record,) = session.run.run_dir.glob("sessions/*/after_stop.json")
+    assert not (record.parent / "ended.json").exists()
+    settled: dict[str, Any] = json.loads(record.read_text())
+    # The sentinel's check ran all the same, after the stop.
+    assert settled["sentinel_after_stop"]["refused"] is None
+    assert settled["sentinel_after_stop"]["exit"] == 0
+    return settled
+
+
+def test_a_stop_that_leaves_a_survivor_refuses_the_attempt_before_any_git_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    """The stop exhausted (here it stops nothing): the table, read again, still shows the child."""
+    session = Session(tmp_path, "sleeper", pause=1.0, wall_clock_s=60.0)
+    dispatcher = session.dispatcher(monkeypatch)
+    monkeypatch.setattr(ending, "stop_all", lambda procs: ())
+    try:
+        settled = _refused_before_git(session, dispatcher)
+    finally:
+        leftovers += session.pids()
+    assert settled["stop_unconfirmed"].startswith("still running after the stop")
+    assert str(session.pids()[0]) in settled["stop_unconfirmed"]
+
+
+def test_a_process_table_that_cannot_be_read_refuses_the_attempt_before_any_git_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    session = Session(tmp_path, "sleeper", pause=1.0, wall_clock_s=60.0)
+    dispatcher = session.dispatcher(monkeypatch)
+    monkeypatch.setattr(dispatch, "process_rows", lambda: None, raising=False)
+    try:
+        settled = _refused_before_git(session, dispatcher)
+    finally:
+        leftovers += session.pids()
+    assert settled["stop_unconfirmed"] == "the process table could not be read"
+
+
+def test_a_stop_denied_its_signal_refuses_the_attempt_before_any_git_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    session = Session(tmp_path, "sleeper", pause=1.0, wall_clock_s=60.0)
+    dispatcher = session.dispatcher(monkeypatch)
+
+    def denied(pid: int, sig: int) -> None:
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(ending, "_send", denied)
+    try:
+        settled = _refused_before_git(session, dispatcher)
+    finally:
+        leftovers += session.pids()
+    assert "PermissionError" in settled["stop_unconfirmed"]
+
+
+class Died(BaseException):
+    """The orchestrator killed while its session ran."""
+
+
+def test_a_resume_stops_what_a_role_session_left_and_puts_its_write_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    """The orchestrator died; its session exited later; its child wrote after SessionEnd."""
+    session = Session(tmp_path, "sleeper", pause=1.0, wall_clock_s=60.0)
+    dispatcher = session.dispatcher(monkeypatch)
+
+    def die(*_args: Any, **_kwargs: Any) -> None:  # noqa: ANN401
+        raise Died
+
+    with monkeypatch.context() as killed:
+        killed.setattr(dispatch, "await_session", die, raising=False)
+        with pytest.raises(Died):
+            dispatcher.run(session.request())
+    marker = session.root / MARKER
+    try:
+        assert _settle(marker.exists, 20.0), "the child never wrote"
+        (child,) = session.pids()
+        resumed = ClaudeDispatcher(
+            config=dispatcher._config,
+            run=session.run,
+            store_root=session.store_root,
+            install_bin=Path(sys.executable).parent / "physgate",
+            binary=str(session.binary),
+            base_url=None,
+            credential=Credential(mode="api_key", secret="not-a-key"),
+            review_root=Path("/nonexistent/review-scratch"),
+        )
+        (left,) = resumed.stop_leftovers()
+    finally:
+        leftovers += session.pids()
+    assert not left.stopped  # the session itself had exited
+    assert started_at(child) is None
+    assert sorted(p.name for p in session.root.iterdir()) == ["kept.txt"]
+    ended = json.loads(
+        (session.run.run_dir / "sessions" / left.session_id / "ended.json").read_text()
+    )
+    assert child in ended["left_running"]
+    assert ended["sentinel_after_stop"]["put_back"] == [str(marker)]
 
 
 @pytest.mark.parametrize(

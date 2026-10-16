@@ -148,7 +148,11 @@ def test_a_resume_stops_a_recorded_session_still_running_and_only_that(tmp_path:
     assert live.complete is False and left[1].usage == ()
     assert started_at(pid) is None and started_at(child) is None
     assert json.loads((sessions / "reused" / "ended.json").read_text()) == {
-        "not_running_at_resume": True
+        "not_running_at_resume": True,
+        # Nothing of it was left in its group, and its sentinel had recorded nothing.
+        "left_running": [],
+        "stop_unconfirmed": None,
+        "sentinel_after_stop": {"refused": None, "no_record": True},
     }
     assert json.loads((sessions / "live" / "ended.json").read_text())["stopped_at_resume"]
     assert _dispatcher(tmp_path / "run").stop_leftovers() == []
@@ -218,7 +222,11 @@ def test_a_rewritten_process_record_never_points_the_stop_at_another_process(
         time.sleep(0.5)
         assert started_at(pid) is not None and started_at(child) is not None
         assert json.loads((sessions / "forged" / "ended.json").read_text()) == {
-            "not_running_at_resume": True
+            "not_running_at_resume": True,
+            # Nothing of it was left in its group, and its sentinel had recorded nothing.
+            "left_running": [],
+            "stop_unconfirmed": None,
+            "sentinel_after_stop": {"refused": None, "no_record": True},
         }
     finally:
         stop_tree(pid)
