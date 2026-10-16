@@ -167,6 +167,13 @@ def review_prompt(
         if packet.spec_as_issued_sha256 is not None
         else ""
     )
+    series = (
+        f"- {_parts(read, packet.series_parts)}: the simulation records the attempt's sessions "
+        "left, each summarised from its own samples, and how each quantity that names a record "
+        "held to it.\n"
+        if packet.series_parts
+        else ""
+    )
     reading = "".join(f"- {path}\n" for path in packet.required_reading)
     if packet.indicators:
         shown = "".join(
@@ -187,6 +194,7 @@ def review_prompt(
         f"{issued}"
         f"- {read / RUBRIC_NAME}: the rubric you judge the attempt against.\n"
         f"- {_parts(read, packet.diff_parts)}: the attempt's change, in numbered parts.\n"
+        f"{series}"
         f"- {read / WORKTREE_NAME}/: the files as the attempt committed them.\n"
         f"- {read / KNOWLEDGE_NAME}/: {shown_knowledge}.\n\n"
         "Before anything else, read each of these files in full with the Read tool; your "

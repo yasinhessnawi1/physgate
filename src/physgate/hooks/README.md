@@ -151,7 +151,10 @@ a link of that one name is not seen), the directory after `cd $(…)`, a
 script a shell reads by another route (`… | sh`, `xargs`, `source <file>`, which
 can also set any variable or directory unseen), a
 path a program builds from its input (`python -`, `node`, `awk`, `sqlite3`), a
-string assembled in a script, an archive, a patch. The tests assert those forms
+variable with an operator inside an unquoted heredoc or here-string fed to such a
+program (`${d:-y}`, `${d%X}`, `${HOME:+…}`: the body is cut into words before the
+variable is expanded, so `.output ${d:-y}/series/f` read by `sqlite3` is not
+followed), a string assembled in a script, an archive, a patch. The tests assert those forms
 as allowed by the first layer so that the boundary is on record. For a root
 watched `none` there is no second layer, so those forms reach it: a recorded
 residual of the same-user kind. One more residual underlies all of these: the
@@ -160,7 +163,7 @@ followed or refused), and a list of what a command may do can never be complete.
 That, not any one form, is why the OS layer exists. **This list is the honest
 boundary of what parsing alone can claim.** A further difference between how this layer and a
 shell read a command is added here, not patched in the parser: an OS write
-allowlist for role sessions is the closing layer. The bypass suite runs thirty-four attempts
+allowlist for role sessions is the closing layer. The bypass suite runs fifty attempts
 through the real Claude Code binary, each judged by the bytes of the protected
 trees and by which layer logged the refusal; its tolerance is zero.
 

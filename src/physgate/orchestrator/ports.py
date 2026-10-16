@@ -23,6 +23,7 @@ from physgate.orchestrator.install import InstallFacts
 from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.run_config import RunBounds
 from physgate.orchestrator.trajectory import Seal
+from physgate.series.seal import SeriesCheck, SessionSeries
 from physgate.state.store import JournalLine, Payload
 
 SessionId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
@@ -73,6 +74,9 @@ class SessionReport(_Frozen):
     review_material_seen: NonEmptyStr | None = None
     #: The issued specification's digest, read before the session was spawned.
     issued_spec_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")] | None = None
+    #: The series records the session left: sealed, refused or discarded. Collected before
+    #: the attempt was committed, so none of them is in the commit.
+    series: SessionSeries = SessionSeries()
 
 
 #: Whose session a leftover was, as its tokens are attributed: ``session`` or ``reviewer``.
@@ -106,7 +110,7 @@ class Leftover(_Frozen):
 class ChangeCheck(_Frozen):
     """The verdict on an attempt's changes before the gate sees them."""
 
-    refused_by: Literal["proposal", "write_scope"] | None
+    refused_by: Literal["proposal", "write_scope", "series"] | None
     reason: NonEmptyStr | None
     #: The offending paths or node id, for the finding's key.
     subject: NonEmptyStr | None = None
@@ -115,6 +119,8 @@ class ChangeCheck(_Frozen):
     #: when it was refused before they were read. What the escalation decision's state
     #: reports as the changed-node summary (ARCH-131).
     proposed: tuple[NonEmptyStr, ...] = ()
+    #: Every proposed quantity that names a simulation record, held to it: passes included.
+    series_checks: tuple[SeriesCheck, ...] = ()
 
 
 class WorktreeRemoval(_Frozen):
@@ -159,8 +165,18 @@ class Dispatcher(Protocol):
 class ChangeChecker(Protocol):
     """Checks an attempt's write scope and pre-checks its node proposals."""
 
-    def check(self, subtask_id: str, attempt_commit: str, role: str) -> ChangeCheck:
-        """Check the attempt commit's changes; never writes the canonical store."""
+    def check(
+        self,
+        subtask_id: str,
+        attempt_commit: str,
+        role: str,
+        *,
+        series: SessionSeries | None = None,
+    ) -> ChangeCheck:
+        """Check the attempt commit's changes and the session's series records.
+
+        Never writes the canonical store.
+        """
         ...
 
 

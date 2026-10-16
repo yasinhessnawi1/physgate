@@ -12,8 +12,10 @@ one, so a regression cannot damage this checkout: it leaves a stray file, which
 the test removes, and fails.
 
 - A Write by absolute path is refused before it runs.
-- A path assembled inside an interpreter runs, and the sentinel moves the
-  planted file aside before the next call.
+- A path assembled from variables the call assigns is resolved by the shell
+  layer and refused before it runs.
+- A path assembled from a value known only at run time runs, and the sentinel
+  moves the planted file aside before the next call.
 """
 
 from __future__ import annotations
@@ -63,20 +65,26 @@ def test_a_dispatched_session_plants_nothing_in_the_harness(
     assert HARNESS is not None, "this test runs from a source checkout"
     tag = uuid.uuid4().hex[:12]
     by_tool = HARNESS / "knowledge" / "electrical" / f"zz_probe_tool_{tag}.md"
+    by_assigned = HARNESS / "knowledge" / "electrical" / f"zz_probe_assigned_{tag}.md"
     by_interpreter = HARNESS / "knowledge" / "electrical" / f"zz_probe_built_{tag}.md"
-    # A write the first layer cannot see, so the sentinel's put-back is what must catch
-    # it. The target's absolute path is assembled from two halves in shell variables,
-    # split inside the harness root so no protected path appears as a contiguous literal
-    # in the command (the first layer scans the text; it does not evaluate the
-    # concatenation — the hook suite's own "variable"/"substitution" cases establish
-    # this). This uses only the shell and `echo`, so it needs no external interpreter:
-    # the dispatcher builds the session's environment from nothing, a bare `python3` is
-    # not on its PATH (exit 127 on the server), and the test's own interpreter sits
-    # under a protected root (the venv, or the installation's base prefix), which the
-    # first layer would refuse by its literal path.
-    target = str(by_interpreter)
+    # Each target's absolute path is assembled from two halves, split inside the harness
+    # root so no protected path appears as a contiguous literal in the command. Both use
+    # only the shell, `printf` and `echo`, so neither needs an external interpreter: the
+    # dispatcher builds the session's environment from nothing, a bare `python3` is not on
+    # its PATH (exit 127 on the server), and the test's own interpreter sits under a
+    # protected root, which the first layer would refuse by its literal path.
+    #
+    # Assigned in the call, the halves are joined by the shell layer, which follows a
+    # variable the call assigns, so the write is refused before it runs. Taken from a
+    # command substitution, the first half is known only at run time, which the first
+    # layer cannot see: the sentinel's put-back is what must catch that write.
     cut = len(str(HARNESS)) // 2  # inside the harness root, so neither half is a protected path
-    head, tail = shlex.quote(target[:cut]), shlex.quote(target[cut:])
+
+    def halves(path: Path) -> tuple[str, str]:
+        return shlex.quote(str(path)[:cut]), shlex.quote(str(path)[cut:])
+
+    assigned_head, assigned_tail = halves(by_assigned)
+    head, tail = halves(by_interpreter)
     reads = [
         tool("Read", file_path=f"{{cwd}}/{relative.as_posix()}")
         for relative in loader.always_loaded("electrical")
@@ -88,7 +96,14 @@ def test_a_dispatched_session_plants_nothing_in_the_harness(
             tool("Write", file_path=str(by_tool), content="planted\n"),
             tool(
                 "Bash",
-                command=f'a={head}; b={tail}; echo planted > "$a$b" && echo ran > ran.txt',
+                command=f'a={assigned_head}; b={assigned_tail}; echo planted > "$a$b"',
+                description="x",
+            ),
+            tool(
+                "Bash",
+                command=(
+                    f'a=$(printf %s {head}); b={tail}; echo planted > "$a$b" && echo ran > ran.txt'
+                ),
                 description="x",
             ),
             text("done"),
@@ -131,10 +146,18 @@ def test_a_dispatched_session_plants_nothing_in_the_harness(
         assert roots.get(str(HARNESS)) == "none"
         for site_packages in {sysconfig.get_paths()["purelib"], sysconfig.get_paths()["platlib"]}:
             assert roots.get(site_packages) == "revert", site_packages
-        planted = [p for p in (by_tool, by_interpreter) if p.exists()]
+        planted = [p for p in (by_tool, by_assigned, by_interpreter) if p.exists()]
         assert planted == [], f"a session planted {planted} in the harness checkout"
         stream = next((run_dir / "sessions").glob("*/stdout.jsonl")).read_text()
         assert HARNESS_REASON in stream, "the Write was not refused for the harness's reason"
+        refused = _result_of(stream, f"b={assigned_tail};")
+        assert refused is not None, "the assigned-path command left no result"
+        # Refused before it ran, by the shell layer, naming the whole path the halves join to;
+        # a write that ran and was put back afterwards would not be told this.
+        assert refused[0], "the assigned-path command ran; the shell layer did not refuse it"
+        assert f"redirects output into {by_assigned}, which is protected" in refused[1]
+        ran = _result_of(stream, f"b={tail};")
+        assert ran is not None and not ran[0], "the run-time write was refused, not put back"
         assert "put back" in stream, "the sentinel did not report putting anything back"
         worktree_markers = list((run_dir / "worktrees").rglob("ran.txt"))
         attempts = (run_dir / "events.jsonl").read_text()
@@ -143,5 +166,30 @@ def test_a_dispatched_session_plants_nothing_in_the_harness(
         # it is in the run's records, not only on a worktree that may be removed.
         assert worktree_markers or "ran.txt" in attempts
     finally:
-        for path in (by_tool, by_interpreter):
+        for path in (by_tool, by_assigned, by_interpreter):
             path.unlink(missing_ok=True)
+
+
+def _result_of(stream: str, marker: str) -> tuple[bool, str] | None:
+    """Whether the Bash call whose command holds ``marker`` ended in an error, and its text."""
+    call_id = None
+    for line in stream.splitlines():
+        event = json.loads(line)
+        content = (event.get("message") or {}).get("content")
+        for block in content if isinstance(content, list) else []:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "tool_use" and marker in str(
+                (block.get("input") or {}).get("command", "")
+            ):
+                call_id = block.get("id")
+            if (
+                block.get("type") == "tool_result"
+                and call_id
+                and block.get("tool_use_id") == call_id
+            ):
+                text = block.get("content")
+                return bool(block.get("is_error")), text if isinstance(text, str) else json.dumps(
+                    text
+                )
+    return None

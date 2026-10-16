@@ -143,6 +143,19 @@ class TrajectoryHash(_Frozen):
     length: Annotated[int, Field(ge=0)]
 
 
+class SeriesHash(_Frozen):
+    """A simulation record a session left, as its seal recorded it when the session ended."""
+
+    session_id: str
+    subtask_id: str
+    attempt: Annotated[int, Field(ge=1)]
+    record_id: str
+    sha256: Sha256
+    length: Annotated[int, Field(ge=0)]
+    script: str
+    script_sha256: Sha256
+
+
 class ArtefactHashes(_Frozen):
     """Every artefact of the run, by content hash."""
 
@@ -161,6 +174,8 @@ class ArtefactHashes(_Frozen):
     store_commit: Sha1 | None
     store_tree: Sha1 | None
     trajectories: tuple[TrajectoryHash, ...]
+    #: Every simulation record sealed at a session's end, with the script that wrote it.
+    series: tuple[SeriesHash, ...] = ()
     #: The hooks' installation manifest digest each driving process recorded.
     install_manifests: tuple[Sha256, ...]
 
@@ -238,6 +253,21 @@ def _artefacts(run_dir: Path, config: RunConfig, events: list[Event]) -> Artefac
             )
             for e in events
             if isinstance(e, SessionEnded) and e.trajectory_seal is not None
+        ),
+        series=tuple(
+            SeriesHash(
+                session_id=e.session_id,
+                subtask_id=e.subtask_id,
+                attempt=e.attempt,
+                record_id=r.record_id,
+                sha256=r.sha256,
+                length=r.length,
+                script=r.script,
+                script_sha256=r.script_sha256,
+            )
+            for e in events
+            if isinstance(e, SessionEnded)
+            for r in e.series.records
         ),
         install_manifests=tuple(
             dict.fromkeys(

@@ -62,6 +62,7 @@ from physgate.orchestrator.record import (
     RunRecord,
 )
 from physgate.orchestrator.run_config import RunConfig
+from physgate.series.collect import series_library
 from physgate.state.schema import Node
 from physgate.state.store import Store
 
@@ -545,6 +546,9 @@ def start_run(
             curated = read_library(library, (module.role for module in outcome.plan.modules))
         except LibraryError as exc:
             raise DecompositionError(str(exc), **exc.context) from None
+        # The series writer goes with the library: a role's scripts import it from
+        # .physgate/lib, and the run branch holds the very bytes the harness ships.
+        curated.update(series_library())
         _require_library_fits(target_repo, config.target_head, curated)
     store_root = run_dir / "store"
     record = RunRecord(config, run_dir)

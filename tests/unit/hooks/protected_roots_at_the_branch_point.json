@@ -1,0 +1,178 @@
+[
+ {
+  "exceptions": [],
+  "path": "<install-base>",
+  "reason": "it is the code the hooks run from",
+  "watch": "halt"
+ },
+ {
+  "exceptions": [],
+  "path": "<install-env>",
+  "reason": "it is the code the hooks run from",
+  "watch": "halt"
+ },
+ {
+  "exceptions": [],
+  "path": "<install-package>",
+  "reason": "it is the code the hooks run from",
+  "watch": "halt"
+ },
+ {
+  "exceptions": [],
+  "path": "<base>/config",
+  "reason": "it is this session's Claude Code configuration",
+  "watch": "none"
+ },
+ {
+  "exceptions": [],
+  "path": "<base>/harness",
+  "reason": "it is the checkout the orchestrator runs from: the physics gate's source, the curated library and its bounds tables, and the frozen experiments a run is judged by, which no session in another worktree writes",
+  "watch": "none"
+ },
+ {
+  "exceptions": [],
+  "path": "<base>/harness/experiments/R-X-01/CRITERIA.md",
+  "reason": "it is the checkout the orchestrator runs from: the physics gate's source, the curated library and its bounds tables, and the frozen experiments a run is judged by, which no session in another worktree writes",
+  "watch": "revert"
+ },
+ {
+  "exceptions": [],
+  "path": "<base>/harness/knowledge",
+  "reason": "it is the checkout the orchestrator runs from: the physics gate's source, the curated library and its bounds tables, and the frozen experiments a run is judged by, which no session in another worktree writes",
+  "watch": "revert"
+ },
+ {
+  "exceptions": [],
+  "path": "<base>/harness/pyproject.toml",
+  "reason": "it is the checkout the orchestrator runs from: the physics gate's source, the curated library and its bounds tables, and the frozen experiments a run is judged by, which no session in another worktree writes",
+  "watch": "revert"
+ },
+ {
+  "exceptions": [],
+  "path": "<base>/harness/scripts",
+  "reason": "it is the checkout the orchestrator runs from: the physics gate's source, the curated library and its bounds tables, and the frozen experiments a run is judged by, which no session in another worktree writes",
+  "watch": "revert"
+ },
+ {
+  "exceptions": [],
+  "path": "<base>/harness/src",
+  "reason": "it is the checkout the orchestrator runs from: the physics gate's source, the curated library and its bounds tables, and the frozen experiments a run is judged by, which no session in another worktree writes",
+  "watch": "revert"
+ },
+ {
+  "exceptions": [],
+  "path": "<base>/harness/uv.lock",
+  "reason": "it is the checkout the orchestrator runs from: the physics gate's source, the curated library and its bounds tables, and the frozen experiments a run is judged by, which no session in another worktree writes",
+  "watch": "revert"
+ },
+ {
+  "exceptions": [],
+  "path": "<base>/heldout",
+  "reason": "it is the held-out evaluation tier, which nothing reads or writes before measurement (ARCH-141)",
+  "watch": "revert"
+ },
+ {
+  "exceptions": [],
+  "path": "<base>/home/.claude.json",
+  "reason": "it is the user's Claude Code state, which later sessions read",
+  "watch": "log"
+ },
+ {
+  "exceptions": [],
+  "path": "<base>/home/.claude/settings.json",
+  "reason": "it is the user's Claude Code settings, which later sessions read",
+  "watch": "log"
+ },
+ {
+  "exceptions": [],
+  "path": "<base>/home/.config/git",
+  "reason": "it is git's user configuration for this session, where a key could make a later git command run a program the session chose; a role session reads git's configuration and never writes it",
+  "watch": "revert"
+ },
+ {
+  "exceptions": [],
+  "path": "<base>/home/.gitconfig",
+  "reason": "it is git's user configuration for this session, where a key could make a later git command run a program the session chose; a role session reads git's configuration and never writes it",
+  "watch": "revert"
+ },
+ {
+  "exceptions": [],
+  "path": "<base>/keys",
+  "reason": "it is an evaluation corpus whose files state each artefact's injected error and the check expected to catch it; no session writes it, and no reviewer reads it, because a reviewer that read the answer would make the measurement of what reviewers miss measure nothing",
+  "watch": "revert"
+ },
+ {
+  "exceptions": [],
+  "path": "<base>/run/events.jsonl",
+  "reason": "the orchestrator protects it for this session",
+  "watch": "revert"
+ },
+ {
+  "exceptions": [],
+  "path": "<base>/run/sessions",
+  "reason": "the orchestrator protects it for this session; it is written while the session runs, by the runtime and not by any tool",
+  "watch": "none"
+ },
+ {
+  "exceptions": [],
+  "path": "<base>/run/store",
+  "reason": "it is the design-state graph's own store: its journal is the only authority, and a line appended to it is replayed as genuine, so no agent tool writes any file in it",
+  "watch": "journal"
+ },
+ {
+  "exceptions": [],
+  "path": "<base>/run/worktrees/control-1/.claude",
+  "reason": "it holds Claude Code settings, and a settings write can switch the hooks off",
+  "watch": "revert"
+ },
+ {
+  "exceptions": [],
+  "path": "<base>/run/worktrees/control-1/.env",
+  "reason": "it holds the environment's secrets",
+  "watch": "revert"
+ },
+ {
+  "exceptions": [],
+  "path": "<base>/run/worktrees/control-1/corpora",
+  "reason": "it is an evaluation corpus whose files state each artefact's injected error and the check expected to catch it; no session writes it, and no reviewer reads it, because a reviewer that read the answer would make the measurement of what reviewers miss measure nothing",
+  "watch": "revert"
+ },
+ {
+  "exceptions": [
+   "<base>/run/worktrees/control-1/knowledge/staging"
+  ],
+  "path": "<base>/run/worktrees/control-1/knowledge",
+  "reason": "it holds curated standards or skill content; a human promotes a candidate into it with the promotion command, and no agent session writes it directly (ARCH-100)",
+  "watch": "revert"
+ },
+ {
+  "exceptions": [],
+  "path": "<base>/run/worktrees/control-1/src/physgate/gate",
+  "reason": "it holds the physics gate, which no agent session writes (ARCH-081)",
+  "watch": "revert"
+ },
+ {
+  "exceptions": [],
+  "path": "<base>/run/worktrees/control-1/src/physgate/hooks",
+  "reason": "it holds the hook layer's source, which no agent session edits",
+  "watch": "revert"
+ },
+ {
+  "exceptions": [],
+  "path": "<base>/sp",
+  "reason": "it is the checkout the orchestrator runs from: the physics gate's source, the curated library and its bounds tables, and the frozen experiments a run is judged by, which no session in another worktree writes",
+  "watch": "revert"
+ },
+ {
+  "exceptions": [],
+  "path": "<base>/state",
+  "reason": "it holds the hook layer's own records of this session",
+  "watch": "none"
+ },
+ {
+  "exceptions": [],
+  "path": "<base>/target",
+  "reason": "it holds this session's settings and configuration",
+  "watch": "revert"
+ }
+]

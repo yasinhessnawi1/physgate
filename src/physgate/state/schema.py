@@ -23,7 +23,16 @@ from __future__ import annotations
 import re
 from typing import Annotated, Any, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    StringConstraints,
+    model_serializer,
+    model_validator,
+)
 
 from physgate.state.exceptions import MalformedNodeIdError, MissingUnitError
 
@@ -60,10 +69,77 @@ NodeIdKey = Annotated[
 ]
 
 
+#: How a quantity is read off a simulation record: a closed set, each defined on the
+#: record's own samples. A frequency record carries a loop's magnitude (a ratio) and phase
+#: (in rad); a time record names the trace the value is read from.
+FREQUENCY_EXTRACTORS = (
+    "phase_margin",
+    "gain_crossover_frequency",
+    "gain_margin_upper",
+    "gain_margin_lower",
+    "stability_margin",
+    "sensitivity_peak",
+    "complementary_sensitivity_peak",
+    "delay_margin",
+)
+TIME_EXTRACTORS = ("max", "min", "max_abs", "final")
+Extractor = Literal[
+    "phase_margin",
+    "gain_crossover_frequency",
+    "gain_margin_upper",
+    "gain_margin_lower",
+    "stability_margin",
+    "sensitivity_peak",
+    "complementary_sensitivity_peak",
+    "delay_margin",
+    "max",
+    "min",
+    "max_abs",
+    "final",
+]
+#: A record's id and a trace's name, as the record format spells them.
+SeriesName = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,63}$")]
+
+
+class SeriesRef(BaseModel):
+    """The simulation record a quantity was read from, and how it was read.
+
+    Names only, never numbers: a record is evidence beside the run, not design state, and
+    the graph holds only where to find it. Whether the quantity agrees with the record is
+    checked before the attempt reaches the gate.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    record: SeriesName
+    extract: Extractor
+    #: The trace a time extractor reads; a frequency extractor reads the loop's own traces.
+    trace: SeriesName | None = None
+
+    @model_validator(mode="after")
+    def _the_trace_fits_the_extractor(self) -> SeriesRef:
+        if self.extract in TIME_EXTRACTORS and self.trace is None:
+            msg = f"the extractor {self.extract!r} reads a named trace, and none is named"
+            raise ValueError(msg)
+        if self.extract in FREQUENCY_EXTRACTORS and self.trace is not None:
+            msg = f"the extractor {self.extract!r} reads the loop's own traces; name none"
+            raise ValueError(msg)
+        return self
+
+    @model_serializer(mode="wrap")
+    def _omit_an_absent_trace(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if self.trace is None:
+            data.pop("trace", None)
+        return data
+
+
 class Quantity(BaseModel):
     """One physical quantity: a number, its unit, where it came from, who wrote it.
 
-    A bare number is not a quantity. Neither is a number with an empty unit.
+    A bare number is not a quantity. Neither is a number with an empty unit. A quantity read
+    off a simulation record names that record in ``series``; one that names none is dumped
+    exactly as before the field existed, so no node, journal line or digest changes.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True, allow_inf_nan=False)
@@ -72,6 +148,14 @@ class Quantity(BaseModel):
     unit: NonEmptyStr
     source: NonEmptyStr
     written_by: NonEmptyStr
+    series: SeriesRef | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_an_absent_series(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if self.series is None:
+            data.pop("series", None)
+        return data
 
 
 class Node(BaseModel):
