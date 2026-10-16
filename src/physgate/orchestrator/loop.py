@@ -82,6 +82,7 @@ from physgate.orchestrator.ports import (
     Dispatcher,
     GraphPort,
     Merger,
+    RecordsSpawns,
     SessionRequest,
 )
 from physgate.orchestrator.protocols import (
@@ -232,6 +233,11 @@ class Loop:
         self.run_dir = Path(run_dir)
         self._gate = gate
         self._reviewers = reviewers
+        # A review session's spawn goes on the record as a role session's does: a resume holds
+        # a review's process record to it too.
+        for reviewer in reviewers.values():
+            if isinstance(reviewer, RecordsSpawns):
+                reviewer.record_spawns(self._spawned)
         self._dispatcher = dispatcher
         self._changes = changes
         self._merger = merger

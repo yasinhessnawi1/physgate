@@ -221,6 +221,8 @@ def test_a_review_session_of_this_run_is_found_cleaned_and_its_tokens_are_the_re
     lines = [*_message("msg_review", 10), _result(10)]
     mine = _left_review(root, "11111111-1111-4111-8111-111111111111", "run-1", lines)
     other = _left_review(root, "22222222-2222-4222-8222-222222222222", "run-2", lines)
+    # This run's loop recorded its review session's spawn, as it records a role session's.
+    spawn_logged(run_dir, [(mine.parent.name, 999_999, "Mon Jan  1 00:00:00 2001")])
     dispatcher = ClaudeDispatcher(
         config=make_config(),
         run=RunGit(repo=run_dir, run_dir=run_dir, run_id="run-1"),

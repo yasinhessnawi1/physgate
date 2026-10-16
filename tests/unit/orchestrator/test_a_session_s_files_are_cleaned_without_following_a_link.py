@@ -116,3 +116,16 @@ def test_an_end_record_is_never_written_into_a_session_directory_replaced_by_a_l
         write_record(sdir.parent, sdir.name, {"exit": 0}, "ended.json")
     assert not (victim / "ended.json").exists()
     assert os.path.islink(sdir)
+
+
+def test_a_session_file_replaced_by_a_link_is_never_read_through(tmp_path: Path) -> None:
+    from physgate.orchestrator.dispatch import read_session_file
+
+    sdir = _session(tmp_path)
+    victim = tmp_path / "elsewhere.txt"
+    victim.write_text("not the session's\n")
+    (sdir / "process.json").symlink_to(victim)
+    with pytest.raises(InvocationError, match="not read through"):
+        read_session_file(sdir / "process.json")
+    assert read_session_file(sdir / "absent.json") == b""
+    assert SECRET.encode() in read_session_file(sdir / "stdout.jsonl")

@@ -20,9 +20,8 @@ from typing import Any, cast
 import pytest
 from test_a_review_session_leaves_nothing_running_however_it_ends import _reviewer
 
-from physgate.orchestrator import processes
+from physgate.orchestrator import dispatch, processes
 from physgate.orchestrator.dispatch import Installed
-from physgate.reviewers import claude
 from physgate.reviewers.packet import WORKTREE_NAME, Packet
 
 #: The stand-in review session: a flag once it runs, then a wait it is not let finish.
@@ -81,7 +80,7 @@ def test_a_review_session_is_stopped_when_the_process_table_cannot_be_read(
     sdir.mkdir()
     reviewer = _reviewer(tmp_path, binary, wall_clock_s=30.0)
     spawned = Spawned()
-    monkeypatch.setattr(claude, "subprocess", spawned)
+    monkeypatch.setattr(dispatch, "subprocess", spawned)
     fails = (lambda: True) if when == "at_the_spawn" else flag.exists
     monkeypatch.setattr(processes, "subprocess", FailingPs(fails))
     installed = Installed(settings="s", config="c", spawn_args=(), spawn_env={})
@@ -100,3 +99,35 @@ def test_a_review_session_is_stopped_when_the_process_table_cannot_be_read(
             if process.poll() is None:
                 process.kill()
                 process.wait()
+
+
+#: A stand-in review session that, before it exits, plants a link where its end record goes.
+PLANTER = r"""
+import os, sys
+os.symlink(sys.argv[2], os.path.join(sys.argv[1], "ended.json"))
+"""
+
+
+def test_a_review_s_end_record_is_never_written_through_a_link_its_session_planted(
+    tmp_path: Path,
+) -> None:
+    sdir = tmp_path / "rs" / "review" / "session"
+    sdir.mkdir(parents=True)
+    victim = tmp_path / "elsewhere.txt"
+    victim.write_text("not the review's\n")
+    binary = tmp_path / "bin" / "claude"
+    binary.parent.mkdir()
+    binary.write_text(
+        f"#!{sys.executable}\nimport sys\nsys.argv = [sys.argv[0], {str(sdir)!r}, "
+        f"{str(victim)!r}]\n" + PLANTER
+    )
+    binary.chmod(binary.stat().st_mode | stat.S_IXUSR)
+    read = tmp_path / "rs" / "review" / "read"
+    (read / WORKTREE_NAME).mkdir(parents=True)
+    reviewer = _reviewer(tmp_path, binary, wall_clock_s=30.0)
+    installed = Installed(settings="s", config="c", spawn_args=(), spawn_env={})
+    packet = cast(Packet, SimpleNamespace(read_root=str(read)))
+    reviewer._spawn(packet, sdir, installed, "sid", prompt="p", schema={})
+    assert victim.read_text() == "not the review's\n"
+    assert not (sdir / "ended.json").is_symlink()
+    assert json.loads((sdir / "ended.json").read_text())["exit"] == 0

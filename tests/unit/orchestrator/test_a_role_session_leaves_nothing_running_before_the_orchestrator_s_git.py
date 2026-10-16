@@ -624,6 +624,46 @@ def test_a_process_record_rewritten_to_name_a_live_process_refuses_the_resume(
     assert refused["record_refused"].startswith("the process record's pid or start time")
 
 
+def test_a_forged_review_record_naming_another_run_s_session_signals_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    """A review directory made for this run, named for another run's live session."""
+    session = Session(tmp_path, "sleeper", pause=0.0, wall_clock_s=60.0)
+    dispatcher = session.dispatcher(monkeypatch)
+    victim_id = "33333333-3333-4333-8333-333333333333"
+    marker = tmp_path / "victim"
+    victim = subprocess.Popen(
+        [sys.executable, "-c", VICTIM, str(marker), "--session-id", victim_id],
+        start_new_session=True,
+    )
+    try:
+        assert _settle(lambda: marker.exists() and len(marker.read_text().split()) == 2, 10.0)
+        leader, member = (int(x) for x in marker.read_text().split())
+        leftovers += [leader, member]
+        review_root = tmp_path / "review-scratch"
+        sdir = review_root / victim_id / "session"
+        sdir.mkdir(parents=True)
+        (sdir / "owner.json").write_text(json.dumps({"run_id": "run-1"}))
+        record = {
+            "pid": leader,
+            "started": started_at(leader),
+            "session_id": victim_id,
+            "kind": "reviewer",
+        }
+        (sdir / "process.json").write_text(json.dumps(record))
+        resumed = _resumed(session, dispatcher)
+        resumed._review_root = review_root
+        with pytest.raises(InvocationError, match="nothing is signalled"):
+            resumed.stop_leftovers()
+        time.sleep(0.5)
+        assert started_at(leader) is not None and started_at(member) is not None
+        refused = json.loads((sdir / "after_stop.json").read_text())
+        assert refused["record_refused"] == "the event log records no spawn of this session"
+    finally:
+        victim.kill()
+        victim.wait()
+
+
 def test_a_sentinel_record_deleted_after_the_session_refuses_the_resume(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
 ) -> None:
@@ -905,7 +945,7 @@ def test_the_loop_records_each_spawn_in_its_event_log_as_the_dispatcher_reports_
     tmp_path: Path,
 ) -> None:
     """What a resume holds a process record to is written by the loop, at the spawn."""
-    from loop_fakes import FakeDispatcher, Rig, plan
+    from loop_fakes import FakeDispatcher, FakeReviewer, Rig, plan
 
     from physgate.orchestrator.events import SessionSpawned, read_events
     from physgate.orchestrator.ports import SessionReport, SpawnHook
@@ -916,8 +956,17 @@ def test_the_loop_records_each_spawn_in_its_event_log_as_the_dispatcher_reports_
             on_spawn(f"sess-{request.attempt}", 4242, "Mon Jan  1 00:00:00 2001")
             return super().run(request, on_spawn)
 
-    rig = Rig(tmp_path, dispatcher=Spawning())
+    class Reviewing(FakeReviewer):
+        hook: SpawnHook | None = None
+
+        def record_spawns(self, hook: SpawnHook) -> None:
+            self.hook = hook
+
+    reviewer = Reviewing()
+    rig = Rig(tmp_path, dispatcher=Spawning(), reviewer=reviewer)
     loop = rig.open()
+    # The loop gives its reviewers the same record of a spawn.
+    assert reviewer.hook is not None
     loop.start(plan("s1"))
     loop.run()
     loop.close()
