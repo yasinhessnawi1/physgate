@@ -67,10 +67,12 @@ What is left, because only running the command decides it, is the residual. It i
 left to the sentinel for the roots it puts back, and reaches a root watched
 ``none``; an OS write allowlist is the proposed closing layer:
 
-- a value known only at run time: a command substitution, ``read``, ``$$`` and
-  the other special parameters, positional parameters (``set --``, a function's
-  arguments), arrays, namerefs and ``IFS``, a variable neither inherited nor
-  assigned a value the call writes out;
+- a value known only at run time: a command substitution, ``read``, ``printf -v``,
+  ``mapfile``/``readarray``, ``getopts``, ``$$`` and the other special parameters,
+  positional parameters (``set --``, a function's arguments), arrays, namerefs and
+  ``IFS``, a variable neither inherited nor assigned a value the call writes out;
+- a link named by one number under a loop too long to list, where one number
+  stands for every value;
 - the directory after ``cd $(…)`` or ``cd "$(pwd)/…"``;
 - a script a shell reads by another route: piped in (``… | sh``), run through
   ``xargs``, or a file given to ``source``;
@@ -412,8 +414,11 @@ def _first_protected(
 def _text_words(text: str) -> Iterator[tuple[str, bool]]:
     """Every path-like token in text a program reads, as written: nothing in it is expanded.
 
-    A glob character in such text is literal, so a token is cut back to the directory
-    written before its first glob character.
+    The shell expands nothing in a quoted here-document, and in any other one this layer
+    follows only the substitutions it runs, which are parsed as commands. So a token is
+    judged as written: never through the variable model, never refused for a form it
+    does not evaluate (a JS ``${a.b}``, numpy's ``~mask``). A glob character in such text
+    is literal, so a token is cut back to the directory written before it.
     """
     for token in _PATHLIKE.findall(text):
         glob_at = _GLOB.search(token)
@@ -421,7 +426,7 @@ def _text_words(text: str) -> Iterator[tuple[str, bool]]:
             head = token[: glob_at.start()]
             token = head[: head.rfind("/") + 1]
         if token:
-            yield token, "$" in token
+            yield token, False
 
 
 def _command_words(cmd: SimpleCommand) -> Iterator[tuple[str, bool]]:
@@ -458,16 +463,20 @@ def check(cmd: SimpleCommand, cwd: str, config: ConfigView, env: _Env | None = N
     assigned = bool(cmd.assignments) or any("=" in w and not w.startswith("-") for w in wrappers)
     trusted = not assigned and not (env is not None and env.names_unknown)
     reads_only = bool(argv) and trusted and _only_reads(argv)
+    if cmd.argv[:1] in (("for",), ("select",)):
+        reads_only = True  # a loop's list assigns its variable and writes nothing
     for redirect in cmd.redirects:
         # A here-document's body and a here-string are the program's input: judged as its
         # own words, so a reader's input may still not name the held-out tier.
         fed = redirect.target if redirect.op == "<<<" else redirect.body
         if fed is not None:
             found = _first_protected(
-                _text_words(fed), cwd, config, reading=reads_only, mention=reads_only, env=env
+                _text_words(fed), cwd, config, reading=reads_only, mention=reads_only
             )
             if found is not None:
                 return FEEDS_PROTECTED.format(path=found[0], reason=found[1])
+        if redirect.op in ("<<", "<<-", "<<<"):
+            continue  # text, judged above; a heredoc's delimiter names no path
         writing = redirect.op in _WRITE_REDIRECTS or (
             redirect.op == ">&" and not redirect.target.isdigit() and redirect.target != "-"
         )
@@ -566,6 +575,16 @@ _SHELL_SET = frozenset(
 _PARAMETER_OP = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)(:?[-=+?]|##?|%%?)(.*)", re.DOTALL)
 #: Positional and special parameters, and arrays: values only running decides (the residual).
 _PARAMETER_OPAQUE = re.compile(r"#?(?:[0-9]+|[@*#?$!-]|[A-Za-z_][A-Za-z0-9_]*\[.*\])", re.DOTALL)
+
+
+def _one_number_for_all(values: list[str]) -> list[str]:
+    """``values`` with every all-digit value but one dropped."""
+    numbers = [v for v in values if v.isdigit()]
+    return [v for v in values if not v.isdigit()] + numbers[:1]
+
+
+#: A ``for`` list word that is one numeric brace sequence between plain name characters.
+_NUMERIC_SEQUENCE = re.compile(r"([\w.+-]*)\{-?\d+\.\.-?\d+(?:\.\.-?\d+)?\}([\w.+-]*)")
 
 
 def _trim(value: str, pattern: str, op: str) -> str:
@@ -667,6 +686,13 @@ class _Env:
         for choice in choices:
             count *= len(choice)
         if count > VARIABLE_LIMIT:
+            # Numbers are interchangeable as path parts: one stands for them all, so a loop
+            # over many numbers is judged by where its words lead, not by its length.
+            choices = [_one_number_for_all(c) for c in choices]
+            count = 1
+            for choice in choices:
+                count *= len(choice)
+        if count > VARIABLE_LIMIT:
             raise _UnboundedError(word)
         out: list[str] = []
         for combination in itertools.product(*choices):
@@ -720,6 +746,12 @@ class _Env:
             return sorted({str(len(v)) for v in values}), complete
         if _PARAMETER_OPAQUE.fullmatch(inner):
             return None
+        special = re.fullmatch(r"(?:[0-9]+|[@*?$-])(:?[-=+?])(.*)", inner, re.DOTALL)
+        if special is not None:
+            # A positional or special parameter is the residual; its operand is known.
+            op, operand = special.groups()
+            operands = sorted({*self._expand(operand, "$" in operand, cwds)[0], operand})
+            return ([*operands, ""] if "+" in op else operands), False
         match = _PARAMETER_OP.fullmatch(inner)
         if match is None or "${" in inner:
             raise _UnresolvedParameterError("${" + inner + "}")
@@ -851,7 +883,16 @@ class _Env:
             if len(argv) > 2 and argv[2] == "in":  # noqa: PLR2004 - `for NAME in ...`
                 for n, word in enumerate(argv[3:], offset + 3):
                     if n in cmd.alternatives and cmd.alternatives[n] is None:
-                        self.unbounded.add(name)
+                        numeric = _NUMERIC_SEQUENCE.fullmatch(word)
+                        if numeric is None:
+                            self.unbounded.add(name)
+                        else:
+                            # Too many numbers to list, all alike as path parts: one stands
+                            # for every value, and the variable is not complete.
+                            self.assign(
+                                name, numeric.group(1) + "0" + numeric.group(2), False, cwds
+                            )
+                            self.unknown.add(name)
                         continue
                     for alternative in (word, *(cmd.alternatives.get(n) or ())):
                         self.assign(name, alternative, n in cmd.dynamic, cwds)

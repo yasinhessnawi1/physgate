@@ -143,9 +143,11 @@ refused where a literal word reaches a protected root, otherwise the residual.
 option that changes how words are read is refused; after `source <file>` no
 variable value is taken as complete. What the first layer cannot see is the
 second layer's: a
-value known only at run time (a substitution, `read`, `$$` and other special
-parameters, positional parameters and a function's arguments, arrays, namerefs
-and `IFS`), the directory after `cd $(…)`, a
+value known only at run time (a substitution, `read`, `printf -v`,
+`mapfile`/`readarray`, `getopts`, `$$` and other special parameters, positional
+parameters and a function's arguments, arrays, namerefs and `IFS`), a file
+named by a number under a loop too long to list (one number stands for all, so
+a link of that one name is not seen), the directory after `cd $(…)`, a
 script a shell reads by another route (`… | sh`, `xargs`, `source <file>`, which
 can also set any variable or directory unseen), a
 path a program builds from its input (`python -`, `node`, `awk`, `sqlite3`), a
