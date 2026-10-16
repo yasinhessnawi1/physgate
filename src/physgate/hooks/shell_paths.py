@@ -34,6 +34,16 @@ those boundaries; so after ``cd x`` both the directory before it and ``x`` are
 possible, and each later command is checked from each. ``cd old new``, which zsh
 reads as a substitution in the working directory, adds that directory too.
 
+A word is read the way the shell running it reads it, so that no difference between
+the two can hide a path. A variable the call assigns is never read from the hook's
+own environment: it may hold the inherited value or any literal value assigned, and
+each is checked. ``cd`` alone follows ``HOME``, ``cd -`` and ``~-`` follow
+``OLDPWD``, ``$PWD`` and ``~+`` are the directory judged from, and a relative ``cd``
+is also looked up beneath each ``CDPATH`` entry. Where one of those is set to a value
+known only at run time, or a named directory or ``cdable_vars`` sends ``cd`` where no
+word says, that construct alone is refused. The splitter gives every shell's reading of
+ANSI-C quoting and brace sequences, and refuses what they read too differently.
+
 A here-document's body and a here-string are the program's input, and some
 programs open the paths it names (``sqlite3``'s ``.import``), so they are scanned,
 as written, as the command's own words: for a command that only reads, only what
@@ -43,16 +53,19 @@ The call's working directory is the hook's input, not the agent's command: one
 that is not an absolute path is refused, since no relative word could be
 resolved against it.
 
-A word built from a variable this hook cannot expand, or from a command
-substitution, cannot be known before it runs, nor can the directory after
-``cd $(…)``; those are left to the sentinel, for the roots it puts back.
+A word built from a value known only at run time (a command substitution,
+``read``, a variable neither inherited nor assigned a literal), cannot be known
+before it runs, nor can the directory after ``cd $(…)``; those are left to the
+sentinel, for the roots it puts back.
 """
 
 from __future__ import annotations
 
 import glob
+import itertools
 import os
 import re
+import stat
 from typing import TYPE_CHECKING
 
 from physgate.hooks.paths import protection, resolve_roots_once
@@ -104,6 +117,17 @@ CWD_UNBOUNDED = (
 )
 #: The most directories a command is checked from, after the ``cd`` commands in it.
 CWD_LIMIT = 64
+#: The most words one word is checked as, after the variables the call assigns.
+VARIABLE_LIMIT = 64
+CD_UNKNOWN = (
+    "This command changes directory through {what}, which this call sets to a value known "
+    "only when it runs, so where it lands cannot be known and it is refused. Set it to a "
+    "literal value, or change directory by an explicit path."
+)
+CD_OPTION = (
+    "This command sets {what}, which makes a later cd go somewhere its words do not say, "
+    "so it is refused. Change directory by an explicit path."
+)
 UNPARSEABLE = (
     "This command could not be split into the commands it would run ({detail}), so it is "
     "refused. Simplify the quoting and try again."
@@ -250,7 +274,13 @@ def _cannot_reach(candidate: str, cwd: str, names: set[str], cwd_protected: bool
         return False
     if candidate.startswith("~") or ".." in candidate or candidate.casefold() in names:
         return False
-    return not os.path.islink(os.path.join(cwd, candidate))
+    # A link, or a file with a second name, may be a protected file under this one: judged
+    # in full, exactly as the file tools judge it.
+    try:
+        st = os.lstat(os.path.join(cwd, candidate))
+    except OSError:
+        return True
+    return not (stat.S_ISLNK(st.st_mode) or (stat.S_ISREG(st.st_mode) and st.st_nlink > 1))
 
 
 #: What may not even be named, by any command: a mention in a reader's input is enough.
@@ -264,6 +294,7 @@ def _first_protected(
     *,
     reading: bool,
     mention: bool = False,
+    env: _Env | None = None,
 ) -> tuple[str, str] | None:
     """The first word that reaches a protected path from ``cwd``, and why.
 
@@ -273,10 +304,14 @@ def _first_protected(
     names = _protected_names(config)
     cwd_protected = protection(cwd, cwd, config, writing=not reading) is not None
     for word, dynamic in words:
-        expanded = _expand(word, dynamic)
-        if expanded is None:
+        if env is None:
+            one = _expand(word, dynamic)
+            expansions = None if one is None else [one]
+        else:
+            expansions = env.expand(word, dynamic, [cwd])
+        if expansions is None:
             continue
-        for candidate in _candidates(expanded, cwd):
+        for candidate in (c for e in expansions for c in _candidates(e, cwd)):
             if _cannot_reach(candidate, cwd, names, cwd_protected):
                 continue
             reason = protection(candidate, cwd, config, writing=not reading)
@@ -303,14 +338,18 @@ def _text_words(text: str) -> Iterator[tuple[str, bool]]:
 def _command_words(cmd: SimpleCommand) -> Iterator[tuple[str, bool]]:
     for n, word in enumerate(cmd.argv):
         yield word, n in cmd.dynamic
-        for alternative in cmd.braces.get(n) or ():
+        for alternative in cmd.alternatives.get(n) or ():
             yield alternative, n in cmd.dynamic
     for assignment in cmd.assignments:
         yield assignment.partition("=")[2], "$" in assignment
 
 
-def check(cmd: SimpleCommand, cwd: str, config: ConfigView) -> str | None:
-    """Why ``cmd``, run from ``cwd``, is refused, or ``None``."""
+def check(cmd: SimpleCommand, cwd: str, config: ConfigView, env: _Env | None = None) -> str | None:
+    """Why ``cmd``, run from ``cwd``, is refused, or ``None``.
+
+    ``env`` holds the values the call gives its variables so far; without it, a
+    variable is read from the hook's own environment.
+    """
     if cmd.background:
         return BACKGROUND
     argv = unwrap(cmd.argv)
@@ -331,28 +370,28 @@ def check(cmd: SimpleCommand, cwd: str, config: ConfigView) -> str | None:
         fed = redirect.target if redirect.op == "<<<" else redirect.body
         if fed is not None:
             found = _first_protected(
-                _text_words(fed), cwd, config, reading=reads_only, mention=reads_only
+                _text_words(fed), cwd, config, reading=reads_only, mention=reads_only, env=env
             )
             if found is not None:
                 return FEEDS_PROTECTED.format(path=found[0], reason=found[1])
         writing = redirect.op in _WRITE_REDIRECTS or (
             redirect.op == ">&" and not redirect.target.isdigit() and redirect.target != "-"
         )
-        if writing and redirect.braces is None:
+        if writing and redirect.alternatives is None:
             return BRACE_UNBOUNDED.format(word=redirect.target, limit=BRACE_LIMIT)
         dynamic = "$" in redirect.target
-        targets = [(t, dynamic) for t in (redirect.target, *(redirect.braces or ()))]
-        found = _first_protected(iter(targets), cwd, config, reading=not writing)
+        targets = [(t, dynamic) for t in (redirect.target, *(redirect.alternatives or ()))]
+        found = _first_protected(iter(targets), cwd, config, reading=not writing, env=env)
         if found is not None:
             template = REDIRECT_INTO if writing else NAMES_PROTECTED
             return template.format(path=found[0], reason=found[1])
     # Every word is resolved against the working directory, the command's own
     # name included, so a writing command run from inside a protected directory
     # is refused here without a separate rule for it.
-    unbounded = next((n for n, b in cmd.braces.items() if b is None), None)
+    unbounded = next((n for n, b in cmd.alternatives.items() if b is None), None)
     if unbounded is not None and not reads_only:
         return BRACE_UNBOUNDED.format(word=cmd.argv[unbounded], limit=BRACE_LIMIT)
-    found = _first_protected(_command_words(cmd), cwd, config, reading=reads_only)
+    found = _first_protected(_command_words(cmd), cwd, config, reading=reads_only, env=env)
     if found is not None:
         reason = NAMES_PROTECTED.format(path=found[0], reason=found[1])
         if _commits_with_inline_message(argv):
@@ -394,14 +433,165 @@ def _ambiguous_cd(cmd: SimpleCommand, cwd: str) -> str | None:
     return None
 
 
-def _next_cwds(cmd: SimpleCommand, cwds: list[str]) -> list[str]:
+_ASSIGNERS = {"export", "declare", "typeset", "local", "readonly"}
+_READS_INTO = {"read", "mapfile", "readarray", "select"}
+_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_REFERENCE = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
+
+
+class _Env:
+    """The values a call could give each variable it assigns, as far as they are known.
+
+    A variable the call never assigns is read from the hook's own environment, as the
+    shell inherits it. One it assigns could hold the inherited value (the assignment may
+    not run) or any literal value assigned; one assigned a value known only at run time
+    (a substitution, ``read``) is unknown. ``PWD`` is the directory being judged from;
+    ``OLDPWD`` is also every directory a ``cd`` left.
+    """
+
+    __slots__ = ("known", "unknown")
+
+    def __init__(self) -> None:
+        self.known: dict[str, set[str]] = {}
+        self.unknown: set[str] = set()
+
+    def values(self, name: str, cwds: list[str]) -> list[str] | None:
+        """Every value ``name`` could hold, or ``None`` if one of them cannot be known."""
+        if name == "PWD":
+            return cwds
+        if name in self.unknown:
+            return None
+        inherited = os.environ.get(name)
+        known = self.known.get(name, set())
+        if inherited is None and not known:
+            return None
+        return sorted(known | ({inherited} if inherited is not None else set()))
+
+    def cd_values(self, name: str) -> list[str] | None:
+        """As :meth:`values` for a variable ``cd`` reads, where unset means unset: ``[]``."""
+        if name in self.unknown:
+            return None
+        inherited = os.environ.get(name)
+        return sorted(self.known.get(name, set()) | ({inherited} if inherited else set()))
+
+    def expand(self, word: str, dynamic: bool, cwds: list[str]) -> list[str] | None:
+        """Every word ``word`` could become, or ``None`` if a part of it cannot be known."""
+        words = [word]
+        if dynamic:
+            if any(m in word for m in ("$(", "`", "<(", ">(")):
+                return None
+            refs = list(_REFERENCE.finditer(word))
+            if "$" in _REFERENCE.sub("", word):
+                return None
+            choices = []
+            for ref in refs:
+                found = self.values(ref.group(1) or ref.group(2), cwds)
+                if found is None:
+                    return None
+                choices.append(found)
+            literal = _REFERENCE.split(word)[::3]  # the text between references
+            words = []
+            for combination in itertools.product(*choices):
+                if len(words) >= VARIABLE_LIMIT:
+                    return None
+                words.append(
+                    "".join(t + v for t, v in zip(literal, (*combination, ""), strict=True))
+                )
+        out: list[str] = []
+        for w in words:
+            tilde = self._tilde(w, cwds)
+            if tilde is None:
+                return None
+            out += tilde
+        return out
+
+    def _tilde(self, word: str, cwds: list[str]) -> list[str] | None:
+        head, sep, rest = word.partition("/")
+        if not head.startswith("~"):
+            return [word]
+        if head == "~":
+            homes = self.cd_values("HOME")
+            return None if homes is None else [h + sep + rest for h in homes]
+        if head in ("~-", "~+"):
+            dirs = self.cd_values("OLDPWD") if head == "~-" else cwds
+            return None if dirs is None else [d + sep + rest for d in dirs]
+        return [os.path.expanduser(word)]
+
+    def assign(self, name: str, value: str, dynamic: bool, cwds: list[str]) -> None:
+        """Record that ``name`` may now hold ``value``."""
+        if name.casefold() == "cdpath" and name != "CDPATH":
+            # zsh's array tied to CDPATH: its value is not this word.
+            self.unknown.add("CDPATH")
+            return
+        found = self.expand(value, dynamic, cwds)
+        if found is None:
+            self.unknown.add(name)
+        else:
+            self.known.setdefault(name, set()).update(found)
+
+    def record(self, cmd: SimpleCommand, cwds: list[str]) -> None:
+        """Every variable ``cmd`` may assign, and what it may assign."""
+        for assignment in cmd.assignments:
+            name, _, value = assignment.partition("=")
+            self.assign(name, value, "$" in value, cwds)
+        argv = unwrap(cmd.argv)
+        if not argv:
+            return
+        head = _name(argv[0])
+        offset = len(cmd.argv) - len(argv)
+        if head in _ASSIGNERS:
+            for n, word in enumerate(argv[1:], offset + 1):
+                name, eq, value = word.partition("=")
+                if eq and _NAME.fullmatch(name):
+                    self.assign(name, value, n in cmd.dynamic, cwds)
+        elif head == "for" and len(argv) > 1:
+            name = argv[1]
+            if len(argv) > 2 and argv[2] == "in":  # noqa: PLR2004 - `for NAME in ...`
+                for n, word in enumerate(argv[3:], offset + 3):
+                    for alternative in (word, *(cmd.alternatives.get(n) or ())):
+                        self.assign(name, alternative, n in cmd.dynamic, cwds)
+            else:
+                self.unknown.add(name)
+        elif head in _READS_INTO or head in ("getopts", "printf"):
+            names = [w for w in argv[1:] if _NAME.fullmatch(w)]
+            if head == "printf":
+                names = [argv[k + 1] for k in range(1, len(argv) - 1) if argv[k] == "-v"]
+            self.unknown.update(names)
+
+
+def _refused_construct(cmd: SimpleCommand) -> str | None:
+    """The reason a ``cd`` after ``cmd`` could go where no word says, if ``cmd`` sets that up."""
+    argv = unwrap(cmd.argv)
+    if not argv:
+        return None
+    head = _name(argv[0])
+    if head == "hash" and "-d" in argv[1:]:
+        return CD_OPTION.format(what="a zsh named directory (hash -d)")
+    if head in ("shopt", "setopt", "unsetopt", "set") and any(
+        "cdablevars" in w.casefold().replace("_", "") for w in argv[1:]
+    ):
+        return CD_OPTION.format(what="the cdable_vars option")
+    return None
+
+
+class _UnknownDirectoryError(Exception):
+    """A ``cd`` reads a variable whose value this call sets at run time."""
+
+
+def _next_cwds(cmd: SimpleCommand, cwds: list[str], env: _Env | None = None) -> list[str]:
     """Every directory a later command could run in, after ``cmd`` from any of ``cwds``.
 
-    Nothing is ever removed: a ``cd`` may fail, may not run, or may run in a
-    subshell. ``cd -``, ``popd`` and a ``pushd`` that only rotates the stack return
-    to a directory already in the list, or to one left from before this call, which
-    cannot be known. A target that cannot be expanded adds nothing.
+    Nothing is ever removed: a ``cd`` may fail, may not run, or may run in a subshell.
+    ``cd`` alone goes to every value ``HOME`` could hold, ``cd -`` to every value of
+    ``OLDPWD``, and a relative target is also looked up beneath every ``CDPATH`` entry,
+    as bash and zsh do. ``popd`` and a ``pushd`` that only rotates the stack return to a
+    directory already in the list. A target that cannot be expanded adds nothing.
+
+    Raises:
+        _UnknownDirectoryError: ``cd`` reads ``HOME``, ``OLDPWD`` or ``CDPATH`` and this
+            call set it to a value known only at run time.
     """
+    env = env if env is not None else _Env()
     argv = unwrap(cmd.argv)
     if not argv or _name(argv[0]) not in ("cd", "pushd"):
         return cwds
@@ -413,23 +603,39 @@ def _next_cwds(cmd: SimpleCommand, cwds: list[str]) -> list[str]:
         for n, w in enumerate(argv[1:], offset + 1)
         if w == "-" or not w.startswith(stack_flags)
     ]
-    if any(w == "-" for _, w in words) or (not words and _name(argv[0]) == "pushd"):
-        return cwds
-    if not words:
-        found = [os.path.expanduser("~")]
-    else:
+    found: list[str] = []
+    if any(w == "-" for _, w in words):
+        found = [os.path.join(cwd, v) for v in _cd_values(env, "OLDPWD") for cwd in cwds]
+    elif not words and _name(argv[0]) == "cd":
+        found = [os.path.join(cwd, v) for v in _cd_values(env, "HOME") for cwd in cwds]
+    elif words:
         n, first = words[0]
-        found = []
-        for alternative in (first, *(cmd.braces.get(n) or ())):
-            target = _expand(alternative, n in cmd.dynamic)
-            if target is not None:
-                found += [os.path.normpath(os.path.join(cwd, target)) for cwd in cwds]
+        for alternative in (first, *(cmd.alternatives.get(n) or ())):
+            for target in env.expand(alternative, n in cmd.dynamic, cwds) or ():
+                found += [os.path.join(cwd, target) for cwd in cwds]
+                if not _cdpath_skips(target):
+                    for entry in (e for v in _cd_values(env, "CDPATH") for e in v.split(":")):
+                        found += [os.path.join(cwd, entry or ".", target) for cwd in cwds]
         if len(words) == 2:  # noqa: PLR2004 - zsh's `cd old new`
             old = _expand(words[0][1], words[0][0] in cmd.dynamic)
             new = _expand(words[1][1], words[1][0] in cmd.dynamic)
             if old and new is not None:
-                found += [os.path.normpath(c.replace(old, new, 1)) for c in cwds if old in c]
-    return list(dict.fromkeys([*cwds, *found]))
+                found += [c.replace(old, new, 1) for c in cwds if old in c]
+    env.known.setdefault("OLDPWD", set()).update(cwds)
+    return list(dict.fromkeys([*cwds, *(os.path.normpath(f) for f in found)]))
+
+
+def _cd_values(env: _Env, name: str) -> list[str]:
+    values = env.cd_values(name)
+    if values is None:
+        raise _UnknownDirectoryError(name)
+    return values
+
+
+def _cdpath_skips(target: str) -> bool:
+    """True for a target bash and zsh never look up in ``CDPATH``: absolute, or ``.``-led."""
+    first = target.split("/", 1)[0]
+    return target.startswith("/") or first in (".", "..")
 
 
 def pre_tool_use(hook_input: InputView, config: ConfigView) -> Decision:
@@ -449,13 +655,21 @@ def pre_tool_use(hook_input: InputView, config: ConfigView) -> Decision:
     if not os.path.isabs(hook_input.cwd):
         return refuse(UNKNOWN_CWD.format(cwd=hook_input.cwd))
     cwds = [os.path.normpath(hook_input.cwd)]
+    env = _Env()
     with resolve_roots_once():
         for cmd in commands:
+            construct = _refused_construct(cmd)
+            if construct is not None:
+                return refuse(construct)
+            env.record(cmd, cwds)
             for cwd in cwds:
-                reason = check(cmd, cwd, config)
+                reason = check(cmd, cwd, config, env)
                 if reason is not None:
                     return refuse(reason)
-            cwds = _next_cwds(cmd, cwds)
+            try:
+                cwds = _next_cwds(cmd, cwds, env)
+            except _UnknownDirectoryError as exc:
+                return refuse(CD_UNKNOWN.format(what=f"${exc.args[0]}"))
             if len(cwds) > CWD_LIMIT:
                 return refuse(CWD_UNBOUNDED.format(limit=CWD_LIMIT))
     return ALLOW

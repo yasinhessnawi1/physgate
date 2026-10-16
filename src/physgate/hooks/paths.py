@@ -95,6 +95,10 @@ HARD_LINKED = (
     "through its other name"
 )
 REFUSED = "{path} is protected: {reason}. The {tool} call is refused."
+RELATIVE_TO_UNKNOWN = (
+    "{path} is a relative path and this call's working directory ({cwd!r}) is not an "
+    "absolute one, so where it lands cannot be known. The {tool} call is refused."
+)
 
 _PATH_KEYS = {"Write": "file_path", "Edit": "file_path", "NotebookEdit": "notebook_path"}
 _READERS = {"Read": "file_path"}
@@ -363,10 +367,14 @@ def pre_tool_use(hook_input: InputView, config: ConfigView) -> Decision:
     target = (hook_input.tool_input or {}).get(key)
     if not isinstance(target, str) or not target:
         return refuse(f"A {tool} call without a {key} cannot be checked, so it is refused.")
-    reason = protection(target, hook_input.cwd, config, writing=tool in _PATH_KEYS)
-    if reason is None:
-        return ALLOW
-    return refuse(REFUSED.format(path=target, reason=reason, tool=tool))
+    if not os.path.isabs(target) and not os.path.isabs(hook_input.cwd):
+        return refuse(RELATIVE_TO_UNKNOWN.format(path=target, cwd=hook_input.cwd, tool=tool))
+    # Judged as the shell layer judges a word: as written, and with ``~`` expanded.
+    for spelling in dict.fromkeys((target, os.path.expanduser(target))):
+        reason = protection(spelling, hook_input.cwd, config, writing=tool in _PATH_KEYS)
+        if reason is not None:
+            return refuse(REFUSED.format(path=target, reason=reason, tool=tool))
+    return ALLOW
 
 
 HOOK = HookSpec("paths", {"PreToolUse": pre_tool_use})

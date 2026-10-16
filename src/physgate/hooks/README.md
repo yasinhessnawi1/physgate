@@ -114,14 +114,20 @@ without calling the Write tool. So the shell is covered twice.
    - `none`: the hooks' own state and the session's Claude Code directory,
      which the hooks and Claude Code write themselves.
 
-What the first layer can work out from the command alone it does: a brace
-pattern is checked as every word it becomes (up to 1,024; a writing word with
-more is refused), ANSI-C quoting (`$'…'`) is decoded, and a `cd` is followed to
-every directory the command could then be in, since a `cd` can fail, be
-skipped or run in a subshell. A call whose working directory is not absolute
-is refused. What the first layer cannot see — a path built from a variable, a
-substitution, the directory after `cd $(…)`, a string assembled in a script,
-an archive, a patch — is the second layer's, and the tests assert those forms
+What the first layer can work out from the command alone it does, the way the
+shell running it would: a brace pattern is checked as every word it becomes in
+any shell (up to 1,024; a writing word with more is refused), ANSI-C quoting
+(`$'…'`) as each shell decodes it, a variable the call assigns as every literal
+value it may hold, and a `cd` is followed to every directory the command could
+then be in, since a `cd` can fail, be skipped or run in a subshell, with `HOME`,
+`OLDPWD`, `CDPATH`, `~-` and `$PWD` followed as bash and zsh follow them. What
+shells read too differently (`\c` in `$'…'`, a zero step, a ksh command
+string), and a `cd` through a value set at run time, is refused. A call whose
+working directory is not absolute is refused. A test puts every such construct
+through each shell installed and holds the layer to checking every word the
+shell produces. What the first layer cannot see — a path built from a value
+known only at run time, the directory after `cd $(…)`, a string assembled in a
+script, an archive, a patch — is the second layer's, and the tests assert those forms
 as allowed by the first layer so that the boundary is on record. For a root
 watched `none` there is no second layer, so those forms reach it: a recorded
 residual of the same-user kind. The bypass suite runs thirty-four attempts

@@ -7,9 +7,10 @@ patterns, ANSI-C quoting, a relative path after a ``cd``, and a call whose worki
 is not absolute. The root is ``.physgate/series`` in a temporary worktree, given to the
 session as a refuse-only root; every write is an inert ``{}`` into a marker file.
 
-Two forms stay out of this layer's reach on purpose: a path built from variables and a
-relative write after ``cd $(…)``. Their values exist only at run time, and refusing every
-word that cannot be resolved would refuse ordinary commands. They are strict expected
+Two forms stay out of this layer's reach on purpose: a path built from a value known only
+at run time and a relative write after ``cd $(…)``. Refusing every word that cannot be
+resolved would refuse ordinary commands. A path built from literal assignments in the same
+call is resolved exactly, and refused. They are strict expected
 failures, so the day a layer closes them the test says so.
 """
 
@@ -135,11 +136,12 @@ REFUSED = [
 ]
 
 
-#: Why the forms below still reach the root: their values exist only at run time, and this
-#: layer does not refuse a word it cannot resolve. Each case turns this test red the day a layer
-#: refuses it.
+#: Why the forms below still reach the root: their values exist only at run time (a path
+#: built from a substitution, the directory after cd $(...)), and this layer does not refuse a
+#: word it cannot resolve. A path built from literal assignments is resolved, and refused.
+#: Each case turns this test red the day a layer refuses it.
 RESIDUAL = (
-    "a word known only at run time (a path built from variables, the directory after "
+    "a word known only at run time (a path built from a substitution, the directory after "
     "cd $(...)) is not resolved by the shell layer, and not refused"
 )
 
@@ -147,10 +149,11 @@ RESOLVED = [
     "echo '{}' > .physgate/{series,x}/step.json",
     "echo '{}' > .phys{gate,x}/series/step.json",
     "echo '{}' > $'.physgate/series/step.json'",
+    "a=.phys; b=gate; echo '{}' > $a$b/series/step.json",
 ]
 
 AWAITING = [
-    "a=.phys; b=gate; echo '{}' > $a$b/series/step.json",
+    "a=$(printf .phys); b=gate; echo '{}' > $a$b/series/step.json",
     "cd $(printf .physgate) && echo '{}' > series/step.json",
 ]
 

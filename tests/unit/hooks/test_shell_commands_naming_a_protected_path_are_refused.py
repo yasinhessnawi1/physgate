@@ -151,7 +151,7 @@ def test_the_held_out_tier_may_not_even_be_read_by_a_role(root: Path) -> None:
 @pytest.mark.parametrize(
     "command",
     [
-        "d=ga; echo x > src/physgate/${d}te/x.py",
+        "d=$(printf ga); echo x > src/physgate/${d}te/x.py",
         "echo x > $(printf src/physgate/ga)te/x.py",
         "python3 -c \"import os; open(os.path.join('src','physgate','ga'+'te','x.py'),'w')\"",
         "tar -xf payload.tar",

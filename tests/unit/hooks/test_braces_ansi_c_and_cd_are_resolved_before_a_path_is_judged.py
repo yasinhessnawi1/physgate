@@ -72,7 +72,7 @@ def test_the_root_these_tests_write_into_is_refuse_only(config: SessionConfig) -
         (".physgate/{series,x}/f", (".physgate/series/f", ".physgate/x/f")),
         (".phys{gate,x}/series/f", (".physgate/series/f", ".physx/series/f")),
         ("a{1..3}b", ("a1b", "a2b", "a3b")),
-        ("{01..03}", ("01", "02", "03")),
+        ("{01..03}", ("1", "2", "3", "01", "02", "03")),
         ("{c..a}", ("c", "b", "a")),
         ("{5..1..2}", ("5", "3", "1")),
         ("{a,b}{c,d}", ("ac", "ad", "bc", "bd")),
@@ -89,14 +89,14 @@ def test_a_brace_pattern_becomes_every_word_the_shell_makes_of_it(
 
 def test_a_quoted_brace_or_comma_is_not_a_pattern() -> None:
     (cmd,) = shell.parse("touch '{a,b}' \\{c,d} {e','f}")
-    assert dict(cmd.braces) == {}
+    assert dict(cmd.alternatives) == {}
     (cmd,) = shell.parse("touch \\{a,b}{c,d}")
-    assert dict(cmd.braces) == {1: ("{a,b}c", "{a,b}d")}
+    assert dict(cmd.alternatives) == {1: ("{a,b}c", "{a,b}d")}
 
 
 def test_a_brace_pattern_in_a_redirection_is_expanded_too() -> None:
     (cmd,) = shell.parse(f"{MARKER} > .physgate/{{series,x}}/f")
-    assert cmd.redirects[0].braces == (".physgate/series/f", ".physgate/x/f")
+    assert cmd.redirects[0].alternatives == (".physgate/series/f", ".physgate/x/f")
 
 
 def test_a_pattern_beyond_the_bound_is_recorded_as_unbounded() -> None:
@@ -283,7 +283,7 @@ def test_a_call_whose_working_directory_is_absolute_is_judged_as_before(
 @pytest.mark.parametrize(
     "command",
     [
-        f"a=.phys; b=gate; {MARKER} > $a$b/series/step.json",
+        f"a=$(printf .phys); b=gate; {MARKER} > $a$b/series/step.json",
         f"{MARKER} > $(printf .physgate)/series/step.json",
         f"cd $(printf .physgate) && {MARKER} > series/step.json",
     ],
