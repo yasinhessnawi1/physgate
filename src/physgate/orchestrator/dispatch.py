@@ -414,21 +414,27 @@ def still_running(
     """Why the session's stop is not confirmed, or ``None`` once its tree and group are empty.
 
     Read from the process table afresh, never from what the stop concluded: any process still in
-    the session's group, or still running at a pid the stop stopped, that started between the
-    session and the end of the stop. A pid reused in that window counts too: the attempt is
-    refused rather than a survivor missed.
+    the session's group started since the session, or still running at a pid the stop stopped
+    and started between the session and the end of the stop. A pid reused in that window counts
+    too, as does a start time that cannot be read: the attempt is refused rather than a
+    survivor missed.
     """
     rows = process_rows()
     if rows is None:
         return "the process table could not be read"
     since, watched = _seconds(started), set(stopped)
+
+    def left(pid: int, pgid: int, lstart: str) -> bool:
+        at = _seconds(lstart)
+        after = since is None or at is None or at >= since
+        # A group member started after the stop is still the session's: a group's id is not
+        # reused while it has a member. A stopped pid running again may be another process.
+        return after and (pgid == session_pid or (pid in watched and (at or 0) <= stop_done))
+
     found = sorted(
         pid
         for pid, pgid, state, lstart in rows
-        if pid != session_pid
-        and not state.startswith("Z")
-        and (pgid == session_pid or pid in watched)
-        and (since is None or since <= (_seconds(lstart) or since) <= stop_done)
+        if pid != session_pid and not state.startswith("Z") and left(pid, pgid, lstart)
     )
     return f"still running after the stop: {found}" if found else None
 
