@@ -420,7 +420,7 @@ def _fed_words(text: str, expands: bool, env: _Env | None, cwd: str) -> Iterator
     ``$(…)`` and backticks are parsed as commands by the splitter, and a body a shell
     runs is parsed whole.
     """
-    for token, _ in _text_words(text):
+    for token in _text_words(text):
         yield token, False
         if expands and env is not None and "$" in token:
             try:
@@ -431,7 +431,7 @@ def _fed_words(text: str, expands: bool, env: _Env | None, cwd: str) -> Iterator
                 yield word, False
 
 
-def _text_words(text: str) -> Iterator[tuple[str, bool]]:
+def _text_words(text: str) -> Iterator[str]:
     """Every path-like token in text a program reads, as written: nothing in it is expanded.
 
     The shell expands nothing in a quoted here-document, and in any other one this layer
@@ -446,7 +446,7 @@ def _text_words(text: str) -> Iterator[tuple[str, bool]]:
             head = token[: glob_at.start()]
             token = head[: head.rfind("/") + 1]
         if token:
-            yield token, False
+            yield token
 
 
 def _command_words(cmd: SimpleCommand) -> Iterator[tuple[str, bool]]:

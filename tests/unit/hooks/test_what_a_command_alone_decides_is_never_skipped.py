@@ -116,6 +116,7 @@ def test_a_word_that_could_become_too_many_words_is_refused(
     ("command", "allowed"),
     [
         ("for i in {1..2000}; do echo $i; done | wc -l", True),
+        ("for x in {a..z}{a..c}; do echo $x; done | wc -l", True),
         ("for i in {1..1500}; do touch modules/control/$i.txt; done", True),
         (
             f"for a in {{1..40}}; do for b in {{1..40}}; do {M} > modules/control/$a$b; done; done",
