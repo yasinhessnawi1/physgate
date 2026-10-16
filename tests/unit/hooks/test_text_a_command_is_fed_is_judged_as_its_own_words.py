@@ -240,3 +240,48 @@ def test_text_never_refuses_for_a_form_the_layer_does_not_evaluate(
     # follows only the substitutions it runs: text is judged by the paths it names, as
     # written, and nothing else in it can refuse.
     assert _decide(config, command) == "allow"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "bash <<EOF\ncd .physgate\necho '{}' > series/step.json\nEOF\n",
+        "sh -s <<'EOF'\ncd .physgate && echo '{}' > series/step.json\nEOF\n",
+        "bash /dev/stdin <<EOF\ncd .physgate\necho '{}' > series/step.json\nEOF\n",
+        "cat <<EOF > notes.md\n$(touch .physgate/series/step.json)\nEOF\n",
+        "cat <<EOF > notes.md\n`touch .physgate/series/step.json`\nEOF\n",
+        "d=.physgate; sqlite3 x.db <<EOF\n.output $d/series/step.json\nEOF\n",
+        "d=.physgate; python3 - <<< \"open('$d/series/step.json', 'w')\"",
+        "python3 - <<'EOF'\nopen('.physgate/series/step.json', 'w')\nEOF\n",
+    ],
+    ids=[
+        "unquoted-shell-script",
+        "quoted-shell-script",
+        "stdin-shell-script",
+        "unquoted-substitution",
+        "unquoted-backtick",
+        "unquoted-variable",
+        "here-string-variable",
+        "literal-path",
+    ],
+)
+def test_what_the_shell_runs_or_expands_in_a_body_is_still_judged(
+    config: SessionConfig, command: str
+) -> None:
+    assert _decide(config, command) != "allow"
+
+
+def test_a_variable_in_a_body_the_shell_expands_is_followed_for_a_reader(
+    config: SessionConfig,
+) -> None:
+    # The variable holds a directory above the tier, so only the expansion names it.
+    outside = os.path.dirname(os.path.dirname(_held(config)))
+    told = _decide(config, f"o={outside}; cat <<EOF\n$o/heldout/scenario_01.json\nEOF\n")
+    assert HELD_OUT_REASON in told
+    # In a quoted body the same text is the program's, as written.
+    quoted = f"o={outside}; cat <<'EOF' > notes.md\n$o/heldout/scenario_01.json\nEOF\n"
+    assert _decide(config, quoted) == "allow"
+    # And without the variable, the assignment alone names nothing protected.
+    assert _decide(config, "d=.physgate; sqlite3 x.db <<'EOF'\n.output $d/series/f\nEOF\n") == (
+        "allow"
+    )
