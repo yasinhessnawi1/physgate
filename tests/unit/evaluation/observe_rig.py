@@ -84,8 +84,8 @@ def target_repo(root: Path) -> Path:
     return repo
 
 
-def config(run_id: str, repo: Path, **overrides: Any) -> RunConfig:  # noqa: ANN401
-    """A complete configuration for a fake-session run against ``repo``."""
+def config(run_id: str, repo: Path, role: str = "electrical", **overrides: Any) -> RunConfig:  # noqa: ANN401
+    """A complete configuration for a fake-session run against ``repo``, every module ``role``'s."""
     fields: dict[str, Any] = {
         "run_id": run_id,
         "seed": 1,
@@ -93,8 +93,8 @@ def config(run_id: str, repo: Path, **overrides: Any) -> RunConfig:  # noqa: ANN
         "gate_mode": "on",
         "models": ModelStrings(
             decomposition="claude-sonnet-5",
-            roles={"electrical": "claude-sonnet-5"},
-            reviewers={"electrical": "claude-opus-5-5"},
+            roles={role: "claude-sonnet-5"},
+            reviewers={role: "claude-opus-5-5"},
         ),
         "bounds": RunBounds(
             binary_max_retries=0,
@@ -120,18 +120,18 @@ def config(run_id: str, repo: Path, **overrides: Any) -> RunConfig:  # noqa: ANN
     return RunConfig(**fields)
 
 
-def node(node_id: str, kind: str = "component", *, bare: bool = False) -> dict[str, Any]:
+def node(
+    node_id: str, kind: str = "component", *, bare: bool = False, role: str = "electrical"
+) -> dict[str, Any]:
     """A node proposal; ``bare`` writes its quantity as a bare number, a schema error."""
     quantity: Any = (
-        1.5
-        if bare
-        else {"value": 1.5, "unit": "A", "source": "datasheet", "written_by": "electrical"}
+        1.5 if bare else {"value": 1.5, "unit": "A", "source": "datasheet", "written_by": role}
     )
     return {
         "id": node_id,
         "kind": kind,
-        "domain": "electrical",
-        "owner_role": "electrical",
+        "domain": role,
+        "owner_role": role,
         "quantities": {"i": quantity},
         "requirements": [],
         "constrains": [],
@@ -172,6 +172,12 @@ class FakeSession:
     records: int | None = None
     #: When set, the proposed node also carries this quantity, which names the record.
     linked: dict[str, Any] | None = None
+    #: The role the session plays; the node it proposes is that role's.
+    role: str = "electrical"
+    #: The recording script to run in place of the one-record stand-in. When it prints a JSON
+    #: object of quantities (each a value, a unit and the record it was read off), the proposed
+    #: node carries them, as a session reporting what it read off its own records would.
+    script: str = RECORDING_SCRIPT
     calls: int = 0
 
     def environment(self) -> None:
@@ -186,17 +192,16 @@ class FakeSession:
         module = worktree / request.module_dir
         module.mkdir(parents=True, exist_ok=True)
         (module / "impl.py").write_text(self.content.get(self.calls, "x = 1\n"))
-        node_id = f"electrical.node_{request.subtask_id.replace('-', '_')}"
+        node_id = f"{self.role}.node_{request.subtask_id.replace('-', '_')}"
         proposal = worktree / ".physgate" / "proposals" / f"{node_id}.json"
         proposal.parent.mkdir(parents=True, exist_ok=True)
-        payload = node(node_id, bare=self.calls in self.bare)
+        payload = node(node_id, bare=self.calls in self.bare, role=self.role)
         if self.linked is not None:
             payload["quantities"]["step_peak"] = {
                 "source": "read off the stand-in step",
-                "written_by": "electrical",
+                "written_by": self.role,
                 **self.linked,
             }
-        proposal.write_text(json.dumps(payload))
         sid = f"fake-{uuid.uuid4().hex[:12]}"
         usage = Usage(
             input_tokens=10 * self.calls,
@@ -216,7 +221,14 @@ class FakeSession:
         if self.records is not None:
             # As the dispatcher does: whatever an earlier session left is moved aside first.
             left = empty_outbox(worktree, self.layout.run_dir, sid)
-            series = self._record(worktree, request, sid, self.records, left)
+            series, reported = self._record(worktree, request, sid, self.records, left)
+            for name, quantity in reported.items():
+                payload["quantities"][name] = {
+                    "source": "read off the session's own record",
+                    "written_by": self.role,
+                    **quantity,
+                }
+        proposal.write_text(json.dumps(payload))
         commit = commit_attempt(
             worktree, request.subtask_id, request.attempt, sid, repo=self.layout.repo
         )
@@ -240,10 +252,13 @@ class FakeSession:
         sid: str,
         seed: int,
         left: tuple[SetAside, ...],
-    ) -> SessionSeries:
-        """Run a recording script in the module, then collect the outbox as dispatch does."""
+    ) -> tuple[SessionSeries, dict[str, Any]]:
+        """Run a recording script in the module, then collect the outbox as dispatch does.
+
+        Returns what was collected, and the quantities the script reported, if any.
+        """
         script = worktree / request.module_dir / "sim.py"
-        script.write_text(RECORDING_SCRIPT)
+        script.write_text(self.script)
         done = subprocess.run(
             [sys.executable, "-E", "-s", str(script)],
             cwd=worktree,
@@ -259,7 +274,8 @@ class FakeSession:
             },
         )
         assert done.returncode == 0, done.stderr
-        return collect(
+        reported: dict[str, Any] = json.loads(done.stdout) if done.stdout.strip() else {}
+        collected = collect(
             worktree,
             module_dir=request.module_dir,
             run_dir=self.layout.run_dir,
@@ -269,6 +285,7 @@ class FakeSession:
             object_format=object_format(verified_git_dir(self.layout.repo, linked=False)),
             discarded_before=left,
         )
+        return collected, reported
 
 
 def _record(mode: RunningGateMode, *, failed: bool) -> CheckRecord:
@@ -345,9 +362,12 @@ class Reviewer:
     #: The prefix of its message ids, to make one run's differ from another's.
     ids: str = "r"
     calls: int = 0
+    #: Every attempt it was asked to review, as the loop handed it over.
+    seen: list[Artefact] = field(default_factory=list)
 
     def review(self, artefact: Artefact) -> ReviewResult:
         self.calls += 1
+        self.seen.append(artefact)
         return ReviewResult(
             verdict="pass",
             finding="sound",
@@ -368,20 +388,26 @@ class Reviewer:
         )
 
 
-def start(root: Path, run_id: str, repo: Path, **overrides: Any) -> RunConfig:  # noqa: ANN401
+def start(
+    root: Path,
+    run_id: str,
+    repo: Path,
+    role: str = "electrical",
+    **overrides: Any,  # noqa: ANN401
+) -> RunConfig:
     """Start a run from the fixed plan, as decomposition would (no model call)."""
-    cfg = config(run_id, repo, **overrides)
+    cfg = config(run_id, repo, role, **overrides)
     plan = Plan(
         modules=tuple(
             PlannedModule(
                 name=name,
-                role="electrical",
+                role=role,
                 module_dir=f"modules/{mint_id(cfg.seed, i, name)}",
                 spec=f"Build {name}.",
             )
             for i, name in enumerate(MODULES)
         ),
-        interface_nodes=(Node.model_validate(node("iface.bus", kind="interface")),),
+        interface_nodes=(Node.model_validate(node("iface.bus", kind="interface", role=role)),),
     )
     outcome = Outcome(
         session_id="no-call",
@@ -417,8 +443,15 @@ def drive(
     session_result: Callable[[str, Usage], dict[str, Any]] | None = None,
     records: int | None = None,
     linked: dict[str, Any] | None = None,
+    role: str = "electrical",
+    script: str = RECORDING_SCRIPT,
+    reviewers: dict[str, Reviewer] | None = None,
 ) -> str:
-    """Drive a started run with the real loop and ports; return the step it ended on."""
+    """Drive a started run with the real loop and ports; return the step it ended on.
+
+    ``reviewers``, when given, are the reviewers the loop asks, so a test can see what each
+    was handed.
+    """
     run_dir = root / cfg.run_id
     run = RunGit(repo=repo, run_dir=run_dir, run_id=cfg.run_id)
     keeper = StoreKeeper(run, run_dir / "store")
@@ -430,9 +463,8 @@ def drive(
         config=cfg,
         run_dir=run_dir,
         gate=gate or Gate(),
-        reviewers={
-            role: Reviewer(model=m, ids=reviewer_ids) for role, m in cfg.models.reviewers.items()
-        },
+        reviewers=reviewers
+        or {name: Reviewer(model=m, ids=reviewer_ids) for name, m in cfg.models.reviewers.items()},
         dispatcher=FakeSession(
             run,
             content=session_content or {},
@@ -440,6 +472,8 @@ def drive(
             result=session_result,
             records=records,
             linked=linked,
+            role=role,
+            script=script,
         ),
         changes=GitChangeChecker(run, run_dir / "store", modules),
         merger=GitMerger(run, removal_timeout_s=60.0),
@@ -459,7 +493,7 @@ def drive(
 def fake_run(root: Path, run_id: str, repo: Path, **kwargs: Any) -> Path:  # noqa: ANN401
     """Start and drive one fake-session run to its end; return its run directory."""
     overrides = kwargs.pop("overrides", {})
-    cfg = start(root, run_id, repo, **overrides)
+    cfg = start(root, run_id, repo, kwargs.get("role", "electrical"), **overrides)
     drive(root, cfg, repo, **kwargs)
     return root / run_id
 
@@ -474,7 +508,7 @@ def fake_driver(root: Path, repo: Path, **drive_kwargs: Any) -> Callable[[RerunP
             "seed": plan.recorded.seed,
             "brief_sha256": hashlib.sha256(plan.brief.read_bytes()).hexdigest(),
         }
-        cfg = start(root, plan.run_id, repo, **fields)
+        cfg = start(root, plan.run_id, repo, drive_kwargs.get("role", "electrical"), **fields)
         drive(root, cfg, repo, **drive_kwargs)
 
     return drive_it
