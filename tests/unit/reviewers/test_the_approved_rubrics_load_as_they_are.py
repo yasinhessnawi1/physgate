@@ -36,8 +36,9 @@ APPROVED = {
             # Corrected: a zero or delay limit counts only what every fed-back output shares.
             ("final_v2", "17e9fafbe883d28bd2ce0b092cd39327982db0bb46b3cdd9ca753fdecfcdf66f", 55),
             # The automated checks are listed, never a reason to skip a check; a revision issued
-            # with no specification and no trajectory is judged from the design it changes.
-            ("final_v3", "4cebe129d71cc14d4a294b3b50643474d7e86680ae1d5da35030ce8d2c9bca1e", 56),
+            # with no specification and no trajectory is judged on what it wrote, a condition of
+            # the design it changes being recorded, not charged to it.
+            ("final_v3", "af736f6a827f204fcf57c04ce4315bf868a82feca52f5425afe274e777a8eea9", 56),
         ),
         ("A", "D", "S", "R"),
     ),
@@ -45,16 +46,16 @@ APPROVED = {
         (
             ("final", "a89e71572901d4a2d44c27f3f9029d2817c714ca1c2926e47965de1c9498c1ce", 53),
             # The same two changes as control's third version.
-            ("final_v2", "a493fc0e9a0b39a3c9ea2c10c3368234cdfc6e44eafa286f81467f800d580a14", 54),
+            ("final_v2", "4ee697be3577a11048eb504513c0d1c0996bf935eb09f033f254c694061b3357", 54),
         ),
         ("AC", "DS", "AP", "RH"),
     ),
     "electrical": (
-        (("final", "e93088f49a8a289103ff20be21b86f291a1577ed2171406c123e7ed6d0498096", 66),),
+        (("final", "8d989189695fad474ee0ab60e0fe8bc2b685e2f356ca5d551dd29cba45565dcf", 66),),
         ("EA", "ES", "EP", "EH"),
     ),
     "mechanical": (
-        (("final", "4ff6d4078134af53a1987b14b8a9aa95d650259abf0c183475df7c0b0392a14f", 61),),
+        (("final", "b53ae125c8e63c22794c708f7dc28eba923c5cc7901d47b488873dad94203e09", 61),),
         ("MA", "MS", "MP", "MH"),
     ),
 }
