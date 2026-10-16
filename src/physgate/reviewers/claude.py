@@ -34,7 +34,9 @@ captured stream) live in the review's ``session/`` directory, beside ``read/`` a
 outside its allowance. The directory names its run first, so a resume of that run
 stops the session if it is still running and removes its credential. The
 credential reaches the session through a file, as for a role session, and is
-removed and redacted from the stream when it ends.
+removed and redacted from the stream when it ends. However the session ends, by
+exiting or at its wall clock, every process it started that is still running is
+stopped before its end is recorded (``ending.await_session``).
 """
 
 from __future__ import annotations
@@ -72,7 +74,7 @@ from physgate.orchestrator.exceptions import (
     ReviewUnavailableError,
 )
 from physgate.orchestrator.invocation import REVIEWER_ENV, isolated_env, reviewer_argv
-from physgate.orchestrator.processes import started_at, stop_tree
+from physgate.orchestrator.processes import started_at
 from physgate.orchestrator.protocols import (
     Artefact,
     MessageUsage,
@@ -83,6 +85,7 @@ from physgate.orchestrator.protocols import (
 )
 from physgate.orchestrator.run_config import Effort, RunBounds, RunConfig
 from physgate.reviewers.contract import contract_text, issued_criteria, verdict_schema
+from physgate.reviewers.ending import await_session
 from physgate.reviewers.exceptions import ReviewError
 from physgate.reviewers.packet import (
     KNOWLEDGE_NAME,
@@ -542,9 +545,10 @@ class ClaudeReviewer:
                 stderr=err,
                 start_new_session=True,
             )
+            started = started_at(process.pid)
             record = {
                 "pid": process.pid,
-                "started": started_at(process.pid),
+                "started": started,
                 "spawned_at": time.time(),
                 "session_id": session_id,
                 "kind": "reviewer",
@@ -553,14 +557,19 @@ class ClaudeReviewer:
                 "env_added": sorted(REVIEWER_ENV),
             }
             (sdir / "process.json").write_text(json.dumps(record))
-            try:
-                exit_code: int | None = process.wait(timeout=bounds.session_wall_clock_s)
-                timed_out = False
-            except subprocess.TimeoutExpired:
-                stop_tree(process.pid, record["started"])  # type: ignore[arg-type]
-                exit_code, timed_out = process.wait(), True
-        (sdir / "ended.json").write_text(json.dumps({"exit": exit_code, "timed_out": timed_out}))
-        return stdout, exit_code, timed_out
+            # However the session ends, nothing it started is left running: a process it
+            # left could still read, or write, under the review root once it is gone.
+            ended = await_session(process, started, bounds.session_wall_clock_s)
+        (sdir / "ended.json").write_text(
+            json.dumps(
+                {
+                    "exit": ended.exit_code,
+                    "timed_out": ended.timed_out,
+                    "left_running": list(ended.left_running),
+                }
+            )
+        )
+        return stdout, ended.exit_code, ended.timed_out
 
 
 @dataclass(frozen=True)
