@@ -57,16 +57,20 @@ What a command's own text decides is resolved or refused, never skipped: a quote
 ``$`` is a literal character, a word whose written prefix is already inside a root
 is judged by that prefix, a variable that could hold too many values is refused,
 ``eval``'s line runs where it stands, ``chdir`` is ``cd``, ``$"…"`` is its string,
-``~N`` is a directory the call has been in, a ``~name`` that names no user is
-refused, and a script read from ``/dev/stdin`` is parsed.
+``~N`` is a directory the call has been in, ``~name`` is a user's or a
+parameter's directory (refused where only running decides it), ``NAME+=`` appends,
+``$_`` is a word before, ``${#x}`` and the default and trim forms of ``${…}`` are
+evaluated (replacement, substring, case change and indirection are refused), and a
+script read from ``/dev/stdin`` is parsed.
 
 What is left, because only running the command decides it, is the residual. It is
 left to the sentinel for the roots it puts back, and reaches a root watched
 ``none``; an OS write allowlist is the proposed closing layer:
 
-- a value known only at run time: a command substitution, ``read``, ``$$``,
-  ``${x:-…}`` and the other parameter forms, arrays, namerefs, positional
-  parameters and ``IFS``, a variable neither inherited nor assigned a literal;
+- a value known only at run time: a command substitution, ``read``, ``$$`` and
+  the other special parameters, positional parameters (``set --``, a function's
+  arguments), arrays, namerefs and ``IFS``, a variable neither inherited nor
+  assigned a value the call writes out;
 - the directory after ``cd $(…)`` or ``cd "$(pwd)/…"``;
 - a script a shell reads by another route: piped in (``… | sh``), run through
   ``xargs``, or a file given to ``source``;

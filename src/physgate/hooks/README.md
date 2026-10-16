@@ -128,11 +128,14 @@ through each shell installed and holds the layer to checking every word the
 shell produces. A quoted `$` is a literal character, a word whose written
 prefix is already inside a root is judged by that prefix, a variable that could
 hold more than 1,024 values is refused, `eval` runs where it stands, `chdir` is
-`cd`, `$"…"` is its string, `~N` is a directory the call has been in, a `~name`
-that names no user is refused, and a script read from `/dev/stdin` is parsed.
-What the first layer cannot see is the second layer's: a value known only at run
-time (a substitution, `read`, `$$`, `${x:-…}` and other parameter forms, arrays,
-namerefs, positional parameters and `IFS`), the directory after `cd $(…)`, a
+`cd`, `$"…"` is its string, `~N` is a directory the call has been in, `~name`
+is a user's or a parameter's directory, `NAME+=` appends, `$_` is a word before,
+`${#x}` and the default and trim forms of `${…}` are evaluated (replacement,
+substring, case change and indirection are refused), and a script read from
+`/dev/stdin` is parsed. What the first layer cannot see is the second layer's: a
+value known only at run time (a substitution, `read`, `$$` and other special
+parameters, positional parameters and a function's arguments, arrays, namerefs
+and `IFS`), the directory after `cd $(…)`, a
 script a shell reads by another route (`… | sh`, `xargs`, `source <file>`), a
 path a program builds from its input (`python -`, `node`, `awk`, `sqlite3`), a
 string assembled in a script, an archive, a patch. The tests assert those forms
