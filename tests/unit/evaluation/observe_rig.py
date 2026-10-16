@@ -21,12 +21,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from harness_pin import measured_harness
 from knowledge_fixture import build_fixture_library
 
 from physgate.evaluation.observe.rerun import MEASURED, RerunPlan
 from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper
 from physgate.orchestrator.budget import SessionEnd
-from physgate.orchestrator.cli import _harness_root
 from physgate.orchestrator.decompose import Outcome, Plan, PlannedModule, mint_id, start_run
 from physgate.orchestrator.escalation import bind
 from physgate.orchestrator.git import head_of
@@ -52,13 +52,12 @@ from physgate.orchestrator.run_config import (
     RunBounds,
     RunConfig,
     endpoint_of,
-    harness_state,
 )
 from physgate.orchestrator.trajectory import seal
 from physgate.state.schema import Node
 
 #: The harness as the command measures it, once at import.
-HARNESS = harness_state(_harness_root())
+HARNESS = measured_harness()
 ENDPOINT = "http://127.0.0.1:9"
 MODULES = ("s1", "s2")
 

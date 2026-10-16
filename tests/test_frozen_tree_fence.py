@@ -19,6 +19,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
+#: The tools these tests run share the repository's own caches, so the tests run one after
+#: another on one worker when the suite runs in parallel, never two at once.
+pytestmark = pytest.mark.xdist_group("repository-tool-caches")
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FROZEN = REPO_ROOT / "experiments"
 TOOL_DIR = Path(sys.executable).parent
@@ -91,7 +97,7 @@ def test_type_checker_named_at_the_frozen_tree_reads_no_file_there() -> None:
 
 
 def test_the_type_checker_command_the_gate_runs_reads_no_frozen_file() -> None:
-    result = _run("mypy", "--strict", "src", "tests")
+    result = _run("mypy", "--strict", "src", "tests", "scripts")
     combined = result.stdout + result.stderr
     assert "checked" in combined or "Success" in combined, combined
     assert _frozen_paths_in(combined) == []

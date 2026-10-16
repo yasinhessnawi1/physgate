@@ -7,7 +7,8 @@ from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from physgate.orchestrator.cli import _harness_root
+from harness_pin import measured_harness
+
 from physgate.orchestrator.protocols import (
     CHECK_NUMBERS,
     CheckRecord,
@@ -22,7 +23,6 @@ from physgate.orchestrator.run_config import (
     ModelStrings,
     RunBounds,
     RunConfig,
-    harness_state,
 )
 
 SCRIPTED_BOUNDS = RunBounds(
@@ -38,7 +38,7 @@ CLEAN_HARNESS = HarnessState(commit="c" * 40, clean=True, uncommitted_sha256=Non
 
 #: The harness as the command measures it, taken once at import (before any test
 #: narrows ``PATH``): a run a test drives under another record is refused.
-MEASURED_HARNESS = harness_state(_harness_root())
+MEASURED_HARNESS = measured_harness()
 
 
 def make_config(**overrides: Any) -> RunConfig:

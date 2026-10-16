@@ -20,7 +20,14 @@ from physgate.cli import main
 from physgate.ui import cli as ui_cli
 
 #: Runs the real command in a process of its own, with the fixture build as the app.
+#:
+#: Its first statement gives the interrupt Python's own handler back. A process started from a
+#: shell's background job inherits the interrupt as ignored, and Python keeps an ignored one
+#: ignored, so the command run that way never saw the interrupt these tests stop it with: the
+#: wait expired and the server was left running. The operator's Ctrl-C reaches a process whose
+#: interrupt is not ignored, which is the case these tests prove.
 LAUNCH = (
+    "import signal; signal.signal(signal.SIGINT, signal.default_int_handler); "
     "import sys; from pathlib import Path; import physgate.ui.cli as c; "
     "c._ui_root = lambda: Path(sys.argv[1]); "
     "from physgate.cli import main; raise SystemExit(main(sys.argv[2:]))"
@@ -45,6 +52,21 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Path]:
 
     monkeypatch.setattr(socketserver.BaseServer, "serve_forever", started)
     return {"root": root, "held": held, "ui": ui}
+
+
+def _interrupt(process: subprocess.Popen[str]) -> tuple[str, str]:
+    """Stop the command as Ctrl-C would, and never leave it running.
+
+    A command still running when the wait expires is killed before the failure is raised, so a
+    red test does not leave a server behind on the machine.
+    """
+    process.send_signal(signal.SIGINT)
+    try:
+        return process.communicate(timeout=10)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.communicate()
+        raise
 
 
 def _refused(capsys: pytest.CaptureFixture[str], argv: list[str]) -> dict[str, str]:
@@ -135,9 +157,8 @@ def test_the_command_serves_the_app_and_the_runs_on_loopback_and_stops_cleanly(
         assert response.status == 200
         assert [run["run_id"] for run in listed["runs"]] == ["run-1"]
     finally:
-        process.send_signal(signal.SIGINT)
-        code = process.wait(timeout=10)
-    assert code == 0
+        _interrupt(process)
+    assert process.returncode == 0
 
 
 def test_an_operator_name_that_does_not_print_is_refused_before_anything_listens(
@@ -183,8 +204,7 @@ def test_the_command_prints_the_operator_s_address_and_no_route_serves_its_token
             served.append(response.read().decode() + str(response.getheaders()))
             connection.close()
     finally:
-        process.send_signal(signal.SIGINT)
-        out, err = process.communicate(timeout=10)
+        _, err = _interrupt(process)
     assert not [s for s in served if token in s]
     assert token not in err, "the token reached the server's log"
 
@@ -206,7 +226,35 @@ def test_without_an_operator_no_address_with_a_token_is_printed(world: dict[str,
             lines.append(line.rstrip("\n"))
         started = json.loads("\n".join(lines))
     finally:
-        process.send_signal(signal.SIGINT)
-        process.communicate(timeout=10)
+        _interrupt(process)
     assert started["operator"] is None
     assert "operator_url" not in started
+
+
+def test_the_command_stops_on_the_interrupt_even_when_started_with_it_ignored(
+    world: dict[str, Path],
+) -> None:
+    """A suite started from a shell's background job still stops every command it starts.
+
+    That shell starts its job with the interrupt ignored, and every process below inherits it.
+    The command started here inherits it the same way, so the tests above stop it only because
+    ``LAUNCH`` gives the interrupt back first. Without that, this wait expires.
+    """
+    ignored = (
+        "import os, signal, sys; signal.signal(signal.SIGINT, signal.SIG_IGN); "
+        "os.execv(sys.executable, [sys.executable, *sys.argv[1:]])"
+    )
+    process = subprocess.Popen(
+        [sys.executable, "-c", ignored, "-c", LAUNCH, str(world["ui"]), "ui",
+         "--root", str(world["root"]), "--port", "0"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )  # fmt: skip
+    try:
+        assert process.stdout is not None
+        first = process.stdout.readline()
+        assert first, process.stderr.read() if process.stderr else "no output"
+    finally:
+        _interrupt(process)
+    assert process.returncode == 0
