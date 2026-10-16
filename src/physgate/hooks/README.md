@@ -163,7 +163,7 @@ followed or refused), and a list of what a command may do can never be complete.
 That, not any one form, is why the OS layer exists. **This list is the honest
 boundary of what parsing alone can claim.** A further difference between how this layer and a
 shell read a command is added here, not patched in the parser: an OS write
-allowlist for role sessions is the closing layer. The bypass suite runs thirty-four attempts
+allowlist for role sessions is the closing layer. The bypass suite runs fifty attempts
 through the real Claude Code binary, each judged by the bytes of the protected
 trees and by which layer logged the refusal; its tolerance is zero.
 

@@ -24,6 +24,7 @@ from hook_helpers import bash, event
 
 from physgate.hooks import paths, shell_paths
 from physgate.hooks.config import HookInput, SessionConfig
+from physgate.hooks.reasons import SERIES_OUTBOX_REASON
 from physgate.hooks.settings import InstallRequest, build_config, current_installation
 
 OUTBOX = ".physgate/series"
@@ -75,7 +76,9 @@ def test_the_outbox_is_a_root_refused_and_never_put_back(config: SessionConfig) 
     roots = {r.path: r for r in config.protected_roots}
     outbox = roots[str(Path(config.worktree) / OUTBOX)]
     assert outbox.watch == "none"
-    assert "written while the session runs" in outbox.reason
+    # The settings name the series outbox themselves, with its own reason, ahead of a root the
+    # request adds; before they did, it was the generic reason for a root written at run time.
+    assert outbox.reason == SERIES_OUTBOX_REASON
 
 
 @pytest.mark.parametrize("tool", ["Write", "Edit", "NotebookEdit"])

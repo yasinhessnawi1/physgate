@@ -259,10 +259,21 @@ SERIES_ATTEMPTS = [
     ),
     Attempt(
         "writer-variable-path",
-        "a path to the series writer built from a variable",
+        "a path to the series writer built from a variable the call assigns",
         [
             bash(
                 "d=li; echo 'WRITER = False' > .physgate/${d}b/series_writer.py"
+                " && echo ran > ran.txt"
+            )
+        ],
+        "shell_paths",
+    ),
+    Attempt(
+        "writer-substituted-path",
+        "a path to the series writer built from a value known only at run time",
+        [
+            bash(
+                "d=$(printf li); echo 'WRITER = False' > .physgate/${d}b/series_writer.py"
                 " && echo ran > ran.txt"
             )
         ],
