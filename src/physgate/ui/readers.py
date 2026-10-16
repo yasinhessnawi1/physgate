@@ -11,7 +11,8 @@ the allowlist, then handed to the package's own reader for that format:
 - the graph: ``GraphView.read``, the gate's own read-only view of the journal;
 - a session's trajectory: ``read_sealed``, held to the seal its session's end recorded;
 - the cost: ``price_events`` at a recorded price sheet, without the manifest's git checks,
-  since the server starts no process;
+  since the server starts no process, with each call's result in the run directory read
+  as ``physgate cost`` reads it (``run_calls``);
 - the trace: ``read_traces``, exactly what ``physgate trace`` prints;
 - the run's decisions: ``decisions``, the sequence a rerun is compared by;
 - where the run stands: ``replay(...).next_step()``, the loop's own answer;
@@ -43,6 +44,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Protocol
 
+from physgate.evaluation.observe.calls import run_calls
 from physgate.evaluation.observe.cost import KNOWN_SHEETS, load_price_sheet, price_events
 from physgate.evaluation.observe.manifest import manifest_id_of
 from physgate.evaluation.observe.sequence import decisions as decision_sequence
@@ -178,8 +180,16 @@ def cost(context: Context, params: Mapping[str, str]) -> Response:
     run_dir = run_dir_of(context, params)
     log = read_events(_file(context, run_dir, EVENTS))
     recorded = load_run_config(_file(context, run_dir, RUN_CONFIG))
+    # Each call's result, read through the allowlist like every other file: the reviews'
+    # lie under a review root the run does not record, so they are read as unread.
+    attributions = TokenAccount.from_events(log).by_attribution()
+    calls = run_calls(run_dir, attributions, resolve=context.allowlist.resolve)
     line = price_events(
-        recorded, manifest_id_of(run_dir, log), log, load_price_sheet(params["date"])
+        recorded,
+        manifest_id_of(run_dir, log),
+        log,
+        load_price_sheet(params["date"]),
+        calls=calls,
     )
     return json_response(line.model_dump(mode="json"))
 

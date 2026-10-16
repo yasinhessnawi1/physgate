@@ -7,19 +7,25 @@ different seals, different commits or different models is refused, never printed
 
 from __future__ import annotations
 
+import json
 from decimal import Decimal
+from pathlib import Path
 from typing import Any, Literal
 
 import pytest
+from observe_rig import config, target_repo
 
 from physgate.evaluation.observe.cost import load_price_sheet
-from physgate.evaluation.observe.exceptions import ManifestError
+from physgate.evaluation.observe.exceptions import ManifestError, PriceSheetError
 from physgate.evaluation.observe.generalist import review_ratio
 from physgate.orchestrator.protocols import Artefact, MessageUsage, ReviewResult, Usage
+from physgate.orchestrator.run_config import write_run_config
 from physgate.orchestrator.trajectory import Seal
 from physgate.reviewers.packet import Packet
 
 MODEL = "claude-sonnet-5"
+#: The sheet that prices each call's cache writes by the cache its result names.
+NEW = "2026-10-16"
 SEAL = Seal(sha256="a" * 64, length=100)
 
 
@@ -115,3 +121,37 @@ def test_the_two_reviews_must_be_one_of_each_kind() -> None:
     sheet = load_price_sheet("2026-09-27")
     with pytest.raises(ManifestError, match="one paired review over one generalist"):
         review_ratio((_review("paired", 2), _packet()), (_review("paired", 1), _packet()), sheet)
+
+
+def test_a_sheet_that_prices_each_call_s_writes_is_refused_for_a_ratio() -> None:
+    """A review line does not say which cache a write went to, so the sheet could not apply.
+
+    Priced anyway, every write would be at the five-minute rate without the ratio saying
+    so; the ratio is refused instead, and its command refuses before any review runs.
+    """
+    paired = (_review("paired", 2_000_000), _packet())
+    with pytest.raises(PriceSheetError, match="each call's writes") as refused:
+        review_ratio(paired, (_review("generalist", 1_000_000), _packet()), load_price_sheet(NEW))
+    assert refused.value.context == {"date": NEW}
+
+
+def test_the_generalist_command_refuses_that_sheet_before_any_review(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from physgate.cli import main
+    from physgate.evaluation.observe import generalist
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    write_run_config(run_dir / "run.json", config("r", target_repo(tmp_path), endpoint="default"))
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+
+    def never(**_: object) -> None:
+        raise AssertionError("a review ran at a sheet the ratio refuses")
+
+    monkeypatch.setattr(generalist, "run_generalist", never)
+    args = ["generalist", "--run-dir", str(run_dir), "--subtask", "s1", "--attempt", "1"]
+    args += ["--target", str(tmp_path), "--install", str(tmp_path), "--review-root", "/nowhere"]
+    args += ["--out", str(tmp_path / "out"), "--run-id", "g-1", "--prices", NEW]
+    assert main(args) == 2
+    assert "each call's writes" in json.loads(capsys.readouterr().err)["error"]

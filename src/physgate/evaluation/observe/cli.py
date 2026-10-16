@@ -74,11 +74,16 @@ def _trace(args: argparse.Namespace) -> int:
 
 
 def _cost(args: argparse.Namespace) -> int:
-    line = price_run(args.run_dir, load_price_sheet(args.prices))
+    """Price the run; exit 1 when a call's price disagrees with the binary's own figure.
+
+    The line is printed, and appended when asked, either way: a disagreement is a
+    finding about the run's cost, recorded on its line, not a reason to keep no line.
+    """
+    line = price_run(args.run_dir, load_price_sheet(args.prices), review_roots=args.review_roots)
     if args.append is not None:
         append_cost_line(args.append, line)
     _print(line, basis_label=BASIS_LABEL[line.basis], appended_to=str(args.append or ""))
-    return 0
+    return 1 if line.reconciliation is not None and line.reconciliation.differs else 0
 
 
 def _ratio(args: argparse.Namespace) -> int:
@@ -163,8 +168,16 @@ def add_parsers(
         "cost", help="price a run's tokens at a dated price sheet; optionally append to a trend"
     )
     c.add_argument("--run-dir", required=True, type=Path)
-    c.add_argument("--prices", required=True, help="the price sheet's date, e.g. 2026-09-27")
+    c.add_argument("--prices", required=True, help="the price sheet's date, e.g. 2026-10-16")
     c.add_argument("--append", type=Path, help="the trend file to append the cost line to")
+    c.add_argument(
+        "--review-root",
+        type=Path,
+        action="append",
+        default=[],
+        dest="review_roots",
+        help="a review root the run's reviews ran under, to read their results from; repeatable",
+    )
     c.set_defaults(func=_guarded(_cost))
 
     r = subparsers.add_parser(
@@ -241,6 +254,7 @@ def _generalist(args: argparse.Namespace) -> int:
         BASELINE_NAME,
         paired_review,
         read_packet,
+        require_single_rate,
         review_ratio,
         run_generalist,
     )
@@ -257,6 +271,8 @@ def _generalist(args: argparse.Namespace) -> int:
     base_url = os.environ.get("ANTHROPIC_BASE_URL")
     require_endpoint(config, base_url)
     prices = load_price_sheet(args.prices)
+    # Refused before the review runs, so no call is made at a sheet the ratio cannot use.
+    require_single_rate(prices)
     library = _library_root()
     if library is None:
         msg = "the rubrics are read from a source checkout, and there is none"

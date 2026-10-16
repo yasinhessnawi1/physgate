@@ -28,7 +28,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field
 
 from physgate.evaluation.observe.cost import DatedSheet
-from physgate.evaluation.observe.exceptions import ManifestError
+from physgate.evaluation.observe.exceptions import ManifestError, PriceSheetError
 from physgate.evaluation.observe.manifest import Sha256, read_run_events
 from physgate.evaluation.observe.ratio import RATIO_KIND, Ratio, RatioLine, ReviewCost
 from physgate.knowledge.promote import KNOWLEDGE_ROOT
@@ -133,6 +133,24 @@ def read_packet(review_root: Path, result: ReviewResult) -> Packet:
     return packet
 
 
+def require_single_rate(prices: DatedSheet) -> None:
+    """Refuse a sheet that prices each call's cache writes by its own result.
+
+    A ratio prices the two reviews from their review lines, which do not say which
+    cache a write went to; at such a sheet it would price every write at the
+    five-minute rate without saying so. It is refused instead, before any review runs.
+
+    Raises:
+        PriceSheetError: the sheet prices cache writes per call.
+    """
+    if prices.sheet.cache_write_ttl != "5m":
+        msg = (
+            "a ratio prices a review's cache writes at one rate, and this sheet prices "
+            "each call's writes by its own result, which a review line does not hold"
+        )
+        raise PriceSheetError(msg, date=prices.sheet.date)
+
+
 def review_ratio(
     paired: tuple[ReviewResult, Packet],
     generalist: tuple[ReviewResult, Packet],
@@ -144,7 +162,9 @@ def review_ratio(
         ManifestError: the two are not one paired and one generalist review on the
             same model, of the same attempt read under the same seal at the same
             commit; or either spent nothing; or the sheet does not price the model.
+        PriceSheetError: the sheet prices cache writes per call (:func:`require_single_rate`).
     """
+    require_single_rate(prices)
     (p_result, p_packet), (g_result, g_packet) = paired, generalist
     if (p_result.rubric_kind, g_result.rubric_kind) != ("paired", "generalist"):
         msg = "a ratio is one paired review over one generalist review"

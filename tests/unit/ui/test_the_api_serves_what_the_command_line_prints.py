@@ -122,16 +122,19 @@ def test_a_corrupt_ledger_line_is_refused_by_both_and_left_on_disk(
     assert ledger.read_bytes() == before
 
 
-def test_the_api_s_cost_is_the_cli_s_line(world: dict[str, Path]) -> None:
-    printed = _cli("cost", "--run-dir", str(world["root"] / "run-on"), "--prices", "2026-09-27")
+@pytest.mark.parametrize("date", ["2026-09-27", "2026-10-16"])
+def test_the_api_s_cost_is_the_cli_s_line(world: dict[str, Path], date: str) -> None:
+    printed = _cli("cost", "--run-dir", str(world["root"] / "run-on"), "--prices", date)
     assert printed.returncode == 0, printed.stderr
     expected = json.loads(printed.stdout)
     for added_by_the_command in ("basis_label", "appended_to"):
         expected.pop(added_by_the_command)
-    status, served = _api(world["root"], world["ui"], "/api/runs/0/run-on/cost/2026-09-27")
+    status, served = _api(world["root"], world["ui"], f"/api/runs/0/run-on/cost/{date}")
     assert status == 200
     assert json.loads(served) == expected
     assert expected["rows"], "a cost with no rows proves nothing"
+    # Both read each call's result from the run directory, the same way.
+    assert expected["calls"] and expected["reconciliation"] is not None
 
 
 def test_an_unrecorded_price_sheet_is_refused(world: dict[str, Path]) -> None:
@@ -223,4 +226,4 @@ def test_the_events_route_serves_every_line_of_the_log(world: dict[str, Path]) -
 
 def test_the_prices_route_lists_the_recorded_sheets(world: dict[str, Path]) -> None:
     with serving(context_over(world["root"], ui_root=world["ui"])) as live:
-        assert live.json("/api/prices") == {"prices": ["2026-09-27"]}
+        assert live.json("/api/prices") == {"prices": ["2026-09-27", "2026-10-16"]}

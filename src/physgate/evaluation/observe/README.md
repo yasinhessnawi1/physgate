@@ -16,7 +16,8 @@ configuration the run did not start under.
 |---|---|
 | `manifest.py` | `read_manifest(run_dir)` → `RunManifest`: the resolved configuration, the request fields the pinned binary sends that no setting pins (thinking, context management, beta list, measured per version), the served catalog and flags the decomposition call observed, the policy-limits digest, the machine each driving process recorded, and every artefact by content hash. The artefacts are the brief, the specification commit and tree, each merged attempt's commit and merge with their trees, the run branch's head and tree, the journal's digest and head revision, the store's last commit and tree, each trajectory's seal, and the installation manifests. A commit git cannot find is an error, never a blank |
 | `trace.py` | `read_traces(run_dir)` → `RunTrace`: per stage of each attempt, in the log's order (by the sequence number of its line, never by its timestamp), when it began and how long it took; per session, how it ended, its tokens, whether any were partial, and its wall clock from the spawn line to its end line. That wall clock **includes the orchestrator's setup for the session**. It also gives decomposition, reviewer and routing tokens, and every gate check through the gate's own reader. Derived from the log, never written beside it |
-| `cost.py` | `load_price_sheet(date)`, `price_run(run_dir, sheet)` → `CostLine`, `append_cost_line(trend, line)`, `append_ratio_line(trend, line)`, `read_trend_lines(trend)`, `read_trend(trend)`. See *Cost* below |
+| `calls.py` | `read_call(stream, session_id)` → `RecordedCall`, `run_calls(run_dir, attributions, review_roots)`: each call's cache writes by time to live and the binary's own figure, from its result event |
+| `cost.py` | `load_price_sheet(date)`, `price_run(run_dir, sheet, review_roots=…)` → `CostLine`, `append_cost_line(trend, line)`, `append_ratio_line(trend, line)`, `read_trend_lines(trend)`, `read_trend(trend)`. See *Cost* below |
 | `ratio.py` | `Ratio`, `ReviewCost`, `RatioLine`: the ratio and its trend line |
 | `sequence.py` | What a rerun compares: the normalisation, the exact records, the decision sequence, `first_divergence`, and `level_of`. See *Reproduction* below |
 | `rerun.py` | `rerun(recorded, …)` makes the run again through `physgate decompose` and `physgate run`, and `compare_runs(a, b)` → `Comparison` |
@@ -31,7 +32,7 @@ configuration the run did not start under.
 ```
 physgate manifest --run-dir R
 physgate trace    --run-dir R
-physgate cost     --run-dir R --prices 2026-09-27 [--append TREND]
+physgate cost     --run-dir R --prices 2026-10-16 [--review-root RR …] [--append TREND]
 physgate rerun    R --brief B --run-id NEW --run-dir NEWDIR --target T --install I
 physgate variance --runs R1 R2 …
 physgate variance --repeat R -n N --brief B --target T --install I --runs-dir D
@@ -42,6 +43,8 @@ Output is JSON on standard output. A refusal, or a record that does not hold,
 prints `{"error": …, <context>}` on standard error and exits 2. `rerun` prints
 the comparison with `reproduced`, the `rule` that judged it and the `first`
 divergence that decided, and exits 1 when the rerun did not reproduce the run.
+`cost` exits 1 when a call's price disagrees with the binary's own figure for it;
+the line, with the disagreement named, is printed and appended either way.
 
 ## Reproduction
 
@@ -91,9 +94,21 @@ run id.
 
 - **Price sheets.** A sheet names the page its prices were read from, when, and
   that page's digest; the same for its USD to NOK rate. Prices are in USD per
-  million tokens, per token class. Cache writes are priced at the five-minute
-  rate, since the binary marks its cache breakpoints ephemeral with no time to
-  live.
+  million tokens, per token class.
+- **Cache writes, per call.** The five-minute and the one-hour cache have
+  different write rates, and the account does not say which a write went to. The
+  sheet of 2026-09-27 prices every write at the five-minute rate, on the premise
+  that the binary sets no time to live; on the subscription it writes one-hour
+  entries, so its lines are low. From 2026-10-16 a sheet prices per call
+  (`cache_write_ttl: per_call`, both rates for every model): each call's writes are
+  split by what its own result event records (`usage.cache_creation`), read by
+  `calls.py` from the call's stream. A call whose result is not read is priced at
+  the five-minute rate and named on the line (`reconciliation.ttl_unread`).
+- **Reconciliation.** Every call whose result reports the binary's own
+  `total_cost_usd` is held to it: the line's `calls` keep both figures, and its
+  `reconciliation` names every call that disagrees (`differs`) and every call
+  with no figure read (`unread`). A review's stream lies under its review root,
+  which the run does not record: name it with `--review-root`.
 - **A price change is a new dated sheet**, with its digest added to
   `KNOWN_SHEETS`. It is never an edit: an edited sheet does not load.
 - **Pricing a token.** It is priced at the model that spent it. A model the
