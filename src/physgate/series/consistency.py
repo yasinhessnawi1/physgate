@@ -8,8 +8,10 @@ naming no record is not touched.
 
 Units are compared as the physics gate compares them, never loosely: the quantity's unit is
 first held to a spelling whose parse has a bounded cost (it is written by a role), then
-converted to the value's unit only within one dimension and one power of the radian, so a
-phase margin in degrees reads against radians and one in a dimensionless unit does not. An
+converted to the value's unit only within one dimension and one power of the radian (and of
+the bit, which the registry also counts as dimensionless), so a phase margin in degrees reads
+against radians and one in a dimensionless unit does not. A logarithmic unit (the decibel, the
+neper, the octave, the decade) is refused, as it is on a record: no convention is stated for it. An
 angular frequency and a frequency in hertz are related by an explicit factor of two pi,
 never by the unit registry, which would take them as equal.
 
@@ -43,8 +45,23 @@ class _UnitsDifferError(Exception):
     """The quantity's unit cannot be converted to the value's; the message says why."""
 
 
-def _radian_power(quantity: Any) -> float:  # noqa: ANN401 - a pint quantity
-    return float(dict(quantity.to_root_units().unit_items()).get("radian", 0))
+#: Root units the registry counts as dimensionless that are still a kind of their own: an
+#: angle, and information (a byte reads as eight bits, a plain ratio as none).
+_KINDS = ("radian", "bit")
+
+
+def _kind_powers(quantity: Any) -> tuple[float, ...]:  # noqa: ANN401 - a pint quantity
+    roots = dict(quantity.to_root_units().unit_items())
+    return tuple(float(roots.get(name, 0)) for name in _KINDS)
+
+
+def _logarithmic(quantity: Any) -> bool:  # noqa: ANN401 - a pint quantity
+    """Whether any unit of ``quantity`` converts logarithmically (the decibel and its kin)."""
+    registry = quantity._REGISTRY
+    return any(
+        getattr(registry._units[name].converter, "is_logarithmic", False)
+        for name in quantity._units
+    )
 
 
 def _in_unit(value: float | int, unit: str, target: str) -> float:
@@ -74,12 +91,21 @@ def _converted(value: float | int, unit: str, target: str) -> float:
     try:
         declared = units.parse(value, unit)
         wanted = units.parse(1, target)
-        same_kind = declared.dimensionality == wanted.dimensionality and _radian_power(
+        logarithmic = _logarithmic(declared)
+        same_kind = declared.dimensionality == wanted.dimensionality and _kind_powers(
             declared
-        ) == _radian_power(wanted)
-        converted = float(declared.to(target).magnitude) if same_kind else None
+        ) == _kind_powers(wanted)
+        converted = float(declared.to(target).magnitude) if same_kind and not logarithmic else None
     except Exception as exc:  # noqa: BLE001 - the registry raises many types for one fault
         raise _UnitsDifferError(str(exc) or type(exc).__name__) from None
+    if logarithmic:
+        msg = (
+            f"{unit} is logarithmic, and no convention is stated: a decibel is 20 log10 of an "
+            "amplitude ratio to a control engineer and 10 log10 of a power ratio to the unit "
+            "registry, which would agree with a value off by a factor of its square root. "
+            "Declare the value as a plain ratio, as records carry it"
+        )
+        raise _UnitsDifferError(msg)
     if converted is None:
         msg = f"{unit} is not the same kind of unit as {target}"
         raise _UnitsDifferError(msg)

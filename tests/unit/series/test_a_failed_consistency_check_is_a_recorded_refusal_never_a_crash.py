@@ -207,3 +207,27 @@ def test_a_declared_value_that_converts_past_the_largest_float_is_refused(
     result = _one(run_dir, entry, quantity)
     assert result.outcome == "unreadable"
     assert result.reason is not None and says in result.reason
+
+
+@pytest.mark.parametrize(
+    ("unit", "says"),
+    [
+        ("dB", "logarithmic"),
+        ("decibel", "logarithmic"),
+        ("Np", "logarithmic"),
+        ("octave", "logarithmic"),
+        ("decade", "logarithmic"),
+        ("B", "not the same kind"),
+    ],
+)
+def test_a_declared_unit_that_is_logarithmic_or_counts_information_is_refused(
+    run_dir: Path, unit: str, says: str
+) -> None:
+    # Declared as exactly the read value converted into the unit, so only the unit can refuse.
+    entry = _sealed(run_dir, *PLAIN)
+    ws, (mags, phases) = PLAIN[0], (t["values"] for t in PLAIN[1])
+    read = writer.extract("stability_margin", omega=ws, magnitude=mags, phase=phases)
+    declared = float(units.parse(read, "dimensionless").to(unit).magnitude)
+    result = _one(run_dir, entry, ("margin", declared, unit, "stability_margin"))
+    assert result.outcome == "unreadable", result
+    assert result.reason is not None and says in result.reason
