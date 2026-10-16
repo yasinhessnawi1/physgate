@@ -38,6 +38,15 @@ Use, from a script under the module directory::
     )
 
 The record lands in ``.physgate/series/<id>.json``, written whole or not at all.
+
+**The extractors.** A quantity read off a record is checked against the record by the
+functions at the end of this file, the very ones the orchestrator runs, so a role computes the
+value it reports exactly as the check will: ``series_writer.extract("phase_margin", omega=ws,
+magnitude=mags, phase=phases)`` on a loop's frequency response (angular frequency in rad/s,
+magnitude as a ratio, phase in rad), or ``series_writer.extract("max_abs", values=thetas)`` on a
+time trace. Report what this returns on the samples you recorded: a value computed another
+way, or on a finer grid than the one recorded, can differ by more than three significant
+figures, and is then refused.
 """
 
 from __future__ import annotations
@@ -336,3 +345,160 @@ def record(
             os.unlink(temporary)
         raise
     return final
+
+
+# ── extractors: reading a quantity off a record's own samples ─────────────────────────────
+
+FREQUENCY_EXTRACTORS = (
+    "phase_margin",
+    "gain_crossover_frequency",
+    "gain_margin_upper",
+    "gain_margin_lower",
+    "stability_margin",
+    "sensitivity_peak",
+    "complementary_sensitivity_peak",
+    "delay_margin",
+)
+TIME_EXTRACTORS = ("max", "min", "max_abs", "final")
+
+
+def _unwrapped(phase: list[float]) -> list[float]:
+    out = [phase[0]]
+    for value in phase[1:]:
+        step = value - out[-1]
+        step -= 2 * math.pi * round(step / (2 * math.pi))
+        out.append(out[-1] + step)
+    return out
+
+
+def _wrapped(angle: float) -> float:
+    """``angle`` in (-pi, pi]."""
+    folded = math.fmod(angle + math.pi, 2 * math.pi)
+    if folded <= 0:
+        folded += 2 * math.pi
+    return folded - math.pi
+
+
+def _gain_crossings(
+    omega: list[float], magnitude: list[float], phase: list[float]
+) -> list[tuple[float, float]]:
+    """Every (angular frequency, phase margin) where the loop's magnitude crosses one.
+
+    Between two samples the crossing is interpolated linearly in log frequency, its place set
+    by the log of the magnitude, and the unwrapped phase is interpolated at that place; a
+    sample at exactly one is a crossing of its own.
+    """
+    phases = _unwrapped(phase)
+    logs = [math.log(m) for m in magnitude]
+    found: list[tuple[float, float]] = []
+    for k in range(len(omega)):
+        a = logs[k]
+        if a == 0:
+            found.append((omega[k], _wrapped(math.pi + phases[k])))
+            continue
+        if k + 1 < len(omega):
+            b = logs[k + 1]
+            if b != 0 and a * b < 0:
+                t = a / (a - b)
+                lw = math.log(omega[k]) + t * (math.log(omega[k + 1]) - math.log(omega[k]))
+                at = phases[k] + t * (phases[k + 1] - phases[k])
+                found.append((math.exp(lw), _wrapped(math.pi + at)))
+    return found
+
+
+def _phase_crossing_gain_margins(magnitude: list[float], phase: list[float]) -> list[float]:
+    """Every gain margin: one over the magnitude where the unwrapped phase crosses an odd pi."""
+    phases = _unwrapped(phase)
+    logs = [math.log(m) for m in magnitude]
+    margins: list[float] = []
+    for k in range(len(phases) - 1):
+        lo, hi = sorted((phases[k], phases[k + 1]))
+        first = math.ceil((lo - math.pi) / (2 * math.pi))
+        last = math.floor((hi - math.pi) / (2 * math.pi))
+        for n in range(first, last + 1):
+            target = math.pi + 2 * math.pi * n
+            if phases[k + 1] == phases[k]:
+                continue
+            if target == phases[k + 1] and k + 2 < len(phases):
+                continue  # counted at the next segment's start
+            t = (target - phases[k]) / (phases[k + 1] - phases[k])
+            margins.append(1.0 / math.exp(logs[k] + t * (logs[k + 1] - logs[k])))
+    return margins
+
+
+def _need(found: list[float], what: str) -> list[float]:
+    if not found:
+        msg = f"the record shows no {what} on its grid, so the value cannot be read off it"
+        raise SeriesWriterError(msg)
+    return found
+
+
+def extract(
+    name: str,
+    *,
+    omega: object = None,
+    magnitude: object = None,
+    phase: object = None,
+    values: object = None,
+) -> float:
+    """The value the extractor ``name`` reads off a record's samples.
+
+    Frequency extractors take ``omega`` (rad/s), ``magnitude`` (a ratio) and ``phase`` (rad);
+    time extractors take a trace's ``values``.
+
+    Raises:
+        SeriesWriterError: the extractor is not one of the set, its samples are missing or
+            not finite, or what it reads is not on the record's grid.
+    """
+    if name in TIME_EXTRACTORS:
+        trace = [_number(v, "a sample") for v in _sequence(values, "values")]
+        if name == "max":
+            return max(trace)
+        if name == "min":
+            return min(trace)
+        if name == "max_abs":
+            return max(abs(v) for v in trace)
+        return trace[-1]
+    if name not in FREQUENCY_EXTRACTORS:
+        msg = f"{name!r} is not an extractor"
+        raise SeriesWriterError(msg)
+    ws = [_number(v, "a frequency") for v in _sequence(omega, "omega")]
+    ms = [_number(v, "a magnitude") for v in _sequence(magnitude, "magnitude")]
+    ps = [_number(v, "a phase") for v in _sequence(phase, "phase")]
+    if not len(ws) == len(ms) == len(ps):
+        msg = "omega, magnitude and phase have one value each per sample"
+        raise SeriesWriterError(msg)
+    if any(w <= 0 for w in ws) or any(m <= 0 for m in ms):
+        msg = "frequencies and magnitudes are positive"
+        raise SeriesWriterError(msg)
+    if name in ("stability_margin", "sensitivity_peak", "complementary_sensitivity_peak"):
+        # Indexed rather than zipped: zip's strict check arrived after Python 3.9.
+        distances = [
+            math.hypot(1 + ms[k] * math.cos(ps[k]), ms[k] * math.sin(ps[k])) for k in range(len(ms))
+        ]
+        if name == "stability_margin":
+            return min(distances)
+        if name == "sensitivity_peak":
+            return max(1 / d for d in distances)
+        return max(ms[k] / distances[k] for k in range(len(ms)))
+    if name in ("gain_margin_upper", "gain_margin_lower"):
+        margins = _phase_crossing_gain_margins(ms, ps)
+        if name == "gain_margin_upper":
+            return min(_need([g for g in margins if g > 1], "phase crossing above unit gain"))
+        return max(_need([g for g in margins if g < 1], "phase crossing below unit gain"))
+    crossings = _gain_crossings(ws, ms, ps)
+    if not crossings:
+        _need([], "gain crossover")
+    worst = min(crossings, key=lambda c: c[1])
+    if name == "phase_margin":
+        return worst[1]
+    if name == "gain_crossover_frequency":
+        return worst[0]
+    return min(pm / w for w, pm in crossings)
+
+
+def _sequence(value: object, what: str) -> list[object]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, (list, tuple)) or not value:
+        msg = f"{what} is a non-empty list of numbers"
+        raise SeriesWriterError(msg)
+    return list(value)
