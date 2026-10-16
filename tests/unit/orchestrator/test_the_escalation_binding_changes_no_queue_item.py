@@ -50,6 +50,8 @@ ADDED_FIELDS: dict[str, dict[str, Any]] = {
     "run_started": {"escalation_backend": "rules"},
     # The series records a session left: none, in every session the golden file recorded.
     "session_ended": {"series": {"records": [], "refused": [], "discarded": []}},
+    # The proposed quantities held to the records they name: none, in every run recorded.
+    "proposals_checked": {"series_checks": []},
 }
 
 #: Fields added after the golden file was written that carry new information, not a

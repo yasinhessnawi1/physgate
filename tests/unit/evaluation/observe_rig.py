@@ -170,6 +170,8 @@ class FakeSession:
     #: When set, each session runs a script under its module that records one series with
     #: this seed, and its outbox is collected before the commit, as the dispatcher does.
     records: int | None = None
+    #: When set, the proposed node also carries this quantity, which names the record.
+    linked: dict[str, Any] | None = None
     calls: int = 0
 
     def environment(self) -> None:
@@ -187,7 +189,14 @@ class FakeSession:
         node_id = f"electrical.node_{request.subtask_id.replace('-', '_')}"
         proposal = worktree / ".physgate" / "proposals" / f"{node_id}.json"
         proposal.parent.mkdir(parents=True, exist_ok=True)
-        proposal.write_text(json.dumps(node(node_id, bare=self.calls in self.bare)))
+        payload = node(node_id, bare=self.calls in self.bare)
+        if self.linked is not None:
+            payload["quantities"]["step_peak"] = {
+                "source": "read off the stand-in step",
+                "written_by": "electrical",
+                **self.linked,
+            }
+        proposal.write_text(json.dumps(payload))
         sid = f"fake-{uuid.uuid4().hex[:12]}"
         usage = Usage(
             input_tokens=10 * self.calls,
@@ -407,6 +416,7 @@ def drive(
     clock: Callable[[], datetime] | None = None,
     session_result: Callable[[str, Usage], dict[str, Any]] | None = None,
     records: int | None = None,
+    linked: dict[str, Any] | None = None,
 ) -> str:
     """Drive a started run with the real loop and ports; return the step it ended on."""
     run_dir = root / cfg.run_id
@@ -429,6 +439,7 @@ def drive(
             bare=bare or set(),
             result=session_result,
             records=records,
+            linked=linked,
         ),
         changes=GitChangeChecker(run, run_dir / "store", modules),
         merger=GitMerger(run, removal_timeout_s=60.0),

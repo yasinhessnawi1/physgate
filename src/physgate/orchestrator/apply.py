@@ -30,6 +30,7 @@ import re
 import shutil
 from pathlib import Path
 
+from physgate.orchestrator.events import SessionEnded, read_events
 from physgate.orchestrator.exceptions import StoreRefusalError
 from physgate.orchestrator.git import (
     GitDir,
@@ -42,6 +43,8 @@ from physgate.orchestrator.git import (
 )
 from physgate.orchestrator.merge import RunGit, write_scope_violations
 from physgate.orchestrator.ports import ChangeCheck
+from physgate.series.consistency import check_proposals
+from physgate.series.reader import SealedEntry, attempt_records
 from physgate.series.seal import FORMAT, MAX_FILE_BYTES, SessionSeries
 from physgate.state.divergence import divergence
 from physgate.state.exceptions import DesignStateError
@@ -276,7 +279,54 @@ class GitChangeChecker:
                 graph_root=str(scratch),
                 proposed=proposed,
             )
-        return ChangeCheck(refused_by=None, reason=None, graph_root=str(scratch), proposed=proposed)
+        # Last, once the store's own guards have passed: every proposed quantity that names a
+        # simulation record is held to the record this attempt sealed.
+        checks = check_proposals(
+            proposals, self._attempt_records(subtask_id, attempt_commit), self._run.run_dir
+        )
+        failed = [c for c in checks if c.outcome != "agrees"]
+        if failed:
+            reason = "; ".join(c.reason for c in failed[:3] if c.reason)
+            if len(failed) > 3:
+                reason += f"; and {len(failed) - 3} more"
+            subject = ",".join(sorted({f"{c.node_id}.{c.quantity}" for c in failed}))
+            return ChangeCheck(
+                refused_by="series",
+                reason=reason,
+                subject=subject[:500],
+                graph_root=str(scratch),
+                proposed=proposed,
+                series_checks=checks,
+            )
+        return ChangeCheck(
+            refused_by=None,
+            reason=None,
+            graph_root=str(scratch),
+            proposed=proposed,
+            series_checks=checks,
+        )
+
+    def _attempt_records(self, subtask_id: str, attempt_commit: str) -> tuple[SealedEntry, ...]:
+        """The records the attempt that made ``attempt_commit`` sealed, read from the run's log.
+
+        The attempt is the one whose session ended with this commit; a log that names no such
+        session, or more than one attempt, gives no records, so a quantity naming one is
+        refused as unsealed rather than read off another attempt's.
+        """
+        log = self._run.run_dir / "events.jsonl"
+        if not log.exists():
+            return ()
+        events = read_events(log)
+        attempts = {
+            e.attempt
+            for e in events
+            if isinstance(e, SessionEnded)
+            and e.subtask_id == subtask_id
+            and e.attempt_commit == attempt_commit
+        }
+        if len(attempts) != 1:
+            return ()
+        return attempt_records(events, subtask_id, attempts.pop())
 
     def _precheck(self, scratch: Path, proposals: list[Payload], role: str) -> None:
         """Apply every proposal to a scratch copy of the graph; refuse on the first refusal."""

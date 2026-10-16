@@ -22,7 +22,7 @@ from physgate.orchestrator.install import InstallFacts
 from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.run_config import RunBounds
 from physgate.orchestrator.trajectory import Seal
-from physgate.series.seal import SessionSeries
+from physgate.series.seal import SeriesCheck, SessionSeries
 from physgate.state.store import JournalLine, Payload
 
 SessionId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
@@ -118,6 +118,8 @@ class ChangeCheck(_Frozen):
     #: when it was refused before they were read. What the escalation decision's state
     #: reports as the changed-node summary (ARCH-131).
     proposed: tuple[NonEmptyStr, ...] = ()
+    #: Every proposed quantity that names a simulation record, held to it: passes included.
+    series_checks: tuple[SeriesCheck, ...] = ()
 
 
 class WorktreeRemoval(_Frozen):

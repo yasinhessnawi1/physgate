@@ -56,7 +56,7 @@ from physgate.orchestrator.protocols import (
 )
 from physgate.orchestrator.repair import Finding
 from physgate.orchestrator.trajectory import Seal
-from physgate.series.seal import SessionSeries
+from physgate.series.seal import SeriesCheck, SessionSeries
 
 #: The eight stages of the per-subtask loop, in the architecture's order (ARCH-030).
 Stage = Literal[
@@ -355,6 +355,9 @@ class ProposalsChecked(_Event):
     #: The node ids the attempt proposed; empty when it was refused before they were
     #: read, and on every line written before the field existed.
     proposed: tuple[NonEmptyStr, ...] = ()
+    #: Every proposed quantity that names a simulation record, held to it, passes included;
+    #: empty on every line written before the field existed.
+    series_checks: tuple[SeriesCheck, ...] = ()
 
     @model_validator(mode="after")
     def _a_refusal_says_why(self) -> ProposalsChecked:

@@ -16,7 +16,7 @@ discarded (a writer's temporary file, or what an earlier session left in the out
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
@@ -62,3 +62,28 @@ class SessionSeries(_Frozen):
     records: Annotated[tuple[SealedRecord, ...], Field(max_length=MAX_ENTRIES)] = ()
     refused: Annotated[tuple[SetAside, ...], Field(max_length=MAX_ENTRIES)] = ()
     discarded: Annotated[tuple[SetAside, ...], Field(max_length=MAX_ENTRIES)] = ()
+
+
+class SeriesCheck(_Frozen):
+    """One graph quantity held to the record it names: what it declares, what the record gives.
+
+    Recorded for every quantity that names a record, passes included, on the change check's
+    line of the run's event log. ``outcome`` is ``agrees`` within the frozen tolerance,
+    ``differs`` beyond it, or ``unreadable`` when the value cannot be read off the record (no
+    such record in the attempt, a trace missing, a unit of another kind); the last two refuse
+    the attempt.
+    """
+
+    node_id: Annotated[str, StringConstraints(min_length=1, max_length=128)]
+    quantity: Annotated[str, StringConstraints(min_length=1, max_length=128)]
+    record_id: Annotated[str, StringConstraints(pattern=NAME_PATTERN)]
+    extract: Annotated[str, StringConstraints(min_length=1, max_length=64)]
+    trace: Annotated[str, StringConstraints(pattern=NAME_PATTERN)] | None = None
+    #: The session that sealed the record read, when one did.
+    session_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")] | None = None
+    declared_value: float | int
+    declared_unit: Annotated[str, StringConstraints(min_length=1, max_length=64)]
+    read_value: float | None = None
+    read_unit: Annotated[str, StringConstraints(min_length=1, max_length=64)] | None = None
+    outcome: Literal["agrees", "differs", "unreadable"]
+    reason: Annotated[str, StringConstraints(min_length=1, max_length=500)] | None = None
