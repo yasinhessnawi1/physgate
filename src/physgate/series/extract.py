@@ -64,14 +64,15 @@ def read_off(record: Record, reference: SeriesRef) -> Extracted:
 
     Raises:
         ExtractionError: the record is not the kind the extractor reads, a trace it needs is
-            missing or in another unit, or what it reads is not on the record's grid.
+            missing or in another unit, what it reads is not on the record's grid, or the
+            arithmetic overflows or gives a value that is not finite.
     """
     try:
         if reference.extract in TIME_EXTRACTORS:
             assert reference.trace is not None  # the reference's own validation holds this
             trace = _trace(record, reference.trace)
             value = writer.extract(reference.extract, values=list(trace.values))
-            return Extracted(value=value, unit=trace.unit)
+            return _finite(Extracted(value=value, unit=trace.unit), reference, record)
         if record.axis != "frequency":
             msg = (
                 f"{reference.extract} reads a frequency response, and {record.id} is a "
@@ -94,6 +95,18 @@ def read_off(record: Record, reference: SeriesRef) -> Extracted:
             magnitude=list(magnitude.values),
             phase=[p * p_factor for p in phase.values],
         )
-        return Extracted(value=value, unit=FREQUENCY_UNITS[reference.extract])
+        found = Extracted(value=value, unit=FREQUENCY_UNITS[reference.extract])
+        return _finite(found, reference, record)
     except writer.SeriesWriterError as exc:
         raise ExtractionError(str(exc), record=record.id) from None
+    except (ArithmeticError, ValueError) as exc:
+        # Finite samples can still overflow the arithmetic (a phase near the largest float).
+        msg = f"{reference.extract} cannot be computed on the record's samples: {exc}"
+        raise ExtractionError(msg, record=record.id) from None
+
+
+def _finite(found: Extracted, reference: SeriesRef, record: Record) -> Extracted:
+    if not math.isfinite(found.value):
+        msg = f"{reference.extract} read off {record.id} is not a finite number ({found.value})"
+        raise ExtractionError(msg, record=record.id)
+    return found

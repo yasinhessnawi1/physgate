@@ -27,12 +27,16 @@ from typing import Any
 
 from physgate.gate import units
 from physgate.series.exceptions import SeriesError
-from physgate.series.extract import read_off
+from physgate.series.extract import Extracted, read_off
 from physgate.series.reader import SealedEntry, read_record
+from physgate.series.record import Record
 from physgate.series.seal import SeriesCheck
 from physgate.series.tolerance import agrees
-from physgate.state.schema import Quantity
+from physgate.state.schema import Quantity, SeriesRef
 from physgate.unit_spelling import UnitSpellingError, require_bounded_spelling
+
+#: The most quantities naming a record that one attempt's proposals may hold.
+MAX_SERIES_CHECKS = 64
 
 
 class _UnitsDifferError(Exception):
@@ -61,14 +65,70 @@ def _in_unit(value: float | int, unit: str, target: str) -> float:
     try:
         declared = units.parse(value, unit)
         wanted = units.parse(1, target)
-    except units.UnitRefusedError as exc:
-        raise _UnitsDifferError(str(exc)) from None
-    if declared.dimensionality != wanted.dimensionality or _radian_power(declared) != _radian_power(
-        wanted
-    ):
+        same_kind = declared.dimensionality == wanted.dimensionality and _radian_power(
+            declared
+        ) == _radian_power(wanted)
+        converted = float(declared.to(target).magnitude) if same_kind else None
+    except Exception as exc:  # noqa: BLE001 - the registry raises many types for one fault
+        raise _UnitsDifferError(str(exc) or type(exc).__name__) from None
+    if converted is None:
         msg = f"{unit} is not the same kind of unit as {target}"
         raise _UnitsDifferError(msg)
-    return float(declared.to(target).magnitude)
+    if not math.isfinite(converted):
+        msg = f"{value} {unit} is not a finite number in {target}"
+        raise _UnitsDifferError(msg)
+    return converted
+
+
+class _Readings:
+    """The attempt's records, each read once, and each value read off one once."""
+
+    def __init__(self, run_dir: Path) -> None:
+        self._run_dir = run_dir
+        self._records: dict[str, Record | SeriesError] = {}
+        self._values: dict[tuple[str, str, str | None], Extracted | SeriesError] = {}
+
+    def value(self, entry: SealedEntry, reference: SeriesRef) -> Extracted:
+        """What ``reference`` reads off the record ``entry`` sealed.
+
+        Raises:
+            SeriesError: the record cannot be read, or the value cannot be read off it; the
+                same error each time it is asked for again.
+        """
+        key = (reference.record, reference.extract, reference.trace)
+        if key not in self._values:
+            try:
+                self._values[key] = read_off(self._record(entry), reference)
+            except SeriesError as exc:
+                self._values[key] = exc
+        found = self._values[key]
+        if isinstance(found, SeriesError):
+            raise found
+        return found
+
+    def _record(self, entry: SealedEntry) -> Record:
+        record_id = entry.record.record_id
+        if record_id not in self._records:
+            try:
+                self._records[record_id] = read_record(entry.path(self._run_dir), entry.seal())
+            except SeriesError as exc:
+                self._records[record_id] = exc
+        found = self._records[record_id]
+        if isinstance(found, SeriesError):
+            raise found
+        return found
+
+
+def _base(node_id: str, name: str, quantity: Quantity, reference: SeriesRef) -> dict[str, Any]:
+    return {
+        "node_id": node_id[:128],
+        "quantity": name[:128],
+        "record_id": reference.record,
+        "extract": reference.extract,
+        "trace": reference.trace,
+        "declared_value": quantity.value,
+        "declared_unit": quantity.unit[:64],
+    }
 
 
 def _check(
@@ -76,19 +136,11 @@ def _check(
     name: str,
     quantity: Quantity,
     entries: Mapping[str, SealedEntry],
-    run_dir: Path,
+    readings: _Readings,
 ) -> SeriesCheck:
     reference = quantity.series
     assert reference is not None  # only quantities naming a record are checked
-    base: dict[str, Any] = {
-        "node_id": node_id,
-        "quantity": name,
-        "record_id": reference.record,
-        "extract": reference.extract,
-        "trace": reference.trace,
-        "declared_value": quantity.value,
-        "declared_unit": quantity.unit[:64],
-    }
+    base = _base(node_id, name, quantity, reference)
     entry = entries.get(reference.record)
     if entry is None:
         reason = (
@@ -97,8 +149,7 @@ def _check(
         return SeriesCheck(**base, outcome="unreadable", reason=reason)
     base["session_id"] = entry.session_id
     try:
-        record = read_record(entry.path(run_dir), entry.seal())
-        found = read_off(record, reference)
+        found = readings.value(entry, reference)
     except SeriesError as exc:
         reason = f"{node_id}.{name} cannot be read off the record {reference.record}: {exc}"
         return SeriesCheck(**base, outcome="unreadable", reason=reason[:500])
@@ -121,14 +172,34 @@ def _check(
 def check_proposals(
     proposals: Iterable[Mapping[str, Any]], entries: Iterable[SealedEntry], run_dir: Path
 ) -> tuple[SeriesCheck, ...]:
-    """Every quantity of ``proposals`` that names a record, held to it; in a stable order."""
+    """Every quantity of ``proposals`` that names a record, held to it; in a stable order.
+
+    Each record is read at most once and each value read off it at most once. Proposals naming
+    records from more than :data:`MAX_SERIES_CHECKS` quantities are not read at all: every one
+    of those quantities is refused, so the check's cost is bounded by the attempt's records.
+    """
     by_id = {entry.record.record_id: entry for entry in entries}
-    results: list[SeriesCheck] = []
+    named: list[tuple[str, str, Quantity, SeriesRef]] = []
     for payload in proposals:
         node_id = str(payload.get("id"))
         quantities = payload.get("quantities") or {}
         for name in sorted(quantities):
             quantity = Quantity.model_validate(quantities[name])
             if quantity.series is not None:
-                results.append(_check(node_id, name, quantity, by_id, run_dir))
-    return tuple(results)
+                named.append((node_id, name, quantity, quantity.series))
+    if len(named) > MAX_SERIES_CHECKS:
+        reason = (
+            f"the proposals name records from {len(named)} quantities, more than "
+            f"{MAX_SERIES_CHECKS}; none is read. Name a record only from the quantities read "
+            "off one."
+        )
+        return tuple(
+            SeriesCheck(
+                **_base(node_id, name, quantity, reference), outcome="unreadable", reason=reason
+            )
+            for node_id, name, quantity, reference in named
+        )
+    readings = _Readings(run_dir)
+    return tuple(
+        _check(node_id, name, quantity, by_id, readings) for node_id, name, quantity, _ in named
+    )

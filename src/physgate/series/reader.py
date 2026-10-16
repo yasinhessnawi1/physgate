@@ -76,8 +76,8 @@ def read_record(path: Path, seal: Seal) -> Record:
     """The record at ``path``, if its bytes are the ones ``seal`` names.
 
     Raises:
-        RecordTamperedError: the file is gone, is not the sealed bytes, or is reached
-            through a link, or is not a regular file with one name.
+        RecordTamperedError: the file is gone or cannot be read, is not the sealed bytes, is
+            reached through a link, or is not a regular file with one name.
         RecordRefusedError: the sealed bytes are not a record this format admits.
     """
     if not Path(path).is_absolute():
@@ -96,9 +96,13 @@ def read_record(path: Path, seal: Seal) -> Record:
         if exc.errno == errno.ELOOP:
             msg = "a sealed record is a link"
             raise RecordTamperedError(msg, path=spelt) from None
-        raise
+        msg = f"a sealed record cannot be read: {exc.strerror}"
+        raise RecordTamperedError(msg, path=spelt) from None
     try:
         data = _read_bounded(fd, spelt, seal)
+    except OSError as exc:
+        msg = f"a sealed record cannot be read: {exc.strerror}"
+        raise RecordTamperedError(msg, path=spelt) from None
     finally:
         os.close(fd)
     found = hashlib.sha256(data).hexdigest()
