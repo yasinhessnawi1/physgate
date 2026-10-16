@@ -9,14 +9,16 @@ tree is stopped, with every process still in its process group. The session lead
 that group: it is spawned in a session of its own, and a child it starts stays in
 the group unless it leaves it. A process is signalled only while it is still the
 one that was seen, by its pid and its start time; each gets SIGTERM, a grace, and
-then SIGKILL.
+then SIGKILL. A process stopped this way may start another before it ends (a SIGTERM
+handler that spawns), so the group is swept again after each stop, until a sweep
+finds it empty or ``SWEEPS`` sweeps have run.
 
 What this still misses: a process that left the session's process group and was
-started, and outlived its parent, between two polls; and, should the session's pid
-be reused by a new group leader in the moment between the session's exit and the
-sweep, that group's members. A reviewer is offered the Read tool and its verdict
-tool alone, so it starts no shell of its own; this covers what the runtime itself
-starts.
+started, and outlived its parent, between two polls; a group that is still starting
+processes after ``SWEEPS`` sweeps; and, should the session's pid be reused by a new
+group leader in the moment between the session's exit and the sweep, that group's
+members. A reviewer is offered the Read tool and its verdict tool alone, so it starts
+no shell of its own; this covers what the runtime itself starts.
 """
 
 from __future__ import annotations
@@ -34,6 +36,9 @@ from physgate.orchestrator.processes import Proc, stop_tree, table, tree
 POLL_S = 0.25
 #: How long the processes left running have to end on SIGTERM before SIGKILL.
 GRACE_S = 5.0
+#: How many times the process group is swept again after the first stop, each sweep
+#: stopping what it finds, before what is left is given up on.
+SWEEPS = 5
 _WAIT_S = 0.05
 #: How ``ps`` prints a start time under the C locale.
 _LSTART = "%a %b %d %H:%M:%S %Y"
@@ -45,7 +50,8 @@ class SessionEnd:
 
     exit_code: int | None
     timed_out: bool
-    #: The pid of every process found running after the session ended, each since stopped.
+    #: The pid of every process found running under the session when its clock stopped it,
+    #: or after it ended, each since stopped.
     left_running: tuple[int, ...]
 
 
@@ -121,6 +127,7 @@ def await_session(
     stopped too.
     """
     seen: dict[tuple[int, str], Proc] = {}
+    at_clock: list[Proc] = []
     deadline = time.monotonic() + wall_clock_s
     while True:
         try:
@@ -133,17 +140,30 @@ def await_session(
         if collected and (started is None or collected[0].started == started):
             seen.update({(p.pid, p.started): p for p in collected[1:]})
         if time.monotonic() >= deadline:
+            # What runs under the session as its clock stops it is left running by it,
+            # and named so, though the stop of its tree is what ends it.
+            held = collected and (started is None or collected[0].started == started)
+            at_clock = collected[1:] if held else []
             stop_tree(process.pid, started)
             exit_code, timed_out = process.wait(), True
             break
     since = _started(Proc(process.pid, 0, started)) if started is not None else None
-    members = [
-        p
-        for p in group(process.pid)
-        if p.pid != process.pid and (since is None or (_started(p) or since) >= since)
-    ]
+
+    def members() -> list[Proc]:
+        return [
+            p
+            for p in group(process.pid)
+            if p.pid != process.pid and (since is None or (_started(p) or since) >= since)
+        ]
+
+    stopped = {p.pid for p in at_clock} | set(stop_all([*seen.values(), *members()]))
+    for _ in range(SWEEPS):
+        found = stop_all(members())
+        if not found:
+            break
+        stopped |= set(found)
     return SessionEnd(
         exit_code=exit_code,
         timed_out=timed_out,
-        left_running=stop_all([*seen.values(), *members]),
+        left_running=tuple(sorted(stopped)),
     )

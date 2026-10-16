@@ -106,6 +106,8 @@ def test_a_session_stopped_at_its_clock_leaves_neither_child_running(
     leftovers += [same, own]
     ended = await_session(process, started, wall_clock_s=2.0)
     assert ended.timed_out and ended.exit_code is not None
+    # Stopped with the session at its clock, and named as left running, as after an exit.
+    assert set(ended.left_running) == {same, own}
     assert started_at(same) is None and started_at(own) is None
 
 
@@ -135,6 +137,66 @@ def test_a_child_that_ignores_sigterm_is_killed_after_the_grace(
     assert ended.exit_code == 0 and set(ended.left_running) == {same, own}
     # Both ignored SIGTERM; neither is running once the grace is over.
     assert started_at(same) is None and started_at(own) is None
+
+
+#: A stand-in session whose one child, in its process group, starts a sleeper in the same
+#: group when it is told to stop, writes the sleeper's pid, and exits: a process started
+#: while the session's leftovers are being stopped.
+SPAWNER = r"""
+import os, subprocess, sys, time
+marker = sys.argv[1]
+child = (
+    "import os, signal, subprocess, sys, time\n"
+    "def spawn(*_):\n"
+    "    s = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'],"
+    " stdin=subprocess.DEVNULL)\n"
+    "    open(sys.argv[1] + '.tmp', 'w').write(str(s.pid))\n"
+    "    os.replace(sys.argv[1] + '.tmp', sys.argv[1])\n"
+    "    os._exit(0)\n"
+    "signal.signal(signal.SIGTERM, spawn)\n"
+    "open(sys.argv[1] + '.ready', 'w').close()\n"
+    "time.sleep(120)\n"
+)
+spawned = subprocess.Popen([sys.executable, "-c", child, marker], stdin=subprocess.DEVNULL)
+with open(marker + ".child", "w") as out:
+    out.write(str(spawned.pid))
+while not os.path.exists(marker + ".ready"):
+    time.sleep(0.02)
+sys.exit(0)
+"""
+
+
+def test_a_process_started_while_the_leftovers_are_stopped_is_stopped_too(
+    tmp_path: Path, leftovers: list[int], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The group is swept again after the grace, so what the stop itself provoked is gone too."""
+    monkeypatch.setattr(ending, "GRACE_S", 0.5)
+    marker = tmp_path / "sleeper"
+    process = subprocess.Popen(
+        [sys.executable, "-c", SPAWNER, str(marker)],
+        stdin=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    started = started_at(process.pid)
+    child = Path(f"{marker}.child")
+    deadline = time.monotonic() + 20
+    while not child.exists() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    leftovers.append(int(child.read_text()))
+    ended = await_session(process, started, wall_clock_s=60.0, poll_s=30.0)
+    sleeper = int(_wait_for(marker).read_text())
+    leftovers.append(sleeper)
+    assert ended.exit_code == 0
+    # Reached: the child was stopped, and the sleeper it started on SIGTERM was found after it.
+    assert {int(child.read_text()), sleeper} <= set(ended.left_running)
+    assert started_at(sleeper) is None
+
+
+def _wait_for(path: Path) -> Path:
+    deadline = time.monotonic() + 20
+    while not path.exists() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    return path
 
 
 def _reviewer(tmp_path: Path, binary: Path, wall_clock_s: float) -> ClaudeReviewer:
@@ -191,6 +253,5 @@ def test_the_claude_reviewer_s_session_leaves_nothing_running(
     ended = json.loads((sdir / "ended.json").read_text())
     assert (ended["exit"], ended["timed_out"]) == (exit_code, timed_out)
     assert timed_out is (mode == "hang")
-    if mode == "exit":
-        assert set(ended["left_running"]) == {same, own}
+    assert set(ended["left_running"]) == {same, own}
     assert started_at(same) is None and started_at(own) is None
