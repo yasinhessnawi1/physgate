@@ -187,9 +187,14 @@ def wrap_revision(
     The same calls, in the same order, as the instrument's per-artefact review
     (``runner._review``): write the given design and the revision, hold what the reviewer
     is shown to no telltale and no answer, seal the account, and name it an account. A unit
-    test holds the two to the same artefact.
+    test holds the two to the same artefact. The one difference is the corpus format's rule
+    for how a source is written, which these artefacts do not follow (see below).
     """
-    made = materialise(Base(label="a design", nodes=given), Patch(nodes=revision), place)
+    # The corpus format would hold every source to a URL or arithmetic over rows of a parts
+    # sheet the reviewer is never shown; these artefacts cite their sources in words, so a
+    # reviewer can check them by reading. Nothing else is built differently.
+    base = Base.model_construct(label="a design", nodes=given)
+    made = materialise(base, Patch.model_construct(nodes=revision), place)
     require_blind(made, answers)
     sealed = seal(made.trajectory.read_bytes())
     return Artefact(
@@ -213,7 +218,7 @@ def wrap_revision(
 def revision_artefact(artefact_id: str, place: Path) -> Artefact:
     """One of the revisions of ``domain_review_artefacts``, wrapped for its review."""
     role, given, revision = artefacts.REVISIONS[artefact_id]
-    answers = (artefact_id, artefacts.EXPECTED[artefact_id][1])
+    answers = (artefact_id, artefacts.EXPECTED[artefact_id][2])
     return wrap_revision(review_id(artefact_id), role, given, revision, answers, place)
 
 
@@ -355,7 +360,9 @@ def _reads(path: str) -> list[dict[str, Any]]:
     ]
 
 
-def scripted_verdict(read: Path, packet: dict[str, Any], verdict: str) -> dict[str, Any]:
+def scripted_verdict(
+    read: Path, packet: dict[str, Any], verdict: str, deciding: tuple[str, ...] = ()
+) -> dict[str, Any]:
     """A verdict on the packet's own rubric, of the form ``verdict``, every item answered."""
     items = parse_rubric((read / "rubric.md").read_text())
     first = {s: next(i.id for i in items if i.section == s) for s in CLEAN}
@@ -375,8 +382,8 @@ def scripted_verdict(read: Path, packet: dict[str, Any], verdict: str) -> dict[s
     defects: list[dict[str, Any]] = []
     failing = None
     if verdict == "reject":
-        answers[first["domain_standards"]] = {"result": "unmet", "evidence": "design/nodes: n1"}
-        failing = first["domain_standards"]
+        failing = deciding[0] if deciding else first["domain_standards"]
+        answers[failing] = {"result": "unmet", "evidence": "design/nodes: n1"}
     if verdict == "blocked":
         held = lines[-1]
         held["result"] = "not evaluable"
@@ -402,15 +409,16 @@ def scripted_verdict(read: Path, packet: dict[str, Any], verdict: str) -> dict[s
     }
 
 
-def scripted_reviews(api: Any, verdicts: dict[str, str]) -> None:  # noqa: ANN401
+def scripted_reviews(api: Any, verdicts: dict[str, tuple[str, tuple[str, ...]]]) -> None:  # noqa: ANN401
     """Every review on the scripted endpoint: read everything required, then one verdict."""
 
     def on_request(_thread: str, cwd: str, done: int) -> dict[str, Any]:
         read = Path(cwd).parent
         packet = json.loads((read.parent / RECORD_NAME).read_text())
-        verdict = verdicts[packet["artefact"]["subtask_id"]]
+        verdict, deciding = verdicts[packet["artefact"]["subtask_id"]]
         steps = [call for p in packet["required_reading"] for call in _reads(p)]
-        steps.append(tool("StructuredOutput", review=scripted_verdict(read, packet, verdict)))
+        answer = scripted_verdict(read, packet, verdict, deciding)
+        steps.append(tool("StructuredOutput", review=answer))
         return steps[done] if done < len(steps) else text("done")
 
     api.script = Script(main=[])
@@ -507,7 +515,8 @@ def _total(result: ReviewResult) -> Usage:
 
 def reviews(root: Path, credential: Credential, base_url: str | None) -> dict[str, Any]:
     """Review every artefact once, each retried once for an infrastructure cause."""
-    install = prepare_install(root / "install", REPO_ROOT)
+    install = root / "install"
+    prepare_install(install, REPO_ROOT)
     made = all_artefacts(root)
     review_root = require_review_root(root / REVIEW_DIRNAME)
     binary = claude_binary()
@@ -602,9 +611,17 @@ def reviews(root: Path, credential: Credential, base_url: str | None) -> dict[st
             )
             tokens = _total(result)
             usd = price.usd(tokens)
+            unmet = sorted(i.item for i in result.items if i.result in ("unmet", "confirmed"))
+            deciding = artefacts.EXPECTED[artefact_id][1]
             row.update(
                 {
                     "verdict": result.verdict,
+                    "unmet_items": unmet,
+                    "deciding_item_cited": (
+                        bool(set(deciding) & {*unmet, result.failing_item or ""})
+                        if deciding
+                        else None
+                    ),
                     "failing_item": result.failing_item,
                     "finding": result.finding,
                     "blocking_defects": sum(d.blocking for d in result.spec_defects),
@@ -642,6 +659,11 @@ def reviews(root: Path, credential: Credential, base_url: str | None) -> dict[st
             r.get("reading_verified") is True for r in rows if "session_id" in r
         ),
         "as_expected": {r["artefact"]: _matches(r) for r in rows},
+        "planted_error_cited": {
+            r["artefact"]: r["deciding_item_cited"]
+            for r in rows
+            if r.get("deciding_item_cited") is not None
+        },
         "usd_total": str(sum((Decimal(r["usd"]) for r in rows if "usd" in r), Decimal(0))),
         "prices_date": PRICES,
     }
@@ -652,7 +674,9 @@ _WORDS = {"pass": "accept", "fail": "reject", "blocked": "blocked"}
 
 
 def _matches(row: dict[str, Any]) -> bool:
-    return bool(_WORDS.get(str(row["verdict"])) == row["expected"])
+    """The verdict is the one expected, and a twin's rejection names a deciding item."""
+    same = _WORDS.get(str(row["verdict"])) == row["expected"]
+    return bool(same and row.get("deciding_item_cited") is not False)
 
 
 def main() -> None:
@@ -707,8 +731,7 @@ def main() -> None:
             result = {"preflight": preflight(root, token, None)}
     elif args.dry_run:
         verdicts = {
-            review_id(aid): {"accept": "accept", "reject": "reject", "blocked": "blocked"}[exp]
-            for aid, (exp, _) in artefacts.EXPECTED.items()
+            review_id(aid): (exp, items) for aid, (exp, items, _) in artefacts.EXPECTED.items()
         }
         with serving(Script(main=[])) as (api, url):
             scripted_reviews(api, verdicts)
@@ -730,6 +753,7 @@ def main() -> None:
                 "every_review_ends_in_a_verdict": found.get("every_review_ends_in_a_verdict"),
                 "verdict_forms_observed": found.get("verdict_forms_observed"),
                 "as_expected": found.get("as_expected"),
+                "planted_error_cited": found.get("planted_error_cited"),
                 "usd_total": found.get("usd_total"),
             }
         ),
