@@ -32,6 +32,7 @@ from physgate.reviewers.packet import (
     build_packet,
     check_parts,
     joined_parts,
+    listed_paths,
 )
 from physgate.reviewers.rubric import Rubric, evaluation_words
 from physgate.series.reader import record_path
@@ -180,6 +181,19 @@ def test_the_listing_is_required_reading_and_its_digest_is_on_the_record(
     assert Packet.model_validate_json((read.parent / "packet.json").read_text()) == packet
     check_parts(packet, repo=attempt.worktree, base_commit=attempt.spec_commit)
     assert str(read / packet.series_parts[0].name) in review_prompt("control", packet)
+
+
+def test_the_file_listing_names_every_series_part_and_is_read_first(
+    tmp_path: Path, run_dir: Path
+) -> None:
+    packet, read, attempt = _with_series(tmp_path, run_dir)
+    listed = listed_paths(joined_parts(read, packet.files_parts).decode())
+    for part in packet.series_parts:
+        assert str(read / part.name) in listed
+    assert packet.required_reading[0] == str(read / packet.files_parts[0].name)
+    (read / packet.series_parts[0].name).unlink()
+    with pytest.raises(PacketError, match="series part is missing"):
+        check_parts(packet, repo=attempt.worktree, base_commit=attempt.spec_commit)
 
 
 def test_text_the_role_wrote_is_quoted_as_data(tmp_path: Path, run_dir: Path) -> None:

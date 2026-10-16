@@ -43,8 +43,8 @@ refused when the packet is built.
 
 What a review must read in full before it may answer is listed in
 :attr:`Packet.required_reading`, and the hook layer refuses the verdict until it
-has: every part of the transcript, of the diff and of the series listing, the rubric,
-the issued specification and the library files.
+has: every part of the file listing, of the transcript, of the diff and of the series
+listing, the rubric, the issued specification and the library files.
 
 The packet's own record (``packet.json``) sits beside ``read/``, outside it: it
 holds every digest above and the observable indicators the trajectory shows
