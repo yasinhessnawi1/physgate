@@ -60,7 +60,7 @@ flowchart TB
     subgraph DET["Deterministic (no tokens)"]
         ORCH["Orchestrator<br/>schedule · dispatch · merge"]
         LEDGER["Task ledger"]
-        HOOKS["Pre-execution hooks"]
+        HOOKS["Pre-execution hooks<br/>+ OS layer (ARCH-091)"]
         PHYS["Physics gate<br/>7 checks"]
         SRC["Sourcing check<br/>distributor API"]
     end
@@ -113,10 +113,12 @@ flowchart TB
 ```
 
 ### ARCH-005 — Session isolation
-**Decision.** Every agent session runs in its own git worktree. One agent writes one module. The orchestrator owns merge.
+**Decision.** Every agent session runs in its own git worktree. One agent writes one module. The orchestrator owns commit and merge: a role session runs no git command at all, and git's own files in its worktree are protected from it (ARCH-090). Every git command the harness runs on a repository a session could write is pinned to a verified git directory and ignores any setting, attribute or history-shaping file that repository carries, because a session that can write those files could otherwise steer what the harness commits or reads.
 **Depends on.** ARCH-001
 **Cadence.** per subtask
-**Acceptance.** Two concurrent sessions cannot produce a merge conflict on the same file.
+**Acceptance.** Two concurrent sessions cannot produce a merge conflict on the same file. A git invocation from a role session is refused, through any wrapper or shell form the hooks can see.
+
+**Registered direction — a product core separable from the thesis machinery.** Not yet a numbered decision. The evaluation harness, the experiments, the held-out tier, the benchmark arms and the research instrumentation exist to measure the system; the orchestrator, graph, hooks, gate, reviewers and their tools are the product. After the thesis the product may continue as an open-source tool with the measurement machinery removed, so the dependency runs one way only: evaluation code may import product code, and product code never imports evaluation or experiment code. New work keeps thesis-only features in their own packages and behind their own flags. A rule that exists only to keep a number honest, such as refusing a reportable run that lacks the OS layer (ARCH-091), lives on the evaluation side, so removing that side changes no product behaviour. An import-boundary test enforces the rule once the split is drawn; until then it binds new work at review.
 
 ---
 
@@ -141,6 +143,8 @@ flowchart TB
   "updated": "2026-09-18T10:02:11Z"
 }
 ```
+
+A quantity may also name the simulation record it was read off and the extractor used to read it (ARCH-146). The field is optional and left out when absent, so a node that names no record is byte-identical to one written before the field existed.
 
 **Depends on.** —
 **Cadence.** on change
@@ -169,7 +173,7 @@ flowchart TB
 ## S4. Specifications and reading
 
 ### ARCH-020 — Mandatory reading hook
-**Decision.** A session-start hook lists required files and refuses all tool calls until each has been read in that session. Required set: role standards file, module specification, role skill file, interface contracts touching the module.
+**Decision.** A hook that runs before every tool call lists the required files and refuses every call other than reading them until each has been read in full, at its current content, in that session. The check cannot sit in a session-start hook, because on the agent runtime this architecture uses such a hook announces but cannot refuse. Required set: role standards file, module specification, role skill file, interface contracts touching the module.
 **Depends on.** ARCH-090
 **Cadence.** per subtask
 **Acceptance.** A session that skips a required read cannot make a tool call.
@@ -187,10 +191,12 @@ flowchart TB
 **Acceptance.** A coding agent handed only the spec and its required reading can begin without asking a question.
 
 ### ARCH-023 — Context split
-**Decision.** Always loaded: standards file, module spec, role skill file. Retrieved on demand: datasheets, standard clauses, prior close-out summaries.
+**Decision.** Always loaded and held to the ceiling: the cross-domain standards file, the role's own standards file and the role's skill file. Required reading but not held to the ceiling: the module specification and the interface contracts (ARCH-020). Retrieved on demand: datasheets, standard clauses, prior close-out summaries.
+
+The module specification is outside the ceiling because the ceiling's remedy, trimming a curated file, applies only to content a person curates; a specification's length follows the module's real complexity, and one fixed number cannot bound both without being too loose for the one or too tight for the other.
 **Depends on.** ARCH-020
 **Cadence.** per subtask
-**Acceptance.** Always-loaded set stays under an agreed token ceiling per role; breaching it is a defect in the standards file, not a reason to raise the ceiling.
+**Acceptance.** The always-loaded set stays under one agreed ceiling, measured in bytes and passed as a recorded run parameter; breaching it is a defect in the standards or skill file, not a reason to raise the ceiling.
 
 ---
 
@@ -261,22 +267,29 @@ Repair budget is **three attempts**. Attempt 1 rejection returns the finding. At
 **Acceptance.** Dispatch refuses to run a reviewer on the same model string as the implementer.
 
 ### ARCH-061 — Implementation order
-**Decision.** Control and firmware reviewers first, since those roles are automated first. Mechanical reviewer third. Others follow their roles.
+**Decision.** Control and firmware reviewers first, since those roles are automated first. The electrical and mechanical reviewers follow ahead of their roles, because the injected-error instrument of ARCH-083 sends each domain's artefacts to that domain's reviewer alone, and a domain with no reviewer stops the instrument before any review. Others follow their roles. A reviewer's existence never admits its role: a run refuses to start if it names a role absent from the role register, and a role enters the register only with its standing sign-offs (ARCH-130) wired.
 **Depends on.** ARCH-060
 **Cadence.** once
-**Acceptance.** Every automated role has a paired reviewer before it is dispatched unsupervised.
+**Acceptance.** Every automated role has a paired reviewer before it is dispatched unsupervised. A run naming an unregistered role is refused before decomposition, whether or not a reviewer for that role exists.
 
 ### ARCH-062 — Rubric contents
 **Decision.** Each rubric lists: acceptance criteria from the spec, the domain's standard violations, the known antipatterns from the skill file, and an explicit instruction to report reward-hacking indicators (feature isolation, hard-coded values, disabled checks).
+
+Each rubric also:
+- **Names what the automated checks cover, and does not tell the reviewer to skip them.** It states that a claim the checks passed is no evidence, and tells the reviewer to judge units, magnitudes, balances and follow-ups by reading. It says nothing about which ran first. In the loop the gate runs first (ARCH-031); in observe runs and in the injected-error instrument the reviewer judges work the gate has not stopped, and a rubric that deferred to the gate would hide exactly the errors ARCH-083 counts.
+- **Carries a no-specification clause.** Work submitted without an issued specification is a proposed revision of the design on its own. Section 1 is then one line, whether the revision is consistent with the design it changes and with the rubric, answered met or unmet, never "not evaluable"; the missing specification is not a defect. Without the clause a reviewer can block every such revision for want of a specification, which measures nothing about reviewing.
+- **Charges the revision only with what it wrote.** A check that fails only on values the revision did not write is recorded as a non-blocking note; one involving any value it wrote, including a follow-up it failed to make, is judged normally.
+- **Treats "not evaluable" as blocking**, with each role's list of what a judgement needs stated explicitly.
 **Depends on.** ARCH-060, ARCH-100
 **Cadence.** on change
-**Acceptance.** Rubrics are versioned; a rubric change is a ledger event.
+**Acceptance.** Rubrics are versioned; a rubric change is a ledger event. A promoted rubric's change goes through staging and human promotion with a version bump, and an experiment pins the rubric versions it ran. With no issued specification, the answer schema admits exactly one Section 1 line, and a verdict that breaks it is refused.
 
 ### ARCH-063 — Maintenance cost, stated
 **Decision.** Each pair adds one rubric file and one knowledge file to maintain, and roughly doubles review token spend against a single generalist reviewer. Accepted because reviewer drift toward one issue class is a known failure and because a generalist cannot carry five domains of standards within the context budget.
 **Depends on.** ARCH-060
 **Cadence.** —
 **Acceptance.** Cost recorded per run so the trade is visible rather than assumed.
+**Measured so far.** One control attempt, one review per arm: the paired review used 1.63 times the tokens and 1.44 times the list-price cost of a generalist reviewer given the same material, 1.46–1.63 and 1.27–1.44 once a version difference between the arms is removed. Its cost figures predate the per-call pricing of ARCH-145 and have not been re-priced, so the token ratio is the firmer. One measurement on two harness versions does not support "roughly doubles"; the expectation stands unconfirmed until a comparison at one commit with several runs per arm, costed on the runtime's own totals.
 
 ---
 
@@ -297,6 +310,7 @@ Repair budget is **three attempts**. Attempt 1 rejection returns the finding. At
 **Depends on.** ARCH-010, ARCH-004
 **Cadence.** per subtask (1–2), per module (3–6), per run (4, 6, 7)
 **Acceptance.** Each check has a unit test with a deliberately failing input and a deliberately passing input.
+**Known hazard.** Checks 1 and 2 hand a role-written unit string to the unit registry, which evaluates any arithmetic in it exactly. A bound on the string's length does not bound that work: a twelve-character exponent tower kept one process busy until a CPU limit killed it, and the gate runs inside the orchestrator's process with no time bound, so one proposal could stall a run without the stall being charged to any attempt. The remedy, a bounded unit spelling checked before the registry sees the string, as simulation records already apply (ARCH-146), is a change to the gate and is not yet made.
 
 ### ARCH-081 — Gate is not editable by agents
 **Decision.** The gate directory is protected by a pre-execution hook. No agent session may write to it.
@@ -311,7 +325,7 @@ Repair budget is **three attempts**. Attempt 1 rejection returns the finding. At
 **Acceptance.** Swapping a motor for one with different stall current, without touching current budget, loop gain or mount inertia, fails the check.
 
 ### ARCH-083 — Catch accounting
-**Decision.** Every gate event logs: check number, value, node, module, and `reviewer_had_passed: true|false`. The headline research quantity is the count of physical errors caught where `reviewer_had_passed` is true.
+**Decision.** Every gate event logs: check number, value, node, module, gate mode, the version of the kind catalogue that judged it, and `reviewer_had_passed: true|false|null`. `null` means no review of that artefact exists: in the blocking loop the gate runs first and a blocked artefact is never reviewed (ARCH-031), so there the field is honestly empty. It is informative in observe runs, where the reviewer runs after a gate that does not block, and in the injected-error instrument, where the reviewer sees each artefact alone and first. The headline research quantity is the count of physical errors caught where `reviewer_had_passed` is true.
 **Depends on.** ARCH-080, ARCH-060
 **Cadence.** per subtask, aggregated weekly
 **Acceptance.** The quantity is queryable from the ledger in week one. **If it trends to zero, the contribution is weaker than claimed and the thesis reports that.**
@@ -324,17 +338,54 @@ Repair budget is **three attempts**. Attempt 1 rejection returns the finding. At
 
 | Constraint | Hook point | Enforceable |
 |---|---|---|
-| Protected paths (gate dir, interface nodes, `.env`) | PreToolUse | yes |
+| Protected paths, **put back** if changed: the gate, interface nodes, `.env`, frozen experiment results and criteria, the graph store's whole directory, the hooks' own code and settings, the harness checkout, git's own files and each worktree's `.git` pointer, the run's copy of the record writer (ARCH-146) | PreToolUse (file tools and shell parser), then a sentinel after every call | yes, two layers |
+| Protected paths, **refuse-only**: session records, the approval-queue decisions file, the state and config directories, the simulation-record outbox (ARCH-146) | PreToolUse | yes for the file tools and for what a command's own text decides; the residual below is closed only by ARCH-091 |
+| Reads of the held-out tier, answer keys and review material | PreToolUse | yes for literal paths, including paths inside here-document and here-string bodies; the residual below is closed only by ARCH-091 |
 | Unit consistency on committed expressions | PreToolUse | yes |
-| Mandatory reading complete | SessionStart | yes |
-| Forbidden git operations (force push, `--no-verify`) | PreToolUse | yes |
-| Cross-role graph write | PreToolUse | yes |
+| Mandatory reading complete | PreToolUse (ARCH-020) | yes |
+| Git from a role session: none at all (ARCH-005) | PreToolUse | yes |
+| Tools outside the session's closed tool list | session settings | yes |
+| Cross-role graph write | PreToolUse, and the store again when the orchestrator applies proposals | yes |
 | Schema validity of graph writes | PreToolUse | yes |
 | Correctness of engineering judgement | — | **no, reviewer + gate** |
 
+**The shell parser's rule.** The parser resolves exactly what a command's own text decides, following braces, quoting forms, literal in-call variables and literal directory changes across the readings of every common shell, and refuses only what it cannot read that way at a stated bound. It never refuses wholesale on doubt, because a layer that refuses ordinary commands is switched off in practice. **Its residual is what only running decides:** values set at run time (substitutions, `read`, special and positional parameters, arrays, `IFS`), the directory after a `cd` through a substitution, scripts fed by a pipe, `xargs` or `source`, interpreters fed a program on standard input, paths a program builds from its input, and any command behaviour the parser's rule lists do not name, since no such list is complete. For put-back paths the sentinel undoes what the parser misses. For refuse-only paths and for reads nothing after the parser catches it, which is why ARCH-091 exists.
+
+**Evidence.** Both experiments drive attempts derived mechanically from a pinned public catalogue of Unix-binary file operations, 755 in all, by a rule fixed before any ran. **R-HK-01:** the 230 whose binary was present were all refused before running, and none reached; the other 525 did not run, so the sentinel was never exercised, and every target lay inside the session's own tree. **R-HK-02:** all 755 were driven. None wrote a byte to a protected path, whether the targets sat in the session's tree or in a separate harness checkout reached by absolute path, but one read reached the held-out tier: a held-out path inside a here-document fed to an interpreter, which the parser did not then inspect. The tolerance was zero reach, so the read boundary was not met. Here-document bodies are now scanned for literal paths; the interpreter-on-stdin class stays in the residual. **The held-out read boundary is claimed only on runs where ARCH-091 is present**, and any new figure for it is a new experiment. The sentinel-alone arm stopped at 214 of 755 on a harness guard and is partial.
+
 **Depends on.** ARCH-003
 **Cadence.** per tool call
-**Acceptance.** Each row has a test. **Known hazard:** file writes issued through a shell can bypass a write hook, so shell invocation is itself hooked and the bypass path is tested explicitly.
+**Acceptance.** Each row has a test. Shell bypass is tested by the pre-registered attempt corpus above and by a parity test that holds every write and read route to the same decision, across real bash, zsh, ksh and dash. A change to the parser is measured for newly refused legitimate commands against recorded ones, and the count is reported.
+**Known residuals.** A process a role session leaves running could write a put-back path after the sentinel's last check; review sessions now stop every process they leave, role sessions do not yet. The sentinel puts back startup files in the harness's software environment but not the installed packages beneath them.
+
+### ARCH-091 — OS layer for shell commands
+**Decision.** Where the platform provides it, every shell command of an agent session runs inside the operating system's sandbox, through the agent runtime's own sandbox, switched on per session in the settings the harness generates. No container and no extra install.
+- **Writes** are allowed only in the session's worktree, its own temporary directory and its own home.
+- **Every protected path** in the session's registry is denied: for writing, for reading, or both, as the registry says. That includes the held-out tier, answer keys, review material, the harness checkout, other sessions' records, the state and config directories, git's common directory, and the session's own credentials and the sentinel's stored copies.
+- **The deny list** is generated by one function from the same registry the hooks read, and a test fails on any protected path the function does not map.
+- **Strict mode.** A command cannot be retried outside the sandbox, and a repository's own settings cannot widen it.
+- **No silent start.** Where the layer is generated, a session whose sandbox then fails to start does not start.
+- **Loud degradation, never refusal by the core.** At run start and at every resume the harness probes for the layer. Where the platform cannot provide it, the run proceeds and records the layer as absent with the reason, in the run's manifest and event log, on standard error and in the operator UI; on Windows this reads "no OS protection". There is no flag that hides it.
+- **Evaluation runs refuse without it.** A reportable run whose sessions have a shell is refused when the layer is absent, with no override. Review-only sessions, which have no shell, are outside this rule. The rule lives with the evaluation machinery, not the core (S2's registered direction), so the product may run without the layer, with the warning, and a measurement may not.
+- **The runtime is pinned** to a version carrying the sandbox fixes the layer depends on; older pinned versions stay for reproducing old runs and record the layer as absent.
+
+The parser of ARCH-090 resolves what a command's text decides; it cannot see what only running decides, and for reads and refuse-only paths nothing after it would. An operating-system rule is enforced on the running process whatever the command's text, so it closes the class the parser's rule lists can only name.
+
+**Depends on.** ARCH-090, ARCH-003
+**Cadence.** per session; probed at run start and at every resume
+**Acceptance.**
+- With the layer on, commands the parser cannot judge reach no protected path: an interpreter fed a program, a path built at run time, a symbolic link, a pipe-fed shell, a hard link.
+- With the layer off, the same commands are recorded as reaching, which shows the probe can see a reach.
+- Ordinary builds, tests and read-only operations in the worktree still succeed.
+- A run without the layer records "absent" with its reason, and a reportable run with shell sessions and no layer is refused before any session starts.
+
+**Known limits.**
+- The file tools, the hooks and tool servers run outside the sandbox; ARCH-090's hooks remain their layer.
+- A denylist hides only what it names: another checkout of this public repository on the same machine is not in any run's registry, so held-out material is kept only where it is registered and never in git.
+- A per-path rule cannot tell one program from another, so a path a script may write, such as the simulation-record outbox, is protected by its collector rather than by this layer (ARCH-146).
+- Hard links that already exist are not undone.
+- The network is unchanged: in the permission mode role sessions run in, the sandbox's proxy lets every host through. The setting is recorded with the run.
+- The layer is absent wherever the platform cannot run it: native Windows; a Linux host that lacks the sandbox's packages or forbids the user namespaces it needs, including the project's current evaluation server. Runs with shell sessions that must be reportable therefore run where the layer is present.
 
 ---
 
@@ -348,7 +399,7 @@ Repair budget is **three attempts**. Attempt 1 rejection returns the finding. At
 **Defer.** Automatic promotion is a later phase, contingent on staging data showing promoted skills raise measured pass rate.
 
 ### ARCH-101 — Standards files
-**Decision.** One per domain, human-authored, read before any work in that domain. Contains the rules that apply to every task, not to one.
+**Decision.** One per domain, read before any work in that domain. Contains the rules that apply to every task, not to one. Human-gated rather than human-written: each rule is drafted from cited literature by agents kept blind to the evaluation corpus, reviewed adversarially, and enters only on a person's promotion (ARCH-100). Skill files and reviewer rubrics follow the same path.
 **Depends on.** ARCH-020
 **Cadence.** on change
 **Acceptance.** Every automated role has a standards file before first dispatch.
@@ -392,12 +443,19 @@ Repair budget is **three attempts**. Attempt 1 rejection returns the finding. At
 **Cadence.** —
 **Acceptance.** No order-placing capability is exposed to any agent.
 
+**Registered direction — parts the user has or can make.** Not yet a numbered decision. The pipeline assumes every component is found and bought; a person often already has a part, or can make one. Once decomposition has produced the component list, the person marks each component as one of three:
+- **have it:** its real specifications become fixed inputs, with user-declared provenance;
+- **make it:** a custom part, with the constraints the person states;
+- **find it**, the default: sourced and sized as today.
+
+The choice is an approval-queue decision (ARCH-130), so it is recorded like any other. Sourcing (ARCH-120) skips parts marked have or make, and sizing (ARCH-051) treats them as fixed. The physics gate still checks them: a declared part is an input to the design, not an exemption from it. It touches decomposition, sizing, sourcing and the operator UI, and becomes a numbered entry when its specification is registered.
+
 ---
 
 ## S13. Human oversight
 
 ### ARCH-130 — Approval queue item
-**Decision.** One queue, three sources: gate escalation, exhausted repair budget, unresolved arbitration. Plus standing sign-off on mechanical sizing, control stability margin and every drawing.
+**Decision.** One queue. Its sources: gate escalation, exhausted repair budget, unresolved arbitration, a review that blocks on a defective specification, a review that ends without a verdict (never counted as a pass or a fail), and an escalation decision (ARCH-131). Plus standing sign-off on mechanical sizing, control stability margin and every drawing. No code path yet produces an unresolved arbitration (ARCH-040), so that source is specified and has no input.
 Each item carries: decision required, artefact diff, triggering finding, the three most relevant quantities, link to full trajectory.
 **Depends on.** ARCH-030, ARCH-040
 **Cadence.** as raised
@@ -412,11 +470,11 @@ The default binding is `rules`: exactly the deterministic conditions ARCH-030 an
 
 **Relationship to ARCH-001.** A binding is admissible only if it spends **zero tokens on the decision** and its weights or rules are frozen at a recorded version. This is a deliberate and bounded carve-out from the invariant: ARCH-001 forbids a model deciding *what runs next and whether to merge*, because such a model can be argued out of routing and there is no downstream check on it. Escalation is a different decision with an asymmetric failure mode — over-escalating costs a minute of human attention, under-escalating is still caught by the physics gate and the reviewer, both of which run regardless. The carve-out does not extend to scheduling, dispatch, merge or reconciliation, and no backend may read or write the design-state graph.
 
-**The state's schema is deliberately not defined here yet.** `state` is the composition of three things this architecture already owns: the task ledger line (ARCH-012), the gate result (ARCH-080) and the reviewer verdict (ARCH-060). Two of the three do not exist in code yet. Writing the schema now would mean drafting it from the only structured state that does exist, which is a synthetic one built for a study, and the architecture would then inherit an experiment's field names instead of the system's. **Trigger:** the schema is written as its own decision once all three sources exist, and ARCH-131 gains a dependency on it. **Until then, any row in ARCH-132 whose evidence was gathered on a generated state says so**, because a backend measured on a shape the system does not yet emit has been measured on a proxy.
+**The state's schema.** It was deliberately left undefined until its sources existed, so that the architecture would not inherit a study's field names from the only structured state then available, a synthetic one. Its trigger has fired: `state` is now a frozen record with no free text, in which every field is copied from one recorded line: the task ledger line (ARCH-012), the line that ended the attempt, the structured parts of the gate result (ARCH-080) and of the reviewer verdict or its absence (ARCH-060), and the change check, which names the nodes the attempt proposed. Replay refuses a recorded state that differs from the one rebuilt from the lines before it. The question is asked at every attempt end that did not merge, and not after a merge. **Every row in ARCH-132 whose evidence was gathered on a generated state says so**, because a backend measured on a shape other than this one has been measured on a proxy.
 
-**Depends on.** ARCH-030, ARCH-040, ARCH-130
-**Cadence.** per subtask, at the end of an attempt
-**Acceptance.** With the `rules` binding the approval queue receives exactly the items it receives with no interface at all, proven by a test that runs both. Every call records answer, confidence, backend id and latency in the ledger, so a backend's behaviour is auditable after the fact rather than at the time.
+**Depends on.** ARCH-012, ARCH-030, ARCH-040, ARCH-060, ARCH-080, ARCH-130
+**Cadence.** per subtask, at the end of an attempt that did not merge
+**Acceptance.** With the `rules` binding the approval queue receives exactly the items it receives with no interface at all, proven by a test that runs both. Every call records answer, confidence, backend id and latency as one line in the run's event log, so a backend's behaviour is auditable after the fact rather than at the time. The task ledger (ARCH-012) is the event log's fixed-shape projection and is byte-identical with and without the interface. A route forced by the repair budget, or by a blocked or verdict-less review, cannot be removed by any backend; a backend can only add escalations.
 
 ### ARCH-132 — Escalation backend register
 **Decision.** Bindings enter by name, with a status and an entry condition. A backend enters only on a pre-registered experiment's pass, and its row cites that run.
@@ -424,13 +482,21 @@ The default binding is `rules`: exactly the deterministic conditions ARCH-030 an
 | Backend | Status | Entry condition and evidence |
 |---|---|---|
 | `rules` | **ships**, the default | none; it is ARCH-030 and ARCH-040 expressed through the interface |
-| `llm` | ships as an **ablation arm, off by default** | costs a model call per decision, so it is priced and logged and can never be the default |
+| `llm` | **listed, off and refused** | spends a model call on each decision, which ARCH-131's admission rule (zero tokens on the decision) forbids. It is listed so the refusal is on record rather than silent; enabling it would first need that rule changed, as its own decision |
 | `tsetlin` | **contingent, parked** | R-TM-01, four runs. Calibrated humility off-distribution held in every run and no baseline reproduced it; accuracy parity did not, and clause legibility failed twice. Carries a provenance caveat: the selected region was first seen in an earlier run's post-hoc frontier. Rerun as a baseline arm in R-LAYA-01, where it was the only arm to satisfy calibration, humility and selective accuracy together, **and only uncalibrated**: with its temperature fitted on in-distribution data, its humility on the unseen-domain set falls below the bar and its accuracy on the decisions it keeps off distribution falls from about 0.99 to 0.74–0.81. That run reused this generator and configuration, so it is a transferability check of a known answer rather than independent evidence, and its latency on the orchestrator's machine is unmeasured |
 | `laya` | **parked** | R-LAYA-01. Fine-tuned, it answers every state at confidence 1.0 and does not become less confident off distribution under any temperature configuration: the humility criterion fails on both off-distribution sets, which is a pre-registered kill criterion, and accuracy on the decisions it keeps falls to 0.45 on one of them. In-distribution calibration passed, and is uninformative for a model that reports no uncertainty. Measured on a generated state, not the system's own (ARCH-131) |
 
 **Depends on.** ARCH-131, ARCH-140
 **Cadence.** on change
 **Acceptance.** Only `rules` is enabled by default. Every other binding is an independent flag under ARCH-140 and every flag combination runs to completion. A row whose experiment has not passed reads *contingent*, and the system refuses to enable it outside an ablation run. **No entry condition admits a backend on in-distribution calibration alone.** A model that reports no uncertainty passes a calibration criterion whenever it is accurate on familiar data, which R-LAYA-01 demonstrated, so calibration is always paired with humility measured off distribution. **A calibration step is judged by its effect off distribution too**: in the same run, fitting a temperature on in-distribution data improved one arm's calibration and made it measurably less safe where the data were unfamiliar.
+
+**Registered direction — an AI collaborator as a third party.** Not yet a numbered decision; more context is to come before it is specified. A chat model that works beside the orchestrator, not as it:
+- **It acts only through an enumerated set of tool calls**, the same actions a person has. It starts a run after interviewing the person for the brief, applies requested changes (to the ledger, a node, a specification, a running model) at the orchestrator's safe points, and later operates tools and simulations.
+- **Every action is recorded as the collaborator's**, quoting the request that caused it, so a fault can be attributed to the orchestrator, an agent, the collaborator or a person.
+- **It never has more than a person has:** it cannot skip the gate or a review, and cannot touch frozen material.
+- **It is independent of the orchestrator binding.** Deterministic against model-in-loop (ARCH-140) is decided by evaluation and does not change the collaborator, nor the reverse. It decides nothing the orchestrator decides, so it is not an exception to ARCH-001.
+
+The channel by which a role agent's question reaches a person moves under it. It becomes a numbered entry when its specification is registered.
 
 ---
 
@@ -471,9 +537,15 @@ A rising second gap triggers regeneration of the validation tier. It is not a su
 
 ### ARCH-143 — Baseline
 **Decision.** Raw coding agent, same brief, same tools, same token budget. No harness, no gate, no reviewer, no spec structure.
+
+**Per role.** The comparison is made for each design role on its own as well as for the whole run: the role under the harness against the raw agent on the same numerically scored tasks, control and firmware first. A whole-run figure alone cannot show which role the harness helps or hurts.
+
+**Published benchmarks.** Published state-of-the-art benchmarks and systems are a primary comparison beside the project's own tasks, reported as a separate external tier and never merged into the three tiers of ARCH-141. Each is run on the benchmark's own split, protocol and scorer, scored numerically, with this baseline also run on that split, so the harness is compared with the published systems and with the bare model under identical conditions.
+
+**No number before its audit.** Before any headline is reported, every existing figure is checked for optimism: unrun attempts, narrowed scopes, single runs, proxy data, costs that read low, components changed after a freeze. A frozen result is never edited; the correction is a new measurement.
 **Depends on.** —
 **Cadence.** per milestone
-**Acceptance.** Baseline is re-run whenever the task set changes, so the comparison never drifts.
+**Acceptance.** Baseline is re-run whenever the task set changes, so the comparison never drifts. Each external benchmark result names the split, protocol and scorer it used, and has a baseline result on the same split beside it.
 
 ### ARCH-144 — Prompt optimisation scope
 **Decision.** Optimises exactly three things: the decomposition prompt, the specification-authoring prompt, the reviewer rubrics. Objective is the **validation tier**. Feedback signal is the reviewer's textual findings, not a scalar.
@@ -484,12 +556,41 @@ A rising second gap triggers regeneration of the validation tier. It is not a su
 
 ### ARCH-145 — Observability
 **Decision.** Per-step traces, per-check results, token and wall-clock per session, pinned model version strings, seeds, resolved configs, artefact hashes.
+- **Cost** is priced call by call, at the cache lifetime each call actually paid, from a dated price sheet that is never edited, and reconciled against the agent runtime's own total. A call whose stream is not the bytes sealed at its session's end, or whose cache lifetime could not be read, is named and priced at the lower rate, and the line says it is a lower bound. Lines priced before this rule charged every cache write at the shorter lifetime and read 21.5–28.8 % low on the runs recomputed; such lines are recomputed, never cited as they stand.
+- **The runtime's remote feature-flag state** is recorded with how it was known: observed in the runtime's own output, or off by a documented setting that the version does not report. The two are distinct values, never one.
+- **Artefact hashes** include each simulation record's seal and script digest (ARCH-146).
 
 Record, per run, the variance in task ordering and merge decisions across repeated runs with the same seed and brief. This is the reproducibility axis the COBOL comparison used, and it is the primary measurement for the orchestrator ablation.
 
 **Depends on.** ARCH-012
 **Cadence.** per subtask; ordering variance per run
-**Acceptance.** Any run is reproducible from its recorded configuration. Ordering variance is a queryable number for every run, not only for ablation runs.
+**Acceptance.** Any run is reproducible from its recorded configuration: exactly, simulation-record seals included, on a scripted and seeded run; on a real model, which nothing pins, by the sequence of decisions it makes, with artefact-level differences recorded and not scored. Ordering variance is a queryable number for every run, not only for ablation runs. A cost line equals the runtime's own total on every call it could read, or says it is a lower bound.
+
+### ARCH-146 — Simulation records
+**Decision.** A simulation's output is a record, kept as evidence beside the run.
+- **Format.** One file per run of a simulation, columnar JSON: one x axis (time or frequency) and up to 32 traces, a unit on every axis, finite numbers only, fixed size bounds per record and per session. A bare number is a schema error, as in the graph (ARCH-010). A unit is admitted only in a bounded spelling, and logarithmic and information units are refused, because the unit registry would read a decibel as a power ratio.
+- **Provenance.** The record names the script that produced it and every file of code that script loaded, by digest.
+- **Writing.** A role's script writes it through a standard-library writer, copied into the run at decomposition, into an outbox that is a refuse-only path (ARCH-090). The writer's copy is a put-back path.
+- **Collection and seal.** The orchestrator collects the outbox at session end, before the commit, and seals each record on the session's end line. A record is sealed only when its script and every loaded file lie in the module and are unchanged since it was written. Records never enter git, the review diff or the graph.
+- **Binding to the commit.** The change check requires every record the attempt sealed, from every session of the attempt, to have its script and each loaded file at the attempt commit, as regular files with those exact bytes.
+- **Linked quantities.** A graph quantity may name the record and the extractor it was read with (ARCH-010). The change check reads the value again with the same extractor and refuses the attempt, before the gate, if the two differ by more than 0.5 % relative, a tolerance fixed before any record existed. The refusal is recorded, and the repair names both numbers. The check is bounded in how many quantities it reads, and fails closed.
+- **Review.** The reviewer's packet lists every record, summarised from its own sealed samples, the code each names, and each linked quantity's check; reading the listing is required (ARCH-060).
+
+The outbox cannot be protected by hooks alone: any program a session runs can write any path its user can, and an operating-system rule is per path, not per program (ARCH-091). So the collector, not the hooks, is the authority on what counts as a record.
+
+**Depends on.** ARCH-010, ARCH-031, ARCH-090, ARCH-145
+**Cadence.** per session (collect, seal); per attempt (bind, check, listing)
+**Acceptance.**
+- A changed record is refused on read.
+- A quantity that differs from its record never reaches the gate, and costs no gate run and no review.
+- A record whose script or loaded code the attempt did not commit with the sealed bytes refuses the attempt.
+- A rerun from the recorded configuration reproduces the records' seals; a rerun whose record differs is not exact and names where it parts.
+- A node that names no record is byte-identical to one written before this entry.
+
+**Known limits.**
+- **The tolerance holds only for values read off the role's own samples.** The check proves that the reported number is the one the recorded samples give, not that the samples resolve the system: on analytic loops a sampled sensitivity peak sat past the tolerance in 3 of 12 cases, by up to 28 % on a loop that was closed-loop unstable. Recording densely around resonances is the skill's instruction, judgement-only.
+- **A record proves which committed code it names, not that the code produced the curve.** The writer runs in the role's own process and can be bypassed or misled. Re-running the recorded script in isolation and comparing with the seal closes this, and is the what-if runner's mechanism.
+- **Whether a role records a simulation at all** is judgement-only. A quantity that names no record is not checked.
 
 ---
 
