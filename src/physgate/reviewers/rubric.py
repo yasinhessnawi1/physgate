@@ -85,8 +85,14 @@ NotEvaluableNeeds = Literal["blocking", "defect"]
 #: - control: a criterion that is not evaluable is a specification defect, blocking when
 #:   the criterion is on its safety-critical list and non-blocking otherwise (rules 3 and
 #:   7, and A6).
+#: - electrical and mechanical: always blocking, as their verdict policies state.
 #: A role with no rubric rule of its own takes the stricter: blocking.
-NOT_EVALUABLE_NEEDS: dict[str, NotEvaluableNeeds] = {"control": "defect", "firmware": "blocking"}
+NOT_EVALUABLE_NEEDS: dict[str, NotEvaluableNeeds] = {
+    "control": "defect",
+    "firmware": "blocking",
+    "electrical": "blocking",
+    "mechanical": "blocking",
+}
 
 
 def not_evaluable_needs(role: str) -> NotEvaluableNeeds:

@@ -17,7 +17,7 @@ from physgate.reviewers.rubric import evaluation_words
 
 LIBRARY = Path("knowledge")
 #: The roles that have a paired reviewer.
-REVIEWED = ("control", "firmware")
+REVIEWED = ("control", "firmware", "electrical", "mechanical")
 #: What is found today, file by file: nothing.
 PINNED: dict[str, list[str]] = {}
 
@@ -30,7 +30,7 @@ def _shown() -> list[Path]:
 
 def test_the_files_a_reviewer_is_shown_exist() -> None:
     shown = _shown()
-    assert len(shown) >= 5, shown
+    assert len(shown) >= 13, shown
     assert all(p.is_file() for p in shown)
 
 
