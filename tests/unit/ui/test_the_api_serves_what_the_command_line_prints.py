@@ -140,6 +140,31 @@ def test_the_api_s_cost_is_the_cli_s_line(world: dict[str, Path], date: str) -> 
     assert expected["calls"] and expected["reconciliation"] is not None
 
 
+def test_a_stream_changed_after_its_seal_is_named_by_the_api_as_by_the_cli(
+    world: dict[str, Path], tmp_path: Path
+) -> None:
+    """The cost route holds each stream to its session's seal, as the command does."""
+    root = _copy(world, tmp_path, "run-on")
+    run_dir = root / "run-on"
+    ended = [
+        json.loads(line)
+        for line in (run_dir / "events.jsonl").read_text().splitlines()
+        if '"session_ended"' in line
+    ]
+    session = next(e["session_id"] for e in ended if e.get("trajectory_seal"))
+    stream = run_dir / "sessions" / session / "stdout.jsonl"
+    # A line after the runtime's result changes no figure read from it, only the seal.
+    stream.write_bytes(stream.read_bytes() + b'{"type": "system"}\n')
+    printed = _cli("cost", "--run-dir", str(run_dir), "--prices", "2026-10-16")
+    expected = json.loads(printed.stdout)
+    for added_by_the_command in ("basis_label", "appended_to"):
+        expected.pop(added_by_the_command)
+    status, served = _api(root, world["ui"], "/api/runs/0/run-on/cost/2026-10-16")
+    assert status == 200
+    assert expected["reconciliation"]["seal_broken"] == [f"session:{session}"]
+    assert json.loads(served) == expected
+
+
 def test_an_unrecorded_price_sheet_is_refused(world: dict[str, Path]) -> None:
     status, served = _api(world["root"], world["ui"], "/api/runs/0/run-on/cost/2026-01-01")
     assert status == 422
