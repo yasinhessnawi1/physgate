@@ -83,7 +83,7 @@ class Redirect:
     the command reads them on its standard input; ``None`` for any other redirection.
     """
 
-    __slots__ = ("alternatives", "body", "op", "target")
+    __slots__ = ("alternatives", "body", "expands", "op", "target")
 
     def __init__(
         self,
@@ -97,6 +97,9 @@ class Redirect:
         self.target = target
         self.alternatives = alternatives
         self.body = body
+        #: True for a here-document whose delimiter is unquoted, and for a here-string:
+        #: the shell expands variables in that text before the program reads it.
+        self.expands = op == "<<<"
 
     def __eq__(self, other: object) -> bool:
         """Equal when operator and target are."""
@@ -709,6 +712,7 @@ def _read_heredoc_bodies(
                 break
             lines.append(line)
         redirect.body = "".join(line + "\n" for line in lines)
+        redirect.expands = expands
         if expands:
             _parse_substitutions(redirect.body, out, depth)
     return i

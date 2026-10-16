@@ -411,6 +411,26 @@ def _first_protected(
     return None
 
 
+def _fed_words(text: str, expands: bool, env: _Env | None, cwd: str) -> Iterator[tuple[str, bool]]:
+    """The words of text a command is fed, as written and as the shell expands them.
+
+    Where the shell expands the text first (an unquoted here-document, a here-string),
+    its variables are followed too. The expansion never refuses: a form the layer does
+    not evaluate, or one with too many values, adds nothing, and is the residual. Its
+    ``$(…)`` and backticks are parsed as commands by the splitter, and a body a shell
+    runs is parsed whole.
+    """
+    for token, _ in _text_words(text):
+        yield token, False
+        if expands and env is not None and "$" in token:
+            try:
+                expanded = env.expand(token, True, [cwd])
+            except (_UnboundedError, _UnknownTildeError, _UnresolvedParameterError):
+                continue
+            for word in expanded:
+                yield word, False
+
+
 def _text_words(text: str) -> Iterator[tuple[str, bool]]:
     """Every path-like token in text a program reads, as written: nothing in it is expanded.
 
@@ -471,7 +491,11 @@ def check(cmd: SimpleCommand, cwd: str, config: ConfigView, env: _Env | None = N
         fed = redirect.target if redirect.op == "<<<" else redirect.body
         if fed is not None:
             found = _first_protected(
-                _text_words(fed), cwd, config, reading=reads_only, mention=reads_only
+                _fed_words(fed, redirect.expands, env, cwd),
+                cwd,
+                config,
+                reading=reads_only,
+                mention=reads_only,
             )
             if found is not None:
                 return FEEDS_PROTECTED.format(path=found[0], reason=found[1])
