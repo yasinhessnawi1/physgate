@@ -157,7 +157,7 @@ elif MODE == "orphan":
         note(grandchild)
         os._exit(0)
     os.waitpid(pid, 0)
-elif MODE in ("halted", "forget", "link"):
+elif MODE in ("halted", "forget", "corrupt", "link"):
     sdir = os.path.dirname(os.path.dirname(argv[argv.index("--settings") + 1]))
     record = os.path.join(sdir, "state", "sessions", session_id, "sentinel", "baseline.json")
     pid = os.fork()
@@ -170,6 +170,10 @@ elif MODE in ("halted", "forget", "link"):
             base["halted"] = "inert"
             json.dump(base, open(record, "w"))
             write_marker()
+        elif MODE == "corrupt":
+            # The sentinel's own record no longer parses: its check cannot complete.
+            with open(record, "w") as out:
+                out.write("not a record")
         elif MODE == "forget":
             # The sentinel's own record is gone: its check takes a new one, the change included.
             # The change keeps the file's size and mode: only its bytes differ.
@@ -197,7 +201,7 @@ elif MODE == "tamper":
 time.sleep(PAUSE)
 hook("SessionEnd")
 open(os.path.join(FLAGS, "session-end-ran"), "w").close()
-if MODE in ("between", "tamper", "halted", "forget", "link"):
+if MODE in ("between", "tamper", "halted", "forget", "corrupt", "link"):
     while not os.path.exists(os.path.join(FLAGS, "written")):
         time.sleep(0.02)
 usage = {"input_tokens": 3, "output_tokens": 5}
@@ -631,6 +635,24 @@ def test_a_sentinel_record_rewritten_after_session_end_cannot_pass_a_changed_roo
     settled = json.loads(record.read_text())
     changed = {"halted": MARKER, "forget": "kept.txt"}[mode]
     assert settled["protected_changed"] == [str(session.root / changed)]
+
+
+def test_a_sentinel_check_that_cannot_complete_refuses_though_no_root_changed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    """The check after the stop must complete: a record it cannot read is no pass."""
+    session = Session(tmp_path, "corrupt", pause=0.0, wall_clock_s=60.0)
+    dispatcher = session.dispatcher(monkeypatch)
+    try:
+        with pytest.raises(InvocationError, match="no git call follows"):
+            dispatcher.run(session.request())
+    finally:
+        leftovers += session.pids()
+    assert session.at_first_git is None
+    (record,) = session.run.run_dir.glob("sessions/*/after_stop.json")
+    settled = json.loads(record.read_text())
+    assert settled["protected_changed"] == [] and settled["stop_unconfirmed"] is None
+    assert settled["sentinel_after_stop"]["refused"] == "the check recorded 'error'"
 
 
 def test_an_end_record_is_never_written_through_a_link_the_session_planted(
