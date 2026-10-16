@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from physgate.roles import CONTROL, FIRMWARE, ROLES, Role
+from physgate.roles import CONTROL, FIRMWARE, ROLES, SHIPPED, Role
 
 
 def test_control_is_the_control_domain_row() -> None:
@@ -28,7 +28,12 @@ def test_firmware_is_the_firmware_domain_row() -> None:
 
 
 def test_the_register_holds_exactly_these_two_roles_so_far() -> None:
-    assert ROLES == {"control": CONTROL, "firmware": FIRMWARE}
+    # What ships; the suite registers its electrical and mechanical stand-ins on top.
+    assert SHIPPED == (CONTROL, FIRMWARE)
+    assert {k: v for k, v in ROLES.items() if v in SHIPPED} == {
+        "control": CONTROL,
+        "firmware": FIRMWARE,
+    }
 
 
 def test_a_role_is_frozen() -> None:

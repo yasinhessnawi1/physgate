@@ -17,7 +17,9 @@ from pathlib import Path
 import pytest
 from harness_pin import measured_harness
 from knowledge_fixture import build_fixture_library
+from stand_in_roles import stand_in_roles
 
+from physgate import roles
 from physgate.orchestrator.cli import _harness_root
 from physgate.orchestrator.git import harness_git
 from physgate.orchestrator.run_config import HarnessState, harness_state
@@ -71,6 +73,21 @@ def _decompose_against_the_fixture_library(
     that role throughout. A test of the real library asks for it explicitly.
     """
     monkeypatch.setattr("physgate.orchestrator.cli._library_root", lambda: fixture_library)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _the_suite_s_stand_in_roles_are_registered() -> Iterator[None]:
+    """The suite plans ``electrical`` and ``mechanical`` stand-ins; register both, test-only.
+
+    The shipped role register holds control and firmware alone, and a run refuses any
+    other role at its start. The stand-ins are registered for the whole session, so the
+    runs session-scoped fixtures build see them too; a test of the register itself takes
+    them out again.
+    """
+    with pytest.MonkeyPatch.context() as patch:
+        for name, stand_in in stand_in_roles().items():
+            patch.setitem(roles.ROLES, name, stand_in)
+        yield
 
 
 @pytest.fixture(scope="session", autouse=True)

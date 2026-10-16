@@ -23,6 +23,7 @@ import pytest
 from git_rig import PARAMS, config, target_repo
 from scripted_endpoint import DUMMY_KEY, Script, serving, tool
 
+from physgate import roles as physgate_roles
 from physgate.cli import main
 from physgate.knowledge import loader
 from physgate.orchestrator.git import commit_all
@@ -155,9 +156,15 @@ def test_a_target_holding_other_bytes_where_a_curated_file_goes_is_refused(
 def test_a_run_that_could_plan_a_role_without_curated_content_spends_no_call(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    code, api, _, run_dir = _decompose(tmp_path, monkeypatch, roles=("control", "mechanical"))
+    # A registered role the real library carries no content for: a stand-in, registered here.
+    monkeypatch.setitem(
+        physgate_roles.ROLES,
+        "design",
+        physgate_roles.Role(name="design", domain="cross", architecture="ARCH-050"),
+    )
+    code, api, _, run_dir = _decompose(tmp_path, monkeypatch, roles=("control", "design"))
     assert code != 0
     printed = capsys.readouterr().err
-    assert "no curated file" in printed and "mechanical" in printed
+    assert "no curated file" in printed and "design" in printed
     assert api.requests == []
     assert not (run_dir / "decomposition").exists()

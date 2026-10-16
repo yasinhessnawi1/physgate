@@ -20,6 +20,7 @@ import shutil
 import sys
 from pathlib import Path
 
+from stand_in_roles import register
 from ui_rig import escalated_run, real_runs
 from ui_three_mode_rig import cut_after_first_gate_stage, three_mode_runs, two_domain_run
 
@@ -56,6 +57,8 @@ def escalated(out: Path, runs: Path) -> None:
 
 def main(argv: list[str]) -> int:
     """Build the runs under ``argv[1]`` and print the root that holds them."""
+    # The runs plan the suite's stand-in roles, which the shipped register does not hold.
+    register()
     out = Path(argv[1])
     shutil.rmtree(out, ignore_errors=True)
     out.mkdir(parents=True)

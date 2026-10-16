@@ -113,6 +113,7 @@ from physgate.orchestrator.replay import (
 )
 from physgate.orchestrator.run_config import RunConfig
 from physgate.orchestrator.trajectory import read_sealed
+from physgate.roles import require_registered
 from physgate.series.reader import attempt_records
 from physgate.series.seal import AttemptRecord, AttemptSeries, SeriesCheck
 from physgate.state.exceptions import DesignStateError, StoreStaleError
@@ -182,14 +183,16 @@ def require_binding(config: RunConfig, escalation: EscalationInterface) -> None:
 def refuse_unregistered(
     config: RunConfig, gate: Gate | None, reviewers: Mapping[str, Reviewer]
 ) -> None:
-    """Refuse a run that could not pass its gate or review stage as configured.
+    """Refuse a run that could not dispatch, gate or review as configured.
 
     Raises:
+        RoleNotRegisteredError: the run names a role the role register does not hold.
         GateNotRegisteredError: the gate mode is ``on`` or ``observe`` and no gate
             is registered. There is no pass-through gate to fall back on.
         ReviewerNotRegisteredError: a role has no reviewer, or its reviewer is not on
             the model string the run pinned for it.
     """
+    require_registered(config.models.roles)
     require_gate(config, gate)
     for role, implementer in config.models.roles.items():
         reviewer = reviewers.get(role)
