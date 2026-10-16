@@ -107,6 +107,20 @@ def test_a_record_that_is_a_link_is_refused(run_dir: Path) -> None:
         read_record(path, sealed)
 
 
+def test_a_link_that_appears_after_the_path_check_is_still_not_followed(
+    run_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The path check and the open are two steps. Here the check is made to see no link, as it
+    # would if a link were swapped in just after it; the open itself must still refuse one.
+    path, sealed = _sealed(run_dir)
+    elsewhere = run_dir / "elsewhere.json"
+    path.rename(elsewhere)
+    path.symlink_to(elsewhere)
+    monkeypatch.setattr(os.path, "realpath", os.path.normpath)
+    with pytest.raises(RecordTamperedError, match="is a link"):
+        read_record(path, sealed)
+
+
 def test_a_record_reached_through_a_linked_directory_is_refused(run_dir: Path) -> None:
     path, sealed = _sealed(run_dir)
     session_dir = path.parent
