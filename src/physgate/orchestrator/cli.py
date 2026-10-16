@@ -32,6 +32,9 @@ from typing import Literal
 from pydantic import ValidationError
 
 import physgate
+from physgate.evaluation.inject.runner import CONFIG_NAME as INSTRUMENT_CONFIG_NAME
+from physgate.evaluation.inject.runner import CONTROLS_DIRNAME as INSTRUMENT_CONTROLS_DIRNAME
+from physgate.evaluation.inject.runner import InstrumentConfig
 from physgate.gate.exceptions import GateError
 from physgate.knowledge.library import LibraryError, read_library
 from physgate.orchestrator.accounting import TokenAccount
@@ -43,7 +46,9 @@ from physgate.orchestrator.decompose import binary_version, call, require_fresh,
 from physgate.orchestrator.dispatch import ClaudeDispatcher, probe_interpreter
 from physgate.orchestrator.events import (
     EnvironmentRecorded,
+    Event,
     InstallChecked,
+    RunStarted,
     SubtaskPlanned,
     read_events,
 )
@@ -263,6 +268,10 @@ def _catches(args: argparse.Namespace) -> int:
     ``gate-events`` it names no single run's manifest id: an artefact is already
     kept distinct by its own run id (``artefact()`` in ``catches.py``), and a row
     spanning several runs has no one id to attribute to.
+
+    A run directory is a driven run's, an injected-error instrument run's, or that run's
+    ``controls`` directory: each run's events are stamped with its own manifest id
+    (:func:`_manifest_id`) before they are counted.
     """
     try:
         since = parse_time(args.since) if args.since else None
@@ -276,13 +285,48 @@ def _catches(args: argparse.Namespace) -> int:
         if not path.is_file():
             return _fail("no run-event log in the run directory", run_dir=str(run_dir))
         try:
-            manifest_id = load_run_config(resolved / "run.json").sha256()
-            found.extend(gate_events(read_events(path), manifest_id))
+            log = read_events(path)
+            found.extend(gate_events(log, _manifest_id(resolved, log)))
         except OrchestratorError as exc:
             return _fail(str(exc), **exc.context)
     for row in catches(found, since=since, until=until):
         print(row.model_dump_json())
     return 0
+
+
+def _manifest_id(run_dir: Path, log: list[Event]) -> str:
+    """The manifest id a run directory's gate events are stamped with.
+
+    A driven run's is its recorded configuration's (``RunConfig.sha256()``). The
+    injected-error instrument records ``instrument.json`` in place of ``run.json``, and its
+    id is that file's digest, which its log's first line carries; the controls log, in the
+    ``controls`` directory beneath it, starts under the same file. The id is held to the log
+    it stamps, so a configuration changed after the run is refused, never read as its own.
+
+    Raises:
+        RunConfigError: there is no configuration, there are both kinds, the instrument's is
+            not one, or it is not the one the log's first line names.
+    """
+    driven, instrument = run_dir / "run.json", run_dir / INSTRUMENT_CONFIG_NAME
+    if run_dir.name == INSTRUMENT_CONTROLS_DIRNAME and not instrument.exists():
+        instrument = run_dir.parent / INSTRUMENT_CONFIG_NAME
+    if not instrument.is_file():
+        return load_run_config(driven).sha256()
+    if driven.exists():
+        msg = "the run directory holds both a run configuration and an instrument configuration"
+        raise RunConfigError(msg, run_dir=str(run_dir))
+    raw = instrument.read_bytes()
+    try:
+        InstrumentConfig.model_validate_json(raw)
+    except ValidationError as exc:
+        msg = "the instrument configuration is not one the instrument could have written"
+        raise RunConfigError(msg, path=str(instrument), reason=first_problem(exc)) from None
+    manifest_id = hashlib.sha256(raw).hexdigest()
+    started = log[0] if log else None
+    if not isinstance(started, RunStarted) or started.config_sha256 != manifest_id:
+        msg = "the log's first line does not name the instrument configuration recorded beside it"
+        raise RunConfigError(msg, path=str(instrument), manifest_id=manifest_id)
+    return manifest_id
 
 
 def _print(payload: dict[str, object]) -> None:
