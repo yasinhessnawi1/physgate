@@ -214,7 +214,7 @@ for (const theme of THEMES) {
       "tokens",
       "events",
       "gate-checks",
-      "cost/2026-09-27",
+      "cost/2026-10-16",
     ])
       expect([...seen.api]).toContain(`/api/runs/0/drive-observe/${route}`);
     await bindingStylesHold(page);

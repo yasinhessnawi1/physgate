@@ -30,7 +30,7 @@ for (const theme of THEMES) {
       "ledger",
       "gate-events",
       "graph",
-      "cost/2026-09-27",
+      "cost/2026-10-16",
       "trajectories/:session",
     ]) {
       expect([...seen.api]).toContain(`/api/runs/0/run-observe/${route}`);
