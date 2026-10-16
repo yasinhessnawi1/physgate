@@ -121,3 +121,13 @@ def test_a_record_a_session_writes_is_sealed_on_its_end_and_never_committed(
     assert ".physgate/lib/series_writer.py" in listed
     assert not [f for f in listed if f.startswith(".physgate/series")]
     assert not [f for f in listed if f.startswith(".physgate/lib/__pycache__")]
+    # Not in the attempt commit, nor in any commit of any branch the run made.
+    history = subprocess.run(
+        ["git", "log", "--all", "--format=", "--name-only"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+    assert "modules/power/sim.py" in history
+    assert not [f for f in history if f.startswith((".physgate/series", ".physgate/lib/__pycache__"))]
