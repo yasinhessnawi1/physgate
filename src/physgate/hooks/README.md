@@ -133,8 +133,19 @@ trees and by which layer logged the refusal; its tolerance is zero.
 The git hook looks only at a command whose command position is git, including
 git reached through a path, `env`, `command`, `exec`, a substitution, a
 subshell or the string given to `sh -c`. A heredoc body, a quoted argument to
-another program and the content of a Write are never matched, so a document or
-a test that names a forbidden flag can be written.
+another program and the content of a Write are never matched as commands, so a
+document or a test that names a forbidden flag can be written. What the shell
+runs from a heredoc is: a substitution in a body whose delimiter is unquoted,
+and the whole body when it is a shell's own script (`bash <<'EOF'`).
+
+**Text a command is fed is judged as its own words.** The shell layer scans a
+heredoc body and a here-string for the paths they name, as written: some
+programs open the paths their input names (`sqlite3`'s `.import`). For a
+command that only reads, only what may not even be named refuses (the held-out
+tier, a corpus with its answers, a reviewer's material), so `cat > notes.md
+<<'EOF'` may still mention a protected file; for any other command, every
+protected path does, as its arguments would. A path a program builds at run
+time from its input is out of any parser's reach.
 
 **A commit message that names a protected path** is the one place this costs
 something: `git commit -m '… src/physgate/gate/check.py …'` names the path in

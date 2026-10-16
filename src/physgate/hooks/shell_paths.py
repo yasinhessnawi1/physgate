@@ -34,6 +34,11 @@ those boundaries; so after ``cd x`` both the directory before it and ``x`` are
 possible, and each later command is checked from each. ``cd old new``, which zsh
 reads as a substitution in the working directory, adds that directory too.
 
+A here-document's body and a here-string are the program's input, and some
+programs open the paths it names (``sqlite3``'s ``.import``), so they are scanned,
+as written, as the command's own words: for a command that only reads, only what
+may not even be named refuses; for any other, every protected path does.
+
 The call's working directory is the hook's input, not the agent's command: one
 that is not an absolute path is refused, since no relative word could be
 resolved against it.
@@ -51,6 +56,7 @@ import re
 from typing import TYPE_CHECKING
 
 from physgate.hooks.paths import protection, resolve_roots_once
+from physgate.hooks.reasons import ANSWER_KEY_REASON, HELD_OUT_REASON, REVIEW_MATERIAL_REASON
 from physgate.hooks.runtime import ALLOW, Decision, HookSpec, refuse
 from physgate.hooks.shell import BRACE_LIMIT, ShellSyntaxError, SimpleCommand, parse, unwrap
 
@@ -64,6 +70,11 @@ NAMES_PROTECTED = (
     "protected files (cat, grep, head, ls, diff and the like) but may not otherwise name them."
 )
 REDIRECT_INTO = "This command redirects output into {path}, which is protected: {reason}."
+FEEDS_PROTECTED = (
+    "This command is fed text (a here-document or here-string) that names {path}, which is "
+    "protected: {reason}. The program reads that text as its input, so it is judged as the "
+    "command's own words. To write such text to a file, use cat > <file> <<'EOF'."
+)
 BACKGROUND = (
     "Running a command in the background is refused: a write that lands after the call "
     "returns lands after every check that could see it. Run it in the foreground."
@@ -242,9 +253,23 @@ def _cannot_reach(candidate: str, cwd: str, names: set[str], cwd_protected: bool
     return not os.path.islink(os.path.join(cwd, candidate))
 
 
+#: What may not even be named, by any command: a mention in a reader's input is enough.
+_NAMED_ANYWHERE = frozenset({HELD_OUT_REASON, ANSWER_KEY_REASON, REVIEW_MATERIAL_REASON})
+
+
 def _first_protected(
-    words: Iterator[tuple[str, bool]], cwd: str, config: ConfigView, *, reading: bool
+    words: Iterator[tuple[str, bool]],
+    cwd: str,
+    config: ConfigView,
+    *,
+    reading: bool,
+    mention: bool = False,
 ) -> tuple[str, str] | None:
+    """The first word that reaches a protected path from ``cwd``, and why.
+
+    ``mention`` is for text a reader takes as input rather than as paths it opens: only
+    what may not even be named counts there, not a reviewer's read allowance.
+    """
     names = _protected_names(config)
     cwd_protected = protection(cwd, cwd, config, writing=not reading) is not None
     for word, dynamic in words:
@@ -255,9 +280,24 @@ def _first_protected(
             if _cannot_reach(candidate, cwd, names, cwd_protected):
                 continue
             reason = protection(candidate, cwd, config, writing=not reading)
-            if reason is not None:
+            if reason is not None and not (mention and reason not in _NAMED_ANYWHERE):
                 return candidate, reason
     return None
+
+
+def _text_words(text: str) -> Iterator[tuple[str, bool]]:
+    """Every path-like token in text a program reads, as written: nothing in it is expanded.
+
+    A glob character in such text is literal, so a token is cut back to the directory
+    written before its first glob character.
+    """
+    for token in _PATHLIKE.findall(text):
+        glob_at = _GLOB.search(token)
+        if glob_at is not None:
+            head = token[: glob_at.start()]
+            token = head[: head.rfind("/") + 1]
+        if token:
+            yield token, "$" in token
 
 
 def _command_words(cmd: SimpleCommand) -> Iterator[tuple[str, bool]]:
@@ -284,7 +324,17 @@ def check(cmd: SimpleCommand, cwd: str, config: ConfigView) -> str | None:
     ambiguous = _ambiguous_cd(cmd, cwd)
     if ambiguous is not None:
         return AMBIGUOUS_CD.format(path=ambiguous)
+    reads_only = bool(argv) and _only_reads(argv)
     for redirect in cmd.redirects:
+        # A here-document's body and a here-string are the program's input: judged as its
+        # own words, so a reader's input may still not name the held-out tier.
+        fed = redirect.target if redirect.op == "<<<" else redirect.body
+        if fed is not None:
+            found = _first_protected(
+                _text_words(fed), cwd, config, reading=reads_only, mention=reads_only
+            )
+            if found is not None:
+                return FEEDS_PROTECTED.format(path=found[0], reason=found[1])
         writing = redirect.op in _WRITE_REDIRECTS or (
             redirect.op == ">&" and not redirect.target.isdigit() and redirect.target != "-"
         )
@@ -299,7 +349,6 @@ def check(cmd: SimpleCommand, cwd: str, config: ConfigView) -> str | None:
     # Every word is resolved against the working directory, the command's own
     # name included, so a writing command run from inside a protected directory
     # is refused here without a separate rule for it.
-    reads_only = bool(argv) and _only_reads(argv)
     unbounded = next((n for n, b in cmd.braces.items() if b is None), None)
     if unbounded is not None and not reads_only:
         return BRACE_UNBOUNDED.format(word=cmd.argv[unbounded], limit=BRACE_LIMIT)

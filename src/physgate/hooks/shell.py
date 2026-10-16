@@ -7,7 +7,10 @@ commit-flag hook refused a heredoc that wrote a spec mentioning the flag.
 So the body of a heredoc, a quoted argument to another program and a comment
 are never words a check sees as a command, while a command substitution, a
 subshell and the string handed to ``sh -c`` or ``eval`` are parsed as the
-commands they are.
+commands they are. A heredoc's body is kept, as text, on its redirection: it is
+the program's input, which a check may judge as text. What the shell itself runs
+from it is parsed as commands: every substitution in a body whose delimiter is
+unquoted, and the whole body (or a here-string) when it is a shell's own script.
 
 What it cannot model it refuses to guess about: an unterminated quote, a
 substitution with no end, a heredoc with no terminator all raise, and the caller
@@ -69,16 +72,25 @@ class Redirect:
     """A redirection: the operator and its target word (a heredoc's delimiter).
 
     ``braces`` is every word an unquoted brace pattern in the target becomes, empty when
-    it has none, or ``None`` when there are more than :data:`BRACE_LIMIT`.
+    it has none, or ``None`` when there are more than :data:`BRACE_LIMIT`. ``body`` is a
+    here-document's text, the lines between the operator's line and its terminator, as
+    the command reads them on its standard input; ``None`` for any other redirection.
     """
 
-    __slots__ = ("braces", "op", "target")
+    __slots__ = ("body", "braces", "op", "target")
 
-    def __init__(self, op: str, target: str, braces: tuple[str, ...] | None = ()) -> None:
+    def __init__(
+        self,
+        op: str,
+        target: str,
+        braces: tuple[str, ...] | None = (),
+        body: str | None = None,
+    ) -> None:
         """The operator and its target."""
         self.op = op
         self.target = target
         self.braces = braces
+        self.body = body
 
     def __eq__(self, other: object) -> bool:
         """Equal when operator and target are."""
@@ -247,7 +259,7 @@ def _parse_into(text: str, out: list[SimpleCommand], depth: int) -> None:
     # The word as the shell sees its quoting: unquoted characters as written, every quoted,
     # escaped or substituted character blanked, so only unquoted text can count as expanding.
     bare = ""
-    heredocs: list[tuple[str, bool]] = []
+    heredocs: list[tuple[str, bool, bool, Redirect]] = []
     i = 0
 
     def end_word() -> None:
@@ -369,14 +381,17 @@ def _parse_into(text: str, out: list[SimpleCommand], depth: int) -> None:
                     raise ShellSyntaxError(msg)
                 delimiter = raw.replace("'", "").replace('"', "").replace("\\", "")
                 cmd.add(delimiter, False)
-                heredocs.append((delimiter, op == "<<-"))
+                # A quoted delimiter leaves the body as written; an unquoted one lets the
+                # shell run every substitution in it.
+                expands = delimiter == raw
+                heredocs.append((delimiter, op == "<<-", expands, cmd.redirects[-1]))
             continue
         sep = next((s for s in _SEPARATORS if text.startswith(s, i)), None)
         if sep is not None:
             end_command(background=sep == "&")
             i += len(sep)
             if sep == "\n" and heredocs:
-                i = _skip_heredoc_bodies(text, i, heredocs)
+                i = _read_heredoc_bodies(text, i, heredocs, out, depth)
                 heredocs = []
             continue
         word += c
@@ -565,8 +580,16 @@ def _redirect_at(text: str, i: int, word: str) -> tuple[str, int, bool] | None:
     return None
 
 
-def _skip_heredoc_bodies(text: str, i: int, heredocs: list[tuple[str, bool]]) -> int:
-    for delimiter, strip_tabs in heredocs:
+def _read_heredoc_bodies(
+    text: str,
+    i: int,
+    heredocs: list[tuple[str, bool, bool, Redirect]],
+    out: list[SimpleCommand],
+    depth: int,
+) -> int:
+    """Give each pending here-document its body, and parse what an unquoted one runs."""
+    for delimiter, strip_tabs, expands, redirect in heredocs:
+        lines: list[str] = []
         while True:
             if i >= len(text):
                 msg = f"a heredoc whose terminator {delimiter!r} never comes"
@@ -574,9 +597,42 @@ def _skip_heredoc_bodies(text: str, i: int, heredocs: list[tuple[str, bool]]) ->
             newline = text.find("\n", i)
             line = text[i:] if newline < 0 else text[i:newline]
             i = len(text) if newline < 0 else newline + 1
-            if (line.lstrip("\t") if strip_tabs else line) == delimiter:
+            if strip_tabs:
+                line = line.lstrip("\t")
+            if line == delimiter:
                 break
+            lines.append(line)
+        redirect.body = "".join(line + "\n" for line in lines)
+        if expands:
+            _parse_substitutions(redirect.body, out, depth)
     return i
+
+
+def _parse_substitutions(body: str, out: list[SimpleCommand], depth: int) -> None:
+    """Parse every command substitution the shell runs while expanding an unquoted body."""
+    i = 0
+    while i < len(body):
+        c = body[i]
+        if c == "\\":
+            i += 2
+            continue
+        if body.startswith("$((", i):
+            i = _matching(body, i + 3, "(", ")") + 2
+            continue
+        if body.startswith("$(", i):
+            close = _matching(body, i + 2, "(", ")")
+            _parse_into(body[i + 2 : close], out, depth + 1)
+            i = close + 1
+            continue
+        if c == "`":
+            end = body.find("`", i + 1)
+            if end < 0:
+                msg = "an unterminated backtick in a here-document"
+                raise ShellSyntaxError(msg)
+            _parse_into(body[i + 1 : end], out, depth + 1)
+            i = end + 1
+            continue
+        i += 1
 
 
 def unwrap(argv: tuple[str, ...]) -> tuple[str, ...]:
@@ -620,4 +676,29 @@ def _expand_runners(sub: SimpleCommand, out: list[SimpleCommand], depth: int) ->
             if arg.startswith("-") and "c" in arg[1:] and not arg.startswith("--"):
                 if n + 1 < len(argv):
                     _parse_into(argv[n + 1], out, depth + 1)
-                break
+                return
+        if _reads_its_script_from_stdin(argv):
+            for redirect in sub.redirects:
+                if redirect.body is not None:
+                    _parse_into(redirect.body, out, depth + 1)
+                elif redirect.op == "<<<":
+                    _parse_into(redirect.target, out, depth + 1)
+
+
+def _reads_its_script_from_stdin(argv: tuple[str, ...]) -> bool:
+    """True if a shell run as ``argv`` reads the commands it runs from its standard input.
+
+    That is a shell given no script file (only options), or given ``-s``, after which its
+    other words are arguments, not a script.
+    """
+    for arg in argv[1:]:
+        if arg == "--":
+            return False
+        if arg.startswith(("-", "+")) and not arg.startswith("--"):
+            if "s" in arg[1:]:
+                return True
+            continue
+        if arg.startswith("--"):
+            continue
+        return False
+    return True
