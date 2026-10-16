@@ -31,6 +31,7 @@ from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.dispatch import Installed
 from physgate.orchestrator.processes import started_at
 from physgate.orchestrator.run_config import RunBounds
+from physgate.reviewers import ending
 from physgate.reviewers.claude import ClaudeReviewer, ReviewerSetup
 from physgate.reviewers.ending import await_session
 from physgate.reviewers.packet import WORKTREE_NAME, Packet
@@ -41,7 +42,8 @@ from physgate.reviewers.rubric import Rubric
 SESSION = r"""
 import os, subprocess, sys, time
 marker, mode, pause = sys.argv[1], sys.argv[2], float(sys.argv[3])
-sleeper = [sys.executable, "-c", "import time; time.sleep(120)"]
+deaf = "import signal; signal.signal(signal.SIGTERM, signal.SIG_IGN); " if mode == "deaf" else ""
+sleeper = [sys.executable, "-c", deaf + "import time; time.sleep(120)"]
 same = subprocess.Popen(sleeper, stdin=subprocess.DEVNULL)
 own = subprocess.Popen(sleeper, stdin=subprocess.DEVNULL, start_new_session=True)
 with open(marker + ".tmp", "w") as out:
@@ -119,6 +121,20 @@ def test_a_child_left_in_the_session_s_group_is_stopped_even_if_no_poll_saw_it(
     assert ended.exit_code == 0
     assert same in ended.left_running
     assert started_at(same) is None
+
+
+def test_a_child_that_ignores_sigterm_is_killed_after_the_grace(
+    tmp_path: Path, leftovers: list[int], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ending, "GRACE_S", 0.5)
+    process = _session(tmp_path, "deaf", pause=1.5)
+    started = started_at(process.pid)
+    same, own = _pids(tmp_path / "pids")
+    leftovers += [same, own]
+    ended = await_session(process, started, wall_clock_s=60.0)
+    assert ended.exit_code == 0 and set(ended.left_running) == {same, own}
+    # Both ignored SIGTERM; neither is running once the grace is over.
+    assert started_at(same) is None and started_at(own) is None
 
 
 def _reviewer(tmp_path: Path, binary: Path, wall_clock_s: float) -> ClaudeReviewer:
