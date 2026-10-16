@@ -21,6 +21,11 @@ KNOWLEDGE_REASON = (
     "it holds curated standards or skill content; a human promotes a candidate into it "
     "with the promotion command, and no agent session writes it directly (ARCH-100)"
 )
+SERIES_WRITER_REASON = (
+    "it holds the series writer every role's scripts record their simulations through, put "
+    "there by the orchestrator; no session writes it, since a changed writer could record a "
+    "curve other than the one its script computed"
+)
 STORE_REASON = (
     "it is the design-state graph's own store: its journal is the only authority, and a "
     "line appended to it is replayed as genuine, so no agent tool writes any file in it"

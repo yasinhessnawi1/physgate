@@ -49,6 +49,7 @@ from physgate.hooks.reasons import GIT_USER_CONFIG_REASON as GIT_USER_CONFIG_REA
 from physgate.hooks.reasons import HARNESS_REASON as HARNESS_REASON
 from physgate.hooks.reasons import HELD_OUT_REASON as HELD_OUT_REASON
 from physgate.hooks.reasons import KNOWLEDGE_REASON as KNOWLEDGE_REASON
+from physgate.hooks.reasons import SERIES_WRITER_REASON as SERIES_WRITER_REASON
 from physgate.hooks.reasons import STORE_REASON as STORE_REASON
 from physgate.hooks.runtime import EVENTS, HookSpec
 
@@ -318,6 +319,7 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
             "log",
         ),
         _knowledge_root(worktree): (KNOWLEDGE_REASON, "revert"),
+        str(worktree / ".physgate" / "lib"): (SERIES_WRITER_REASON, "revert"),
     }
     if request.profile == "role":
         # git's user configuration in the session's own home: a key written there (a hook

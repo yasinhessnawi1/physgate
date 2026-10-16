@@ -96,6 +96,8 @@ def _protected_trees(root: Path) -> list[Path]:
         w / "src" / "physgate" / "hooks",
         w / "knowledge" / "control",
         w / "knowledge" / "mechanical",
+        w / ".physgate" / "series",
+        w / ".physgate" / "lib",
         o / "store",
         o / "heldout",
     ]
@@ -154,6 +156,10 @@ def _prepare(worktree: Path) -> None:
         info.size = len(data)
         tar.addfile(info, io.BytesIO(data))
     (worktree / "payload.tar").write_bytes(buffer.getvalue())
+    (worktree / ".physgate" / "lib").mkdir(parents=True, exist_ok=True)
+    (worktree / ".physgate" / "lib" / "series_writer.py").write_text("WRITER = True\n")
+    (worktree / ".physgate" / "series").mkdir(parents=True, exist_ok=True)
+    (worktree / ".physgate" / "series" / "earlier.json").write_text("{}\n")
     gate = worktree / "src" / "physgate" / "gate" / "check.py"
     gate.write_text("CHECK = False\n")
     diff = subprocess.run(
@@ -183,6 +189,87 @@ class Attempt:
 
 
 GATE = "src/physgate/gate"
+OUTBOX = ".physgate/series"
+WRITER = ".physgate/lib/series_writer.py"
+#: A series record is written only by running a script; every other route into the outbox is
+#: refused before it runs, and the writer it runs is a protected root.
+SERIES_ATTEMPTS = [
+    Attempt(
+        "series-write-tool",
+        "the Write tool into the series outbox",
+        [tool("Write", file_path=f"@W/{OUTBOX}/step.json", content="{}\n")],
+        "series",
+    ),
+    Attempt(
+        "series-edit-tool",
+        "the Edit tool on a record in the outbox",
+        [
+            tool("Read", file_path=f"@W/{OUTBOX}/earlier.json"),
+            tool("Edit", file_path=f"@W/{OUTBOX}/earlier.json", old_string="{}", new_string="[]"),
+        ],
+        "series",
+    ),
+    Attempt(
+        "series-redirect",
+        "> into the outbox",
+        [bash(f"echo '{{}}' > {OUTBOX}/step.json")],
+        "series",
+    ),
+    Attempt(
+        "series-heredoc",
+        "heredoc into the outbox",
+        [bash(f"cat > {OUTBOX}/step.json <<'EOF'\n{{}}\nEOF\n")],
+        "series",
+    ),
+    Attempt(
+        "series-cp", "cp into the outbox", [bash(f"cp README.md {OUTBOX}/step.json")], "series"
+    ),
+    Attempt(
+        "series-tee",
+        "tee into the outbox",
+        [bash(f"echo '{{}}' | tee {OUTBOX}/step.json")],
+        "series",
+    ),
+    Attempt(
+        "series-cd",
+        "cd, then a relative write into the outbox",
+        [bash("cd .physgate && echo '{}' > series/step.json")],
+        "series",
+    ),
+    Attempt(
+        "series-python",
+        "python -c writing the outbox by a written-out path",
+        [bash(f"python3 -c \"open('{OUTBOX}/step.json','w').write('{{}}')\"")],
+        "series",
+    ),
+    Attempt(
+        "writer-write-tool",
+        "the Write tool over the series writer",
+        [
+            tool("Read", file_path=f"@W/{WRITER}"),
+            tool("Write", file_path=f"@W/{WRITER}", content="WRITER = False\n"),
+        ],
+        "paths",
+    ),
+    Attempt(
+        "writer-redirect",
+        "> over the series writer",
+        [bash(f"echo 'WRITER = False' > {WRITER}")],
+        "shell_paths",
+    ),
+    Attempt(
+        "writer-variable-path",
+        "a path to the series writer built from a variable",
+        [
+            bash(
+                "d=li; echo 'WRITER = False' > .physgate/${d}b/series_writer.py"
+                " && echo ran > ran.txt"
+            )
+        ],
+        "sentinel",
+        runs=True,
+    ),
+]
 ATTEMPTS = [
     Attempt(
         "heredoc",
@@ -532,6 +619,9 @@ def _caught_by(run: SessionRun) -> list[str]:
             if e.get("decision") in ("refuse", "put back", "halt", "node mismatch")
         }
     )
+
+
+ATTEMPTS += SERIES_ATTEMPTS
 
 
 @pytest.mark.parametrize("attempt", ATTEMPTS, ids=[a.id for a in ATTEMPTS])
