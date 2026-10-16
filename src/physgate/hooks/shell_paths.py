@@ -50,7 +50,7 @@ import os
 import re
 from typing import TYPE_CHECKING
 
-from physgate.hooks.paths import protection
+from physgate.hooks.paths import protection, resolve_roots_once
 from physgate.hooks.runtime import ALLOW, Decision, HookSpec, refuse
 from physgate.hooks.shell import BRACE_LIMIT, ShellSyntaxError, SimpleCommand, parse, unwrap
 
@@ -400,14 +400,15 @@ def pre_tool_use(hook_input: InputView, config: ConfigView) -> Decision:
     if not os.path.isabs(hook_input.cwd):
         return refuse(UNKNOWN_CWD.format(cwd=hook_input.cwd))
     cwds = [os.path.normpath(hook_input.cwd)]
-    for cmd in commands:
-        for cwd in cwds:
-            reason = check(cmd, cwd, config)
-            if reason is not None:
-                return refuse(reason)
-        cwds = _next_cwds(cmd, cwds)
-        if len(cwds) > CWD_LIMIT:
-            return refuse(CWD_UNBOUNDED.format(limit=CWD_LIMIT))
+    with resolve_roots_once():
+        for cmd in commands:
+            for cwd in cwds:
+                reason = check(cmd, cwd, config)
+                if reason is not None:
+                    return refuse(reason)
+            cwds = _next_cwds(cmd, cwds)
+            if len(cwds) > CWD_LIMIT:
+                return refuse(CWD_UNBOUNDED.format(limit=CWD_LIMIT))
     return ALLOW
 
 

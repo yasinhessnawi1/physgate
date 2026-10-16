@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 from hook_helpers import bash
 
-from physgate.hooks import shell
+from physgate.hooks import paths, shell
 from physgate.hooks import shell_paths as sp
 from physgate.hooks.config import HookInput, SessionConfig
 from physgate.hooks.settings import InstallRequest, build_config, current_installation
@@ -100,8 +100,9 @@ def test_a_brace_pattern_in_a_redirection_is_expanded_too() -> None:
 
 
 def test_a_pattern_beyond_the_bound_is_recorded_as_unbounded() -> None:
-    word = "{1..2000}"
+    word = "{1..1025}"
     assert shell.expand_braces(word, word) is None
+    assert shell.expand_braces("{1..1024}", "{1..1024}") is not None
     assert shell.expand_braces("{1..32}{1..32}", "{1..32}{1..32}") is not None
     assert shell.expand_braces("{1..33}{1..32}", "{1..33}{1..32}") is None
 
@@ -292,3 +293,45 @@ def test_a_word_known_only_at_run_time_is_not_refused(config: SessionConfig, com
     # Allowed on purpose: refusing every word this layer cannot resolve would refuse
     # ordinary commands (`rm $tmp`). For a refuse-only root these are a recorded residual.
     assert _decide(config, command) == "allow"
+
+
+# --- the cost of judging many words ------------------------------------------------------
+
+
+def _count_root_resolutions(
+    config: SessionConfig, monkeypatch: pytest.MonkeyPatch
+) -> dict[str, int]:
+    roots = {r.path for r in config.protected_roots}
+    counts: dict[str, int] = {}
+    real = paths._spellings
+
+    def counting(path: str) -> set[str]:
+        if path in roots:
+            counts[path] = counts.get(path, 0) + 1
+        return real(path)
+
+    monkeypatch.setattr(paths, "_spellings", counting)
+    return counts
+
+
+def test_each_root_is_resolved_once_per_call_however_many_words_are_judged(
+    config: SessionConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    counts = _count_root_resolutions(config, monkeypatch)
+    command = f"cd modules && cd control && touch f{{1..{shell.BRACE_LIMIT}}}.txt"
+    assert _decide(config, command) == "allow"
+    assert counts, "no root was resolved"
+    assert max(counts.values()) == 1
+    assert paths._ROOTS_TAKEN is None
+    assert paths._PATHS_TAKEN is None
+
+
+def test_outside_a_shell_call_every_judgement_reads_the_roots_afresh(
+    config: SessionConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    counts = _count_root_resolutions(config, monkeypatch)
+    target = os.path.join(config.worktree, "modules", "control", "f.txt")
+    paths.protection(target, config.worktree, config, writing=True)
+    paths.protection(target, config.worktree, config, writing=True)
+    assert counts
+    assert min(counts.values()) == 2  # noqa: PLR2004 - two judgements, two resolutions
