@@ -27,31 +27,54 @@ from physgate.reviewers.rubric import check_rubric, evaluation_words, load_rubri
 from physgate.reviewers.scan import ScanHit
 from physgate.reviewers.verdict import Answered, Unavailable, judge
 
-#: role: (each approved version, oldest first, as its drafting directory and the sha256
-#: of its file; item count; id prefix per section)
+#: role: (each approved version, oldest first, as its drafting directory, the sha256 of its
+#: file and its item count; id prefix per section)
 APPROVED = {
     "control": (
         (
-            ("final", "b45abf4d37895942490c4cd4f097a18a45068b10699958f590e5d049519f24c6"),
+            ("final", "b45abf4d37895942490c4cd4f097a18a45068b10699958f590e5d049519f24c6", 55),
             # Corrected: a zero or delay limit counts only what every fed-back output shares.
-            ("final_v2", "17e9fafbe883d28bd2ce0b092cd39327982db0bb46b3cdd9ca753fdecfcdf66f"),
+            ("final_v2", "17e9fafbe883d28bd2ce0b092cd39327982db0bb46b3cdd9ca753fdecfcdf66f", 55),
+            # The automated checks are listed, never a reason to skip a check; a revision issued
+            # with no specification and no trajectory is judged from the design it changes.
+            ("final_v3", "4cebe129d71cc14d4a294b3b50643474d7e86680ae1d5da35030ce8d2c9bca1e", 56),
         ),
-        55,
         ("A", "D", "S", "R"),
     ),
     "firmware": (
-        (("final", "a89e71572901d4a2d44c27f3f9029d2817c714ca1c2926e47965de1c9498c1ce"),),
-        53,
+        (
+            ("final", "a89e71572901d4a2d44c27f3f9029d2817c714ca1c2926e47965de1c9498c1ce", 53),
+            # The same two changes as control's third version.
+            ("final_v2", "a493fc0e9a0b39a3c9ea2c10c3368234cdfc6e44eafa286f81467f800d580a14", 54),
+        ),
         ("AC", "DS", "AP", "RH"),
     ),
+    "electrical": (
+        (("final", "e93088f49a8a289103ff20be21b86f291a1577ed2171406c123e7ed6d0498096", 66),),
+        ("EA", "ES", "EP", "EH"),
+    ),
+    "mechanical": (
+        (("final", "4ff6d4078134af53a1987b14b8a9aa95d650259abf0c183475df7c0b0392a14f", 61),),
+        ("MA", "MS", "MP", "MH"),
+    ),
 }
-VERSIONS = [(role, folder) for role, (versions, _, _) in APPROVED.items() for folder, _ in versions]
+VERSIONS = [(role, folder) for role, (versions, _) in APPROVED.items() for folder, _, _ in versions]
 _CANARY = re.compile(rb"\n\n<!-- [0-9a-f]{32} -->\n\Z")
 SECTION_ORDER = ("acceptance_criteria", "domain_standards", "antipatterns", "reward_hacking")
 
 
 def _digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _digests(role: str) -> dict[str, str]:
+    """Each approved version of ``role``'s rubric, oldest first: its folder and its sha256."""
+    return {folder: digest for folder, digest, _ in APPROVED[role][0]}
+
+
+def _count(role: str, folder: str) -> int:
+    """How many items the approved version ``folder`` of ``role``'s rubric holds."""
+    return next(count for name, _, count in APPROVED[role][0] if name == folder)
 
 
 def _promoted(role: str) -> bytes | None:
@@ -62,7 +85,7 @@ def _promoted(role: str) -> bytes | None:
 
 def _approved(role: str, folder: str | None = None) -> bytes:
     """One approved version of ``role``'s rubric, the latest unless ``folder`` names one."""
-    versions = dict(APPROVED[role][0])
+    versions = _digests(role)
     folder = folder or list(versions)[-1]
     digest = versions[folder]
     promoted = _promoted(role)
@@ -83,12 +106,12 @@ def test_the_promoted_rubric_is_an_approved_version(role: str) -> None:
     promoted = _promoted(role)
     if promoted is None:
         pytest.skip(f"no {role} rubric is promoted here")
-    assert _digest(promoted) in dict(APPROVED[role][0]).values(), role
+    assert _digest(promoted) in _digests(role).values(), role
 
 
 @pytest.mark.parametrize("role", sorted(APPROVED))
 def test_a_staged_rubric_is_the_latest_approved_version(role: str) -> None:
-    latest = list(dict(APPROVED[role][0]).values())[-1]
+    latest = list(_digests(role).values())[-1]
     staged = [c for c in staging.candidates("rubric") if c.domain == role]
     for candidate in staged:
         text = candidate.content.rstrip() + "\n"  # what promotion writes, before its canary
@@ -99,8 +122,8 @@ def test_a_staged_rubric_is_the_latest_approved_version(role: str) -> None:
 def test_the_approved_rubric_parses_as_it_is(role: str, folder: str) -> None:
     text = _approved(role, folder).decode("utf-8")
     items = check_rubric(text)
-    _, count, prefixes = APPROVED[role]
-    assert len(items) == count
+    prefixes = APPROVED[role][1]
+    assert len(items) == _count(role, folder)
     assert evaluation_words(text) == []
     for section, prefix in zip(SECTION_ORDER, prefixes, strict=True):
         ids = [i.id for i in items if i.section == section]
@@ -158,7 +181,7 @@ def test_the_approved_rubric_promoted_loads_with_its_canary(
         rubric_staging_root=tmp_path / staging.RUBRIC_STAGING_ROOT,
     )
     loaded = load_rubric(tmp_path / "knowledge", role)
-    assert len(loaded.items) == APPROVED[role][1]
+    assert len(loaded.items) == _count(role, folder)
     promoted = rubric_path(tmp_path / "knowledge", role).read_bytes()
     assert _CANARY.sub(b"\n", promoted) == text.encode()
 
