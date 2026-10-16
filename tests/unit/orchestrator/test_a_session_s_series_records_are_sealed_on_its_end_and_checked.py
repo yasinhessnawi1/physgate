@@ -10,6 +10,7 @@ record a straggling process writes after collection, is refused before the gate.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -305,3 +306,40 @@ def test_the_script_binding_names_exactly_one_path_never_a_directory_s_first_fil
         run.repo, commit, SessionSeries(records=(claimed,)), pinned
     )
     assert refusal is not None and refusal[1] == "step"
+
+
+# ── the second layer: a record committed anywhere ────────────────────────────
+
+
+def _commit_with(tmp_path: Path, name: str, body: bytes) -> tuple[RunGit, str]:
+    run, worktree, _ = _attempt(tmp_path)
+    target = worktree / "modules" / "control" / name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(body)
+    return run, commit_attempt(worktree, "control-1", 1, "session-1", repo=run.repo)
+
+
+RECORD_SHAPED = json.dumps({"format": "series.v1", "id": "step"}).encode()
+
+
+@pytest.mark.parametrize("name", ["step.json", "data/step.json", "STEP.JSON"])
+def test_a_record_committed_inside_the_module_is_refused(tmp_path: Path, name: str) -> None:
+    run, commit = _commit_with(tmp_path, name, RECORD_SHAPED)
+    check = _checker(run).check("control-1", commit, "control", series=None)
+    assert check.refused_by == "series"
+    assert check.reason is not None and "is committed at modules/control/" in check.reason
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        json.dumps({"format": "csv", "rows": [1, 2]}).encode(),
+        b"[1, 2, 3]",
+        b"\xff\xfe not utf-8",
+        b"{not json",
+    ],
+    ids=["other_object", "array", "not_utf8", "not_json"],
+)
+def test_other_data_the_module_commits_is_not_a_record(tmp_path: Path, body: bytes) -> None:
+    run, commit = _commit_with(tmp_path, "data.json", body)
+    assert _checker(run).check("control-1", commit, "control", series=None).refused_by is None

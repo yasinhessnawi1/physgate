@@ -53,17 +53,15 @@ from pydantic import (
 
 from physgate.gate import units
 from physgate.series.exceptions import RecordRefusedError
+from physgate.series.seal import FORMAT as FORMAT
+from physgate.series.seal import MAX_FILE_BYTES as MAX_FILE_BYTES
 from physgate.series.seal import NAME_PATTERN as NAME_PATTERN
 from physgate.unit_spelling import UNIT_SPELLING, UnitSpellingError, require_bounded_spelling
 
-#: The marker every record carries. A later shape is a new marker and a new model.
-FORMAT = "series.v1"
 #: The most samples one axis may hold.
 MAX_SAMPLES = 100_000
 #: The most traces one record may hold.
 MAX_TRACES = 32
-#: The most bytes one record's file may hold.
-MAX_FILE_BYTES = 4 * 1024 * 1024
 #: The most records one session may leave, and the most bytes they may hold together.
 MAX_RECORDS_PER_SESSION = 256
 MAX_SESSION_BYTES = 64 * 1024 * 1024

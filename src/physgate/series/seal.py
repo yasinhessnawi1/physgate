@@ -20,6 +20,10 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+#: The marker every record carries. A later shape is a new marker and a new model.
+FORMAT = "series.v1"
+#: The most bytes one record's file may hold.
+MAX_FILE_BYTES = 4 * 1024 * 1024
 #: An id, a group, a trace's name and an input's name: lower-case, safe as a file name.
 NAME_PATTERN = r"^[a-z][a-z0-9_]{0,63}$"
 #: The most entries one session's end may list, sealed or set aside.

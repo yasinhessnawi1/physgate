@@ -42,7 +42,7 @@ from physgate.orchestrator.git import (
 )
 from physgate.orchestrator.merge import RunGit, write_scope_violations
 from physgate.orchestrator.ports import ChangeCheck
-from physgate.series.seal import SessionSeries
+from physgate.series.seal import FORMAT, MAX_FILE_BYTES, SessionSeries
 from physgate.state.divergence import divergence
 from physgate.state.exceptions import DesignStateError
 from physgate.state.schema import validate_node
@@ -134,6 +134,35 @@ def read_proposals(
 _SCRIPT_MODES = frozenset({"100644", "100755"})
 
 
+def _committed_records(repo: Path, base: str, commit: str, pinned: GitDir) -> list[str]:
+    """Every path the attempt committed that holds a series record, read from the commit.
+
+    A record leaves the worktree before the commit, so one in a commit was put where records
+    do not go: a copy beside the module, or a record a process wrote after collection. A
+    record is a JSON object carrying the format marker; a file named ``*.json`` (in any case)
+    is read, through the clean object store, only when it is no larger than a record may be.
+    Bytes that are not UTF-8 JSON are not a record, and are the write scope's to judge.
+    """
+    found: list[str] = []
+    for change in changes_between(repo, base, commit, git_dir=pinned):
+        if change.status == "D" or change.new_mode not in _SCRIPT_MODES:
+            continue
+        if not change.path.casefold().endswith(".json"):
+            continue
+        spec = f"{commit}:{change.path}"
+        size = int(git(repo, "cat-file", "-s", spec, objects_only=True, git_dir=pinned))
+        if size > MAX_FILE_BYTES:
+            continue
+        try:
+            raw = git(repo, "cat-file", "blob", spec, objects_only=True, git_dir=pinned)
+            parsed = json.loads(raw)
+        except (UnicodeDecodeError, ValueError, RecursionError):
+            continue
+        if isinstance(parsed, dict) and parsed.get("format") == FORMAT:
+            found.append(change.path)
+    return found
+
+
 def _series_refusal(
     repo: Path, commit: str, series: SessionSeries | None, pinned: GitDir
 ) -> tuple[str, str] | None:
@@ -214,6 +243,19 @@ class GitChangeChecker:
             subject = ",".join(sorted(v.split(" (", 1)[0] for v in outside))
             return ChangeCheck(
                 refused_by="write_scope", reason=reason, subject=subject, graph_root=str(scratch)
+            )
+        committed = _committed_records(repo, base, attempt_commit, pinned)
+        if committed:
+            reason = (
+                f"a series record is committed at {', '.join(committed)}; records are written "
+                "into .physgate/series/ by the script that ran, and collected from there before "
+                "the commit, never committed"
+            )
+            return ChangeCheck(
+                refused_by="series",
+                reason=reason,
+                subject=",".join(committed)[:500],
+                graph_root=str(scratch),
             )
         refusal = _series_refusal(repo, attempt_commit, series, pinned)
         if refusal is not None:
