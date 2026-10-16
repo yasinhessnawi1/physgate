@@ -27,7 +27,7 @@ from physgate.orchestrator.merge import RunGit, commit_attempt
 from physgate.orchestrator.repair import repair_instruction
 from physgate.series.collect import WRITER_PATH, blob_id, collect, writer_source
 from physgate.series.reader import attempt_records, read_record
-from physgate.series.seal import SealedRecord, SessionSeries, SetAside
+from physgate.series.seal import SealedRecord, SeriesCheck, SessionSeries, SetAside
 
 DIGEST = "a" * 64
 BLOB = "b" * 40
@@ -103,6 +103,57 @@ def test_an_attempt_s_records_are_read_from_its_end_lines_a_later_session_supers
     ]
     assert attempt_records(events, "s1", 2) == ()
     assert attempt_records(events, "other", 1) == ()
+
+
+def test_the_attempt_the_gate_and_the_reviewer_receive_carries_its_records_and_checks(
+    tmp_path: Path,
+) -> None:
+    first = SessionSeries(records=(_sealed("step", "1" * 64), _sealed("bode", "2" * 64)))
+    second = SessionSeries(records=(_sealed("step", "3" * 64),))
+    check = SeriesCheck(
+        node_id="control.loop",
+        quantity="phase_margin",
+        record_id="bode",
+        extract="phase_margin",
+        session_id="sess-1",
+        declared_value=0.8,
+        declared_unit="rad",
+        read_value=0.8,
+        read_unit="rad",
+        outcome="agrees",
+    )
+    rig = Rig(
+        tmp_path,
+        dispatcher=FakeDispatcher(infra={1: "api_error"}, series={1: first, 2: second}),
+        changes=FakeChanges(series_checks={1: (check,)}),
+        delays=(0.0,),
+    )
+    loop = rig.open()
+    loop.start(plan("s1"))
+    loop.run()
+    loop.close()
+    assert rig.gate is not None
+    (reviewed,) = rig.reviewer.seen
+    assert rig.gate.seen == [reviewed]
+    series = reviewed.series
+    assert series is not None
+    assert (series.run_dir, series.subtask_id, series.attempt) == (str(tmp_path), "s1", 1)
+    assert [(r.record.record_id, r.record.sha256, r.session_id) for r in series.records] == [
+        ("bode", "2" * 64, "sess-1"),
+        ("step", "3" * 64, "sess-2"),
+    ]
+    assert series.checks == (check,)
+
+
+def test_an_attempt_with_no_records_and_no_checks_carries_no_series(tmp_path: Path) -> None:
+    rig = Rig(tmp_path)
+    loop = rig.open()
+    loop.start(plan("s1"))
+    loop.run()
+    loop.close()
+    (reviewed,) = rig.reviewer.seen
+    assert reviewed.series is None
+    assert "series" not in reviewed.model_dump()
 
 
 # ── through real git and a real collection ───────────────────────────────────

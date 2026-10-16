@@ -15,6 +15,10 @@ A review's directory (``places.review_dir``) gets a ``read/`` directory holding:
   note naming its target, never as a link, so nothing in the export reaches outside.
 - ``diff-NN-of-MM.patch``: the attempt's change against where it left the run branch,
   in numbered parts.
+- ``series-NN-of-MM.md``: for an attempt that sealed simulation records or named one
+  from a graph quantity, the harness's listing of them (``series.summary``): each
+  record summarised from its own samples, read back held to its seal, and each
+  quantity's check against the record it names. Absent for an attempt with none.
 - ``spec_as_issued.md``: the module specification exactly as the decomposition
   issued it, read from the commit that issued it. The attempt can edit its own
   specification, and the worktree's copy then says what the attempt made it say;
@@ -34,8 +38,8 @@ refused when the packet is built.
 
 What a review must read in full before it may answer is listed in
 :attr:`Packet.required_reading`, and the hook layer refuses the verdict until it
-has: every part of the transcript and of the diff, the rubric, the issued
-specification and the library files.
+has: every part of the transcript, of the diff and of the series listing, the rubric,
+the issued specification and the library files.
 
 The packet's own record (``packet.json``) sits beside ``read/``, outside it: it
 holds every digest above and the observable indicators the trajectory shows
@@ -55,9 +59,16 @@ import subprocess
 import tempfile
 import unicodedata
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    StringConstraints,
+    model_serializer,
+)
 
 from physgate.knowledge import loader
 from physgate.knowledge.library import LibraryError, read_library
@@ -80,6 +91,8 @@ from physgate.reviewers.places import READ_DIRNAME
 from physgate.reviewers.rubric import Rubric
 from physgate.reviewers.scan import ScanHit, ScanUnreadableError, scan
 from physgate.reviewers.transcript import render
+from physgate.series.exceptions import SeriesError
+from physgate.series.summary import SERIES_PART, listing
 
 TRANSCRIPT_NAME = "transcript.md"
 WORKTREE_NAME = "worktree"
@@ -106,7 +119,7 @@ class PacketError(ReviewError):
     """A review cannot be prepared as specified, so it does not run."""
 
 
-_PART_NAME = r"^(transcript|diff)-[0-9]{2,}-of-[0-9]{2,}\.(md|patch)$"
+_PART_NAME = r"^(transcript|diff|series)-[0-9]{2,}-of-[0-9]{2,}\.(md|patch)$"
 
 
 class Part(BaseModel):
@@ -150,6 +163,19 @@ class Packet(BaseModel):
     transcript_nonces: tuple[Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{16}$")], ...] = ()
     transcript_parts: tuple[Part, ...] = ()
     diff_parts: tuple[Part, ...] = ()
+    #: The series listing's digest and parts, for an attempt with simulation records. Left
+    #: out of the record when absent, so a packet without them reads and hashes as before.
+    series_sha256: Sha256 | None = None
+    series_parts: tuple[Part, ...] = ()
+
+    @model_serializer(mode="wrap")
+    def _omit_absent_series(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if self.series_sha256 is None:
+            data.pop("series_sha256", None)
+        if not self.series_parts:
+            data.pop("series_parts", None)
+        return data
 
     def sha256(self) -> str:
         """The digest of this record: what a review line carries to name its packet."""
@@ -575,9 +601,12 @@ def build_packet(
     files = _export(where, artefact.attempt_commit, read / WORKTREE_NAME)
     diff = _diff(where, base_commit, artefact.attempt_commit)
     diff_parts = _write_parts(read, split_parts(diff, DIFF_PART))
+    series = _series_listing(artefact)
+    series_parts = _write_parts(read, split_parts(series, SERIES_PART)) if series else ()
     reading = [
         *(read / part.name for part in transcript_parts),
         *(read / part.name for part in diff_parts),
+        *(read / part.name for part in series_parts),
         read / RUBRIC_NAME,
     ]
     issued_digest = None
@@ -624,9 +653,26 @@ def build_packet(
         transcript_nonces=nonces,
         transcript_parts=transcript_parts,
         diff_parts=diff_parts,
+        series_sha256=_digest(series) if series else None,
+        series_parts=series_parts,
     )
     (Path(review) / RECORD_NAME).write_text(packet.model_dump_json(indent=1) + "\n")
     return packet
+
+
+def _series_listing(artefact: Artefact) -> bytes | None:
+    """The attempt's series listing, or ``None`` for an attempt with no records and no checks.
+
+    Raises:
+        PacketError: a record is gone or is not what was sealed when its session ended.
+    """
+    series = artefact.series
+    if series is None or not (series.records or series.checks):
+        return None
+    try:
+        return listing(series)
+    except SeriesError as exc:
+        raise PacketError(str(exc), **exc.context) from None
 
 
 def joined_parts(read: Path, parts: tuple[Part, ...]) -> bytes:
@@ -639,8 +685,9 @@ def check_parts(packet: Packet, *, repo: Path, base_commit: str) -> None:
 
     Each part must be on disk as written; the transcript's parts joined must be the
     rendering of every sealed session again, with the nonces the packet recorded; the
-    diff's parts joined must be the repository's diff of the attempt again. Nothing
-    trimmed, nothing changed.
+    diff's parts joined must be the repository's diff of the attempt again; the series
+    listing's parts joined must be the listing of the attempt's sealed records again, and
+    an attempt with records must have one. Nothing trimmed, nothing changed.
 
     Raises:
         PacketError: a part is missing or changed, or the parts joined are not what
@@ -672,4 +719,29 @@ def check_parts(packet: Packet, *, repo: Path, base_commit: str) -> None:
     diff = _diff(Path(repo), base_commit, artefact.attempt_commit)
     if joined["diff"] != diff or _digest(diff) != packet.diff_sha256:
         msg = "the diff's parts joined are not the attempt's diff"
+        raise PacketError(msg, read=str(read))
+    _check_series_parts(packet, artefact, read)
+
+
+def _check_series_parts(packet: Packet, artefact: Artefact, read: Path) -> None:
+    """Hold the series listing's parts to the listing of the attempt's sealed records again."""
+    series = _series_listing(artefact)
+    if series is None:
+        if packet.series_parts or packet.series_sha256 is not None:
+            msg = "the packet issued a series listing for an attempt with no records"
+            raise PacketError(msg, read=str(read))
+        return
+    if not packet.series_parts:
+        msg = "the attempt has simulation records, and the packet issued no listing of them"
+        raise PacketError(msg, read=str(read))
+    bodies = []
+    for part in packet.series_parts:
+        path = read / part.name
+        body = path.read_bytes() if path.is_file() else None
+        if body is None or _digest(body) != part.sha256:
+            msg = "a series part is missing or is not what was issued"
+            raise PacketError(msg, part=part.name)
+        bodies.append(body)
+    if b"".join(bodies) != series or _digest(series) != packet.series_sha256:
+        msg = "the series parts joined are not the listing of the attempt's sealed records"
         raise PacketError(msg, read=str(read))

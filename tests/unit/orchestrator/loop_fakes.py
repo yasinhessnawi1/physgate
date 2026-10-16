@@ -35,7 +35,7 @@ from physgate.orchestrator.protocols import (
 )
 from physgate.orchestrator.record import PlanEntry
 from physgate.orchestrator.trajectory import seal
-from physgate.series.seal import SessionSeries
+from physgate.series.seal import SeriesCheck, SessionSeries
 from physgate.state.task_ledger import TaskLedger
 
 
@@ -148,6 +148,8 @@ class FakeChanges:
     calls: int = 0
     #: Per call: the series the loop handed the check.
     seen: list[SessionSeries | None] = field(default_factory=list)
+    #: Per call: the quantities' checks against their records the check reports.
+    series_checks: dict[int, tuple[SeriesCheck, ...]] = field(default_factory=dict)
 
     def check(
         self,
@@ -165,6 +167,7 @@ class FakeChanges:
             reason=refused[1] if refused else None,
             graph_root="scratch/graph",
             proposed=self.proposed.get(self.calls, ()),
+            series_checks=self.series_checks.get(self.calls, ()),
         )
 
 

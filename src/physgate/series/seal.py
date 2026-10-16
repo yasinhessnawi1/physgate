@@ -87,3 +87,26 @@ class SeriesCheck(_Frozen):
     read_unit: Annotated[str, StringConstraints(min_length=1, max_length=64)] | None = None
     outcome: Literal["agrees", "differs", "unreadable"]
     reason: Annotated[str, StringConstraints(min_length=1, max_length=500)] | None = None
+
+
+class AttemptRecord(_Frozen):
+    """One record an attempt sealed, and the session whose end sealed it."""
+
+    session_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
+    record: SealedRecord
+
+
+class AttemptSeries(_Frozen):
+    """What a review is told about an attempt's simulation records.
+
+    The records the attempt's sessions sealed (a later session's superseding an earlier one's
+    of the same id), the run directory they lie under, and the result of holding each graph
+    quantity that names one to it. It travels on the attempt as the gate and the reviewer
+    receive it, and so reaches the review packet of both review arms by one route.
+    """
+
+    run_dir: Annotated[str, StringConstraints(min_length=1)]
+    subtask_id: Annotated[str, StringConstraints(min_length=1)]
+    attempt: Annotated[int, Field(ge=1)]
+    records: tuple[AttemptRecord, ...] = ()
+    checks: tuple[SeriesCheck, ...] = ()
