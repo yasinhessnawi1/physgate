@@ -90,10 +90,10 @@ def test_one_key_for_every_registry() -> None:
     [
         f"./cat {READ}",
         f"bin/cat {READ}",
-        f"PATH=.:/usr/bin:/bin; cat {READ}",
+        f"PATH=.:/opt/tools/bin; cat {READ}",
         f"PATH=. cat {READ}",
         f"env PATH=. cat {READ}",
-        f"export PATH=.:/usr/bin:/bin; cat {READ}",
+        f"export PATH=.:/opt/tools/bin; cat {READ}",
     ],
     ids=["dot-slash", "relative", "path-reassigned", "path-prefix", "env-path", "exported"],
 )
@@ -122,8 +122,8 @@ def test_the_reader_by_its_own_path_is_still_a_reader(config: SessionConfig) -> 
         "hash -p /tmp/x cat",
         "enable -n cd",
         "command -p ls",
-        "PATH=.:/usr/bin:/bin",
-        "export PATH=.:/usr/bin:/bin",
+        "PATH=.:/opt/tools/bin",
+        "export PATH=.:/opt/tools/bin",
     ],
 )
 def test_once_a_name_s_meaning_is_unknown_a_reader_is_judged_as_a_possible_writer(
