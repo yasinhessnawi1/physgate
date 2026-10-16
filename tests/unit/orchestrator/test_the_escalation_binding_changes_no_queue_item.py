@@ -33,6 +33,8 @@ from escalation_paths import (
     scenario_names,
 )
 
+from physgate.orchestrator import decompose
+
 #: Event kinds the escalation interface writes, absent from the golden file by
 #: construction: one decision line at every attempt end that did not merge.
 ADDED_LINES: frozenset[str] = frozenset({"escalation_decided"})
@@ -46,6 +48,8 @@ ADDED_FIELDS: dict[str, dict[str, Any]] = {
     # Every run before the interface was, by construction, the rules binding.
     "config": {"escalation_backend": "rules"},
     "run_started": {"escalation_backend": "rules"},
+    # The series records a session left: none, in every session the golden file recorded.
+    "session_ended": {"series": {"records": [], "refused": [], "discarded": []}},
 }
 
 #: Fields added after the golden file was written that carry new information, not a
@@ -57,6 +61,19 @@ SET_ASIDE: dict[str, frozenset[str]] = {"proposals_checked": frozenset({"propose
 #: Every source the loop could put on an item before the interface: the golden file
 #: must show each of them, or it does not cover what it claims to.
 SOURCES = {"repair_budget_exhausted", "review_blocked", "review_unavailable", "gate_escalation"}
+
+
+@pytest.fixture(autouse=True)
+def _runs_as_the_golden_file_was_recorded(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Build every run without the series writer in its run branch.
+
+    The golden file was recorded before decomposition put the series writer into the run
+    branch, and every tree compared here is a hash, so the one added file changes every tree
+    of every run. What this file holds is the escalation binding, which the writer does not
+    touch; the writer's copy into the run branch is held by the series tests. Nothing else
+    about the runs is changed, and they are compared exactly as before.
+    """
+    monkeypatch.setattr(decompose, "series_library", dict)
 
 
 def _golden() -> dict[str, dict[str, list[Any]]]:

@@ -56,6 +56,7 @@ from physgate.orchestrator.protocols import (
 )
 from physgate.orchestrator.repair import Finding
 from physgate.orchestrator.trajectory import Seal
+from physgate.series.seal import SessionSeries
 
 #: The eight stages of the per-subtask loop, in the architecture's order (ARCH-030).
 Stage = Literal[
@@ -306,6 +307,9 @@ class SessionEnded(_Event):
     #: The digest of the session's specification as the decomposition issued it,
     #: taken before the session was spawned; ``None`` for a plan given directly.
     issued_spec_sha256: Sha256 | None = None
+    #: The series records the session left, each sealed by digest and length, and what was
+    #: refused or discarded instead. Every later reader holds a record to its seal here.
+    series: SessionSeries = SessionSeries()
 
     @model_validator(mode="after")
     def _completed_names_its_work(self) -> SessionEnded:
@@ -344,7 +348,7 @@ class ProposalsChecked(_Event):
     subtask_id: NonEmptyStr
     attempt: Attempt
     checked_commit: Sha
-    refused_by: Literal["proposal", "write_scope"] | None
+    refused_by: Literal["proposal", "write_scope", "series"] | None
     reason: NonEmptyStr | None
     subject: NonEmptyStr | None
     graph_root: NonEmptyStr

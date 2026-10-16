@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+import sys
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -29,7 +30,7 @@ from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper
 from physgate.orchestrator.budget import SessionEnd
 from physgate.orchestrator.decompose import Outcome, Plan, PlannedModule, mint_id, start_run
 from physgate.orchestrator.escalation import bind
-from physgate.orchestrator.git import head_of
+from physgate.orchestrator.git import head_of, object_format, verified_git_dir
 from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.merge import GitMerger, RunGit, commit_attempt
 from physgate.orchestrator.ports import Leftover, SessionReport, SessionRequest
@@ -54,6 +55,9 @@ from physgate.orchestrator.run_config import (
     endpoint_of,
 )
 from physgate.orchestrator.trajectory import seal
+from physgate.series.collect import collect as collect
+from physgate.series.collect import empty_outbox
+from physgate.series.seal import SessionSeries, SetAside
 from physgate.state.schema import Node
 
 #: The harness as the command measures it, once at import.
@@ -137,6 +141,20 @@ def node(node_id: str, kind: str = "component", *, bare: bool = False) -> dict[s
     }
 
 
+#: A stand-in simulation: no physics, numbers made up and labelled so, recorded by the writer.
+RECORDING_SCRIPT = """import os, sys
+here = os.path.dirname(os.path.abspath(__file__))
+while not os.path.isfile(os.path.join(here, ".physgate", "lib", "series_writer.py")):
+    here = os.path.dirname(here)
+sys.path.insert(0, os.path.join(here, ".physgate", "lib"))
+import series_writer
+seed = int(os.environ["STAND_IN_SEED"])
+series_writer.record("step", title="Stand-in step, not a simulation", axis="time",
+    x=("time", "s", [0.0, 0.01, 0.02]), traces=[("position", "m", [0.0, 0.01 * seed, 0.05])],
+    inputs={"seed": (seed, "dimensionless")})
+"""
+
+
 @dataclass
 class FakeSession:
     """Writes its module file and one proposal, then the orchestrator commits the attempt."""
@@ -149,6 +167,9 @@ class FakeSession:
     #: The result event each session's stream ends in, from its id and usage; by default a
     #: bare result that records no usage. The stream is sealed as written, as a real end is.
     result: Callable[[str, Usage], dict[str, Any]] | None = None
+    #: When set, each session runs a script under its module that records one series with
+    #: this seed, and its outbox is collected before the commit, as the dispatcher does.
+    records: int | None = None
     calls: int = 0
 
     def environment(self) -> None:
@@ -182,6 +203,11 @@ class FakeSession:
             else self.result(sid, usage)
         )
         stream.write_text(json.dumps(ended) + "\n")
+        series = SessionSeries()
+        if self.records is not None:
+            # As the dispatcher does: whatever an earlier session left is moved aside first.
+            left = empty_outbox(worktree, self.layout.run_dir, sid)
+            series = self._record(worktree, request, sid, self.records, left)
         commit = commit_attempt(
             worktree, request.subtask_id, request.attempt, sid, repo=self.layout.repo
         )
@@ -195,6 +221,44 @@ class FakeSession:
             reading_verified=True,
             node_files_halted=False,
             usage=(MessageUsage(message_id=f"msg-{uuid.uuid4().hex[:8]}", usage=usage),),
+            series=series,
+        )
+
+    def _record(
+        self,
+        worktree: Path,
+        request: SessionRequest,
+        sid: str,
+        seed: int,
+        left: tuple[SetAside, ...],
+    ) -> SessionSeries:
+        """Run a recording script in the module, then collect the outbox as dispatch does."""
+        script = worktree / request.module_dir / "sim.py"
+        script.write_text(RECORDING_SCRIPT)
+        done = subprocess.run(
+            [sys.executable, "-E", "-s", str(script)],
+            cwd=worktree,
+            capture_output=True,
+            text=True,
+            check=False,
+            env={
+                "PATH": "/usr/bin:/bin",
+                "HOME": str(self.layout.run_dir / "home"),
+                # The seed reaches the script from outside it, so two runs with different
+                # seeds commit the same script and differ only in what it recorded.
+                "STAND_IN_SEED": str(seed),
+            },
+        )
+        assert done.returncode == 0, done.stderr
+        return collect(
+            worktree,
+            module_dir=request.module_dir,
+            run_dir=self.layout.run_dir,
+            subtask_id=request.subtask_id,
+            attempt=request.attempt,
+            session_id=sid,
+            object_format=object_format(verified_git_dir(self.layout.repo, linked=False)),
+            discarded_before=left,
         )
 
 
@@ -342,6 +406,7 @@ def drive(
     resume: bool = False,
     clock: Callable[[], datetime] | None = None,
     session_result: Callable[[str, Usage], dict[str, Any]] | None = None,
+    records: int | None = None,
 ) -> str:
     """Drive a started run with the real loop and ports; return the step it ended on."""
     run_dir = root / cfg.run_id
@@ -359,7 +424,11 @@ def drive(
             role: Reviewer(model=m, ids=reviewer_ids) for role, m in cfg.models.reviewers.items()
         },
         dispatcher=FakeSession(
-            run, content=session_content or {}, bare=bare or set(), result=session_result
+            run,
+            content=session_content or {},
+            bare=bare or set(),
+            result=session_result,
+            records=records,
         ),
         changes=GitChangeChecker(run, run_dir / "store", modules),
         merger=GitMerger(run, removal_timeout_s=60.0),

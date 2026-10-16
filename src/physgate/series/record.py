@@ -53,6 +53,7 @@ from pydantic import (
 
 from physgate.gate import units
 from physgate.series.exceptions import RecordRefusedError
+from physgate.series.seal import NAME_PATTERN as NAME_PATTERN
 from physgate.unit_spelling import UNIT_SPELLING, UnitSpellingError, require_bounded_spelling
 
 #: The marker every record carries. A later shape is a new marker and a new model.
@@ -73,8 +74,6 @@ MAX_LOADED = 256
 #: The longest title, and the longest path of a file of code.
 MAX_TITLE = 200
 MAX_PATH = 512
-#: An id, a group, a trace's name and an input's name: lower-case, safe as a file name.
-NAME_PATTERN = r"^[a-z][a-z0-9_]{0,63}$"
 
 Name = Annotated[str, StringConstraints(pattern=NAME_PATTERN)]
 Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]

@@ -31,12 +31,16 @@ import hashlib
 import os
 import re
 import stat
+from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 
 from physgate.orchestrator.budget import REPAIR_BUDGET
+from physgate.orchestrator.events import SessionEnded
 from physgate.orchestrator.trajectory import Seal
 from physgate.series.exceptions import RecordRefusedError, RecordTamperedError
-from physgate.series.record import MAX_FILE_BYTES, NAME_PATTERN, Record, parse_record
+from physgate.series.record import MAX_FILE_BYTES, Record, parse_record
+from physgate.series.seal import NAME_PATTERN, SealedRecord
 
 #: The directory beneath a run that holds its sealed records.
 SERIES_DIR = "series"
@@ -128,3 +132,47 @@ def _read_bounded(fd: int, path: str, seal: Seal) -> bytes:
         chunks.append(chunk)
         total += len(chunk)
     return b"".join(chunks)
+
+
+@dataclass(frozen=True)
+class SealedEntry:
+    """One sealed record of an attempt: where it was sealed, and its seal."""
+
+    subtask_id: str
+    attempt: int
+    session_id: str
+    record: SealedRecord
+
+    def path(self, run_dir: Path) -> Path:
+        """Where the record lives in ``run_dir``, built from its identifiers."""
+        return record_path(
+            run_dir, self.subtask_id, self.attempt, self.session_id, self.record.record_id
+        )
+
+    def seal(self) -> Seal:
+        """The digest and length the record is held to on every read."""
+        return Seal(sha256=self.record.sha256, length=self.record.length)
+
+
+def attempt_records(
+    events: Iterable[object], subtask_id: str, attempt: int
+) -> tuple[SealedEntry, ...]:
+    """Every record an attempt's sessions sealed, by id; a later session's supersedes.
+
+    An attempt that ended for infrastructure is run again in a fresh session, and both are
+    the attempt; a record id the later session wrote again is the later session's. Read from
+    the session-end lines alone, so a file in the run directory that no line seals is never
+    named.
+    """
+    latest: dict[str, SealedEntry] = {}
+    for event in events:
+        if (
+            isinstance(event, SessionEnded)
+            and event.subtask_id == subtask_id
+            and event.attempt == attempt
+        ):
+            for record in event.series.records:
+                latest[record.record_id] = SealedEntry(
+                    subtask_id, attempt, event.session_id, record
+                )
+    return tuple(latest[key] for key in sorted(latest))

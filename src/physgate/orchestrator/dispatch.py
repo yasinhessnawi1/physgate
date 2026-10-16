@@ -46,7 +46,7 @@ from physgate.orchestrator.credentials import (
 )
 from physgate.orchestrator.decompose import binary_version, read_stream
 from physgate.orchestrator.exceptions import AccountingError, InvocationError
-from physgate.orchestrator.git import common_dir, named_from
+from physgate.orchestrator.git import common_dir, named_from, object_format, verified_git_dir
 from physgate.orchestrator.install import InstallFacts, build_record_path, install_facts
 from physgate.orchestrator.invocation import isolated_env, role_argv
 from physgate.orchestrator.managed import drift, policy_limits_digest
@@ -60,6 +60,7 @@ from physgate.orchestrator.run_config import RunConfig, harness_root
 from physgate.orchestrator.trajectory import Seal, forged_tail, seal, through_first_result
 from physgate.reviewers.packet import issued_spec_sha256
 from physgate.reviewers.places import SESSION_DIRNAME
+from physgate.series.collect import collect, empty_outbox
 
 REDACTED = REDACTED_TEXT.encode()
 
@@ -70,7 +71,16 @@ OWNER_NAME = "owner.json"
 
 #: The run's own records, in the run directory. The session's working directory is
 #: one level below it, so none of these contains the worktree.
-RUN_RECORDS = ("events.jsonl", "ledger.jsonl", "run.json", "queue.jsonl", "decomposition")
+#: The run's records a role session may not write. ``series`` holds the simulation records
+#: sealed at each session's end, which the orchestrator writes only between sessions.
+RUN_RECORDS = (
+    "events.jsonl",
+    "ledger.jsonl",
+    "run.json",
+    "queue.jsonl",
+    "decomposition",
+    "series",
+)
 
 
 def run_protected_roots(run: RunGit) -> tuple[tuple[Path, ...], tuple[Path, ...]]:
@@ -457,6 +467,9 @@ class ClaudeDispatcher:
             else None
         )
         session_id = str(uuid.uuid4())
+        # Whatever an earlier session left in the outbox (an orchestrator killed before it
+        # collected) is moved aside first, so every record this session leaves is its own.
+        left_over = empty_outbox(worktree, self._run.run_dir, session_id)
         sdir = self._run.run_dir / "sessions" / session_id
         system_before = self.environment().system_managed
         installed = self._install(request, worktree, sdir)
@@ -535,6 +548,18 @@ class ClaudeDispatcher:
                 msg = "the session was answered by a model other than the pinned one"
                 raise InvocationError(msg, asked=request.model, answered=",".join(echoed))
         halted, appends = self._hook_log(sdir / "state", session_id)
+        # The session has ended: its series records leave the worktree before anything is
+        # committed, sealed if they hold, so no record is ever in git or in a review's diff.
+        series = collect(
+            worktree,
+            module_dir=request.module_dir,
+            run_dir=self._run.run_dir,
+            subtask_id=request.subtask_id,
+            attempt=request.attempt,
+            session_id=session_id,
+            object_format=object_format(verified_git_dir(self._run.repo, linked=False)),
+            discarded_before=left_over,
+        )
         commit = (
             commit_attempt(
                 worktree, request.subtask_id, request.attempt, session_id, repo=self._run.repo
@@ -561,6 +586,7 @@ class ClaudeDispatcher:
             trajectory_tampered=tampered,
             review_material_seen=seen,
             issued_spec_sha256=issued,
+            series=series,
         )
 
     def stop_leftovers(self) -> list[Leftover]:

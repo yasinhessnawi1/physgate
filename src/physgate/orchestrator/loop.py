@@ -547,6 +547,7 @@ class Loop:
                 decisions_bytes=self._decisions_bytes(),
                 policy_limits_sha256=report.policy_limits_sha256,
                 issued_spec_sha256=report.issued_spec_sha256,
+                series=report.series,
             )
         )
         if report.trajectory_tampered is not None:
@@ -734,7 +735,7 @@ class Loop:
             self._reject(subtask_id, attempt, Finding(source="reading", text=UNREAD))
             return False
         self._stage(subtask_id, attempt, "implement")
-        check = self._changes.check(subtask_id, session.attempt_commit, role)
+        check = self._changes.check(subtask_id, session.attempt_commit, role, series=session.series)
         self._emit(
             ProposalsChecked(
                 **self._env(),

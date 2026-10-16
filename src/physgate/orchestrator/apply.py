@@ -42,6 +42,7 @@ from physgate.orchestrator.git import (
 )
 from physgate.orchestrator.merge import RunGit, write_scope_violations
 from physgate.orchestrator.ports import ChangeCheck
+from physgate.series.seal import SessionSeries
 from physgate.state.divergence import divergence
 from physgate.state.exceptions import DesignStateError
 from physgate.state.schema import validate_node
@@ -129,6 +130,39 @@ def read_proposals(
     return sorted(found, key=lambda p: str(p["id"]))
 
 
+def _series_refusal(
+    repo: Path, commit: str, series: SessionSeries | None, pinned: GitDir
+) -> tuple[str, str] | None:
+    """Why the session's series records refuse the attempt, and about which, or ``None``.
+
+    A record the collector refused is the attempt's to fix, as a malformed proposal is. A
+    sealed record must name a script the attempt committed with exactly the bytes collected:
+    the script's git blob at the attempt commit, read through the clean object store, must be
+    the blob id sealed when the session ended.
+    """
+    if series is None:
+        return None
+    if series.refused:
+        shown = "; ".join(f"{e.name}: {e.reason}" for e in series.refused[:5])
+        more = len(series.refused) - 5
+        reason = "the session left series records that were refused: " + shown
+        if more > 0:
+            reason += f"; and {more} more"
+        return reason, ",".join(sorted(e.name for e in series.refused))[:500]
+    for record in series.records:
+        listing = git(
+            repo, "ls-tree", "-z", commit, "--", record.script, objects_only=True, git_dir=pinned
+        )
+        found = listing.split("\0", 1)[0].split("\t", 1)[0].split()
+        if len(found) != 3 or found[1] != "blob" or found[2] != record.script_blob:
+            reason = (
+                f"the record {record.record_id} names the script {record.script}, and the attempt "
+                "did not commit that script with the bytes the record was collected with"
+            )
+            return reason, record.record_id
+    return None
+
+
 class GitChangeChecker:
     """The change check before the gate: write scope, then every proposal pre-checked."""
 
@@ -138,8 +172,20 @@ class GitChangeChecker:
         self._store_root = store_root
         self._module_dirs = module_dirs
 
-    def check(self, subtask_id: str, attempt_commit: str, role: str) -> ChangeCheck:
-        """Refuse an attempt out of scope or with a proposal the store would refuse."""
+    def check(
+        self,
+        subtask_id: str,
+        attempt_commit: str,
+        role: str,
+        *,
+        series: SessionSeries | None = None,
+    ) -> ChangeCheck:
+        """Refuse an attempt out of scope, with a refused series record, or a refused proposal.
+
+        The order: what the attempt committed outside its scope; then its session's series
+        records (one the collector refused, or one whose script is not the one committed);
+        then its node proposals, against the store's own guards.
+        """
         repo = self._run.repo
         # Verified once; the base, the scope check and the proposals all read through it.
         pinned = verified_git_dir(repo, linked=False)
@@ -153,6 +199,12 @@ class GitChangeChecker:
             subject = ",".join(sorted(v.split(" (", 1)[0] for v in outside))
             return ChangeCheck(
                 refused_by="write_scope", reason=reason, subject=subject, graph_root=str(scratch)
+            )
+        refusal = _series_refusal(repo, attempt_commit, series, pinned)
+        if refusal is not None:
+            reason, subject = refusal
+            return ChangeCheck(
+                refused_by="series", reason=reason, subject=subject, graph_root=str(scratch)
             )
         proposed: tuple[str, ...] = ()
         try:

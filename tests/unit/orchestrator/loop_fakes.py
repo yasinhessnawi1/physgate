@@ -35,6 +35,7 @@ from physgate.orchestrator.protocols import (
 )
 from physgate.orchestrator.record import PlanEntry
 from physgate.orchestrator.trajectory import seal
+from physgate.series.seal import SessionSeries
 from physgate.state.task_ledger import TaskLedger
 
 
@@ -57,6 +58,8 @@ class FakeDispatcher:
     """Completes every session, unless told to fail or be killed on a given call."""
 
     infra: dict[int, InfraCause] = field(default_factory=dict)
+    #: Per call: the series records the session left.
+    series: dict[int, SessionSeries] = field(default_factory=dict)
     unread: set[int] = field(default_factory=set)
     halted: set[int] = field(default_factory=set)
     kill_on: int | None = None
@@ -106,6 +109,7 @@ class FakeDispatcher:
                 reading_verified=False,
                 node_files_halted=False,
                 usage=(MessageUsage(message_id=f"m{call}", usage=usage(3)),),
+                series=self.series.get(call, SessionSeries()),
             )
         trajectory = f"sessions/{sid}/stdout.jsonl"
         sealed = None
@@ -127,6 +131,7 @@ class FakeDispatcher:
             managed_drift=self.drift.get(call),
             policy_limits_sha256=self.policy.get(call),
             review_material_seen=self.material.get(call),
+            series=self.series.get(call, SessionSeries()),
             usage=(
                 MessageUsage(message_id=f"m{call}a", usage=usage(10)),
                 MessageUsage(message_id=f"m{call}a", usage=usage(10)),
@@ -141,9 +146,19 @@ class FakeChanges:
     #: Per call: the node ids the attempt proposed.
     proposed: dict[int, tuple[str, ...]] = field(default_factory=dict)
     calls: int = 0
+    #: Per call: the series the loop handed the check.
+    seen: list[SessionSeries | None] = field(default_factory=list)
 
-    def check(self, subtask_id: str, attempt_commit: str, role: str) -> ChangeCheck:
+    def check(
+        self,
+        subtask_id: str,
+        attempt_commit: str,
+        role: str,
+        *,
+        series: SessionSeries | None = None,
+    ) -> ChangeCheck:
         self.calls += 1
+        self.seen.append(series)
         refused = self.refuse.get(self.calls)
         return ChangeCheck(
             refused_by=refused[0] if refused else None,  # type: ignore[arg-type]

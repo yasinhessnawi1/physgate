@@ -22,7 +22,7 @@ from physgate.orchestrator.exceptions import RepairBudgetExhaustedError
 from physgate.orchestrator.protocols import GateResult, NumericOutput, QuantityRef, ReviewResult
 
 #: What rejected an attempt.
-FindingSource = Literal["gate", "review", "write_scope", "proposal", "reading"]
+FindingSource = Literal["gate", "review", "write_scope", "proposal", "reading", "series"]
 
 _WHO = {
     "gate": "the physics gate",
@@ -30,6 +30,7 @@ _WHO = {
     "write_scope": "the write-scope check (an attempt may change only its own module)",
     "proposal": "the design-state store, which refused a proposed node",
     "reading": "the reading check (the required reading was not completed)",
+    "series": "the series check (a simulation record was refused, or names other code)",
 }
 
 
