@@ -21,10 +21,12 @@ six, and they carry no rate.
 
 **What each is expected to draw** is in ``EXPECTED``: the verdict, and for a twin the rubric
 items that must carry its rejection, because a rejection alone does not show the error was
-found. A reviewer is never shown any of it. The check found that the rubrics, read as written,
-leave ``accept`` out of reach for the two consistent revisions: each touches items whose inputs
-no public source gives (a board-level junction-to-ambient figure, a printed part's allowable
-with its specimen settings). Their expectation says so rather than claim an accept.
+found. A reviewer is never shown any of it. The check found that the two consistent revisions leave
+out items the rubrics require (thermal quantities and a junction-temperature margin, a power
+budget, a static-weight case, a material record with its test temperature and settings), and
+that some of those need inputs the given designs do not hold (an ambient temperature, a named
+cell, the motor's mass). So ``accept`` is out of reach for them, and their expectation says so
+rather than claim an accept.
 
 **The numbers and their sources.**
 
@@ -32,8 +34,7 @@ with its specimen settings). Their expectation says so rather than claim an acce
   Micro Metal Gearmotor datasheet rev 6.2: stall current at 6 V 0.67 A and 1.6 A, extrapolated
   (theoretical); 50:1 MP extrapolated stall torque 0.54 kg·cm.
 - *TI DRV8838* (SLVSBA4F): IOUT motor peak current 1.8 A (§6.3); IOCP minimum 1.9 A at
-  TA = 25 °C (§6.5); VM 0 to 11 V (§6.3); rDS(on) 330 mΩ maximum at TJ = 25 °C (§6.5);
-  RθJA 60.9 °C/W, JEDEC board (§6.4); TSD minimum 150 °C (§6.5).
+  TA = 25 °C (§6.5); VM 0 to 11 V (§6.3).
 - *Balboa 32U4 user's guide* (§3.6): six AA cells; the board's VIN limited to 10.8 V by the
   DRV8838.
 - *Energizer NiMH Handbook*: an open-circuit voltage of approximately 1.4 V per cell.
@@ -44,6 +45,9 @@ Stall current and stall torque scale with the applied voltage, a derivation from
 (current linear with torque) and p. 6 (back-EMF proportional to speed); each scaled value says
 it is derived.
 
+A dimensionless quantity carries the unit word ``dimensionless``, as the design-quantity
+catalogue names that kind; the rubrics write it ``1``.
+
 **One difference from the instrument's corpus format.** That format writes every source as a
 URL or as arithmetic over rows of a parts sheet the reviewer is not shown. These artefacts cite
 their sources in words, so a reviewer can check them by reading.
@@ -51,9 +55,14 @@ their sources in words, so a reviewer can check them by reading.
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
-_GEOMETRY = "sha256:" + "6b1f0c2e94d7a3581e0f4c7d2a9b6e3f8c1d5a7e9b2f4c6d8e0a1b3c5d7e9f1a"
+
+def _geometry(node_id: str, variant: str = "") -> str:
+    """A node's geometry digest: its own, and a new one when its geometry changes."""
+    return "sha256:" + hashlib.sha256(f"{node_id}:{variant}".encode()).hexdigest()
+
 
 POLOLU_MP = (
     "Pololu item #2365, 50:1 Micro Metal Gearmotor MP 6V, product page and Micro Metal "
@@ -87,6 +96,7 @@ def _node(
     updated: str,
     constrains: tuple[str, ...] = (),
     justified: dict[str, str] | None = None,
+    geometry: str = "",
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "id": node_id,
@@ -97,7 +107,7 @@ def _node(
         "requirements": [],
         "constrains": list(constrains),
         "model": None,
-        "geometry_hash": _GEOMETRY,
+        "geometry_hash": _geometry(node_id, geometry),
         "updated": updated,
     }
     if justified:
@@ -274,7 +284,15 @@ TAB_WIDTH_M = 0.006
 _PLA = "BASF Ultrafuse PLA, FDM"
 _BUILD = (
     f"{_PLA}; the tab is printed with its 8 mm length along the build (Z) axis, so the root "
-    "bending stress crosses the layers"
+    "bending stress crosses the layers; printed upright on its 6 mm face, no overhang, 0.5 mm "
+    "chamfer on the bed edges; 0.2 mm layers, 100% infill, 4 perimeters"
+)
+FACTOR_SOURCE = (
+    "the design's stated factor on ultimate: no published factor covers printed plastic, so it "
+    "takes 2.0, the analysis-only FOSU of ECSS-E-ST-32-10C Rev.2 Corr.1 Table 4-3 for "
+    "metallic, FRP and sandwich parts of satellites and launch vehicles, as a reference from a "
+    "stricter class, not as physics. Ultimate only: the across-layer PLA breaks at 1.2% "
+    "elongation (Forward AM), with no separate yield to check."
 )
 
 
@@ -294,7 +312,8 @@ def _tab(
     return _node(
         "mechanical.mount_tab_left",
         "mechanical",
-        {
+        geometry=f"{thickness_m}",
+        quantities={
             "spacing": (TAB_SPACING_M, "m", "the design's choice: the two tabs' centre distance"),
             "length": (TAB_LENGTH_M, "m", f"the design's choice; {_BUILD}"),
             "width": (TAB_WIDTH_M, "m", "the design's choice"),
@@ -315,12 +334,7 @@ def _tab(
             "factor_of_safety": (
                 factor,
                 "dimensionless",
-                "the design's stated factor on ultimate: no published factor covers printed "
-                "plastic, so it takes 2.0, ECSS-E-ST-32-10C Rev.2 Corr.1 Table 4-3's ultimate "
-                "factor for metallic, FRP and other structural parts of spaceflight hardware "
-                "verified by analysis only, as a reference from a stricter class, not as physics. "
-                "Ultimate only: the across-layer PLA breaks at 1.2% elongation (Forward AM), with "
-                "no separate yield to check.",
+                FACTOR_SOURCE,
             ),
             "margin_of_safety": (
                 round(margin, 3),
@@ -438,14 +452,18 @@ MECHANICAL_PROPOSAL = _node(
         "length": (TAB_LENGTH_M, "m", f"the design's choice; {_BUILD}"),
         "width": (TAB_WIDTH_M, "m", "the design's choice"),
         "thickness": (0.003, "m", "the design's choice"),
-        "allowable_stress": (
+        "tensile_strength_typical": (
             21.2,
             "MPa",
-            f"{FORWARD_AM}: Ultrafuse PLA ISO 527 tensile strength ZX, 21.2 MPa, typical value, "
-            "unverified until tested; the root stress crosses the layers",
+            f"{FORWARD_AM}: Ultrafuse PLA ISO 527 tensile strength ZX, 21.2 MPa, a typical value "
+            "and not an allowable; the maker publishes neither the test temperature nor the "
+            "specimen settings; the root stress crosses the layers; the allowable waits for a "
+            "test and for the fall case",
         ),
+        "factor_of_safety": (2.0, "dimensionless", FACTOR_SOURCE),
     },
     updated="2026-10-15T10:40:00Z",
+    geometry="0.003",
 )
 ELECTRICAL_SUMMARY = (
     "Chose the MP 6V 50:1 gearmotor (#2365) and recorded its 0.67 A stall current at 6 V, with "
@@ -472,23 +490,24 @@ EXPECTED: dict[str, tuple[str, tuple[str, ...], str]] = {
     "e-consistent": (
         "reject",
         (),
-        "not accept: the change raises the driver's current, and its junction-temperature "
-        "items need a board figure no public source gives (an independent check, E1)",
+        "not accept: no dissipation or thermal-resistance records and no power or temperature "
+        "ratio (ES-19, ES-35, ES-21); the battery's missing ratings land under Given values; "
+        "blocking defects ride along (ES-20 ambient, ES-10 cell); reject wins",
     ),
     "e-with-error": (
         "reject",
-        ("ES-14", "ES-15", "EP-5"),
+        ("ES-14", "EP-5"),
         "HP motor's stall current not carried to 8.4 V: about 2.24 A, above 1.8 A and 1.9 A",
     ),
     "m-consistent": (
         "reject",
         (),
-        "not accept: a typical catalogue value used as the allowable of a printed part, and no "
-        "static-weight case (an independent check, M1 and M3)",
+        "not accept: a typical catalogue value used as the allowable of a printed part (MS-11), "
+        "no static-weight case (MS-6) and no creep check (MS-14)",
     ),
     "m-with-error": (
         "reject",
-        ("MS-12", "MP-2", "MS-8"),
+        ("MS-12", "MP-2"),
         "2.0 mm tab bending across layers held to the XY value: margin -0.29, not +0.17",
     ),
     "e-attempt": ("blocked", (), "no battery and no driver given for criteria 1 and 2"),
