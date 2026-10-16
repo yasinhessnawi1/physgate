@@ -56,6 +56,7 @@ from physgate.orchestrator.events import (
     ReviewRan,
     ReviewUnavailable,
     SessionEnded,
+    SessionSpawned,
     Stage,
     StageEntered,
     TokensUsed,
@@ -345,6 +346,10 @@ class Loop:
         path = self.queue.decisions_path
         return path.stat().st_size if path.exists() else 0
 
+    def _spawned(self, session_id: str, pid: int, started: str) -> None:
+        """Record a role session's process before it runs anything: what a resume holds it to."""
+        self._emit(SessionSpawned(**self._env(), session_id=session_id, pid=pid, started=started))
+
     def _stop_leftovers(self) -> None:
         """Stop what a previous process left running, before anything reads or writes."""
         if not self.log.events:
@@ -521,7 +526,7 @@ class Loop:
             bounds=self.config.bounds,
             spec_commit=self._spec_commit(),
         )
-        report = self._dispatcher.run(request)
+        report = self._dispatcher.run(request, on_spawn=self._spawned)
         for message in report.usage:
             self._emit(
                 TokensUsed(

@@ -11,6 +11,7 @@ changing. None of them decides anything the loop should decide.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Literal, Protocol
 
@@ -125,10 +126,15 @@ class WorktreeRemoval(_Frozen):
     detail: NonEmptyStr | None
 
 
+#: Told a role session's session id, pid and start time once it is spawned and before it
+#: runs anything; the loop records them in the run's event log.
+SpawnHook = Callable[[str, int, str], None]
+
+
 class Dispatcher(Protocol):
     """Runs one attempt in a fresh session in the subtask's worktree."""
 
-    def run(self, request: SessionRequest) -> SessionReport:
+    def run(self, request: SessionRequest, on_spawn: SpawnHook | None = None) -> SessionReport:
         """Spawn, wait within the request's bounds, stop, and report."""
         ...
 

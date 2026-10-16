@@ -32,7 +32,7 @@ from physgate.orchestrator.escalation import bind
 from physgate.orchestrator.git import head_of
 from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.merge import GitMerger, RunGit, commit_attempt
-from physgate.orchestrator.ports import Leftover, SessionReport, SessionRequest
+from physgate.orchestrator.ports import Leftover, SessionReport, SessionRequest, SpawnHook
 from physgate.orchestrator.protocols import (
     Artefact,
     CheckRecord,
@@ -157,7 +157,7 @@ class FakeSession:
     def stop_leftovers(self) -> list[Leftover]:
         return []
 
-    def run(self, request: SessionRequest) -> SessionReport:
+    def run(self, request: SessionRequest, on_spawn: SpawnHook | None = None) -> SessionReport:
         self.calls += 1
         worktree = self.layout.open_subtask(request.subtask_id)
         module = worktree / request.module_dir

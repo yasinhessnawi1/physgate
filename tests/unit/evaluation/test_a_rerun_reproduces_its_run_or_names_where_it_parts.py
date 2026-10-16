@@ -33,7 +33,7 @@ from physgate.evaluation.observe.manifest import read_manifest
 from physgate.evaluation.observe.rerun import MEASURED, RerunPlan, compare_runs, rerun
 from physgate.evaluation.observe.sequence import RunView, level_of
 from physgate.orchestrator.git import head_of
-from physgate.orchestrator.ports import SessionReport, SessionRequest
+from physgate.orchestrator.ports import SessionReport, SessionRequest, SpawnHook
 from physgate.orchestrator.run_config import RunConfig
 
 BRIEF = "Build two modules.\n"
@@ -267,10 +267,12 @@ def killed_and_resumed(
     cfg = start(tmp_path, "run-k", repo, brief_sha256=digest)
     real_run = FakeSession.run
 
-    def dies_on_the_second_subtask(self: FakeSession, request: SessionRequest) -> SessionReport:
+    def dies_on_the_second_subtask(
+        self: FakeSession, request: SessionRequest, on_spawn: SpawnHook | None = None
+    ) -> SessionReport:
         if request.subtask_id.startswith("s2"):
             raise Killed
-        return real_run(self, request)
+        return real_run(self, request, on_spawn)
 
     monkeypatch.setattr(FakeSession, "run", dies_on_the_second_subtask)
     with pytest.raises(Killed):

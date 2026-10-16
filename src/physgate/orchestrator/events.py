@@ -529,6 +529,20 @@ class LeftoverStopped(_Event):
     killed: Annotated[int, Field(ge=0)]
 
 
+class SessionSpawned(_Event):
+    """A role session's process, recorded before it runs anything: its pid and start time.
+
+    Written while the spawned process still waits to start the binary, so no session has run
+    before the line is on disk. A resume honours a session's process record only if it
+    agrees with this line; the record is a file the session's own user can write.
+    """
+
+    kind: Literal["session_spawned"] = "session_spawned"
+    session_id: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
+    pid: Annotated[int, Field(ge=1)]
+    started: NonEmptyStr
+
+
 class LeftoverRead(_Event):
     """What a resume read of a session a previous orchestrator left without an end.
 
@@ -602,6 +616,7 @@ Event = Annotated[
     | EnvironmentRecorded
     | InstallChecked
     | LeftoverStopped
+    | SessionSpawned
     | LeftoverRead
     | WorktreeRemoved
     | WriteIntended

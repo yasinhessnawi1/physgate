@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from left_session import spawn_logged
 from orch_helpers import make_config
 
 from physgate.hooks.registry import REGISTRY
@@ -157,7 +158,7 @@ elif MODE == "orphan":
         note(grandchild)
         os._exit(0)
     os.waitpid(pid, 0)
-elif MODE in ("halted", "forget", "corrupt", "link"):
+elif MODE in ("halted", "forget", "erase", "corrupt", "link"):
     sdir = os.path.dirname(os.path.dirname(argv[argv.index("--settings") + 1]))
     record = os.path.join(sdir, "state", "sessions", session_id, "sentinel", "baseline.json")
     pid = os.fork()
@@ -170,6 +171,10 @@ elif MODE in ("halted", "forget", "corrupt", "link"):
             base["halted"] = "inert"
             json.dump(base, open(record, "w"))
             write_marker()
+        elif MODE == "erase":
+            # The sentinel's own record is gone, and a protected file with it.
+            os.unlink(record)
+            os.unlink(os.path.join(ROOT, "kept.txt"))
         elif MODE == "corrupt":
             # The sentinel's own record no longer parses: its check cannot complete.
             with open(record, "w") as out:
@@ -201,7 +206,7 @@ elif MODE == "tamper":
 time.sleep(PAUSE)
 hook("SessionEnd")
 open(os.path.join(FLAGS, "session-end-ran"), "w").close()
-if MODE in ("between", "tamper", "halted", "forget", "corrupt", "link"):
+if MODE in ("between", "tamper", "halted", "forget", "erase", "corrupt", "link"):
     while not os.path.exists(os.path.join(FLAGS, "written")):
         time.sleep(0.02)
 usage = {"input_tokens": 3, "output_tokens": 5}
@@ -284,6 +289,10 @@ class Session:
         self.wall_clock_s = wall_clock_s
         #: What the first git call found: (pids still running, root's names). None until then.
         self.at_first_git: tuple[list[int], list[str]] | None = None
+
+    def spawned(self, session_id: str, pid: int, started: str) -> None:
+        """The loop's own record of the spawn, in the run's event log."""
+        spawn_logged(self.run.run_dir, [(session_id, pid, started)])
 
     def pids(self) -> list[int]:
         path = self.flags / "pids"
@@ -377,7 +386,7 @@ def test_a_child_that_would_write_after_the_session_is_stopped_before_the_first_
 ) -> None:
     monkeypatch.setattr(ending, "GRACE_S", 0.5)
     session = Session(tmp_path, mode, pause=1.0, wall_clock_s=60.0)
-    report = session.dispatcher(monkeypatch).run(session.request())
+    report = session.dispatcher(monkeypatch).run(session.request(), session.spawned)
     children = session.pids()
     leftovers += children
     assert report.end.outcome == "completed", report
@@ -397,7 +406,7 @@ def test_a_write_between_session_end_and_the_stop_is_put_back_before_the_first_g
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
 ) -> None:
     session = Session(tmp_path, "between", pause=0.0, wall_clock_s=60.0)
-    report = session.dispatcher(monkeypatch).run(session.request())
+    report = session.dispatcher(monkeypatch).run(session.request(), session.spawned)
     children = session.pids()
     leftovers += children
     assert report.end.outcome == "completed", report
@@ -425,7 +434,7 @@ def test_a_check_that_cannot_run_after_the_stop_refuses_before_any_git_call(
     session = Session(tmp_path, "tamper", pause=0.0, wall_clock_s=60.0)
     dispatcher = session.dispatcher(monkeypatch)
     with pytest.raises(InvocationError, match="sentinel"):
-        dispatcher.run(session.request())
+        dispatcher.run(session.request(), session.spawned)
     leftovers += session.pids()
     assert session.at_first_git is None
     assert session.pids() and all(started_at(pid) is None for pid in session.pids())
@@ -436,7 +445,7 @@ def test_a_session_stopped_at_its_clock_leaves_no_setsid_grandchild(
 ) -> None:
     """At the wall clock the tree walk alone misses a grandchild that left it; the stop does not."""
     session = Session(tmp_path, "setsid", pause=60.0, wall_clock_s=3.0)
-    report = session.dispatcher(monkeypatch).run(session.request())
+    report = session.dispatcher(monkeypatch).run(session.request(), session.spawned)
     children = session.pids()
     leftovers += children
     assert report.end.outcome == "infrastructure" and report.end.cause == "wall_clock"
@@ -453,7 +462,7 @@ def test_a_session_stopped_at_its_clock_leaves_no_setsid_grandchild(
 def _refused_before_git(session: Session, dispatcher: ClaudeDispatcher) -> dict[str, Any]:
     """Run the attempt, which must be refused before any git call; return what it recorded."""
     with pytest.raises(InvocationError, match="no git call follows"):
-        dispatcher.run(session.request())
+        dispatcher.run(session.request(), session.spawned)
     assert session.at_first_git is None
     (record,) = session.run.run_dir.glob("sessions/*/after_stop.json")
     assert not (record.parent / "ended.json").exists()
@@ -522,7 +531,7 @@ def _orchestrator_dies(
     with mp.context() as killed:
         killed.setattr(dispatch, "await_session", die)
         with pytest.raises(Died):
-            dispatcher.run(session.request())
+            dispatcher.run(session.request(), session.spawned)
 
 
 def _resumed(session: Session, dispatcher: ClaudeDispatcher) -> ClaudeDispatcher:
@@ -562,29 +571,116 @@ def test_a_resume_stops_what_a_running_role_session_left_in_its_own_group(
     assert sorted(p.name for p in session.root.iterdir()) == ["kept.txt"]
 
 
-def test_a_resume_signals_no_group_it_cannot_prove_the_session_s_and_goes_no_further(
+def _left_exited(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
-) -> None:
-    """The session had exited before the resume: its child is read, never signalled."""
+) -> tuple[Session, ClaudeDispatcher, int]:
+    """The orchestrator died; then its session exited, and the session's child wrote."""
     session = Session(tmp_path, "sleeper", pause=1.0, wall_clock_s=60.0)
     dispatcher = session.dispatcher(monkeypatch)
     _orchestrator_dies(session, dispatcher, monkeypatch)
-    marker = session.root / MARKER
     try:
-        assert _settle(marker.exists, 20.0), "the child never wrote"
-        (child,) = session.pids()
-        with pytest.raises(InvocationError, match="the resume goes no further"):
-            _resumed(session, dispatcher).stop_leftovers()
-        assert started_at(child) is not None
+        assert _settle((session.root / MARKER).exists, 20.0), "the child never wrote"
     finally:
         leftovers += session.pids()
-    (record,) = session.run.run_dir.glob("sessions/*/after_stop.json")
-    assert not (record.parent / "ended.json").exists()
-    settled = json.loads(record.read_text())
-    assert str(child) in settled["stop_unconfirmed"]
-    # The check ran all the same, and put the write back.
-    assert settled["sentinel_after_stop"]["put_back"] == [str(marker)]
+    (child,) = session.pids()
+    return session, dispatcher, child
+
+
+def _process_record(session: Session) -> Path:
+    (record,) = session.run.run_dir.glob("sessions/*/process.json")
+    return record
+
+
+def test_a_resume_stops_what_an_exited_session_left_in_its_group_and_puts_its_write_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    """Its record agrees with the spawn the event log holds: its group is the session's."""
+    session, dispatcher, child = _left_exited(tmp_path, monkeypatch, leftovers)
+    (left,) = _resumed(session, dispatcher).stop_leftovers()
+    assert not left.stopped  # the session itself had exited
+    assert started_at(child) is None
+    ended = json.loads(_process_record(session).with_name("ended.json").read_text())
+    assert child in ended["left_running"]
+    assert ended["sentinel_after_stop"]["put_back"] == [str(session.root / MARKER)]
     assert sorted(p.name for p in session.root.iterdir()) == ["kept.txt"]
+
+
+def test_a_process_record_rewritten_to_name_a_live_process_refuses_the_resume(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    """The leftover's write: the record now names this live process, which is no session."""
+    session, dispatcher, child = _left_exited(tmp_path, monkeypatch, leftovers)
+    record = _process_record(session)
+    forged = json.loads(record.read_text()) | {
+        "pid": os.getpid(),
+        "started": started_at(os.getpid()),
+    }
+    record.write_text(json.dumps(forged))
+    with pytest.raises(InvocationError, match="nothing is signalled"):
+        _resumed(session, dispatcher).stop_leftovers()
+    # Refused, not passed: the child is not taken for gone, nor signalled on the record's say.
+    assert started_at(child) is not None
+    refused = json.loads(record.with_name("after_stop.json").read_text())
+    assert refused["record_refused"].startswith("the process record's pid or start time")
+
+
+def test_a_sentinel_record_deleted_after_the_session_refuses_the_resume(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    """The leftover's write: the record the check compares with is gone. No pass."""
+    session, dispatcher, _child = _left_exited(tmp_path, monkeypatch, leftovers)
+    sdir = _process_record(session).parent
+    (sdir / "state" / "sessions" / sdir.name / "sentinel" / "baseline.json").unlink()
+    with pytest.raises(InvocationError, match="the resume goes no further"):
+        _resumed(session, dispatcher).stop_leftovers()
+    settled = json.loads((sdir / "after_stop.json").read_text())
+    assert settled["sentinel_after_stop"]["refused"] == (
+        "the sentinel's record of the session is missing"
+    )
+    assert not (sdir / "ended.json").exists()
+
+
+VICTIM = r"""
+import os, subprocess, sys, time
+member = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+# Out of its tree, in its group: the parent of the member exits at once.
+open(sys.argv[1], "w").write(f"{os.getpid()} {member.pid}")
+time.sleep(120)
+"""
+
+
+def test_a_record_naming_another_run_s_session_signals_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    """A forged record names a live session of another run, leading its own group."""
+    session = Session(tmp_path, "sleeper", pause=0.0, wall_clock_s=60.0)
+    dispatcher = session.dispatcher(monkeypatch)
+    marker = tmp_path / "victim"
+    victim = subprocess.Popen(
+        [sys.executable, "-c", VICTIM, str(marker), "--session-id", "other-runs-session"],
+        start_new_session=True,
+    )
+    try:
+        assert _settle(
+            lambda: len(marker.read_text().split()) == 2 if marker.exists() else False, 10.0
+        )
+        leader, member = (int(x) for x in marker.read_text().split())
+        leftovers += [leader, member]
+        forged = session.run.run_dir / "sessions" / "forged"
+        forged.mkdir(parents=True)
+        record = {"pid": leader, "started": started_at(leader), "session_id": "other-runs-session"}
+        (forged / "process.json").write_text(json.dumps(record))
+        with pytest.raises(InvocationError, match="nothing is signalled"):
+            _resumed(session, dispatcher).stop_leftovers()
+        time.sleep(0.5)
+        assert started_at(leader) is not None and started_at(member) is not None
+        refused = json.loads((forged / "after_stop.json").read_text())
+        assert refused["record_refused"] == (
+            "the process record names another session than its directory's"
+        )
+    finally:
+        victim.kill()
+        victim.wait()
 
 
 BYSTANDER = r"""
@@ -618,7 +714,7 @@ def test_a_rewritten_process_record_never_points_a_resume_s_sweep_at_another_gro
     assert started_at(member) is not None
 
 
-@pytest.mark.parametrize("mode", ["halted", "forget"])
+@pytest.mark.parametrize("mode", ["halted", "forget", "erase"])
 def test_a_sentinel_record_rewritten_after_session_end_cannot_pass_a_changed_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int], mode: str
 ) -> None:
@@ -627,13 +723,13 @@ def test_a_sentinel_record_rewritten_after_session_end_cannot_pass_a_changed_roo
     dispatcher = session.dispatcher(monkeypatch)
     try:
         with pytest.raises(InvocationError, match="no git call follows"):
-            dispatcher.run(session.request())
+            dispatcher.run(session.request(), session.spawned)
     finally:
         leftovers += session.pids()
     assert session.at_first_git is None
     (record,) = session.run.run_dir.glob("sessions/*/after_stop.json")
     settled = json.loads(record.read_text())
-    changed = {"halted": MARKER, "forget": "kept.txt"}[mode]
+    changed = {"halted": MARKER, "forget": "kept.txt", "erase": "kept.txt"}[mode]
     assert settled["protected_changed"] == [str(session.root / changed)]
 
 
@@ -645,7 +741,7 @@ def test_a_sentinel_check_that_cannot_complete_refuses_though_no_root_changed(
     dispatcher = session.dispatcher(monkeypatch)
     try:
         with pytest.raises(InvocationError, match="no git call follows"):
-            dispatcher.run(session.request())
+            dispatcher.run(session.request(), session.spawned)
     finally:
         leftovers += session.pids()
     assert session.at_first_git is None
@@ -662,7 +758,7 @@ def test_an_end_record_is_never_written_through_a_link_the_session_planted(
     victim = session.flags / "victim.txt"
     victim.write_text("inert victim\n")
     try:
-        report = session.dispatcher(monkeypatch).run(session.request())
+        report = session.dispatcher(monkeypatch).run(session.request(), session.spawned)
     finally:
         leftovers += session.pids()
     assert victim.read_text() == "inert victim\n"
@@ -723,6 +819,26 @@ def test_a_tree_that_cannot_be_enumerated_while_the_session_runs_refuses_the_att
     assert "ProcessTableError" in settled["stop_unconfirmed"]
 
 
+def test_a_session_whose_start_cannot_be_read_never_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    """The process table fails at the spawn: the held process is never let run the session."""
+    session = Session(tmp_path, "sleeper", pause=0.0, wall_clock_s=60.0)
+    dispatcher = session.dispatcher(monkeypatch)
+    monkeypatch.setattr(processes, "subprocess", FailingPs("fails"))
+    try:
+        with pytest.raises(processes.ProcessTableError):
+            dispatcher.run(session.request(), session.spawned)
+    finally:
+        monkeypatch.undo()
+        leftovers += session.pids()
+    time.sleep(2.0)
+    # No hook of the session ever ran, and nothing it would have started exists.
+    assert session.pids() == []
+    assert not list(session.run.run_dir.glob("sessions/*/state/sessions/*/sentinel"))
+    assert session.at_first_git is None
+
+
 def test_a_put_back_root_that_cannot_be_read_starts_no_session(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
 ) -> None:
@@ -737,7 +853,7 @@ def test_a_put_back_root_that_cannot_be_read_starts_no_session(
     dispatcher = session.dispatcher(monkeypatch)
     try:
         with pytest.raises(InvocationError, match="could not be read"):
-            dispatcher.run(session.request())
+            dispatcher.run(session.request(), session.spawned)
     finally:
         locked.chmod(0o700)
         leftovers += session.pids()

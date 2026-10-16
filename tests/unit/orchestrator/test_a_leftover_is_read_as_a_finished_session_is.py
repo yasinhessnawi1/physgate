@@ -13,6 +13,7 @@ import hashlib
 import json
 from pathlib import Path
 
+from left_session import INSTALL_BIN, sentinel_installed, spawn_logged
 from loop_fakes import FakeDispatcher, Rig, plan
 
 from physgate.orchestrator.accounting import TokenAccount
@@ -57,8 +58,12 @@ def _left(run_dir: Path, session: str, lines: list[str]) -> Path:
     sdir = run_dir / "sessions" / session
     sdir.mkdir(parents=True)
     # A process that is not running: the session finished while its orchestrator was down.
-    record = {"pid": 999_999, "started": "Mon Jan  1 00:00:00 2001", "session_id": session}
+    # Its spawn is on the record and its sentinel had taken its own, as in a real run.
+    started = "Mon Jan  1 00:00:00 2001"
+    record = {"pid": 999_999, "started": started, "session_id": session}
     (sdir / "process.json").write_text(json.dumps(record))
+    spawn_logged(run_dir, [(session, 999_999, started)])
+    sentinel_installed(sdir, run_dir / "guarded")
     stream = sdir / "stdout.jsonl"
     stream.write_text("\n".join(lines) + "\n")
     return stream
@@ -71,7 +76,7 @@ def _dispatcher(run_dir: Path) -> ClaudeDispatcher:
         config=make_config(),
         run=RunGit(repo=run_dir, run_dir=run_dir, run_id="run-1"),
         store_root=run_dir / "store",
-        install_bin=run_dir / "bin" / "physgate",
+        install_bin=INSTALL_BIN,
         binary="/nonexistent/claude",
         base_url=None,
         credential=Credential("api_key", "sk-ant-test-dummy-not-a-credential"),

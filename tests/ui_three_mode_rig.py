@@ -49,7 +49,7 @@ from physgate.orchestrator.events import (
 )
 from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.merge import GitMerger, RunGit, commit_attempt
-from physgate.orchestrator.ports import Leftover, SessionReport, SessionRequest
+from physgate.orchestrator.ports import Leftover, SessionReport, SessionRequest, SpawnHook
 from physgate.orchestrator.protocols import MessageUsage, Usage
 from physgate.orchestrator.run_config import RunConfig
 from physgate.orchestrator.trajectory import seal
@@ -76,7 +76,7 @@ class StandInSession:
     def stop_leftovers(self) -> list[Leftover]:
         return []
 
-    def run(self, request: SessionRequest) -> SessionReport:
+    def run(self, request: SessionRequest, on_spawn: SpawnHook | None = None) -> SessionReport:
         self.calls += 1
         if self.clock is not None:
             self.clock.spend(TickingClock.SESSION)

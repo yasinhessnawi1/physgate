@@ -41,6 +41,7 @@ stopped before its end is recorded (``ending.await_session``).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import subprocess
 import time
@@ -545,7 +546,13 @@ class ClaudeReviewer:
                 stderr=err,
                 start_new_session=True,
             )
-            started = started_at(process.pid)
+            try:
+                started = started_at(process.pid)
+            except OSError:
+                # The process table cannot be read: the session, this process's own unreaped
+                # child, is stopped rather than left to run unobserved with no record of it.
+                _stop_own(process)
+                raise
             record = {
                 "pid": process.pid,
                 "started": started,
@@ -559,7 +566,11 @@ class ClaudeReviewer:
             (sdir / "process.json").write_text(json.dumps(record))
             # However the session ends, nothing it started is left running: a process it
             # left could still read, or write, under the review root once it is gone.
-            ended = await_session(process, started, bounds.session_wall_clock_s)
+            try:
+                ended = await_session(process, started, bounds.session_wall_clock_s)
+            except OSError:
+                _stop_own(process)
+                raise
         (sdir / "ended.json").write_text(
             json.dumps(
                 {
@@ -570,6 +581,13 @@ class ClaudeReviewer:
             )
         )
         return stdout, ended.exit_code, ended.timed_out
+
+
+def _stop_own(process: subprocess.Popen[bytes]) -> None:
+    """Stop a review session this process spawned and has not reaped: its pid is still its own."""
+    with contextlib.suppress(OSError):
+        process.kill()
+        process.wait()
 
 
 @dataclass(frozen=True)

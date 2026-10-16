@@ -104,7 +104,67 @@ def write_login(config_dir: Path, token: str) -> Path:
     return path
 
 
+def open_in_session(directory: Path) -> int | None:
+    """A descriptor on ``directory``, reached from its session's directory without a link.
+
+    ``directory`` is ``<session dir>/<name>`` or the session directory itself. The session
+    directory's parent is the orchestrator's own (the run's ``sessions`` directory, a review's
+    directory, a decomposition's work directory) and is opened as named; the session directory
+    and everything below it is opened without following a link, so a link a session's process
+    planted there is never followed out of it. ``None`` if the directory does not exist.
+
+    Raises:
+        InvocationError: a component is a link, or not a directory.
+    """
+    flags = os.O_RDONLY | os.O_DIRECTORY
+    try:
+        top = os.open(directory.parent.parent, flags)
+    except FileNotFoundError:
+        return None
+    try:
+        names = [directory.parent.name, directory.name]
+        fd = top
+        for name in names:
+            try:
+                nxt = os.open(name, flags | os.O_NOFOLLOW, dir_fd=fd)
+            except FileNotFoundError:
+                if fd != top:
+                    os.close(fd)
+                return None
+            except OSError as exc:
+                if fd != top:
+                    os.close(fd)
+                msg = "a session's directory is a link or not a directory; it is not followed"
+                raise InvocationError(msg, path=str(directory), error=repr(exc)) from exc
+            if fd != top:
+                os.close(fd)
+            fd = nxt
+        return fd
+    finally:
+        os.close(top)
+
+
 def remove_secrets(state_dir: Path, config_dir: Path) -> None:
-    """Remove every file a session's credential was put in, whichever mode wrote it."""
-    for path in (state_dir / KEY_FILE, state_dir / KEY_HELPER, config_dir / LOGIN_FILE):
-        path.unlink(missing_ok=True)
+    """Remove every file a session's credential was put in, whichever mode wrote it.
+
+    Each file is unlinked through a descriptor on its directory, reached without following a
+    link (:func:`open_in_session`): a link planted at the directory's name or the file's own
+    is never followed, so nothing outside the session's own directory is removed. A link at a
+    file's name is itself removed, which removes nothing it points at.
+
+    Raises:
+        InvocationError: a directory on the way is a link, or not a directory; the credential
+            may still be on disk where the session's process moved it.
+    """
+    for directory, names in ((state_dir, (KEY_FILE, KEY_HELPER)), (config_dir, (LOGIN_FILE,))):
+        fd = open_in_session(directory)
+        if fd is None:
+            continue
+        try:
+            for name in names:
+                try:
+                    os.unlink(name, dir_fd=fd)
+                except FileNotFoundError:
+                    continue
+        finally:
+            os.close(fd)

@@ -52,21 +52,28 @@ from physgate.orchestrator.budget import classify_session_end
 from physgate.orchestrator.credentials import (
     REDACTED_TEXT,
     Credential,
+    open_in_session,
     remove_secrets,
     write_key_helper,
     write_login,
 )
 from physgate.orchestrator.decompose import binary_version, read_stream
-from physgate.orchestrator.exceptions import AccountingError, InvocationError
+from physgate.orchestrator.events import SessionSpawned, read_events
+from physgate.orchestrator.exceptions import AccountingError, InvocationError, OrchestratorError
 from physgate.orchestrator.git import common_dir, named_from
 from physgate.orchestrator.install import InstallFacts, build_record_path, install_facts
 from physgate.orchestrator.invocation import isolated_env, role_argv
 from physgate.orchestrator.managed import drift, policy_limits_digest
 from physgate.orchestrator.merge import RunGit, commit_attempt
-from physgate.orchestrator.ports import Leftover, SessionKind, SessionReport, SessionRequest
+from physgate.orchestrator.ports import (
+    Leftover,
+    SessionKind,
+    SessionReport,
+    SessionRequest,
+    SpawnHook,
+)
 from physgate.orchestrator.processes import (
     Proc,
-    ProcessTableError,
     is_session,
     started_at,
     stop_tree,
@@ -86,6 +93,12 @@ REDACTED = REDACTED_TEXT.encode()
 #: credential: which run it belongs to, so that run's resume finds it.
 OWNER_NAME = "owner.json"
 
+
+#: How a role session is spawned held: a shell that waits for one line on its standard input
+#: (a pipe only the orchestrator writes), then replaces itself with the binary, its standard
+#: input then ``/dev/null``. Its pid and start time are the session's from the first moment;
+#: if the orchestrator dies before the release, the pipe closes and nothing of the session runs.
+HELD = ("/bin/sh", "-c", 'IFS= read -r _ || exit 70; exec "$@" </dev/null', "physgate-held")
 
 #: The run's own records, in the run directory. The session's working directory is
 #: one level below it, so none of these contains the worktree.
@@ -371,6 +384,8 @@ def check_after_stop(
     written = log.read_bytes()[offset:] if log.exists() else b""
     try:
         records = [json.loads(line) for line in written.splitlines() if line.strip()]
+        if not all(isinstance(r, dict) for r in records):
+            raise ValueError("a hook log line is not a record")
     except ValueError:
         records, exit_code = [{"decision": "error"}], None
     return {
@@ -482,8 +497,9 @@ def end_check_at_resume(sdir: Path, session_id: str, install_bin: Path) -> EndCh
 
     The settings file is the session's user's to write by then, so nothing executable is taken
     from it: the installation's own interpreter runs the hook module, and only the digest of the
-    configuration it names is read (a rewritten configuration fails that digest). A session whose
-    sentinel never recorded anything has nothing to compare.
+    configuration it names is read (a rewritten configuration fails that digest). ``None`` if the
+    sentinel's record of the session is missing, which the resume refuses: the record a check
+    compares with is gone.
     """
     baseline = sdir / "state" / "sessions" / session_id / "sentinel" / "baseline.json"
     if not baseline.exists():
@@ -621,13 +637,17 @@ def changed_since(record: RootsRecord) -> list[str]:
 
 def process_group_of(pid: int) -> int | None:
     """The process group ``ps`` reports for ``pid``, or ``None`` if it is not running."""
-    out = subprocess.run(
-        ["ps", "-o", "pgid=", "-p", str(pid)],
-        capture_output=True,
-        text=True,
-        check=False,
-        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
-    ).stdout.strip()
+    try:
+        out = subprocess.run(
+            ["ps", "-o", "pgid=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+            timeout=30.0,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
     return int(out) if out.isdigit() else None
 
 
@@ -661,12 +681,44 @@ class Installed(BaseModel):
 
 
 def redact(path: Path, secret: str | None) -> None:
-    """Replace every occurrence of ``secret`` in the file at ``path``."""
-    if not secret or not path.exists():
+    """Replace every occurrence of ``secret`` in the file at ``path``, a session's own file.
+
+    The file is reached through its directory without following a link, and opened without
+    following one (:func:`open_in_session`): a link planted at its name is never written
+    through.
+
+    Raises:
+        InvocationError: the file, or a directory on the way, is a link.
+    """
+    if not secret:
         return
-    data = path.read_bytes()
-    if secret.encode() in data:
-        path.write_bytes(data.replace(secret.encode(), REDACTED))
+    directory = open_in_session(path.parent)
+    if directory is None:
+        return
+    try:
+        try:
+            fd = os.open(path.name, os.O_RDWR | os.O_NOFOLLOW, dir_fd=directory)
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            msg = "a session's file is a link or cannot be opened; it is not written through"
+            raise InvocationError(msg, path=str(path), error=repr(exc)) from exc
+    finally:
+        os.close(directory)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            msg = "a session's file is not a regular file; it is not written"
+            raise InvocationError(msg, path=str(path))
+        chunks = []
+        while chunk := os.read(fd, 1 << 20):
+            chunks.append(chunk)
+        data = b"".join(chunks)
+        if secret.encode() in data:
+            redacted = data.replace(secret.encode(), REDACTED)
+            os.ftruncate(fd, 0)
+            os.pwrite(fd, redacted, 0)
+    finally:
+        os.close(fd)
 
 
 #: How long an interpreter has to answer the probe.
@@ -806,8 +858,12 @@ class ClaudeDispatcher:
             write_login(sdir / "config", self._credential.secret)
         return Installed.model_validate_json(done.stdout)
 
-    def run(self, request: SessionRequest) -> SessionReport:
-        """Run one attempt in a fresh session and report what it left."""
+    def run(self, request: SessionRequest, on_spawn: SpawnHook | None = None) -> SessionReport:
+        """Run one attempt in a fresh session and report what it left.
+
+        ``on_spawn`` is told the session's id, pid and start time while its process is held,
+        before it runs anything; the loop records them in the run's event log.
+        """
         reported = binary_version(self._binary)
         if reported != self._config.claude_version:
             msg = "the binary is not the version this run recorded"
@@ -858,41 +914,58 @@ class ClaudeDispatcher:
             thinking_display=self._config.thinking_display,
         )
         stdout = sdir / "stdout.jsonl"
-        # The orchestrator's own record of the put-back roots, taken before the session can
-        # write anything: the check after the stop is held to it, not to the sentinel's alone.
-        try:
-            roots = record_roots(Path(installed.config))
-        except OSError as exc:
-            msg = "a put-back root could not be read, so no session starts on it"
-            raise InvocationError(msg, error=repr(exc)) from exc
+        # The process starts held (:data:`HELD`): it runs nothing of the session until it is
+        # released, after its pid and start time are in the run's event log and the
+        # orchestrator's own record of the put-back roots is taken.
+        hold, release = os.pipe()
         with stdout.open("wb") as out, (sdir / "stderr.txt").open("wb") as err:
-            process = subprocess.Popen(
-                argv,
-                cwd=worktree,
-                env=env,
-                stdin=subprocess.DEVNULL,
-                stdout=out,
-                stderr=err,
-                start_new_session=True,
-            )
+            try:
+                process = subprocess.Popen(
+                    [*HELD, *argv],
+                    cwd=worktree,
+                    env=env,
+                    stdin=hold,
+                    stdout=out,
+                    stderr=err,
+                    start_new_session=True,
+                )
+            except BaseException:
+                os.close(release)
+                raise
+            finally:
+                os.close(hold)
             try:
                 spawned = started_at(process.pid)
-            except ProcessTableError:
-                # Nothing of its own can be told apart yet: the session alone is stopped.
+                if spawned is None:
+                    msg = "the spawned session's start time could not be read"
+                    raise InvocationError(msg, pid=str(process.pid))
+                if on_spawn is not None:
+                    on_spawn(session_id, process.pid, spawned)
+                # The check after the stop is held to this record, not to the sentinel's alone.
+                try:
+                    roots = record_roots(Path(installed.config))
+                except OSError as exc:
+                    msg = "a put-back root could not be read, so no session starts on it"
+                    raise InvocationError(msg, error=repr(exc)) from exc
+                record = {
+                    "pid": process.pid,
+                    "started": spawned,
+                    "spawned_at": time.time(),
+                    "session_id": session_id,
+                    # Exactly what was spawned, so it can be held against what the hook
+                    # layer's installer printed. It carries no key: the key is in a helper.
+                    "argv": argv,
+                    "installer_spawn_args": list(installed.spawn_args),
+                }
+                write_record(sdir.parent, sdir.name, record, "process.json")
+            except BaseException:
+                # Held, it has run nothing of the session: it alone is stopped.
+                os.close(release)
                 process.kill()
                 process.wait()
                 raise
-            record = {
-                "pid": process.pid,
-                "started": spawned,
-                "spawned_at": time.time(),
-                "session_id": session_id,
-                # Exactly what was spawned, so it can be held against what the hook
-                # layer's installer printed. It carries no key: the key is in a helper.
-                "argv": argv,
-                "installer_spawn_args": list(installed.spawn_args),
-            }
-            (sdir / "process.json").write_text(json.dumps(record))
+            os.write(release, b"go\n")
+            os.close(release)
             # However the session ends, nothing it started is left running before any git
             # call of the orchestrator's on this attempt; then the sentinel's last check runs
             # once more, for what was written between SessionEnd and the stop.
@@ -1023,11 +1096,22 @@ class ClaudeDispatcher:
         """
         found: list[tuple[Path, str, int, int, bool, SessionKind]] = []
         session_dirs = self._session_dirs()
+        records: list[tuple[Path, dict[str, Any]]] = []
         for sdir in session_dirs:
             record_path, ended = sdir / "process.json", sdir / "ended.json"
             if ended.exists() or not record_path.exists():
                 continue
-            record = json.loads(record_path.read_text())
+            try:
+                record = json.loads(record_path.read_text())
+                if not isinstance(record, dict):
+                    raise TypeError(type(record).__name__)
+            except (OSError, ValueError, TypeError) as exc:
+                record = {"unreadable": repr(exc)}
+            records.append((sdir, record))
+        # Every role session's record is held to the event log before anything is signalled.
+        self._honoured([(sdir, r) for sdir, r in records if r.get("kind") != "reviewer"])
+        for sdir, record in records:
+            ended = sdir / "ended.json"
             pid, started = int(record["pid"]), record.get("started")
             kind: SessionKind = "reviewer" if record.get("kind") == "reviewer" else "session"
             session_id = str(record["session_id"])
@@ -1042,7 +1126,7 @@ class ClaudeDispatcher:
             if kind == "session":
                 # Before any git call on the attempt, as at a session's end under its
                 # orchestrator; a refusal leaves the session unended for the next resume.
-                written |= self._settle_at_resume(sdir, session_id, pid, started, leads)
+                written |= self._settle_at_resume(sdir, session_id, pid, started, stopped, leads)
             write_record(sdir.parent, sdir.name, written, "ended.json")
             found.append((sdir, session_id, pid, killed, stopped, kind))
         # Nothing of this run is running now, so no session still needs its credential.
@@ -1077,48 +1161,95 @@ class ClaudeDispatcher:
             )
         return leftovers
 
+    def _honoured(self, records: list[tuple[Path, dict[str, Any]]]) -> None:
+        """Refuse the resume unless every role session's process record is the one spawned.
+
+        A record is honoured only if it names its own directory's session (the orchestrator
+        named the directory) and its pid and start time are those the event log recorded at
+        the spawn, before the session ran anything (:class:`SessionSpawned`). Nothing is
+        signalled before every record is honoured: a record the session's user rewrote could
+        otherwise point the stop, and the sweep of its group, at any other process.
+
+        Raises:
+            InvocationError: a record is unreadable, names another session, or disagrees with
+                the event log; the resume goes no further, and nothing has been signalled.
+        """
+        if not records:
+            return
+        log = self._run.run_dir / "events.jsonl"
+        try:
+            spawned = {
+                e.session_id: (e.pid, e.started)
+                for e in (read_events(log) if log.exists() else [])
+                if isinstance(e, SessionSpawned)
+            }
+        except (OSError, ValueError, OrchestratorError) as exc:
+            msg = "the event log could not be read, so no process record can be held to it"
+            raise InvocationError(msg, error=repr(exc)) from exc
+        for sdir, record in records:
+            why = None
+            if "unreadable" in record or "pid" not in record or "session_id" not in record:
+                why = "the process record cannot be read"
+            elif str(record["session_id"]) != sdir.name:
+                why = "the process record names another session than its directory's"
+            elif sdir.name not in spawned:
+                why = "the event log records no spawn of this session"
+            elif spawned[sdir.name] != (record.get("pid"), record.get("started")):
+                why = "the process record's pid or start time is not the one the event log records"
+            if why is not None:
+                write_record(sdir.parent, sdir.name, {"record_refused": why}, "after_stop.json")
+                msg = (
+                    "a session's process record is not the one its orchestrator spawned; "
+                    "nothing is signalled and the resume goes no further"
+                )
+                raise InvocationError(msg, session=sdir.name, reason=why)
+
     def _settle_at_resume(
-        self, sdir: Path, session_id: str, pid: int, started: str | None, leads: bool
+        self,
+        sdir: Path,
+        session_id: str,
+        pid: int,
+        started: str | None,
+        stopped: bool,
+        leads: bool,
     ) -> dict[str, Any]:
         """Stop what a role session found at a resume left in its group; check once more.
 
-        Only a group proven the session's is signalled: the session was found running by its
-        pid, start time and command line (:func:`is_session`), and led its own group, which the
-        harness created for it. Otherwise the group the record names (a file the session's user
-        can write) is only read: any member started since the session refuses the resume, and
-        nothing is signalled. Then the stop is confirmed from the process table and the
-        sentinel's check runs again, whatever the confirmation found.
+        The record is honoured (:meth:`_honoured`): its pid is the session's, and the group the
+        harness created for it has that id. So the group is swept when the session was found
+        running and led it, and when no process holds the pid any more (a pid is not reused
+        while a group of that id has a member, so its members are the session's). When another
+        process holds the pid, no group of that id has a member of the session's left. Then the
+        stop is confirmed from the process table and the sentinel's check runs again, whatever
+        the confirmation found; a session whose sentinel record is missing refuses.
 
-        What this cannot do is what the orchestrator's own record does for a session that ends
-        under it: that record died with the orchestrator, so the check here is as good as the
-        sentinel's state, which the session's user can write.
+        The event log and the sentinel's record are files the session's user can write too:
+        without the OS layer, which confines what a session's processes can write, a process the
+        session left can rewrite both, and only a run with that layer can say otherwise.
 
         Raises:
             InvocationError: the stop is not confirmed or the check failed; the resume goes no
                 further, and the session stays unended for the next.
         """
         swept: tuple[int, ...] = ()
-        if leads:
+        unconfirmed: str | None = None
+        holder = started_at(pid)
+        if stopped and not leads:
+            unconfirmed = "the session led no process group of its own"
+        elif holder is not None and holder == started:
+            unconfirmed = "the session is still running after its stop"
+        elif stopped or holder is None:
             try:
                 swept = sweep_group(pid, started)
             except OSError as exc:
-                unconfirmed: str | None = f"the sweep could not signal: {exc!r}"
+                unconfirmed = f"the sweep could not be completed: {exc!r}"
             else:
                 unconfirmed = still_running(pid, started, swept, time.time())
-            if started_at(pid) == started:
-                unconfirmed = "the session is still running after its stop"
-        elif started_at(pid) is None:
-            # Read, never signalled: nothing proves this group is the session's.
-            unconfirmed = still_running(pid, started, (), time.time())
-        else:
-            # Another process holds the pid, so no group of that id has a member of the
-            # session's left; or the session led no group of its own.
-            unconfirmed = None if not is_session(pid, started, session_id) else "no own group"
         check = end_check_at_resume(sdir, session_id, self._install_bin)
         after_stop = (
             check_after_stop(check, session_id, sdir, {"PATH": "/usr/bin:/bin"}, sdir / "state")
             if check is not None
-            else {"refused": None, "no_record": True}
+            else {"refused": "the sentinel's record of the session is missing", "no_record": True}
         )
         settled = {
             "left_running": list(swept),
