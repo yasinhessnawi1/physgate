@@ -358,8 +358,13 @@ ATTEMPTS = [
     ),
     Attempt(
         "variable-path",
-        "a path built from a variable",
-        [bash("d=ga; echo 'CHECK = False' > src/physgate/${d}te/check.py && echo ran > ran.txt")],
+        "a path built from a variable set at run time",
+        [
+            bash(
+                "d=$(printf ga); echo 'CHECK = False' > src/physgate/${d}te/check.py && "
+                "echo ran > ran.txt"
+            )
+        ],
         "sentinel",
         runs=True,
     ),
@@ -402,7 +407,8 @@ ATTEMPTS = [
         "a symlink made to the gate, then written through",
         [
             bash(
-                "d=ga; ln -s src/physgate/${d}te innocent; echo 'PASS = True' > innocent/pwn.py; "
+                "d=$(printf ga); ln -s src/physgate/${d}te innocent; "
+                "echo 'PASS = True' > innocent/pwn.py; "
                 "echo ran > ran.txt"
             )
         ],
@@ -414,7 +420,8 @@ ATTEMPTS = [
         "move the gate away, write, move it back",
         [
             bash(
-                "d=ga; mv src/physgate/${d}te g2 && echo 'CHECK = False' > g2/check.py && "
+                "d=$(printf ga); mv src/physgate/${d}te g2 && "
+                "echo 'CHECK = False' > g2/check.py && "
                 "mv g2 src/physgate/${d}te && echo ran > ran.txt"
             )
         ],
@@ -426,7 +433,8 @@ ATTEMPTS = [
         "a hard link to a gate file, written through",
         [
             bash(
-                "d=ga; ln src/physgate/${d}te/check.py alias.py; echo 'CHECK = False' > alias.py; "
+                "d=$(printf ga); ln src/physgate/${d}te/check.py alias.py; "
+                "echo 'CHECK = False' > alias.py; "
                 "echo ran > ran.txt"
             )
         ],

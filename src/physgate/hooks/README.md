@@ -114,10 +114,53 @@ without calling the Write tool. So the shell is covered twice.
    - `none`: the hooks' own state and the session's Claude Code directory,
      which the hooks and Claude Code write themselves.
 
-What the first layer cannot see — a path built from a variable, a
-substitution, a string assembled in a script, an archive, a patch — is the
-second layer's, and the tests assert those forms as allowed by the first layer
-so that the boundary is on record. The bypass suite runs thirty-four attempts
+What the first layer can work out from the command alone it does, the way the
+shell running it would: a brace pattern is checked as every word it becomes in
+any shell (up to 1,024; a writing word with more is refused), ANSI-C quoting
+(`$'…'`) as each shell decodes it, a variable the call assigns as every literal
+value it may hold, and a `cd` is followed to every directory the command could
+then be in, since a `cd` can fail, be skipped or run in a subshell, with `HOME`,
+`OLDPWD`, `CDPATH`, `~-` and `$PWD` followed as bash and zsh follow them. What
+shells read too differently (`\c` in `$'…'`, a zero step, a ksh command
+string), and a `cd` through a value set at run time, is refused. A call whose
+working directory is not absolute is refused. A test puts every such construct
+through each shell installed and holds the layer to checking every word the
+shell produces. A quoted `$` is a literal character, a word whose written
+prefix is already inside a root is judged by that prefix, a variable that could
+hold more than 1,024 values is refused, `eval` runs where it stands, `chdir` is
+`cd`, `$"…"` is its string, `~N` is a directory the call has been in, `~name`
+is a user's or a parameter's directory, `NAME+=` appends, `$_` is a word before,
+`${#x}` and the default and trim forms of `${…}` are evaluated (replacement,
+substring, case change and indirection are refused), a script read from
+`/dev/stdin` and a `trap` action are parsed, and a command name is one key for
+every rule (its last path part, case-folded), a reader trusted by its name only
+while the name means the usual program, run as usual: not `./cat`, not with an
+environment of its own (`GIT_PAGER=…`), and not once the call defines a function
+or an alias or changes how names are looked up (`PATH`, `hash -p`, `enable`,
+`command -p`). From that point every command is judged as a possible writer:
+refused where a literal word reaches a protected root, otherwise the residual.
+`git -C`, `make -C` and `env -C` are judged in the directory they name. A shell
+option that changes how words are read is refused; after `source <file>` no
+variable value is taken as complete. What the first layer cannot see is the
+second layer's: a
+value known only at run time (a substitution, `read`, `printf -v`,
+`mapfile`/`readarray`, `getopts`, `$$` and other special parameters, positional
+parameters and a function's arguments, arrays, namerefs and `IFS`), a file
+named by a number under a loop too long to list (one number stands for all, so
+a link of that one name is not seen), the directory after `cd $(…)`, a
+script a shell reads by another route (`… | sh`, `xargs`, `source <file>`, which
+can also set any variable or directory unseen), a
+path a program builds from its input (`python -`, `node`, `awk`, `sqlite3`), a
+string assembled in a script, an archive, a patch. The tests assert those forms
+as allowed by the first layer so that the boundary is on record. For a root
+watched `none` there is no second layer, so those forms reach it: a recorded
+residual of the same-user kind. One more residual underlies all of these: the
+rules here are lists (the readers and their write options, the constructs
+followed or refused), and a list of what a command may do can never be complete.
+That, not any one form, is why the OS layer exists. **This list is the honest
+boundary of what parsing alone can claim.** A further difference between how this layer and a
+shell read a command is added here, not patched in the parser: an OS write
+allowlist for role sessions is the closing layer. The bypass suite runs thirty-four attempts
 through the real Claude Code binary, each judged by the bytes of the protected
 trees and by which layer logged the refusal; its tolerance is zero.
 
@@ -126,8 +169,19 @@ trees and by which layer logged the refusal; its tolerance is zero.
 The git hook looks only at a command whose command position is git, including
 git reached through a path, `env`, `command`, `exec`, a substitution, a
 subshell or the string given to `sh -c`. A heredoc body, a quoted argument to
-another program and the content of a Write are never matched, so a document or
-a test that names a forbidden flag can be written.
+another program and the content of a Write are never matched as commands, so a
+document or a test that names a forbidden flag can be written. What the shell
+runs from a heredoc is: a substitution in a body whose delimiter is unquoted,
+and the whole body when it is a shell's own script (`bash <<'EOF'`).
+
+**Text a command is fed is judged as its own words.** The shell layer scans a
+heredoc body and a here-string for the paths they name, as written: some
+programs open the paths their input names (`sqlite3`'s `.import`). For a
+command that only reads, only what may not even be named refuses (the held-out
+tier, a corpus with its answers, a reviewer's material), so `cat > notes.md
+<<'EOF'` may still mention a protected file; for any other command, every
+protected path does, as its arguments would. A path a program builds at run
+time from its input is out of any parser's reach.
 
 **A commit message that names a protected path** is the one place this costs
 something: `git commit -m '… src/physgate/gate/check.py …'` names the path in

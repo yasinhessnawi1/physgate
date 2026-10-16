@@ -71,7 +71,7 @@ def read(path: str) -> dict[str, Any]:
 NEW_FILE = "@O/corpus/injected-errors/v1/artefacts/a41.json"
 HEREDOC = "cat > " + INSIDE + " <<'EOF'\n{}\nEOF"
 IN_LANGUAGE = "python3 -c \"open('" + INSIDE + "','w').write('{}')\""
-BUILT = "d=corp; echo '{}' > ${d}ora/" + ARTEFACT + "; echo ran > ran.txt"
+BUILT = "d=$(printf corp); echo '{}' > ${d}ora/" + ARTEFACT + "; echo ran > ran.txt"
 WRITES = [
     (
         "write-tool",

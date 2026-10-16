@@ -95,6 +95,10 @@ HARD_LINKED = (
     "through its other name"
 )
 REFUSED = "{path} is protected: {reason}. The {tool} call is refused."
+RELATIVE_TO_UNKNOWN = (
+    "{path} is a relative path and this call's working directory ({cwd!r}) is not an "
+    "absolute one, so where it lands cannot be known. The {tool} call is refused."
+)
 
 _PATH_KEYS = {"Write": "file_path", "Edit": "file_path", "NotebookEdit": "notebook_path"}
 _READERS = {"Read": "file_path"}
@@ -111,6 +115,59 @@ def _folded_under(path: str, root: str) -> bool:
 
 def _spellings(path: str) -> set[str]:
     return {path, os.path.realpath(path)}
+
+
+#: Each root's spellings and identity, while a caller that judges many paths in one call
+#: has asked for them to be taken once (:func:`resolve_roots_once`); ``None`` otherwise.
+_ROOTS_TAKEN: dict[str, tuple[set[str], tuple[int, int] | None]] | None = None
+#: The same, for the spellings of each path judged against the roots.
+_PATHS_TAKEN: dict[str, set[str]] | None = None
+
+
+class resolve_roots_once:  # noqa: N801 - used as a statement, `with resolve_roots_once():`
+    """While open, each protected root is resolved and stat'ed once, not once per path judged.
+
+    For one hook call that judges many paths (a brace pattern's words, from each directory a
+    command could be in): the roots do not change within the call, and resolving every root
+    again for every path is most of the call's time. Outside it, every judgement reads the
+    filesystem afresh, as before.
+    """
+
+    def __enter__(self) -> None:
+        """Start taking each root once."""
+        global _ROOTS_TAKEN, _PATHS_TAKEN  # noqa: PLW0603 - one hook call, one thread
+        _ROOTS_TAKEN, _PATHS_TAKEN = {}, {}
+
+    def __exit__(self, *_: object) -> None:
+        """Forget what was taken."""
+        global _ROOTS_TAKEN, _PATHS_TAKEN  # noqa: PLW0603 - one hook call, one thread
+        _ROOTS_TAKEN, _PATHS_TAKEN = None, None
+
+
+def _path_spellings(path: str) -> set[str]:
+    """:func:`_spellings` of a path being judged, taken once while roots are taken once."""
+    taken = _PATHS_TAKEN
+    if taken is None:
+        return _spellings(path)
+    if path not in taken:
+        taken[path] = _spellings(path)
+    return taken[path]
+
+
+def _root(root: str) -> tuple[set[str], tuple[int, int] | None]:
+    """The root's spellings, and its device and inode if it exists."""
+    taken = _ROOTS_TAKEN
+    if taken is not None and root in taken:
+        return taken[root]
+    try:
+        st = os.stat(root)
+        identity: tuple[int, int] | None = (st.st_dev, st.st_ino)
+    except OSError:
+        identity = None
+    found = (_spellings(root), identity)
+    if taken is not None:
+        taken[root] = found
+    return found
 
 
 def _existing_chain(path: str) -> Iterator[os.stat_result]:
@@ -139,15 +196,12 @@ def _reaches(path: str, root: str, chain: frozenset[tuple[int, int]]) -> bool:
     ``chain`` is the device and inode of the path's nearest existing ancestor and
     of every directory above it, computed once per call.
     """
-    for spelling in _spellings(path):
-        for root_spelling in _spellings(root):
+    root_spellings, identity = _root(root)
+    for spelling in _path_spellings(path):
+        for root_spelling in root_spellings:
             if _folded_under(spelling, root_spelling):
                 return True
-    try:
-        root_stat = os.stat(root)
-    except OSError:
-        return False
-    return (root_stat.st_dev, root_stat.st_ino) in chain
+    return identity is not None and identity in chain
 
 
 def _under(path: str, root: str) -> bool:
@@ -313,10 +367,14 @@ def pre_tool_use(hook_input: InputView, config: ConfigView) -> Decision:
     target = (hook_input.tool_input or {}).get(key)
     if not isinstance(target, str) or not target:
         return refuse(f"A {tool} call without a {key} cannot be checked, so it is refused.")
-    reason = protection(target, hook_input.cwd, config, writing=tool in _PATH_KEYS)
-    if reason is None:
-        return ALLOW
-    return refuse(REFUSED.format(path=target, reason=reason, tool=tool))
+    if not os.path.isabs(target) and not os.path.isabs(hook_input.cwd):
+        return refuse(RELATIVE_TO_UNKNOWN.format(path=target, cwd=hook_input.cwd, tool=tool))
+    # Judged as the shell layer judges a word: as written, and with ``~`` expanded.
+    for spelling in dict.fromkeys((target, os.path.expanduser(target))):
+        reason = protection(spelling, hook_input.cwd, config, writing=tool in _PATH_KEYS)
+        if reason is not None:
+            return refuse(REFUSED.format(path=target, reason=reason, tool=tool))
+    return ALLOW
 
 
 HOOK = HookSpec("paths", {"PreToolUse": pre_tool_use})

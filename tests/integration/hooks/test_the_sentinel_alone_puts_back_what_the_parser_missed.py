@@ -95,7 +95,7 @@ def test_with_the_parser_off_the_sentinel_alone_puts_back_a_heredoc_into_the_gat
 @pytest.mark.parametrize(
     "command",
     [
-        "d=ga; echo 'CHECK = False' > src/physgate/${d}te/check.py && echo ran > ran.txt",
+        "d=$(printf ga); echo 'CHECK = False' > src/physgate/${d}te/check.py && echo ran > ran.txt",
         "echo 'CHECK = False' > $(printf src/physgate/ga)te/check.py && echo ran > ran.txt",
         "python3 -c \"import os; open(os.path.join('src','physgate','ga'+'te','check.py'),'w')"
         ".write('CHECK = False')\" && echo ran > ran.txt",

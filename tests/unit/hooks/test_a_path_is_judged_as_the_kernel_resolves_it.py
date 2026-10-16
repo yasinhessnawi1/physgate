@@ -214,8 +214,8 @@ def test_the_allowance_never_widens_by_case(root: Path) -> None:
 @pytest.mark.parametrize(
     "command",
     [
-        "d=view; cat ../harness/kno''wledge/re${d}ers/control/rubric.md",
-        "d=view; cd ../harness/kno''wledge/re${d}ers/control && cat rubric.md",
+        "d=$(printf view); cat ../harness/kno''wledge/re${d}ers/control/rubric.md",
+        "d=$(printf harness); cd ../${d}/kno''wledge/reviewers/control && cat rubric.md",
         "python3 -c \"import os; print(open(os.path.join('..', 'harness', 'kno' + 'wledge', "
         "'re' + 'viewers', 'control', 'rubric.md')).read())\"",
     ],

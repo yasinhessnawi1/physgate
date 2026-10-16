@@ -151,16 +151,18 @@ def test_a_role_cannot_reach_a_rubric_through_a_link_and_dot_dot(tmp_path: Path)
 def test_a_rubric_read_by_a_path_built_at_run_time_shows_its_canary(tmp_path: Path) -> None:
     """The open class the hooks cannot judge, against the real binary, and what catches it.
 
-    A variable the hook cannot know builds the rubric's path, so the read runs; the
-    rubric's canary then appears in the session's own stream, where the
-    dispatcher's check finds it.
+    A variable set at run time, which the hook cannot know, builds the rubric's
+    path, so the read runs; the rubric's canary then appears in the session's own
+    stream, where the dispatcher's check finds it.
     """
     from physgate.orchestrator.dispatch import review_material_seen
 
     canary = "c0ffee" * 5 + "ab"
     rubric = tmp_path / RUBRIC
     command = (
-        "d=view; cat " + str(tmp_path / "harness" / "knowledge") + "/re${d}ers/control/rubric.md"
+        "d=$(printf view); cat "
+        + str(tmp_path / "harness" / "knowledge")
+        + "/re${d}ers/control/rubric.md"
     )
 
     def plant(_: Path) -> None:
