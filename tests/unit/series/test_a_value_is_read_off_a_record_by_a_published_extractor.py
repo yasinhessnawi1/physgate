@@ -124,6 +124,32 @@ def test_a_gain_margin_is_read_where_the_phase_crosses_minus_pi() -> None:
     assert math.isclose(_read(record, "gain_margin_upper"), exact, rel_tol=1e-3)
 
 
+def test_of_several_crossings_of_unit_gain_the_one_with_the_smallest_margin_is_read() -> None:
+    # Crossings at sqrt(2), sqrt(12) and sqrt(30) rad/s, at phases of -2, -2.5 and -1.5 rad.
+    body: dict[str, Any] = {
+        "format": "series.v1",
+        "id": "loop_nominal",
+        "title": "Fixture loop with three crossings, not a simulation",
+        "axis": "frequency",
+        "x": {"name": "frequency", "unit": "rad/s", "values": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]},
+        "traces": [
+            {
+                "name": "loop_magnitude",
+                "unit": "dimensionless",
+                "values": [2.0, 0.5, 0.5, 2.0, 2.0, 0.5],
+            },
+            {"name": "loop_phase", "unit": "rad", "values": [-2.0, -2.0, -2.5, -2.5, -1.5, -1.5]},
+        ],
+        "producer": {"script": {"path": "modules/control/margins.py", "sha256": DIGEST}},
+    }
+    record = parse_record(json.dumps(body).encode())
+    assert math.isclose(_read(record, "phase_margin"), math.pi - 2.5, rel_tol=1e-12)
+    assert math.isclose(_read(record, "gain_crossover_frequency"), math.sqrt(12), rel_tol=1e-12)
+    delays = [(math.pi - 2) / math.sqrt(2), (math.pi - 2.5) / math.sqrt(12)]
+    delays.append((math.pi - 1.5) / math.sqrt(30))
+    assert math.isclose(_read(record, "delay_margin"), min(delays), rel_tol=1e-12)
+
+
 def test_peaks_and_the_stability_margin_are_read_at_the_samples() -> None:
     loop = _loop(0.5, 0.1, 5.0, 0.0)
     record = _record(loop)
