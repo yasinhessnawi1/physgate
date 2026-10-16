@@ -22,6 +22,7 @@ ends and redacted from the captured stream before anything reads it.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -39,7 +40,10 @@ from pydantic import BaseModel, ConfigDict
 
 from physgate.hooks.config import SessionConfig
 from physgate.hooks.reading import outstanding
+from physgate.hooks.sentinel import _frozen_experiment_paths
 from physgate.hooks.settings import CONFIG_NAME, SETTINGS_NAME
+from physgate.hooks.snapshot import Signature, file_digest
+from physgate.hooks.snapshot import signatures as take_signatures
 from physgate.hooks.state import LOG_NAME
 from physgate.knowledge import loader
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, canaries
@@ -490,6 +494,98 @@ def end_check_at_resume(sdir: Path, session_id: str, install_bin: Path) -> EndCh
     return EndCheck(argv, 30.0)
 
 
+def write_record(parent: Path, name: str, record: dict[str, Any], file: str) -> None:
+    """Write ``parent/name/file`` as a new file, never through a link a session could plant.
+
+    The session's directory is opened without following a link, and the file is created
+    exclusively without following one: whatever stood at that name (a link the session's
+    process planted, pointing anywhere) is unlinked, never written through.
+    """
+    flags = os.O_RDONLY | os.O_DIRECTORY
+    top = os.open(parent, flags)
+    try:
+        here = os.open(name, flags | os.O_NOFOLLOW, dir_fd=top)
+        try:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(file, dir_fd=here)
+            create = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+            fd = os.open(file, create, 0o600, dir_fd=here)
+            with os.fdopen(fd, "w") as out:
+                out.write(json.dumps(record))
+        finally:
+            os.close(here)
+    finally:
+        os.close(top)
+
+
+@dataclass(frozen=True)
+class RootsRecord:
+    """The orchestrator's own record of every put-back root, taken before the session starts.
+
+    Held in the orchestrator's memory, never on disk, so nothing the session's user can write
+    (the sentinel's own record among it) can make a changed root pass for an unchanged one.
+    """
+
+    roots: tuple[str, ...]
+    exclude: tuple[str, ...]
+    #: Path to its signature, its content digest if a file, its target if a link.
+    entries: dict[str, tuple[Signature, str | None, str | None]]
+
+
+def record_roots(config_path: Path) -> RootsRecord:
+    """Record every root the session's sentinel puts back, as its configuration names them."""
+    config = SessionConfig.model_validate_json(config_path.read_bytes())
+    reverted = [r for r in config.protected_roots if r.watch == "revert"]
+    frozen = _frozen_experiment_paths(config)
+    roots = tuple(sorted({r.path for r in reverted} | set(frozen)))
+    exclude = tuple(sorted({e for r in reverted for e in r.exceptions}))
+    entries = {
+        path: (
+            sig,
+            file_digest(path) if sig[0] == "file" else None,
+            os.readlink(path) if sig[0] == "link" else None,
+        )
+        for path, sig in take_signatures(list(roots), list(exclude)).items()
+    }
+    return RootsRecord(roots, exclude, entries)
+
+
+def changed_since(record: RootsRecord) -> list[str]:
+    """Every put-back root path that is not now what the record holds, read afresh.
+
+    A file put back holds its bytes and mode again (on a new inode); a directory's own times
+    move when the sentinel moves something out of it, so a directory is held to its mode and
+    its entries, not its times.
+    """
+    now = take_signatures(list(record.roots), list(record.exclude))
+    changed = set(now) ^ set(record.entries)
+    for path, sig in now.items():
+        if path not in record.entries or sig == record.entries[path][0]:
+            continue
+        was, digest, link = record.entries[path]
+        kind = sig[0]
+        if (
+            sig[:2] != was[:2]
+            or kind == "other"
+            or (kind == "file" and file_digest(path) != digest)
+            or (kind == "link" and os.readlink(path) != link)
+        ):
+            changed.add(path)
+    return sorted(changed)
+
+
+def process_group_of(pid: int) -> int | None:
+    """The process group ``ps`` reports for ``pid``, or ``None`` if it is not running."""
+    out = subprocess.run(
+        ["ps", "-o", "pgid=", "-p", str(pid)],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+    ).stdout.strip()
+    return int(out) if out.isdigit() else None
+
+
 def harness_protection() -> list[str]:
     """The installer's arguments that put the harness checkout out of a session's reach.
 
@@ -717,6 +813,9 @@ class ClaudeDispatcher:
             thinking_display=self._config.thinking_display,
         )
         stdout = sdir / "stdout.jsonl"
+        # The orchestrator's own record of the put-back roots, taken before the session can
+        # write anything: the check after the stop is held to it, not to the sentinel's alone.
+        roots = record_roots(Path(installed.config))
         with stdout.open("wb") as out, (sdir / "stderr.txt").open("wb") as err:
             process = subprocess.Popen(
                 argv,
@@ -764,15 +863,19 @@ class ClaudeDispatcher:
         redact(stdout, self._credential.secret)
         # On every path, the stop confirmed or not.
         after_stop = check_after_stop(end_check, session_id, worktree, env, sdir / "state")
-        if ended is None or unconfirmed is not None or after_stop["refused"] is not None:
+        # Read afresh after the check, against the record taken before the spawn: a check
+        # skipped, or satisfied by a sentinel record the session's process rewrote, shows here.
+        moved = changed_since(roots)
+        if ended is None or unconfirmed is not None or after_stop["refused"] is not None or moved:
             settled = {
                 "left_running": list(ended.left_running) if ended is not None else [],
                 "stop_unconfirmed": unconfirmed,
                 "sentinel_after_stop": after_stop,
+                "protected_changed": moved,
             }
             # Beside the end record, not in it: a resume still finds the session unended,
             # stops and checks it again, and reads what it spent.
-            (sdir / "after_stop.json").write_text(json.dumps(settled))
+            write_record(sdir.parent, sdir.name, settled, "after_stop.json")
             msg = (
                 "the session's stop is not confirmed, or the sentinel's check after it "
                 "failed; no git call follows on this attempt"
@@ -782,6 +885,7 @@ class ClaudeDispatcher:
                 session_id=session_id,
                 stop=unconfirmed or "",
                 check=str(after_stop["refused"] or ""),
+                changed=", ".join(moved),
             )
         exit_code: int | None = ended.exit_code
         timed_out = ended.timed_out
@@ -804,15 +908,16 @@ class ClaudeDispatcher:
             if end.outcome == "completed"
             else None
         )
-        (sdir / "ended.json").write_text(
-            json.dumps(
-                {
-                    "exit": exit_code,
-                    "timed_out": timed_out,
-                    "left_running": list(ended.left_running),
-                    "sentinel_after_stop": after_stop,
-                }
-            )
+        write_record(
+            sdir.parent,
+            sdir.name,
+            {
+                "exit": exit_code,
+                "timed_out": timed_out,
+                "left_running": list(ended.left_running),
+                "sentinel_after_stop": after_stop,
+            },
+            "ended.json",
         )
         return SessionReport(
             session_id=session_id,
@@ -855,16 +960,18 @@ class ClaudeDispatcher:
             kind: SessionKind = "reviewer" if record.get("kind") == "reviewer" else "session"
             session_id = str(record["session_id"])
             if is_session(pid, started, session_id):
+                # The group the harness created for it: the proven session leads it.
+                leads = process_group_of(pid) == pid
                 killed, stopped = stop_tree(pid, started), True
                 written: dict[str, Any] = {"stopped_at_resume": True, "killed": killed}
             else:
-                killed, stopped = 0, False
+                killed, stopped, leads = 0, False, False
                 written = {"not_running_at_resume": True}
             if kind == "session":
                 # Before any git call on the attempt, as at a session's end under its
                 # orchestrator; a refusal leaves the session unended for the next resume.
-                written |= self._settle_at_resume(sdir, session_id, pid, started, stopped)
-            ended.write_text(json.dumps(written))
+                written |= self._settle_at_resume(sdir, session_id, pid, started, leads)
+            write_record(sdir.parent, sdir.name, written, "ended.json")
             found.append((sdir, session_id, pid, killed, stopped, kind))
         # Nothing of this run is running now, so no session still needs its credential.
         # A killed orchestrator never removed it; its stream was never redacted either.
@@ -899,28 +1006,42 @@ class ClaudeDispatcher:
         return leftovers
 
     def _settle_at_resume(
-        self, sdir: Path, session_id: str, pid: int, started: str | None, stopped: bool
+        self, sdir: Path, session_id: str, pid: int, started: str | None, leads: bool
     ) -> dict[str, Any]:
         """Stop what a role session found at a resume left in its group; check once more.
 
-        The group is swept only while no process holds the session's pid: a pid is not reused
-        while a group of that id has a member, so a pid held by another process (a record
-        rewritten to name one, or a pid reused since) leads no group the session left, and
-        that process's own group is never touched. Then the stop is confirmed from the process
-        table and the sentinel's check runs again, whatever the confirmation found.
+        Only a group proven the session's is signalled: the session was found running by its
+        pid, start time and command line (:func:`is_session`), and led its own group, which the
+        harness created for it. Otherwise the group the record names (a file the session's user
+        can write) is only read: any member started since the session refuses the resume, and
+        nothing is signalled. Then the stop is confirmed from the process table and the
+        sentinel's check runs again, whatever the confirmation found.
+
+        What this cannot do is what the orchestrator's own record does for a session that ends
+        under it: that record died with the orchestrator, so the check here is as good as the
+        sentinel's state, which the session's user can write.
 
         Raises:
             InvocationError: the stop is not confirmed or the check failed; the resume goes no
                 further, and the session stays unended for the next.
         """
-        if started_at(pid) is None:
-            swept = sweep_group(pid, started)
-            unconfirmed = still_running(pid, started, swept, time.time())
-        elif stopped:
-            swept, unconfirmed = (), "the session is still running after its stop"
+        swept: tuple[int, ...] = ()
+        if leads:
+            try:
+                swept = sweep_group(pid, started)
+            except OSError as exc:
+                unconfirmed: str | None = f"the sweep could not signal: {exc!r}"
+            else:
+                unconfirmed = still_running(pid, started, swept, time.time())
+            if started_at(pid) == started:
+                unconfirmed = "the session is still running after its stop"
+        elif started_at(pid) is None:
+            # Read, never signalled: nothing proves this group is the session's.
+            unconfirmed = still_running(pid, started, (), time.time())
         else:
-            # Another process holds the pid, so the session's group has no member left.
-            swept, unconfirmed = (), None
+            # Another process holds the pid, so no group of that id has a member of the
+            # session's left; or the session led no group of its own.
+            unconfirmed = None if not is_session(pid, started, session_id) else "no own group"
         check = end_check_at_resume(sdir, session_id, self._install_bin)
         after_stop = (
             check_after_stop(check, session_id, sdir, {"PATH": "/usr/bin:/bin"}, sdir / "state")
@@ -933,7 +1054,7 @@ class ClaudeDispatcher:
             "sentinel_after_stop": after_stop,
         }
         if unconfirmed is not None or after_stop["refused"] is not None:
-            (sdir / "after_stop.json").write_text(json.dumps(settled))
+            write_record(sdir.parent, sdir.name, settled, "after_stop.json")
             msg = (
                 "a session found at the resume is not confirmed stopped, or the sentinel's "
                 "check after its stop failed; the resume goes no further"

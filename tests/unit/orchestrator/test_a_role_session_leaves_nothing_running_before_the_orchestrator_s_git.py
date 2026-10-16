@@ -103,7 +103,7 @@ def after_the_session_then_write():
             os.kill(me, 0)
         except ProcessLookupError:
             break
-        if os.getppid() != me and MODE != "setsid":
+        if os.getppid() != me and MODE not in ("setsid", "orphan"):
             break
         time.sleep(0.05)
     time.sleep(1.0)
@@ -145,6 +145,41 @@ elif MODE == "between":
         time.sleep(120)
         os._exit(0)
     note(pid)
+elif MODE == "orphan":
+    # A grandchild left in the session's group whose parent exits at once: in the group, not
+    # in the tree.
+    pid = os.fork()
+    if pid == 0:
+        grandchild = os.fork()
+        if grandchild == 0:
+            after_the_session_then_write()
+            os._exit(0)
+        note(grandchild)
+        os._exit(0)
+    os.waitpid(pid, 0)
+elif MODE in ("halted", "forget", "link"):
+    sdir = os.path.dirname(os.path.dirname(argv[argv.index("--settings") + 1]))
+    record = os.path.join(sdir, "state", "sessions", session_id, "sentinel", "baseline.json")
+    pid = os.fork()
+    if pid == 0:
+        while not os.path.exists(os.path.join(FLAGS, "session-end-ran")):
+            time.sleep(0.02)
+        if MODE == "halted":
+            # The sentinel's own record says it halted: its check then compares nothing.
+            base = json.load(open(record))
+            base["halted"] = "inert"
+            json.dump(base, open(record, "w"))
+            write_marker()
+        elif MODE == "forget":
+            # The sentinel's own record is gone: its check takes a new one, marker included.
+            os.unlink(record)
+            write_marker()
+        else:
+            os.symlink(os.path.join(FLAGS, "victim.txt"), os.path.join(sdir, "ended.json"))
+        open(os.path.join(FLAGS, "written"), "w").close()
+        time.sleep(120)
+        os._exit(0)
+    note(pid)
 elif MODE == "tamper":
     pid = os.fork()
     if pid == 0:
@@ -160,7 +195,7 @@ elif MODE == "tamper":
 time.sleep(PAUSE)
 hook("SessionEnd")
 open(os.path.join(FLAGS, "session-end-ran"), "w").close()
-if MODE in ("between", "tamper"):
+if MODE in ("between", "tamper", "halted", "forget", "link"):
     while not os.path.exists(os.path.join(FLAGS, "written")):
         time.sleep(0.02)
 usage = {"input_tokens": 3, "output_tokens": 5}
@@ -472,45 +507,143 @@ class Died(BaseException):
     """The orchestrator killed while its session ran."""
 
 
-def test_a_resume_stops_what_a_role_session_left_and_puts_its_write_back(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+def _orchestrator_dies(
+    session: Session, dispatcher: ClaudeDispatcher, mp: pytest.MonkeyPatch
 ) -> None:
-    """The orchestrator died; its session exited later; its child wrote after SessionEnd."""
-    session = Session(tmp_path, "sleeper", pause=1.0, wall_clock_s=60.0)
-    dispatcher = session.dispatcher(monkeypatch)
-
     def die(*_args: Any, **_kwargs: Any) -> None:  # noqa: ANN401
         raise Died
 
-    with monkeypatch.context() as killed:
-        killed.setattr(dispatch, "await_session", die, raising=False)
+    with mp.context() as killed:
+        killed.setattr(dispatch, "await_session", die)
         with pytest.raises(Died):
             dispatcher.run(session.request())
+
+
+def _resumed(session: Session, dispatcher: ClaudeDispatcher) -> ClaudeDispatcher:
+    return ClaudeDispatcher(
+        config=dispatcher._config,
+        run=session.run,
+        store_root=session.store_root,
+        install_bin=Path(sys.executable).parent / "physgate",
+        binary=str(session.binary),
+        base_url=None,
+        credential=Credential(mode="api_key", secret="not-a-key"),
+        review_root=Path("/nonexistent/review-scratch"),
+    )
+
+
+def test_a_resume_stops_what_a_running_role_session_left_in_its_own_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    """The orchestrator died; at the resume the session runs still, a grandchild in its group."""
+    session = Session(tmp_path, "orphan", pause=60.0, wall_clock_s=120.0)
+    dispatcher = session.dispatcher(monkeypatch)
+    _orchestrator_dies(session, dispatcher, monkeypatch)
+    try:
+        assert _settle(lambda: bool(session.pids()), 20.0)
+        (grandchild,) = session.pids()
+        (left,) = _resumed(session, dispatcher).stop_leftovers()
+    finally:
+        leftovers += session.pids()
+    assert left.stopped
+    ended = json.loads(
+        (session.run.run_dir / "sessions" / left.session_id / "ended.json").read_text()
+    )
+    # Not in the session's tree when it was stopped: found in the group the harness made.
+    assert grandchild in ended["left_running"]
+    assert started_at(grandchild) is None
+    time.sleep(2.0)
+    assert sorted(p.name for p in session.root.iterdir()) == ["kept.txt"]
+
+
+def test_a_resume_signals_no_group_it_cannot_prove_the_session_s_and_goes_no_further(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    """The session had exited before the resume: its child is read, never signalled."""
+    session = Session(tmp_path, "sleeper", pause=1.0, wall_clock_s=60.0)
+    dispatcher = session.dispatcher(monkeypatch)
+    _orchestrator_dies(session, dispatcher, monkeypatch)
     marker = session.root / MARKER
     try:
         assert _settle(marker.exists, 20.0), "the child never wrote"
         (child,) = session.pids()
-        resumed = ClaudeDispatcher(
-            config=dispatcher._config,
-            run=session.run,
-            store_root=session.store_root,
-            install_bin=Path(sys.executable).parent / "physgate",
-            binary=str(session.binary),
-            base_url=None,
-            credential=Credential(mode="api_key", secret="not-a-key"),
-            review_root=Path("/nonexistent/review-scratch"),
-        )
-        (left,) = resumed.stop_leftovers()
+        with pytest.raises(InvocationError, match="the resume goes no further"):
+            _resumed(session, dispatcher).stop_leftovers()
+        assert started_at(child) is not None
     finally:
         leftovers += session.pids()
-    assert not left.stopped  # the session itself had exited
-    assert started_at(child) is None
+    (record,) = session.run.run_dir.glob("sessions/*/after_stop.json")
+    assert not (record.parent / "ended.json").exists()
+    settled = json.loads(record.read_text())
+    assert str(child) in settled["stop_unconfirmed"]
+    # The check ran all the same, and put the write back.
+    assert settled["sentinel_after_stop"]["put_back"] == [str(marker)]
     assert sorted(p.name for p in session.root.iterdir()) == ["kept.txt"]
-    ended = json.loads(
-        (session.run.run_dir / "sessions" / left.session_id / "ended.json").read_text()
+
+
+BYSTANDER = r"""
+import os, subprocess, sys, time
+sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+open(sys.argv[1], "w").write(str(sleeper.pid))
+os._exit(0)
+"""
+
+
+def test_a_rewritten_process_record_never_points_a_resume_s_sweep_at_another_group(
+    tmp_path: Path, leftovers: list[int], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A record naming the leader of another, leaderless group: its member is never signalled."""
+    session = Session(tmp_path, "sleeper", pause=0.0, wall_clock_s=60.0)
+    dispatcher = session.dispatcher(monkeypatch)
+    marker = tmp_path / "bystander"
+    leader = subprocess.Popen(
+        [sys.executable, "-c", BYSTANDER, str(marker)], start_new_session=True
     )
-    assert child in ended["left_running"]
-    assert ended["sentinel_after_stop"]["put_back"] == [str(marker)]
+    leader.wait()
+    member = int(marker.read_text()) if _settle(marker.exists, 10.0) else 0
+    leftovers.append(member)
+    forged = session.run.run_dir / "sessions" / "forged"
+    forged.mkdir(parents=True)
+    record = {"pid": leader.pid, "started": "Mon Jan  1 00:00:00 2001", "session_id": "forged"}
+    (forged / "process.json").write_text(json.dumps(record))
+    with pytest.raises(InvocationError, match="the resume goes no further"):
+        _resumed(session, dispatcher).stop_leftovers()
+    time.sleep(0.5)
+    assert started_at(member) is not None
+
+
+@pytest.mark.parametrize("mode", ["halted", "forget"])
+def test_a_sentinel_record_rewritten_after_session_end_cannot_pass_a_changed_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int], mode: str
+) -> None:
+    """The check after the stop is held to the orchestrator's own record, not the sentinel's."""
+    session = Session(tmp_path, mode, pause=0.0, wall_clock_s=60.0)
+    dispatcher = session.dispatcher(monkeypatch)
+    try:
+        with pytest.raises(InvocationError, match="no git call follows"):
+            dispatcher.run(session.request())
+    finally:
+        leftovers += session.pids()
+    assert session.at_first_git is None
+    (record,) = session.run.run_dir.glob("sessions/*/after_stop.json")
+    settled = json.loads(record.read_text())
+    assert settled["protected_changed"] == [str(session.root / MARKER)]
+
+
+def test_an_end_record_is_never_written_through_a_link_the_session_planted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    session = Session(tmp_path, "link", pause=0.0, wall_clock_s=60.0)
+    victim = session.flags / "victim.txt"
+    victim.write_text("inert victim\n")
+    try:
+        report = session.dispatcher(monkeypatch).run(session.request())
+    finally:
+        leftovers += session.pids()
+    assert victim.read_text() == "inert victim\n"
+    ended = session.run.run_dir / "sessions" / report.session_id / "ended.json"
+    assert not ended.is_symlink()
+    assert json.loads(ended.read_text())["exit"] == 0
 
 
 @pytest.mark.parametrize(
