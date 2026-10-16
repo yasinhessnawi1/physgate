@@ -406,6 +406,16 @@ def _parse_into(text: str, out: list[SimpleCommand], depth: int) -> None:
                 heredocs.append((delimiter, op == "<<-", expands, cmd.redirects[-1]))
             continue
         sep = next((s for s in _SEPARATORS if text.startswith(s, i)), None)
+        definition = re.compile(r"\(\s*\)").match(text, i) if sep == "(" else None
+        if definition is not None:
+            end_word()
+            if len(cmd.words) == 1 and not cmd.redirects:
+                # ``name () { …; }`` defines a function: recorded as ``function name``, so a
+                # check can see which command it shadows. Its body is parsed as it comes.
+                cmd.words.insert(0, "function")
+                end_command()
+                i = definition.end()
+                continue
         if sep is not None:
             end_command(background=sep == "&")
             i += len(sep)
@@ -731,6 +741,19 @@ def _parse_substitutions(body: str, out: list[SimpleCommand], depth: int) -> Non
         i += 1
 
 
+def command_key(word: str) -> str:
+    """The name every command registry is keyed by: the word's last path part, case-folded.
+
+    One normalisation for every lookup, so no spelling of a command escapes its rule:
+    quotes and escapes are already gone from the word, a path keeps only its last part,
+    and case is folded because on a case-insensitive volume ``/bin/BASH`` is ``bash``.
+    Folding only ever widens which words a rule applies to. Whether a path-qualified
+    word is really the command its name says is a separate question, for the rule that
+    trusts the name.
+    """
+    return word.rsplit("/", 1)[-1].casefold()
+
+
 def unwrap(argv: tuple[str, ...]) -> tuple[str, ...]:
     """The command a wrapper would run: ``env A=1 git …`` is ``git …``.
 
@@ -745,7 +768,7 @@ def unwrap(argv: tuple[str, ...]) -> tuple[str, ...]:
         if argv[0] == "function":
             argv = argv[2:]
             continue
-        head = argv[0].rsplit("/", 1)[-1]
+        head = command_key(argv[0])
         if head not in _RUNS_ITS_ARGUMENTS:
             return argv
         rest = list(argv[1:])
@@ -764,8 +787,14 @@ def _expand_runners(sub: SimpleCommand, out: list[SimpleCommand], depth: int) ->
     argv = unwrap(sub.argv)
     if not argv:
         return
-    head = argv[0].rsplit("/", 1)[-1]
-    if head == "eval":
+    head = command_key(argv[0])
+    if head == "trap":
+        # The action is a command line the shell runs on a signal, at exit, or before
+        # each command: parsed as the commands it is.
+        action = next((a for a in argv[1:] if not a.startswith("-")), None)
+        if action:
+            _parse_into(action, out, depth + 1)
+    elif head == "eval":
         _parse_into(" ".join(argv[1:]), out, depth + 1)
     elif head in ("source", ".") and len(argv) > 1 and argv[1] in _STDIN_FILES:
         _parse_fed_script(sub, out, depth)

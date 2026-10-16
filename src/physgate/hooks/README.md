@@ -131,17 +131,27 @@ hold more than 1,024 values is refused, `eval` runs where it stands, `chdir` is
 `cd`, `$"…"` is its string, `~N` is a directory the call has been in, `~name`
 is a user's or a parameter's directory, `NAME+=` appends, `$_` is a word before,
 `${#x}` and the default and trim forms of `${…}` are evaluated (replacement,
-substring, case change and indirection are refused), and a script read from
-`/dev/stdin` is parsed. What the first layer cannot see is the second layer's: a
+substring, case change and indirection are refused), a script read from
+`/dev/stdin` and a `trap` action are parsed, and a command name is one key for
+every rule (its last path part, case-folded), a reader trusted by its name only
+while the name means the usual program (not `./cat`, not after `PATH` changes).
+An alias, a function named like a command a rule trusts, `hash -p`, `enable`, and
+a shell option that changes how words are read are refused; after `source <file>`
+no variable value is taken as complete. What the first layer cannot see is the
+second layer's: a
 value known only at run time (a substitution, `read`, `$$` and other special
 parameters, positional parameters and a function's arguments, arrays, namerefs
 and `IFS`), the directory after `cd $(…)`, a
-script a shell reads by another route (`… | sh`, `xargs`, `source <file>`), a
+script a shell reads by another route (`… | sh`, `xargs`, `source <file>`, which
+can also set any variable or directory unseen), a
 path a program builds from its input (`python -`, `node`, `awk`, `sqlite3`), a
 string assembled in a script, an archive, a patch. The tests assert those forms
 as allowed by the first layer so that the boundary is on record. For a root
 watched `none` there is no second layer, so those forms reach it: a recorded
-residual of the same-user kind. The bypass suite runs thirty-four attempts
+residual of the same-user kind. **This list is the honest boundary of what
+parsing alone can claim.** A further difference between how this layer and a
+shell read a command is added here, not patched in the parser: an OS write
+allowlist for role sessions is the closing layer. The bypass suite runs thirty-four attempts
 through the real Claude Code binary, each judged by the bytes of the protected
 trees and by which layer logged the refusal; its tolerance is zero.
 

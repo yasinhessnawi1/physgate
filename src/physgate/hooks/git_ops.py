@@ -36,7 +36,14 @@ import re
 from typing import TYPE_CHECKING
 
 from physgate.hooks.runtime import ALLOW, Decision, HookSpec, refuse
-from physgate.hooks.shell import SHELLS, ShellSyntaxError, SimpleCommand, parse, unwrap
+from physgate.hooks.shell import (
+    SHELLS,
+    ShellSyntaxError,
+    SimpleCommand,
+    command_key,
+    parse,
+    unwrap,
+)
 
 if TYPE_CHECKING:
     from physgate.hooks.views import ConfigView, InputView
@@ -222,7 +229,7 @@ _WATCHED = {"push", "commit", "reset", "rebase", "config", "merge", "am", "branc
 
 
 def _is_git(word: str) -> bool:
-    return word.rsplit("/", 1)[-1] == "git"
+    return command_key(word) == "git"
 
 
 def _as_git(argv: tuple[str, ...]) -> tuple[str, ...] | None:
@@ -235,7 +242,7 @@ def _as_git(argv: tuple[str, ...]) -> tuple[str, ...] | None:
     if not argv:
         return None
     # zsh replaces a word ``=name`` with the path of the command ``name``.
-    name = argv[0].removeprefix("=").rsplit("/", 1)[-1]
+    name = command_key(argv[0].removeprefix("="))
     if name == "git":
         return argv
     if name.startswith("git-") and len(name) > 4:
@@ -344,7 +351,7 @@ def _opaque_env(argv: tuple[str, ...]) -> bool:
     """
     i = 0
     while i < len(argv):
-        if argv[i].rsplit("/", 1)[-1] != "env":
+        if command_key(argv[i]) != "env":
             i += 1
             continue
         i += 1
@@ -370,7 +377,7 @@ def _opaque_env(argv: tuple[str, ...]) -> bool:
 
 def _reads_stdin(argv: tuple[str, ...]) -> bool:
     """Whether a shell in command position takes its commands from standard input."""
-    if not argv or argv[0].rsplit("/", 1)[-1] not in SHELLS:
+    if not argv or command_key(argv[0]) not in SHELLS:
         return False
     words, operands, i = argv[1:], [], 0
     while i < len(words):
@@ -588,7 +595,7 @@ def _found_in(cmd: SimpleCommand, position: str) -> list[tuple[SimpleCommand, st
     found: list[tuple[SimpleCommand, str]] = []
     if not argv:
         return found
-    head = argv[0].rsplit("/", 1)[-1]
+    head = command_key(argv[0])
     strings: list[str] = []
     if position != "command" and head == "eval":
         strings.append(" ".join(argv[1:]))
@@ -613,8 +620,7 @@ def _found_in(cmd: SimpleCommand, position: str) -> list[tuple[SimpleCommand, st
         found += [(c, "command") for c in parse(text)]
     inner = "runner" if head in _RUNNERS or position == "runner" else "text"
     for k in range(1, len(argv)):
-        word = argv[k].rsplit("/", 1)[-1]
-        word = word.removeprefix("=")
+        word = command_key(argv[k]).removeprefix("=")
         if word in _STARTS or word in SHELLS or word in _RUNNERS or word.startswith("git-"):
             start = offset + k
             tail = SimpleCommand(

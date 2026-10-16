@@ -75,7 +75,15 @@ left to the sentinel for the roots it puts back, and reaches a root watched
 - a script a shell reads by another route: piped in (``… | sh``), run through
   ``xargs``, or a file given to ``source``;
 - a path a program builds from its input (``python -``, ``node``, ``awk``,
-  ``sqlite3``).
+  ``sqlite3``);
+- whatever a file given to ``source`` sets: after one, no variable value is
+  complete, and a ``cd`` through ``HOME`` or ``OLDPWD`` is refused.
+
+A command name is one key for every rule (:func:`command_key`), and a reader is
+trusted by its name only while the name means the usual program. An alias, a
+function named like a command a rule trusts, ``hash -p``, ``enable`` and a shell
+option that changes how words are read are refused, as rare. This list is the
+boundary of what parsing alone can claim; the OS layer closes the rest.
 """
 
 from __future__ import annotations
@@ -91,7 +99,15 @@ from typing import TYPE_CHECKING
 from physgate.hooks.paths import protection, resolve_roots_once
 from physgate.hooks.reasons import ANSWER_KEY_REASON, HELD_OUT_REASON, REVIEW_MATERIAL_REASON
 from physgate.hooks.runtime import ALLOW, Decision, HookSpec, refuse
-from physgate.hooks.shell import BRACE_LIMIT, ShellSyntaxError, SimpleCommand, parse, unwrap
+from physgate.hooks.shell import (
+    BRACE_LIMIT,
+    SHELLS,
+    ShellSyntaxError,
+    SimpleCommand,
+    command_key,
+    parse,
+    unwrap,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -159,6 +175,14 @@ TILDE_UNKNOWN = (
     "holding a path, and which directory that is cannot be known before it runs, so it is "
     "refused. Write the path out."
 )
+SHADOWED = (
+    "This command defines {what}, after which a command name can run something other than "
+    "what this layer judges it by, so it is refused. Call the program by its own name."
+)
+OPTION_REFUSED = (
+    "This command sets a shell option ({what}) that changes how later words or directories "
+    "are read, which this layer does not follow, so it is refused."
+)
 CD_OPTION = (
     "This command sets {what}, which makes a later cd go somewhere its words do not say, "
     "so it is refused. Change directory by an explicit path."
@@ -197,7 +221,7 @@ _GLOB = re.compile(r"[*?\[]")
 
 
 def _name(word: str) -> str:
-    return word.rsplit("/", 1)[-1]
+    return command_key(word)
 
 
 def _carries(word: str, flag: str) -> bool:
@@ -207,7 +231,34 @@ def _carries(word: str, flag: str) -> bool:
     return len(flag) == 2 and not flag.startswith("--") and word.startswith(flag)
 
 
+def _on_path(name: str) -> str | None:
+    """The file the shell runs for ``name``, found on ``PATH`` (``shutil.which`` is heavy)."""
+    for directory in os.environ.get("PATH", "").split(os.pathsep):
+        candidate = os.path.join(directory or ".", name)
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
+def _is_the_named_command(word: str) -> bool:
+    """True if ``word`` runs the program its name says.
+
+    That is a bare name, or the very file the shell would find by that name: ``./cat``
+    or ``/tmp/x/cat`` may be anything.
+    """
+    if "/" not in word:
+        return True
+    found = _on_path(command_key(word))
+    return (
+        os.path.isabs(word)
+        and found is not None
+        and os.path.realpath(word) == os.path.realpath(found)
+    )
+
+
 def _only_reads(argv: tuple[str, ...]) -> bool:
+    if not _is_the_named_command(argv[0]):
+        return False
     head = _name(argv[0])
     flags = _WRITING_FLAGS.get(head, ())
     if any(_carries(word, flag) for word in argv[1:] for flag in flags):
@@ -403,7 +454,14 @@ def check(cmd: SimpleCommand, cwd: str, config: ConfigView, env: _Env | None = N
     ambiguous = _ambiguous_cd(cmd, cwd)
     if ambiguous is not None:
         return AMBIGUOUS_CD.format(path=ambiguous)
-    reads_only = bool(argv) and _only_reads(argv)
+    # A reader is trusted by its name only while the name means the usual program: not
+    # once the call has changed PATH, for this command or before it.
+    path_set = any(
+        w.partition("=")[0].removesuffix("+") in ("PATH", "path")
+        for w in (*cmd.assignments, *wrappers)
+    )
+    trusted = not path_set and not (env is not None and env.path_changed())
+    reads_only = bool(argv) and trusted and _only_reads(argv)
     for redirect in cmd.redirects:
         # A here-document's body and a here-string are the program's input: judged as its
         # own words, so a reader's input may still not name the held-out tier.
@@ -474,6 +532,14 @@ def _ambiguous_cd(cmd: SimpleCommand, cwd: str) -> str | None:
 
 
 _ASSIGNERS = {"export", "declare", "typeset", "local", "readonly"}
+_STDIN_SCRIPTS = {"/dev/stdin", "/dev/fd/0", "/proc/self/fd/0"}
+#: ``set`` options that change nothing about which paths a command reaches.
+_HARMLESS_SET_LETTERS = set("euxvCfanBhmbTE")
+_HARMLESS_SET_NAMES = {
+    "errexit", "nounset", "xtrace", "verbose", "noclobber", "noglob", "allexport", "noexec",
+    "pipefail", "braceexpand", "hashall", "monitor", "notify", "errtrace", "functrace",
+    "emacs", "vi", "history", "histexpand", "ignoreeof", "onecmd",
+}  # fmt: skip
 #: Commands that change the working directory: ``chdir`` is ``cd`` in zsh and dash.
 _CHANGES_DIRECTORY = ("cd", "chdir", "pushd")
 _READS_INTO = {"read", "mapfile", "readarray", "select"}
@@ -533,12 +599,19 @@ class _Env:
     is the last word of any command before.
     """
 
-    __slots__ = ("known", "unbounded", "unknown")
+    __slots__ = ("drifted", "known", "unbounded", "unknown")
 
     def __init__(self) -> None:
         self.known: dict[str, set[str]] = {}
         self.unknown: set[str] = set()
         self.unbounded: set[str] = set()
+        #: Set once the call runs something that can change any variable unseen (a file
+        #: given to ``source``): no value is then complete, and no guess is kept.
+        self.drifted = False
+
+    def path_changed(self) -> bool:
+        """True if the call may have changed which program a command name runs."""
+        return any(n in self.known or n in self.unknown for n in ("PATH", "path"))
 
     def _holds(self, name: str) -> bool:
         """True if ``name`` has any value this layer knows of."""
@@ -561,14 +634,14 @@ class _Env:
         if inherited is not None:
             known.add(inherited)
         complete = name not in self.unknown and (inherited is not None or name in self.known)
-        return sorted(known), complete
+        return sorted(known), complete and not self.drifted
 
     def cd_values(self, name: str) -> list[str] | None:
         """As :meth:`values` for a variable ``cd`` reads, where unset means unset: ``[]``.
 
         ``None`` if one of its values is known only at run time.
         """
-        if name in self.unknown:
+        if name in self.unknown or (self.drifted and name in ("HOME", "OLDPWD")):
             return None
         if name in self.unbounded:
             raise _UnboundedError(name)
@@ -750,6 +823,8 @@ class _Env:
         if not argv:
             return
         head = _name(argv[0])
+        if head in ("source", ".") and len(argv) > 1 and argv[1] not in _STDIN_SCRIPTS:
+            self.drifted = True
         offset = len(cmd.argv) - len(argv)
         last = len(cmd.argv) - 1
         for word in (cmd.argv[last], *(cmd.alternatives.get(last) or ())):
@@ -777,18 +852,76 @@ class _Env:
             self.unknown.update(names)
 
 
+def _registered_names() -> frozenset[str]:
+    """Every command name a rule of this layer, or the splitter, gives a meaning to."""
+    return frozenset(
+        {
+            *_READERS, *_WRITING_FLAGS, *_CHANGES_DIRECTORY, *_ASSIGNERS, *_READS_INTO,
+            *_BACKGROUNDERS, *_PACKAGE_RUNNERS, *SHELLS, "git", "eval", "source", ".", "trap",
+            "alias", "hash", "shopt", "setopt", "unsetopt", "set", "builtin", "command",
+            "env", "exec", "nice", "time", "sudo", "for", "printf", "getopts", "popd",
+            "enable", "unset", "claude", "node", "pnpm", "yarn",
+        }
+    )  # fmt: skip
+
+
+def _changes_how_words_are_read(argv: tuple[str, ...]) -> str | None:
+    """The shell option ``argv`` sets, if it changes how a later word or ``cd`` is read."""
+    head = _name(argv[0])
+    if head in ("setopt", "unsetopt") and len(argv) > 1:
+        return f"{head} {' '.join(argv[1:])}"
+    if head == "shopt" and any(w in ("-s", "-u") for w in argv[1:]):
+        return f"shopt {' '.join(argv[1:])}"
+    if head != "set":
+        return None
+    words = list(argv[1:])
+    while words:
+        word = words.pop(0)
+        if word == "--":
+            return None
+        if word[:1] not in ("-", "+") or len(word) < 2:  # noqa: PLR2004 - a sign and a letter
+            return None  # the positional parameters follow
+        letters = word[1:]
+        if not set(letters.replace("o", "")) <= _HARMLESS_SET_LETTERS:
+            return f"set {word}"
+        for _ in range(letters.count("o")):  # each ``o`` takes an option name
+            name = words.pop(0) if words else ""
+            if name and name.replace("_", "").casefold() not in _HARMLESS_SET_NAMES:
+                return f"set {word} {name}"
+    return None
+
+
 def _refused_construct(cmd: SimpleCommand) -> str | None:
-    """The reason a ``cd`` after ``cmd`` could go where no word says, if ``cmd`` sets that up."""
+    """Why ``cmd`` is refused for changing how later words are read in a way not followed.
+
+    A ``cd`` could then go where no word says (a named directory, ``cdable_vars``), a name
+    could run another program (an alias, a function named like a command a rule trusts,
+    a hashed path, a builtin turned off), or a word could expand otherwise (a shell
+    option). Each is rare in an agent's commands; a guess would let a write through.
+    """
+    if cmd.argv[:1] == ("function",) and len(cmd.argv) > 1:
+        name = _name(cmd.argv[1].removesuffix("()"))
+        if name in _registered_names():
+            return SHADOWED.format(what=f"a function named {name}")
     argv = unwrap(cmd.argv)
     if not argv:
         return None
     head = _name(argv[0])
     if head == "hash" and "-d" in argv[1:]:
         return CD_OPTION.format(what="a zsh named directory (hash -d)")
-    if head in ("shopt", "setopt", "unsetopt", "set") and any(
-        "cdablevars" in w.casefold().replace("_", "") for w in argv[1:]
-    ):
+    if head == "hash" and "-p" in argv[1:]:
+        return SHADOWED.format(what="a hashed path for a command (hash -p)")
+    if head == "alias" and any("=" in w for w in argv[1:]):
+        return SHADOWED.format(what="an alias")
+    if head == "enable":
+        return SHADOWED.format(what="enable, which turns builtins on or off")
+    if any("cdablevars" in w.casefold().replace("_", "") for w in argv[1:]) and head in (
+        "shopt", "setopt", "unsetopt", "set",
+    ):  # fmt: skip
         return CD_OPTION.format(what="the cdable_vars option")
+    option = _changes_how_words_are_read(argv)
+    if option is not None:
+        return OPTION_REFUSED.format(what=option)
     return None
 
 
