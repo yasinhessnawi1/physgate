@@ -44,7 +44,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Protocol
 
-from physgate.evaluation.observe.calls import run_calls
+from physgate.evaluation.observe.calls import run_calls, stream_seals
 from physgate.evaluation.observe.cost import KNOWN_SHEETS, load_price_sheet, price_events
 from physgate.evaluation.observe.manifest import manifest_id_of
 from physgate.evaluation.observe.sequence import decisions as decision_sequence
@@ -180,10 +180,13 @@ def cost(context: Context, params: Mapping[str, str]) -> Response:
     run_dir = run_dir_of(context, params)
     log = read_events(_file(context, run_dir, EVENTS))
     recorded = load_run_config(_file(context, run_dir, RUN_CONFIG))
-    # Each call's result, read through the allowlist like every other file: the reviews'
-    # lie under a review root the run does not record, so they are read as unread.
+    # Each call's result, read through the allowlist like every other file and held to
+    # its session's seal: the reviews' lie under a review root the run does not record,
+    # so they are read as unread.
     attributions = TokenAccount.from_events(log).by_attribution()
-    calls = run_calls(run_dir, attributions, resolve=context.allowlist.resolve)
+    calls = run_calls(
+        run_dir, attributions, resolve=context.allowlist.resolve, seals=stream_seals(log)
+    )
     line = price_events(
         recorded,
         manifest_id_of(run_dir, log),

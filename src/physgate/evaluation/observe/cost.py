@@ -54,7 +54,7 @@ from pydantic import (
     model_validator,
 )
 
-from physgate.evaluation.observe.calls import CacheWrites, RecordedCall, run_calls
+from physgate.evaluation.observe.calls import CacheWrites, RecordedCall, run_calls, stream_seals
 from physgate.evaluation.observe.exceptions import ManifestError, PriceSheetError, TrendError
 from physgate.evaluation.observe.manifest import Sha256, read_manifest, read_run_events
 from physgate.evaluation.observe.ratio import RATIO_KIND, RatioLine
@@ -383,14 +383,15 @@ def price_run(run_dir: Path, prices: DatedSheet, *, review_roots: Sequence[Path]
 
     Raises:
         ManifestError: the run's records do not make a manifest, a token's model cannot
-            be told from them, or a call's result is another session's.
+            be told from them, a call's stream is not the one sealed when its session
+            ended, or a call's result is another session's.
         PriceSheetError: a model the run used has no price on the sheet, or a call's
             cache writes by time to live do not add up.
     """
     manifest = read_manifest(run_dir)
     events = read_run_events(run_dir)
     attributions = TokenAccount.from_events(events).by_attribution()
-    calls = run_calls(run_dir, attributions, review_roots)
+    calls = run_calls(run_dir, attributions, review_roots, seals=stream_seals(events))
     return price_events(manifest.config, manifest.manifest_id, events, prices, calls=calls)
 
 

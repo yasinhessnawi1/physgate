@@ -19,12 +19,20 @@ Where the streams are: the decomposition's in the run directory's
 ``decomposition/``, each role session's under ``sessions/<id>/``, and each
 review's under ``<review root>/<id>/session/`` of whichever review root it was
 given. The review root is not recorded in the run, so it is named by the reader.
+
+**A stream is held to the seal its session's end recorded.** The run's account was
+read from a stream's bytes as its session ended, and the end recorded their seal
+(``session_ended`` and ``leftover_read``); a stream rewritten since could move writes
+from the one-hour to the five-minute cache, keep them adding up, and carry a figure
+that agrees with the lower price. So a stream with a recorded seal is read only if
+its bytes are still the sealed ones, and refused otherwise. The decomposition's and a
+review's stream have no seal in the run's log; they are read as they are.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Any
@@ -32,6 +40,8 @@ from typing import Annotated, Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from physgate.evaluation.observe.exceptions import ManifestError
+from physgate.orchestrator.events import Event, LeftoverRead, SessionEnded
+from physgate.orchestrator.trajectory import Seal, seal
 
 STREAM_NAME = "stdout.jsonl"
 DECOMPOSITION_DIRNAME = "decomposition"
@@ -85,13 +95,35 @@ def _runtime_result(text: str) -> dict[str, Any] | None:
     return None
 
 
-def read_call(stream: Path, session_id: str) -> RecordedCall | None:
+def stream_seals(events: Iterable[Event]) -> dict[str, Seal]:
+    """The seal each session's end recorded for its stream, by session id."""
+    return {
+        e.session_id: e.trajectory_seal
+        for e in events
+        if isinstance(e, SessionEnded | LeftoverRead) and e.trajectory_seal is not None
+    }
+
+
+def read_call(stream: Path, session_id: str, sealed: Seal | None = None) -> RecordedCall | None:
     """What the call's result event recorded, or ``None`` if its stream holds no result.
 
+    ``sealed`` is the seal the call's end recorded for its stream, if it recorded one.
+
     Raises:
-        ManifestError: the result is another session's than the call it is read for.
+        ManifestError: the stream is not the one sealed when its session ended, or the
+            result is another session's than the call it is read for.
     """
-    result = _runtime_result(Path(stream).read_bytes().decode(errors="replace"))
+    data = Path(stream).read_bytes()
+    if sealed is not None and (found := seal(data)) != sealed:
+        msg = "the call's stream is not what it was when its session ended"
+        raise ManifestError(
+            msg,
+            stream=str(stream),
+            call=session_id,
+            sealed=f"{sealed.sha256}:{sealed.length}",
+            found=f"{found.sha256}:{found.length}",
+        )
+    result = _runtime_result(data.decode(errors="replace"))
     if result is None:
         return None
     if result.get("session_id") != session_id:
@@ -133,14 +165,19 @@ def run_calls(
     attributions: Iterable[str],
     review_roots: Sequence[Path] = (),
     resolve: Callable[[Path], Path] = Path,
+    *,
+    seals: Mapping[str, Seal],
 ) -> dict[str, RecordedCall]:
     """What each call's result recorded, by its attribution, for every call whose result is read.
 
     ``resolve`` is how a path is opened: a reader that may open only some paths (the
-    operator UI's server) passes its own check, which refuses the others.
+    operator UI's server) passes its own check, which refuses the others. ``seals`` is
+    the seal each session's end recorded for its stream (``stream_seals``), by session
+    id; a stream it names is held to it.
 
     Raises:
-        ManifestError: a result is another session's than its call's.
+        ManifestError: a stream is not the one sealed when its session ended, or a
+            result is another session's than its call's.
     """
     found: dict[str, RecordedCall] = {}
     for attribution in attributions:
@@ -149,7 +186,7 @@ def run_calls(
             path = resolve(place)
             if not path.is_file():
                 continue
-            recorded = read_call(path, who)
+            recorded = read_call(path, who, seals.get(who))
             if recorded is not None:
                 found[attribution] = recorded
                 break

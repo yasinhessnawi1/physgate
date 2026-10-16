@@ -27,7 +27,13 @@ from typing import Any
 import pytest
 from observe_rig import fake_run, target_repo
 
-from physgate.evaluation.observe.calls import CacheWrites, RecordedCall, read_call, run_calls
+from physgate.evaluation.observe.calls import (
+    CacheWrites,
+    RecordedCall,
+    read_call,
+    run_calls,
+    stream_seals,
+)
 from physgate.evaluation.observe.cost import (
     KNOWN_SHEETS,
     PRICES,
@@ -238,39 +244,54 @@ def test_a_stream_is_read_up_to_its_runtime_s_result_and_no_further(tmp_path: Pa
         read_call(stream, "s2")
 
 
-def _streams(run: Path, review_root: Path, *, off_by: Decimal = Decimal(0)) -> Path:
-    """Give every call of a fake run the result event a subscription call would have written.
-
-    Each role session's writes are one-hour entries; each review's, which wrote none,
-    report its cost. The first session's figure is off by ``off_by``.
-    """
-    events = read_events(run / "events.jsonl")
+def _subscription_result(sid: str, usage: Usage, *, off_by: Decimal = Decimal(0)) -> dict[str, Any]:
+    """The result a subscription call on the role model writes: one-hour writes, its cost."""
     sheet = load_price_sheet(NEW).sheet
-    first = True
+    writes = CacheWrites(five_minute=0, one_hour=usage.cache_creation_input_tokens)
+    cost = sheet.usd_per_mtok["claude-sonnet-5"].usd(usage, writes) + off_by
+    return result_event(sid, usage, one_hour=writes.one_hour, total_cost_usd=float(cost))
+
+
+def _priced_run(tmp_path: Path, *, off_by: Decimal = Decimal(0)) -> tuple[Path, Path]:
+    """A fake subscription run whose every call wrote the result such a call writes.
+
+    Each role session's stream ends in it as the session ends, so its seal holds it;
+    each review's, which wrote no cache entries, is written under a review root
+    afterwards, as a review's is. The first session's figure is off by ``off_by``.
+    Returns the run directory and the review root.
+    """
+    offs = [off_by]
+
+    def result(sid: str, usage: Usage) -> dict[str, Any]:
+        return _subscription_result(sid, usage, off_by=offs.pop() if offs else Decimal(0))
+
+    run = fake_run(
+        tmp_path,
+        "run-a",
+        target_repo(tmp_path),
+        overrides={"auth": "subscription"},
+        session_result=result,
+    )
+    review_root = tmp_path / "reviews"
+    sheet = load_price_sheet(NEW).sheet
+    events = read_events(run / "events.jsonl")
     for attribution, usage in TokenAccount.from_events(events).by_attribution().items():
         kind, who = attribution.split(":", 1)
-        model = "claude-sonnet-5" if kind == "session" else "claude-opus-5-5"
+        if kind != "reviewer":
+            continue
         writes = CacheWrites(five_minute=0, one_hour=usage.cache_creation_input_tokens)
-        cost = sheet.usd_per_mtok[model].usd(usage, writes)
-        if kind == "session" and first:
-            cost, first = cost + off_by, False
-        place = (
-            run / "sessions" / who / "stdout.jsonl"
-            if kind == "session"
-            else review_root / who / "session" / "stdout.jsonl"
-        )
+        cost = sheet.usd_per_mtok["claude-opus-5-5"].usd(usage, writes)
         write_stream(
-            place,
+            review_root / who / "session" / "stdout.jsonl",
             result_event(who, usage, one_hour=writes.one_hour, total_cost_usd=float(cost)),
         )
-    return review_root
+    return run, review_root
 
 
 def test_a_run_s_line_holds_each_call_to_the_binary_and_agrees_when_priced_right(
     tmp_path: Path, new: DatedSheet, old: DatedSheet
 ) -> None:
-    run = fake_run(tmp_path, "run-a", target_repo(tmp_path), overrides={"auth": "subscription"})
-    review_root = _streams(run, tmp_path / "reviews")
+    run, review_root = _priced_run(tmp_path)
     line = price_run(run, new, review_roots=(review_root,))
     assert line.calls and line.reconciliation is not None
     sessions = [c for c in line.calls if c.attribution.startswith("session:")]
@@ -292,8 +313,7 @@ def test_a_run_s_line_holds_each_call_to_the_binary_and_agrees_when_priced_right
 def test_a_call_whose_figures_disagree_is_named_never_averaged(
     tmp_path: Path, new: DatedSheet
 ) -> None:
-    run = fake_run(tmp_path, "run-a", target_repo(tmp_path), overrides={"auth": "subscription"})
-    review_root = _streams(run, tmp_path / "reviews", off_by=Decimal("0.01"))
+    run, review_root = _priced_run(tmp_path, off_by=Decimal("0.01"))
     line = price_run(run, new, review_roots=(review_root,))
     assert line.reconciliation is not None
     (differs,) = line.reconciliation.differs
@@ -306,8 +326,7 @@ def test_a_call_whose_figures_disagree_is_named_never_averaged(
 def test_a_call_with_no_result_read_is_named_and_its_writes_are_a_lower_bound(
     tmp_path: Path, new: DatedSheet
 ) -> None:
-    run = fake_run(tmp_path, "run-a", target_repo(tmp_path), overrides={"auth": "subscription"})
-    _streams(run, tmp_path / "reviews")
+    run, _ = _priced_run(tmp_path)
     # No review root named: the reviews' results are not read.
     line = price_run(run, new)
     assert line.reconciliation is not None
@@ -317,7 +336,8 @@ def test_a_call_with_no_result_read_is_named_and_its_writes_are_a_lower_bound(
     events = read_run_events(run)
     (session, *_) = sorted(c.attribution for c in line.calls if c.attribution.startswith("session"))
     (run / "sessions" / session.split(":", 1)[1] / "stdout.jsonl").unlink()
-    calls = run_calls(run, TokenAccount.from_events(events).by_attribution())
+    attributions = TokenAccount.from_events(events).by_attribution()
+    calls = run_calls(run, attributions, seals=stream_seals(events))
     missing = price_events(read_manifest(run).config, line.manifest_id, events, new, calls=calls)
     assert missing.reconciliation is not None
     assert session in missing.reconciliation.ttl_unread
@@ -325,6 +345,40 @@ def test_a_call_with_no_result_read_is_named_and_its_writes_are_a_lower_bound(
     assert priced.cache_writes is None
     rates = new.sheet.usd_per_mtok["claude-sonnet-5"]
     assert priced.usd == rates.usd(priced.tokens)
+
+
+def test_a_stream_rewritten_after_its_session_ended_is_refused(
+    tmp_path: Path, new: DatedSheet, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A rewritten split with a matching figure would agree on the lower sum; its seal does not.
+
+    The rewrite moves a session's one-hour writes to the five-minute cache, keeps them
+    adding up, and gives the binary's figure at that split: read raw, the call would be
+    priced lower and agree with it.
+    """
+    from physgate.cli import main
+
+    run, review_root = _priced_run(tmp_path)
+    events = read_events(run / "events.jsonl")
+    who = next(a for a in TokenAccount.from_events(events).by_attribution() if "session:" in a)
+    sid = who.split(":", 1)[1]
+    stream = run / "sessions" / sid / "stdout.jsonl"
+    (usage,) = [u for a, u in TokenAccount.from_events(events).by_attribution().items() if a == who]
+    five = CacheWrites(five_minute=usage.cache_creation_input_tokens, one_hour=0)
+    lower = new.sheet.usd_per_mtok["claude-sonnet-5"].usd(usage, five)
+    write_stream(
+        stream,
+        result_event(
+            sid, usage, five_minute=five.five_minute, one_hour=0, total_cost_usd=float(lower)
+        ),
+    )
+    with pytest.raises(ManifestError, match="not what it was when its session ended") as refused:
+        price_run(run, new, review_roots=(review_root,))
+    assert refused.value.context["call"] == sid
+    capsys.readouterr()
+    args = ["cost", "--run-dir", str(run), "--prices", NEW, "--review-root", str(review_root)]
+    assert main(args) == 2
+    assert capsys.readouterr().out == ""
 
 
 def test_a_line_priced_without_the_records_carries_no_reconciliation(
@@ -350,9 +404,9 @@ def test_a_review_s_result_is_found_under_each_review_root_named(tmp_path: Path)
         result_event(review, zero, one_hour=0, total_cost_usd=0),
     )
     roots = (tmp_path / "first", tmp_path / "second")
-    found = run_calls(run, [f"reviewer:{review}"], roots)
+    found = run_calls(run, [f"reviewer:{review}"], roots, seals={})
     assert found[f"reviewer:{review}"].binary_usd == Decimal(0)
-    assert run_calls(run, [f"reviewer:{review}"], roots[:1]) == {}
+    assert run_calls(run, [f"reviewer:{review}"], roots[:1], seals={}) == {}
 
 
 @pytest.mark.parametrize(("off_by", "code"), [(Decimal(0), 0), (Decimal("0.01"), 1)])
@@ -361,8 +415,7 @@ def test_the_command_reads_the_reviews_under_their_root_and_exits_one_on_a_disag
 ) -> None:
     from physgate.cli import main
 
-    run = fake_run(tmp_path, "run-a", target_repo(tmp_path), overrides={"auth": "subscription"})
-    review_root = _streams(run, tmp_path / "reviews", off_by=off_by)
+    run, review_root = _priced_run(tmp_path, off_by=off_by)
     trend = tmp_path / "trend.jsonl"
     capsys.readouterr()
     args = ["cost", "--run-dir", str(run), "--prices", NEW, "--review-root", str(review_root)]
