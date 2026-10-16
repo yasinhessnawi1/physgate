@@ -17,7 +17,19 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "integration" / "orchestrator"))
 import domain_review_artefacts as artefacts  # noqa: E402
-from real_domain_reviewers import all_artefacts, review_id, selected  # noqa: E402
+from real_domain_reviewers import (  # noqa: E402
+    REPO_ROOT,
+    all_artefacts,
+    review_id,
+    scripted_verdict,
+    selected,
+)
+
+from physgate.knowledge.promote import KNOWLEDGE_ROOT  # noqa: E402
+from physgate.reviewers.contract import issued_criteria  # noqa: E402
+from physgate.reviewers.packet import SPEC_AS_ISSUED_NAME  # noqa: E402
+from physgate.reviewers.rubric import load_rubric, not_evaluable_needs  # noqa: E402
+from physgate.reviewers.verdict import Answered, judge  # noqa: E402
 
 RERUN = ("e-consistent", "m-consistent", "m-attempt")
 
@@ -58,3 +70,35 @@ def test_the_electrical_consistent_revision_is_expected_blocked() -> None:
         "e-attempt": "blocked",
         "m-attempt": "blocked",
     }
+
+
+@pytest.mark.parametrize("role", ["electrical", "mechanical"])
+@pytest.mark.parametrize("issued", [False, True])
+def test_a_scripted_blocked_verdict_is_one_the_reviewer_s_check_takes(
+    tmp_path: Path, role: str, issued: bool
+) -> None:
+    """A dry run's blocked verdict holds to the answer contract, with or without a specification.
+
+    With no specification issued, the consistency line is met or unmet only, so the
+    scripted review blocks on a Section 2 item instead of on that line.
+    """
+    read = tmp_path / "read"
+    read.mkdir()
+    rubric = load_rubric(REPO_ROOT / KNOWLEDGE_ROOT, role)
+    (read / "rubric.md").write_text(rubric.text)
+    spec = artefacts.ELECTRICAL_SPEC if role == "electrical" else artefacts.MECHANICAL_SPEC
+    criteria = None
+    if issued:
+        (read / SPEC_AS_ISSUED_NAME).write_text(spec)
+        criteria = issued_criteria(spec)
+    answer = scripted_verdict(read, {"indicators": []}, "blocked")
+    outcome = judge(
+        answer,
+        (),
+        rubric.items,
+        criteria=criteria,
+        not_evaluable=not_evaluable_needs(role),
+        issued=issued,
+    )
+    assert isinstance(outcome, Answered), outcome
+    assert outcome.answer.verdict == "blocked"

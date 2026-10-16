@@ -410,10 +410,18 @@ def scripted_verdict(
     if verdict == "reject":
         failing = deciding[0] if deciding else first["domain_standards"]
         answers[failing] = {"result": "unmet", "evidence": "design/nodes: n1"}
-    if verdict == "blocked":
+    if verdict == "blocked" and issued.is_file():
         held = lines[-1]
         held["result"] = "not evaluable"
         held["defect"] = {"finding": "the issued specification lacks the input", "blocking": True}
+    elif verdict == "blocked":
+        # With no specification issued the consistency line is met or unmet only, so the
+        # block falls on a Section 2 item whose input the design graph lacks.
+        item = first["domain_standards"]
+        answers[item] = {"result": "not evaluable", "evidence": "design/nodes: n1"}
+        defects.append(
+            {"finding": "the design graph lacks the input", "blocking": True, "item": item}
+        )
     return {
         "verdict": verdict,
         "finding": f"scripted dry run: {verdict}",
