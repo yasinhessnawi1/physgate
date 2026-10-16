@@ -130,4 +130,5 @@ def test_a_record_a_session_writes_is_sealed_on_its_end_and_never_committed(
         check=True,
     ).stdout.splitlines()
     assert "modules/power/sim.py" in history
-    assert not [f for f in history if f.startswith((".physgate/series", ".physgate/lib/__pycache__"))]
+    never = (".physgate/series", ".physgate/lib/__pycache__")
+    assert not [f for f in history if f.startswith(never)]
