@@ -106,7 +106,9 @@ def test_a_file_that_is_not_an_instrument_configuration_is_refused(
     (run_dir / CONFIG_NAME).write_text('{"run_id": "dry-1"}\n')
     code, lines, err = command(run_dir, capsys)
     assert (code, lines) == (2, [])
-    assert "instrument" in json.loads(err)["error"]
+    # Refused as no configuration, before its digest is held to the log at all.
+    refused = json.loads(err)
+    assert "could have written" in refused["error"] and refused["reason"]
 
 
 def test_a_directory_holding_both_configurations_is_refused(
