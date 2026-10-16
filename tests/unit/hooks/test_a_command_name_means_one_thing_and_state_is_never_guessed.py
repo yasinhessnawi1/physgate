@@ -111,19 +111,55 @@ def test_the_reader_by_its_own_path_is_still_a_reader(config: SessionConfig) -> 
 
 
 @pytest.mark.parametrize(
-    "command",
+    "setup",
     [
-        f'cat() {{ tee "$@"; }}; cat {READ}',
-        f'cat () {{ tee "$@"; }}; cat {READ}',
-        f'function cat {{ tee "$@"; }}; cat {READ}',
-        f"alias cat=tee; cat {READ}",
+        'cat() { tee "$@"; }',
+        'cat () { tee "$@"; }',
+        'function cat { tee "$@"; }',
+        "build() { make; }",
+        "alias cat=tee",
+        "alias ll='ls -l'",
         "hash -p /tmp/x cat",
         "enable -n cd",
+        "command -p ls",
+        "PATH=.:/usr/bin:/bin",
+        "export PATH=.:/usr/bin:/bin",
     ],
-    ids=["function", "function-spaced", "function-keyword", "alias", "hash-p", "enable"],
 )
-def test_a_name_made_to_run_another_program_is_refused(config: SessionConfig, command: str) -> None:
-    assert sp.SHADOWED.split("{what}")[0] in _decide(config, command)
+def test_once_a_name_s_meaning_is_unknown_a_reader_is_judged_as_a_possible_writer(
+    config: SessionConfig, setup: str
+) -> None:
+    # One rule for every way a call can change what a command name runs: from then on no
+    # name is trusted as a reader. A literal path into a protected root refuses; any other
+    # path is the residual, allowed.
+    assert _decide(config, f"{setup}; cat {READ}") != "allow"
+    assert _decide(config, f"{setup}; cat modules/control/notes.txt") == "allow"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        f"sort -o {ROOT}/f modules/control/notes.txt",
+        f"find modules -fprint {ROOT}/f",
+        f"find {ROOT} -delete",
+        f"sed -i s/a/b/ {READ}",
+        f"awk '{{print > \"{ROOT}/f\"}}' modules/control/notes.txt",
+        f"less -o {ROOT}/f modules/control/notes.txt",
+        f"tar -xf a.tar -C {ROOT}",
+        f"curl -o {ROOT}/f file:///etc/hosts",
+        "git -C .physgate diff --output=series/f",
+        "git -C .physgate log --output series/f",
+        f"GIT_PAGER='tee {ROOT}/f' git log",
+        f"LESSOPEN='|tee {ROOT}/f %s' less modules/control/notes.txt",
+        f"env PAGER='tee {ROOT}/f' git log",
+        "env -C .physgate sh -c 'echo marker > series/f'",
+        "make -C .physgate -f /dev/null series/f",
+    ],
+)
+def test_a_reader_with_a_write_option_or_its_own_environment_is_a_writer(
+    config: SessionConfig, command: str
+) -> None:
+    assert _decide(config, command) != "allow"
 
 
 @pytest.mark.parametrize(
