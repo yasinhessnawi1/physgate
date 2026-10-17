@@ -42,6 +42,9 @@ APPROVED = {
             # Given values are decided per value written, never per node; missing evidence has
             # one rule, unmet when every input was there, not evaluable when one is missing.
             ("final_v4", "39d54707edfbd283e1b39a3fd98d6900b105b812647bbbd3731fa4ec8f852a8f", 56),
+            # A duty of the work is decided per check, by whether it involves a written value,
+            # never by which node the revision wrote.
+            ("final_v5", "1388fe4a74c08aee4f736e2c1498549bd871f8dafe70cea773ac6ac5dd78e053", 56),
         ),
         ("A", "D", "S", "R"),
     ),
@@ -52,6 +55,8 @@ APPROVED = {
             ("final_v2", "4ee697be3577a11048eb504513c0d1c0996bf935eb09f033f254c694061b3357", 54),
             # The same two clarifications as control's fourth version.
             ("final_v3", "44461085e65aeec5bdada9d7f404e4a649c499ac1f324f5ede5364f3e7362200", 54),
+            # The same per-check duty as control's fifth version.
+            ("final_v4", "a741381dfd3703f6a49eded46e20b402fbb8949f2ad8ad7e6d07ac52999c8989", 54),
         ),
         ("AC", "DS", "AP", "RH"),
     ),
@@ -60,6 +65,8 @@ APPROVED = {
             ("final", "8d989189695fad474ee0ab60e0fe8bc2b685e2f356ca5d551dd29cba45565dcf", 66),
             # The same two clarifications as control's fourth version.
             ("final_v2", "e2d0bb8e2f50014f2d40e2545fdf5224fdea85ae4c9a3d1989239612e9312f24", 66),
+            # The same per-check duty as control's fifth version.
+            ("final_v3", "a1858e681ca2aee87e4b1c669c4619f006c9d5d05634c20f8a477c77f941e2e9", 66),
         ),
         ("EA", "ES", "EP", "EH"),
     ),
@@ -68,6 +75,9 @@ APPROVED = {
             ("final", "b53ae125c8e63c22794c708f7dc28eba923c5cc7901d47b488873dad94203e09", 61),
             # The same two clarifications as control's fourth version.
             ("final_v2", "5a19d543316e4154518c407c1df8df1802a98e7b891e195491f2cd6ac66b3836", 61),
+            # The same per-check duty as control's fifth version; no label points at a document
+            # the reviewer is not given.
+            ("final_v3", "33e39c6c0fc1980751cc9d7bdc8772896497e8192343831a0ad25a12c8a5d7e1", 61),
         ),
         ("MA", "MS", "MP", "MH"),
     ),
