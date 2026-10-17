@@ -47,6 +47,12 @@ script, held in memory and in this process's environment only, and never printed
 end every file under the output directory is scanned for it, for ``sk-ant-`` and for
 ``oat01``, and only the counts are printed.
 
+**A dollar cap.** ``--max-usd`` (default $20) bounds the spend. Before every session the
+driver adds what the dearest session so far cost (at least $2, the floor) to what has been
+spent; if that would pass the cap, the run stops there, before the session starts, and says
+so. A session's cost is the binary's own total from its stream, or, where the stream gives
+none, its tokens priced with every cache write at the one-hour rate, the dearer one.
+
 **Expected cost.** Eight reviews. The electrical and mechanical reviews' validation on the
 same reviewer model cost $1.15 to $1.34 per review by the binary's own total, 9 to 13
 minutes each; a firmware review of a small packet cost $0.49 to $0.85. So about $9 to $11
@@ -66,7 +72,8 @@ import subprocess
 import sys
 import time
 from collections import Counter
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
+from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -99,9 +106,11 @@ from physgate.evaluation.observe.calls import (  # noqa: E402
     read_call,
 )
 from physgate.evaluation.observe.cost import DatedSheet, load_price_sheet  # noqa: E402
+from physgate.evaluation.observe.exceptions import PriceSheetError  # noqa: E402
 from physgate.evaluation.observe.manifest import BINARY_DEFAULTS  # noqa: E402
 from physgate.hooks.reading import content_lines  # noqa: E402
 from physgate.knowledge.promote import KNOWLEDGE_ROOT  # noqa: E402
+from physgate.orchestrator.cli import Registrations  # noqa: E402
 from physgate.orchestrator.decompose import binary_version  # noqa: E402
 from physgate.orchestrator.events import (  # noqa: E402
     ReviewRan,
@@ -109,8 +118,16 @@ from physgate.orchestrator.events import (  # noqa: E402
     SubtaskPlanned,
     read_events,
 )
+from physgate.orchestrator.exceptions import ReviewUnavailableError  # noqa: E402
 from physgate.orchestrator.invocation import claude_binary  # noqa: E402
-from physgate.orchestrator.protocols import Usage  # noqa: E402
+from physgate.orchestrator.protocols import (  # noqa: E402
+    Artefact,
+    MessageUsage,
+    Reviewer,
+    ReviewResult,
+    Usage,
+)
+from physgate.reviewers.claude import ReviewerSetup, claude_reviewers  # noqa: E402
 from physgate.reviewers.packet import RECORD_NAME  # noqa: E402
 from physgate.reviewers.places import require_review_root  # noqa: E402
 from physgate.reviewers.rubric import load_rubric  # noqa: E402
@@ -148,6 +165,9 @@ CORPUS_DIRNAME, RUN_DIRNAME, ROOT_DIRNAME, INSTALL_DIRNAME = "corpus", "run", "r
 #: The dry run's scripted verdicts: each artefact rejected, each twin accepted, and the
 #: firmware twin blocked, so every outcome the report counts is exercised. They mean nothing.
 SCRIPTED_TWIN_BLOCKED = "f1"
+#: The default dollar cap, and the least a session is expected to cost before one has run.
+MAX_USD = Decimal("20")
+SESSION_FLOOR_USD = Decimal("2.00")
 
 
 def utc() -> str:
@@ -185,6 +205,108 @@ def prepare(out: Path) -> None:
     """Write the corpus and the parameters file into ``out``."""
     pilot_corpus.write_pilot_corpus(out / CORPUS_DIRNAME)
     (out / "params.json").write_text(json.dumps(PARAMS, indent=1, sort_keys=True) + "\n")
+
+
+# --- The dollar cap ---------------------------------------------------------------------------
+
+#: What a session cost: from its session id, its messages' usage and its model.
+SessionCost = Callable[[str | None, tuple[MessageUsage, ...], str | None], Decimal]
+
+
+class BudgetStop(Exception):  # noqa: N818 - a stop, not an error of the run
+    """The next session could take the spend past the cap, so the run stops before it.
+
+    Not one of the instrument's own errors, so the command does not turn it into a refusal
+    of its own: it reaches this driver, which records it.
+    """
+
+
+@dataclass
+class Budget:
+    """The spend so far, held to a cap before every session."""
+
+    cap_usd: Decimal
+    #: The least the next session is expected to cost, before any has run.
+    floor_usd: Decimal
+    cost_of: SessionCost
+    spent: Decimal = Decimal(0)
+    largest: Decimal = Decimal(0)
+    sessions: int = 0
+
+    def before(self) -> None:
+        """Refuse the next session if it could take the spend past the cap.
+
+        Raises:
+            BudgetStop: the spend so far plus the dearest session so far (at least the
+                floor) is more than the cap.
+        """
+        expected = max(self.floor_usd, self.largest)
+        if self.spent + expected > self.cap_usd:
+            msg = (
+                f"stopped before session {self.sessions + 1}: ${self.spent} spent, and a "
+                f"session expected at ${expected} would pass the ${self.cap_usd} cap"
+            )
+            raise BudgetStop(msg)
+
+    def after(self, cost: Decimal) -> None:
+        """Count one session's cost."""
+        self.spent += cost
+        self.largest = max(self.largest, cost)
+        self.sessions += 1
+
+
+class Capped:
+    """A reviewer that asks the budget before every session and counts what each cost."""
+
+    def __init__(self, inner: Reviewer, budget: Budget) -> None:
+        self._inner, self._budget = inner, budget
+
+    @property
+    def model(self) -> str:
+        return self._inner.model
+
+    def review(self, artefact: Artefact) -> ReviewResult:
+        self._budget.before()
+        try:
+            result = self._inner.review(artefact)
+        except ReviewUnavailableError as exc:
+            self._budget.after(
+                self._budget.cost_of(exc.session_id, tuple(exc.usage), exc.reviewer_model)
+            )
+            raise
+        self._budget.after(
+            self._budget.cost_of(result.session_id, result.usage, result.reviewer_model)
+        )
+        return result
+
+
+def capped(
+    budget: Budget, factory: Callable[[Any], Mapping[str, Reviewer]]
+) -> Callable[[Any], dict[str, Reviewer]]:
+    """``factory``, its every reviewer held to ``budget``."""
+
+    def build(setup: Any) -> dict[str, Reviewer]:  # noqa: ANN401 - the factory's own setup
+        return {role: Capped(r, budget) for role, r in factory(setup).items()}
+
+    return build
+
+
+def session_cost(root: Path, prices: DatedSheet) -> SessionCost:
+    """A session's cost: the binary's own total, else its tokens at the dearer write rate."""
+
+    def cost(session_id: str | None, usage: tuple[MessageUsage, ...], model: str | None) -> Decimal:
+        stream = root / str(session_id) / REVIEW_SESSION_DIRNAME / STREAM_NAME
+        if session_id and stream.is_file():
+            recorded = read_call(stream, session_id)
+            if recorded is not None and recorded.binary_usd is not None:
+                return recorded.binary_usd
+        price = prices.sheet.usd_per_mtok[model or pilot_corpus.REVIEWER]
+        dearer = price.model_copy(
+            update={"cache_write": max(price.cache_write, price.cache_write_1h or Decimal(0))}
+        )
+        return dearer.usd(_sum([m.usage for m in usage]))
+
+    return cost
 
 
 # --- What each review came to ----------------------------------------------------------------
@@ -236,7 +358,13 @@ def _priced(
     if price is not None:
         writes = recorded.cache_writes if recorded is not None else None
         split = writes if prices.sheet.cache_write_ttl == "per_call" else None
-        found["usd"] = str(price.usd(usage, split).quantize(Decimal("0.0001")))
+        try:
+            usd = price.usd(usage, split)
+        except PriceSheetError:
+            # The result's split does not add up to the messages' writes: priced at the
+            # five-minute rate, and said so.
+            usd, found["ttl_split_unread"] = price.usd(usage), True
+        found["usd"] = str(usd.quantize(Decimal("0.0001")))
     if recorded is not None and recorded.binary_usd is not None:
         found["binary_usd"] = str(recorded.binary_usd)
     return found
@@ -426,28 +554,51 @@ def scripted_reviewer(api: Any, plan: dict[str, str]) -> None:  # noqa: ANN401
 # --- The run ---------------------------------------------------------------------------------
 
 
-def run(out: Path, *, dry_run: bool, version: str) -> dict[str, Any]:
+def run(out: Path, *, dry_run: bool, version: str, max_usd: Decimal = MAX_USD) -> dict[str, Any]:
     """Run the command once over the pilot corpus; what it exited with, and what it recorded."""
     prepare(out)
+    prices = load_price_sheet(PRICES)
+    budget = Budget(
+        cap_usd=max_usd,
+        floor_usd=SESSION_FLOOR_USD,
+        cost_of=session_cost(out / ROOT_DIRNAME, prices),
+    )
+    registrations = Registrations(reviewer_factory=capped(budget, _claude_reviewers))
     found: dict[str, Any] = {}
-    with completeness_lifted():
-        if dry_run:
-            scripted_endpoint.FakeMessagesApi.answer = _recording  # type: ignore[method-assign]
-            try:
-                with serving(Script(main=[])) as (api, url):
-                    scripted_reviewer(api, scripted_plan())
-                    os.environ["ANTHROPIC_BASE_URL"] = url
-                    found["exit"] = physgate_main(argv(out))
-                    found["endpoint_failures"] = list(api.failures)
-            finally:
-                scripted_endpoint.FakeMessagesApi.answer = _ANSWER  # type: ignore[method-assign]
-                os.environ.pop("ANTHROPIC_BASE_URL", None)
-            found["request_defaults"] = request_defaults(REQUESTS, version)
-        else:
-            found["exit"] = physgate_main(argv(out))
+    try:
+        with completeness_lifted():
+            if dry_run:
+                scripted_endpoint.FakeMessagesApi.answer = _recording  # type: ignore[method-assign]
+                try:
+                    with serving(Script(main=[])) as (api, url):
+                        scripted_reviewer(api, scripted_plan())
+                        os.environ["ANTHROPIC_BASE_URL"] = url
+                        found["exit"] = physgate_main(argv(out), registrations)
+                        found["endpoint_failures"] = list(api.failures)
+                finally:
+                    scripted_endpoint.FakeMessagesApi.answer = _ANSWER  # type: ignore[method-assign]
+                    os.environ.pop("ANTHROPIC_BASE_URL", None)
+                found["request_defaults"] = request_defaults(REQUESTS, version)
+            else:
+                found["exit"] = physgate_main(argv(out), registrations)
+    except BudgetStop as exc:
+        found["stopped_by_cap"] = str(exc)
+    found["budget"] = {
+        "cap_usd": str(budget.cap_usd),
+        "spent_usd": str(budget.spent),
+        "sessions": budget.sessions,
+    }
     if (out / RUN_DIRNAME / RESULTS_NAME).is_file():
-        found["report"] = summary(out / RUN_DIRNAME, out / ROOT_DIRNAME, load_price_sheet(PRICES))
+        found["report"] = summary(out / RUN_DIRNAME, out / ROOT_DIRNAME, prices)
+    elif (out / RUN_DIRNAME / EVENTS_NAME).is_file():
+        # Stopped part way: no rows, but every session that ran is in the logs.
+        found["report"] = {"sessions": reviews(out / RUN_DIRNAME, out / ROOT_DIRNAME, prices)}
     return found
+
+
+def _claude_reviewers(setup: ReviewerSetup) -> Mapping[str, Reviewer]:
+    """The command's own reviewers, as it builds them unregistered."""
+    return claude_reviewers(setup)
 
 
 def _git(*args: str) -> str:
@@ -464,6 +615,12 @@ def main(argv_: list[str] | None = None, *, binary_check: Callable[[], str] | No
     kind.add_argument("--real", action="store_true", help="the real API, on the subscription")
     parser.add_argument("--out", type=Path, required=True, help="a new directory")
     parser.add_argument("--env-file", type=Path, default=Path.home() / "dev" / "physgate" / ".env")
+    parser.add_argument(
+        "--max-usd",
+        type=Decimal,
+        default=MAX_USD,
+        help="stop before a session that could take the spend past this many dollars",
+    )
     args = parser.parse_args(argv_)
     out = args.out.expanduser().resolve()
     # Before anything exists or runs: the review root's path names nothing, and is new.
@@ -486,6 +643,8 @@ def main(argv_: list[str] | None = None, *, binary_check: Callable[[], str] | No
         "params": PARAMS,
         "seed": SEED,
         "completeness_check": LIFTED,
+        "max_usd": str(args.max_usd),
+        "session_floor_usd": str(SESSION_FLOOR_USD),
         "argv": argv(out),
         "started_utc": utc(),
     }
@@ -496,7 +655,7 @@ def main(argv_: list[str] | None = None, *, binary_check: Callable[[], str] | No
     os.environ["DISABLE_AUTOUPDATER"] = "1"
     os.environ[VARIABLE] = token
     try:
-        result = run(out, dry_run=args.dry_run, version=version)
+        result = run(out, dry_run=args.dry_run, version=version, max_usd=args.max_usd)
     finally:
         os.environ.pop(VARIABLE, None)
     result["finished_utc"] = utc()
@@ -507,6 +666,8 @@ def main(argv_: list[str] | None = None, *, binary_check: Callable[[], str] | No
         json.dumps(
             {
                 "exit": result.get("exit"),
+                "stopped_by_cap": result.get("stopped_by_cap"),
+                "budget": result.get("budget"),
                 "scan": result["scan"],
                 "verdict_forms_observed": report.get("verdict_forms_observed"),
                 "blocked_and_unavailable_per_role": report.get("blocked_and_unavailable_per_role"),

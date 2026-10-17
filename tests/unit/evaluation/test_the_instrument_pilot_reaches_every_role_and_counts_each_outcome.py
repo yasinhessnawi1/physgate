@@ -6,13 +6,16 @@ without a model and without a binary: its corpus is one the instrument runs as i
 one artefact per role with a clean twin the gate passes and an artefact the gate catches;
 its report, read from a run with fake reviewers, counts every review once, ``blocked`` and
 ``review_unavailable`` per role for the artefacts and for the twins; its record of request
-defaults sets each field beside the version's measured role-session defaults; and it refuses
-any binary but the pinned one before it writes anything.
+defaults sets each field beside the version's measured role-session defaults; it refuses
+any binary but the pinned one before it writes anything; a dry run never reads the env
+file's token; and a dollar cap stops it before a session that would go past the cap.
 """
 
 from __future__ import annotations
 
+import os
 import sys
+from decimal import Decimal
 from pathlib import Path
 
 import pilot_corpus
@@ -30,6 +33,7 @@ from physgate.reviewers.rubric import load_rubric
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "integration" / "orchestrator"))
 import real_instrument_pilot as pilot  # noqa: E402
+from scripted_endpoint import DUMMY_OAUTH_TOKEN  # noqa: E402
 
 REPOSITORY = Path(__file__).resolve().parents[3]
 
@@ -154,3 +158,62 @@ def test_any_binary_but_the_pinned_one_is_refused_before_anything_is_written(
     assert pilot.main(["--dry-run", "--out", str(out)], binary_check=lambda: "2.1.283") == 2
     assert "pinned binary" in capsys.readouterr().out
     assert not out.exists()
+
+
+def test_a_dry_run_never_reads_the_env_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A dry run's session gets the dummy token: a real one never enters its process."""
+    monkeypatch.setenv("PHYSGATE_CLAUDE_BIN", "/bin/sh")
+    env_file = tmp_path / "env"
+    env_file.write_text(f"{pilot.VARIABLE}=not-a-real-token\n")
+
+    def read(path: Path) -> str:
+        msg = f"the dry run read the env file {path}"
+        raise AssertionError(msg)
+
+    seen: dict[str, object] = {}
+
+    def ran(out: Path, **kwargs: object) -> dict[str, object]:
+        seen.update(kwargs, token=os.environ.get(pilot.VARIABLE))
+        return {}
+
+    monkeypatch.setattr(pilot, "load_token", read)
+    monkeypatch.setattr(pilot, "run", ran)
+    out = tmp_path / "out"
+    argv = ["--dry-run", "--out", str(out), "--env-file", str(env_file)]
+    assert pilot.main(argv, binary_check=lambda: pilot.PILOT_VERSION) == 0
+    assert seen["dry_run"] is True and seen["token"] == DUMMY_OAUTH_TOKEN
+    assert os.environ.get(pilot.VARIABLE) is None  # not left behind either
+    capsys.readouterr()
+
+
+def test_the_dollar_cap_stops_the_run_before_a_session_that_would_pass_it(
+    corpus: Corpus, tmp_path: Path
+) -> None:
+    """Each session costs 0.50 here; a cap of 1.60 admits three and stops before the fourth."""
+    budget = pilot.Budget(
+        cap_usd=Decimal("1.60"), floor_usd=Decimal("0.50"), cost_of=lambda *_: Decimal("0.50")
+    )
+    fakes = {r: SeededFakeReviewer(model=pilot_corpus.REVIEWER) for r in pilot_corpus.ROLES}
+    capped = pilot.capped(budget, lambda _setup: fakes)(None)
+    assert set(capped) == set(pilot_corpus.ROLES)
+    with pytest.raises(pilot.BudgetStop, match="cap"):
+        _run(corpus, tmp_path, dict(capped))
+    assert sum(len(f.seen) for f in fakes.values()) == 3
+    assert (budget.sessions, budget.spent) == (3, Decimal("1.50"))
+
+
+def test_the_next_session_is_expected_to_cost_the_most_any_has_cost(
+    corpus: Corpus, tmp_path: Path
+) -> None:
+    """After a dear session the estimate rises to it, so the cap stops one session sooner."""
+    costs = iter([Decimal("1.00"), Decimal("0.10"), Decimal("0.10")])
+    budget = pilot.Budget(
+        cap_usd=Decimal("2.05"), floor_usd=Decimal("0.10"), cost_of=lambda *_: next(costs)
+    )
+    fakes = {r: SeededFakeReviewer(model=pilot_corpus.REVIEWER) for r in pilot_corpus.ROLES}
+    with pytest.raises(pilot.BudgetStop):
+        _run(corpus, tmp_path, dict(pilot.capped(budget, lambda _setup: fakes)(None)))
+    # 1.00, then 0.10 (1.10 + 1.00 > 2.05 would stop the third), so two ran.
+    assert budget.sessions == 2
