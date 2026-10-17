@@ -77,6 +77,29 @@ def test_a_malformed_value_is_refused(change: dict[str, Any]) -> None:
         make_config(**change)
 
 
+def _dispatcher(tmp_path: Path, **config: Any) -> ClaudeDispatcher:  # noqa: ANN401
+    return ClaudeDispatcher(
+        config=make_config(**config),
+        run=SimpleNamespace(subtask_branch=lambda subtask: f"b/{subtask}"),  # type: ignore[arg-type]
+        store_root=tmp_path / "store",
+        install_bin=tmp_path / "install" / "bin" / "physgate",
+        binary="claude",
+        base_url=None,
+        credential=Credential(mode="api_key", secret="not-a-key"),
+        review_root=tmp_path / "reviews",
+    )
+
+
+def test_a_held_out_canary_in_a_session_s_stream_is_found(tmp_path: Path) -> None:
+    stream = tmp_path / "stdout.jsonl"
+    stream.write_text('{"type":"user","content":"... ' + CANARY + ' ..."}\n')
+    clean = tmp_path / "clean.jsonl"
+    clean.write_text('{"type":"user","content":"nothing here"}\n')
+    assert _dispatcher(tmp_path, held_out_canaries=(CANARY,)).held_out_seen(stream) == CANARY
+    assert _dispatcher(tmp_path, held_out_canaries=(CANARY,)).held_out_seen(clean) is None
+    assert _dispatcher(tmp_path).held_out_seen(stream) is None
+
+
 def _install_argv(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, temp: Path | None, **config: Any
 ) -> list[str]:

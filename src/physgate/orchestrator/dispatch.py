@@ -933,6 +933,13 @@ class ClaudeDispatcher:
             )
         return self._os_layer
 
+    def held_out_seen(self, stream: Path) -> str | None:
+        """The first of the run's held-out canaries in a session's stream, if any is there.
+
+        Found, it proves the session read held-out material by a path no hook could judge.
+        """
+        return review_material_seen(stream, frozenset(self._config.held_out_canaries))
+
     def _install(
         self, request: SessionRequest, worktree: Path, sdir: Path, temp: Path | None
     ) -> Installed:
@@ -1229,7 +1236,7 @@ class ClaudeDispatcher:
         placeholders_refused = self._sweep(worktree, before, sdir) if temp is not None else None
         captured = read_captured(stdout)
         seen = review_material_seen(stdout, self._canaries)
-        held_out_seen = review_material_seen(stdout, frozenset(self._config.held_out_canaries))
+        held_out_seen = self.held_out_seen(stdout)
         sealed, tampered = captured.seal, captured.tampered
         result, usage, answered = captured.result, captured.usage, captured.answered
         require_matching_totals(result, usage)
