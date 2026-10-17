@@ -566,6 +566,16 @@ class Loop:
                 series=report.series,
             )
         )
+        exposed = report.held_out_seen is not None
+        if exposed:
+            # The session displayed held-out material: the tier counts as exposed (ARCH-141).
+            # Recorded first and whatever else is found below, so no other incident can
+            # leave an exposure unlogged; the run halts once, after every incident found.
+            # The canary is not recorded.
+            detail = f"held-out material in the stream of session {report.session_id}"
+            self._emit(
+                Incident(**self._env(), subtask_id=subtask_id, cause="held_out_read", detail=detail)
+            )
         if report.trajectory_tampered is not None:
             # Something other than the runtime wrote the stream after its result:
             # nothing the session did is taken, and a person looks first.
@@ -577,12 +587,6 @@ class Loop:
             # The canary itself is not written into the record a later session can read.
             detail = f"reviewer material in the stream of session {report.session_id}"
             self._incident(subtask_id, "review_material_read", detail)
-            return False
-        if report.held_out_seen is not None:
-            # The session read held-out material: its work is not taken, a person looks
-            # first, and the tier counts as exposed (ARCH-141). The canary is not recorded.
-            detail = f"held-out material in the stream of session {report.session_id}"
-            self._incident(subtask_id, "held_out_read", detail)
             return False
         if report.withheld_problems is not None:
             # A file no session reads had a second name, changed, or could not be checked
@@ -604,6 +608,10 @@ class Loop:
             # The account's policy limits are applied without a trace the hooks see: the
             # session ran under other limits than the run began with.
             self._incident(subtask_id, "managed_settings_changed", changed)
+            return False
+        if exposed:
+            # No other incident: the exposure alone stops the run, and nothing is taken.
+            self._halt_for(subtask_id, "held_out_read")
             return False
         if report.end.outcome != "completed":
             return False
@@ -643,6 +651,9 @@ class Loop:
 
     def _incident(self, subtask_id: str | None, cause: IncidentCause, detail: str) -> None:
         self._emit(Incident(**self._env(), subtask_id=subtask_id, cause=cause, detail=detail))
+        self._halt_for(subtask_id, cause)
+
+    def _halt_for(self, subtask_id: str | None, cause: IncidentCause) -> None:
         where = f" in {subtask_id}" if subtask_id else ""
         self._emit(Halted(**self._env(), reason="incident", detail=f"{cause}{where}"))
 

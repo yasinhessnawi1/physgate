@@ -25,6 +25,7 @@ from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.dispatch import ClaudeDispatcher
 from physgate.orchestrator.ports import SessionRequest
 from physgate.orchestrator.run_config import RunConfig, load_run_config
+from physgate.oslayer.probe import Absent, Present
 
 CANARY = "0123456789abcdef0123456789abcdef"
 
@@ -213,3 +214,81 @@ def test_a_reviewer_s_session_is_installed_with_every_held_out_root(
     sdir.mkdir()
     reviewer._install(packet, sdir)  # type: ignore[arg-type]
     assert _values(seen[0], "--held-out") == ["/elsewhere/heldout"]
+
+
+ABSENT = Absent(reason="stand-in: no sandbox here")
+PRESENT = Present(mechanism="seatbelt", claude_version="2.1.301")
+
+
+def test_none_where_no_os_layer_runs_is_recorded_in_the_manifest_never_silently() -> None:
+    """Only the OS layer takes a shell offline: without it ``none`` is recorded as unenforced."""
+    unenforced = make_config(network="none", os_layer=ABSENT, network_enforced=False)
+    assert b'"network_enforced":false' in unenforced.canonical_bytes()
+    enforced = make_config(network="none", os_layer=PRESENT, network_enforced=True)
+    assert enforced.sha256() != unenforced.sha256()
+    for silent in (
+        {"network": "none", "os_layer": ABSENT},  # not said at all
+        {"network": "none", "os_layer": ABSENT, "network_enforced": True},  # said wrongly
+        {"network": "none", "os_layer": PRESENT, "network_enforced": False},
+        {"network": "open", "os_layer": ABSENT, "network_enforced": False},  # nothing asked
+    ):
+        with pytest.raises(ValidationError, match="network"):
+            make_config(**silent)
+
+
+def test_whether_none_is_enforced_is_measured_never_taken_from_the_parameters(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import argparse
+
+    import physgate.orchestrator.cli as cli
+
+    monkeypatch.setattr(cli, "binary_version", lambda: "2.1.301")
+    monkeypatch.setattr(cli, "head_of", lambda *_: "c" * 40)
+    monkeypatch.setattr(cli, "judge_here", lambda **_: ABSENT)
+    monkeypatch.setattr(cli, "claude_binary", lambda: "/nonexistent/claude")
+    recorded = json.loads(make_config().model_dump_json())
+    measured: tuple[str, ...] = (
+        "run_id",
+        "seed",
+        "brief_sha256",
+        "target_head",
+        "claude_version",
+        "endpoint",
+    )
+    measured += ("harness", "git_binary", "os_layer")
+    params = {k: v for k, v in recorded.items() if k not in measured}
+    params |= {"network": "none", "network_enforced": True}  # a claim, overruled
+    (tmp_path / "params.json").write_text(json.dumps(params))
+    (tmp_path / "brief.md").write_text("brief\n")
+    args = argparse.Namespace(
+        params=tmp_path / "params.json",
+        brief=tmp_path / "brief.md",
+        run_id="run-1",
+        seed=7,
+        target=tmp_path,
+    )
+    assert cli._config(args).network_enforced is False
+
+
+def test_none_where_no_os_layer_runs_is_said_on_stderr_and_in_the_run_s_event(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from datetime import UTC, datetime
+
+    from physgate.orchestrator import cli
+    from physgate.orchestrator.common import utc_stamp
+    from physgate.orchestrator.events import Envelope
+    from physgate.oslayer.policy import NETWORK_UNENFORCED
+
+    stamp = utc_stamp(datetime(2026, 10, 17, tzinfo=UTC))
+    envelope = Envelope(seq=0, ts=stamp, run_id="run-1", gate_mode="on")
+    offline = make_config(network="none", os_layer=ABSENT, network_enforced=False)
+    cli._say_os_layer(ABSENT, offline.network)
+    assert NETWORK_UNENFORCED in capsys.readouterr().err
+    assert cli._os_layer_checked(envelope, offline, ABSENT).network_enforced is False
+    assert cli._os_layer_checked(envelope, offline, PRESENT).network_enforced is True
+    for layer, network in ((PRESENT, "none"), (ABSENT, "open")):
+        cli._say_os_layer(layer, network)  # type: ignore[arg-type]
+        assert NETWORK_UNENFORCED not in capsys.readouterr().err
+    assert cli._os_layer_checked(envelope, make_config(), ABSENT).network_enforced is None

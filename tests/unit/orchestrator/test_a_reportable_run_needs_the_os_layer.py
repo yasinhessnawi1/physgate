@@ -48,6 +48,30 @@ def test_every_other_run_is_not_held_to_it(facts: RunFacts) -> None:
     assert os_layer_for_reportable_runs(facts) is None
 
 
+def test_a_reportable_run_whose_network_none_is_not_enforced_is_refused() -> None:
+    """``none`` that only the OS layer could enforce, asked for where it is absent."""
+    from physgate.evaluation.requirements import network_none_for_reportable_runs
+    from physgate.oslayer.policy import NETWORK_UNENFORCED
+
+    def facts(reportable: bool, layer: Present | Absent, network: str) -> RunFacts:
+        enforced = layer is PRESENT if network == "none" else None
+        config = make_config(
+            reportable=reportable,
+            harness=CLEAN,
+            network=network,
+            os_layer=layer,
+            network_enforced=enforced,
+        )
+        return RunFacts(config=config, os_layer=layer, shell_sessions=True)
+
+    why = network_none_for_reportable_runs(facts(True, ABSENT, "none"))
+    assert why is not None and NETWORK_UNENFORCED in why
+    assert network_none_for_reportable_runs(facts(True, PRESENT, "none")) is None
+    assert network_none_for_reportable_runs(facts(False, ABSENT, "none")) is None
+    assert network_none_for_reportable_runs(facts(True, ABSENT, "open")) is None
+    assert network_none_for_reportable_runs in REQUIREMENTS
+
+
 def test_the_command_registers_the_evaluation_s_requirement() -> None:
     from physgate.cli import main
 

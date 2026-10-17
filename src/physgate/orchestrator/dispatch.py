@@ -936,7 +936,10 @@ class ClaudeDispatcher:
     def held_out_seen(self, stream: Path) -> str | None:
         """The first of the run's held-out canaries in a session's stream, if any is there.
 
-        Found, it proves the session read held-out material by a path no hook could judge.
+        Detection of verbatim display only. A hit proves the session displayed held-out
+        bytes, read by a path no hook could judge. No hit proves nothing: a read split
+        across lines, encoded, reversed, partial, or used without being printed shows no
+        canary, so the absence of a hit is never evidence of no exposure.
         """
         return review_material_seen(stream, frozenset(self._config.held_out_canaries))
 
@@ -1004,7 +1007,7 @@ class ClaudeDispatcher:
             # The held-out tier: no role session reads or writes it (ARCH-141).
             *(arg for root in self._config.held_out for arg in ("--held-out", root)),
             *(["--os-layer-temp", str(temp)] if temp is not None else []),
-            # Offline where the run asks for it; only the OS layer can take a shell offline.
+            # No remote host where the run asks for it; only the OS layer can enforce that.
             *(
                 ["--os-layer-network", self._config.network]
                 if temp is not None and self._config.network != "open"

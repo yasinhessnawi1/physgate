@@ -120,3 +120,36 @@ def test_the_installer_command_takes_the_raw_agent_offline(
     config = json.loads(Path(printed["config"]).read_text())
     assert config["profile"] == "baseline"
     assert settings["sandbox"]["network"]["strictAllowlist"] is True
+
+
+def test_offline_asked_for_without_the_os_layer_is_said_never_silently_dropped(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Only the OS layer can take a shell offline: without it the install says so, twice."""
+    import json
+
+    from physgate.hooks.cli import add_parser
+    from physgate.oslayer.policy import NETWORK_UNENFORCED
+
+    parser = argparse.ArgumentParser()
+    add_parser(parser.add_subparsers(dest="command"))
+    outside = tmp_path / "outside"
+    (tmp_path / "worktree").mkdir()
+    common = [
+        *("hooks", "install", "--profile", "baseline", "--worktree", str(tmp_path / "worktree")),
+        *("--state-dir", str(outside / "state"), "--target", str(outside / "session")),
+        *("--claude-config-dir", str(outside / "config"), "--user-home", str(outside / "home")),
+        *("--ceiling", "1000", "--os-layer-network", "none"),
+    ]
+    args = parser.parse_args(common)
+    assert args.func(args) == 0
+    said = capsys.readouterr()
+    printed = json.loads(said.out)
+    assert printed["network_unenforced"].startswith(NETWORK_UNENFORCED)
+    assert NETWORK_UNENFORCED in said.err
+    assert "sandbox" not in json.loads(Path(printed["settings"]).read_text())
+    # With the layer, nothing is said: the printed record is exactly what dispatch reads.
+    args = parser.parse_args([*common, "--os-layer-temp", "/tmp/pg-0123456789ab"])
+    assert args.func(args) == 0
+    said = capsys.readouterr()
+    assert "network_unenforced" not in json.loads(said.out) and not said.err

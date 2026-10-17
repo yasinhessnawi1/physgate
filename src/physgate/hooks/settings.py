@@ -55,7 +55,7 @@ from physgate.hooks.reasons import SERIES_OUTBOX_REASON as SERIES_OUTBOX_REASON
 from physgate.hooks.reasons import SERIES_WRITER_REASON as SERIES_WRITER_REASON
 from physgate.hooks.reasons import STORE_REASON as STORE_REASON
 from physgate.hooks.runtime import EVENTS, HookSpec
-from physgate.oslayer.policy import sandbox_policy
+from physgate.oslayer.policy import NETWORK_UNENFORCED, sandbox_policy
 from physgate.oslayer.probe import claude_temp_dirs, shared_temp_dirs
 
 WATCHDOG_SECONDS = 5
@@ -136,8 +136,10 @@ class InstallRequest(BaseModel):
     #: inside a root the OS layer keeps from them (the run's ``sessions/``): the
     #: directory holding the run's named interpreter for this session.
     os_layer_readable: tuple[AbsolutePath, ...] = ()
-    #: With the OS layer: ``none`` refuses the session's shell commands every host, in
-    #: every permission mode. ``open`` leaves the network as the layer found it.
+    #: With the OS layer: ``none`` refuses the session's shell commands every remote host,
+    #: in every permission mode; services on the machine's loopback stay reachable.
+    #: ``open`` leaves the network as the layer found it. Without the OS layer nothing
+    #: can enforce ``none``: the install says so (:data:`Installed.network_unenforced`).
     os_layer_network: Literal["open", "none"] = "open"
 
 
@@ -155,6 +157,9 @@ class Installed:
     config_path: Path
     spawn_args: tuple[str, ...]
     spawn_env: Mapping[str, str]
+    #: Set when ``none`` was asked for and no OS layer was installed to enforce it: what
+    #: the session's record must carry, since its shell commands stay online.
+    network_unenforced: str | None = None
 
 
 def current_installation() -> Installation:
@@ -573,9 +578,15 @@ def install(
         spawn_env["CLAUDE_CODE_TMPDIR"] = temp
     settings_path = target / SETTINGS_NAME
     settings_path.write_bytes(_dump(settings))
+    unenforced = (
+        f"{NETWORK_UNENFORCED}: no OS layer was installed (no temporary directory of its own)"
+        if request.os_layer_network == "none" and temp is None
+        else None
+    )
     return Installed(
         settings_path=settings_path,
         config_path=config_path,
         spawn_args=("--setting-sources", "", "--settings", str(settings_path)),
         spawn_env=spawn_env,
+        network_unenforced=unenforced,
     )

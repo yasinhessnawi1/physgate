@@ -45,6 +45,7 @@ from physgate.orchestrator.credentials import SECRET_VARIABLE, credential_for
 from physgate.orchestrator.decompose import binary_version, call, require_fresh, start_run
 from physgate.orchestrator.dispatch import ClaudeDispatcher, probe_interpreter
 from physgate.orchestrator.events import (
+    Envelope,
     EnvironmentRecorded,
     Event,
     InstallChecked,
@@ -78,15 +79,18 @@ from physgate.orchestrator.requirements import RunFacts, refusals
 from physgate.orchestrator.role_python import RolePython
 from physgate.orchestrator.role_python import measure as measure_role_python
 from physgate.orchestrator.run_config import (
+    Network,
     RunConfig,
     endpoint_of,
     harness_root,
     harness_state,
     load_run_config,
+    network_enforced,
     require_endpoint,
     require_harness,
     require_reportable,
 )
+from physgate.oslayer.policy import NETWORK_UNENFORCED
 from physgate.oslayer.probe import Absent, Present, judge_here
 from physgate.reviewers.claude import ReviewerSetup, claude_reviewers
 from physgate.reviewers.exceptions import ReviewError
@@ -337,14 +341,38 @@ def _print(payload: dict[str, object]) -> None:
     print(json.dumps(payload, indent=1, sort_keys=True))
 
 
-def _say_os_layer(state: Present | Absent) -> None:
-    """Say, where a person sees it, when role sessions run without the OS layer."""
+def _say_os_layer(state: Present | Absent, network: Network) -> None:
+    """Say, where a person sees it, when role sessions run without the OS layer.
+
+    And when the run asks for ``network: none``, which only the OS layer can enforce.
+    """
     if isinstance(state, Absent):
         what = "no OS protection" if state.no_os_protection else "the OS layer is absent"
         print(
             f"physgate: {what}: {state.reason}; role sessions' shell commands run without it",
             file=sys.stderr,
         )
+    if network_enforced(network, state) is False:
+        print(
+            f"physgate: {NETWORK_UNENFORCED}; role sessions' shell commands stay online",
+            file=sys.stderr,
+        )
+
+
+def _os_layer_checked(
+    envelope: Envelope, config: RunConfig, layer: Present | Absent
+) -> OsLayerChecked:
+    """The run's record of the OS layer where this process runs its sessions.
+
+    It says whether the layer is the one the run recorded, and whether the run's
+    ``network: none``, if it asks for that, is enforced here.
+    """
+    return OsLayerChecked(
+        **envelope,
+        state=layer,
+        as_recorded=None if config.os_layer is None else config.os_layer == layer,
+        network_enforced=network_enforced(config.network, layer),
+    )
 
 
 def _fail(message: str, **context: str) -> int:
@@ -360,6 +388,9 @@ def _config(args: argparse.Namespace) -> RunConfig:
     # Measured, never chosen: a parameters file that names the harness is overruled.
     harness = harness_state(_harness_root())
     require_reportable(harness, reportable=params.get("reportable") is True)
+    layer = judge_here(
+        claude_version=binary_version(), search_path=session_search_path(claude_binary())
+    )
     if params.get("role_python") is not None:
         # Measured, never taken from the parameters: only the path is theirs to name.
         named = params["role_python"]
@@ -379,9 +410,9 @@ def _config(args: argparse.Namespace) -> RunConfig:
         "harness": harness.model_dump(),
         "git_binary": found_git.model_dump(),
         # Measured, never chosen: whether the OS layer runs here for this binary.
-        "os_layer": judge_here(
-            claude_version=binary_version(), search_path=session_search_path(claude_binary())
-        ).model_dump(),
+        "os_layer": layer.model_dump(),
+        # And so whether it enforces the network the parameters ask for.
+        "network_enforced": network_enforced(str(params.get("network")), layer),
     }
     if isinstance(fields.get("role_python"), RolePython):
         fields["role_python"] = fields["role_python"].model_dump()
@@ -425,7 +456,7 @@ def _decompose(args: argparse.Namespace) -> int:
     if credential is None:  # the configuration validated, so the mode is a known one
         return _fail("the run parameters name no auth mode")
     assert config.os_layer is not None  # measured above, for every new run
-    _say_os_layer(config.os_layer)
+    _say_os_layer(config.os_layer, config.network)
     refused = refusals(RunFacts(config=config, os_layer=config.os_layer, shell_sessions=True))
     if refused:
         return _fail("the run may not start", requirements="; ".join(refused))
@@ -577,7 +608,7 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
     except (OrchestratorError, ReviewError) as exc:
         return _fail(str(exc), **exc.context)
     layer = dispatcher.os_layer()
-    _say_os_layer(layer)
+    _say_os_layer(layer, config.network)
     refused = refusals(RunFacts(config=config, os_layer=layer, shell_sessions=True))
     if refused:
         loop.close()
@@ -594,10 +625,7 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
                 entries=manifest_entries(install),
             )
         )
-        as_recorded = None if config.os_layer is None else config.os_layer == layer
-        loop.record.emit(
-            OsLayerChecked(**loop.record.envelope(), state=layer, as_recorded=as_recorded)
-        )
+        loop.record.emit(_os_layer_checked(loop.record.envelope(), config, layer))
         step = loop.resume() if resume else loop.run()
         account = TokenAccount.from_events(loop.log.events)
         account.assert_no_routing()
