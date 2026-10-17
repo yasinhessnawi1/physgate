@@ -133,3 +133,9 @@ jobs:
       - name: What the layer refused, and what it cost
         if: always()
         run: cat oslayer-report/*.json || echo "no report was written"
+
+      - name: What any session's end found after its stop, where it did not settle
+        if: always()
+        run: |
+          find /tmp/pytest-of-* -name after_stop.json -print -exec cat {} \; 2>/dev/null \
+            | head -200 || true
