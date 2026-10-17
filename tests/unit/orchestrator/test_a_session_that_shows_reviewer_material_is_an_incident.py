@@ -29,3 +29,20 @@ def test_a_session_that_showed_a_canary_is_an_incident_and_nothing_is_taken(
     assert [e for e in events if isinstance(e, Halted)]
     assert not [e for e in events if isinstance(e, ReviewRan | Merged)]
     assert rig.reviewer.seen == []
+
+
+def test_a_session_that_showed_a_held_out_canary_is_an_incident_and_nothing_is_taken(
+    tmp_path: Path,
+) -> None:
+    rig = Rig(tmp_path, dispatcher=FakeDispatcher(held_out={1: "e" * 32}))
+    loop = rig.open()
+    loop.start(plan("s1"))
+    loop.run()
+    loop.close()
+    events = read_events(tmp_path / "events.jsonl")
+    incidents = [e for e in events if isinstance(e, Incident)]
+    assert [i.cause for i in incidents] == ["held_out_read"]
+    assert "e" * 8 not in incidents[0].detail
+    assert [e for e in events if isinstance(e, Halted)]
+    assert not [e for e in events if isinstance(e, ReviewRan | Merged)]
+    assert rig.reviewer.seen == []

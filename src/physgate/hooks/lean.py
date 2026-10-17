@@ -38,7 +38,7 @@ EVENTS = (
     "Stop",
     "SessionEnd",
 )
-PROFILES = ("role", "reviewer", "orchestrator")
+PROFILES = ("role", "reviewer", "orchestrator", "baseline")
 WATCHES = ("revert", "journal", "halt", "log", "none")
 READS = ("open", "shell_denied", "denied")
 WATCHDOG_MARGIN_SECONDS = 10

@@ -309,6 +309,9 @@ PARAMS = {
     "thinking_display",
     "role_python",
     "escalation_backend",
+    "held_out",
+    "held_out_canaries",
+    "network",
 }
 
 
@@ -353,6 +356,9 @@ def config(run_id: str = "run-1") -> RunConfig:
         role_python=None,
         git_binary=None,
         escalation_backend="rules",
+        held_out=(),
+        held_out_canaries=(),
+        network="open",
         os_layer=None,
     )
 

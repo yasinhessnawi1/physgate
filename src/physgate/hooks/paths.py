@@ -294,11 +294,19 @@ def _resolved(path: str, cwd: str) -> str:
     return os.path.realpath(path if os.path.isabs(path) else os.path.join(cwd, path))
 
 
+#: The profiles refused a read of the held-out tier: every session that does design work,
+#: and the reviewers who judge it. The raw agent the harness is measured against is one of
+#: them; the orchestrator's own harness sessions are not.
+HELD_OUT_READERS_REFUSED = ("role", "reviewer", "baseline")
+
+
 def _rules(absolute: str, config: ConfigView, *, writing: bool) -> str | None:
     """Why the one spelling ``absolute`` may not be touched this way, by the listed rules."""
     chain = _chain_ids(absolute)
     for held in config.held_out:
-        if _reaches(absolute, held, chain) and (writing or config.profile in ("role", "reviewer")):
+        if _reaches(absolute, held, chain) and (
+            writing or config.profile in HELD_OUT_READERS_REFUSED
+        ):
             return HELD_OUT_REASON
     # A corpus that carries its own answers: written by no session, and read by no
     # reviewer, which is judged on the errors in it.

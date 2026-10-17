@@ -82,6 +82,7 @@ IncidentCause = Literal[
     "run_branch_moved",
     "trajectory_tampered",
     "review_material_read",
+    "held_out_read",
     "placeholder_refused",
     "withheld_file_unsure",
 ]

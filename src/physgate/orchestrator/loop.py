@@ -578,6 +578,12 @@ class Loop:
             detail = f"reviewer material in the stream of session {report.session_id}"
             self._incident(subtask_id, "review_material_read", detail)
             return False
+        if report.held_out_seen is not None:
+            # The session read held-out material: its work is not taken, a person looks
+            # first, and the tier counts as exposed (ARCH-141). The canary is not recorded.
+            detail = f"held-out material in the stream of session {report.session_id}"
+            self._incident(subtask_id, "held_out_read", detail)
+            return False
         if report.withheld_problems is not None:
             # A file no session reads had a second name, changed, or could not be checked
             # when the attempt was committed: its work is not taken, and a person looks first.

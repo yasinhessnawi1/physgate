@@ -1,0 +1,192 @@
+"""The held-out tier and the network are recorded run parameters that reach every session.
+
+A run names its held-out roots, the held-out tasks' canaries and whether role sessions'
+shell commands may reach the network; each is required, recorded in ``run.json`` and
+part of the run's digest when set, and a run recorded before the fields existed reads
+back as nothing held out and the network open, with its digest unchanged. Every role
+session and every reviewer is installed with each held-out root, and a role session
+running inside the OS layer is taken offline when the run asks for it.
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
+from orch_helpers import SCRIPTED_BOUNDS, make_config
+from pydantic import ValidationError
+
+from physgate.orchestrator import dispatch
+from physgate.orchestrator.credentials import Credential
+from physgate.orchestrator.dispatch import ClaudeDispatcher
+from physgate.orchestrator.ports import SessionRequest
+from physgate.orchestrator.run_config import RunConfig, load_run_config
+
+CANARY = "0123456789abcdef0123456789abcdef"
+
+
+@pytest.mark.parametrize("name", ["held_out", "held_out_canaries", "network"])
+def test_each_is_a_required_parameter(name: str) -> None:
+    fields = json.loads(make_config().model_dump_json())
+    del fields[name]
+    with pytest.raises(ValidationError):
+        RunConfig.model_validate_json(json.dumps(fields))
+
+
+def test_set_they_are_recorded_and_part_of_the_digest() -> None:
+    plain = make_config()
+    held = make_config(held_out=("/elsewhere/heldout",), held_out_canaries=(CANARY,))
+    offline = make_config(network="none")
+    assert b'"held_out":["/elsewhere/heldout"]' in held.canonical_bytes()
+    assert CANARY.encode() in held.canonical_bytes()
+    assert b'"network":"none"' in offline.canonical_bytes()
+    assert len({plain.sha256(), held.sha256(), offline.sha256()}) == 3
+
+
+def test_unset_they_leave_the_recorded_bytes_as_they_were() -> None:
+    raw = make_config().canonical_bytes()
+    for name in (b"held_out", b"held_out_canaries", b"network"):
+        assert name not in raw
+
+
+def test_a_run_recorded_before_the_fields_reads_as_nothing_held_out_and_open(
+    tmp_path: Path,
+) -> None:
+    recorded = make_config()
+    (tmp_path / "run.json").write_bytes(recorded.canonical_bytes())
+    loaded = load_run_config(tmp_path / "run.json")
+    assert (loaded.held_out, loaded.held_out_canaries, loaded.network) == ((), (), "open")
+    assert loaded.sha256() == recorded.sha256()
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"held_out": ("relative/heldout",)},
+        {"held_out_canaries": ("not-a-canary",)},
+        {"network": "proxied"},
+    ],
+    ids=["relative root", "malformed canary", "unknown network"],
+)
+def test_a_malformed_value_is_refused(change: dict[str, Any]) -> None:
+    with pytest.raises(ValidationError):
+        make_config(**change)
+
+
+def _install_argv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, temp: Path | None, **config: Any
+) -> list[str]:
+    seen: list[list[str]] = []
+
+    def fake_run(argv: list[str], **_kw: Any) -> subprocess.CompletedProcess[str]:  # noqa: ANN401
+        seen.append(argv)
+        out = {"settings": "s", "config": "c", "spawn_args": [], "spawn_env": {}}
+        return subprocess.CompletedProcess(argv, 0, json.dumps(out), "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(dispatch, "session_protected_roots", lambda *_a: ((), ()))
+    monkeypatch.setattr(dispatch, "harness_protection", lambda: [])
+    dispatcher = ClaudeDispatcher(
+        config=make_config(**config),
+        run=SimpleNamespace(subtask_branch=lambda subtask: f"b/{subtask}"),  # type: ignore[arg-type]
+        store_root=tmp_path / "store",
+        install_bin=tmp_path / "install" / "bin" / "physgate",
+        binary="claude",
+        base_url=None,
+        credential=Credential(mode="api_key", secret="not-a-key"),
+        review_root=tmp_path / "reviews",
+    )
+    request = SessionRequest(
+        subtask_id="s1",
+        attempt=1,
+        assigned_role="control",
+        spec_path=".physgate/specs/s1.md",
+        module_dir="modules/control",
+        model="claude-opus-5-5",
+        repair_instruction=None,
+        bounds=SCRIPTED_BOUNDS,
+    )
+    sdir = tmp_path / f"sdir-{len(list(tmp_path.glob('sdir-*')))}"
+    dispatcher._install(request, tmp_path / "worktree", sdir, temp)
+    return seen[0]
+
+
+def _values(argv: list[str], flag: str) -> list[str]:
+    return [argv[i + 1] for i, arg in enumerate(argv) if arg == flag]
+
+
+def test_every_role_session_is_installed_with_every_held_out_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    roots = ("/elsewhere/heldout-a", "/elsewhere/heldout-b")
+    argv = _install_argv(tmp_path, monkeypatch, temp=None, held_out=roots)
+    assert _values(argv, "--held-out") == list(roots)
+
+
+def test_a_role_session_inside_the_os_layer_is_taken_offline_when_the_run_asks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    temp = Path("/tmp/pg-0123456789ab")
+    offline = _install_argv(tmp_path, monkeypatch, temp=temp, network="none")
+    assert _values(offline, "--os-layer-network") == ["none"]
+    opened = _install_argv(tmp_path, monkeypatch, temp=temp, network="open")
+    assert "--os-layer-network" not in opened
+    # Without the layer nothing can take a shell offline; the run records both facts.
+    absent = _install_argv(tmp_path, monkeypatch, temp=None, network="none")
+    assert "--os-layer-network" not in absent
+
+
+def test_every_reviewer_is_installed_with_every_held_out_root(tmp_path: Path) -> None:
+    from physgate.reviewers.claude import ReviewerSetup
+
+    setup = ReviewerSetup.of_run(
+        make_config(held_out=("/elsewhere/heldout",)),
+        review_root=tmp_path / "rs",
+        repo=tmp_path / "target",
+        install_bin=tmp_path / "install" / "bin" / "physgate",
+        binary="claude",
+        base_url=None,
+        credential=Credential(mode="api_key", secret="not-a-key"),
+        library=tmp_path / "harness",
+    )
+    assert setup.held_out == ("/elsewhere/heldout",)
+
+
+def test_a_reviewer_s_session_is_installed_with_every_held_out_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from physgate.reviewers import claude
+    from physgate.reviewers.claude import ClaudeReviewer, ReviewerSetup
+    from physgate.reviewers.rubric import Rubric
+
+    seen: list[list[str]] = []
+
+    def fake_run(argv: list[str], **_kw: Any) -> subprocess.CompletedProcess[str]:  # noqa: ANN401
+        seen.append(argv)
+        out = {"settings": "s", "config": "c", "spawn_args": [], "spawn_env": {}}
+        return subprocess.CompletedProcess(argv, 0, json.dumps(out), "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(claude, "harness_protection", lambda: [])
+    setup = ReviewerSetup.of_run(
+        make_config(held_out=("/elsewhere/heldout",)),
+        review_root=tmp_path / "rs",
+        repo=tmp_path / "target",
+        install_bin=tmp_path / "install" / "bin" / "physgate",
+        binary="claude",
+        base_url=None,
+        credential=Credential(mode="api_key", secret="not-a-key"),
+        library=tmp_path / "harness",
+    )
+    reviewer = ClaudeReviewer(
+        role="electrical", setup=setup, rubric=Rubric(role="electrical", text="r", sha256="0" * 64)
+    )
+    packet = SimpleNamespace(read_root=str(tmp_path / "packet"), required_reading=())
+    sdir = tmp_path / "review"
+    sdir.mkdir()
+    reviewer._install(packet, sdir)  # type: ignore[arg-type]
+    assert _values(seen[0], "--held-out") == ["/elsewhere/heldout"]

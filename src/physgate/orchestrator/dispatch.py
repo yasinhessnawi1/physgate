@@ -994,7 +994,15 @@ class ClaudeDispatcher:
             *always_loaded_args,
             *helper,
             *protect,
+            # The held-out tier: no role session reads or writes it (ARCH-141).
+            *(arg for root in self._config.held_out for arg in ("--held-out", root)),
             *(["--os-layer-temp", str(temp)] if temp is not None else []),
+            # Offline where the run asks for it; only the OS layer can take a shell offline.
+            *(
+                ["--os-layer-network", self._config.network]
+                if temp is not None and self._config.network != "open"
+                else []
+            ),
             # The run's named interpreter is linked in the session's own directory, which
             # the OS layer keeps from shell commands; its directory is opened again.
             *(
@@ -1221,6 +1229,7 @@ class ClaudeDispatcher:
         placeholders_refused = self._sweep(worktree, before, sdir) if temp is not None else None
         captured = read_captured(stdout)
         seen = review_material_seen(stdout, self._canaries)
+        held_out_seen = review_material_seen(stdout, frozenset(self._config.held_out_canaries))
         sealed, tampered = captured.seal, captured.tampered
         result, usage, answered = captured.result, captured.usage, captured.answered
         require_matching_totals(result, usage)
@@ -1286,6 +1295,7 @@ class ClaudeDispatcher:
             trajectory_seal=sealed,
             trajectory_tampered=tampered,
             review_material_seen=seen,
+            held_out_seen=held_out_seen,
             issued_spec_sha256=issued,
             series=series,
             placeholders_refused=placeholders_refused,

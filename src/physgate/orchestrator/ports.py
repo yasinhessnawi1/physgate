@@ -72,6 +72,9 @@ class SessionReport(_Frozen):
     #: A canary of reviewer material found in the session's own stream, if one was:
     #: the session read what only reviewers read, by a path no hook could judge.
     review_material_seen: NonEmptyStr | None = None
+    #: A held-out task's canary found in the session's own stream, if one was: the session
+    #: read held-out material, by a path no hook could judge.
+    held_out_seen: NonEmptyStr | None = None
     #: The issued specification's digest, read before the session was spawned.
     issued_spec_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")] | None = None
     #: The series records the session left: sealed, refused or discarded. Collected before

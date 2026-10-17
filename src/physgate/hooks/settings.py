@@ -29,6 +29,7 @@ import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -72,6 +73,8 @@ PROFILE_TOOLS: Mapping[Profile, tuple[str, ...]] = {
     # no file, so no tool that writes is on its list.
     "reviewer": ("Read", "StructuredOutput"),
     "orchestrator": ("Bash", "Edit", "NotebookEdit", "Read", "Write", *_TASK_LIST),
+    # The raw agent gets exactly a role's tools: the comparison is with the same tools.
+    "baseline": ("Bash", "Edit", "NotebookEdit", "Read", "Write", *_TASK_LIST),
 }
 
 
@@ -133,6 +136,9 @@ class InstallRequest(BaseModel):
     #: inside a root the OS layer keeps from them (the run's ``sessions/``): the
     #: directory holding the run's named interpreter for this session.
     os_layer_readable: tuple[AbsolutePath, ...] = ()
+    #: With the OS layer: ``none`` refuses the session's shell commands every host, in
+    #: every permission mode. ``open`` leaves the network as the layer found it.
+    os_layer_network: Literal["open", "none"] = "open"
 
 
 #: The longest temporary directory Claude Code takes for a sandboxed session. A longer
@@ -270,6 +276,17 @@ def _startup_watch(site_packages: Path) -> tuple[str, ...]:
     )
 
 
+def _design_discipline(worktree: Path) -> tuple[str, ...]:
+    """The roots that are the harness's discipline over a design worktree, not integrity."""
+    return (
+        str(worktree / "src" / "physgate" / "gate"),
+        str(worktree / "src" / "physgate" / "hooks"),
+        _knowledge_root(worktree),
+        str(worktree / ".physgate" / "lib"),
+        str(worktree / ".physgate" / "series"),
+    )
+
+
 def build_config(request: InstallRequest, installation: Installation) -> SessionConfig:
     """The session configuration for ``request``.
 
@@ -342,6 +359,13 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         # a record arrives, and the orchestrator collects and checks what arrived.
         str(worktree / ".physgate" / "series"): (SERIES_OUTBOX_REASON, "none"),
     }
+    if request.profile == "baseline":
+        # The raw agent keeps the evaluation's two protections and the roots that keep a
+        # session from undoing them; the harness's own discipline over a design worktree
+        # (its gate and hook sources, the curated knowledge, the series writer and outbox)
+        # is what it is measured without.
+        for path in _design_discipline(worktree):
+            protected.pop(path, None)
     # The one root the OS layer leaves to scripts: a record arrives by a script's own write,
     # which no OS rule can tell from any other command's, and the collector judges it.
     outbox = str(worktree / ".physgate" / "series")
@@ -543,6 +567,7 @@ def install(
             readable=request.os_layer_readable,
             shared_temp=shared_temp_dirs(),
             claude_temp=claude_temp_dirs(),
+            network=request.os_layer_network,
         )
         settings.update(policy.settings)
         spawn_env["CLAUDE_CODE_TMPDIR"] = temp

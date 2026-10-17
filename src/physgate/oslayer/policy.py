@@ -47,7 +47,7 @@ import os
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from physgate.hooks.config import ExperimentRule, SessionConfig
 
@@ -81,6 +81,14 @@ class OsPolicy:
     absent_named: tuple[str, ...]
 
 
+#: The network block that takes a session's shell commands offline. An empty allow-list
+#: alone is not enough: in ``bypassPermissions`` mode, which every session runs in, hosts
+#: outside the list are let through unless ``strictAllowlist`` is on (Claude Code's
+#: sandboxing documentation, read 17.10.2026). Local binding stays allowed on macOS, so a
+#: command may serve a port to another on the same machine (an emulator's serial line).
+OFFLINE: dict[str, Any] = {"strictAllowlist": True, "allowedDomains": [], "allowLocalBinding": True}
+
+
 def sandbox_policy(
     config: SessionConfig,
     *,
@@ -89,11 +97,13 @@ def sandbox_policy(
     readable: tuple[str, ...] = (),
     shared_temp: tuple[str, ...] = (),
     claude_temp: tuple[str, ...] = (),
+    network: Literal["open", "none"] = "open",
     exists: Callable[[str], bool] = os.path.lexists,
     children: Callable[[str], Iterable[str]] = os.listdir,
 ) -> OsPolicy:
     """The OS layer's settings for the session ``config`` describes.
 
+    ``network`` set to ``none`` takes the session's shell commands offline (:data:`OFFLINE`).
     ``readable`` names further places of the session's own its shell commands read,
     opened again where a read-denied root holds them, as the home is. ``shared_temp`` names
     the machine's shared temporary directories, writable too, because ordinary commands
@@ -133,6 +143,8 @@ def sandbox_policy(
             },
         },
     }
+    if network == "none":
+        settings["sandbox"]["network"] = OFFLINE
     return OsPolicy(settings=settings, absent_named=tuple(sorted(absent_named)))
 
 
