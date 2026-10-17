@@ -119,11 +119,11 @@ def test_the_sandbox_is_strict_and_refuses_to_start_without_its_layer(tmp_path: 
     assert sandbox["autoAllowBashIfSandboxed"] is True
 
 
-def test_only_the_session_s_home_and_its_own_descriptors_are_added_to_the_writable_places(
+def test_only_the_session_s_home_is_added_to_the_writable_places(
     tmp_path: Path,
 ) -> None:
     policy, paths = _policy(tmp_path)
-    assert _fs(policy)["allowWrite"] == [str(paths["sdir"] / "home"), "/dev/fd"]
+    assert _fs(policy)["allowWrite"] == [str(paths["sdir"] / "home")]
 
 
 def test_every_protected_path_outside_the_writable_places_is_denied_whole(tmp_path: Path) -> None:

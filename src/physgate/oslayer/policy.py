@@ -120,9 +120,7 @@ def sandbox_policy(
             "autoAllowBashIfSandboxed": True,
             "excludedCommands": [],
             "filesystem": {
-                # The process's own file descriptors: a process substitution reads and
-                # writes through them, and Seatbelt otherwise refuses it.
-                "allowWrite": [*_spelled(home), "/dev/fd"],
+                "allowWrite": _spelled(home),
                 "denyWrite": _spelled(*deny_write),
                 "denyRead": _spelled(*read_denied),
                 "allowRead": _spelled(*allow_read),
