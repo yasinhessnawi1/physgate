@@ -21,12 +21,13 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import shutil
 import subprocess
 import sys
 from collections import Counter
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,18 @@ PINNED_VERSION = "2.1.301"
 
 class HarnessError(AssertionError):
     """The harness could not produce a run whose result means anything."""
+
+
+def session_path() -> str:
+    """The search path every session this harness runs is given.
+
+    The system's own directories first, so where the machine has a python3 of its
+    own the session uses it; then the test interpreter's, so a machine without one
+    (the server) still runs the attempts that write through a script, instead of
+    reporting them as never run. Presence of an attempt's executable is resolved
+    on this same path, so the two cannot drift apart.
+    """
+    return f"/usr/bin:/bin:/usr/sbin:/sbin:{os.path.dirname(sys.executable)}"
 
 
 def claude_binary() -> str:
@@ -73,6 +86,8 @@ class SessionRun:
     installed: Installed
     worktree: Path
     stderr: str
+    #: The generated settings as written before the session started: what it was given.
+    settings: dict[str, Any] = field(default_factory=dict)
 
     def told_after(self, results: int) -> str:
         """What the agent was told back after its ``results``-th tool call."""
@@ -126,9 +141,70 @@ def run_session(
     api_url_override: str | None = None,
     setting_sources: str | None = None,
     unpin_disable: bool = False,
+    os_layer: bool = False,
+    check_installed: Callable[[Installed, dict[str, Any]], None] | None = None,
     **request_fields: Any,  # noqa: ANN401 - forwarded to the install request
 ) -> SessionRun:
-    """Install hooks for a fresh worktree under ``root`` and run one scripted session."""
+    """Install hooks for a fresh worktree under ``root`` and run one scripted session.
+
+    With ``os_layer`` the session is installed as the dispatcher installs a role
+    session where the layer runs: a temporary directory of its own, short enough that
+    Claude Code keeps it, from which the installer generates the sandbox settings out
+    of the same session configuration the hooks read. ``check_installed`` is shown
+    what was installed and the settings as written, before the session starts, and
+    may refuse by raising.
+    """
+    if not os_layer:
+        return _run_session(
+            root,
+            script,
+            files=files,
+            outside_files=outside_files,
+            prepare=prepare,
+            registry=registry,
+            api_url_override=api_url_override,
+            setting_sources=setting_sources,
+            unpin_disable=unpin_disable,
+            check_installed=check_installed,
+            request_fields=request_fields,
+        )
+    if "os_layer_temp_dir" in request_fields:
+        msg = "the OS layer's temporary directory is made here, as the dispatcher makes it"
+        raise HarnessError(msg)
+    temp = Path("/tmp") / f"pg-{secrets.token_hex(6)}"
+    temp.mkdir(mode=0o700)
+    try:
+        return _run_session(
+            root,
+            script,
+            files=files,
+            outside_files=outside_files,
+            prepare=prepare,
+            registry=registry,
+            api_url_override=api_url_override,
+            setting_sources=setting_sources,
+            unpin_disable=unpin_disable,
+            check_installed=check_installed,
+            request_fields={**request_fields, "os_layer_temp_dir": str(temp)},
+        )
+    finally:
+        shutil.rmtree(temp, ignore_errors=True)
+
+
+def _run_session(
+    root: Path,
+    script: Script,
+    *,
+    files: dict[str, str] | None,
+    outside_files: dict[str, str] | None,
+    prepare: Callable[[Path], None] | None,
+    registry: Mapping[str, HookSpec] | None,
+    api_url_override: str | None,
+    setting_sources: str | None,
+    unpin_disable: bool,
+    check_installed: Callable[[Installed, dict[str, Any]], None] | None,
+    request_fields: dict[str, Any],
+) -> SessionRun:
     binary = claude_binary()
     worktree = make_worktree(root, files)
     outside = root / "outside"
@@ -162,16 +238,15 @@ def run_session(
         settings = json.loads(installed.settings_path.read_text())
         del settings["disableAllHooks"]
         installed.settings_path.write_text(json.dumps(settings))
+    given: dict[str, Any] = json.loads(installed.settings_path.read_text())
+    if check_installed is not None:
+        check_installed(installed, given)
     home = Path(fields["user_home"])
     home.mkdir(parents=True, exist_ok=True)
     with serving(script) as (api, base_url):
         env = {
             "HOME": str(home),
-            # The system's own directories first, so where the machine has a
-            # python3 of its own the session uses it; then the test interpreter's,
-            # so a machine without one (the server) still runs the attempts that
-            # write through a script, instead of reporting them as never run.
-            "PATH": f"/usr/bin:/bin:/usr/sbin:/sbin:{os.path.dirname(sys.executable)}",
+            "PATH": session_path(),
             "TERM": "dumb",
             "ANTHROPIC_BASE_URL": api_url_override or base_url,
             "ANTHROPIC_API_KEY": DUMMY_KEY,
@@ -213,7 +288,9 @@ def run_session(
         if log_path.exists()
         else []
     )
-    run = SessionRun(proc.returncode, api, stream, hook_log, installed, worktree, proc.stderr)
+    run = SessionRun(
+        proc.returncode, api, stream, hook_log, installed, worktree, proc.stderr, given
+    )
     check_the_run_means_something(run)
     return run
 
@@ -250,8 +327,37 @@ def check_the_run_means_something(run: SessionRun) -> None:
         raise HarnessError(msg)
 
 
+def stop_refusals(run: SessionRun) -> int:
+    """How many times the session's own hook log records a refused Stop.
+
+    The hook runtime writes one record for every refusal of every hook, with the
+    event and the session it came from; only records of this session's id, as the
+    stream's start reports it, count. A stream that names no session counts none.
+    """
+    session = next(
+        (
+            e.get("session_id")
+            for e in run.stream
+            if e.get("type") == "system" and e.get("subtype") == "init"
+        ),
+        None,
+    )
+    if not session:
+        return 0
+    return sum(
+        1
+        for e in run.hook_log
+        if (e.get("event"), e.get("decision"), e.get("session")) == ("Stop", "refuse", session)
+    )
+
+
 def _expected_starts(run: SessionRun, name: str) -> int:
-    """One generated command per event, once per tool call for tool events."""
+    """One generated command per event, once per tool call for tool events.
+
+    Stop is the one event the runtime starts again on its own: after a Stop is
+    refused (the sentinel refuses every Stop once it has halted), the runtime tries
+    to stop again. So Stop may start once, and once more per refusal on record.
+    """
     event, _, tool_name = name.partition(":")
     if event in {"PreToolUse", "PostToolUse", "PostToolUseFailure"}:
         return sum(
@@ -263,6 +369,8 @@ def _expected_starts(run: SessionRun, name: str) -> int:
             for r in run.api.requests
             if r.thread == "sub" and r.served and r.served.get("tool") == tool_name
         )
+    if event == "Stop":
+        return 1 + stop_refusals(run)
     return 1
 
 
