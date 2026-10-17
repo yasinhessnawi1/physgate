@@ -12,7 +12,9 @@ of its worktree, listed to it like every other file:
   revision a reviewer judges;
 - named in the account of the revision, which is otherwise the same for every artefact;
 - held to the blindness check like everything else a reviewer is shown, so a sheet that
-  names the corpus, an artefact or an answer stops the run before any review.
+  names the corpus, an artefact or an answer stops the run before any review. A real sheet is
+  written indented over many lines, so it is read as one JSON value, its strings decoded,
+  never line by line.
 """
 
 from __future__ import annotations
@@ -22,9 +24,15 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from instrument_corpus import SOURCE, SOURCE_ROWS, SeededFakeReviewer, write_corpus
+from instrument_corpus import AUTHOR, LABEL, SOURCE, SOURCE_ROWS, SeededFakeReviewer, write_corpus
 
-from physgate.evaluation.inject.corpus import SOURCES_NAME, Corpus, load_corpus
+from physgate.evaluation.inject.corpus import (
+    SOURCES_NAME,
+    Corpus,
+    load_corpus,
+    manifest_for,
+    write_manifest,
+)
 from physgate.evaluation.inject.exceptions import BlindnessError, CorpusError
 from physgate.evaluation.inject.materialise import PARTS_SHEET_NAME
 from physgate.evaluation.inject.runner import run_instrument
@@ -123,4 +131,33 @@ def test_a_sheet_that_tells_stops_the_run_before_any_review(
     with pytest.raises(BlindnessError) as caught:
         _run(corpus, tmp_path, reviewer)
     assert found in caught.value.context["found"]
+    assert reviewer.seen == []
+
+
+def test_an_indented_sheet_over_many_lines_is_read_whole_and_given(tmp_path: Path) -> None:
+    """The measurement's sheet is indented, nearly a thousand lines; no line of it is JSON alone."""
+    corpus = load_corpus(write_corpus(tmp_path / "corpus", sheet_indent=1))
+    assert corpus.parts_sheet.count(b"\n") > 10
+    given: list[bytes] = []
+    reviewer = SeededFakeReviewer(
+        before_verdict=lambda a: given.append((Path(a.worktree) / PARTS_SHEET_NAME).read_bytes())
+    )
+    _run(corpus, tmp_path, reviewer)
+    assert given and set(given) == {corpus.parts_sheet}
+
+
+def test_an_escaped_telling_word_in_an_indented_sheet_is_refused(tmp_path: Path) -> None:
+    """A word escaped in the file is found in the string it decodes to, wherever it sits."""
+    rows = {**SOURCE_ROWS, "R9.01": {"quantity": "the injected rate", "value": 2, "unit": "Hz"}}
+    rows["R9.01"]["url"] = SOURCE
+    root = write_corpus(tmp_path / "corpus", rows=rows, sheet_indent=1)
+    sheet = root / SOURCES_NAME
+    sheet.write_text(sheet.read_text().replace("injected", "\\u0069njected"))
+    write_manifest(root, manifest_for(root, label=LABEL, author_model=AUTHOR))
+    corpus = load_corpus(root)
+    assert b"injected" not in corpus.parts_sheet
+    reviewer = SeededFakeReviewer()
+    with pytest.raises(BlindnessError) as caught:
+        _run(corpus, tmp_path, reviewer)
+    assert "inject" in caught.value.context["found"]
     assert reviewer.seen == []

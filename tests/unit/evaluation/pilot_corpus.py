@@ -119,7 +119,16 @@ ARTEFACTS: tuple[dict[str, Any], ...] = (
 
 
 def write_pilot_corpus(root: Path) -> Path:
-    """Write the four-role corpus at ``root``, with its parts sheet and manifest."""
+    """Write the four-role corpus at ``root``, with its parts sheet and manifest.
+
+    The parts sheet is written indented over many lines, as the measurement's is, so the
+    pilot reads a sheet of that shape through every review.
+    """
     return write_corpus(
-        root, artefacts=ARTEFACTS, base_nodes=BASE_NODES, author=AUTHOR, rows=dict(SOURCE_ROWS)
+        root,
+        artefacts=ARTEFACTS,
+        base_nodes=BASE_NODES,
+        author=AUTHOR,
+        rows=dict(SOURCE_ROWS),
+        sheet_indent=1,
     )

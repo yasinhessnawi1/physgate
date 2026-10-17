@@ -111,11 +111,16 @@ def write_corpus(
     base_nodes: tuple[dict[str, Any], ...] = BASE_NODES,
     author: str = AUTHOR,
     rows: dict[str, dict[str, Any]] | None = None,
+    sheet_indent: int | None = None,
 ) -> Path:
-    """Write a corpus at ``root`` with its parts sheet and manifest, and return ``root``."""
+    """Write a corpus at ``root`` with its parts sheet and manifest, and return ``root``.
+
+    With ``sheet_indent``, the parts sheet is written indented over many lines, as a real
+    corpus's is; otherwise on one line.
+    """
     (root / ARTEFACTS_DIRNAME).mkdir(parents=True)
     sheet = {"label": "a test parts sheet", "rows": SOURCE_ROWS if rows is None else rows}
-    (root / SOURCES_NAME).write_text(json.dumps(sheet))
+    (root / SOURCES_NAME).write_text(json.dumps(sheet, indent=sheet_indent))
     (root / BASE_NAME).write_text(json.dumps({"label": LABEL, "nodes": list(base_nodes)}))
     for artefact in artefacts:
         (root / ARTEFACTS_DIRNAME / f"{artefact['id']}.json").write_text(json.dumps(artefact))
