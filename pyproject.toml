@@ -25,6 +25,16 @@ dev = [
   "ruff>=0.16,<0.17",
   "pytest-xdist>=3.8,<4",
 ]
+# The evaluation side's own tools, never the product's: the per-role scorers compute
+# closed-loop margins, settling times and errors with python-control. Pinned exactly
+# to the versions the public ControlEval benchmark pins (its requirements file), so
+# our independent scorer runs on the numerics that benchmark was built with. These
+# never reach a role session's hooks, which install runtime dependencies only.
+evaluation = [
+  "control==0.10.1",
+  "numpy==2.1.2",
+  "scipy==1.14.1",
+]
 
 [build-system]
 # Pinned exactly, and this is the one dependency the lockfile does not
@@ -48,7 +58,17 @@ build-backend = "hatchling.build"
 # 20.09.2026) it then refused, and the oldest installer that reads this file
 # (0.6.6) has no per-package form of it. Re-examine this bound whenever a
 # dependency is added, and lift it once the week has passed for a newer release.
-constraint-dependencies = ["platformdirs<=4.11.11"]
+constraint-dependencies = [
+  "platformdirs<=4.11.11",
+  # Added on 17.10.2026 with the evaluation group: python-control requires
+  # matplotlib, whose dependencies fonttools (4.67.0, 14.10.2026) and pillow
+  # (13.0.0, 16.10.2026) had releases younger than a week. Each is bounded to its
+  # newest release at least a week old.
+  "fonttools<=4.66.1",
+  "pillow<=12.3.0",
+]
+# Both groups install by default, so the checks see the evaluation code's imports.
+default-groups = ["dev", "evaluation"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/physgate"]
@@ -110,6 +130,12 @@ exclude = ["^experiments/"]
 # test holds it there, so the untyped values stay inside that one file.
 [[tool.mypy.overrides]]
 module = ["sympy", "sympy.*"]
+ignore_missing_imports = true
+
+# python-control ships no type information either (no marker file, checked on
+# 0.10.1). Only the evaluation side's control scorer imports it.
+[[tool.mypy.overrides]]
+module = ["control", "control.*", "scipy", "scipy.*"]
 ignore_missing_imports = true
 
 [tool.pydantic-mypy]
