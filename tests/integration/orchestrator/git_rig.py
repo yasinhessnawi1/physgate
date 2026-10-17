@@ -359,6 +359,7 @@ def config(run_id: str = "run-1") -> RunConfig:
         held_out=(),
         held_out_canaries=(),
         network="open",
+        network_enforced=None,
         os_layer=None,
     )
 

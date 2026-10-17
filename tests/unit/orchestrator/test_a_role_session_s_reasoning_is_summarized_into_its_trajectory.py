@@ -34,7 +34,7 @@ def test_a_run_recorded_before_the_field_reads_as_omitted_with_its_digest_unchan
     del legacy["role_python"]  # recorded before that field existed too
     del legacy["git_binary"]  # and that one
     del legacy["os_layer"]  # and that one
-    for later in ("held_out", "held_out_canaries", "network"):  # and these
+    for later in ("held_out", "held_out_canaries", "network", "network_enforced"):  # and these
         del legacy[later]
     legacy_bytes = json.dumps(legacy, separators=(",", ":")).encode() + b"\n"
     assert older.canonical_bytes() == legacy_bytes

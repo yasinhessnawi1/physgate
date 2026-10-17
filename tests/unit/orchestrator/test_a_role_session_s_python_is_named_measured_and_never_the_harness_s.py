@@ -101,6 +101,7 @@ def test_a_configuration_that_names_none_records_what_it_did_before() -> None:
         "held_out": [],
         "held_out_canaries": [],
         "network": "open",
+        "network_enforced": None,
     }
     assert RunConfig.model_validate_json(json.dumps(recorded)).role_python == named.role_python
     assert isinstance(named.role_python, RolePython)

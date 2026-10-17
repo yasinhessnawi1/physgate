@@ -303,7 +303,7 @@ class RunConfig(_Frozen):
     #: the run was configured enforces it (``False`` records "network: none requested, not
     #: enforceable here"). ``None`` for ``open``, and for a run recorded before the field
     #: existed or whose OS layer was not measured.
-    network_enforced: bool | None = None
+    network_enforced: bool | None
 
     @model_validator(mode="after")
     def _the_binding_is_a_backend_that_ships(self) -> RunConfig:
@@ -458,9 +458,15 @@ def load_run_config(path: Path) -> RunConfig:
         # Recorded before the field existed: the OS layer's state was not recorded.
         recorded = {**recorded, "os_layer": None}
         raw = json.dumps(recorded).encode()
-    for name, before in (("held_out", []), ("held_out_canaries", []), ("network", "open")):
+    for name, before in (
+        ("held_out", []),
+        ("held_out_canaries", []),
+        ("network", "open"),
+        ("network_enforced", None),
+    ):
         if isinstance(recorded, dict) and name not in recorded:
-            # Recorded before the field existed: nothing was held out, the network was open.
+            # Recorded before the field existed: nothing was held out, the network was open
+            # and so nothing was asked of the OS layer about it.
             recorded = {**recorded, name: before}
             raw = json.dumps(recorded).encode()
     try:

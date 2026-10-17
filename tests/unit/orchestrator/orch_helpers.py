@@ -70,6 +70,7 @@ def make_config(**overrides: Any) -> RunConfig:
         "held_out": (),
         "held_out_canaries": (),
         "network": "open",
+        "network_enforced": None,
         "os_layer": None,
     }
     fields.update(overrides)

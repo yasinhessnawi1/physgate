@@ -257,6 +257,7 @@ def test_both_example_parameters_files_are_complete_configurations() -> None:
                     "harness": {"commit": None, "clean": False, "uncommitted_sha256": None},
                     "git_binary": {"path": "/usr/local/bin/git", "version": "2.54.0"},
                     "os_layer": None,
+                    "network_enforced": None,
                 }
             )
         )

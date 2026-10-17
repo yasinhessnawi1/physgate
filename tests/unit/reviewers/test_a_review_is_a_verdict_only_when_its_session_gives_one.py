@@ -264,6 +264,7 @@ def _config() -> RunConfig:
         held_out=(),
         held_out_canaries=(),
         network="open",
+        network_enforced=None,
         os_layer=None,
     )
 

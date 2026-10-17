@@ -165,7 +165,12 @@ def test_a_run_recorded_before_the_field_loads_and_keeps_its_bytes(tmp_path: Pat
     del legacy["git_binary"]
     del legacy["role_python"]  # left out of the bytes as None, as every older run has it
     del legacy["os_layer"]  # likewise
-    for later in ("held_out", "held_out_canaries", "network"):  # recorded before these too
+    for later in (
+        "held_out",
+        "held_out_canaries",
+        "network",
+        "network_enforced",
+    ):  # recorded before these too
         del legacy[later]
     legacy_bytes = json.dumps(legacy, separators=(",", ":")).encode() + b"\n"
     # What a run recorded before the field existed holds: no mention of it at all.

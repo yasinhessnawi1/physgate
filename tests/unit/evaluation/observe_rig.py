@@ -118,6 +118,7 @@ def config(run_id: str, repo: Path, role: str = "electrical", **overrides: Any) 
         "held_out": (),
         "held_out_canaries": (),
         "network": "open",
+        "network_enforced": None,
         "os_layer": None,
     }
     fields.update(overrides)
