@@ -117,6 +117,27 @@ def test_input_that_tells_is_refused(tmp_path: Path, where: str, text: str, foun
     assert found in caught.value.context["found"]
 
 
+@pytest.mark.parametrize(
+    ("name", "found"),
+    [
+        ("notes/planted_bracket.md", "planted"),
+        ("injected/readme.md", "inject"),
+        ("m1_notes.md", "m1"),
+    ],
+    # Neutral ids: the temporary directory is named after them, and its path is checked too.
+    ids=["a-word", "a-directory", "the-id"],
+)
+def test_a_listed_file_name_that_tells_is_refused(tmp_path: Path, name: str, found: str) -> None:
+    """The packet lists every file by name, so a name is shown as plainly as its content."""
+    made = materialise(BASE, _patch(MAGNITUDE_ARTEFACT, "injected"), tmp_path / "a")
+    target = made.worktree / name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("nothing to see\n")
+    with pytest.raises(BlindnessError, match="file name") as caught:
+        require_blind(made, ("m1", str(MAGNITUDE_ARTEFACT["description"])))
+    assert found in caught.value.context["found"]
+
+
 def test_a_path_named_for_the_artefact_is_refused(tmp_path: Path) -> None:
     made = materialise(BASE, _patch(MAGNITUDE_ARTEFACT, "injected"), tmp_path / "m1")
     with pytest.raises(BlindnessError, match="paths"):

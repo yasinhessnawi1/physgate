@@ -196,8 +196,8 @@ def _as_token(answer: str) -> re.Pattern[str]:
 def require_blind(materialised: Materialised, answers: tuple[str, ...]) -> None:
     """Refuse to show a reviewer this worktree and trajectory if they hold an answer.
 
-    The two paths the reviewer is given, every file of the worktree but git's own,
-    and the trajectory are read as text and
+    The two paths the reviewer is given, the name of every file of the worktree but
+    git's own (the packet lists each), those files and the trajectory are read as text and
     held to the telltale words, to the names of a gate result's and the corpus's
     fields (files only), and to ``answers``: the artefact's own id, description
     and the like.
@@ -212,6 +212,14 @@ def require_blind(materialised: Materialised, answers: tuple[str, ...]) -> None:
         raise BlindnessError(msg, found=",".join(sorted(set(named))[:5]))
     files = [p for p in sorted(materialised.worktree.rglob("*")) if p.is_file()]
     files = [p for p in files if ".git" not in p.relative_to(materialised.worktree).parts]
+    # The review's packet lists every file by its name, so a name is shown as plainly as
+    # its content and is held to the same words.
+    for path in files:
+        name = path.relative_to(materialised.worktree).as_posix()
+        found = telltales(name) + [a for a in answers if a and _as_token(a).search(name)]
+        if found:
+            msg = "a file name a reviewer would be listed states an answer"
+            raise BlindnessError(msg, file=name, found=",".join(sorted(set(found))[:5]))
     for path in [*files, materialised.trajectory]:
         text = path.read_text()
         found = telltales(text)
