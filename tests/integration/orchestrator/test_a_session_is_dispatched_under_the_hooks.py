@@ -709,6 +709,43 @@ def test_a_sweep_that_fails_never_skips_removing_the_credential(
     assert "the sweep failed" in report.placeholders_refused
 
 
+def test_an_answer_key_file_given_a_second_name_before_the_commit_is_named_by_the_dispatcher(
+    tmp_path: Path, install_bin: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A second name made after the sentinel's last check is named by the dispatcher's own.
+
+    No other check covers that window. The answer-key root is the worktree's ``corpora``;
+    it holds an inert stand-in file, committed before the session. Once the session has
+    ended and the sentinel's check after the stop has passed, the stand-in is given a
+    second name outside the worktree, just before the series collection, the step before
+    the dispatcher's check.
+    """
+    import physgate.orchestrator.dispatch as dispatch_module
+
+    worktree = tmp_path / "run" / "worktrees" / "s1"
+    stand_in = Path("corpora") / "stand-in.txt"
+    second_name = tmp_path / "second-name-of-the-stand-in.txt"
+
+    def with_the_stand_in(run: RunGit) -> None:
+        (run.integration / stand_in).parent.mkdir()
+        (run.integration / stand_in).write_text("An inert stand-in, not answer-key material.\n")
+        commit_all(run.integration, "an inert answer-key stand-in\n")
+
+    real_collect = dispatch_module.collect
+
+    def second_name_then_collect(*a: Any, **k: Any) -> Any:  # noqa: ANN401
+        os.link(worktree / stand_in, second_name)
+        return real_collect(*a, **k)
+
+    monkeypatch.setattr(dispatch_module, "collect", second_name_then_collect)
+    steps = [*knowledge_reads(worktree), tool("Read", file_path=str(worktree / SPEC)), text("done")]
+    _, (report, _), _ = dispatch(tmp_path, install_bin, steps, before=with_the_stand_in)
+    assert second_name.exists(), "the second name was never made"
+    assert report.end.outcome == "completed", report
+    assert report.withheld_problems is not None, "the second name was not reported"
+    assert f"{stand_in}: has more than one name (2)" in report.withheld_problems
+
+
 def test_a_sandboxed_session_and_an_unsandboxed_one_end_through_the_same_steps(
     tmp_path: Path, install_bin: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
