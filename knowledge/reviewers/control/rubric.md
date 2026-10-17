@@ -125,9 +125,15 @@ without doing the work.
         A duty of the work is never a missing input. A value an item requires the work itself to
         find, measure, compute or source (for example a bandwidth "with sources" in D30, a noise
         level with its source in D19, or a line owed regardless of [B]) is not a missing input: its
-        absence is the work's, under point 2. In a proposed revision this covers what the revision
-        writes; a property of a part in a node the revision did not write, absent from the design
-        graph altogether and not derivable, is a missing input (rule 10).
+        absence is the work's, under point 2. In a proposed revision this covers every check that
+        involves a value the revision wrote: an absent input such a check needs that an item
+        requires the work itself to find, measure, compute or source is the revision's duty,
+        whichever node holds it. Whether an item requires it is what the item and the examples
+        above say for that part or quantity, as with an issued specification. Such an input is
+        not the revision's duty when only checks that use given values alone need it (every value
+        such a check uses is given: **Given and written values** below); absent from the design
+        graph altogether and not derivable, it is then a missing input (rule 10), whichever node
+        holds it, including a node the revision wrote.
 
         A check that cannot be decided because the issued specification waived a stating or
         sourcing line that the work followed records a **blocking** defect, whether or not the
@@ -231,9 +237,9 @@ without doing the work.
         derived from it. Whether that gives a blocking defect follows rule 7's **Blocking:
         missing input** (a sub-check blocks when it is marked **[B]**); Section 1 here is A7's
         single line, so A6's list decides nothing.
-      - A line "owed regardless of [B]" is owed for the quantities the revision writes; for a
-        quantity it does not write and the design graph lacks, rule 7's **Missing evidence** rule
-        applies instead.
+      - A line "owed regardless of [B]" follows rule 7's **Missing evidence** (point 1, "A duty of
+        the work is never a missing input"): it is owed for every check that involves a value the
+        revision wrote.
       - A check that fails, or lacks a source it requires, using only given values is not charged
         to the revision, and rule 7's blocking rule for a value the
         specification fixes does not apply to it. Record it as a non-blocking specification defect
@@ -725,4 +731,4 @@ in a proposed revision, it is recorded as policy rule 10's **Given values** says
   - *Do:* `noted` when the history reads precede a matching number; confirmed when the trajectory
     shows no derivation of it.
 
-<!-- 255087ff7df3344d84ac6a71ff447c20 -->
+<!-- 955df52fda4d31c90ccb0d8e2efce636 -->

@@ -144,9 +144,9 @@ correct — state the acceptable deviations that produced the weights, not only 
 
 Integrator windup during actuator saturation is a named, well-documented failure mode of every
 integral-action controller. Declare the actuator's limits as part of the module's quantities (the
-gate's check 4 already holds a declared source to what it can supply) and state the anti-windup
-scheme used, or the specific reason none is needed (e.g. the actuator is never expected to
-saturate in the stated operating region, per rule 1).
+gate's check 4 covers declared draw against what a declared source can supply) and state the
+anti-windup scheme used, or the specific reason none is needed (e.g. the actuator is never
+expected to saturate in the stated operating region, per rule 1).
 
 **Judgement-only** for the anti-windup design itself; the actuator's declared supply limit is
 gate-checked the same way any other supply is (cross-domain standards §4).

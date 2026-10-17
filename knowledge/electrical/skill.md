@@ -22,8 +22,8 @@
    efficiency; with no source, record the conversion as unverified, not as 100%.
 5. Sum averages against continuous ratings; sum coincident worst cases against peak ratings. The
    rail limit is the lowest element rating in its path (§2).
-6. Record the margin of each comparison, and declare each supply and draw as quantities so gate
-   checks 4 and 5 can hold them (cross-domain standards §4).
+6. Record the margin of each comparison, and declare each supply and draw as quantities, which gate
+   checks 4 and 5 read (cross-domain standards §4).
 
 ## Procedure: the battery voltage window and sag
 
@@ -65,8 +65,8 @@ peak rating and 1.9 A minimum trip.
 2. Choose the thermal metric and say why: RθJA only as a JEDEC-board comparison; RθJA(effective)
    with its board stated; or a measured board (ΨJB) or case (ΨJT, no heat sink) temperature.
 3. TJ = T_reference + metric × P. Compare with the thermal-shutdown minimum and record the margin.
-4. Declare the thermal resistance and dissipation so the thermal-margin check runs (cross-domain
-   standards §6), and record which metric the number is.
+4. Declare the thermal resistance and dissipation as quantities, which the thermal-margin check
+   reads (cross-domain standards §6), and record which metric the number is.
 
 ## Procedure: the falling-supply sequence
 
