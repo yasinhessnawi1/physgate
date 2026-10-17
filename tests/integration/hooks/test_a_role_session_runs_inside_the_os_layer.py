@@ -228,10 +228,11 @@ def _spelling_steps(layout: Layout, *, case_variant: bool) -> list[dict[str, obj
 def test_the_os_layer_judges_each_spelling_as_the_hooks_do(layout: Layout) -> None:
     for name in ("knowledge/staging", "knowledge/stagingx", "corpora", "src/physgate", ".physgate"):
         (layout.worktree / name).mkdir(parents=True, exist_ok=True)
-    run = run_session(layout, _spelling_steps(layout, case_variant=False), layer=True)
-    told = run["told"]
-    assert isinstance(told, list)
-    got = {s: "denied:" in str(t) for s, t in zip(SPELLINGS, told, strict=True)}
+    run_session(layout, _spelling_steps(layout, case_variant=False), layer=True)
+    # Judged by what reached the disk, not by what the command was told: on Linux a write
+    # into a directory no shell command may read lands in the empty layer bubblewrap lays
+    # over it, and is gone when the command ends.
+    got = {s: not (layout.worktree / s).exists() for s in SPELLINGS}
     assert got == SPELLINGS
 
 
@@ -247,11 +248,9 @@ def test_a_case_variant_of_a_root_is_refused_where_the_volume_ignores_case(
         pytest.skip("this volume tells case apart, so a case variant is another path")
     for name in ("knowledge/staging", "knowledge/stagingx", "corpora", "src/physgate", ".physgate"):
         (layout.worktree / name).mkdir(parents=True, exist_ok=True)
-    run = run_session(layout, _spelling_steps(layout, case_variant=True), layer=True)
-    told = run["told"]
-    assert isinstance(told, list)
-    refused = {s for s, t in zip(SPELLINGS, told, strict=True) if "denied:" in str(t)}
-    assert {s for s, r in SPELLINGS.items() if r} <= refused
+    run_session(layout, _spelling_steps(layout, case_variant=True), layer=True)
+    reached = {s for s in SPELLINGS if (layout.worktree / s.upper()).exists()}
+    assert not reached & {s for s, r in SPELLINGS.items() if r}
 
 
 @pytest.mark.usefixtures("layer")
