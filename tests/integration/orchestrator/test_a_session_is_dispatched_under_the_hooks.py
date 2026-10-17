@@ -721,6 +721,7 @@ def test_an_answer_key_file_given_a_second_name_before_the_commit_is_named_by_th
     the dispatcher's check.
     """
     import physgate.orchestrator.dispatch as dispatch_module
+    from physgate.series.collect import collect as real_collect
 
     worktree = tmp_path / "run" / "worktrees" / "s1"
     stand_in = Path("corpora") / "stand-in.txt"
@@ -730,8 +731,6 @@ def test_an_answer_key_file_given_a_second_name_before_the_commit_is_named_by_th
         (run.integration / stand_in).parent.mkdir()
         (run.integration / stand_in).write_text("An inert stand-in, not answer-key material.\n")
         commit_all(run.integration, "an inert answer-key stand-in\n")
-
-    real_collect = dispatch_module.collect
 
     def second_name_then_collect(*a: Any, **k: Any) -> Any:  # noqa: ANN401
         os.link(worktree / stand_in, second_name)
