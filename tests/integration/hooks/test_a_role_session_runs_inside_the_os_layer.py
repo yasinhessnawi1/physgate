@@ -28,6 +28,7 @@ from fake_messages_api import tool
 from os_layer_rig import MARKER, Layout, layer_here, make_layout, python, run_session
 
 from physgate.orchestrator.budget import classify_session_end
+from physgate.oslayer.probe import shared_temp_dirs
 
 pytestmark = pytest.mark.integration
 
@@ -139,11 +140,15 @@ def test_with_the_layer_nothing_the_parser_cannot_see_reaches_a_protected_path(
     assert isinstance(told, list)
     read, decisions, common, outside, worktree, temp = told
     assert MARKER not in read
-    for refused in (read, decisions, common, outside):
+    for refused in (read, decisions, common):
         assert "denied:" in refused and "wrote" not in refused, refused
     assert layout.decisions.read_text() == ""
     assert not (layout.common / "probe-marker").exists()
-    assert not (layout.outside / "plain").exists()
+    # A path no root protects is writable where it lies in the machine's shared temporary
+    # directories (as this test's own does on macOS), and denied anywhere else.
+    shared = [Path(d).resolve() for d in shared_temp_dirs()]
+    in_shared = any(layout.outside.resolve().is_relative_to(d) for d in shared)
+    assert ("wrote" in outside) == in_shared, outside
     assert "wrote-worktree" in worktree and (layout.worktree / "made.txt").exists()
     uid = os.getuid()
     assert f"TMPDIR={layout.temp.resolve()}/claude-{uid}" in temp

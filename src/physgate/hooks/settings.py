@@ -55,6 +55,7 @@ from physgate.hooks.reasons import SERIES_WRITER_REASON as SERIES_WRITER_REASON
 from physgate.hooks.reasons import STORE_REASON as STORE_REASON
 from physgate.hooks.runtime import EVENTS, HookSpec
 from physgate.oslayer.policy import sandbox_policy
+from physgate.oslayer.probe import claude_temp_dirs, shared_temp_dirs
 
 WATCHDOG_SECONDS = 5
 HOOK_TIMEOUT_SECONDS = 30
@@ -540,6 +541,8 @@ def install(
             home=request.user_home,
             temp_dir=temp,
             readable=request.os_layer_readable,
+            shared_temp=shared_temp_dirs(),
+            claude_temp=claude_temp_dirs(),
         )
         settings.update(policy.settings)
         spawn_env["CLAUDE_CODE_TMPDIR"] = temp

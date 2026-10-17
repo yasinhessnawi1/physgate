@@ -87,19 +87,25 @@ def sandbox_policy(
     home: str,
     temp_dir: str,
     readable: tuple[str, ...] = (),
+    shared_temp: tuple[str, ...] = (),
+    claude_temp: tuple[str, ...] = (),
     exists: Callable[[str], bool] = os.path.lexists,
     children: Callable[[str], Iterable[str]] = os.listdir,
 ) -> OsPolicy:
     """The OS layer's settings for the session ``config`` describes.
 
     ``readable`` names further places of the session's own its shell commands read,
-    opened again where a read-denied root holds them, as the home is.
+    opened again where a read-denied root holds them, as the home is. ``shared_temp`` names
+    the machine's shared temporary directories, writable too, because ordinary commands
+    write there by name (``/tmp``, and on macOS the per-user directory plain ``mktemp``
+    uses); ``claude_temp`` names Claude Code's own temporary directories inside them, which
+    hold every session of the user's records and are denied both ways.
 
     Raises:
         ValueError: the worktree, the home or the temporary directory sits inside a
             read-denied path, where the session could not work.
     """
-    writable = (config.worktree, temp_dir, home)
+    writable = (config.worktree, temp_dir, home, *shared_temp)
     read_denied = _read_denied(config)
     for place in (config.worktree, temp_dir):
         if any(_under(place, denied) for denied in read_denied):
@@ -120,9 +126,9 @@ def sandbox_policy(
             "autoAllowBashIfSandboxed": True,
             "excludedCommands": [],
             "filesystem": {
-                "allowWrite": _spelled(home),
-                "denyWrite": _spelled(*deny_write),
-                "denyRead": _spelled(*read_denied),
+                "allowWrite": _spelled(home, *shared_temp),
+                "denyWrite": _spelled(*deny_write, *claude_temp),
+                "denyRead": _spelled(*read_denied, *claude_temp),
                 "allowRead": _spelled(*allow_read),
             },
         },
@@ -166,9 +172,15 @@ def _write_denied(
     named: set[str] = set()
     absent: set[str] = set()
     for path, exceptions in roots:
-        if any(_under(place, path) for place in writable):
-            continue  # a root above a writable place: the OS denies the rest of it already
-        inside = any(_under(path, place) for place in writable)
+        below = tuple(place for place in writable if place != path and _under(place, path))
+        inside = any(_under(path, place) for place in writable if place not in below)
+        if below:
+            # A root above a writable place (the run's sessions/ above the session's home).
+            # Outside every other writable place the OS denies the rest of it already; inside
+            # one (a run directory under the shared /tmp) it is named around that place.
+            if inside and exists(path):
+                named.update(_around(path, (*exceptions, *below), exists, children))
+            continue
         if not inside or exists(path):
             if exceptions and inside:
                 named.update(_around(path, exceptions, exists, children))

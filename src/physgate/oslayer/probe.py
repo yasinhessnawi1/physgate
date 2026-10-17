@@ -13,6 +13,7 @@ no OS protection at all.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -227,3 +228,32 @@ def judge_here(*, claude_version: str, search_path: str) -> Present | Absent:
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         return Absent(reason=_bounded(f"the probe could not run: {exc}"))
     return judge(facts)
+
+
+def shared_temp_dirs() -> tuple[str, ...]:
+    """The machine's shared temporary directories ordinary commands write to by name.
+
+    ``/tmp`` everywhere; on macOS also the per-user directory ``getconf
+    DARWIN_USER_TEMP_DIR`` names, which plain ``mktemp`` uses whatever ``$TMPDIR`` says.
+    """
+    found = ["/tmp"]
+    if sys.platform == "darwin":
+        try:
+            done = subprocess.run(
+                ("/usr/bin/getconf", "DARWIN_USER_TEMP_DIR"),
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=TRIAL_SECONDS,
+            )
+        except (OSError, subprocess.SubprocessError):
+            done = None
+        per_user = done.stdout.strip().rstrip("/") if done is not None else ""
+        if done is not None and done.returncode == 0 and per_user.startswith("/"):
+            found.append(per_user)
+    return tuple(found)
+
+
+def claude_temp_dirs() -> tuple[str, ...]:
+    """Claude Code's own per-user temporary directory under ``/tmp``, for this user."""
+    return (f"/tmp/claude-{os.getuid()}",)

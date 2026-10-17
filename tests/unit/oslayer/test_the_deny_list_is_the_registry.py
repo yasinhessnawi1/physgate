@@ -402,3 +402,43 @@ def test_a_path_beneath_another_named_one_is_not_named_again(tmp_path: Path) -> 
     assert common in deny
     assert not [d for d in deny if d != common and Path(d).is_relative_to(common)]
     assert not [a for a in deny if any(a != b and Path(a).is_relative_to(b) for b in deny)]
+
+
+def test_the_shared_temp_is_writable_and_claude_code_s_own_is_denied_both_ways(
+    tmp_path: Path,
+) -> None:
+    paths = _layout(tmp_path)
+    shared = tmp_path / "shared-tmp"
+    claude = shared / "claude-501"
+    claude.mkdir(parents=True)
+    policy = sandbox_policy(
+        _config(paths),
+        home=str(paths["sdir"] / "home"),
+        temp_dir=str(paths["temp"]),
+        shared_temp=(str(shared),),
+        claude_temp=(str(claude),),
+    )
+    fs = _fs(policy)
+    assert str(shared) in fs["allowWrite"]
+    assert str(claude) in fs["denyWrite"] and str(claude) in fs["denyRead"]
+
+
+def test_a_run_directory_inside_the_shared_temp_keeps_its_sessions_denied(
+    tmp_path: Path,
+) -> None:
+    # On a machine whose run directory sits under the shared /tmp, the run's sessions/
+    # would be writable with it: it is named around the session's own home instead.
+    paths = _layout(tmp_path)
+    other = paths["run"] / "sessions" / "s0"
+    other.mkdir()
+    policy = sandbox_policy(
+        _config(paths),
+        home=str(paths["sdir"] / "home"),
+        temp_dir=str(paths["temp"]),
+        shared_temp=(str(tmp_path),),
+    )
+    deny = _fs(policy)["denyWrite"]
+    for denied in (other, paths["sdir"] / "state", paths["sdir"] / "config"):
+        assert any(Path(denied).is_relative_to(d) for d in deny), denied
+    home = paths["sdir"] / "home"
+    assert not any(home.is_relative_to(d) for d in deny)

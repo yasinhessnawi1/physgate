@@ -142,12 +142,9 @@ def test_no_ordinary_command_is_refused_by_the_os_layer(tmp_path: Path) -> None:
             "rows": rows,
         },
     )
-    # Measured, and held here until a decision on the shared temporary directories: each
-    # writes outside the session's places, into the shared /tmp (a literal path, or zsh's
-    # own temporary file for a process substitution) or, on macOS, the per-user temporary
-    # directory plain ``mktemp`` uses whatever $TMPDIR says. A change in this set, either
-    # way, fails here.
-    known = {"darwin": {11, 61, 66, 67, 98}, "linux": {61, 66, 98}}.get(sys.platform, set())
+    # The shared temporary directories are writable (and Claude Code's own one in them is
+    # not), so the commands that write there by name are not refused.
+    known: set[int] = set()
     assert {r["n"] for r in refused_rows} == known, [(r["n"], r["command"]) for r in refused_rows]
 
 
