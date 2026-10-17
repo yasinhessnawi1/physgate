@@ -724,6 +724,7 @@ def preflight(root: Path, token: str, base_url: str | None) -> dict[str, Any]:
             home=sdir / "home",
             config_dir=config_dir,
             binary=claude_binary(),
+            claude_version=binary_version(),
             max_retries=0,
             max_output_tokens=PREFLIGHT_OUTPUT_TOKENS,
             base_url=base_url,

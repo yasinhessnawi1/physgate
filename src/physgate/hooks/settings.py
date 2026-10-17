@@ -39,6 +39,7 @@ from physgate.hooks.config import (
     Installation,
     Profile,
     ProtectedRoot,
+    Reads,
     SessionConfig,
     Watch,
     digest,
@@ -53,6 +54,8 @@ from physgate.hooks.reasons import SERIES_OUTBOX_REASON as SERIES_OUTBOX_REASON
 from physgate.hooks.reasons import SERIES_WRITER_REASON as SERIES_WRITER_REASON
 from physgate.hooks.reasons import STORE_REASON as STORE_REASON
 from physgate.hooks.runtime import EVENTS, HookSpec
+from physgate.oslayer.policy import sandbox_policy
+from physgate.oslayer.probe import claude_temp_dirs, shared_temp_dirs
 
 WATCHDOG_SECONDS = 5
 HOOK_TIMEOUT_SECONDS = 30
@@ -122,6 +125,20 @@ class InstallRequest(BaseModel):
     #: It must live in the session's own files or its state directory, both
     #: protected roots, so no session tool can rewrite it.
     api_key_helper: AbsolutePath | None = None
+    #: The session's own temporary directory, set where the OS layer runs: the session's
+    #: shell commands then run inside Claude Code's sandbox, writing only in the worktree,
+    #: this directory and the session's home. ``None`` where the layer does not run.
+    os_layer_temp_dir: AbsolutePath | None = None
+    #: Further places of the session's own that its shell commands read, where they sit
+    #: inside a root the OS layer keeps from them (the run's ``sessions/``): the
+    #: directory holding the run's named interpreter for this session.
+    os_layer_readable: tuple[AbsolutePath, ...] = ()
+
+
+#: The longest temporary directory Claude Code takes for a sandboxed session. A longer
+#: one is silently replaced by the per-user default, shared by every session of the
+#: user (measured on 2.1.301: 32 characters taken, 34 and more replaced).
+OS_LAYER_TEMP_LIMIT = 32
 
 
 @dataclass(frozen=True)
@@ -325,6 +342,9 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         # a record arrives, and the orchestrator collects and checks what arrived.
         str(worktree / ".physgate" / "series"): (SERIES_OUTBOX_REASON, "none"),
     }
+    # The one root the OS layer leaves to scripts: a record arrives by a script's own write,
+    # which no OS rule can tell from any other command's, and the collector judges it.
+    outbox = str(worktree / ".physgate" / "series")
     if request.profile == "role":
         # git's user configuration in the session's own home: a key written there (a hook
         # path, an alias, a program to run) holds for every later git command the session
@@ -332,6 +352,12 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         # ``$HOME/.config/git``; that directory also holds git's user attributes and ignore.
         for git_config in (home / ".gitconfig", home / ".config" / "git"):
             protected[str(git_config)] = (GIT_USER_CONFIG_REASON, "revert")
+    #: Who may read each root, for the OS layer (see ``ProtectedRoot.reads``): the
+    #: session's credentials and the hooks' records are kept from its shell commands.
+    reads: dict[str, Reads] = {
+        request.state_dir: "shell_denied",
+        request.claude_config_dir: "shell_denied",
+    }
     #: Paths that are not protected by the root they sit under, despite the
     #: string/inode tests otherwise reaching it. Only one root needs this today.
     root_exceptions: dict[str, tuple[str, ...]] = {
@@ -340,6 +366,7 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
     if request.harness_root is not None:
         for path, entry in _harness_roots(Path(request.harness_root)).items():
             protected.setdefault(path, entry)
+            reads.setdefault(path, "denied")
     for site_packages in request.harness_site_packages:
         protected.setdefault(site_packages, (HARNESS_REASON, "revert"))
         root_exceptions[site_packages] = _startup_watch(Path(site_packages))
@@ -354,11 +381,14 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
                 "none",
             ),
         )
+        reads.setdefault(path, "shell_denied")
     for path in request.held_out:
         protected.setdefault(path, (HELD_OUT_REASON, "revert"))
+        reads[path] = "denied"
     answer_keys = sorted({str(worktree / "corpora"), *request.answer_keys})
     for path in answer_keys:
         protected.setdefault(path, (ANSWER_KEY_REASON, "revert"))
+        reads[path] = "denied"
     if request.store_root is not None:
         protected[request.store_root] = (STORE_REASON, "journal")
     for path in protected:
@@ -376,7 +406,12 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         state_dir=request.state_dir,
         protected_roots=tuple(
             ProtectedRoot(
-                path=path, reason=reason, watch=watch, exceptions=root_exceptions.get(path, ())
+                path=path,
+                reason=reason,
+                watch=watch,
+                exceptions=root_exceptions.get(path, ()),
+                reads=reads.get(path, "open"),
+                shell_writes="allowed" if path == outbox else "denied",
             )
             for path, (reason, watch) in sorted(protected.items())
         ),
@@ -491,11 +526,31 @@ def install(
     settings = render_settings(
         config, str(config_path), digest(config_bytes), registry, request.api_key_helper
     )
+    spawn_env = {"CLAUDE_CONFIG_DIR": request.claude_config_dir}
+    temp = request.os_layer_temp_dir
+    if temp is not None:
+        if len(temp) > OS_LAYER_TEMP_LIMIT:
+            msg = (
+                f"the session's temporary directory ({temp}) is longer than "
+                f"{OS_LAYER_TEMP_LIMIT} characters, and Claude Code would replace it with "
+                "the directory every session of the user shares"
+            )
+            raise ValueError(msg)
+        policy = sandbox_policy(
+            config,
+            home=request.user_home,
+            temp_dir=temp,
+            readable=request.os_layer_readable,
+            shared_temp=shared_temp_dirs(),
+            claude_temp=claude_temp_dirs(),
+        )
+        settings.update(policy.settings)
+        spawn_env["CLAUDE_CODE_TMPDIR"] = temp
     settings_path = target / SETTINGS_NAME
     settings_path.write_bytes(_dump(settings))
     return Installed(
         settings_path=settings_path,
         config_path=config_path,
         spawn_args=("--setting-sources", "", "--settings", str(settings_path)),
-        spawn_env={"CLAUDE_CONFIG_DIR": request.claude_config_dir},
+        spawn_env=spawn_env,
     )

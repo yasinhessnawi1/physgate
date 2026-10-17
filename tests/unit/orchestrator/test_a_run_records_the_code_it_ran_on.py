@@ -256,6 +256,11 @@ def test_decompose_records_the_measured_harness_not_the_parameters_file_s(
     monkeypatch.setattr(orchestrator_cli, "_harness_root", lambda: harness)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-not-a-credential")
     monkeypatch.setenv("PHYSGATE_CLAUDE_BIN", str(_refusing_binary(tmp_path)))
+    # What is recorded is the subject here, not the evaluation's requirement on the OS
+    # layer, which this machine's stand-in binary predates: the next test is about that.
+    import physgate.evaluation.requirements as evaluation_requirements
+
+    monkeypatch.setattr(evaluation_requirements, "REQUIREMENTS", ())
     main(_decompose_args(tmp_path, reportable=True))  # the call itself fails: no model here
     capsys.readouterr()
     recorded = json.loads((tmp_path / "run" / "run.json").read_text())
@@ -265,6 +270,22 @@ def test_decompose_records_the_measured_harness_not_the_parameters_file_s(
         "uncommitted_sha256": None,
     }
     assert recorded["reportable"] is True
+
+
+def test_a_reportable_run_without_the_os_layer_is_refused_before_any_request_or_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    harness = checkout(tmp_path / "harness")
+    monkeypatch.setattr(orchestrator_cli, "_harness_root", lambda: harness)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-not-a-credential")
+    monkeypatch.setenv("PHYSGATE_CLAUDE_BIN", str(_refusing_binary(tmp_path)))
+    assert main(_decompose_args(tmp_path, reportable=True)) == 2
+    err = capsys.readouterr().err
+    error = json.loads(err.strip().splitlines()[-1])
+    assert error["error"] == "the run may not start"
+    assert "only inside the OS layer" in error["requirements"]
+    assert not (tmp_path / "run").exists()
+    assert not (tmp_path / "calls.txt").exists(), "the binary was called for the decomposition"
 
 
 @pytest.mark.parametrize("command", ["run", "resume"])

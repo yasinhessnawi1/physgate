@@ -88,7 +88,8 @@ alias or changes how names are looked up, after which every command is a possibl
 writer (refused where a literal word reaches a protected root, otherwise residual).
 A shell option that changes how words are read is refused, as rare. The rules are
 lists, and no list of what a command may do is complete: this is the boundary of
-what parsing alone can claim; the OS layer closes the rest.
+what parsing alone can claim; the OS layer closes the rest where it runs
+(see the README's "The OS layer").
 """
 
 from __future__ import annotations

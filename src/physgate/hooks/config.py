@@ -61,6 +61,9 @@ class Installation(BaseModel):
 #: refuse writes before they happen, because the hooks or Claude Code write it.
 Watch = Literal["revert", "journal", "halt", "log", "none"]
 
+#: Who may read a protected root, as far as the OS layer is concerned (``ProtectedRoot.reads``).
+Reads = Literal["open", "shell_denied", "denied"]
+
 
 class ProtectedRoot(BaseModel):
     """A path no agent tool may write, the reason the agent is given, and how it is watched.
@@ -79,6 +82,17 @@ class ProtectedRoot(BaseModel):
     reason: Annotated[str, StringConstraints(min_length=1)]
     watch: Watch
     exceptions: tuple[AbsolutePath, ...] = ()
+    #: Who may read it, as far as the OS layer is concerned. ``open``: anyone.
+    #: ``shell_denied``: no shell command, because it holds what the session's runtime
+    #: keeps (a credential, the hooks' own records, another session's files); the
+    #: runtime itself reads it outside the sandbox. ``denied``: no shell command and no
+    #: file tool, because no session reads it at all.
+    reads: Reads = "open"
+    #: Whether the OS layer leaves shell writes to it alone: ``allowed`` only for a root
+    #: that a script legitimately writes and whose contents something else judges (the
+    #: series outbox, whose records the collector checks). The hooks still refuse every
+    #: tool write to it.
+    shell_writes: Literal["denied", "allowed"] = "denied"
 
 
 class ExperimentRule(BaseModel):

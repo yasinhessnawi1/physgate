@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import json
 import subprocess
 from collections.abc import Callable
@@ -11,6 +12,7 @@ from typing import Any
 
 from physgate.orchestrator.budget import SessionEnd
 from physgate.orchestrator.cli import _harness_root
+from physgate.orchestrator.decompose import binary_version
 from physgate.orchestrator.git import head_of
 from physgate.orchestrator.merge import RunGit, commit_attempt, write_scope_violations
 from physgate.orchestrator.ports import (
@@ -310,6 +312,17 @@ PARAMS = {
 }
 
 
+@functools.cache
+def recorded_version() -> str:
+    """The version a run started here records: the binary this machine's tests run.
+
+    A run records the binary it started on, and every later call refuses a binary
+    that reports another; the rig's runs record the one the tests are given, so
+    the suite runs on whichever pinned binary is named, and refuses an unpinned one.
+    """
+    return binary_version()
+
+
 def config(run_id: str = "run-1") -> RunConfig:
     return RunConfig(
         run_id=run_id,
@@ -328,7 +341,7 @@ def config(run_id: str = "run-1") -> RunConfig:
             infra_retry_delays_s=(),
         ),
         token_ceiling=100_000,
-        claude_version="2.1.272",
+        claude_version=recorded_version(),
         target_head="b" * 40,
         endpoint="default",
         auth="api_key",
@@ -340,6 +353,7 @@ def config(run_id: str = "run-1") -> RunConfig:
         role_python=None,
         git_binary=None,
         escalation_backend="rules",
+        os_layer=None,
     )
 
 

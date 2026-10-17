@@ -26,7 +26,9 @@ import contextlib
 import json
 import os
 import re
+import secrets
 import shlex
+import shutil
 import stat
 import subprocess
 import sysconfig
@@ -39,6 +41,7 @@ from typing import IO, Any
 
 from pydantic import BaseModel, ConfigDict
 
+from physgate.hooks import withheld
 from physgate.hooks.config import SessionConfig
 from physgate.hooks.reading import outstanding
 from physgate.hooks.sentinel import _frozen_experiment_paths
@@ -62,7 +65,7 @@ from physgate.orchestrator.events import SessionSpawned, read_events
 from physgate.orchestrator.exceptions import AccountingError, InvocationError, OrchestratorError
 from physgate.orchestrator.git import common_dir, named_from, object_format, verified_git_dir
 from physgate.orchestrator.install import InstallFacts, build_record_path, install_facts
-from physgate.orchestrator.invocation import isolated_env, role_argv
+from physgate.orchestrator.invocation import isolated_env, role_argv, session_search_path
 from physgate.orchestrator.managed import drift, policy_limits_digest
 from physgate.orchestrator.merge import RunGit, commit_attempt
 from physgate.orchestrator.ports import (
@@ -83,10 +86,13 @@ from physgate.orchestrator.queue import DECISIONS_NAME
 from physgate.orchestrator.role_python import PROBE, require_same, session_bin
 from physgate.orchestrator.run_config import RunConfig, harness_root
 from physgate.orchestrator.trajectory import Seal, forged_tail, seal, through_first_result
+from physgate.oslayer import placeholders
+from physgate.oslayer.probe import Absent, Present, judge_here
 from physgate.reviewers.ending import SWEEPS, SessionEnd, await_session, group, stop_all
 from physgate.reviewers.packet import issued_spec_sha256
 from physgate.reviewers.places import SESSION_DIRNAME
 from physgate.series.collect import collect, empty_outbox, temporary_roots
+from physgate.series.seal import SetAside
 
 REDACTED = REDACTED_TEXT.encode()
 
@@ -859,6 +865,17 @@ def probe_interpreter(path: Path) -> dict[str, object] | None:
     return found if isinstance(found, dict) else None
 
 
+def named_in(installed: Installed, worktree: Path) -> tuple[str, ...]:
+    """The write-denied paths under ``worktree`` the session's settings name, relative to it."""
+    settings = json.loads(Path(installed.settings).read_text())
+    denied = settings.get("sandbox", {}).get("filesystem", {}).get("denyWrite", [])
+    return tuple(
+        str(Path(path).relative_to(worktree))
+        for path in denied
+        if isinstance(path, str) and Path(path).is_relative_to(worktree) and Path(path) != worktree
+    )
+
+
 class ClaudeDispatcher:
     """The loop's dispatcher over the Claude Code binary."""
 
@@ -888,6 +905,7 @@ class ClaudeDispatcher:
         self._credential = credential
         self._review_root = Path(review_root)
         self._facts: InstallFacts | None = None
+        self._os_layer: Present | Absent | None = None
         harness = harness_root()
         #: Every canary the harness's rubric promotions recorded, read once.
         self._canaries = (
@@ -902,7 +920,22 @@ class ClaudeDispatcher:
             )
         return self._facts
 
-    def _install(self, request: SessionRequest, worktree: Path, sdir: Path) -> Installed:
+    def os_layer(self) -> Present | Absent:
+        """Whether role sessions run inside the OS layer here, judged once.
+
+        Judged with the search path a session gets, since that is where the binary
+        looks for the sandbox's programs, and for the version the run recorded.
+        """
+        if self._os_layer is None:
+            self._os_layer = judge_here(
+                claude_version=self._config.claude_version,
+                search_path=session_search_path(self._binary),
+            )
+        return self._os_layer
+
+    def _install(
+        self, request: SessionRequest, worktree: Path, sdir: Path, temp: Path | None
+    ) -> Installed:
         state = sdir / "state"
         state.mkdir(parents=True)
         helper: list[str] = []
@@ -961,6 +994,14 @@ class ClaudeDispatcher:
             *always_loaded_args,
             *helper,
             *protect,
+            *(["--os-layer-temp", str(temp)] if temp is not None else []),
+            # The run's named interpreter is linked in the session's own directory, which
+            # the OS layer keeps from shell commands; its directory is opened again.
+            *(
+                ["--os-layer-readable", str(sdir / "bin")]
+                if temp is not None and self._config.role_python is not None
+                else []
+            ),
         ]
         done = subprocess.run(argv, capture_output=True, text=True, check=False)
         if done.returncode != 0:
@@ -992,8 +1033,43 @@ class ClaudeDispatcher:
         # collected) is moved aside first, so every record this session leaves is its own.
         left_over = empty_outbox(worktree, self._run.run_dir, session_id)
         sdir = self._run.run_dir / "sessions" / session_id
+        # Where the OS layer runs, the session gets a temporary directory of its own,
+        # short enough that Claude Code does not replace it with the shared default.
+        temp = Path("/tmp") / f"pg-{secrets.token_hex(6)}" if self._layer_on() else None
+        if temp is not None:
+            temp.mkdir(mode=0o700)
+        try:
+            return self._run_session(
+                request,
+                worktree,
+                sdir,
+                session_id,
+                issued,
+                temp,
+                on_spawn=on_spawn,
+                left_over=left_over,
+            )
+        finally:
+            if temp is not None:
+                shutil.rmtree(temp, ignore_errors=True)
+
+    def _layer_on(self) -> bool:
+        return isinstance(self.os_layer(), Present)
+
+    def _run_session(
+        self,
+        request: SessionRequest,
+        worktree: Path,
+        sdir: Path,
+        session_id: str,
+        issued: str | None,
+        temp: Path | None,
+        *,
+        on_spawn: SpawnHook | None,
+        left_over: tuple[SetAside, ...],
+    ) -> SessionReport:
         system_before = self.environment().system_managed
-        installed = self._install(request, worktree, sdir)
+        installed = self._install(request, worktree, sdir, temp)
         # Read before the session starts, while nothing of it can have touched the file.
         end_check = session_end_command(Path(installed.settings))
         (sdir / "home").mkdir(exist_ok=True)
@@ -1001,6 +1077,7 @@ class ClaudeDispatcher:
             home=sdir / "home",
             config_dir=sdir / "config",
             binary=self._binary,
+            claude_version=self._config.claude_version,
             max_retries=request.bounds.binary_max_retries,
             max_output_tokens=self._config.max_output_tokens,
             base_url=self._base_url,
@@ -1029,6 +1106,7 @@ class ClaudeDispatcher:
             thinking_display=self._config.thinking_display,
         )
         stdout = sdir / "stdout.jsonl"
+        before = placeholders.snapshot(str(worktree), absent=named_in(installed, worktree))
         held: list[RootsRecord] = []
 
         def while_held(pid: int, started: str) -> None:
@@ -1088,11 +1166,18 @@ class ClaudeDispatcher:
                 ended.left_running,
                 stop_done,
             )
-        # The credential is on disk only while its session runs.
-        remove_secrets(sdir / "state", sdir / "config")
-        redact(stdout, self._credential.secret)
-        # On every path, the stop confirmed or not.
-        after_stop = check_after_stop(end_check, session_id, worktree, env, sdir / "state")
+        # The session's end, in one order: the stop (above), the sentinel's check after it,
+        # the credential's removal, the placeholder sweep, the series collection, the
+        # commit. The credential is removed whatever the check did; the steps after it run
+        # only once the stop and the check have settled.
+        try:
+            # On every path, the stop confirmed or not.
+            after_stop = check_after_stop(end_check, session_id, worktree, env, sdir / "state")
+        finally:
+            # The credential is on disk only while its session runs: removed whatever the
+            # check did.
+            remove_secrets(sdir / "state", sdir / "config")
+            redact(stdout, self._credential.secret)
         # Read afresh after the check, against the record taken before the spawn: a check
         # skipped, or satisfied by a sentinel record the session's process rewrote, shows here.
         try:
@@ -1130,6 +1215,10 @@ class ClaudeDispatcher:
             )
         exit_code: int | None = ended.exit_code
         timed_out = ended.timed_out
+        # A session killed mid-command can leave the sandbox's placeholders in the
+        # worktree; they are removed before anything is committed, and recorded. What
+        # the sweep refuses, or a sweep that fails, is recorded and refuses the attempt.
+        placeholders_refused = self._sweep(worktree, before, sdir) if temp is not None else None
         captured = read_captured(stdout)
         seen = review_material_seen(stdout, self._canaries)
         sealed, tampered = captured.seal, captured.tampered
@@ -1157,6 +1246,11 @@ class ClaudeDispatcher:
             # directories these are the places it can write besides its worktree.
             writable_roots=(sdir, *temporary_roots()),
         )
+        # The held-out and answer-key tripwire, once more before the attempt is committed:
+        # a second name, a changed file or one that cannot be checked refuses the attempt.
+        session_config = SessionConfig.model_validate_json(Path(installed.config).read_bytes())
+        _, problems = withheld.survey((*session_config.held_out, *session_config.answer_keys))
+        withheld_problems = "; ".join(problems) if problems else None
         commit = (
             commit_attempt(
                 worktree, request.subtask_id, request.attempt, session_id, repo=self._run.repo
@@ -1194,7 +1288,23 @@ class ClaudeDispatcher:
             review_material_seen=seen,
             issued_spec_sha256=issued,
             series=series,
+            placeholders_refused=placeholders_refused,
+            withheld_problems=withheld_problems,
         )
+
+    @staticmethod
+    def _sweep(worktree: Path, before: placeholders.Snapshot, sdir: Path) -> str | None:
+        """Sweep the worktree's placeholders; say what was refused, if anything was."""
+        try:
+            swept = placeholders.sweep(str(worktree), before)
+        except OSError as exc:
+            swept = placeholders.Swept(refused=[(".", f"the sweep failed: {exc}")])
+        if swept.removed or swept.refused:
+            kept = {"removed": swept.removed, "refused": swept.refused}
+            (sdir / "sandbox_placeholders.json").write_text(json.dumps(kept))
+        if not swept.refused:
+            return None
+        return "; ".join(f"{path}: {why}" for path, why in swept.refused)
 
     def stop_leftovers(self) -> list[Leftover]:
         """Stop every session a previous orchestrator left running, before anything else.

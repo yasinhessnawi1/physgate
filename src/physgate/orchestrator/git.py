@@ -751,6 +751,7 @@ def add_worktree(repo: Path, path: Path, branch: str, start: str) -> None:
         if current != branch:
             msg = "a worktree exists at the path on another branch"
             raise GitError(msg, path=str(path), branch=current, expected=branch)
+        worktree_config_files(admin)
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     pinned = verified_git_dir(repo, linked=False)
@@ -758,6 +759,29 @@ def add_worktree(repo: Path, path: Path, branch: str, start: str) -> None:
         git(repo, "worktree", "add", "--quiet", str(path), branch, git_dir=pinned)
     else:
         git(repo, "worktree", "add", "--quiet", "-b", branch, str(path), start, git_dir=pinned)
+    worktree_config_files(verified_git_dir(path, linked=True, common=pinned.common))
+
+
+#: The per-worktree configuration file git reads only with ``extensions.worktreeConfig`` set.
+WORKTREE_CONFIG = "config.worktree"
+
+
+def worktree_config_files(admin: GitDir) -> None:
+    """Make the common directory's and this worktree's ``config.worktree``, empty, if absent.
+
+    Claude Code's Linux sandbox makes these files itself, empty, the first time a session
+    runs in a linked worktree (measured on 2.1.301), in the protected git directory a
+    session must not change. Made here first, by the harness, they are part of what every
+    session's record holds from its start, so the sandbox finds them and makes nothing, and
+    a session that changes one is still caught. An empty file configures nothing, and git
+    reads none at all while ``extensions.worktreeConfig`` is unset.
+    """
+    for directory in (admin.common, admin.path):
+        target = directory / WORKTREE_CONFIG
+        if os.path.lexists(target):
+            continue
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+        os.close(os.open(target, flags, 0o644))
 
 
 def nested_git(worktree: Path) -> Path | None:

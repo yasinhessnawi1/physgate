@@ -49,6 +49,7 @@ from physgate.orchestrator.invocation import (
 from physgate.orchestrator.managed import (
     ObservedTraffic,
     drift,
+    flags_off_by_setting,
     observe_traffic,
     policy_limits_digest,
     system_managed_facts,
@@ -72,6 +73,7 @@ FailureCause = Literal[
     "model_mismatch",
     "api_error",
     "credential_refused",
+    "sandbox_unavailable",
     "schema_refused",
     "managed_settings_changed",
     "wall_clock",
@@ -377,6 +379,7 @@ def call(
         home=workdir / "home",
         config_dir=workdir / "config",
         binary=binary,
+        claude_version=reported,
         max_retries=config.bounds.binary_max_retries,
         max_output_tokens=config.max_output_tokens,
         base_url=base_url,
@@ -403,7 +406,9 @@ def call(
         exit_code, timed_out = None, True
     finally:
         remove_secrets(workdir / "state", workdir / "config")
-        observed = read_debug_log(workdir / DEBUG_LOG)
+        observed = read_debug_log(
+            workdir / DEBUG_LOG, flags_off_by_setting=flags_off_by_setting(reported, env)
+        )
     (workdir / "stdout.jsonl").write_text(stdout.replace(credential.secret, REDACTED_TEXT))
     result, usage, answered = read_stream(stdout)
     require_matching_totals(result, usage)
@@ -439,7 +444,7 @@ def call(
     )
 
 
-def read_debug_log(path: Path) -> ObservedTraffic:
+def read_debug_log(path: Path, *, flags_off_by_setting: bool = False) -> ObservedTraffic:
     """What the call's debug log says about the catalog and the flags; the log is removed.
 
     The log is the binary's own and may hold anything the call saw, a credential
@@ -452,7 +457,7 @@ def read_debug_log(path: Path) -> ObservedTraffic:
         text = ""
     finally:
         path.unlink(missing_ok=True)
-    return observe_traffic(text)
+    return observe_traffic(text, flags_off_by_setting=flags_off_by_setting)
 
 
 def require_fresh(run_dir: Path) -> None:

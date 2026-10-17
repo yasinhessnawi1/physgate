@@ -382,6 +382,20 @@ code {
   border-color: var(--color-border);
 }
 
+/* The OS layer: present reads like an enforced gate; absent or unrecorded is dashed, never
+   filled like a present layer. */
+.os-layer-present {
+  color: var(--color-gate-on-text);
+  background: var(--color-gate-on-bg);
+}
+
+.os-layer-absent,
+.os-layer-unrecorded {
+  color: var(--color-unchecked);
+  background: transparent;
+  border: 1px dashed var(--color-unchecked-border);
+}
+
 /* An observe-mode result: dashed outline, never a filled pass or fail. */
 .observed {
   color: var(--color-observe);

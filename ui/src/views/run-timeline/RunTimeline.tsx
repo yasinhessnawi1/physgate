@@ -234,6 +234,7 @@ export default function RunTimeline({ setHeader, query }: ViewProps) {
         title: "Run timeline",
         source: runSource(config.value),
         gateMode: config.value.gateMode,
+        osLayer: config.value.osLayer,
       });
   }, [config, setHeader]);
   if (runs === null) return <LoadingState reading="the run list" />;

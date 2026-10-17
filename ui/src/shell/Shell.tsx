@@ -1,6 +1,7 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 
 import { GateModeBadge } from "../design/components/GateMode";
+import { OsLayerBadge } from "../design/components/OsLayer";
 import { InProgressBadge } from "../design/components/Figure";
 import { SourceChip } from "../design/components/SourceChip";
 import { EmptyState, LoadingState } from "../design/components/States";
@@ -147,6 +148,7 @@ export function Shell({ views }: { views: readonly ViewDef[] }) {
           <div className="topbar-badges">
             {header.source !== undefined && <SourceChip source={header.source} />}
             {header.gateMode !== undefined && <GateModeBadge mode={header.gateMode} />}
+            {header.osLayer !== undefined && <OsLayerBadge layer={header.osLayer} />}
             {header.inProgress === true && <InProgressBadge />}
           </div>
         </header>

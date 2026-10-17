@@ -166,3 +166,27 @@ def test_a_resume_under_another_auth_mode_is_refused(tmp_path: Path) -> None:
     with pytest.raises(RunConfigError) as caught:
         require_recorded(path, make_config(auth="api_key"))
     assert caught.value.context["changed"] == "auth"
+
+
+def test_the_os_layer_s_state_is_recorded_and_an_older_run_keeps_its_digest(
+    tmp_path: Path,
+) -> None:
+    from orch_helpers import make_config
+
+    from physgate.oslayer.probe import Absent, Present
+
+    older = make_config()
+    assert older.os_layer is None and b"os_layer" not in older.canonical_bytes()
+    for state in (
+        Present(mechanism="seatbelt", claude_version="2.1.301"),
+        Absent(reason="native Windows: no sandbox", no_os_protection=True),
+    ):
+        config = older.model_copy(update={"os_layer": state})
+        assert b"os_layer" in config.canonical_bytes()
+        assert config.sha256() != older.sha256()
+        path = tmp_path / f"{state.state}.json"
+        path.write_bytes(config.canonical_bytes())
+        assert load_run_config(path) == config
+    legacy = tmp_path / "legacy.json"
+    legacy.write_bytes(older.canonical_bytes())
+    assert load_run_config(legacy).os_layer is None

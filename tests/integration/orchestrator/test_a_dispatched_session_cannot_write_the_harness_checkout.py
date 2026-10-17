@@ -149,6 +149,7 @@ def test_a_dispatched_session_plants_nothing_in_the_harness(
         planted = [p for p in (by_tool, by_assigned, by_interpreter) if p.exists()]
         assert planted == [], f"a session planted {planted} in the harness checkout"
         stream = next((run_dir / "sessions").glob("*/stdout.jsonl")).read_text()
+        settings = next((run_dir / "sessions").glob("*/session/settings.json")).read_text()
         assert HARNESS_REASON in stream, "the Write was not refused for the harness's reason"
         refused = _result_of(stream, f"b={assigned_tail};")
         assert refused is not None, "the assigned-path command left no result"
@@ -157,14 +158,21 @@ def test_a_dispatched_session_plants_nothing_in_the_harness(
         assert refused[0], "the assigned-path command ran; the shell layer did not refuse it"
         assert f"redirects output into {by_assigned}, which is protected" in refused[1]
         ran = _result_of(stream, f"b={tail};")
-        assert ran is not None and not ran[0], "the run-time write was refused, not put back"
-        assert "put back" in stream, "the sentinel did not report putting anything back"
+        assert ran is not None, "the run-time write left no result"
+        if '"sandbox"' not in settings:
+            assert not ran[0], "the run-time write was refused, not put back"
+            assert "put back" in stream, "the sentinel did not report putting anything back"
+        # Inside the OS layer the run-time write never lands, so nothing is put back: Seatbelt
+        # refuses it, and bubblewrap lets it land in the empty layer it lays over a directory
+        # no shell command may read, which is gone when the command ends (``planted`` above).
         worktree_markers = list((run_dir / "worktrees").rglob("ran.txt"))
         attempts = (run_dir / "events.jsonl").read_text()
         # The interpreter's command ran: its marker was committed with the attempt,
         # or the attempt was refused for leaving it outside the module. Either way
-        # it is in the run's records, not only on a worktree that may be removed.
-        assert worktree_markers or "ran.txt" in attempts
+        # it is in the run's records, not only on a worktree that may be removed. Inside
+        # the OS layer on macOS the write itself fails, and the marker after it is not made.
+        if '"sandbox"' not in settings:
+            assert worktree_markers or "ran.txt" in attempts
     finally:
         for path in (by_tool, by_assigned, by_interpreter):
             path.unlink(missing_ok=True)

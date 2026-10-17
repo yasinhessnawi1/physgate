@@ -539,3 +539,37 @@ def test_the_parameters_are_the_recorded_run_s_without_what_decompose_measures(
     params = plan.params()
     assert set(params) == set(RunConfig.model_fields) - MEASURED
     assert params["models"]["reviewers"] == {"electrical": "claude-opus-5-5"}
+
+
+def test_an_exact_rerun_of_a_run_recorded_before_the_os_layer_is_not_handed_one(
+    tmp_path: Path, brief: Path
+) -> None:
+    """``os_layer`` is measured where the rerun runs, never passed on from the recorded run.
+
+    The recorded run predates the field: its configuration holds no ``os_layer``. The
+    parameters the rerun is driven with name none, and the exact comparison does not
+    part on the configuration.
+    """
+    repo = target_repo(tmp_path)
+    run = recorded(tmp_path, repo, overrides={"os_layer": None})
+    assert "os_layer" not in json.loads((run / "run.json").read_text())
+    handed: list[dict[str, Any]] = []
+    drive_it = fake_driver(tmp_path / ELSEWHERE, repo)
+
+    def driver(plan: RerunPlan) -> None:
+        handed.append(plan.params())
+        drive_it(plan)
+
+    result = rerun(
+        run,
+        brief=brief,
+        run_id="run-r",
+        run_dir=tmp_path / ELSEWHERE / "run-r",
+        target=repo,
+        install=tmp_path / "install",
+        review_root=tmp_path / "review-scratch",
+        driver=driver,
+    )
+    assert [("os_layer" in params) for params in handed] == [False]
+    assert result.level == "exact" and result.reproduced
+    assert result.exact["config"] is None

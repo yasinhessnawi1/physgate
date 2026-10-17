@@ -133,6 +133,7 @@ describe("a run is read against another only of the same brief and seed", () => 
       briefSha256: brief,
       seed,
       roleModels: {},
+      osLayer: null,
     };
   }
   const chosen = config("on", "on");
@@ -179,6 +180,7 @@ describe("the paired run is drawn in its own mode", () => {
       briefSha256: "a",
       seed: 7,
       roleModels: {},
+      osLayer: null,
     };
   }
 

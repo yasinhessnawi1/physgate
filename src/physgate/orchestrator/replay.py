@@ -56,6 +56,7 @@ from physgate.orchestrator.events import (
     LeftoverStopped,
     Merged,
     NodeFilesRepaired,
+    OsLayerChecked,
     ProposalsChecked,
     Resumed,
     ReviewRan,
@@ -222,7 +223,13 @@ class RunState:
             self.halted = event
             return
         if isinstance(
-            event, LeftoverStopped | LeftoverRead | TokensUsed | InstallChecked | SessionSpawned
+            event,
+            LeftoverStopped
+            | LeftoverRead
+            | TokensUsed
+            | InstallChecked
+            | SessionSpawned
+            | OsLayerChecked,
         ):
             return  # recorded at any time, a halted run's resume included
         if isinstance(event, WorktreeRemoved):

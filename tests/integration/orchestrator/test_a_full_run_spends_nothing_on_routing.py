@@ -30,6 +30,7 @@ from physgate.orchestrator.decompose import mint_id
 from physgate.orchestrator.events import (
     InstallChecked,
     Merged,
+    OsLayerChecked,
     TokensUsed,
     WorktreeRemoved,
     read_events,
@@ -125,6 +126,7 @@ def test_decompose_run_and_resume_through_the_command_with_routing_at_zero(
         capsys.readouterr()
         recorded = json.loads((run_dir / "run.json").read_text())
         assert (recorded["endpoint"], recorded["auth"]) == (url, "api_key")
+        recorded_layer = recorded["os_layer"]
         assert DUMMY_KEY not in (run_dir / "run.json").read_text()
 
         subtask = mint_id(7, 0, "power")
@@ -174,6 +176,11 @@ def test_decompose_run_and_resume_through_the_command_with_routing_at_zero(
     checks = [e for e in events if isinstance(e, InstallChecked)]
     assert [(c.path, c.action) for c in checks] == [(str(install), "checked")] * 2
     assert all(c.entries > 1000 and 0 <= c.seconds < 60 for c in checks)
+    # The OS layer's state, measured at decomposition into the manifest and again at the
+    # run and at its resume, on one machine: the same each time.
+    layers = [e for e in events if isinstance(e, OsLayerChecked)]
+    assert len(layers) == 2 and all(e.as_recorded is True for e in layers)
+    assert recorded_layer == layers[0].state.model_dump(mode="json")
     account = TokenAccount.from_events(events)
     account.assert_no_routing()
     assert account.decomposition_invocations() == 1

@@ -70,6 +70,7 @@ MEASURED = frozenset(
         "endpoint",
         "harness",
         "git_binary",
+        "os_layer",
     }
 )
 

@@ -5,11 +5,13 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 
+from physgate.evaluation import requirements as evaluation_requirements
 from physgate.evaluation.inject import cli as inject_cli
 from physgate.evaluation.observe import cli as observe_cli
 from physgate.hooks import cli as hooks_cli
 from physgate.knowledge import cli as knowledge_cli
 from physgate.orchestrator import cli as orchestrator_cli
+from physgate.orchestrator import requirements
 from physgate.ui import cli as ui_cli
 
 
@@ -22,6 +24,9 @@ def main(
     ``registrations`` is for tests; the command itself runs with the orchestrator's
     default registrations.
     """
+    # The evaluation's conditions on a run, registered here, at the composition root:
+    # the core states none of its own, and runs without them where there is no evaluation.
+    requirements.register(evaluation_requirements.REQUIREMENTS)
     parser = argparse.ArgumentParser(prog="physgate")
     subparsers = parser.add_subparsers(dest="command", required=True)
     hooks_cli.add_parser(subparsers)

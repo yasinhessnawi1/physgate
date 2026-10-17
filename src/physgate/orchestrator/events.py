@@ -56,6 +56,7 @@ from physgate.orchestrator.protocols import (
 )
 from physgate.orchestrator.repair import Finding
 from physgate.orchestrator.trajectory import Seal
+from physgate.oslayer.probe import OsLayerState
 from physgate.series.seal import SeriesCheck, SessionSeries
 
 #: The eight stages of the per-subtask loop, in the architecture's order (ARCH-030).
@@ -81,17 +82,26 @@ IncidentCause = Literal[
     "run_branch_moved",
     "trajectory_tampered",
     "review_material_read",
+    "placeholder_refused",
+    "withheld_file_unsure",
 ]
 
 #: Why a run stopped short of the end of its plan.
 HaltReason = Literal[
-    "incident", "infrastructure_exhausted", "credential_refused", "decomposition_failed"
+    "incident",
+    "infrastructure_exhausted",
+    "credential_refused",
+    "decomposition_failed",
+    "os_layer_unavailable",
 ]
 
 #: Halts a resume continues from, the same attempt with a fresh schedule: the
-#: infrastructure schedule ran out, or the credential was refused and has since
-#: been replaced. Any other halt is resolved by a person first.
-RESUMABLE_HALTS: frozenset[str] = frozenset({"infrastructure_exhausted", "credential_refused"})
+#: infrastructure schedule ran out, the credential was refused and has since been
+#: replaced, or the OS layer would not start and has since been repaired. Any other
+#: halt is resolved by a person first.
+RESUMABLE_HALTS: frozenset[str] = frozenset(
+    {"infrastructure_exhausted", "credential_refused", "os_layer_unavailable"}
+)
 
 #: Who spent a token: ``<what>:<invocation id>``. The invocation id is the Claude Code
 #: session id of the one call, so decomposition invocations can be counted.
@@ -522,6 +532,20 @@ class InstallChecked(_Event):
     entries: Annotated[int, Field(ge=0)]
 
 
+class OsLayerChecked(_Event):
+    """Where this process runs the run's sessions, whether the OS layer runs, and if not why.
+
+    Recorded at every run and resume before anything is spawned. ``as_recorded`` says
+    whether the state is the one the run's configuration recorded when it was set up
+    (``None`` for a run recorded before that was measured); a run that moves between
+    machines says so here rather than silently.
+    """
+
+    kind: Literal["os_layer_checked"] = "os_layer_checked"
+    state: OsLayerState
+    as_recorded: bool | None
+
+
 class LeftoverStopped(_Event):
     """A session a previous orchestrator left running was found and stopped.
 
@@ -622,6 +646,7 @@ Event = Annotated[
     | Decomposed
     | EnvironmentRecorded
     | InstallChecked
+    | OsLayerChecked
     | LeftoverStopped
     | SessionSpawned
     | LeftoverRead

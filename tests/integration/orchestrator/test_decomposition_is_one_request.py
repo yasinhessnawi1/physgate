@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from git_rig import PARAMS, config, target_repo
+from git_rig import PARAMS, config, recorded_version, target_repo
 from knowledge_fixture import build_fixture_library
 from scripted_endpoint import (  # noqa: E402
     DUMMY_KEY,
@@ -213,7 +213,7 @@ def test_the_decompose_command_twice_with_one_seed_gives_one_set_of_ids(
     assert printed[2][0] == 2 and "already holds a run" in printed[2][2]
     assert "remove it by hand" in printed[2][2]
     recorded = json.loads((tmp_path / "a" / "run" / "run.json").read_text())
-    assert recorded["claude_version"] == "2.1.272"
+    assert recorded["claude_version"] == recorded_version()
     assert len(api.requests) == 2
 
 
@@ -395,6 +395,12 @@ def test_the_call_s_debug_log_is_read_for_the_catalog_and_flags_and_then_removed
     seen = outcome.observed_traffic
     assert seen is not None and seen.all_off()
     assert seen.served_catalog_reason == "essential_traffic"
+    # The flags are seen off on a version that reports them, and are off by the
+    # documented setting, recorded as such, on one that does not.
+    from physgate.orchestrator.managed import FLAGS_OFF_BY_SETTING, FLAGS_SILENT_VERSIONS
+
+    silent = recorded_version() in FLAGS_SILENT_VERSIONS
+    assert seen.feature_flags == (FLAGS_OFF_BY_SETTING if silent else "off")
     (decomposed,) = [e for e in read_events(run_dir / "events.jsonl") if isinstance(e, Decomposed)]
     assert decomposed.observed_traffic == seen
     assert not (run_dir / "decomposition" / "debug.log").exists()
@@ -409,7 +415,7 @@ def test_a_catalog_or_flags_not_reported_off_fail_the_call(
 
     real = decompose_module.read_debug_log
 
-    def flags_on(path: Path) -> ObservedTraffic:
+    def flags_on(path: Path, **_: bool) -> ObservedTraffic:
         real(path)  # read and removed as usual; then reported as the flags being on
         return ObservedTraffic(
             served_catalog="off", served_catalog_reason=None, feature_flags="not reported off"

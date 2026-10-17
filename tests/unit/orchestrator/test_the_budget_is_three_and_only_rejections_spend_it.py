@@ -126,3 +126,23 @@ def test_a_refused_credential_is_its_own_cause(status: int | None, cause: str) -
     }
     got = classify_session_end(measured, exit_code=1, stopped_at_wall_clock=False)
     assert got == SessionEnd(outcome="infrastructure", cause=cause)  # type: ignore[arg-type]
+
+
+def test_a_session_whose_required_sandbox_would_not_start_is_its_own_cause() -> None:
+    # Measured on 2.1.301 on Linux without bubblewrap, sandbox required: exit 1, no request.
+    measured = {
+        "type": "result",
+        "subtype": "error_during_execution",
+        "is_error": True,
+        "num_turns": 0,
+        "errors": [
+            "Sandbox required but unavailable: sandbox is enabled but dependencies are "
+            "missing: bubblewrap (bwrap) not installed, socat not installed"
+        ],
+    }
+    got = classify_session_end(measured, exit_code=1, stopped_at_wall_clock=False)
+    assert got == SessionEnd(outcome="infrastructure", cause="sandbox_unavailable")
+    other = {**measured, "errors": ["something else went wrong"]}
+    assert classify_session_end(other, exit_code=1, stopped_at_wall_clock=False).cause == (
+        "unexpected_exit"
+    )

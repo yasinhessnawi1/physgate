@@ -4,6 +4,7 @@
  * not shown.
  */
 import type { GateMode } from "../design/components/GateMode";
+import type { OsLayer } from "../design/components/OsLayer";
 import type { Verdict } from "../design/components/VerdictBadge";
 import type { Quantity } from "../design/quantity";
 import { requireQuantity } from "../design/quantity";
@@ -35,12 +36,34 @@ function gateMode(value: unknown): GateMode {
   throw new ShapeError("a gate mode");
 }
 
+function osLayer(value: unknown): OsLayer | null {
+  if (value === null || value === undefined) return null;
+  const layer = object(value, "an OS layer state");
+  if (layer.state === "present") {
+    const mechanism = layer.mechanism;
+    if (mechanism !== "seatbelt" && mechanism !== "bubblewrap") {
+      throw new ShapeError("an OS layer mechanism");
+    }
+    return { state: "present", mechanism };
+  }
+  if (layer.state === "absent") {
+    return {
+      state: "absent",
+      reason: text(layer.reason, "an OS layer reason"),
+      noOsProtection: layer.no_os_protection === true,
+    };
+  }
+  throw new ShapeError("an OS layer state");
+}
+
 export interface RunListing {
   readonly root: number;
   readonly name: string;
   readonly runId: string | null;
   readonly manifestId: string | null;
   readonly gateMode: GateMode | null;
+  /** ``null`` for a run recorded before the OS layer was measured, or an unreadable one. */
+  readonly osLayer: OsLayer | null;
   readonly error: string | null;
 }
 
@@ -56,6 +79,7 @@ export function runListing(value: unknown): readonly RunListing[] {
       runId: failed ? null : text(run.run_id, "a run id"),
       manifestId: failed ? null : text(run.manifest_id, "a manifest id"),
       gateMode: failed ? null : gateMode(run.gate_mode),
+      osLayer: failed ? null : osLayer(run.os_layer),
       error: failed ? text(run.error, "a refusal") : null,
     };
   });
@@ -72,6 +96,8 @@ export interface RunConfig {
   readonly seed: number;
   /** The model each role's sessions ran on, by role, as the run recorded it. */
   readonly roleModels: Readonly<Record<string, string>>;
+  /** Whether the run's role sessions ran inside the OS layer; ``null`` if not recorded. */
+  readonly osLayer: OsLayer | null;
 }
 
 export function runConfig(value: unknown): RunConfig {
@@ -93,6 +119,7 @@ export function runConfig(value: unknown): RunConfig {
         text(m, "a model string"),
       ]),
     ),
+    osLayer: osLayer(config.os_layer),
   };
 }
 

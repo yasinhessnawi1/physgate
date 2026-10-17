@@ -56,6 +56,7 @@ export default function ApprovalQueue({ setHeader, query }: ViewProps) {
         title: "Approval queue",
         source: runSource(config.value),
         gateMode: config.value.gateMode,
+        osLayer: config.value.osLayer,
       });
   }, [config, setHeader]);
 

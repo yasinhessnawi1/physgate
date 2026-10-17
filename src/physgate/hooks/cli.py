@@ -70,6 +70,17 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
         help="a further place only reviewers read, withheld from every other session",
     )
     p.add_argument("--api-key-helper", help="a script printing the API key, named in the settings")
+    p.add_argument(
+        "--os-layer-readable",
+        action="append",
+        default=[],
+        help="a place of the session's own its shell commands read, inside a withheld root",
+    )
+    p.add_argument(
+        "--os-layer-temp",
+        help="the session's own temporary directory: its shell commands run inside the OS "
+        "layer (Claude Code's sandbox), writing only there, in the worktree and in its home",
+    )
     p.set_defaults(func=_install)
 
 
@@ -100,6 +111,8 @@ def _install(args: argparse.Namespace) -> int:
         api_key_helper=_abs(args.api_key_helper) if args.api_key_helper else None,
         harness_root=_abs(args.harness) if args.harness else None,
         harness_site_packages=tuple(_abs(p) for p in args.harness_site_packages),
+        os_layer_temp_dir=_abs(args.os_layer_temp) if args.os_layer_temp else None,
+        os_layer_readable=tuple(_abs(p) for p in args.os_layer_readable),
     )
     done = install(request, REGISTRY)
     print(

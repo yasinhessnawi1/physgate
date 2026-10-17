@@ -6,6 +6,7 @@
 import { getJson, type Result } from "../../api/client";
 import { type RunConfig, runConfig, type RunListing, runListing } from "../../api/records";
 import { GateModeBadge } from "../../design/components/GateMode";
+import { OsLayerBadge } from "../../design/components/OsLayer";
 import type { Source } from "../../design/components/SourceChip";
 import type { AreaId } from "../../shell/areas";
 import { hrefFor } from "../../shell/route";
@@ -95,6 +96,7 @@ export function RunPicker({
               <span className="run-where mono">{whereLabel(run, runs)}</span>
             )}
             {run.gateMode !== null && <GateModeBadge mode={run.gateMode} />}
+            {run.error === null && <OsLayerBadge layer={run.osLayer} />}
             {run.error !== null && <span className="muted">unreadable: {run.error}</span>}
           </a>
         );

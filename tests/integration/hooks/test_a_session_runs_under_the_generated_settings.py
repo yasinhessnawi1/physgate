@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 from fake_messages_api import FakeMessagesApi, Recorded, Script, text, tool
 from hook_session import (
+    PINNED_VERSION,
     HarnessError,
     SessionRun,
     check_the_run_means_something,
@@ -71,7 +72,7 @@ def test_the_harness_refuses_any_binary_but_the_pinned_version(
     fake.write_text("#!/bin/sh\necho '9.9.9 (Claude Code)'\n")
     fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
     monkeypatch.setenv("PHYSGATE_CLAUDE_BIN", str(fake))
-    with pytest.raises(HarnessError, match="measured on 2.1.272"):
+    with pytest.raises(HarnessError, match=f"measured on {PINNED_VERSION}"):
         claude_binary()
 
 

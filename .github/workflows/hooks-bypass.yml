@@ -73,3 +73,71 @@ jobs:
         # name outside the protected installation.
         if: always()
         run: uv run python tests/integration/hooks/measure_latency.py latency.json
+
+  os-layer:
+    # The OS layer on Linux: Claude Code's sandbox runs each shell command of a role
+    # session inside bubblewrap. Measured here, on a virtual machine where the two
+    # programs it needs can be installed, because the shared development server runs
+    # sessions in a container that refuses the mounts bubblewrap makes. The same tests
+    # run on macOS on the development machine. Nothing here calls a model: the sessions
+    # run against the scripted local stand-in for the API, as in the job above.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: "0.12.17"
+          enable-cache: true
+
+      - name: Install Node
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "22"
+
+      - name: Create the environment from the lockfile
+        run: uv sync --frozen
+
+      - name: Install the pinned Claude Code binary from its lockfile
+        working-directory: tests/integration/hooks/claude-code
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Install the sandbox's two programs, and let bubblewrap make its namespaces
+        # The two packages the documentation names, and the AppArmor profile it gives for
+        # Ubuntu 24.04, which otherwise keeps bubblewrap from creating user namespaces.
+        # sqlite3 and cmake are for the commands the tests run, not for the sandbox.
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q bubblewrap socat sqlite3 cmake
+          printf '%s\n' 'abi <abi/4.0>,' 'include <tunables/global>' \
+            'profile bwrap /usr/bin/bwrap flags=(unconfined) {' '  userns,' '}' \
+            | sudo tee /etc/apparmor.d/bwrap > /dev/null
+          sudo apparmor_parser -r /etc/apparmor.d/bwrap
+          bwrap --unshare-user --unshare-pid --unshare-net --ro-bind / / --dev /dev \
+            --proc /proc /bin/true && echo "bubblewrap starts here"
+
+      - name: The OS layer through the real binary, its probes and the ordinary commands
+        env:
+          PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/claude-code/node_modules/@anthropic-ai/claude-code-linux-x64/claude
+          PHYSGATE_OSLAYER_REPORT: ${{ github.workspace }}/oslayer-report
+        run: >
+          uv run pytest -q -rs -m integration
+          tests/integration/hooks/test_a_role_session_runs_inside_the_os_layer.py
+          tests/integration/hooks/test_the_os_layer_refuses_no_ordinary_command.py
+          tests/integration/orchestrator/test_a_session_is_dispatched_under_the_hooks.py
+          tests/integration/orchestrator/test_a_full_run_spends_nothing_on_routing.py
+          tests/integration/orchestrator/test_a_dispatched_session_cannot_write_the_harness_checkout.py
+
+      - name: What the layer refused, and what it cost
+        if: always()
+        run: cat oslayer-report/*.json || echo "no report was written"
+
+      - name: What any session's end found after its stop, where it did not settle
+        if: always()
+        run: |
+          find /tmp/pytest-of-* -name after_stop.json -print -exec cat {} \; 2>/dev/null \
+            | head -60 || true
+          find /tmp/pytest-of-* -name config.worktree -exec ls -la {} \; 2>/dev/null \
+            | head -20 || true

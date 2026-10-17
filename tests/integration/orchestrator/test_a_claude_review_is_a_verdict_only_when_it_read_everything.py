@@ -229,6 +229,7 @@ def _config(version: str) -> RunConfig:
         role_python=None,
         git_binary=None,
         escalation_backend="rules",
+        os_layer=None,
     )
 
 

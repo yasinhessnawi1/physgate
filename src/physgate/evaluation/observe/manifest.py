@@ -52,6 +52,13 @@ class _Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
 
+class DecompositionDefaults(_Frozen):
+    """Where a version's decomposition request differs from its role sessions' requests."""
+
+    thinking: dict[str, Any]
+    anthropic_beta: tuple[str, ...]
+
+
 class BinaryDefaults(_Frozen):
     """What the pinned binary sends that no run setting pins: constants of its version."""
 
@@ -61,6 +68,8 @@ class BinaryDefaults(_Frozen):
     context_management: dict[str, Any]
     anthropic_beta: tuple[str, ...]
     measured: str
+    #: ``None`` where the decomposition request carries the same fields as a session's.
+    decomposition: DecompositionDefaults | None = None
 
 
 #: Measured at the scripted endpoint on 27.09.2026, identical across the decomposition
@@ -117,6 +126,53 @@ BINARY_DEFAULTS: dict[str, BinaryDefaults] = {
             "captured through tests/integration/orchestrator/real_rerun.py --dry-run "
             "(the oauth-shaped subscription path with the full hook layer active), "
             "not the bare argv probe first used for this version"
+        ),
+    ),
+    #: Measured at the scripted endpoint on 16.10.2026 through the same dry run, on the
+    #: linux-x64 build (11 requests: the decomposition call and ten role-session
+    #: requests). Unlike the earlier versions, the decomposition request differs from
+    #: the sessions': it carries a thinking display of ``updates``, which no run
+    #: setting names because the decomposition call passes no display, and three more
+    #: beta flags. A session's thinking display is the run's own ``thinking_display``
+    #: and is not recorded here; the rest of its thinking field is.
+    "2.1.301": BinaryDefaults(
+        claude_version="2.1.301",
+        thinking={"type": "adaptive"},
+        context_management={"edits": [{"type": "clear_thinking_20251015", "keep": "all"}]},
+        anthropic_beta=(
+            "claude-code-20250219",
+            "context-management-2025-06-27",
+            "effort-2025-11-24",
+            "extended-cache-ttl-2025-04-11",
+            "interleaved-thinking-2025-05-14",
+            "mid-conversation-tool-changes-2026-07-01",
+            "oauth-2025-04-20",
+            "per-turn-control-2026-07-01",
+            "prompt-caching-scope-2026-01-05",
+            "thinking-token-count-2026-05-13",
+        ),
+        measured=(
+            "request bodies at the scripted endpoint, Claude Code 2.1.301 (linux-x64), "
+            "16.10.2026, captured through tests/integration/orchestrator/real_rerun.py "
+            "--dry-run (the oauth-shaped subscription path with the full hook layer active)"
+        ),
+        decomposition=DecompositionDefaults(
+            thinking={"type": "adaptive", "display": "updates"},
+            anthropic_beta=(
+                "afk-mode-2026-01-31",
+                "claude-code-20250219",
+                "context-management-2025-06-27",
+                "dangerous-tool-use-2026-09-03",
+                "effort-2025-11-24",
+                "extended-cache-ttl-2025-04-11",
+                "interleaved-thinking-2025-05-14",
+                "mid-conversation-tool-changes-2026-07-01",
+                "oauth-2025-04-20",
+                "per-turn-control-2026-07-01",
+                "prompt-caching-scope-2026-01-05",
+                "thinking-display-updates-2026-08-18",
+                "thinking-token-count-2026-05-13",
+            ),
         ),
     ),
 }
