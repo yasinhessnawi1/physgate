@@ -13,6 +13,7 @@ import hashlib
 import json
 from pathlib import Path
 
+from left_session import INSTALL_BIN, sentinel_installed, spawn_logged
 from loop_fakes import FakeDispatcher, Rig, plan
 
 from physgate.orchestrator.accounting import TokenAccount
@@ -57,8 +58,12 @@ def _left(run_dir: Path, session: str, lines: list[str]) -> Path:
     sdir = run_dir / "sessions" / session
     sdir.mkdir(parents=True)
     # A process that is not running: the session finished while its orchestrator was down.
-    record = {"pid": 999_999, "started": "Mon Jan  1 00:00:00 2001", "session_id": session}
+    # Its spawn is on the record and its sentinel had taken its own, as in a real run.
+    started = "Mon Jan  1 00:00:00 2001"
+    record = {"pid": 999_999, "started": started, "session_id": session}
     (sdir / "process.json").write_text(json.dumps(record))
+    spawn_logged(run_dir, [(session, 999_999, started)])
+    sentinel_installed(sdir, run_dir / "guarded")
     stream = sdir / "stdout.jsonl"
     stream.write_text("\n".join(lines) + "\n")
     return stream
@@ -71,7 +76,7 @@ def _dispatcher(run_dir: Path) -> ClaudeDispatcher:
         config=make_config(),
         run=RunGit(repo=run_dir, run_dir=run_dir, run_id="run-1"),
         store_root=run_dir / "store",
-        install_bin=run_dir / "bin" / "physgate",
+        install_bin=INSTALL_BIN,
         binary="/nonexistent/claude",
         base_url=None,
         credential=Credential("api_key", "sk-ant-test-dummy-not-a-credential"),
@@ -216,6 +221,8 @@ def test_a_review_session_of_this_run_is_found_cleaned_and_its_tokens_are_the_re
     lines = [*_message("msg_review", 10), _result(10)]
     mine = _left_review(root, "11111111-1111-4111-8111-111111111111", "run-1", lines)
     other = _left_review(root, "22222222-2222-4222-8222-222222222222", "run-2", lines)
+    # This run's loop recorded its review session's spawn, as it records a role session's.
+    spawn_logged(run_dir, [(mine.parent.name, 999_999, "Mon Jan  1 00:00:00 2001")])
     dispatcher = ClaudeDispatcher(
         config=make_config(),
         run=RunGit(repo=run_dir, run_dir=run_dir, run_id="run-1"),

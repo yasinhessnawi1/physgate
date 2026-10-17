@@ -56,6 +56,7 @@ from physgate.orchestrator.events import (
     ReviewRan,
     ReviewUnavailable,
     SessionEnded,
+    SessionSpawned,
     Stage,
     StageEntered,
     TokensUsed,
@@ -81,6 +82,7 @@ from physgate.orchestrator.ports import (
     Dispatcher,
     GraphPort,
     Merger,
+    RecordsSpawns,
     SessionRequest,
 )
 from physgate.orchestrator.protocols import (
@@ -233,6 +235,11 @@ class Loop:
         self.run_dir = Path(run_dir)
         self._gate = gate
         self._reviewers = reviewers
+        # A review session's spawn goes on the record as a role session's does: a resume holds
+        # a review's process record to it too.
+        for reviewer in reviewers.values():
+            if isinstance(reviewer, RecordsSpawns):
+                reviewer.record_spawns(self._spawned)
         self._dispatcher = dispatcher
         self._changes = changes
         self._merger = merger
@@ -346,6 +353,10 @@ class Loop:
     def _decisions_bytes(self) -> int:
         path = self.queue.decisions_path
         return path.stat().st_size if path.exists() else 0
+
+    def _spawned(self, session_id: str, pid: int, started: str) -> None:
+        """Record a role session's process before it runs anything: what a resume holds it to."""
+        self._emit(SessionSpawned(**self._env(), session_id=session_id, pid=pid, started=started))
 
     def _stop_leftovers(self) -> None:
         """Stop what a previous process left running, before anything reads or writes."""
@@ -523,7 +534,7 @@ class Loop:
             bounds=self.config.bounds,
             spec_commit=self._spec_commit(),
         )
-        report = self._dispatcher.run(request)
+        report = self._dispatcher.run(request, on_spawn=self._spawned)
         for message in report.usage:
             self._emit(
                 TokensUsed(

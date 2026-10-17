@@ -13,7 +13,13 @@ from physgate.orchestrator.budget import SessionEnd
 from physgate.orchestrator.cli import _harness_root
 from physgate.orchestrator.git import head_of
 from physgate.orchestrator.merge import RunGit, commit_attempt, write_scope_violations
-from physgate.orchestrator.ports import ChangeCheck, Leftover, SessionReport, SessionRequest
+from physgate.orchestrator.ports import (
+    ChangeCheck,
+    Leftover,
+    SessionReport,
+    SessionRequest,
+    SpawnHook,
+)
 from physgate.orchestrator.protocols import (
     Artefact,
     CheckRecord,
@@ -143,7 +149,7 @@ class DispatchPort:
     def stop_leftovers(self) -> list[Leftover]:
         return []
 
-    def run(self, request: SessionRequest) -> SessionReport:
+    def run(self, request: SessionRequest, on_spawn: SpawnHook | None = None) -> SessionReport:
         return self.inner(request)
 
 

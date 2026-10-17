@@ -11,8 +11,9 @@ changing. None of them decides anything the loop should decide.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated, Literal, Protocol
+from typing import Annotated, Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
@@ -131,10 +132,24 @@ class WorktreeRemoval(_Frozen):
     detail: NonEmptyStr | None
 
 
+#: Told a role session's session id, pid and start time once it is spawned and before it
+#: runs anything; the loop records them in the run's event log.
+SpawnHook = Callable[[str, int, str], None]
+
+
+@runtime_checkable
+class RecordsSpawns(Protocol):
+    """A reviewer whose sessions are recorded in the run's event log when they are spawned."""
+
+    def record_spawns(self, hook: SpawnHook) -> None:
+        """Tell ``hook`` each session's id, pid and start time, before it runs anything."""
+        ...
+
+
 class Dispatcher(Protocol):
     """Runs one attempt in a fresh session in the subtask's worktree."""
 
-    def run(self, request: SessionRequest) -> SessionReport:
+    def run(self, request: SessionRequest, on_spawn: SpawnHook | None = None) -> SessionReport:
         """Spawn, wait within the request's bounds, stop, and report."""
         ...
 

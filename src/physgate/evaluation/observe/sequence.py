@@ -64,6 +64,8 @@ DROPPED: dict[str, frozenset[str]] = {
     "session_ended": frozenset({"trajectory_seal"}),
     "leftover_read": frozenset({"trajectory_seal"}),
     "run_started": frozenset({"config_sha256"}),
+    # A spawned process's pid and start time are the machine's, never the same twice.
+    "session_spawned": frozenset({"pid", "started"}),
 }
 #: Dropped at a path inside a line, per event kind; ``*`` stands for every item of
 #: a list. A review's message ids are random on any real API, like a token line's.

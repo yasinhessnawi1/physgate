@@ -20,6 +20,7 @@ from physgate.orchestrator.ports import (
     Leftover,
     SessionReport,
     SessionRequest,
+    SpawnHook,
     WorktreeRemoval,
 )
 from physgate.orchestrator.protocols import (
@@ -83,7 +84,7 @@ class FakeDispatcher:
     def stop_leftovers(self) -> list[Leftover]:
         return []
 
-    def run(self, request: SessionRequest) -> SessionReport:
+    def run(self, request: SessionRequest, on_spawn: SpawnHook | None = None) -> SessionReport:
         self.requests.append(request)
         call = len(self.requests)
         if call == self.kill_on:

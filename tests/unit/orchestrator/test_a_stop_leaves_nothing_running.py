@@ -9,6 +9,8 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
+from left_session import INSTALL_BIN, sentinel_installed, spawn_logged
 from loop_fakes import FakeDispatcher, KilledError, Rig, plan
 
 from physgate.orchestrator.accounting import TokenAccount
@@ -21,6 +23,7 @@ from physgate.orchestrator.events import (
     TokensUsed,
     read_events,
 )
+from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.merge import RunGit
 from physgate.orchestrator.ports import Leftover
 from physgate.orchestrator.processes import started_at, stop_tree, tree
@@ -46,7 +49,10 @@ def family(
     marker = tmp_path / "pids"
     # A session's own command line carries its session id, as the runtime's does.
     tag = ["--session-id", session] if session else []
-    parent = subprocess.Popen([sys.executable, "-c", FAMILY, str(marker), mode, *tag])
+    # A session leads a process group of its own, as the dispatcher spawns it.
+    parent = subprocess.Popen(
+        [sys.executable, "-c", FAMILY, str(marker), mode, *tag], start_new_session=bool(session)
+    )
     # Wait for the marker's content, not its existence: the child creates the file empty and
     # writes the two pids a moment later, and a read in between finds nothing.
     deadline = time.monotonic() + 10
@@ -100,7 +106,7 @@ def _dispatcher(run_dir: Path) -> ClaudeDispatcher:
         config=make_config(),
         run=RunGit(repo=run_dir, run_dir=run_dir, run_id="run-1"),
         store_root=run_dir / "store",
-        install_bin=run_dir / "bin" / "physgate",
+        install_bin=INSTALL_BIN,
         binary="/nonexistent/claude",
         base_url=None,
         credential=Credential("api_key", "sk-ant-test-dummy-not-a-credential"),
@@ -117,6 +123,12 @@ def test_a_resume_stops_a_recorded_session_still_running_and_only_that(tmp_path:
     ):
         (sessions / sid).mkdir(parents=True)
         (sessions / sid / "process.json").write_text(json.dumps(record))
+        sentinel_installed(sessions / sid, tmp_path / "guarded")
+    # Both spawns are on the record: a pid reused since its session ended is honoured too.
+    spawn_logged(
+        tmp_path / "run",
+        [("live", pid, str(started_at(pid))), ("reused", pid, "Mon Jan  1 00:00:00 2001")],
+    )
     (sessions / "done").mkdir()
     (sessions / "done" / "process.json").write_text(json.dumps({"pid": 1, "session_id": "done"}))
     (sessions / "done" / "ended.json").write_text("{}")
@@ -147,9 +159,11 @@ def test_a_resume_stops_a_recorded_session_still_running_and_only_that(tmp_path:
     assert [(u.message_id, u.usage.output_tokens) for u in live.usage] == [("m1", 9)]
     assert live.complete is False and left[1].usage == ()
     assert started_at(pid) is None and started_at(child) is None
-    assert json.loads((sessions / "reused" / "ended.json").read_text()) == {
-        "not_running_at_resume": True
-    }
+    reused = json.loads((sessions / "reused" / "ended.json").read_text())
+    assert reused["not_running_at_resume"] and reused["left_running"] == []
+    # Nothing of it was left in its group, and its sentinel's check found nothing moved.
+    assert reused["stop_unconfirmed"] is None
+    assert reused["sentinel_after_stop"]["refused"] is None
     assert json.loads((sessions / "live" / "ended.json").read_text())["stopped_at_resume"]
     assert _dispatcher(tmp_path / "run").stop_leftovers() == []
 
@@ -213,13 +227,14 @@ def test_a_rewritten_process_record_never_points_the_stop_at_another_process(
         (sessions / "forged").mkdir(parents=True)
         record = {"pid": pid, "started": started_at(pid), "session_id": "forged"}
         (sessions / "forged" / "process.json").write_text(json.dumps(record))
-        (left,) = _dispatcher(tmp_path / "run").stop_leftovers()
-        assert (left.session_id, left.stopped, left.killed) == ("forged", False, 0)
+        # The event log never recorded such a spawn: the resume signals nothing and stops.
+        with pytest.raises(InvocationError, match="nothing is signalled"):
+            _dispatcher(tmp_path / "run").stop_leftovers()
         time.sleep(0.5)
         assert started_at(pid) is not None and started_at(child) is not None
-        assert json.loads((sessions / "forged" / "ended.json").read_text()) == {
-            "not_running_at_resume": True
-        }
+        assert not (sessions / "forged" / "ended.json").exists()
+        refused = json.loads((sessions / "forged" / "after_stop.json").read_text())
+        assert refused == {"record_refused": "the event log records no spawn of this session"}
     finally:
         stop_tree(pid)
         parent.wait()

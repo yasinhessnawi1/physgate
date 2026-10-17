@@ -41,6 +41,7 @@ stopped before its end is recorded (``ending.await_session``).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import subprocess
 import time
@@ -67,6 +68,8 @@ from physgate.orchestrator.dispatch import (
     read_captured,
     read_in_full,
     redact,
+    spawn_held,
+    write_record,
 )
 from physgate.orchestrator.exceptions import (
     InvocationError,
@@ -74,7 +77,7 @@ from physgate.orchestrator.exceptions import (
     ReviewUnavailableError,
 )
 from physgate.orchestrator.invocation import REVIEWER_ENV, isolated_env, reviewer_argv
-from physgate.orchestrator.processes import started_at
+from physgate.orchestrator.ports import SpawnHook
 from physgate.orchestrator.protocols import (
     Artefact,
     MessageUsage,
@@ -331,6 +334,12 @@ class ClaudeReviewer:
         self._setup = setup
         self._rubric = rubric
         self._root = Path(setup.review_root)
+        #: Told each review session's spawn before it runs anything (:meth:`record_spawns`).
+        self._on_spawn: SpawnHook | None = None
+
+    def record_spawns(self, hook: SpawnHook) -> None:
+        """Tell ``hook`` each review session's id, pid and start time, as the loop records them."""
+        self._on_spawn = hook
 
     @property
     def model(self) -> str:
@@ -543,19 +552,10 @@ class ClaudeReviewer:
             effort=self._setup.effort,
         )
         stdout = sdir / "stdout.jsonl"
-        with stdout.open("wb") as out, (sdir / "stderr.txt").open("wb") as err:
-            process = subprocess.Popen(
-                argv,
-                cwd=Path(packet.read_root) / WORKTREE_NAME,
-                env=env,
-                stdin=subprocess.DEVNULL,
-                stdout=out,
-                stderr=err,
-                start_new_session=True,
-            )
-            started = started_at(process.pid)
+
+        def while_held(pid: int, started: str) -> None:
             record = {
-                "pid": process.pid,
+                "pid": pid,
                 "started": started,
                 "spawned_at": time.time(),
                 "session_id": session_id,
@@ -564,20 +564,46 @@ class ClaudeReviewer:
                 "argv": argv,
                 "env_added": sorted(REVIEWER_ENV),
             }
-            (sdir / "process.json").write_text(json.dumps(record))
+            write_record(sdir.parent, sdir.name, record, "process.json")
+
+        with stdout.open("wb") as out, (sdir / "stderr.txt").open("wb") as err:
+            # Held until its spawn is on the run's record and its process record written: a
+            # table that cannot be read stops it there, before it has run anything.
+            process, started = spawn_held(
+                argv,
+                cwd=Path(packet.read_root) / WORKTREE_NAME,
+                env=env,
+                out=out,
+                err=err,
+                session_id=session_id,
+                on_spawn=self._on_spawn,
+                while_held=while_held,
+            )
             # However the session ends, nothing it started is left running: a process it
             # left could still read, or write, under the review root once it is gone.
-            ended = await_session(process, started, bounds.session_wall_clock_s)
-        (sdir / "ended.json").write_text(
-            json.dumps(
-                {
-                    "exit": ended.exit_code,
-                    "timed_out": ended.timed_out,
-                    "left_running": list(ended.left_running),
-                }
-            )
+            try:
+                ended = await_session(process, started, bounds.session_wall_clock_s)
+            except OSError:
+                _stop_own(process)
+                raise
+        write_record(
+            sdir.parent,
+            sdir.name,
+            {
+                "exit": ended.exit_code,
+                "timed_out": ended.timed_out,
+                "left_running": list(ended.left_running),
+            },
+            "ended.json",
         )
         return stdout, ended.exit_code, ended.timed_out
+
+
+def _stop_own(process: subprocess.Popen[bytes]) -> None:
+    """Stop a review session this process spawned and has not reaped: its pid is still its own."""
+    with contextlib.suppress(OSError):
+        process.kill()
+        process.wait()
 
 
 @dataclass(frozen=True)

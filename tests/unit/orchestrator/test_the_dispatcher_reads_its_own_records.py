@@ -13,7 +13,7 @@ from physgate.orchestrator.dispatch import REDACTED, ClaudeDispatcher, redact, r
 from physgate.orchestrator.events import EnvironmentRecorded, read_events
 from physgate.orchestrator.install import InstallFacts, filesystem_of
 from physgate.orchestrator.invocation import role_argv
-from physgate.orchestrator.ports import SessionRequest
+from physgate.orchestrator.ports import SessionRequest, SpawnHook
 
 REQUEST = SessionRequest(
     subtask_id="power-1a2b3c",
@@ -140,7 +140,7 @@ def test_a_foreign_journal_line_is_reported_with_what_the_hook_log_saw(tmp_path:
         payload: Any = None
 
     class Appending(FakeDispatcher):
-        def run(self, request: SessionRequest) -> SessionReport:
+        def run(self, request: SessionRequest, on_spawn: SpawnHook | None = None) -> SessionReport:
             report = super().run(request)
             return report.model_copy(
                 update={"hook_journal_appends": ("bytes [0, 80] after Bash: printf ...",)}
@@ -158,9 +158,9 @@ def test_a_foreign_journal_line_is_reported_with_what_the_hook_log_saw(tmp_path:
     loop.start(plan("s1"))
     original = dispatcher.run
 
-    def mark(request: SessionRequest) -> SessionReport:
+    def mark(request: SessionRequest, on_spawn: SpawnHook | None = None) -> SessionReport:
         seen.append(1)
-        return original(request)
+        return original(request, on_spawn)
 
     dispatcher.run = mark  # type: ignore[method-assign]
     assert loop.run().kind == "halted"
