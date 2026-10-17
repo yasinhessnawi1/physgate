@@ -18,3 +18,11 @@ class TaskFormatError(PerRoleError):
 
 class ReferenceCheckError(PerRoleError):
     """A scorer passed a known-bad reference or failed the known-good one."""
+
+
+class ControlEvalError(PerRoleError):
+    """The public ControlEval data cannot be had as pinned, or is not whole."""
+
+
+class SynthesisError(PerRoleError):
+    """No reference answer could be built for a task as asked."""

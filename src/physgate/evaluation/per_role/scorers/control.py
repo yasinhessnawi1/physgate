@@ -30,14 +30,14 @@ from typing import Any
 
 import control as ct
 import numpy as np
-import numpy.typing as npt
 
 from physgate.evaluation.per_role.answer import LtiTf, read_lti_tf
 from physgate.evaluation.per_role.exceptions import ReferenceCheckError, TaskFormatError
 from physgate.evaluation.per_role.task import LoadedTask, Measure, Spec, Task, canonical_json
 
-#: A real or complex array, as numpy computes it.
-Floats = npt.NDArray[Any]
+#: A real or complex numpy array. Spelt as ``Any``: the types are checked in the harness's
+#: environment, which never has numpy (see the evaluation group in ``pyproject.toml``).
+type Floats = Any
 
 #: The scorer's version: part of every score, so a changed rule is a changed version.
 SCORER_VERSION = "1.0.0"
@@ -228,7 +228,7 @@ def _closed_loop(c: Any, g: Any, delay: float, order: int) -> Any:
     return ct.feedback(loop, 1)
 
 
-def _settling(t_loop: Any, horizon: float) -> tuple[float, float]:
+def _settling(t_loop: Any, horizon: float, points: int = HORIZON_POINTS) -> tuple[float, float]:
     """The 2 % settling time and the overshoot (in %), NaN where they cannot be read.
 
     python-control's ``step_info`` raises rather than returning NaN when the response
@@ -236,7 +236,7 @@ def _settling(t_loop: Any, horizon: float) -> tuple[float, float]:
     loop a thousand times slower than its window). That is a response that did not settle,
     and an answer is never allowed to crash its own scoring.
     """
-    times = np.linspace(0.0, horizon, HORIZON_POINTS)
+    times = np.linspace(0.0, horizon, points)
     try:
         info = ct.step_info(t_loop, times)
     except (IndexError, ValueError, ZeroDivisionError):
@@ -254,11 +254,14 @@ def _horizon(task: Task) -> float:
     raise TaskFormatError(msg, task=task.id)
 
 
-def measure(task: Task, answer: LtiTf) -> tuple[dict[str, float | None], dict[str, bool]]:
+def measure(
+    task: Task, answer: LtiTf, *, points: int = HORIZON_POINTS, secondary: bool = True
+) -> tuple[dict[str, float | None], dict[str, bool]]:
     """Every metric of ``answer``'s closed loop with ``task``'s plant, and the flags.
 
     A metric that cannot be measured (the loop is unstable, or its response never settles)
-    is ``None``, which fails any bound.
+    is ``None``, which fails any bound. ``points`` and ``secondary`` are for the reference
+    search, which screens many candidates coarsely; a score always uses the defaults.
     """
     plant = Plant(task)
     c, g = _controller_tf(answer), plant.tf()
@@ -266,7 +269,7 @@ def measure(task: Task, answer: LtiTf) -> tuple[dict[str, float | None], dict[st
     max_pole = float(np.max(np.real(ct.poles(t_loop))))
     check_pole = float(np.max(np.real(ct.poles(_closed_loop(c, g, plant.delay, PADE_CHECK_ORDER)))))
     pm, crossed = phase_margin(c, g, plant.delay)
-    gm = gain_margin(c, g, plant.delay)
+    gm = gain_margin(c, g, plant.delay) if secondary else math.inf
     values: dict[str, float | None] = {
         "max_real_pole": max(max_pole, check_pole),
         "phase_margin": pm,
@@ -279,14 +282,16 @@ def measure(task: Task, answer: LtiTf) -> tuple[dict[str, float | None], dict[st
     flags = {"no_gain_crossover": not crossed, "did_not_settle": False, "pade_unconverged": False}
     if values["max_real_pole"] is not None and values["max_real_pole"] < 0:
         horizon = _horizon(task)
-        settling, overshoot = _settling(t_loop, horizon)
+        settling, overshoot = _settling(t_loop, horizon, points)
         if math.isnan(settling):
             flags["did_not_settle"] = True
         else:
             values["settling_time"] = settling
             values["overshoot"] = overshoot
             if plant.delay > 0:
-                check, _ = _settling(_closed_loop(c, g, plant.delay, PADE_CHECK_ORDER), horizon)
+                check, _ = _settling(
+                    _closed_loop(c, g, plant.delay, PADE_CHECK_ORDER), horizon, points
+                )
                 flags["pade_unconverged"] = math.isnan(check) or (
                     abs(check - settling) > PADE_TOLERANCE * settling
                 )

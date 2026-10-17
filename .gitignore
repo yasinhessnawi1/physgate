@@ -7,6 +7,8 @@
 .env
 
 .venv/
+# The evaluation scorers' own environment (pyproject.toml, the evaluation group).
+.venv-evaluation/
 __pycache__/
 *.pyc
 

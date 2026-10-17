@@ -43,6 +43,20 @@ gate_tests() {
   [ "$rc" -eq 0 ] || fail "tests"
 }
 
+gate_scoring() {
+  # The evaluation's scorers, in an environment of their own: their numerical libraries
+  # must never reach the harness's environment, where pint would pick numpy up and the
+  # physics gate's unit handling would change (pyproject.toml, the evaluation group).
+  echo "== scoring tests (evaluation environment) =="
+  local rc=0
+  UV_PROJECT_ENVIRONMENT=.venv-evaluation uv run --frozen --group evaluation \
+    pytest -q -n auto tests/scoring || rc=$?
+  if [ "$rc" -eq 5 ]; then
+    fail "scoring tests — nothing ran"
+  fi
+  [ "$rc" -eq 0 ] || fail "scoring tests"
+}
+
 gate_types() {
   echo "== types =="
   uv run mypy --strict src tests scripts || fail "types"
@@ -70,6 +84,7 @@ gate_ui() {
 }
 
 gate_tests
+gate_scoring
 gate_types
 gate_lint
 gate_ui
