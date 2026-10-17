@@ -310,7 +310,13 @@ class Session:
         config = make_config(bounds=self.bounds())
         root, store_root = self.root, self.store_root
 
-        def _install(_self: Any, request: SessionRequest, worktree: Path, sdir: Path) -> Installed:  # noqa: ANN401
+        def _install(  # noqa: ANN401
+            _self: Any,
+            request: SessionRequest,
+            worktree: Path,
+            sdir: Path,
+            _temp: Path | None,
+        ) -> Installed:
             (sdir / "state").mkdir(parents=True)
             done = install(
                 InstallRequest(

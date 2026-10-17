@@ -341,6 +341,9 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         # a record arrives, and the orchestrator collects and checks what arrived.
         str(worktree / ".physgate" / "series"): (SERIES_OUTBOX_REASON, "none"),
     }
+    # The one root the OS layer leaves to scripts: a record arrives by a script's own write,
+    # which no OS rule can tell from any other command's, and the collector judges it.
+    outbox = str(worktree / ".physgate" / "series")
     if request.profile == "role":
         # git's user configuration in the session's own home: a key written there (a hook
         # path, an alias, a program to run) holds for every later git command the session
@@ -407,6 +410,7 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
                 watch=watch,
                 exceptions=root_exceptions.get(path, ()),
                 reads=reads.get(path, "open"),
+                shell_writes="allowed" if path == outbox else "denied",
             )
             for path, (reason, watch) in sorted(protected.items())
         ),

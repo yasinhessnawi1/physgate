@@ -56,8 +56,8 @@ from physgate.orchestrator.protocols import (
 )
 from physgate.orchestrator.repair import Finding
 from physgate.orchestrator.trajectory import Seal
-from physgate.series.seal import SeriesCheck, SessionSeries
 from physgate.oslayer.probe import OsLayerState
+from physgate.series.seal import SeriesCheck, SessionSeries
 
 #: The eight stages of the per-subtask loop, in the architecture's order (ARCH-030).
 Stage = Literal[

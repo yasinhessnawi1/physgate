@@ -88,6 +88,11 @@ class ProtectedRoot(BaseModel):
     #: runtime itself reads it outside the sandbox. ``denied``: no shell command and no
     #: file tool, because no session reads it at all.
     reads: Reads = "open"
+    #: Whether the OS layer leaves shell writes to it alone: ``allowed`` only for a root
+    #: that a script legitimately writes and whose contents something else judges (the
+    #: series outbox, whose records the collector checks). The hooks still refuse every
+    #: tool write to it.
+    shell_writes: Literal["denied", "allowed"] = "denied"
 
 
 class ExperimentRule(BaseModel):

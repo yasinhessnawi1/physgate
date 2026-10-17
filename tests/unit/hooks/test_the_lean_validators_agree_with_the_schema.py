@@ -57,6 +57,7 @@ def _lean_config(data: bytes) -> dict[str, Any] | None:
             "watch": r.watch,
             "exceptions": list(r.exceptions),
             "reads": r.reads,
+            "shell_writes": r.shell_writes,
         }
         for r in config.protected_roots
     ]

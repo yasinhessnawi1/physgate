@@ -6,9 +6,9 @@ own three writable places (its worktree, its temporary directory and its home),
 so the two layers cannot disagree about what is protected. The rules:
 
 - **Writes** are allowed only in the three places; everything else is denied by
-  the OS already. A protected path inside one of them is denied by name, but on
-  Linux a denied path that does not exist yet becomes an empty placeholder file
-  while a command runs, so inside a writable place only what exists is named.
+  the OS already. A protected path inside one of them is denied by name, existing
+  or not; one that does not exist yet is listed for the sweep, because on Linux it
+  becomes an empty placeholder file while a command runs.
   A root with a writable path beneath it is named child by child, around it.
 - **Reads** are denied for what the registry withholds from reading, and for
   what it marks as the OS layer's to withhold from shell commands. A read-denied
@@ -19,6 +19,7 @@ so the two layers cannot disagree about what is protected. The rules:
 
 from __future__ import annotations
 
+import os
 import typing
 from pathlib import Path
 from typing import Any
@@ -148,15 +149,18 @@ def test_a_root_above_a_writable_place_is_not_denied_over_it(tmp_path: Path) -> 
         assert str(paths["sdir"] / name) in deny
 
 
-def test_inside_the_worktree_only_what_exists_is_named(tmp_path: Path) -> None:
+def test_inside_the_worktree_an_absent_path_is_named_and_listed_for_the_sweep(
+    tmp_path: Path,
+) -> None:
     policy, paths = _policy(tmp_path)
     deny = set(_fs(policy)["denyWrite"])
     worktree = paths["worktree"]
     assert str(worktree / "corpora") in deny and str(worktree / ".git") in deny
-    absent = [worktree / ".env", worktree / "src" / "physgate" / "gate", worktree / ".claude"]
-    for path in absent:
-        assert str(path) not in deny
-        assert str(path) in policy.not_named
+    assert str(worktree / "corpora") not in policy.absent_named  # it exists
+    for path in (worktree / ".env", worktree / ".claude"):  # absent, their parent exists
+        assert str(path) in deny and str(path) in policy.absent_named
+    # Absent with a missing parent: left to the hooks, so a command can still make ``src``.
+    assert str(worktree / "src" / "physgate" / "gate") not in deny
 
 
 def test_the_knowledge_tree_is_named_child_by_child_around_its_staging(tmp_path: Path) -> None:
@@ -177,11 +181,17 @@ def test_frozen_experiments_are_named_as_the_hooks_freeze_them(tmp_path: Path) -
     assert str(experiments / "R-XX-01") not in deny
 
 
-def test_the_home_s_git_configuration_is_denied_whether_or_not_it_exists(tmp_path: Path) -> None:
+def test_the_home_s_git_configuration_is_denied_where_its_parent_exists(tmp_path: Path) -> None:
     policy, paths = _policy(tmp_path)
     deny = set(_fs(policy)["denyWrite"])
     home = paths["sdir"] / "home"
-    assert {str(home / ".gitconfig"), str(home / ".config" / "git")} <= deny
+    assert str(home / ".gitconfig") in deny  # absent, in the home, which exists
+    # ``~/.config`` is absent too: denying ``~/.config/git`` would keep a tool from making
+    # ``~/.config`` at all, so that one is the hooks' and the sentinel's alone.
+    assert str(home / ".config" / "git") not in deny
+    (home / ".config").mkdir()
+    again = sandbox_policy(_config(paths), home=str(home), temp_dir=str(paths["temp"]))
+    assert str(home / ".config" / "git") in _fs(again)["denyWrite"]
 
 
 def test_reads_are_denied_for_what_is_withheld_and_the_home_is_opened_again(
@@ -277,3 +287,106 @@ def test_a_further_place_of_the_session_s_own_is_opened_again_like_its_home(
     home, bin_dir = str(paths["sdir"] / "home"), str(paths["sdir"] / "bin")
     policy = sandbox_policy(config, home=home, temp_dir=str(paths["temp"]), readable=(bin_dir,))
     assert _fs(policy)["allowRead"] == sorted([home, bin_dir])
+
+
+def test_every_write_protected_root_is_denied_or_left_to_a_script_by_name(tmp_path: Path) -> None:
+    # Every root the hooks refuse a write to is named, inside the worktree too, whether it
+    # exists yet or not; the one exception is a root the registry leaves to scripts.
+    policy, paths = _policy(tmp_path)
+    config = _config(paths)
+    deny = set(_fs(policy)["denyWrite"])
+    writable = (str(paths["worktree"]), str(paths["temp"]), str(paths["sdir"] / "home"))
+    for root in config.protected_roots:
+        above = any(Path(w).is_relative_to(root.path) for w in writable)
+        orphan = not Path(root.path).exists() and not Path(root.path).parent.exists()
+        if root.shell_writes == "allowed" or above or root.exceptions or orphan:
+            continue
+        assert root.path in deny, root.path
+    worktree = paths["worktree"]
+    for absent in (worktree / ".env", worktree / ".claude"):
+        assert str(absent) in deny and str(absent) in policy.absent_named
+
+
+def test_the_series_outbox_is_left_to_the_scripts_that_write_it(tmp_path: Path) -> None:
+    # A record arrives only by a script's own write, and the collector judges it: an OS rule
+    # cannot tell that script from any other command, so it is not the OS layer's to deny.
+    policy, paths = _policy(tmp_path)
+    outbox = paths["worktree"] / ".physgate" / "series"
+    (paths["worktree"] / ".physgate").mkdir()
+    policy = sandbox_policy(
+        _config(paths), home=str(paths["sdir"] / "home"), temp_dir=str(paths["temp"])
+    )
+    assert str(outbox) not in _fs(policy)["denyWrite"]
+    assert str(paths["worktree"] / ".physgate" / "lib") in _fs(policy)["denyWrite"]
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        "knowledge/control/x.md",
+        "knowledge/staging/x.md",
+        "knowledge/stagingx/x.md",
+        "knowledge-other/x.md",
+        "corpora/x.json",
+        "corpora-other/x.json",
+        ".physgate/lib/x.py",
+        ".physgate/libx/x.py",
+        ".physgate/series/r.json",
+        ".physgate/series-other/r.json",
+        "experiments/R-XX-02/new.md",
+        "experiments/R-XX-02b/new.md",
+        "experiments/R-XX-01/CRITERIA.md",
+        "experiments/R-XX-01/notes.md",
+        ".git",
+        ".gitx",
+        "src/physgate/gate/check.py",
+        "src/physgate/gatex/check.py",
+    ],
+)
+def test_the_os_rules_judge_a_write_as_the_hooks_do(tmp_path: Path, spelling: str) -> None:
+    # The OS layer denies a write when the path is a named entry or lies beneath one, by
+    # whole path components; the hooks' own matcher is held to the same answer.
+    from physgate.hooks import paths as hook_paths
+
+    (tmp_path / "x").mkdir()
+    paths = _layout(tmp_path / "x")
+    for name in (
+        "knowledge/stagingx",
+        "knowledge-other",
+        "corpora-other",
+        ".physgate/libx",
+        "src/physgate",
+    ):
+        (paths["worktree"] / name).mkdir(parents=True, exist_ok=True)
+    (paths["worktree"] / ".git").write_text("gitdir: x\n")
+    policy = sandbox_policy(
+        _config(paths), home=str(paths["sdir"] / "home"), temp_dir=str(paths["temp"])
+    )
+    target = paths["worktree"] / spelling
+    deny = _fs(policy)["denyWrite"]
+    os_denies = any(target == Path(d) or target.is_relative_to(Path(d)) for d in deny)
+    hook = hook_paths.protection(str(target), str(paths["worktree"]), _config(paths), writing=True)
+    script_only = ".physgate/series/" in spelling
+    assert os_denies == (hook is not None and not script_only), (spelling, hook)
+
+
+def test_a_child_made_in_the_knowledge_tree_after_the_start_is_the_hooks_alone(
+    tmp_path: Path,
+) -> None:
+    # The tree is named child by child around its staging directory, as the children stand
+    # when the session starts; one made later is refused by the hooks and put back by the
+    # sentinel, and is the OS layer's stated residual.
+    policy, paths = _policy(tmp_path)
+    later = paths["worktree"] / "knowledge" / "made-later"
+    assert not any(later.is_relative_to(d) for d in _fs(policy)["denyWrite"])
+
+
+def test_a_path_given_through_a_link_is_named_where_it_really_is_too(tmp_path: Path) -> None:
+    real = tmp_path / "real"
+    real.mkdir()
+    (tmp_path / "via").symlink_to(real)
+    policy, paths = _policy(tmp_path / "via")
+    deny = set(_fs(policy)["denyWrite"])
+    held_as_given = str(paths["held"])
+    assert held_as_given in deny and os.path.realpath(held_as_given) in deny
+    assert os.path.realpath(held_as_given) != held_as_given

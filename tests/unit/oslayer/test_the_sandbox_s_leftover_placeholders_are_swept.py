@@ -104,3 +104,35 @@ def test_a_session_that_left_nothing_sweeps_nothing(tmp_path: Path) -> None:
     before = placeholders.snapshot(str(worktree))
     swept = placeholders.sweep(str(worktree), before)
     assert swept.removed == [] and swept.refused == []
+
+
+def test_a_placeholder_at_an_absent_named_path_is_swept_through_new_directories(
+    tmp_path: Path,
+) -> None:
+    worktree = _worktree(tmp_path)
+    gate = "src/physgate/gate"
+    before = placeholders.snapshot(str(worktree), absent=(gate, ".env"))
+    _placeholder(worktree / gate)  # the sandbox made src/ and src/physgate/ on its way
+    swept = placeholders.sweep(str(worktree), before)
+    assert swept.removed == [gate] and not (worktree / gate).exists()
+    assert (worktree / "src" / "physgate").is_dir(), "a directory is never removed"
+
+
+def test_a_link_on_the_way_to_an_absent_named_path_is_not_followed(tmp_path: Path) -> None:
+    worktree = _worktree(tmp_path)
+    outside = tmp_path / "outside"
+    marker = outside / "physgate" / "gate"
+    _placeholder(marker)
+    before = placeholders.snapshot(str(worktree), absent=("src/physgate/gate",))
+    (worktree / "src").symlink_to(outside)  # the session plants src as a link
+    swept = placeholders.sweep(str(worktree), before)
+    assert marker.exists(), "a file outside the worktree was deleted through a link"
+    assert swept.removed == [] and [p for p, _ in swept.refused] == ["src/physgate/gate"]
+
+
+def test_an_absent_named_path_that_existed_at_the_start_is_left(tmp_path: Path) -> None:
+    worktree = _worktree(tmp_path)
+    _placeholder(worktree / ".env")
+    before = placeholders.snapshot(str(worktree), absent=(".env",))
+    assert before.absent == ()
+    assert placeholders.sweep(str(worktree), before).removed == []

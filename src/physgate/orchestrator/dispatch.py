@@ -26,10 +26,10 @@ import contextlib
 import json
 import os
 import re
-import shlex
-import stat
 import secrets
+import shlex
 import shutil
+import stat
 import subprocess
 import sysconfig
 import time
@@ -86,12 +86,13 @@ from physgate.orchestrator.queue import DECISIONS_NAME
 from physgate.orchestrator.role_python import PROBE, require_same, session_bin
 from physgate.orchestrator.run_config import RunConfig, harness_root
 from physgate.orchestrator.trajectory import Seal, forged_tail, seal, through_first_result
-from physgate.reviewers.ending import SWEEPS, SessionEnd, await_session, group, stop_all
 from physgate.oslayer import placeholders
 from physgate.oslayer.probe import Absent, Present, judge_here
+from physgate.reviewers.ending import SWEEPS, SessionEnd, await_session, group, stop_all
 from physgate.reviewers.packet import issued_spec_sha256
 from physgate.reviewers.places import SESSION_DIRNAME
 from physgate.series.collect import collect, empty_outbox, temporary_roots
+from physgate.series.seal import SetAside
 
 REDACTED = REDACTED_TEXT.encode()
 
@@ -864,6 +865,17 @@ def probe_interpreter(path: Path) -> dict[str, object] | None:
     return found if isinstance(found, dict) else None
 
 
+def named_in(installed: Installed, worktree: Path) -> tuple[str, ...]:
+    """The write-denied paths under ``worktree`` the session's settings name, relative to it."""
+    settings = json.loads(Path(installed.settings).read_text())
+    denied = settings.get("sandbox", {}).get("filesystem", {}).get("denyWrite", [])
+    return tuple(
+        str(Path(path).relative_to(worktree))
+        for path in denied
+        if isinstance(path, str) and Path(path).is_relative_to(worktree) and Path(path) != worktree
+    )
+
+
 class ClaudeDispatcher:
     """The loop's dispatcher over the Claude Code binary."""
 
@@ -1027,7 +1039,16 @@ class ClaudeDispatcher:
         if temp is not None:
             temp.mkdir(mode=0o700)
         try:
-            return self._run_session(request, worktree, sdir, session_id, issued, temp)
+            return self._run_session(
+                request,
+                worktree,
+                sdir,
+                session_id,
+                issued,
+                temp,
+                on_spawn=on_spawn,
+                left_over=left_over,
+            )
         finally:
             if temp is not None:
                 shutil.rmtree(temp, ignore_errors=True)
@@ -1043,6 +1064,9 @@ class ClaudeDispatcher:
         session_id: str,
         issued: str | None,
         temp: Path | None,
+        *,
+        on_spawn: SpawnHook | None,
+        left_over: tuple[SetAside, ...],
     ) -> SessionReport:
         system_before = self.environment().system_managed
         installed = self._install(request, worktree, sdir, temp)
@@ -1082,7 +1106,7 @@ class ClaudeDispatcher:
             thinking_display=self._config.thinking_display,
         )
         stdout = sdir / "stdout.jsonl"
-        before = placeholders.snapshot(str(worktree))
+        before = placeholders.snapshot(str(worktree), absent=named_in(installed, worktree))
         held: list[RootsRecord] = []
 
         def while_held(pid: int, started: str) -> None:

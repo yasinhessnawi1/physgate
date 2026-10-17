@@ -188,3 +188,96 @@ def test_a_session_told_the_layer_is_required_refuses_to_start_where_it_cannot_r
     assert isinstance(result, dict)
     end = classify_session_end(result, exit_code=run["exit"], stopped_at_wall_clock=False)  # type: ignore[arg-type]
     assert end.cause == "sandbox_unavailable"
+
+
+#: Writes into the worktree by spellings the hooks judge one way or the other, each joined at
+#: run time; the OS layer must give every one the hooks' answer. ``True``: refused.
+SPELLINGS = {
+    "src/physgate/gate/x.py": True,  # a root that does not exist yet, its parent does
+    "src/physgate/gatex/x.py": False,  # its sibling sharing a prefix
+    ".physgate/lib/x.py": True,
+    ".physgate/libx/x.py": False,
+    ".physgate/lib/./y.py": True,
+    ".physgate/series/r.json": False,  # the outbox: a script's write is how a record arrives
+    "knowledge/stagingx/x.md": True,  # inside the knowledge tree, beside its staging
+    "knowledge/staging/x.md": False,
+    "corpora/x.json": True,
+    "corpora-other/x.json": False,
+}
+
+
+def _spelling_steps(layout: Layout, *, case_variant: bool) -> list[dict[str, object]]:
+    steps = []
+    for spelling in SPELLINGS:
+        written = spelling.upper() if case_variant else spelling
+        # Each part written reversed and turned round at run time, so no protected name
+        # appears in the program's text for the first layer to refuse it by.
+        reversed_parts = [part[::-1] for part in written.split("/")]
+        program = (
+            "import os\n"
+            f"p = os.path.join({str(layout.worktree)!r}, *(q[::-1] for q in {reversed_parts!r}))\n"
+            "try:\n    os.makedirs(os.path.dirname(p), exist_ok=True)\n"
+            "    open(p, 'w').write('marker'); print('wrote')\n"
+            "except OSError as e:\n    print('denied:', e.strerror)\n"
+        )
+        steps.append(tool("Bash", command=python(program), description=spelling))
+    return steps
+
+
+@pytest.mark.usefixtures("layer")
+def test_the_os_layer_judges_each_spelling_as_the_hooks_do(layout: Layout) -> None:
+    for name in ("knowledge/staging", "knowledge/stagingx", "corpora", "src/physgate", ".physgate"):
+        (layout.worktree / name).mkdir(parents=True, exist_ok=True)
+    run = run_session(layout, _spelling_steps(layout, case_variant=False), layer=True)
+    told = run["told"]
+    assert isinstance(told, list)
+    got = {s: "denied:" in str(t) for s, t in zip(SPELLINGS, told, strict=True)}
+    assert got == SPELLINGS
+
+
+@pytest.mark.usefixtures("layer")
+def test_a_case_variant_of_a_root_is_refused_where_the_volume_ignores_case(
+    layout: Layout,
+) -> None:
+    probe = layout.worktree / "Case-Probe"
+    probe.write_text("")
+    insensitive = (layout.worktree / "case-probe").exists()
+    probe.unlink()
+    if not insensitive:
+        pytest.skip("this volume tells case apart, so a case variant is another path")
+    for name in ("knowledge/staging", "knowledge/stagingx", "corpora", "src/physgate", ".physgate"):
+        (layout.worktree / name).mkdir(parents=True, exist_ok=True)
+    run = run_session(layout, _spelling_steps(layout, case_variant=True), layer=True)
+    told = run["told"]
+    assert isinstance(told, list)
+    refused = {s for s, t in zip(SPELLINGS, told, strict=True) if "denied:" in str(t)}
+    assert {s for s, r in SPELLINGS.items() if r} <= refused
+
+
+@pytest.mark.usefixtures("layer")
+def test_a_link_to_a_root_reaches_nothing(layout: Layout) -> None:
+    (layout.worktree / ".physgate" / "lib").mkdir(parents=True)
+    (layout.worktree / "via").symlink_to(layout.worktree / ".physgate" / "lib")
+    program = (
+        f"p = {str(layout.worktree)!r} + '/vi' + 'a/x.py'\n"
+        "try:\n    open(p, 'w').write('marker'); print('wrote')\n"
+        "except OSError as e:\n    print('denied:', e.strerror)\n"
+    )
+    run = run_session(
+        layout, [tool("Bash", command=python(program), description="link")], layer=True
+    )
+    told = run["told"]
+    assert isinstance(told, list) and "denied:" in str(told[0])
+    assert not (layout.worktree / ".physgate" / "lib" / "x.py").exists()
+
+
+@pytest.mark.usefixtures("layer")
+def test_a_root_whose_parent_is_missing_never_keeps_a_command_from_making_that_parent(
+    layout: Layout,
+) -> None:
+    # Measured on 2.1.301: a denied, absent path keeps a command from making its missing
+    # parent, so such a root is the hooks' alone, and ordinary work can still make src/.
+    step = tool("Bash", command="mkdir -p src/other && echo made", description="mkdir")
+    run = run_session(layout, [step], layer=True)
+    told = run["told"]
+    assert isinstance(told, list) and "made" in str(told[0])

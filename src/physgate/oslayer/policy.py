@@ -12,15 +12,20 @@ any list is read, so a protected path outside those three places needs no entry
 to be safe; it is named anyway, so the settings say what they protect. Inside a
 writable place three rules apply:
 
-- on Linux a denied path that does not exist yet is held by an empty read-only
-  placeholder file while a command runs, and a session killed mid-command leaves
-  it behind, where an attempt's commit could pick it up; so inside the worktree
-  only what exists when the session starts is named, and what does not exist
-  stays with the hooks and the sentinel, as before (in the session's own home and
-  temporary directory a placeholder is harmless, and every path is named);
+- every write-protected path that exists is named; one that does not exist yet is
+  named where its parent exists, and left to the hooks and the sentinel where its
+  parent is missing too, because a denied path with a missing parent keeps a
+  command from making that parent at all. On Linux a denied path that does not
+  exist yet is held by an empty read-only placeholder file while a command runs,
+  and a session killed mid-command leaves it behind; inside the worktree those
+  paths are listed (``absent_named``), and the dispatcher's sweep removes such a
+  placeholder before anything is committed;
 - a root with a writable path beneath it (the knowledge tree around its staging
-  directory) is named child by child around that path, because a denied path
-  wins over an allowed one beneath it;
+  directory) is named child by child around that path, as its children stand when
+  the session starts, because a denied path wins over an allowed one beneath it; a
+  child made later is the hooks' and the sentinel's alone;
+- a root the registry leaves to scripts (``shell_writes: allowed``: the series
+  outbox, whose records the collector judges) is not named;
 - a root above a writable place (the run's ``sessions/`` above the session's
   home) is not named at all: the OS already denies everything in it but the home.
 
@@ -51,7 +56,9 @@ FIELD_RULES: dict[str, str] = {
     "worktree": "writable: the session's working directory",
     "store_root": "write-denied (named whole)",
     "state_dir": "write- and read-denied to shell commands: the hooks' records",
-    "protected_roots": "write-denied; read-denied as each root's `reads` says",
+    "protected_roots": (
+        "write-denied unless `shell_writes` leaves it to scripts; read-denied as `reads` says"
+    ),
     "experiments": "frozen files write-denied, named as the hooks freeze them",
     "held_out": "write- and read-denied (the file tools are the hooks')",
     "answer_keys": "write- and read-denied (the file tools are the hooks')",
@@ -68,8 +75,10 @@ class OsPolicy:
     """The settings to merge into a session's settings file, and what they leave out."""
 
     settings: dict[str, Any]
-    #: Protected paths inside a writable place that do not exist yet, so are not named.
-    not_named: tuple[str, ...]
+    #: Write-denied paths inside the worktree that did not exist when the session started:
+    #: named all the same, and swept after the session for the placeholder the Linux
+    #: sandbox may leave at one.
+    absent_named: tuple[str, ...]
 
 
 def sandbox_policy(
@@ -97,7 +106,7 @@ def sandbox_policy(
             what = "worktree" if place == config.worktree else "temporary directory"
             msg = f"the session's {what} ({place}) is inside a read-denied path"
             raise ValueError(msg)
-    deny_write, not_named = _write_denied(config, writable, exists, children)
+    deny_write, absent_named = _write_denied(config, writable, exists, children)
     # The home, and any further place of the session's own its commands read, may sit
     # inside a read-denied root (the run's sessions/): opened again.
     allow_read = sorted(
@@ -113,14 +122,24 @@ def sandbox_policy(
             "filesystem": {
                 # The process's own file descriptors: a process substitution reads and
                 # writes through them, and Seatbelt otherwise refuses it.
-                "allowWrite": [home, "/dev/fd"],
-                "denyWrite": deny_write,
-                "denyRead": sorted(read_denied),
-                "allowRead": allow_read,
+                "allowWrite": [*_spelled(home), "/dev/fd"],
+                "denyWrite": _spelled(*deny_write),
+                "denyRead": _spelled(*read_denied),
+                "allowRead": _spelled(*allow_read),
             },
         },
     }
-    return OsPolicy(settings=settings, not_named=tuple(sorted(not_named)))
+    return OsPolicy(settings=settings, absent_named=tuple(sorted(absent_named)))
+
+
+def _spelled(*paths: str) -> list[str]:
+    """Each path as given and where it really is, when the two differ.
+
+    The sandbox judges an access where it lands. A path given through a symbolic link
+    (``/var`` is ``/private/var`` on macOS) and named only as given was measured to deny
+    nothing on Seatbelt, so both spellings are named.
+    """
+    return sorted({spelling for path in paths for spelling in (path, os.path.realpath(path))})
 
 
 def _read_denied(config: SessionConfig) -> set[str]:
@@ -138,7 +157,7 @@ def _write_denied(
 ) -> tuple[list[str], list[str]]:
     """The write-denied paths to name, and the protected paths left unnamed."""
     roots: list[tuple[str, tuple[str, ...]]] = [
-        (r.path, r.exceptions) for r in config.protected_roots
+        (r.path, r.exceptions) for r in config.protected_roots if r.shell_writes == "denied"
     ]
     plain = (*config.held_out, *config.answer_keys, *config.review_material, config.state_dir)
     roots += [(path, ()) for path in plain]
@@ -147,20 +166,26 @@ def _write_denied(
     for rule in config.experiments:
         roots += [(path, ()) for path in _frozen(rule, exists, children)]
     named: set[str] = set()
-    not_named: set[str] = set()
+    absent: set[str] = set()
     for path, exceptions in roots:
         if any(_under(place, path) for place in writable):
             continue  # a root above a writable place: the OS denies the rest of it already
         inside = any(_under(path, place) for place in writable)
-        if not inside:
+        if not inside or exists(path):
+            if exceptions and inside:
+                named.update(_around(path, exceptions, exists, children))
+            else:
+                named.add(path)
+            continue
+        # Absent, inside a writable place. Named only where its parent exists and nothing
+        # beneath it is carved out: a denied path whose parent is missing was measured to
+        # keep a command from making that parent at all (``mkdir -p src/other`` refused for
+        # a denied, absent ``src/physgate/gate``), a false refusal of ordinary work.
+        if not exceptions and exists(os.path.dirname(path)):
             named.add(path)
-        elif _under(path, config.worktree) and not exists(path):
-            not_named.add(path)  # a Linux placeholder here could be committed
-        elif exceptions:
-            named.update(_around(path, exceptions, exists, children))
-        else:
-            named.add(path)
-    return sorted(named), sorted(not_named - named)
+            if _under(path, config.worktree):
+                absent.add(path)  # swept after the session for a placeholder
+    return sorted(named), sorted(absent)
 
 
 def _around(

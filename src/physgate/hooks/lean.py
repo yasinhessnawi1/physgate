@@ -112,11 +112,16 @@ def _strings(value: object, where: str, check: Any) -> tuple[Any, ...]:  # noqa:
 class LeanRoot:
     """A protected root."""
 
-    __slots__ = ("exceptions", "path", "reads", "reason", "watch")
+    __slots__ = ("exceptions", "path", "reads", "reason", "shell_writes", "watch")
 
     def __init__(self, raw: object, where: str) -> None:
-        """Validate one root. ``exceptions`` and ``reads`` may be omitted; they default."""
-        data = _object(raw, where, ("path", "reason", "watch"), optional=("exceptions", "reads"))
+        """Validate one root. ``exceptions``, ``reads`` and ``shell_writes`` may be omitted."""
+        data = _object(
+            raw,
+            where,
+            ("path", "reason", "watch"),
+            optional=("exceptions", "reads", "shell_writes"),
+        )
         self.path: str = _absolute(data["path"], f"{where}.path")
         self.reason: str = _string(data["reason"], f"{where}.reason", min_length=1)
         self.exceptions: tuple[str, ...] = (
@@ -128,6 +133,11 @@ class LeanRoot:
         # Read by the OS layer, not by any hook; validated so the file stays whole.
         self.reads: str = (
             _choice(data["reads"], f"{where}.reads", READS) if "reads" in data else "open"
+        )
+        self.shell_writes: str = (
+            _choice(data["shell_writes"], f"{where}.shell_writes", ("denied", "allowed"))
+            if "shell_writes" in data
+            else "denied"
         )
 
 
