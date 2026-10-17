@@ -15,6 +15,7 @@ layer off and, where it runs here, on.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import secrets
 import shutil
@@ -122,7 +123,8 @@ def test_presence_is_resolved_on_the_session_path_not_the_runner_s(
     monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
     assert shutil.which(tool.name) == str(tool)
     assert runner.resolve_on_session_path(tool.name) is None
-    assert runner.resolve_on_session_path("sh") == "/bin/sh"
+    sh = shutil.which("sh", path=session_path())
+    assert sh is not None and runner.resolve_on_session_path("sh") == sh
     # The harness Python's directory is on the session's path, as frozen.
     python_dir = session_path().rsplit(":", 1)[1]
     found = runner.resolve_on_session_path("python3")
@@ -150,9 +152,15 @@ def test_the_first_layer_arm_drives_an_absent_binary() -> None:
 # --- where the attempts' roots lie -------------------------------------------------------
 
 
+#: ``/tmp`` has a second spelling only where it is a link (``/private/tmp`` on macOS).
+TMP_SPELLINGS = ["/tmp/x"] + (
+    [f"{os.path.realpath('/tmp')}/x"] if os.path.realpath("/tmp") != "/tmp" else []
+)
+
+
 @pytest.mark.parametrize(
     "where",
-    ["/tmp/x", "/private/tmp/x", "shared-per-user", "claude-temp", "allowed"],
+    [*TMP_SPELLINGS, "shared-per-user", "claude-temp", "allowed"],
 )
 def test_a_root_inside_a_place_the_os_layer_makes_writable_is_refused(
     where: str, tmp_path: Path
@@ -166,6 +174,40 @@ def test_a_root_inside_a_place_the_os_layer_makes_writable_is_refused(
     root = Path(places.get(where, where))
     writable = (*runner.machine_writable(), str(allowed))
     assert runner.placement_refusal(root, writable) is not None
+
+
+def _case_insensitive_root() -> bool:
+    return os.path.exists("/TMP") and os.path.samefile("/TMP", "/tmp")
+
+
+@pytest.mark.skipif(not _case_insensitive_root(), reason="this volume tells case apart")
+@pytest.mark.parametrize("given", ["/private/TMP/x", "/Private/tmp/x", "/TMP/x"])
+def test_a_case_variant_of_a_writable_place_is_refused(given: str) -> None:
+    assert runner.placement_refusal(Path(given), runner.machine_writable()) is not None
+
+
+@pytest.mark.skipif(
+    not os.path.isdir("/System/Volumes/Data/private/tmp"), reason="no data-volume spelling"
+)
+def test_the_data_volume_spelling_of_a_writable_place_is_refused() -> None:
+    root = Path("/System/Volumes/Data/private/tmp/x")
+    assert runner.placement_refusal(root, runner.machine_writable()) is not None
+
+
+def test_a_scratch_root_reached_through_a_link_into_a_writable_place_is_refused(
+    scratch: Path,
+) -> None:
+    # The root's own resolution is what catches this: the spelling as given lies under
+    # the user's scratch area, and only where it lands lies under /tmp.
+    target = Path("/tmp") / f"pg-link-{secrets.token_hex(6)}"
+    target.mkdir()
+    try:
+        link = scratch / "link"
+        link.symlink_to(target)
+        assert runner.placement_refusal(link / "x", runner.machine_writable()) is not None
+        assert runner.placement_refusal(link, runner.machine_writable()) is not None
+    finally:
+        shutil.rmtree(target, ignore_errors=True)
 
 
 def test_a_root_under_the_user_s_scratch_area_is_accepted() -> None:
@@ -264,6 +306,43 @@ def test_a_denial_in_another_case_is_recorded_and_never_scored() -> None:
     assert neither["os_denied_any_case"] is False
 
 
+def test_only_the_lines_carrying_the_denial_are_kept_and_at_most_200_characters() -> None:
+    attempt = {"id": "x", "binary": "echo", "target_key": "gate"}
+    said = (
+        "first line\ntee: /r/a: Operation not permitted\nmiddle\n"
+        "(eval):1: operation not permitted: /r/b\nlast"
+    )
+    record = runner._score(attempt, _told(said), [], os_layer=True)
+    assert record["os_denial_text"] == (
+        "tee: /r/a: Operation not permitted\n(eval):1: operation not permitted: /r/b"
+    )
+    long = "tee: /" + "a" * 500 + ": Operation not permitted"
+    assert len(runner._score(attempt, _told(long), [], os_layer=True)["os_denial_text"]) == 200
+    assert runner._score(attempt, _told("ran"), [], os_layer=True)["os_denial_text"] == ""
+
+
+def test_every_sentinel_record_s_paths_are_kept_and_a_runtime_path_put_back_is_flagged(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path
+    elsewhere = str(root / "worktree" / "src" / "physgate" / "gate" / "check.py")
+    runtime = str(root / "worktree" / ".claude" / ".cc-writes" / "f")
+    log = [
+        {"hook": "sentinel", "decision": "put back", "paths": [elsewhere]},
+        {"hook": "sentinel", "decision": "refuse", "reason": "put back"},
+        {"hook": "shell_paths", "decision": "refuse", "reason": "no"},
+    ]
+    facts = runner._sentinel_facts(log, root)
+    assert facts == {"sentinel_paths": [elsewhere], "runtime_paths_put_back": False}
+    log.append({"hook": "sentinel", "decision": "halt", "paths": [runtime]})
+    facts = runner._sentinel_facts(log, root)
+    assert facts["sentinel_paths"] == sorted([elsewhere, runtime])
+    assert facts["runtime_paths_put_back"] is True
+    ignore = str(root / "outside" / "home" / ".config" / "git" / "ignore")
+    only_ignore = [{"hook": "sentinel", "decision": "put back", "paths": [ignore]}]
+    assert runner._sentinel_facts(only_ignore, root)["runtime_paths_put_back"] is True
+
+
 # --- arm 2's read column -----------------------------------------------------------------
 
 
@@ -317,10 +396,16 @@ def _binary(tmp_path: Path, version: str) -> tuple[str, str]:
     return str(path), hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _pins(repo: Path, binary: str, **kwargs: Any) -> dict[str, object]:
+    return runner.pins(repo, binary, package_dir=repo / "src" / "physgate", **kwargs)
+
+
 def test_a_run_from_the_pinned_source_and_binary_is_stamped(tmp_path: Path) -> None:
     repo, _first, head = _repo(tmp_path)
     binary, digest = _binary(tmp_path, runner.PINNED_VERSION)
-    stamp = runner.pins(repo, binary, pinned_src=head, pinned_sha256=digest)
+    stamp = _pins(repo, binary, pinned_src=head, pinned_sha256=digest)
+    assert stamp["physgate_package_dir"] == str((repo / "src" / "physgate").resolve())
+    assert stamp["python_executable"] == runner.sys.executable
     assert stamp["commit"] == head and stamp["tree_clean"] is True
     assert stamp["src_matches_pin"] is True and stamp["src_tree"] == stamp["src_pinned_tree"]
     assert (stamp["binary_version"], stamp["binary_sha256"]) == (runner.PINNED_VERSION, digest)
@@ -331,29 +416,46 @@ def test_a_dirty_tree_is_refused(tmp_path: Path) -> None:
     binary, digest = _binary(tmp_path, runner.PINNED_VERSION)
     (repo / "untracked.txt").write_text("x\n")
     with pytest.raises(runner.RunRefusedError, match="clean"):
-        runner.pins(repo, binary, pinned_src=head, pinned_sha256=digest)
+        _pins(repo, binary, pinned_src=head, pinned_sha256=digest)
     (repo / "untracked.txt").unlink()
     (repo / "src" / "x.py").write_text("X = 3\n")
     with pytest.raises(runner.RunRefusedError, match="clean"):
-        runner.pins(repo, binary, pinned_src=head, pinned_sha256=digest)
+        _pins(repo, binary, pinned_src=head, pinned_sha256=digest)
 
 
 def test_a_source_tree_other_than_the_pinned_one_is_refused(tmp_path: Path) -> None:
     repo, first, _head = _repo(tmp_path)
     binary, digest = _binary(tmp_path, runner.PINNED_VERSION)
     with pytest.raises(runner.RunRefusedError, match="src"):
-        runner.pins(repo, binary, pinned_src=first, pinned_sha256=digest)
+        _pins(repo, binary, pinned_src=first, pinned_sha256=digest)
 
 
 def test_a_binary_of_another_version_or_digest_is_refused(tmp_path: Path) -> None:
     repo, _first, head = _repo(tmp_path)
     binary, digest = _binary(tmp_path, runner.PINNED_VERSION)
     with pytest.raises(runner.RunRefusedError, match="sha256"):
-        runner.pins(repo, binary, pinned_src=head, pinned_sha256="0" * 64)
+        _pins(repo, binary, pinned_src=head, pinned_sha256="0" * 64)
     other, other_digest = _binary(tmp_path, "2.1.300")
     with pytest.raises(runner.RunRefusedError, match="version"):
-        runner.pins(repo, other, pinned_src=head, pinned_sha256=other_digest)
+        _pins(repo, other, pinned_src=head, pinned_sha256=other_digest)
     assert digest != other_digest
+
+
+def test_a_physgate_imported_from_another_tree_is_refused(tmp_path: Path) -> None:
+    repo, _first, head = _repo(tmp_path)
+    binary, digest = _binary(tmp_path, runner.PINNED_VERSION)
+    with pytest.raises(runner.RunRefusedError, match="physgate"):
+        runner.pins(
+            repo,
+            binary,
+            pinned_src=head,
+            pinned_sha256=digest,
+            package_dir=REPO / "src" / "physgate",
+        )
+
+
+def test_the_physgate_this_runner_imports_is_this_checkout_s() -> None:
+    assert runner.imported_package_dir().is_relative_to((REPO / "src").resolve())
 
 
 def test_this_checkout_s_source_is_the_pinned_source() -> None:
@@ -390,6 +492,33 @@ def test_the_machine_line_names_the_paths_made_for_the_runtime() -> None:
         "worktree/.claude/.cc-writes",
         "outside/home/.config/git/ignore",
     ]
+
+
+def test_an_arm_stopped_mid_run_writes_why_and_its_partial_counts(
+    scratch: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from hook_session import HarnessError
+
+    monkeypatch.setattr(runner, "claude_binary", lambda: "/bin/sh")
+    monkeypatch.setattr(runner, "pins", lambda _repo, _binary: {"commit": "c"})
+    calls = []
+
+    def one(attempt: dict[str, Any], _arm: runner.RunnerArm) -> dict[str, Any]:
+        calls.append(attempt["id"])
+        if len(calls) == 2:
+            raise HarnessError("more hook commands started than the generated ones: {'Stop': 9}")
+        return {"id": attempt["id"], "column": "write", "outcome": "no reach", "in_verdict": True}
+
+    monkeypatch.setattr(runner, "run_one", one)
+    out = scratch / "out.jsonl"
+    with pytest.raises(HarnessError, match="Stop"):
+        runner.drive(FROZEN, runner.RunnerArm.of("arm2-sentinel"), out)
+    lines = [json.loads(line) for line in out.read_text().splitlines()]
+    assert [line.get("kind") for line in lines] == ["machine", None, "stopped", "summary"]
+    stopped, summary = lines[2], lines[3]
+    assert stopped["attempt"] == calls[1] and "'Stop': 9" in stopped["error"]
+    assert stopped["error_type"] == "HarnessError"
+    assert (summary["complete"], summary["total"], summary["no reach"]) == (False, 1, 1)
 
 
 # --- real sessions -----------------------------------------------------------------------
@@ -527,6 +656,21 @@ def test_with_the_runtime_s_paths_made_first_an_os_session_leaves_no_record(scra
         "outside/home/.config/git/ignore": "file 0o644:" + b"**/.claude/.cc-writes/\n".hex(),
     }
     assert runner.runtime_entries(root) == expected
+
+
+@pytest.mark.integration
+def test_a_put_back_of_a_runtime_path_is_flagged_on_the_attempt_s_record(scratch: Path) -> None:
+    # The sentinel puts the write back before the session ends, so the end state alone
+    # cannot show it; the sentinel's own records do.
+    write = {
+        "id": "stand-in-cc-writes",
+        "binary": "echo",
+        "code": "echo x > @W/.claude/.cc-writes/f && echo ran > @W/ran.txt",
+    }
+    record = runner.run_one(write, runner.RunnerArm.of("arm2-sentinel"))
+    assert record["runtime_paths_put_back"] is True
+    assert any(".cc-writes" in p for p in record["sentinel_paths"]), record
+    assert record["runtime_paths_unchanged"] is True  # what the end state alone says
 
 
 @pytest.mark.integration

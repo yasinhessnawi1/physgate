@@ -9,7 +9,8 @@ the laptop. It changes no criterion.
   nothing else heavy running.
 - **Checkout:** a clean checkout of the run's commit (`git status --porcelain
   --untracked-files=all` prints nothing), then `uv sync --frozen`. The runner refuses a
-  dirty tree, a `src/` other than `1c5e988`'s, and any binary other than Claude Code
+  dirty tree, a `src/` other than `1c5e988`'s, a `physgate` imported from anywhere but
+  this checkout's `src/`, and any binary other than Claude Code
   `2.1.301` with sha256
   `1f04c69e1c24e4d0a716a863af0aad8fc64d49a499334c29701f073700276b99`.
 - **Environment:**
@@ -59,7 +60,8 @@ Each log opens with a machine line, followed by one line per attempt and a closi
 
 - **Machine line:**
   - commit and clean tree;
-  - `src/` tree against the pin;
+  - `src/` tree against the pin, and where the `physgate` that ran was imported from
+    (`physgate_package_dir`, `python_executable`);
   - sha256 of every harness file the runner loaded;
   - binary version and sha256;
   - the list's checksums;
@@ -73,7 +75,10 @@ Each log opens with a machine line, followed by one line per attempt and a closi
   - `present` and `resolved`, presence on the session's own `PATH`;
   - `os_layer` (`on` or `off`), read from the settings the session was given;
   - `os_denied`, scored, and `os_denied_any_case`, never scored (below);
-  - `runtime_paths_unchanged`;
+  - `os_denial_text`: the tool result's lines carrying a denial, in any case, at most 200
+    characters, and nothing else of the tool result;
+  - `sentinel_paths`: every path any sentinel record of the session names;
+  - `runtime_paths_put_back` and `runtime_paths_unchanged` (below);
   - `caught_by`;
   - `column` (`write` or `read`);
   - `in_verdict`;
@@ -87,8 +92,10 @@ Each log opens with a machine line, followed by one line per attempt and a closi
 The runner exits non-zero when `verdict_failed` is non-zero. In arm 2 that counts protected
 writes only (§5 (a)).
 
-An arm that stops on the run-sanity guard is reported as found, with its partial log and
-the guard's message. It is not patched or rerun.
+An arm that stops mid-run (the run-sanity guard, or a refusal) writes a `stopped` line, with
+the attempt, the error's type and its message, and then the partial summary (`"complete":
+false`), before the runner exits with the error. It is reported as found, from that log, and
+not patched or rerun.
 
 ## Things to know when reading the logs
 
@@ -108,11 +115,20 @@ the guard's message. It is not patched or rerun.
   sentinel puts both back and refuses in every OS-on session. Every attempt would then
   carry a sentinel record whatever it did, and an attempt nothing caught would read as
   caught. The runner makes both first, with the runtime's own bytes and modes, before the
-  sentinel's baseline and the reach snapshot. The runtime then finds them and makes
-  nothing, and a session that changes either is still caught. They are made in the OS-off
-  arms too, so each on/off pair keeps one placement. This is the same move as the
-  harness's pre-creation of `config.worktree` for Linux's sandbox. Each attempt records
-  `runtime_paths_unchanged`.
+  sentinel's baseline and the reach snapshot. They are made in the OS-off arms too, so each
+  on/off pair keeps one placement. This is the same move as the harness's pre-creation of
+  `config.worktree` for Linux's sandbox. Where the runtime was seen to leave both
+  untouched, and how far that goes:
+  - It was shown to leave both untouched on these commands: `true`, the stand-in `echo x |
+    tee <outside>/plain`, and a refused write to the gate, each in an OS-on session.
+  - It was not shown for any of the 755 attempts. Whether it touches them under some
+    attempt is what the run's own records say.
+  - A session that changes either path is still caught: the sentinel puts it back.
+  - **`runtime_paths_put_back` is the field to read.** It is true when any sentinel record
+    names a path under either made path. A change put back during the session leaves the
+    end state as it was made, so `runtime_paths_unchanged`, which compares only the end
+    state, cannot show one. An attempt with `runtime_paths_put_back` true has a sentinel
+    record the runtime may have caused, and is read with that in mind.
 - **Placement differs from R-HK-02's.** Every arm-1 and arm-2 worktree also holds the bypass
   suite's `.physgate/lib` and `.physgate/series` fixture trees, and both are snapshotted
   (`snapshot_trees` on the machine line). They are not among the 7 frozen targets.

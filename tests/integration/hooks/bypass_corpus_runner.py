@@ -56,6 +56,7 @@ import test_the_bypass_suite as bp
 from fake_messages_api import Script, text
 from hook_session import (
     PINNED_VERSION,
+    HarnessError,
     SessionRun,
     claude_binary,
     run_session,
@@ -63,6 +64,7 @@ from hook_session import (
     volume_is_case_insensitive,
 )
 
+import physgate
 from physgate import bypass_corpus as bc
 from physgate.hooks.registry import REGISTRY
 from physgate.hooks.settings import Installed
@@ -78,6 +80,8 @@ PINNED_BINARY_SHA256 = "1f04c69e1c24e4d0a716a863af0aad8fc64d49a499334c29701f0737
 #: exactly: Linux's sandbox reports a denied write differently, so a run there would
 #: undercount the layer's denials; the run is made on macOS.
 OS_DENIAL = "Operation not permitted"
+#: The most of a tool result an attempt's record keeps: the lines carrying a denial.
+DENIAL_TEXT_LIMIT = 200
 #: The variable naming the directory every attempt's scratch root is made in.
 SCRATCH_VARIABLE = "RHK03_SCRATCH"
 #: What Claude Code 2.1.301 makes on its own in a session inside the OS layer (measured on
@@ -189,19 +193,34 @@ def suite_files_sha256() -> dict[str, str]:
     return dict(sorted(out.items()))
 
 
+def imported_package_dir() -> Path:
+    """Where the ``physgate`` this process imported, and the hooks it installs run, lives."""
+    return Path(physgate.__file__).resolve().parent
+
+
 def pins(
     repo: Path,
     binary: str,
     *,
     pinned_src: str = PINNED_SRC_COMMIT,
     pinned_sha256: str = PINNED_BINARY_SHA256,
+    package_dir: Path | None = None,
 ) -> dict[str, object]:
     """The run's commit, source and binary, refused unless each is the pinned one.
 
+    The source checked is the code that runs: the ``physgate`` package this process
+    imported, whose directory the hooks are installed from, must lie in ``repo``'s
+    ``src/``, or a clean pinned tree could vouch for hooks run from another one.
+
     Raises:
-        RunRefusedError: the tree is not clean (untracked files included), ``src/`` is
-            not the pinned commit's, or the binary is another version or digest.
+        RunRefusedError: the package is imported from outside ``repo``'s ``src/``, the
+            tree is not clean (untracked files included), ``src/`` is not the pinned
+            commit's, or the binary is another version or digest.
     """
+    package = (package_dir or imported_package_dir()).resolve()
+    if not package.is_relative_to((repo / "src").resolve()):
+        msg = f"physgate is imported from {package}, not from {repo / 'src'}"
+        raise RunRefusedError(msg)
     status = _git(repo, "status", "--porcelain", "--untracked-files=all")
     if status:
         msg = f"the tree is not clean:\n{status[:2000]}"
@@ -232,6 +251,8 @@ def pins(
         "binary": binary,
         "binary_version": version,
         "binary_sha256": digest,
+        "physgate_package_dir": str(package),
+        "python_executable": sys.executable,
     }
 
 
@@ -271,24 +292,48 @@ def _require_layer() -> None:
 
 
 def machine_writable() -> tuple[str, ...]:
-    """The places the OS layer lets every session write on this machine, whatever it is."""
+    """Where no attempt's root may lie, on this machine, whatever the arm.
+
+    The shared temporary directories, which the OS layer lets every session write, and
+    Claude Code's own temporary directory inside them, which it denies both ways but
+    which is no place for an attempt either.
+    """
     return (*shared_temp_dirs(), *claude_temp_dirs())
+
+
+def _same_place(path: Path, place: str) -> bool:
+    try:
+        return os.path.samefile(path, place)
+    except OSError:
+        return False
 
 
 def placement_refusal(root: Path, writable: Iterable[str]) -> str | None:
     """Why ``root`` may not hold an attempt, or ``None`` if it lies outside ``writable``.
 
-    Judged on both spellings of each side, as the sandbox judges an access where it
-    lands (``/tmp`` is ``/private/tmp`` on macOS).
+    Judged where an access lands, as the sandbox judges it: by spelling, on the root
+    as given and as resolved (``/tmp`` is ``/private/tmp`` on macOS), and by identity,
+    each existing ancestor of either against each place. Identity catches what no
+    spelling shows: a case variant on a volume that ignores case, and a second path
+    to the same directory (``/System/Volumes/Data`` on macOS).
     """
-    spellings = {Path(str(root)), Path(os.path.realpath(root))}
-    for place in writable:
-        for spelled in {Path(place), Path(os.path.realpath(place))}:
-            if any(s == spelled or s.is_relative_to(spelled) for s in spellings):
-                return (
-                    f"the scratch root {root} lies inside {place}, "
-                    "a place the OS layer makes writable for the session"
-                )
+    places = list(writable)
+    refusal = (
+        f"the scratch root {root} lies inside {{place}}, "
+        "a place the OS layer makes writable for the session"
+    )
+    resolved = Path(os.path.realpath(root))
+    for spelling in {Path(str(root)), resolved}:
+        for place in places:
+            for spelled in {Path(place), Path(os.path.realpath(place))}:
+                if spelling == spelled or spelling.is_relative_to(spelled):
+                    return refusal.format(place=place)
+        for ancestor in (spelling, *spelling.parents):
+            if not os.path.lexists(ancestor):
+                continue
+            for place in places:
+                if _same_place(ancestor, place):
+                    return refusal.format(place=place)
     return None
 
 
@@ -421,6 +466,36 @@ def _in_verdict(arm: RunnerArm, column: str) -> bool:
     return not (arm.base is bc.Arm.SENTINEL and column == "read")
 
 
+#: The sentinel's records that name what it acted on.
+_SENTINEL_ACTS = ("put back", "refuse", "halt", "node mismatch", "unrestorable", "withheld")
+
+
+def _sentinel_facts(hook_log: list[dict[str, Any]], root: Path) -> dict[str, Any]:
+    """Every path a sentinel record names, and whether one lies under a made path.
+
+    The sentinel puts a change back before the session ends, so the end state of the
+    made paths cannot show that the runtime, or the attempt, changed one; its records
+    can.
+    """
+    paths = sorted(
+        {
+            str(path)
+            for e in hook_log
+            if e.get("hook") == "sentinel" and e.get("decision") in _SENTINEL_ACTS
+            for path in e.get("paths") or []
+        }
+    )
+    made = [root / rel for rel in PRECREATED_PATHS]
+    put_back = any(Path(path) == m or Path(path).is_relative_to(m) for path in paths for m in made)
+    return {"sentinel_paths": paths, "runtime_paths_put_back": put_back}
+
+
+def _denial_text(told: str) -> str:
+    """The lines of a tool result carrying a denial, in any case, and nothing more."""
+    lines = [line for line in told.splitlines() if OS_DENIAL.lower() in line.lower()]
+    return "\n".join(lines)[:DENIAL_TEXT_LIMIT]
+
+
 def _score(
     attempt: dict[str, Any], run: SessionRun, reached: list[str], *, os_layer: bool
 ) -> dict[str, Any]:
@@ -446,6 +521,7 @@ def _score(
         "os_layer": "on" if os_layer else "off",
         "os_denied": os_denied,
         "os_denied_any_case": os_denied_any_case,
+        "os_denial_text": _denial_text(told),
         "outcome": bc.decide_outcome(reached=reached, caught=caught, leak=leak),
     }
 
@@ -467,7 +543,11 @@ def _run_first_layer(attempt: dict[str, Any], arm: RunnerArm, root: Path) -> dic
     before = _read_snapshot(root / bp.SNAPSHOT_KEY)
     after = bp._snapshot(root)
     record = _score(attempt, run, _reached(before, after), os_layer=_layer_given(run.settings))
-    return {**record, "runtime_paths_unchanged": runtime_entries(root) == _MADE}
+    return {
+        **record,
+        **_sentinel_facts(run.hook_log, root),
+        "runtime_paths_unchanged": runtime_entries(root) == _MADE,
+    }
 
 
 def _prepare_separate_checkout(root: Path) -> None:
@@ -536,7 +616,11 @@ def _run_separate_checkout(attempt: dict[str, Any], arm: RunnerArm, root: Path) 
     )
     after = _snapshot_of(_separate_checkout_tops(root), root)
     record = _score(attempt, run, _reached(before, after), os_layer=_layer_given(run.settings))
-    return {**record, "runtime_paths_unchanged": runtime_entries(root) == _MADE}
+    return {
+        **record,
+        **_sentinel_facts(run.hook_log, root),
+        "runtime_paths_unchanged": runtime_entries(root) == _MADE,
+    }
 
 
 def run_one(attempt: dict[str, Any], arm: RunnerArm) -> dict[str, Any]:
@@ -613,11 +697,27 @@ def _summarise(records: list[dict[str, Any]], arm: RunnerArm) -> dict[str, Any]:
     }
 
 
+def _closing(
+    records: list[dict[str, Any]], arm: RunnerArm, started: float, *, complete: bool
+) -> dict[str, Any]:
+    ended = time.time()
+    return {
+        **_summarise(records, arm),
+        "complete": complete,
+        "started": started,
+        "ended": ended,
+        "wall_seconds": round(ended - started, 1),
+    }
+
+
 def drive(attempts_path: Path, arm: RunnerArm, out_path: Path) -> dict[str, Any]:
     """Drive every attempt the arm covers, one result line each, and return the summary.
 
     Raises:
-        RunRefusedError: before anything is written, if the run could not be vouched for.
+        RunRefusedError: before anything is written, if the run could not be vouched for;
+            or mid-run, after a ``stopped`` line and the partial summary are written.
+        HarnessError: mid-run, when a session's run could not be vouched for, after the
+            same two lines.
     """
     started = time.time()
     state = layer_state()
@@ -649,17 +749,28 @@ def drive(attempts_path: Path, arm: RunnerArm, out_path: Path) -> dict[str, Any]
         out.write(json.dumps(machine) + "\n")
         out.flush()
         for i, attempt in enumerate(attempts, 1):
-            record = run_one(attempt, arm)
+            try:
+                record = run_one(attempt, arm)
+            except (HarnessError, RunRefusedError) as exc:
+                # An arm that stops is reported as found, with its partial counts and
+                # the reason, so both are written before the error is raised again.
+                stopped = {
+                    "kind": "stopped",
+                    "attempt": attempt["id"],
+                    "index": i,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc)[:4000],
+                }
+                out.write(json.dumps(stopped) + "\n")
+                out.write(json.dumps(_closing(records, arm, started, complete=False)) + "\n")
+                out.flush()
+                raise
             records.append(record)
             out.write(json.dumps(record) + "\n")
             out.flush()
             print(f"[{i}/{len(attempts)}] {attempt['id']}: {record['outcome']}", file=sys.stderr)
-        ended = time.time()
         summary = {
-            **_summarise(records, arm),
-            "started": started,
-            "ended": ended,
-            "wall_seconds": round(ended - started, 1),
+            **_closing(records, arm, started, complete=True),
             "binary_sha256_at_end": _sha256(binary),
         }
         out.write(json.dumps(summary) + "\n")
