@@ -33,6 +33,7 @@ import numpy as np
 
 from physgate.evaluation.per_role.answer import LtiTf, read_lti_tf
 from physgate.evaluation.per_role.exceptions import ReferenceCheckError, TaskFormatError
+from physgate.evaluation.per_role.metrics import CONTROL_METRIC_UNITS
 from physgate.evaluation.per_role.task import LoadedTask, Measure, Spec, Task, canonical_json
 
 #: A real or complex numpy array. Spelt as ``Any``: the types are checked in the harness's
@@ -56,15 +57,7 @@ BORDERLINE_FRACTION = 0.005
 PADE_TOLERANCE = 0.005
 
 #: The metric each spec may name, and the unit its bound must be written in.
-METRIC_UNITS: dict[str, str] = {
-    "max_real_pole": "1/s",
-    "phase_margin": "deg",
-    "settling_time": "s",
-    "steady_state_error": "1",
-    "gain_margin_ratio": "1",
-    "gain_margin_db": "dB",
-    "overshoot": "percent",
-}
+METRIC_UNITS = CONTROL_METRIC_UNITS
 
 
 class Plant:
