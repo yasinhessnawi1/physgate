@@ -14,3 +14,7 @@ class PerRoleError(Exception):
 
 class TaskFormatError(PerRoleError):
     """A task, or an answer to one, is not in the format the scorers read."""
+
+
+class ReferenceCheckError(PerRoleError):
+    """A scorer passed a known-bad reference or failed the known-good one."""
