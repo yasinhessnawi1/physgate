@@ -131,6 +131,28 @@ _JOINED = re.compile(
 )
 
 
+#: Words a file name may not hold besides the telltales: their plurals and near forms, and
+#: words that say a thing was planted, broken or kept clean. A name is a few words, so the
+#: list can be wider there than in prose, where "error" and "clean" are an engineer's words.
+NAME_TELLTALES: tuple[str, ...] = (
+    r"\btwins?\b",
+    r"\bbugs?\b",
+    r"\bbuggy\b",
+    r"\bwrong\w*",
+    r"\berrors?\b",
+    r"\berroneous\b",
+    r"\bfaults?\b",
+    r"\bfaulty\b",
+    r"\bseed\w*",
+    r"\bclean\w*",
+    r"\boriginal\w*",
+    r"\bcorrect\w*",
+    r"\bfix(es|ed)?\b",
+    r"\bplant(ed|s)?\b",
+)
+_NAME_TELLTALE = re.compile("|".join(NAME_TELLTALES))
+
+
 def name_telltales(name: str) -> list[str]:
     """Every telltale word in a file name, its words split apart however they are joined.
 
@@ -138,9 +160,13 @@ def name_telltales(name: str) -> list[str]:
     and ``CleanTwin.md`` hold no telltale word read whole. Split at a change of case and at
     a digit as well as at ``_ - . /``, they say what they are. Only names are read this way:
     prose and quantities keep :func:`telltales`, where a part number such as ``DRV8838``
-    split apart would be read as words it does not contain.
+    split apart would be read as words it does not contain. A name is also held to
+    :data:`NAME_TELLTALES`, the near forms the telltales miss (``twins``, ``bugs``,
+    ``wrongly``, ``seeded_error``, ``fault``, ``clean_copy``).
     """
-    return telltales(_JOINED.sub(" ", name))
+    split = _JOINED.sub(" ", name)
+    near = {m.group(0) for m in _NAME_TELLTALE.finditer(fold(split))}
+    return sorted(set(telltales(split)) | near)
 
 
 def strings_of(value: object) -> Iterator[str]:

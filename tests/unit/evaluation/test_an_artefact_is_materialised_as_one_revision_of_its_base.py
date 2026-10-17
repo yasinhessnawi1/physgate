@@ -115,8 +115,8 @@ def test_input_that_tells_is_refused(tmp_path: Path, where: str, text: str, foun
     if where == "trajectory":
         made.trajectory.write_text(made.trajectory.read_text() + text)
     else:
-        # A file of a name the instrument writes, so its content is what is held.
-        (made.graph_root / "nodes" / "electrical.notes.json").write_text(json.dumps({"n": text}))
+        # A node file the design holds, rewritten, so its content is what is held.
+        (made.graph_root / "nodes" / "electrical.driver.json").write_text(json.dumps({"n": text}))
     with pytest.raises(BlindnessError) as caught:
         require_blind(made, ("m1", str(MAGNITUDE_ARTEFACT["description"])))
     assert found in caught.value.context["found"]
@@ -151,7 +151,7 @@ def test_a_path_named_for_the_artefact_is_refused(tmp_path: Path) -> None:
 
 def test_an_id_inside_a_digest_is_not_found(tmp_path: Path) -> None:
     made = materialise(BASE, _patch(MAGNITUDE_ARTEFACT, "injected"), tmp_path / "a")
-    notes = made.graph_root / "nodes" / "electrical.notes.json"
+    notes = made.graph_root / "nodes" / "electrical.driver.json"
     notes.write_text(json.dumps({"n": "sha256:3a01f9m1c0"}))
     require_blind(made, ("a01", "m1c"))
     with pytest.raises(BlindnessError):
@@ -202,3 +202,38 @@ def test_a_listed_name_the_instrument_does_not_write_is_refused(tmp_path: Path, 
     with pytest.raises(BlindnessError, match="not one the instrument writes") as caught:
         require_blind(made, ("m1", str(MAGNITUDE_ARTEFACT["description"])))
     assert caught.value.context["file"] == name
+
+
+#: Node-file names a reviewer could read as an answer, which the word list alone let through.
+NEAR_FORMS = [
+    "control.twins",
+    "control.bugs",
+    "control.wrongly_sized",
+    "control.seeded_error",
+    "control.fault",
+    "control.clean_copy",
+]
+
+
+@pytest.mark.parametrize("node_id", NEAR_FORMS)
+def test_a_node_file_the_instrument_did_not_write_is_refused(tmp_path: Path, node_id: str) -> None:
+    """A node file is listed only for a node this worktree's design holds, however it is named."""
+    made = materialise(BASE, _patch(MAGNITUDE_ARTEFACT, "injected"), tmp_path / "a")
+    (made.graph_root / "nodes" / f"{node_id}.json").write_text("{}\n")
+    with pytest.raises(BlindnessError, match="file name") as caught:
+        require_blind(made, ("m1", str(MAGNITUDE_ARTEFACT["description"])))
+    assert caught.value.context["file"] == f"design/nodes/{node_id}.json"
+
+
+@pytest.mark.parametrize("node_id", NEAR_FORMS)
+def test_a_node_the_design_holds_under_a_telling_name_is_refused(
+    tmp_path: Path, node_id: str
+) -> None:
+    """A name is held to near forms of the words too: plurals, and error, fault, seed, clean."""
+    named = {**BASE_NODES[2], "id": node_id, "domain": "control", "owner_role": "control"}
+    base = Base.model_validate_json(json.dumps({"label": LABEL, "nodes": [*BASE_NODES, named]}))
+    made = materialise(base, _patch(MAGNITUDE_ARTEFACT, "injected"), tmp_path / "a")
+    with pytest.raises(BlindnessError, match="file name") as caught:
+        require_blind(made, ("m1", str(MAGNITUDE_ARTEFACT["description"])))
+    assert caught.value.context["file"] == f"design/nodes/{node_id}.json"
+    assert caught.value.context.get("found")
