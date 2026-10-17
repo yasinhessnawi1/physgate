@@ -280,3 +280,38 @@ def test_a_root_whose_parent_is_missing_never_keeps_a_command_from_making_that_p
     run = run_session(layout, [step], layer=True)
     told = run["told"]
     assert isinstance(told, list) and "made" in str(told[0])
+
+
+@pytest.mark.usefixtures("layer")
+@pytest.mark.parametrize("given", ["through-a-link", "real"])
+def test_a_denial_bites_however_the_path_is_spelled(tmp_path: Path, given: str) -> None:
+    # The session's places named through a link, or by their real path; each command reads
+    # the held-out stand-in and writes the decisions file by the other spelling and by its own.
+    real = tmp_path / "real"
+    real.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(real)
+    base = link if given == "through-a-link" else real
+    with make_layout(base) as made:
+        spellings = {"link": link, "real": real}
+        steps = []
+        for name, prefix in spellings.items():
+            held = str(prefix / "outside" / "heldout")
+            decisions = str(prefix / "run" / "queue_decisions.jsonl")
+            program = (
+                f"h = {held[::-1]!r}[::-1] + '/stand.txt'\n"
+                f"d = {decisions[::-1]!r}[::-1]\n"
+                "for path, mode in ((h, 'r'), (d, 'a')):\n"
+                "    try:\n"
+                "        f = open(path, mode)\n"
+                "        print('reached', f.read() if mode == 'r' else f.write('marker'))\n"
+                "    except OSError as e:\n"
+                "        print('denied:', e.strerror)\n"
+            )
+            steps.append(tool("Bash", command=python(program), description=name))
+        run = run_session(made, steps, layer=True)
+        told = run["told"]
+        assert isinstance(told, list)
+        for said in told:
+            assert MARKER not in str(said) and "reached" not in str(said), said
+        assert (real / "run" / "queue_decisions.jsonl").read_text() == ""

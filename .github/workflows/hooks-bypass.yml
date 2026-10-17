@@ -138,4 +138,6 @@ jobs:
         if: always()
         run: |
           find /tmp/pytest-of-* -name after_stop.json -print -exec cat {} \; 2>/dev/null \
-            | head -200 || true
+            | head -60 || true
+          find /tmp/pytest-of-* -name config.worktree -exec ls -la {} \; 2>/dev/null \
+            | head -20 || true
