@@ -63,8 +63,14 @@ def test_without_a_delay_the_margins_agree_with_python_control(c: Any, g: Any) -
         (ct.tf([1e12], [1]), ct.tf([1], [1, 1e6, 0])),
         (ct.tf([1e9], [1]), ct.tf([1], [1, 1e6, 0])),
         (ct.tf([1e-6], [1]), ct.tf([1], [1, 0])),
+        (ct.tf([1e5], [1]), ct.tf([1], [1, 0])),
     ],
-    ids=["crossover near 8e5 rad/s", "integrator, crossover at 1e3 rad/s", "crossover at 1e-6"],
+    ids=[
+        "crossover near 8e5 rad/s",
+        "integrator, crossover at 1e3 rad/s",
+        "crossover at 1e-6",
+        "no root to start from, crossover at 1e5",
+    ],
 )
 def test_every_crossover_is_found_wherever_the_loop_puts_it(c: Any, g: Any) -> None:
     margin, crossed = phase_margin(c, g, 0.0)
@@ -153,13 +159,25 @@ def _task_dir(tmp_path: Path, references: dict[str, tuple[dict[str, Any], str | 
     return root
 
 
+#: The good PID with its integral gain cut twentyfold: stable, with its margin and no
+#: steady-state error, but settling in about 22 s against a 3 s window.
+SLOW_PID = controller([1.02, 2.002, 0.2], [0.01, 1.0, 0.0])
+
+
+def test_a_slow_controller_fails_the_settling_window_and_nothing_else(tmp_path: Path) -> None:
+    record = score(control_task(), write_answer(tmp_path, SLOW_PID))
+    failed = {row["name"] for row in record["specs"] if not row["passed"]}
+    assert failed == {"settling"}
+    assert _row(record, "settling")["measured"]["value"] > 3.0
+
+
 def test_the_scorer_passes_its_good_reference_and_fails_each_bad_one(tmp_path: Path) -> None:
     root = _task_dir(
         tmp_path,
         {
             "good": (GOOD_PID, None),
             "bad_unstable": (controller([1.0], [1.0], gain=0.1), "stable"),
-            "bad_slow": (controller([1.02, 2.04, 4.0], [0.01, 1.0, 0.0], gain=0.25), "settling"),
+            "bad_slow": (SLOW_PID, "settling"),
         },
     )
     check_references(load_task(root))
