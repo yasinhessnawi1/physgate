@@ -215,9 +215,14 @@ NEAR_FORMS = [
 ]
 
 
-@pytest.mark.parametrize("node_id", NEAR_FORMS)
+@pytest.mark.parametrize(
+    "node_id", [*NEAR_FORMS, "control.gain_schedule", "mechanical.spare_bracket"]
+)
 def test_a_node_file_the_instrument_did_not_write_is_refused(tmp_path: Path, node_id: str) -> None:
-    """A node file is listed only for a node this worktree's design holds, however it is named."""
+    """A node file is listed only for a node this worktree's design holds, however it is named.
+
+    The last two are neutral names, so only the design's own ids can refuse them.
+    """
     made = materialise(BASE, _patch(MAGNITUDE_ARTEFACT, "injected"), tmp_path / "a")
     (made.graph_root / "nodes" / f"{node_id}.json").write_text("{}\n")
     with pytest.raises(BlindnessError, match="file name") as caught:
