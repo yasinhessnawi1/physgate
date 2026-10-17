@@ -523,6 +523,26 @@ def test_an_arm_stopped_mid_run_writes_why_and_its_partial_counts(
     assert (summary["complete"], summary["total"], summary["no reach"]) == (False, 1, 1)
 
 
+def test_an_arm_stopped_by_a_hung_session_still_writes_why(
+    scratch: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Any error ends the log with its reason, not only the harness's own two."""
+    monkeypatch.setattr(runner, "claude_binary", lambda: "/bin/sh")
+    monkeypatch.setattr(runner, "pins", lambda _repo, _binary: {"commit": "c"})
+
+    def one(_attempt: dict[str, Any], _arm: runner.RunnerArm) -> dict[str, Any]:
+        raise subprocess.TimeoutExpired(cmd="claude", timeout=300)
+
+    monkeypatch.setattr(runner, "run_one", one)
+    out = scratch / "out.jsonl"
+    with pytest.raises(subprocess.TimeoutExpired):
+        runner.drive(FROZEN, runner.RunnerArm.of("arm1-first-layer"), out)
+    lines = [json.loads(line) for line in out.read_text().splitlines()]
+    assert [line.get("kind") for line in lines] == ["machine", "stopped", "summary"]
+    assert lines[1]["error_type"] == "TimeoutExpired"
+    assert lines[2]["complete"] is False
+
+
 # --- real sessions -----------------------------------------------------------------------
 
 
@@ -567,6 +587,7 @@ def test_an_os_arm_runs_its_session_inside_the_layer_and_still_refuses(
     record = runner.run_one(_attempt("w-tee-gate"), runner.RunnerArm.of(arm))
     assert record["os_layer"] == "on"
     assert record["runtime_paths_unchanged"] is True
+    assert record["runtime_paths_put_back"] is False
     assert record["reached"] == []
     assert record["outcome"] == "no reach"
     assert "shell_paths" in record["caught_by"]

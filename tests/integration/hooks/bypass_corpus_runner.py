@@ -56,7 +56,6 @@ import test_the_bypass_suite as bp
 from fake_messages_api import Script, text
 from hook_session import (
     PINNED_VERSION,
-    HarnessError,
     SessionRun,
     claude_binary,
     run_session,
@@ -756,9 +755,10 @@ def drive(attempts_path: Path, arm: RunnerArm, out_path: Path) -> dict[str, Any]
         for i, attempt in enumerate(attempts, 1):
             try:
                 record = run_one(attempt, arm)
-            except (HarnessError, RunRefusedError) as exc:
-                # An arm that stops is reported as found, with its partial counts and
-                # the reason, so both are written before the error is raised again.
+            except Exception as exc:
+                # An arm that stops, whatever stopped it (the harness's own guards, or a
+                # session that hangs past its timeout), is reported as found, with its partial
+                # counts and the reason, so both are written before the error is raised again.
                 stopped = {
                     "kind": "stopped",
                     "attempt": attempt["id"],
