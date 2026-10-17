@@ -9,7 +9,7 @@ from task_fixtures import controller, external_task, own_task, write_task_dir
 
 from physgate.evaluation.per_role.answer import LtiTf, read_lti_tf
 from physgate.evaluation.per_role.exceptions import TaskFormatError
-from physgate.evaluation.per_role.task import load_task, parse_task, task_bytes
+from physgate.evaluation.per_role.task import canonical_json, load_task, parse_task, task_bytes
 
 
 def _parse(task: dict[str, Any]) -> None:
@@ -21,16 +21,16 @@ def test_a_valid_own_task_and_a_valid_external_task_parse() -> None:
     assert parse_task(json.dumps(external_task()).encode()).tier == "external"
 
 
-@pytest.mark.parametrize(
-    "value",
-    [2.0, "2.0", True, None],
-    ids=["bare number", "string", "boolean", "null"],
-)
-def test_an_input_that_is_not_a_value_with_a_unit_is_refused(value: object) -> None:
-    with pytest.raises(TaskFormatError):
-        _parse(own_task(inputs=[{"name": "plant_gain", "value": value}]))
+@pytest.mark.parametrize("value", [2.0, 2], ids=["float", "int"])
+def test_a_bare_number_where_a_measure_belongs_is_refused(value: object) -> None:
     with pytest.raises(TaskFormatError):
         _parse(own_task(inputs=[value]))
+
+
+@pytest.mark.parametrize("value", ["2.0", True, None], ids=["string", "boolean", "null"])
+def test_a_value_that_is_not_a_number_is_refused_even_with_its_unit(value: object) -> None:
+    with pytest.raises(TaskFormatError):
+        _parse(own_task(inputs=[{"name": "plant_gain", "value": value, "unit": "1"}]))
 
 
 @pytest.mark.parametrize("unit", ["", "10**10**10*m", "km⁹⁹", "m (metres)"])
@@ -118,6 +118,14 @@ def test_the_same_task_serialises_to_the_same_bytes_whatever_its_key_order() -> 
     second = task_bytes(parse_task(json.dumps(reordered, indent=3).encode()))
     assert first == second
     assert task_bytes(parse_task(first)) == first
+
+
+def test_canonical_bytes_do_not_depend_on_the_order_keys_were_written_in() -> None:
+    first = canonical_json({"b": 1.0, "a": [0.1, {"d": 2, "c": 3}]})
+    second = canonical_json({"a": [0.1, {"c": 3, "d": 2}], "b": 1.0})
+    assert first == second == b'{"a":[0.1,{"c":3,"d":2}],"b":1.0}\n'
+    with pytest.raises(ValueError):
+        canonical_json({"a": float("nan")})
 
 
 def test_a_task_directory_loads_with_one_good_and_its_bad_references(tmp_path: Path) -> None:
