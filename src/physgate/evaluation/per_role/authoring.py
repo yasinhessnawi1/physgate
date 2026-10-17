@@ -21,9 +21,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import random
 import secrets
 import shutil
+import stat
 from pathlib import Path
 from typing import Any
 
@@ -114,12 +116,116 @@ def sha256sums(root: Path) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _place(source: Path, target: Path, tier: str, canary: str | None) -> None:
+_DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+_NEW_FILE = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+
+
+def _open_chain(path: Path, *, make: bool) -> int:
+    """A descriptor for directory ``path``, reached from ``/`` one component at a time.
+
+    No component is followed if it is a link: a link anywhere on the way, planted at the
+    place or above it, refuses the write instead of redirecting it. With ``make``, a missing
+    component is created on the way.
+
+    Raises:
+        AuthoringError: a component is a link or not a directory, or is missing.
+    """
+    if not path.is_absolute():
+        msg = f"{path} is not an absolute path"
+        raise AuthoringError(msg, path=str(path))
+    fd = os.open("/", _DIR_FLAGS)
+    try:
+        for name in path.parts[1:]:
+            try:
+                next_fd = os.open(name, _DIR_FLAGS, dir_fd=fd)
+            except FileNotFoundError:
+                if not make:
+                    raise
+                os.mkdir(name, 0o700, dir_fd=fd)
+                next_fd = os.open(name, _DIR_FLAGS, dir_fd=fd)
+            os.close(fd)
+            fd = next_fd
+    except OSError as exc:
+        os.close(fd)
+        msg = f"{path} is reached through a link, or a part of it is not a directory"
+        raise AuthoringError(msg, path=str(path)) from exc
+    return fd
+
+
+def _write_file(dir_fd: int, name: str, data: bytes) -> None:
+    fd = os.open(name, _NEW_FILE, 0o600, dir_fd=dir_fd)
+    try:
+        os.write(fd, data)
+    finally:
+        os.close(fd)
+
+
+def _read_file(dir_fd: int, name: str) -> bytes:
+    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
+    try:
+        with os.fdopen(os.dup(fd), "rb") as handle:
+            return handle.read()
+    finally:
+        os.close(fd)
+
+
+def _refuse_links(root: Path) -> None:
+    """Refuse a staged tree holding anything but plain directories and regular files."""
+    for entry in [root, *root.rglob("*")]:
+        mode = entry.lstat().st_mode
+        if stat.S_ISLNK(mode) or not (stat.S_ISDIR(mode) or stat.S_ISREG(mode)):
+            msg = f"the staged {entry} is a link or not a plain file"
+            raise AuthoringError(msg, path=str(entry))
+
+
+def _copy_tree(source: Path, dir_fd: int) -> None:
+    for entry in sorted(source.iterdir()):
+        if entry.is_symlink():
+            msg = f"the staged {entry} is a link"
+            raise AuthoringError(msg, path=str(entry))
+        if entry.is_dir():
+            os.mkdir(entry.name, 0o700, dir_fd=dir_fd)
+            child = os.open(entry.name, _DIR_FLAGS, dir_fd=dir_fd)
+            try:
+                _copy_tree(entry, child)
+            finally:
+                os.close(child)
+        else:
+            _write_file(dir_fd, entry.name, entry.read_bytes())
+
+
+def _place(source: Path, tier_fd: int, tier: str, canary: str | None) -> None:
     task = parse_task((source / "task.json").read_bytes(), where=str(source))
     update: dict[str, Any] = {"tier": tier, "canary": canary}
     placed = parse_task(json.dumps({**task.model_dump(mode="json"), **update}).encode())
-    shutil.copytree(source / "references", target / "references", symlinks=True)
-    (target / "task.json").write_bytes(task_bytes(placed))
+    os.mkdir(placed.id, 0o700, dir_fd=tier_fd)
+    task_fd = os.open(placed.id, _DIR_FLAGS, dir_fd=tier_fd)
+    try:
+        os.mkdir("references", 0o700, dir_fd=task_fd)
+        refs_fd = os.open("references", _DIR_FLAGS, dir_fd=task_fd)
+        try:
+            _copy_tree(source / "references", refs_fd)
+        finally:
+            os.close(refs_fd)
+        _write_file(task_fd, "task.json", task_bytes(placed))
+    finally:
+        os.close(task_fd)
+
+
+def _check_placed(tier_fd: int, task_id: str, tier: str, canary: str | None) -> None:
+    """Read a written task back, without following links, and hold it to what was meant."""
+    task_fd = os.open(task_id, _DIR_FLAGS, dir_fd=tier_fd)
+    try:
+        written = parse_task(_read_file(task_fd, "task.json"), where=task_id)
+    finally:
+        os.close(task_fd)
+    if written.tier != tier or written.canary != canary:
+        msg = f"the task {task_id!r} was not written as a {tier} task with its own canary"
+        raise AuthoringError(msg, task=task_id)
+
+
+def _apart(one: Path, other: Path) -> bool:
+    return not (one == other or one.is_relative_to(other) or other.is_relative_to(one))
 
 
 def split(
@@ -129,12 +235,20 @@ def split(
 
     Returns what may be shown: the visible ids, the number held out and the held-out tier's
     digest. The held-out tasks' canaries are written beside the held-out root, not inside it.
+    Every write goes through directory descriptors reached without following a link, each
+    task is read back and checked for its tier and canary, and the two tiers never share a
+    place.
 
     Raises:
         AuthoringError: the staging directory does not hold exactly ``2 * per_tier`` tasks
-            that each load whole with their references, or a target already exists.
+            that each load whole with their references and nothing but plain files, the
+            tiers are not apart, a target already exists, or a link is on the way to one.
     """
-    entries = sorted(p for p in staging.iterdir() if p.is_dir() and not p.is_symlink())
+    if not _apart(visible, held_out):
+        msg = "the visible and held-out tiers must be apart: neither the same nor nested"
+        raise AuthoringError(msg, visible=str(visible), held_out=str(held_out))
+    _refuse_links(staging)
+    entries = sorted(p for p in staging.iterdir() if p.is_dir())
     if len(entries) != 2 * per_tier or len(list(staging.iterdir())) != len(entries):
         msg = f"the staging directory holds {len(entries)} task directories, not {2 * per_tier}"
         raise AuthoringError(msg, staging=str(staging))
@@ -143,25 +257,40 @@ def split(
     if len(set(ids)) != len(ids) or any(item.task.tier != "visible" for item in loaded):
         msg = "the staged tasks repeat an id, or are not written as visible tasks"
         raise AuthoringError(msg, staging=str(staging))
-    if visible.exists() or held_out.exists():
-        msg = "a tier's directory already exists; a split never writes over one"
-        raise AuthoringError(msg, visible=str(visible), held_out=str(held_out))
     order = list(range(len(entries)))
     random.Random(seed).shuffle(order)
-    canaries: dict[str, str] = {}
-    for rank, index in enumerate(order):
-        entry, task_id = entries[index], ids[index]
-        if rank < per_tier:
-            _place(entry, visible / task_id, "visible", None)
-        else:
-            canary = secrets.token_hex(16)
-            canaries[task_id] = canary
-            _place(entry, held_out / task_id, "held_out", canary)
-    sums = sha256sums(held_out)
-    (held_out / SUMS_NAME).write_text(sums, encoding="utf-8")
-    (held_out.parent / f"{held_out.name}.{CANARIES_NAME}").write_text(
-        json.dumps(sorted(canaries.values())) + "\n", encoding="utf-8"
-    )
+    canaries = {ids[index]: secrets.token_hex(16) for index in order[per_tier:]}
+    fds: dict[str, int] = {}
+    try:
+        for name, tier_path in (("visible", visible), ("held_out", held_out)):
+            parent = _open_chain(tier_path.parent, make=True)
+            try:
+                os.mkdir(tier_path.name, 0o700, dir_fd=parent)
+            except FileExistsError as exc:
+                msg = (
+                    f"{tier_path} already exists (or a link stands there); "
+                    "a split never writes over one"
+                )
+                raise AuthoringError(msg, path=str(tier_path)) from exc
+            finally:
+                os.close(parent)
+            fds[name] = _open_chain(tier_path, make=False)
+        for index in order:
+            task_id = ids[index]
+            tier = "held_out" if task_id in canaries else "visible"
+            _place(entries[index], fds[tier], tier, canaries.get(task_id))
+            _check_placed(fds[tier], task_id, tier, canaries.get(task_id))
+        sums = sha256sums(held_out)
+        _write_file(fds["held_out"], SUMS_NAME, sums.encode())
+        parent = _open_chain(held_out.parent, make=False)
+        try:
+            payload = json.dumps(sorted(canaries.values())) + "\n"
+            _write_file(parent, f"{held_out.name}.{CANARIES_NAME}", payload.encode())
+        finally:
+            os.close(parent)
+    finally:
+        for fd in fds.values():
+            os.close(fd)
     shutil.rmtree(staging)
     return {
         "visible": sorted(p.name for p in visible.iterdir()),

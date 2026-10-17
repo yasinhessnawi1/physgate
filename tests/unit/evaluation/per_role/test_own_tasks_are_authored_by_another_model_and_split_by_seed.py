@@ -76,3 +76,55 @@ def test_a_split_never_writes_over_a_tier(tmp_path: Path) -> None:
     (tmp_path / "heldout").mkdir()
     with pytest.raises(AuthoringError, match="already exists"):
         split(_stage(tmp_path), tmp_path / "visible", tmp_path / "heldout", seed=1)
+
+
+def test_a_link_planted_at_the_held_out_tier_s_place_refuses_the_split(tmp_path: Path) -> None:
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (tmp_path / "heldout").symlink_to(elsewhere)  # inert: points at an empty directory
+    with pytest.raises(AuthoringError, match="link"):
+        split(_stage(tmp_path), tmp_path / "visible", tmp_path / "heldout", seed=1)
+    assert list(elsewhere.iterdir()) == []
+
+
+def test_a_link_planted_above_the_held_out_tier_refuses_the_split(tmp_path: Path) -> None:
+    real = tmp_path / "real"
+    real.mkdir()
+    (tmp_path / "area").symlink_to(real)
+    with pytest.raises(AuthoringError, match="link"):
+        split(_stage(tmp_path), tmp_path / "visible", tmp_path / "area" / "heldout", seed=1)
+    assert list(real.iterdir()) == []
+
+
+def test_a_link_inside_a_staged_task_is_never_copied_into_a_tier(tmp_path: Path) -> None:
+    staging = _stage(tmp_path)
+    secret = tmp_path / "secret.txt"
+    secret.write_text("not a task")
+    (staging / "control.t00" / "references" / "good" / "extra.json").symlink_to(secret)
+    with pytest.raises(AuthoringError, match="link"):
+        split(staging, tmp_path / "visible", tmp_path / "heldout", seed=1)
+    assert not (tmp_path / "heldout").exists() and not (tmp_path / "visible").exists()
+
+
+@pytest.mark.parametrize(
+    ("visible", "held"),
+    [("tiers", "tiers/heldout"), ("tiers/visible", "tiers"), ("same", "same")],
+    ids=["held-out inside visible", "visible inside held-out", "one place"],
+)
+def test_the_two_tiers_never_share_a_place(tmp_path: Path, visible: str, held: str) -> None:
+    with pytest.raises(AuthoringError, match="apart"):
+        split(_stage(tmp_path), tmp_path / visible, tmp_path / held, seed=1)
+
+
+def test_a_held_out_task_written_without_its_canary_is_caught_when_read_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from physgate.evaluation.per_role import authoring
+    from physgate.evaluation.per_role.task import Task, task_bytes
+
+    def losing_the_canary(task: Task) -> bytes:
+        return task_bytes(task.model_copy(update={"canary": None, "tier": "visible"}))
+
+    monkeypatch.setattr(authoring, "task_bytes", losing_the_canary)
+    with pytest.raises(AuthoringError, match="its own canary"):
+        split(_stage(tmp_path), tmp_path / "visible", tmp_path / "heldout", seed=1)
