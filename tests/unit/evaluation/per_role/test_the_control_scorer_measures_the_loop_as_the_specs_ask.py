@@ -184,3 +184,11 @@ def test_a_bad_reference_that_passes_its_spec_is_refused(tmp_path: Path) -> None
     )
     with pytest.raises(ReferenceCheckError, match="should fail 'margin'"):
         check_references(load_task(root))
+
+
+def test_a_nan_meets_no_bound_whatever_the_comparison() -> None:
+    from physgate.evaluation.per_role.scorers.control import _holds
+
+    for spec in control_task().specs:
+        assert _holds(spec, math.nan) == (False, False)
+        assert _holds(spec, None) == (False, False)
