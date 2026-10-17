@@ -229,8 +229,18 @@ def _closed_loop(c: Any, g: Any, delay: float, order: int) -> Any:
 
 
 def _settling(t_loop: Any, horizon: float) -> tuple[float, float]:
+    """The 2 % settling time and the overshoot (in %), NaN where they cannot be read.
+
+    python-control's ``step_info`` raises rather than returning NaN when the response
+    never reaches 90 % of its final value inside the horizon (measured on 0.10.1 with a
+    loop a thousand times slower than its window). That is a response that did not settle,
+    and an answer is never allowed to crash its own scoring.
+    """
     times = np.linspace(0.0, horizon, HORIZON_POINTS)
-    info = ct.step_info(t_loop, times)
+    try:
+        info = ct.step_info(t_loop, times)
+    except (IndexError, ValueError, ZeroDivisionError):
+        return math.nan, math.nan
     return float(info["SettlingTime"]), float(info["Overshoot"])
 
 
@@ -348,7 +358,15 @@ def score(task: Task, answer_path: Path) -> dict[str, Any]:
     except TaskFormatError as exc:
         record.update(answer_valid=False, reason=str(exc), specs=[], flags={}, passed=False)
         return record
-    values, flags = measure(task, answer)
+    try:
+        values, flags = measure(task, answer)
+    except (ValueError, ArithmeticError, IndexError, np.linalg.LinAlgError) as exc:
+        # A controller whose loop the numerics cannot evaluate fails; it never crashes
+        # the run that scores it. The reason is kept so a person can look.
+        record.update(
+            answer_valid=True, reason=f"unmeasurable: {exc!r}", specs=[], flags={}, passed=False
+        )
+        return record
     rows = []
     for spec in task.specs:
         value = values[spec.metric]

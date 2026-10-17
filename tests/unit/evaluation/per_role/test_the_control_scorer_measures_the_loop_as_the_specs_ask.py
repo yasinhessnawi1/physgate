@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import control as ct
+import numpy as np
 import pytest
 from control_fixtures import GOOD_PID, control_task, controller, write_answer
 
@@ -97,6 +98,30 @@ def test_a_response_that_never_settles_fails_and_says_so(tmp_path: Path) -> None
     assert _row(record, "settling")["measured"] is None
     assert not _row(record, "settling")["passed"]
     assert not record["passed"]
+
+
+def test_a_response_too_slow_to_rise_inside_the_horizon_fails_without_crashing(
+    tmp_path: Path,
+) -> None:
+    # 1e-3/s on 1/(s+1): stable, with a time constant near 1000 s against a 60 s horizon.
+    task = control_task([1.0], [1.0, 1.0], pm_min=0.0, ts=(0.0, 3.0), ess_max=1.0)
+    record = score(task, write_answer(tmp_path, controller([1e-3], [1.0, 0.0])))
+    assert _row(record, "stable")["passed"]
+    assert record["flags"]["did_not_settle"]
+    assert not record["passed"]
+
+
+def test_a_loop_the_numerics_cannot_evaluate_fails_without_crashing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from physgate.evaluation.per_role.scorers import control as module
+
+    def singular(*_args: object) -> object:
+        raise np.linalg.LinAlgError("singular matrix")
+
+    monkeypatch.setattr(module, "measure", singular)
+    record = score(control_task(), write_answer(tmp_path, GOOD_PID))
+    assert not record["passed"] and record["reason"].startswith("unmeasurable")
 
 
 def test_stability_is_judged_with_the_delay(tmp_path: Path) -> None:
