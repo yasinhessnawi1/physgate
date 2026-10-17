@@ -98,3 +98,11 @@ def test_prepare_writes_held_references_and_one_row_per_task(tmp_path: Path) -> 
         (tmp_path / "control.test_plant/references/bad_slow/expect.json").read_text()
     )
     assert expect == {"fails": "settling"}
+
+
+def test_a_bad_reference_that_cannot_be_built_is_left_out_not_faked() -> None:
+    # With no margin asked for, no gain makes the margin fail, so there is no bad_margin.
+    task = control_task(pm_min=-180.0)
+    bads = synthesise.bad_references(task, synthesise.search(task))
+    assert "bad_margin" not in bads
+    assert {"bad_unstable", "bad_slow"} <= set(bads)
