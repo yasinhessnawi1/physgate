@@ -27,6 +27,7 @@ from physgate.evaluation.inject.runner import control_id, review_id, run_instrum
 from physgate.evaluation.observe.cost import load_price_sheet
 from physgate.evaluation.observe.manifest import BINARY_DEFAULTS
 from physgate.knowledge.promote import KNOWLEDGE_ROOT
+from physgate.orchestrator.cli import Registrations
 from physgate.orchestrator.exceptions import ReviewUnavailableError
 from physgate.orchestrator.protocols import Artefact, ReviewResult, SpecDefect
 from physgate.reviewers.rubric import load_rubric
@@ -217,3 +218,24 @@ def test_the_next_session_is_expected_to_cost_the_most_any_has_cost(
         _run(corpus, tmp_path, dict(pilot.capped(budget, lambda _setup: fakes)(None)))
     # 1.00, then 0.10 (1.10 + 1.00 > 2.05 would stop the third), so two ran.
     assert budget.sessions == 2
+
+
+def test_the_command_is_run_with_its_reviewers_held_to_the_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The run hands the command a factory whose every reviewer asks the budget first."""
+    fakes = {r: SeededFakeReviewer(model=pilot_corpus.REVIEWER) for r in pilot_corpus.ROLES}
+    monkeypatch.setattr(pilot, "_claude_reviewers", lambda _setup: fakes)
+    built: dict[str, object] = {}
+
+    def command(argv: list[str], registrations: Registrations) -> int:
+        assert registrations.reviewer_factory is not None
+        built.update(registrations.reviewer_factory(None))  # type: ignore[arg-type]
+        raise pilot.BudgetStop("stopped before session 1: the cap")
+
+    monkeypatch.setattr(pilot, "physgate_main", command)
+    found = pilot.run(tmp_path / "out", dry_run=False, version="x", max_usd=Decimal("3"))
+    assert set(built) == set(pilot_corpus.ROLES)
+    assert all(isinstance(r, pilot.Capped) for r in built.values())
+    assert found["stopped_by_cap"].startswith("stopped before session 1")
+    assert found["budget"] == {"cap_usd": "3", "spent_usd": "0", "sessions": 0}
