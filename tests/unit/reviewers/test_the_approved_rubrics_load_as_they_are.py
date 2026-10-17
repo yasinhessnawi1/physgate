@@ -27,31 +27,68 @@ from physgate.reviewers.rubric import check_rubric, evaluation_words, load_rubri
 from physgate.reviewers.scan import ScanHit
 from physgate.reviewers.verdict import Answered, Unavailable, judge
 
-#: role: (each approved version, oldest first, as its drafting directory and the sha256
-#: of its file; item count; id prefix per section)
+#: role: (each approved version, oldest first, as its drafting directory, the sha256 of its
+#: file and its item count; id prefix per section)
 APPROVED = {
     "control": (
         (
-            ("final", "b45abf4d37895942490c4cd4f097a18a45068b10699958f590e5d049519f24c6"),
+            ("final", "b45abf4d37895942490c4cd4f097a18a45068b10699958f590e5d049519f24c6", 55),
             # Corrected: a zero or delay limit counts only what every fed-back output shares.
-            ("final_v2", "17e9fafbe883d28bd2ce0b092cd39327982db0bb46b3cdd9ca753fdecfcdf66f"),
+            ("final_v2", "17e9fafbe883d28bd2ce0b092cd39327982db0bb46b3cdd9ca753fdecfcdf66f", 55),
+            # The automated checks are listed, never a reason to skip a check; a revision issued
+            # with no specification and no trajectory is judged on what it wrote, a condition of
+            # the design it changes being recorded, not charged to it.
+            ("final_v3", "af736f6a827f204fcf57c04ce4315bf868a82feca52f5425afe274e777a8eea9", 56),
+            # Given values are decided per value written, never per node; missing evidence has
+            # one rule, unmet when every input was there, not evaluable when one is missing.
+            ("final_v4", "39d54707edfbd283e1b39a3fd98d6900b105b812647bbbd3731fa4ec8f852a8f", 56),
         ),
-        55,
         ("A", "D", "S", "R"),
     ),
     "firmware": (
-        (("final", "a89e71572901d4a2d44c27f3f9029d2817c714ca1c2926e47965de1c9498c1ce"),),
-        53,
+        (
+            ("final", "a89e71572901d4a2d44c27f3f9029d2817c714ca1c2926e47965de1c9498c1ce", 53),
+            # The same two changes as control's third version.
+            ("final_v2", "4ee697be3577a11048eb504513c0d1c0996bf935eb09f033f254c694061b3357", 54),
+            # The same two clarifications as control's fourth version.
+            ("final_v3", "44461085e65aeec5bdada9d7f404e4a649c499ac1f324f5ede5364f3e7362200", 54),
+        ),
         ("AC", "DS", "AP", "RH"),
     ),
+    "electrical": (
+        (
+            ("final", "8d989189695fad474ee0ab60e0fe8bc2b685e2f356ca5d551dd29cba45565dcf", 66),
+            # The same two clarifications as control's fourth version.
+            ("final_v2", "e2d0bb8e2f50014f2d40e2545fdf5224fdea85ae4c9a3d1989239612e9312f24", 66),
+        ),
+        ("EA", "ES", "EP", "EH"),
+    ),
+    "mechanical": (
+        (
+            ("final", "b53ae125c8e63c22794c708f7dc28eba923c5cc7901d47b488873dad94203e09", 61),
+            # The same two clarifications as control's fourth version.
+            ("final_v2", "5a19d543316e4154518c407c1df8df1802a98e7b891e195491f2cd6ac66b3836", 61),
+        ),
+        ("MA", "MS", "MP", "MH"),
+    ),
 }
-VERSIONS = [(role, folder) for role, (versions, _, _) in APPROVED.items() for folder, _ in versions]
+VERSIONS = [(role, folder) for role, (versions, _) in APPROVED.items() for folder, _, _ in versions]
 _CANARY = re.compile(rb"\n\n<!-- [0-9a-f]{32} -->\n\Z")
 SECTION_ORDER = ("acceptance_criteria", "domain_standards", "antipatterns", "reward_hacking")
 
 
 def _digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _digests(role: str) -> dict[str, str]:
+    """Each approved version of ``role``'s rubric, oldest first: its folder and its sha256."""
+    return {folder: digest for folder, digest, _ in APPROVED[role][0]}
+
+
+def _count(role: str, folder: str) -> int:
+    """How many items the approved version ``folder`` of ``role``'s rubric holds."""
+    return next(count for name, _, count in APPROVED[role][0] if name == folder)
 
 
 def _promoted(role: str) -> bytes | None:
@@ -62,7 +99,7 @@ def _promoted(role: str) -> bytes | None:
 
 def _approved(role: str, folder: str | None = None) -> bytes:
     """One approved version of ``role``'s rubric, the latest unless ``folder`` names one."""
-    versions = dict(APPROVED[role][0])
+    versions = _digests(role)
     folder = folder or list(versions)[-1]
     digest = versions[folder]
     promoted = _promoted(role)
@@ -83,12 +120,12 @@ def test_the_promoted_rubric_is_an_approved_version(role: str) -> None:
     promoted = _promoted(role)
     if promoted is None:
         pytest.skip(f"no {role} rubric is promoted here")
-    assert _digest(promoted) in dict(APPROVED[role][0]).values(), role
+    assert _digest(promoted) in _digests(role).values(), role
 
 
 @pytest.mark.parametrize("role", sorted(APPROVED))
 def test_a_staged_rubric_is_the_latest_approved_version(role: str) -> None:
-    latest = list(dict(APPROVED[role][0]).values())[-1]
+    latest = list(_digests(role).values())[-1]
     staged = [c for c in staging.candidates("rubric") if c.domain == role]
     for candidate in staged:
         text = candidate.content.rstrip() + "\n"  # what promotion writes, before its canary
@@ -99,8 +136,8 @@ def test_a_staged_rubric_is_the_latest_approved_version(role: str) -> None:
 def test_the_approved_rubric_parses_as_it_is(role: str, folder: str) -> None:
     text = _approved(role, folder).decode("utf-8")
     items = check_rubric(text)
-    _, count, prefixes = APPROVED[role]
-    assert len(items) == count
+    prefixes = APPROVED[role][1]
+    assert len(items) == _count(role, folder)
     assert evaluation_words(text) == []
     for section, prefix in zip(SECTION_ORDER, prefixes, strict=True):
         ids = [i.id for i in items if i.section == section]
@@ -158,7 +195,7 @@ def test_the_approved_rubric_promoted_loads_with_its_canary(
         rubric_staging_root=tmp_path / staging.RUBRIC_STAGING_ROOT,
     )
     loaded = load_rubric(tmp_path / "knowledge", role)
-    assert len(loaded.items) == APPROVED[role][1]
+    assert len(loaded.items) == _count(role, folder)
     promoted = rubric_path(tmp_path / "knowledge", role).read_bytes()
     assert _CANARY.sub(b"\n", promoted) == text.encode()
 

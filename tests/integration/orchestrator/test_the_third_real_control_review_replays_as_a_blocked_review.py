@@ -61,7 +61,15 @@ def test_the_real_blocked_submission_is_a_review_whose_verdict_is_blocked(
     # The brief the real control session was issued, as the attempt's issued specification.
     monkeypatch.setattr(reading, "ISSUED", CONTROL_SPEC)
     attempt = reading._attempt(tmp_path)
-    rubric = load_rubric(REPO / "knowledge", "control")
+    # The review answered the rubric's second version; the third, promoted since, adds one
+    # item (A7, the one line a revision issued with no specification answers) and changes
+    # no other item's id or section. The replay holds the submission, as sent, to the items
+    # it answered.
+    promoted = load_rubric(REPO / "knowledge", "control")
+    rubric = promoted.model_copy(
+        update={"items": tuple(i for i in promoted.items if i.id not in ("A7",))}
+    )
+    assert len(rubric.items) == 55
     config = reading._config(binary_version(binary))
 
     def step(_thread: str, cwd: str, done: int) -> dict[str, Any]:

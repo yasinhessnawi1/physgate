@@ -43,6 +43,7 @@ from physgate.orchestrator.events import (  # noqa: E402
     read_events,
 )
 from physgate.reviewers.claude import NO_SCAN_RUN  # noqa: E402
+from physgate.reviewers.contract import CONSISTENCY  # noqa: E402
 from physgate.reviewers.packet import DIFF_NAME, WORKTREE_NAME  # noqa: E402
 
 pytestmark = [
@@ -89,7 +90,8 @@ VERDICT = {
     "numeric_output": None,
     "items": {i: {"result": r, "evidence": "diff.patch: 1"} for i, r in ITEMS.items()},
     "acceptance_criteria": [
-        {"criterion": "the revision is consistent", "result": "met", "evidence": "the account"}
+        # An artefact is a revision issued with no specification: one consistency line.
+        {"criterion": CONSISTENCY, "result": "met", "evidence": "the account"}
     ],
     "indicators": [],
     "spec_defects": [],
@@ -208,6 +210,9 @@ def test_every_artefact_is_reviewed_by_the_claude_reviewer_before_the_gate(
     assert len(prompts) == 2
     for prompt in prompts:
         assert NO_SCAN_RUN.strip() in prompt and "no check switched off" not in prompt
+        # An artefact is issued with no specification: the contract asks for the one line.
+        assert "No specification was issued" in prompt and f"`{CONSISTENCY}`" in prompt
+        assert "does not number its acceptance criteria" not in prompt
 
 
 def test_a_review_with_no_verdict_is_a_row_of_its_own_and_the_run_goes_on(

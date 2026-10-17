@@ -28,7 +28,9 @@ results (``SECTION_RESULTS``): ``n/a`` only for a domain standard or an antipatt
 with evidence that its trigger is absent; a reward-hacking item is ``not observed``,
 ``noted`` or ``confirmed``. Every acceptance criterion of the issued specification has
 its own line, apart from the rubric's items: exactly the numbered ones when the
-specification numbers them, at least one otherwise. Anything ``not evaluable`` is named
+specification numbers them, at least one otherwise; with no specification issued,
+exactly the one ``consistency`` line, met or unmet, and no Section 1 answer ``not
+evaluable``. Anything ``not evaluable`` is named
 by a specification defect, blocking where the role's rubric requires it. Every check the
 trajectory shows switched off (``scan.scan``) is answered by an indicator naming the same
 tool call. A number
@@ -55,7 +57,7 @@ from physgate.orchestrator.protocols import (
     SpecDefect,
     UnavailableCause,
 )
-from physgate.reviewers.contract import as_answer
+from physgate.reviewers.contract import CONSISTENCY, UNISSUED_RESULTS, as_answer
 from physgate.reviewers.rubric import NotEvaluableNeeds, RubricItem
 from physgate.reviewers.scan import ScanHit
 
@@ -114,6 +116,7 @@ def judge(
     *,
     criteria: tuple[str, ...] | None = None,
     not_evaluable: NotEvaluableNeeds = "blocking",
+    issued: bool = True,
 ) -> Answered | Unavailable:
     """What the reviewer's structured answer ``structured`` amounts to.
 
@@ -125,7 +128,7 @@ def judge(
     raw answer.
     """
     try:
-        return _judge(structured, scan_hits, rubric_items, criteria, not_evaluable)
+        return _judge(structured, scan_hits, rubric_items, criteria, not_evaluable, issued)
     except Exception as exc:  # noqa: BLE001 - every failure of reading an answer is no verdict
         detail = f"the answer could not be read: {type(exc).__name__}"
         return Unavailable(cause="invalid_verdict", detail=detail)
@@ -137,6 +140,7 @@ def _judge(
     rubric_items: tuple[RubricItem, ...],
     criteria: tuple[str, ...] | None,
     not_evaluable: NotEvaluableNeeds,
+    issued: bool,
 ) -> Answered | Unavailable:
     structured = as_answer(structured, rubric_items)
     if structured is None:
@@ -156,8 +160,10 @@ def _judge(
         if c.defect is not None
     )
     answer = answer.model_copy(update={"spec_defects": (*answer.spec_defects, *inline)})
-    problem_text = _unanswered(answer, rubric_items, criteria) or _inconsistency(
-        answer, scan_hits, not_evaluable
+    problem_text = (
+        _unanswered(answer, rubric_items, criteria)
+        or (None if issued else _unissued(answer))
+        or _inconsistency(answer, scan_hits, not_evaluable)
     )
     if problem_text is not None:
         return Unavailable(cause="invalid_verdict", detail=problem_text)
@@ -201,6 +207,25 @@ def _unanswered(
     named = set(expected) | set(given_criteria)
     if answer.failing_item is not None and answer.failing_item not in named:
         return "the failing item is not an item of the rubric nor a criterion of the specification"
+    return None
+
+
+def _unissued(answer: ModelVerdict) -> str | None:
+    """Why an answer to a revision issued with no specification is not its one-line form."""
+    lines = answer.acceptance_criteria
+    if len(lines) != 1 or lines[0].criterion != CONSISTENCY:
+        return f"with no specification issued, Section 1 is exactly the one {CONSISTENCY} line"
+    if lines[0].result not in UNISSUED_RESULTS:
+        return f"the {CONSISTENCY} line is met or unmet"
+    open_items = sorted(
+        i.item
+        for i in answer.items
+        if i.section == "acceptance_criteria" and i.result not in UNISSUED_RESULTS
+    )
+    if open_items:
+        return "with no specification issued, a Section 1 item is met or unmet: " + ", ".join(
+            open_items
+        )
     return None
 
 

@@ -36,12 +36,20 @@ SUBMITTED = REPO / "tests" / "integration" / "orchestrator" / "replayed"
 SUBMISSION = SUBMITTED / "review_submission_v3_control.json"
 
 
+#: The review answered the rubric's second version. The third, promoted since, adds one
+#: item (A7, the one line a revision issued with no specification answers) and changes no
+#: other item's id or section, so the second version's items are the third's less A7.
+ADDED_SINCE_THE_REVIEW = ("A7",)
+
+
 def _result() -> ReviewResult:
     submitted = json.loads(SUBMISSION.read_text())
     rubric = load_rubric(REPO / "knowledge", "control")
+    items = tuple(i for i in rubric.items if i.id not in ADDED_SINCE_THE_REVIEW)
+    assert len(items) == 55
     # The stand-in brief numbers no criterion, so its lines are held to at least one.
     outcome = judge(
-        submitted, (), rubric.items, criteria=None, not_evaluable=not_evaluable_needs("control")
+        submitted, (), items, criteria=None, not_evaluable=not_evaluable_needs("control")
     )
     assert isinstance(outcome, Answered), outcome
     return to_result(

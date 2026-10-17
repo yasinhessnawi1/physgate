@@ -88,6 +88,7 @@ from physgate.orchestrator.run_config import (
 from physgate.reviewers.claude import ReviewerSetup, claude_reviewers
 from physgate.reviewers.exceptions import ReviewError
 from physgate.reviewers.places import require_review_root
+from physgate.roles import require_registered
 from physgate.state.exceptions import DesignStateError
 
 #: Example parameters files, one per auth mode.
@@ -408,10 +409,12 @@ def _decompose(args: argparse.Namespace) -> int:
         return _fail("the run parameters name no auth mode")
     run_dir = args.run_dir.resolve()
     try:
-        # Every role the run can plan must have its curated content, before the one
-        # model call is spent: a role without it could never be dispatched.
+        # Every role the run can plan must be in the role register and have its curated
+        # content, before the one model call is spent: without either it could never be
+        # dispatched.
+        require_registered(config.models.roles)
         read_library(_library_root(), config.models.roles)
-    except LibraryError as exc:
+    except (LibraryError, OrchestratorError) as exc:
         return _fail(str(exc), **exc.context)
     try:
         require_fresh(run_dir)

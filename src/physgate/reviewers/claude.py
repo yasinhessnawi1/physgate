@@ -175,6 +175,13 @@ def review_prompt(
         else ""
     )
     reading = "".join(f"- {path}\n" for path in packet.required_reading)
+    listing = (
+        f"- {_parts(read, packet.files_parts)}: the list of every file here, by full path. "
+        "A directory cannot be read, and a name it does not list does not exist: open only "
+        "the paths it lists.\n"
+        if packet.files_parts
+        else ""
+    )
     if packet.indicators:
         shown = "".join(
             f"- {hit.kind}, evidence {hit.evidence}: {hit.what}\n" for hit in packet.indicators
@@ -189,6 +196,7 @@ def review_prompt(
     return (
         f"You review one attempt at a subtask, made by a session in the {role} role. "
         f"Everything you may read is under {read}/:\n\n"
+        f"{listing}"
         f"- {_parts(read, packet.transcript_parts)}: the attempt's full trajectory, in order, "
         "every session it ran, in numbered parts read in their order.\n"
         f"{issued}"
@@ -372,18 +380,25 @@ class ClaudeReviewer:
         (sdir / OWNER_NAME).write_text(json.dumps({"run_id": self._setup.run_id}))
         installed = self._install(packet, sdir)
         # The answer contract, from the rubric and the specification as issued.
+        # With no specification issued (a proposed revision of the design on its own),
+        # Section 1 is the rubric's one consistency line.
         issued = Path(packet.read_root) / SPEC_AS_ISSUED_NAME
-        criteria = issued_criteria(issued.read_text() if issued.is_file() else None)
+        was_issued = issued.is_file()
+        criteria = issued_criteria(issued.read_text()) if was_issued else None
         needs = not_evaluable_needs(self._role)
         items = self._rubric.items
         schema = verdict_schema(
-            items, criteria=criteria, scan_hits=packet.indicators, not_evaluable=needs
+            items,
+            criteria=criteria,
+            scan_hits=packet.indicators,
+            not_evaluable=needs,
+            issued=was_issued,
         )
         prompt = review_prompt(
             self._role,
             packet,
             self._rubric.kind,
-            contract_text(items, criteria=criteria, not_evaluable=needs),
+            contract_text(items, criteria=criteria, not_evaluable=needs, issued=was_issued),
         )
         stdout, exit_code, timed_out = self._spawn(
             packet, sdir, installed, session_id, prompt=prompt, schema=schema
@@ -423,7 +438,14 @@ class ClaudeReviewer:
         if not read_in_full(Path(installed.config), session_id):
             raise unavailable("reading_incomplete", "a required file was not read in full")
         structured = (result or {}).get("structured_output")
-        judged = judge(structured, packet.indicators, items, criteria=criteria, not_evaluable=needs)
+        judged = judge(
+            structured,
+            packet.indicators,
+            items,
+            criteria=criteria,
+            not_evaluable=needs,
+            issued=was_issued,
+        )
         if isinstance(judged, Unavailable):
             raise unavailable(judged.cause, judged.detail, judged.spec_defects)
         return to_result(

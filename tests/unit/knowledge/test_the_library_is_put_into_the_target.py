@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from physgate.knowledge import loader
+from physgate.knowledge import ceiling, loader
 from physgate.knowledge.library import LibraryError, put_into, read_library
 from physgate.orchestrator.run_config import harness_root
 
@@ -123,12 +123,26 @@ def test_a_link_on_the_way_to_the_library_is_refused(tmp_path: Path) -> None:
     assert list(elsewhere.iterdir()) == []
 
 
-def test_the_real_library_serves_the_two_curated_roles_and_refuses_one_without_content() -> None:
+#: The roles the real library carries curated content for.
+CURATED = ("control", "firmware", "electrical", "mechanical")
+#: The always-loaded ceiling every role's set is held to, in bytes.
+CEILING = 40_960
+
+
+def test_the_real_library_serves_the_curated_roles_and_refuses_one_without_content() -> None:
     real = harness_root()
     assert real is not None
-    contents = read_library(real, ["control", "firmware"])
+    contents = read_library(real, list(CURATED))
     for relative, data in contents.items():
         assert data == (real / relative).read_bytes()
         assert len(data) > 1000, relative  # curated, not a fixture
     with pytest.raises(LibraryError, match="no curated file"):
-        read_library(real, ["mechanical"])
+        read_library(real, ["design"])
+
+
+@pytest.mark.parametrize("role", CURATED)
+def test_each_curated_role_s_always_loaded_set_fits_the_ceiling(role: str) -> None:
+    real = harness_root()
+    assert real is not None
+    paths = [(real / p).resolve() for p in loader.always_loaded(role)]
+    assert ceiling.fits(paths, CEILING), ceiling.breach_reason(paths, CEILING)

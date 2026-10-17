@@ -27,19 +27,24 @@ A review's directory (``places.review_dir``) gets a ``read/`` directory holding:
   was loaded with.
 - ``knowledge/``: the role's curated library files, copied from the harness; for a
   generalist review, only the standards every role reads.
+- ``files-NN-of-MM.md``: the listing of every other file above, by full path and size,
+  written last and read first. The reviewer has the Read tool and nothing that lists a
+  directory, so a name it would otherwise guess is named here, and a name the listing
+  does not hold does not exist.
 
 **The transcript and the diff are issued in parts** cut at line boundaries, each one
 small enough for the Read tool to show whole in one read (:data:`PART_MAX_BYTES`,
 :data:`PART_MAX_LINES`), because a reader paging through a longer file was refused
 for size and lost its place. Nothing is trimmed: the parts joined are the rendering
 and the diff byte for byte, which :func:`check_parts` confirms against the seals and
-the repository before the review starts. A single line too long for one read is
+the repository before the review starts; the listing's parts joined are held the same
+way to the read directory as it then stands. A single line too long for one read is
 refused when the packet is built.
 
 What a review must read in full before it may answer is listed in
 :attr:`Packet.required_reading`, and the hook layer refuses the verdict until it
-has: every part of the transcript, of the diff and of the series listing, the rubric,
-the issued specification and the library files.
+has: every part of the file listing, of the transcript, of the diff and of the series
+listing, the rubric, the issued specification and the library files.
 
 The packet's own record (``packet.json``) sits beside ``read/``, outside it: it
 holds every digest above and the observable indicators the trajectory shows
@@ -53,6 +58,7 @@ import atexit
 import functools
 import hashlib
 import json
+import re
 import secrets
 import shutil
 import subprocess
@@ -100,6 +106,8 @@ DIFF_NAME = "diff.patch"
 #: The names of the parts the transcript and the diff are issued in.
 TRANSCRIPT_PART = "transcript-{n:02d}-of-{total:02d}.md"
 DIFF_PART = "diff-{n:02d}-of-{total:02d}.patch"
+#: The names of the parts the listing of the read directory is issued in.
+FILES_PART = "files-{n:02d}-of-{total:02d}.md"
 #: The most one part holds. The Read tool shows a file whole only up to 256 KB and
 #: 25,000 tokens, and at most 2,000 lines without an offset (measured on 2.1.283: a
 #: 500-line page of a transcript was 33,022 tokens, about 0.82 per byte with its line
@@ -119,7 +127,7 @@ class PacketError(ReviewError):
     """A review cannot be prepared as specified, so it does not run."""
 
 
-_PART_NAME = r"^(transcript|diff|series)-[0-9]{2,}-of-[0-9]{2,}\.(md|patch)$"
+_PART_NAME = r"^(transcript|diff|series|files)-[0-9]{2,}-of-[0-9]{2,}\.(md|patch)$"
 
 
 class Part(BaseModel):
@@ -167,6 +175,9 @@ class Packet(BaseModel):
     #: out of the record when absent, so a packet without them reads and hashes as before.
     series_sha256: Sha256 | None = None
     series_parts: tuple[Part, ...] = ()
+    #: The listing of every other file under ``read/``, by full path. Empty in a packet
+    #: recorded before the listing was issued.
+    files_parts: tuple[Part, ...] = ()
 
     @model_serializer(mode="wrap")
     def _omit_absent_series(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
@@ -448,6 +459,46 @@ def split_parts(data: bytes, pattern: str) -> list[tuple[str, bytes]]:
     ]
 
 
+#: What the listing says before its lines. The reviewer has the Read tool and nothing that
+#: lists a directory, so without it a reviewer guesses names (measured: three reads of
+#: names that did not exist, and eight reads of a directory, in six reviews).
+LISTING_HEAD = (
+    "# Every file you may read\n\n"
+    "These are all the files under {read}/, one per line, by full path and size. A "
+    "directory cannot be read, and a name it does not list does not exist: open only the "
+    "paths below, with the Read tool. This list is itself issued in the files-NN-of-MM.md "
+    "parts beside them.\n\n"
+)
+_LISTED = re.compile(r"^- (.+) \(([0-9]+) bytes\)$")
+
+
+def file_listing(read: Path, own: set[str]) -> bytes:
+    """The listing of every file under ``read``, but the names in ``own`` directly beneath it.
+
+    One line per file, ``- <full path> (<n> bytes)``, in the order of the paths beneath
+    ``read``. Only files are listed; a directory is never read.
+
+    Raises:
+        PacketError: a path holds a control character, which would break its line.
+    """
+    read = Path(read)
+    lines = [LISTING_HEAD.format(read=read).encode()]
+    for path in sorted(read.rglob("*"), key=lambda p: p.relative_to(read).as_posix()):
+        if not path.is_file() or (path.parent == read and path.name in own):
+            continue
+        relative = path.relative_to(read).as_posix()
+        if any(ord(c) < 0x20 or ord(c) == 0x7F for c in relative):
+            msg = "a path in the packet holds a control character, so it cannot be listed"
+            raise PacketError(msg, path=repr(relative))
+        lines.append(f"- {path} ({path.stat().st_size} bytes)\n".encode())
+    return b"".join(lines)
+
+
+def listed_paths(listing: str) -> list[str]:
+    """The paths a listing names, in its order."""
+    return [m.group(1) for line in listing.splitlines() if (m := _LISTED.match(line))]
+
+
 def _write_parts(read: Path, parts: list[tuple[str, bytes]]) -> tuple[Part, ...]:
     written = []
     for name, body in parts:
@@ -636,6 +687,9 @@ def build_packet(
         copy.write_bytes(body)
         knowledge[relative.as_posix()] = _digest(body)
         reading.append(copy)
+    # Last, once every other file is in place: the listing of them, read first.
+    files_parts = _write_parts(read, split_parts(file_listing(read, set()), FILES_PART))
+    reading = [*(read / part.name for part in files_parts), *reading]
     packet = Packet(
         read_root=str(read),
         trajectory_seal=sessions[-1][2],
@@ -655,6 +709,7 @@ def build_packet(
         diff_parts=diff_parts,
         series_sha256=_digest(series) if series else None,
         series_parts=series_parts,
+        files_parts=files_parts,
     )
     (Path(review) / RECORD_NAME).write_text(packet.model_dump_json(indent=1) + "\n")
     return packet
@@ -699,7 +754,12 @@ def check_parts(packet: Packet, *, repo: Path, base_commit: str) -> None:
         raise PacketError(msg, read=packet.read_root)
     read = Path(packet.read_root)
     joined = {}
-    for kind, parts in (("transcript", packet.transcript_parts), ("diff", packet.diff_parts)):
+    issued = (
+        ("transcript", packet.transcript_parts),
+        ("diff", packet.diff_parts),
+        ("listing", packet.files_parts),
+    )
+    for kind, parts in issued:
         if not parts:
             msg = f"the packet issued no {kind} parts"
             raise PacketError(msg, read=str(read))
@@ -721,6 +781,10 @@ def check_parts(packet: Packet, *, repo: Path, base_commit: str) -> None:
         msg = "the diff's parts joined are not the attempt's diff"
         raise PacketError(msg, read=str(read))
     _check_series_parts(packet, artefact, read)
+    # The listing names every file under ``read/`` as it stands now, and nothing else.
+    if joined["listing"] != file_listing(read, {part.name for part in packet.files_parts}):
+        msg = "the listing's parts joined are not the files under the read directory"
+        raise PacketError(msg, read=str(read))
 
 
 def _check_series_parts(packet: Packet, artefact: Artefact, read: Path) -> None:

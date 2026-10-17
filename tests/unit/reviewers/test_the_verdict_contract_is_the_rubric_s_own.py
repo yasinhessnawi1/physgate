@@ -27,6 +27,7 @@ from physgate.reviewers.contract import (
     verdict_schema,
 )
 from physgate.reviewers.rubric import (
+    NOT_EVALUABLE_NEEDS,
     NotEvaluableNeeds,
     RubricItem,
     evaluation_words,
@@ -349,7 +350,10 @@ def test_a_numbered_criterion_not_evaluable_carries_its_own_defect_in_the_schema
 def test_each_role_takes_its_own_rubric_s_rule_and_a_role_with_none_the_stricter() -> None:
     assert not_evaluable_needs("control") == "defect"  # control rubric, rules 3 and 7
     assert not_evaluable_needs("firmware") == "blocking"  # firmware rubric, verdict policy
-    assert not_evaluable_needs("electrical") == "blocking"
+    assert not_evaluable_needs("electrical") == "blocking"  # electrical rubric, verdict policy
+    assert not_evaluable_needs("mechanical") == "blocking"  # mechanical rubric, verdict policy
+    assert set(NOT_EVALUABLE_NEEDS) == {"control", "firmware", "electrical", "mechanical"}
+    assert not_evaluable_needs("design") == "blocking"  # no rubric of its own: the stricter
 
 
 def test_a_numbered_specification_s_criteria_are_not_answered_more_than_once_each() -> None:

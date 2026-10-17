@@ -77,6 +77,10 @@ class ReviewerNotRegisteredError(OrchestratorError):
     """A role has no registered reviewer, or one on a model the run did not pin."""
 
 
+class RoleNotRegisteredError(OrchestratorError):
+    """A run names a role the role register does not hold, so it may not dispatch it."""
+
+
 class RunStateError(OrchestratorError):
     """The run is not in a state that allows what was asked: started twice, or interrupted."""
 
