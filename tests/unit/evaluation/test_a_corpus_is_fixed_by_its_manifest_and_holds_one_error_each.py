@@ -403,6 +403,7 @@ def _forty(distinct_edges: int, target_domain: str = "mechanical") -> Corpus:
         base=None,  # type: ignore[arg-type]
         sources=None,  # type: ignore[arg-type]
         artefacts=tuple(artefacts),
+        parts_sheet=b"",
     )
 
 

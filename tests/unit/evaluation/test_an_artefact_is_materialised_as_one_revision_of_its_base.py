@@ -5,7 +5,9 @@ given design, which owes nothing. The patch is then one change set above it,
 as one merged attempt would be. What a reviewer reads is the worktree and a
 neutral account of the revision, the same template for every artefact, and it
 is refused if it holds an answer: a telltale word, a gate result's field, or
-the artefact's own id or description.
+the artefact's own id or description. The worktree's file names are listed to the
+reviewer, so a name is held twice: read with its words split apart, however they
+are joined, and to the names the instrument itself writes, so any other is refused.
 """
 
 from __future__ import annotations
@@ -110,8 +112,11 @@ def test_input_that_tells_nothing_passes(tmp_path: Path) -> None:
 )
 def test_input_that_tells_is_refused(tmp_path: Path, where: str, text: str, found: str) -> None:
     made = materialise(BASE, _patch(MAGNITUDE_ARTEFACT, "injected"), tmp_path / "a")
-    target = made.trajectory if where == "trajectory" else made.worktree / "notes.md"
-    target.write_text(target.read_text() + text if target.exists() else text)
+    if where == "trajectory":
+        made.trajectory.write_text(made.trajectory.read_text() + text)
+    else:
+        # A node file the design holds, rewritten, so its content is what is held.
+        (made.graph_root / "nodes" / "electrical.driver.json").write_text(json.dumps({"n": text}))
     with pytest.raises(BlindnessError) as caught:
         require_blind(made, ("m1", str(MAGNITUDE_ARTEFACT["description"])))
     assert found in caught.value.context["found"]
@@ -146,7 +151,94 @@ def test_a_path_named_for_the_artefact_is_refused(tmp_path: Path) -> None:
 
 def test_an_id_inside_a_digest_is_not_found(tmp_path: Path) -> None:
     made = materialise(BASE, _patch(MAGNITUDE_ARTEFACT, "injected"), tmp_path / "a")
-    (made.worktree / "notes.md").write_text("sha256:3a01f9m1c0")
+    notes = made.graph_root / "nodes" / "electrical.driver.json"
+    notes.write_text(json.dumps({"n": "sha256:3a01f9m1c0"}))
     require_blind(made, ("a01", "m1c"))
     with pytest.raises(BlindnessError):
         require_blind(made, ("sha256",))
+
+
+@pytest.mark.parametrize(
+    ("name", "found"),
+    [
+        ("PlantedBracket.md", "planted"),
+        ("CleanTwin.md", "twin"),
+        ("design/nodes/mechanical.planted2bracket.json", "planted"),
+        ("design/nodes/control.twin4.json", "twin"),
+    ],
+    ids=["camel-case", "camel-case-2", "a-digit-joins", "a-digit-ends"],
+)
+def test_a_telling_word_joined_by_case_or_a_digit_is_refused(
+    tmp_path: Path, name: str, found: str
+) -> None:
+    """``PlantedBracket.md`` read whole is one word; split at its case, it says what it is."""
+    made = materialise(BASE, _patch(MAGNITUDE_ARTEFACT, "injected"), tmp_path / "a")
+    target = made.worktree / name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("{}\n")
+    with pytest.raises(BlindnessError, match="file name") as caught:
+        require_blind(made, ("m1", str(MAGNITUDE_ARTEFACT["description"])))
+    assert found in caught.value.context["found"]
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "notes.md",
+        "README",
+        "design/summary.txt",
+        "design/nodes/Electrical.Motor.json",
+        "design/nodes/electrical.imu.md",
+        "design/nodes/sub/electrical.imu.json",
+        "design/journal.jsonl.bak",
+    ],
+)
+def test_a_listed_name_the_instrument_does_not_write_is_refused(tmp_path: Path, name: str) -> None:
+    """Words cannot all be listed; the names the instrument writes can. Any other is refused."""
+    made = materialise(BASE, _patch(MAGNITUDE_ARTEFACT, "injected"), tmp_path / "a")
+    target = made.worktree / name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("{}\n")
+    with pytest.raises(BlindnessError, match="not one the instrument writes") as caught:
+        require_blind(made, ("m1", str(MAGNITUDE_ARTEFACT["description"])))
+    assert caught.value.context["file"] == name
+
+
+#: Node-file names a reviewer could read as an answer, which the word list alone let through.
+NEAR_FORMS = [
+    "control.twins",
+    "control.bugs",
+    "control.wrongly_sized",
+    "control.seeded_error",
+    "control.fault",
+    "control.clean_copy",
+]
+
+
+@pytest.mark.parametrize(
+    "node_id", [*NEAR_FORMS, "control.gain_schedule", "mechanical.spare_bracket"]
+)
+def test_a_node_file_the_instrument_did_not_write_is_refused(tmp_path: Path, node_id: str) -> None:
+    """A node file is listed only for a node this worktree's design holds, however it is named.
+
+    The last two are neutral names, so only the design's own ids can refuse them.
+    """
+    made = materialise(BASE, _patch(MAGNITUDE_ARTEFACT, "injected"), tmp_path / "a")
+    (made.graph_root / "nodes" / f"{node_id}.json").write_text("{}\n")
+    with pytest.raises(BlindnessError, match="file name") as caught:
+        require_blind(made, ("m1", str(MAGNITUDE_ARTEFACT["description"])))
+    assert caught.value.context["file"] == f"design/nodes/{node_id}.json"
+
+
+@pytest.mark.parametrize("node_id", NEAR_FORMS)
+def test_a_node_the_design_holds_under_a_telling_name_is_refused(
+    tmp_path: Path, node_id: str
+) -> None:
+    """A name is held to near forms of the words too: plurals, and error, fault, seed, clean."""
+    named = {**BASE_NODES[2], "id": node_id, "domain": "control", "owner_role": "control"}
+    base = Base.model_validate_json(json.dumps({"label": LABEL, "nodes": [*BASE_NODES, named]}))
+    made = materialise(base, _patch(MAGNITUDE_ARTEFACT, "injected"), tmp_path / "a")
+    with pytest.raises(BlindnessError, match="file name") as caught:
+        require_blind(made, ("m1", str(MAGNITUDE_ARTEFACT["description"])))
+    assert caught.value.context["file"] == f"design/nodes/{node_id}.json"
+    assert caught.value.context.get("found")

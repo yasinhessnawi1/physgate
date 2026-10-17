@@ -58,7 +58,11 @@ ALLOWED_MODULES = {
     "physgate.state.schema",
 }
 #: Modules the gate may take named things from, and only those things.
-ALLOWED_NAMES = {"physgate.state.store": {"journal_records_after"}}
+ALLOWED_NAMES = {
+    "physgate.state.store": {"journal_records_after"},
+    # The shared unit-spelling guard: a regular expression and its refusal, nothing else.
+    "physgate.unit_spelling": {"UnitSpellingError", "require_bounded_spelling"},
+}
 GATE = "physgate.gate"
 #: The one module that may import sympy.
 SYMPY_WRAPPER = "symbolic.py"

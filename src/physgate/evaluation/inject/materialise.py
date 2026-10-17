@@ -12,6 +12,11 @@ revision of the design is proposed, where the design is, and the patch's node
 files in full. It names no class, no check, no description and no corpus, and
 the runner refuses to show a reviewer anything that does (``require_blind``).
 
+**The parts sheet goes with the design.** A number's source may be arithmetic over
+rows of the corpus's parts sheet, so a review's worktree holds that sheet, byte for
+byte, in the given design's commit: part of what was given, never part of the
+revision. The account names it, the same words for every artefact.
+
 Every byte is fixed by the corpus: commits carry a fixed author, date and
 message, so the same patch gives the same commit and the same files every time.
 """
@@ -25,7 +30,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from physgate.evaluation.inject.corpus import Base, Patch, strings_of, telltales
+from physgate.evaluation.inject.corpus import Base, Patch, name_telltales, strings_of, telltales
 from physgate.evaluation.inject.exceptions import BlindnessError, CorpusError
 from physgate.orchestrator.git import (
     EMPTY_TREES,
@@ -34,11 +39,18 @@ from physgate.orchestrator.git import (
     attr_source,
     harness_git,
 )
+from physgate.state.schema import NODE_ID_PATTERN
 from physgate.state.store import Store
 
 #: Where the design sits in a materialised worktree.
 DESIGN_DIRNAME = "design"
 TRAJECTORY_NAME = "trajectory.md"
+#: The design's journal, as the store writes it.
+JOURNAL_NAME = f"{DESIGN_DIRNAME}/journal.jsonl"
+#: Where the store writes each node: one file per node id.
+NODES_PREFIX = f"{DESIGN_DIRNAME}/nodes/"
+#: The corpus's parts sheet, where a review's worktree holds it.
+PARTS_SHEET_NAME = "parts_sheet.json"
 #: Names that belong to a gate result or to the corpus. None may reach a reviewer.
 ANSWER_FIELDS: tuple[str, ...] = (
     "verdict",
@@ -93,6 +105,8 @@ class Materialised:
     commit: str
     #: The commit holding the given design alone: the patch's change is read against it.
     base_commit: str
+    #: Every node the design holds, given or written: the only node files it may list.
+    node_ids: frozenset[str] = frozenset()
 
 
 def _git(worktree: Path, *args: str) -> str:
@@ -118,11 +132,15 @@ def _commit(worktree: Path, message: str) -> str:
     return _git(worktree, "rev-parse", "HEAD")
 
 
-def materialise(base: Base, patch: Patch | None, into: Path) -> Materialised:
+def materialise(
+    base: Base, patch: Patch | None, into: Path, parts_sheet: bytes | None = None
+) -> Materialised:
     """Write ``base``, then ``patch`` as one revision, into a new worktree at ``into``.
 
     With no patch, the base itself is the one revision, over an empty design:
-    how the base alone is gated before any artefact is written over it.
+    how the base alone is gated before any artefact is written over it. With a
+    ``parts_sheet``, its bytes are written as :data:`PARTS_SHEET_NAME` beside the
+    design, in the given design's commit, and the account names it.
 
     Raises:
         CorpusError: ``into`` exists, or the store refuses a write.
@@ -135,6 +153,8 @@ def materialise(base: Base, patch: Patch | None, into: Path) -> Materialised:
     graph_root = worktree / DESIGN_DIRNAME
     worktree.mkdir(parents=True)
     _git(worktree, "init", "-q", "-b", "main")
+    if parts_sheet is not None:
+        (worktree / PARTS_SHEET_NAME).write_bytes(parts_sheet)
     given = base.nodes if patch is not None else ()
     written = patch.nodes if patch is not None else base.nodes
     store = Store(graph_root)
@@ -148,7 +168,7 @@ def materialise(base: Base, patch: Patch | None, into: Path) -> Materialised:
         store.close()
     commit = _commit(worktree, "a proposed revision")
     trajectory = into / TRAJECTORY_NAME
-    trajectory.write_text(neutral_trajectory(written))
+    trajectory.write_text(neutral_trajectory(written, parts_sheet=parts_sheet is not None))
     return Materialised(
         worktree=worktree,
         graph_root=graph_root,
@@ -157,6 +177,7 @@ def materialise(base: Base, patch: Patch | None, into: Path) -> Materialised:
         revisions=revisions,
         commit=commit,
         base_commit=base_commit,
+        node_ids=frozenset(str(n["id"]) for n in (*given, *written)),
     )
 
 
@@ -173,7 +194,7 @@ def _write(store: Store, payload: dict[str, object]) -> int:
     return result.revision
 
 
-def neutral_trajectory(nodes: tuple[dict[str, object], ...]) -> str:
+def neutral_trajectory(nodes: tuple[dict[str, object], ...], *, parts_sheet: bool = False) -> str:
     """The reviewer's account of the revision: the same template for every artefact."""
     parts = [
         "# A proposed revision of the design\n",
@@ -182,10 +203,38 @@ def neutral_trajectory(nodes: tuple[dict[str, object], ...]) -> str:
         f"`{DESIGN_DIRNAME}/journal.jsonl`. The worktree's last commit is the revision. "
         "It wrote the nodes below, which now read as follows.\n",
     ]
+    if parts_sheet:
+        parts.append(
+            f"The parts sheet the design's numbers come from is `{PARTS_SHEET_NAME}` in the "
+            "worktree, given with the design: each row by its id, with its number, its unit "
+            "and the address it was read from. A source written as `derived: [R1.03] * "
+            "[R5.02]` is arithmetic over the rows it names.\n"
+        )
     for payload in nodes:
         body = json.dumps(payload, indent=1, sort_keys=True)
         parts.append(f"## {payload['id']}\n\n```json\n{body}\n```\n")
     return "\n".join(parts)
+
+
+def written_by_the_instrument(name: str, node_ids: frozenset[str]) -> bool:
+    """Whether ``name``, relative to a worktree, is one the instrument writes there.
+
+    The store writes the journal and one file per node, named for the node's id, and the
+    instrument the parts sheet; nothing else is ever written. Words cannot all be listed in
+    advance, but these names can, so a reviewer is listed no other: a file named
+    ``CleanTwin.md`` or ``notes.md`` is refused whatever words it holds, and a node file is
+    admitted only for a node the design holds (``node_ids``), so ``control.twins.json``
+    beside the design is refused although it is spelt like a node.
+    """
+    if name in (JOURNAL_NAME, PARTS_SHEET_NAME):
+        return True
+    node_id = name.removeprefix(NODES_PREFIX).removesuffix(".json")
+    return (
+        name.startswith(NODES_PREFIX)
+        and name.endswith(".json")
+        and NODE_ID_PATTERN.fullmatch(node_id) is not None
+        and node_id in node_ids
+    )
 
 
 def _as_token(answer: str) -> re.Pattern[str]:
@@ -200,7 +249,9 @@ def require_blind(materialised: Materialised, answers: tuple[str, ...]) -> None:
     git's own (the packet lists each), those files and the trajectory are read as text and
     held to the telltale words, to the names of a gate result's and the corpus's
     fields (files only), and to ``answers``: the artefact's own id, description
-    and the like.
+    and the like. A file's name is read with its words split apart however they are
+    joined (``name_telltales``), and it must be a name the instrument writes
+    (:func:`written_by_the_instrument`): any other is refused, telling or not.
 
     Raises:
         BlindnessError: one of them is found.
@@ -216,16 +267,22 @@ def require_blind(materialised: Materialised, answers: tuple[str, ...]) -> None:
     # its content and is held to the same words.
     for path in files:
         name = path.relative_to(materialised.worktree).as_posix()
-        found = telltales(name) + [a for a in answers if a and _as_token(a).search(name)]
+        found = name_telltales(name) + [a for a in answers if a and _as_token(a).search(name)]
         if found:
             msg = "a file name a reviewer would be listed states an answer"
             raise BlindnessError(msg, file=name, found=",".join(sorted(set(found))[:5]))
+        if not written_by_the_instrument(name, materialised.node_ids):
+            msg = "a file name a reviewer would be listed is not one the instrument writes"
+            raise BlindnessError(msg, file=name)
     for path in [*files, materialised.trajectory]:
         text = path.read_text()
         found = telltales(text)
         found += [f for f in ANSWER_FIELDS if f'"{f}"' in text]
         found += [a for a in answers if a and _as_token(a).search(text)]
-        if path.suffix == ".json" or path.name.endswith(".jsonl"):
+        if path.suffix == ".json":
+            # A JSON file is one value, however many lines it is written on.
+            found += [w for s in strings_of(json.loads(text)) for w in telltales(s)]
+        elif path.name.endswith(".jsonl"):
             for line in text.splitlines():
                 if line.strip():
                     found += [w for s in strings_of(json.loads(line)) for w in telltales(s)]
