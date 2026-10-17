@@ -19,6 +19,10 @@ base. It also judges each clean patch, as a control that the artefact was
 otherwise valid; the controls have a log of their own, so the run's log counts
 the injected artefacts alone.
 
+Every review, of an artefact or of a twin, is given the corpus's parts sheet, the
+same bytes each time, so a source citing one of its rows can be checked. The gate's
+copies hold no sheet: the gate reads the design alone.
+
 The run's log is an ordinary run-event log: a start line, one planned subtask
 per artefact, then the review lines, then the gate lines. So the gate-event
 derivation reads it like any run's, and the stamp on each gate event is the
@@ -320,13 +324,15 @@ def _review(
     place: Path,
     subtask: str,
     artefact: CorpusArtefact,
+    parts_sheet: bytes | None = None,
 ) -> ReviewResult:
     """One blind review of ``patch`` over ``base``, on a copy removed once it is judged.
 
     The copy is gone before the next review starts, so no reviewer finds another's
-    artefact, or an artefact's twin, beside its own.
+    artefact, or an artefact's twin, beside its own. With ``parts_sheet``, the copy
+    holds the corpus's parts sheet beside the design, held to the same check.
     """
-    made = materialise(base, patch, place)
+    made = materialise(base, patch, place, parts_sheet)
     try:
         require_blind(made, (artefact.id, artefact.description))
         # Sealed as written, so the reviewer holds its own read to these bytes.
@@ -498,6 +504,7 @@ def run_instrument(
                 scratch / "review" / subtask,
                 subtask,
                 artefact,
+                corpus.parts_sheet,
             )
             reviews[subtask] = _reviewed(into, review, subtask)
         # The gate's copies are made in the run directory, never under the review root: a

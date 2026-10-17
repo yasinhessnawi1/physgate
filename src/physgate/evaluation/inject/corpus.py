@@ -10,7 +10,8 @@ A corpus is one directory:
   it; and a description of the error in physics terms. A propagation artefact
   also names the one edge whose target the change did not reach.
 - ``sources.json``: the parts sheet the numbers cite, by row id, each row that
-  is one number with its unit and the URL it was read from.
+  is one number with its unit and the URL it was read from. Every review is given
+  it, byte for byte, so a source that cites a row can be checked.
 - ``MANIFEST.json``: the digest of every other file, the corpus's label and the
   model string of the sessions that wrote it.
 - any ``*.md`` file: documentation, digested like the rest.
@@ -395,6 +396,9 @@ class Corpus:
     sources: Sources
     #: Every artefact, in id order.
     artefacts: tuple[CorpusArtefact, ...]
+    #: The parts sheet's file, byte for byte as the manifest digests it: what every review
+    #: is given, so a source that cites a row of it can be checked.
+    parts_sheet: bytes
 
 
 def digest(path: Path) -> str:
@@ -431,9 +435,9 @@ def write_manifest(root: Path, manifest: Manifest) -> None:
     (Path(root) / MANIFEST_NAME).write_text(text)
 
 
-def _parse[M: BaseModel](model: type[M], path: Path, root: Path) -> M:
+def _parse[M: BaseModel](model: type[M], path: Path, root: Path, data: bytes | None = None) -> M:
     try:
-        return model.model_validate_json(path.read_bytes())
+        return model.model_validate_json(path.read_bytes() if data is None else data)
     except ValidationError as exc:
         msg = "a corpus file is not what its place in the corpus requires"
         raise CorpusError(
@@ -483,7 +487,12 @@ def load_corpus(root: Path) -> Corpus:
         msg = "the corpus has no parts sheet for its numbers to cite"
         raise CorpusError(msg, root=str(root))
     base = _parse(Base, root / BASE_NAME, root)
-    sources = _parse(Sources, root / SOURCES_NAME, root)
+    # Read once, held to the manifest's digest, and kept: every review is given these bytes.
+    sheet = (root / SOURCES_NAME).read_bytes()
+    if hashlib.sha256(sheet).hexdigest() != manifest.files[SOURCES_NAME]:
+        msg = "the corpus on disk is not the one its manifest lists"
+        raise CorpusError(msg, changed=SOURCES_NAME, missing="none", unlisted="none")
+    sources = _parse(Sources, root / SOURCES_NAME, root, sheet)
     numbers = _numbers(sources)
     _derivations_hold(numbers, "base", base.nodes, dimension=True)
     artefacts = []
@@ -507,6 +516,7 @@ def load_corpus(root: Path) -> Corpus:
         base=base,
         sources=sources,
         artefacts=tuple(artefacts),
+        parts_sheet=sheet,
     )
 
 

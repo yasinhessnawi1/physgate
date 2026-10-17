@@ -12,6 +12,11 @@ revision of the design is proposed, where the design is, and the patch's node
 files in full. It names no class, no check, no description and no corpus, and
 the runner refuses to show a reviewer anything that does (``require_blind``).
 
+**The parts sheet goes with the design.** A number's source may be arithmetic over
+rows of the corpus's parts sheet, so a review's worktree holds that sheet, byte for
+byte, in the given design's commit: part of what was given, never part of the
+revision. The account names it, the same words for every artefact.
+
 Every byte is fixed by the corpus: commits carry a fixed author, date and
 message, so the same patch gives the same commit and the same files every time.
 """
@@ -44,6 +49,8 @@ TRAJECTORY_NAME = "trajectory.md"
 JOURNAL_NAME = f"{DESIGN_DIRNAME}/journal.jsonl"
 #: Where the store writes each node: one file per node id.
 NODES_PREFIX = f"{DESIGN_DIRNAME}/nodes/"
+#: The corpus's parts sheet, where a review's worktree holds it.
+PARTS_SHEET_NAME = "parts_sheet.json"
 #: Names that belong to a gate result or to the corpus. None may reach a reviewer.
 ANSWER_FIELDS: tuple[str, ...] = (
     "verdict",
@@ -123,11 +130,15 @@ def _commit(worktree: Path, message: str) -> str:
     return _git(worktree, "rev-parse", "HEAD")
 
 
-def materialise(base: Base, patch: Patch | None, into: Path) -> Materialised:
+def materialise(
+    base: Base, patch: Patch | None, into: Path, parts_sheet: bytes | None = None
+) -> Materialised:
     """Write ``base``, then ``patch`` as one revision, into a new worktree at ``into``.
 
     With no patch, the base itself is the one revision, over an empty design:
-    how the base alone is gated before any artefact is written over it.
+    how the base alone is gated before any artefact is written over it. With a
+    ``parts_sheet``, its bytes are written as :data:`PARTS_SHEET_NAME` beside the
+    design, in the given design's commit, and the account names it.
 
     Raises:
         CorpusError: ``into`` exists, or the store refuses a write.
@@ -140,6 +151,8 @@ def materialise(base: Base, patch: Patch | None, into: Path) -> Materialised:
     graph_root = worktree / DESIGN_DIRNAME
     worktree.mkdir(parents=True)
     _git(worktree, "init", "-q", "-b", "main")
+    if parts_sheet is not None:
+        (worktree / PARTS_SHEET_NAME).write_bytes(parts_sheet)
     given = base.nodes if patch is not None else ()
     written = patch.nodes if patch is not None else base.nodes
     store = Store(graph_root)
@@ -153,7 +166,7 @@ def materialise(base: Base, patch: Patch | None, into: Path) -> Materialised:
         store.close()
     commit = _commit(worktree, "a proposed revision")
     trajectory = into / TRAJECTORY_NAME
-    trajectory.write_text(neutral_trajectory(written))
+    trajectory.write_text(neutral_trajectory(written, parts_sheet=parts_sheet is not None))
     return Materialised(
         worktree=worktree,
         graph_root=graph_root,
@@ -178,7 +191,7 @@ def _write(store: Store, payload: dict[str, object]) -> int:
     return result.revision
 
 
-def neutral_trajectory(nodes: tuple[dict[str, object], ...]) -> str:
+def neutral_trajectory(nodes: tuple[dict[str, object], ...], *, parts_sheet: bool = False) -> str:
     """The reviewer's account of the revision: the same template for every artefact."""
     parts = [
         "# A proposed revision of the design\n",
@@ -187,6 +200,13 @@ def neutral_trajectory(nodes: tuple[dict[str, object], ...]) -> str:
         f"`{DESIGN_DIRNAME}/journal.jsonl`. The worktree's last commit is the revision. "
         "It wrote the nodes below, which now read as follows.\n",
     ]
+    if parts_sheet:
+        parts.append(
+            f"The parts sheet the design's numbers come from is `{PARTS_SHEET_NAME}` in the "
+            "worktree, given with the design: each row by its id, with its number, its unit "
+            "and the address it was read from. A source written as `derived: [R1.03] * "
+            "[R5.02]` is arithmetic over the rows it names.\n"
+        )
     for payload in nodes:
         body = json.dumps(payload, indent=1, sort_keys=True)
         parts.append(f"## {payload['id']}\n\n```json\n{body}\n```\n")
@@ -196,12 +216,12 @@ def neutral_trajectory(nodes: tuple[dict[str, object], ...]) -> str:
 def written_by_the_instrument(name: str) -> bool:
     """Whether ``name``, relative to a worktree, is one the instrument writes there.
 
-    The store writes the journal and one file per node, named for the node's id; nothing
-    else is ever written. Words cannot all be listed in advance, but these names can, so a
-    reviewer is listed no other: a file named ``CleanTwin.md`` or ``notes.md`` is refused
-    whatever words it holds.
+    The store writes the journal and one file per node, named for the node's id, and the
+    instrument the parts sheet; nothing else is ever written. Words cannot all be listed in
+    advance, but these names can, so a reviewer is listed no other: a file named
+    ``CleanTwin.md`` or ``notes.md`` is refused whatever words it holds.
     """
-    if name == JOURNAL_NAME:
+    if name in (JOURNAL_NAME, PARTS_SHEET_NAME):
         return True
     node_id = name.removeprefix(NODES_PREFIX).removesuffix(".json")
     return (
@@ -253,7 +273,10 @@ def require_blind(materialised: Materialised, answers: tuple[str, ...]) -> None:
         found = telltales(text)
         found += [f for f in ANSWER_FIELDS if f'"{f}"' in text]
         found += [a for a in answers if a and _as_token(a).search(text)]
-        if path.suffix == ".json" or path.name.endswith(".jsonl"):
+        if path.suffix == ".json":
+            # A JSON file is one value, however many lines it is written on.
+            found += [w for s in strings_of(json.loads(text)) for w in telltales(s)]
+        elif path.name.endswith(".jsonl"):
             for line in text.splitlines():
                 if line.strip():
                     found += [w for s in strings_of(json.loads(line)) for w in telltales(s)]
