@@ -26,7 +26,7 @@ unit costs is milliseconds, conversion included: the largest prefix at the large
 
 This module imports nothing but the standard library's ``re``, so that the physics gate
 can use it too without widening what its import fence admits by more than this one name.
-The simulation-record format uses it today; the gate's own unit parser does not yet.
+The simulation-record format and the physics gate's own unit parser use it.
 """
 
 from __future__ import annotations

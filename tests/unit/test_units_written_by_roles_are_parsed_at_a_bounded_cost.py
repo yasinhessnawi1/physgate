@@ -1,9 +1,9 @@
 """A unit is held to a spelling whose parse has a bounded cost, before any registry sees it.
 
-The guard is shared: the simulation-record format uses it now, and the physics gate's own
-unit parser is meant to. So besides what it refuses, this file holds what the gate needs
-to know before it adopts it: every unit the gate's catalogue and bounds tables name today
-is admitted, and the module imports nothing the gate's import fence would have to weigh.
+The guard is shared: the simulation-record format and the physics gate's own unit parser
+use it. So besides what it refuses, this file holds what the gate relies on: every unit the
+gate's catalogue and bounds tables name today is admitted, and the module imports nothing
+the gate's import fence would have to weigh.
 """
 
 from __future__ import annotations

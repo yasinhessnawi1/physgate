@@ -50,6 +50,7 @@ import pint
 
 from physgate.gate.catalogue import KINDS, PRODUCTS, Kind
 from physgate.gate.exceptions import GateError
+from physgate.unit_spelling import UnitSpellingError, require_bounded_spelling
 
 # pint's registry, computing in exact fractions. Built once at import; the gate
 # only reads it. ``Any`` for its quantities: pint's own types are generic over
@@ -127,14 +128,26 @@ def exact(value: float | int) -> Fraction:
 def parse(value: float | int, unit: str) -> Any:
     """Rule 1: ``value`` in ``unit`` as a pint quantity.
 
+    The unit is a role's writing, so before the registry reads it, it is held to the shared
+    spelling guard (:mod:`physgate.unit_spelling`): named units with small integer powers.
+    The registry evaluates any arithmetic in a unit exactly, and a length bound does not
+    bound that work: ``10**10**10*m`` is twelve characters, and parsing it ran until a CPU
+    limit killed it. The gate runs in the orchestrator's own process with no time bound, so
+    such a unit is refused here, with the reason, and the registry never sees it.
+
     Raises:
-        UnitRefusedError: the unit is too long or does not parse. pint's parser raises
-            several unrelated types for a malformed spelling, so every one of them
-            is caught and reported with the unit.
+        UnitRefusedError: the unit is too long, is not spelt as named units with small
+            integer powers, or does not parse. pint's parser raises several unrelated
+            types for a malformed spelling, so every one of them is caught and reported
+            with the unit.
     """
     if len(unit) > MAX_UNIT_LENGTH:
         msg = f"the unit {unit[:32]!r}... is longer than {MAX_UNIT_LENGTH} characters"
         raise UnitRefusedError(msg, unit=unit[:64])
+    try:
+        require_bounded_spelling(unit)
+    except UnitSpellingError as exc:
+        raise UnitRefusedError(str(exc), unit=unit) from None
     try:
         return UREG.Quantity(exact(value), unit)
     except Exception as exc:  # noqa: BLE001 - pint raises many types for one fault

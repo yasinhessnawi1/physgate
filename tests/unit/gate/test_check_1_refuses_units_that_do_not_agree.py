@@ -99,9 +99,10 @@ REFUSED: list[tuple[str, Callable[[], Measured], str]] = [
         "not written in a temperature-difference unit",
     ),
     (
+        # Refused before the registry reads it: the spelling admits no "Δ" and no "°".
         "an absolute temperature written with the difference sign",
         lambda: q("temperature", 40, "Δ°C"),
-        "not written in a temperature-difference unit",
+        "named units with small integer powers",
     ),
     (
         "two absolute temperatures added",
@@ -118,7 +119,8 @@ REFUSED: list[tuple[str, Callable[[], Measured], str]] = [
     ),
     ("a current written in V", lambda: q("current", 2.4, "V"), "cannot convert"),
     ("a unit pint cannot read", lambda: q("current", 1, "foo"), "not one pint can read"),
-    ("a unit spelled as a sum", lambda: q("current", 1, "A + V"), "not one pint can read"),
+    ("a unit spelled as a sum", lambda: q("current", 1, "A + V"), "small integer powers"),
+    ("a unit pint cannot read", lambda: q("current", 1, "amperez"), "not one pint can read"),
     ("a unit longer than the bound", lambda: q("current", 1, "A" * 70), "longer than 64"),
 ]
 
