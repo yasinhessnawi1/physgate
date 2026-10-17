@@ -85,6 +85,25 @@ def test_the_loaded_sheet_is_the_one_the_manifest_digests(tmp_path: Path) -> Non
         load_corpus(root)
 
 
+def test_a_sheet_changed_after_the_listing_is_refused_not_given(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bytes every review is given are the bytes held to the digest, not a later read."""
+    import physgate.evaluation.inject.corpus as corpus_module
+
+    root = write_corpus(tmp_path / "corpus")
+    listed = corpus_module.files_under
+
+    def listed_then_changed(where: Path) -> dict[str, str]:
+        found = listed(where)
+        (where / SOURCES_NAME).write_bytes((where / SOURCES_NAME).read_bytes() + b" ")
+        return found
+
+    monkeypatch.setattr(corpus_module, "files_under", listed_then_changed)
+    with pytest.raises(CorpusError, match="not the one its manifest lists"):
+        load_corpus(root)
+
+
 @pytest.mark.parametrize(
     ("row", "found"),
     [
