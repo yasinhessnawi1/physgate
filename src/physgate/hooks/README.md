@@ -162,10 +162,48 @@ rules here are lists (the readers and their write options, the constructs
 followed or refused), and a list of what a command may do can never be complete.
 That, not any one form, is why the OS layer exists. **This list is the honest
 boundary of what parsing alone can claim.** A further difference between how this layer and a
-shell read a command is added here, not patched in the parser: an OS write
-allowlist for role sessions is the closing layer. The bypass suite runs fifty attempts
+shell read a command is added here, not patched in the parser: the OS layer is
+the closing layer (below). The bypass suite runs fifty attempts
 through the real Claude Code binary, each judged by the bytes of the protected
 trees and by which layer logged the refusal; its tolerance is zero.
+
+## The OS layer
+
+Where the platform allows it, a role session's shell commands run inside
+Claude Code's own sandbox: Seatbelt on macOS, bubblewrap on Linux (which needs
+`bubblewrap` and `socat` installed, and on Ubuntu 24.04 the AppArmor profile
+Claude Code's documentation gives). The hook installer generates its settings
+from the same session configuration these hooks read
+(`physgate.oslayer.policy`), so the two layers cannot disagree about what is
+protected:
+
+- **Writes** land only in the worktree, a temporary directory of the session's
+  own and the session's home. Every write-protected path inside them is denied
+  by name; one that does not exist yet is denied where its parent exists, and
+  left to these hooks and the sentinel where its parent is missing too, since a
+  denied path with a missing parent keeps a command from making that parent.
+  The series outbox is left to the scripts that write it; the collector judges
+  what arrives.
+- **Reads** are denied for the held-out tier, the answer keys, review material,
+  the harness checkout, every session's own files (its credentials and these
+  hooks' records), and the queue's decisions file.
+- **The file tools stay these hooks'**: no permission rule is written, because
+  Claude Code applies one before any hook runs, without the reason or the log
+  line a refusal here gives.
+
+The session is started in strict mode, so a command cannot be retried outside
+the sandbox, and a session whose sandbox cannot start does not start. Where the
+platform cannot provide the layer (native Windows, Linux without bubblewrap, a
+container that refuses its mounts), the run records it as absent, with the
+reason, and says so; the shell is then bounded by this layer alone, and the
+residual above is open.
+
+Known limits of the OS layer: a hard link that already exists is read by its
+other name (the sentinel refuses a held-out or answer-key file with a second
+name at the session's start and end, and the orchestrator before the commit);
+a child made in the knowledge tree after the session starts is these hooks'
+alone; a literal `/tmp` path, and on macOS plain `mktemp` and a process
+substitution, write outside the session's places and are refused.
 
 ## Matching commands, not text
 
@@ -241,8 +279,9 @@ uv run python tests/integration/hooks/measure_latency.py latency.json
   install the harness where the session's user cannot write.
 - **The halt is detection only.** Code that tampers with the hooks' own code
   runs before any check inside it.
-- **Reads of the held-out tier have one layer.** A read moves no signature, so
-  the sentinel cannot see one.
+- **Reads of the held-out tier have one layer** where the OS layer is absent. A
+  read moves no signature, so the sentinel cannot see one; where the OS layer
+  runs, a shell command's read is refused by the operating system.
 - **The first hook of a session** takes the sentinel's record: it keeps the
   bytes of every protected file in one pack, and finds the files of the code
   the rare paths load, without importing them, so a change to them is seen from
