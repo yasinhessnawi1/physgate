@@ -578,6 +578,16 @@ class Loop:
             detail = f"reviewer material in the stream of session {report.session_id}"
             self._incident(subtask_id, "review_material_read", detail)
             return False
+        if report.withheld_problems is not None:
+            # A file no session reads had a second name, changed, or could not be checked
+            # when the attempt was committed: its work is not taken, and a person looks first.
+            self._incident(subtask_id, "withheld_file_unsure", report.withheld_problems)
+            return False
+        if report.placeholders_refused is not None:
+            # Something stood at a path only the sandbox holds that is not its placeholder:
+            # its work is not taken, and a person looks first.
+            self._incident(subtask_id, "placeholder_refused", report.placeholders_refused)
+            return False
         if report.managed_drift is not None:
             # Settings above every source the hooks were installed in changed under the
             # session: nothing it did is taken, and a person looks first.
@@ -1030,6 +1040,14 @@ class Loop:
                 f"{self.config.auth} credential; replace {variable} and resume"
             )
             self._emit(Halted(**self._env(), reason="credential_refused", detail=detail))
+            return
+        if cause == "sandbox_unavailable":
+            detail = (
+                f"subtask {subtask_id} attempt {attempt}: the session's OS layer would not "
+                "start, so the session refused to run without it; repair the sandbox's "
+                "dependencies and resume (the binary's message is in the session's stream)"
+            )
+            self._emit(Halted(**self._env(), reason="os_layer_unavailable", detail=detail))
             return
         if delay is None:
             detail = (

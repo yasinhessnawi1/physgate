@@ -77,6 +77,13 @@ class SessionReport(_Frozen):
     #: The series records the session left: sealed, refused or discarded. Collected before
     #: the attempt was committed, so none of them is in the commit.
     series: SessionSeries = SessionSeries()
+    #: What the OS layer's placeholder sweep found at a path it names and would not
+    #: remove (a link, a second name, a replaced directory), if anything: the session
+    #: shaped its worktree where only the sandbox writes.
+    placeholders_refused: NonEmptyStr | None = None
+    #: What the held-out and answer-key tripwire found before the attempt was committed
+    #: (a second name, a changed file, one it could not check), if anything.
+    withheld_problems: NonEmptyStr | None = None
 
 
 #: Whose session a leftover was, as its tokens are attributed: ``session`` or ``reviewer``.

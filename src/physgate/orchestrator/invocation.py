@@ -19,14 +19,19 @@ import shutil
 from pathlib import Path
 
 from physgate.orchestrator.exceptions import InvocationError
-from physgate.orchestrator.managed import TrafficSettings
+from physgate.orchestrator.managed import FLAGS_SETTING, FLAGS_SILENT_VERSIONS, TrafficSettings
 
 #: The Claude Code versions the headless contract was measured on: the stream's
-#: shape, the result fields and what a resume replays match on both (measured
-#: 28.09.2026). One small, reproducible stream-ordering difference between
-#: them, confined to the decomposition-shaped call and not touching result
-#: content or fields, is recorded in MAINTENANCE.md rather than here.
-PINNED_VERSIONS = frozenset({"2.1.272", "2.1.283"})
+#: shape, the result fields and what a resume replays match on 2.1.272 and
+#: 2.1.283 (measured 28.09.2026). One small, reproducible stream-ordering
+#: difference between them, confined to the decomposition-shaped call and not
+#: touching result content or fields, is recorded with the maintenance notes
+#: rather than here. 2.1.301 is the version the shell sandbox is used on: it is
+#: the first that keeps a denied path denied when it is reached through a
+#: symbolic link on macOS, and it holds a sandbox started from the settings flag
+#: against a repository's settings. The two older versions stay pinned so that
+#: runs recorded on them can still be resumed and reproduced.
+PINNED_VERSIONS = frozenset({"2.1.272", "2.1.283", "2.1.301"})
 _BINARY = "claude"
 
 
@@ -112,11 +117,17 @@ def decomposition_argv(
     ]
 
 
+def session_search_path(binary: str) -> str:
+    """The search path every session gets: the binary's directory, then the system's."""
+    return f"{Path(binary).parent}:/usr/bin:/bin:/usr/sbin:/sbin"
+
+
 def isolated_env(
     *,
     home: Path,
     config_dir: Path,
     binary: str,
+    claude_version: str,
     max_retries: int,
     max_output_tokens: int,
     base_url: str | None,
@@ -125,11 +136,13 @@ def isolated_env(
     """An environment built from nothing for one session.
 
     The output-token limit is the run's: left unset, the binary takes the
-    request's ``max_tokens`` from its model catalog, like the effort level.
+    request's ``max_tokens`` from its model catalog, like the effort level. A
+    version whose debug log never reports its feature flags also carries the
+    documented setting that turns their fetch off, since nothing can be observed.
     """
     env = {
         "HOME": str(home),
-        "PATH": f"{Path(binary).parent}:/usr/bin:/bin:/usr/sbin:/sbin",
+        "PATH": session_search_path(binary),
         "TERM": "dumb",
         "CLAUDE_CONFIG_DIR": str(config_dir),
         "CLAUDE_CODE_MAX_RETRIES": str(max_retries),
@@ -139,6 +152,9 @@ def isolated_env(
         "DISABLE_TELEMETRY": "1",
         "DISABLE_ERROR_REPORTING": "1",
     }
+    if claude_version in FLAGS_SILENT_VERSIONS:
+        name, value = FLAGS_SETTING
+        env[name] = value
     if base_url:
         env["ANTHROPIC_BASE_URL"] = base_url
     if api_key:
@@ -152,6 +168,7 @@ def traffic_settings() -> TrafficSettings:
         home=Path("/"),
         config_dir=Path("/"),
         binary="claude",
+        claude_version="",
         max_retries=0,
         max_output_tokens=1,
         base_url=None,

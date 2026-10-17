@@ -47,6 +47,7 @@ import sys
 import time
 from typing import TYPE_CHECKING
 
+from physgate.hooks import withheld
 from physgate.hooks.journal_view import Head, heads
 from physgate.hooks.runtime import ALLOW, Decision, HookSpec, refuse
 from physgate.hooks.snapshot import BlobStore, Entry, file_digest, quarantine, record, signature
@@ -74,6 +75,18 @@ NODE_MISMATCH = (
 UNRESTORABLE = (
     "A protected path changed and could not be put back ({paths}); every call is refused."
 )
+LINKED = (
+    "A held-out or answer-key file has a second name, changed, or cannot be checked ({paths}); "
+    "a second name can be read where the first is withheld, so every call is refused."
+)
+
+#: Where the held-out and answer-key tripwire runs: the session's start and its end.
+#: (The orchestrator checks again before it commits the attempt.)
+WITHHELD_EVENTS = frozenset({"SessionStart", "SessionEnd"})
+
+
+def _withheld_roots(config: ConfigView) -> tuple[str, ...]:
+    return (*config.held_out, *config.answer_keys)
 
 
 def _roots(config: ConfigView, watch: str) -> list[str]:
@@ -552,7 +565,15 @@ def check(hook_input: InputView, config: ConfigView) -> Decision:
         state = _State(directory)
         base = state.load()
         if base is None:
-            state.save(_baseline(config, state))
+            base = _baseline(config, state)
+            files, problems = withheld.survey(_withheld_roots(config))
+            base["withheld"] = {p: list(i) for p, i in files.items()}
+            if problems:
+                base["halted"] = LINKED.format(paths=", ".join(problems))
+            state.save(base)
+            if problems:
+                _event(config, hook_input, "withheld", problems)
+                return refuse(base["halted"])
             return ALLOW
         if base.get("halted"):
             return refuse(base["halted"])
@@ -567,10 +588,19 @@ def check(hook_input: InputView, config: ConfigView) -> Decision:
         put_back += journals_put_back
         mismatched = _check_nodes(base)
         logged = _check_logged(base, config)
+        # The withheld-file tripwire runs after everything above has been put back, so
+        # finding something there never costs a put-back; it adds a halt of its own.
+        unsure: list[str] = []
+        if hook_input.hook_event_name in WITHHELD_EVENTS:
+            now, unsure = withheld.survey(_withheld_roots(config))
+            recorded = {p: (i[0], i[1]) for p, i in base.get("withheld", {}).items()}
+            unsure += withheld.changed(recorded, now)
         if failed:
             base["halted"] = UNRESTORABLE.format(paths=", ".join(failed))
         elif mismatched:
             base["halted"] = NODE_MISMATCH.format(paths=", ".join(mismatched))
+        elif unsure:
+            base["halted"] = LINKED.format(paths=", ".join(unsure))
         state.save(base)
     finally:
         _unlock(fd)
@@ -578,6 +608,8 @@ def check(hook_input: InputView, config: ConfigView) -> Decision:
         _event(config, hook_input, "journal append", [journal], {"bytes": [first, end]})
     if logged:
         _event(config, hook_input, "changed", logged)
+    if unsure:
+        _event(config, hook_input, "withheld", unsure)
     if failed:
         _event(config, hook_input, "unrestorable", failed)
         return refuse(UNRESTORABLE.format(paths=", ".join(failed)))
@@ -586,6 +618,9 @@ def check(hook_input: InputView, config: ConfigView) -> Decision:
         return refuse(NODE_MISMATCH.format(paths=", ".join(mismatched)))
     if put_back:
         _event(config, hook_input, "put back", put_back)
+    if unsure:
+        return refuse(LINKED.format(paths=", ".join(unsure)))
+    if put_back:
         return refuse(PUT_BACK.format(paths=", ".join(put_back)))
     return ALLOW
 

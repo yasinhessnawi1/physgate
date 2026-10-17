@@ -38,6 +38,7 @@ from physgate.orchestrator.escalation import REGISTER, BackendName
 from physgate.orchestrator.exceptions import EscalationBackendError, GitError, RunConfigError
 from physgate.orchestrator.git import GitBinary, git
 from physgate.orchestrator.role_python import RolePython
+from physgate.oslayer.probe import OsLayerState
 
 
 class _Frozen(BaseModel):
@@ -261,6 +262,12 @@ class RunConfig(_Frozen):
     #: whose loop asked no interface; no loop drives such a run.
     escalation_backend: BackendName | None
 
+    #: The OS layer's state where the run was configured: present, with its mechanism,
+    #: or absent, with the reason. Measured, never taken from the parameters; every run
+    #: and resume measures it again and records whether it still holds. ``None`` only on
+    #: a run recorded before the field existed.
+    os_layer: OsLayerState | None
+
     @model_validator(mode="after")
     def _the_binding_is_a_backend_that_ships(self) -> RunConfig:
         if self.escalation_backend is None:
@@ -286,10 +293,10 @@ class RunConfig(_Frozen):
         """The recorded form: stable key order, so equal configs are equal bytes.
 
         ``thinking_display`` is left out when it is ``omitted``, what every run before
-        the field existed ran with, and ``role_python``, ``git_binary`` and
-        ``escalation_backend`` when they are ``None``, so their recorded digests still name
-        them. A run that names a binding always records it, so the binding is part of its
-        manifest id.
+        the field existed ran with, and ``role_python``, ``git_binary``,
+        ``escalation_backend`` and ``os_layer`` when they are ``None``, so their recorded
+        digests still name them. A run that names a binding always records it, so the
+        binding is part of its manifest id.
         """
         exclude = set()
         if self.thinking_display == "omitted":
@@ -300,6 +307,8 @@ class RunConfig(_Frozen):
             exclude.add("git_binary")
         if self.escalation_backend is None:
             exclude.add("escalation_backend")
+        if self.os_layer is None:
+            exclude.add("os_layer")
         return self.model_dump_json(indent=None, exclude=exclude or None).encode() + b"\n"
 
     def sha256(self) -> str:
@@ -387,6 +396,10 @@ def load_run_config(path: Path) -> RunConfig:
     if isinstance(recorded, dict) and "escalation_backend" not in recorded:
         # Recorded before the field existed: the loop asked no escalation interface.
         recorded = {**recorded, "escalation_backend": None}
+        raw = json.dumps(recorded).encode()
+    if isinstance(recorded, dict) and "os_layer" not in recorded:
+        # Recorded before the field existed: the OS layer's state was not recorded.
+        recorded = {**recorded, "os_layer": None}
         raw = json.dumps(recorded).encode()
     try:
         return RunConfig.model_validate_json(raw)

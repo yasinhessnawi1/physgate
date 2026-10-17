@@ -556,6 +556,7 @@ class ClaudeReviewer:
             home=sdir / "home",
             config_dir=sdir / "config",
             binary=self._setup.binary,
+            claude_version=self._setup.claude_version,
             max_retries=bounds.binary_max_retries,
             max_output_tokens=self._setup.max_output_tokens,
             base_url=self._setup.base_url,

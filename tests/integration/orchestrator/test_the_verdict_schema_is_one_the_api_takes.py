@@ -60,6 +60,10 @@ REFUSAL = (
 STRICT_MODE = "strict mode"
 
 
+#: Versions that resend a refused request once without one beta flag.
+REFUSED_THEN_RESENT = frozenset({"2.1.301"})
+
+
 @pytest.fixture(scope="module")
 def install(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return prepare_install(tmp_path_factory.mktemp("install") / "i", REPO)
@@ -122,7 +126,11 @@ def test_the_second_real_run_s_schema_is_refused_on_the_first_request(
     sent = json.loads((REPLAYED / f"v2_schema_{role}.json").read_text())
     monkeypatch.setattr(claude, "verdict_schema", lambda *a, **k: sent)
     outcome, refused, stderr = _review(tmp_path, install, binary, role)
-    assert refused == [REFUSAL]  # one request, refused as the API refused it
+    # One request, refused as the API refused it. 2.1.301 then sends the same request
+    # once more without its thinking-display beta flag, outside its retry count
+    # (measured at this endpoint, 16.10.2026), and that is refused the same way.
+    sent_twice = binary_version(binary) in REFUSED_THEN_RESENT
+    assert refused == [REFUSAL] * (2 if sent_twice else 1)
     assert isinstance(outcome, ReviewUnavailableError) and outcome.cause == "infrastructure"
     assert STRICT_MODE in stderr  # and the binary warned as it compiled it
 

@@ -51,7 +51,13 @@ def _lean_config(data: bytes) -> dict[str, Any] | None:
         return None
     out: dict[str, Any] = {name: getattr(config, name) for name in lean.LeanConfig.__slots__}
     out["protected_roots"] = [
-        {"path": r.path, "reason": r.reason, "watch": r.watch, "exceptions": list(r.exceptions)}
+        {
+            "path": r.path,
+            "reason": r.reason,
+            "watch": r.watch,
+            "exceptions": list(r.exceptions),
+            "reads": r.reads,
+        }
         for r in config.protected_roots
     ]
     out["experiments"] = [

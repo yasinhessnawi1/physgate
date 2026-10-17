@@ -34,6 +34,7 @@ export default function GateChecks({ setHeader, query }: ViewProps) {
         title: "Gate checks",
         source: runSource(config.value),
         gateMode: config.value.gateMode,
+        osLayer: config.value.osLayer,
       });
   }, [config, setHeader]);
   if (runs === null) return <LoadingState reading="the run list" />;

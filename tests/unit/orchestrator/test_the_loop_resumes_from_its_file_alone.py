@@ -523,3 +523,23 @@ def test_a_refused_credential_halts_at_once_and_a_resume_continues_the_same_atte
     assert again.resume().kind == "done"
     again.close()
     assert [r.attempt for r in rig.dispatcher.requests] == [1, 1]
+
+
+def test_an_os_layer_that_would_not_start_halts_at_once_and_a_resume_continues(
+    tmp_path: Path,
+) -> None:
+    rig = Rig(
+        tmp_path, dispatcher=FakeDispatcher(infra={1: "sandbox_unavailable"}), delays=(5.0, 5.0)
+    )
+    loop = rig.open()
+    loop.start(plan("s1"))
+    assert loop.run().kind == "halted"
+    loop.close()
+    (halt,) = [e for e in read_events(tmp_path / "events.jsonl") if isinstance(e, Halted)]
+    assert halt.reason == "os_layer_unavailable"
+    assert "repair the sandbox's dependencies and resume" in halt.detail
+    assert rig.slept == [], "a sandbox that will not start is not retried on the schedule"
+    again = rig.open()
+    assert again.resume().kind == "done"
+    again.close()
+    assert [r.attempt for r in rig.dispatcher.requests] == [1, 1]

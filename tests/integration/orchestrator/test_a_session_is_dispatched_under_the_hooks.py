@@ -451,8 +451,8 @@ def test_remote_settings_delivered_during_a_session_are_reported_as_drift(
 ) -> None:
     real = ClaudeDispatcher._install
 
-    def delivering(self: Any, request: Any, worktree: Path, sdir: Path) -> Any:  # noqa: ANN401
-        installed = real(self, request, worktree, sdir)
+    def delivering(self: Any, request: Any, worktree: Path, sdir: Path, temp: Any) -> Any:  # noqa: ANN401
+        installed = real(self, request, worktree, sdir, temp)
         (sdir / "config").mkdir(parents=True, exist_ok=True)
         (sdir / "config" / "remote-settings.json").write_text('{"disableAllHooks": true}')
         return installed
@@ -474,8 +474,8 @@ def test_the_policy_limits_a_session_received_are_reported_by_their_digest(
     real = ClaudeDispatcher._install
     limits = b'{"restrictions": {"enforce_web_search_mcp_isolation": {"allowed": false}}}'
 
-    def fetching(self: Any, request: Any, worktree: Path, sdir: Path) -> Any:  # noqa: ANN401
-        installed = real(self, request, worktree, sdir)
+    def fetching(self: Any, request: Any, worktree: Path, sdir: Path, temp: Any) -> Any:  # noqa: ANN401
+        installed = real(self, request, worktree, sdir, temp)
         (sdir / "config").mkdir(parents=True, exist_ok=True)
         (sdir / "config" / "policy-limits.json").write_bytes(limits)
         return installed
@@ -679,3 +679,94 @@ def test_a_role_session_finds_the_run_s_named_python_first_on_its_path(
     assert where == str(sdir / "bin" / "python3")
     assert path.split(":")[0] == str(sdir / "bin")
     assert [p.name for p in (sdir / "bin").iterdir()] == ["python3"]
+
+
+def test_a_sweep_that_fails_never_skips_removing_the_credential(
+    tmp_path: Path, install_bin: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The credential is gone and the attempt is refused, however the placeholder sweep ends."""
+    import physgate.oslayer.placeholders as placeholders_module
+    from physgate.orchestrator.credentials import KEY_HELPER
+    from physgate.oslayer.probe import Present, gather_facts, judge
+
+    version = config().claude_version
+    path = f"{Path(claude_binary()).parent}:/usr/bin:/bin:/usr/sbin:/sbin"
+    if not isinstance(judge(gather_facts(claude_version=version, search_path=path)), Present):
+        pytest.skip("the OS layer cannot run here, so no sweep runs")
+
+    def failing(*_: Any) -> Any:  # noqa: ANN401
+        msg = "inert: the sweep failed"
+        raise PermissionError(msg)
+
+    monkeypatch.setattr(placeholders_module, "sweep", failing)
+    worktree = tmp_path / "run" / "worktrees" / "s1"
+    steps = [*knowledge_reads(worktree), tool("Read", file_path=str(worktree / SPEC)), text("done")]
+    _, (report, _), _ = dispatch(tmp_path, install_bin, steps)
+    sdir = Path(str(report.trajectory)).parent
+    assert not (sdir / "state" / KEY_HELPER).exists(), "the credential outlived its session"
+    assert DUMMY_KEY not in (sdir / "stdout.jsonl").read_text()
+    assert report.placeholders_refused is not None
+    assert "the sweep failed" in report.placeholders_refused
+
+
+def test_a_sandboxed_session_and_an_unsandboxed_one_end_through_the_same_steps(
+    tmp_path: Path, install_bin: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No step after a session is skipped because the OS layer ran: only the sweep is added."""
+    import physgate.hooks.withheld as withheld_module
+    import physgate.orchestrator.dispatch as dispatch_module
+    import physgate.oslayer.placeholders as placeholders_module
+    from physgate.oslayer.probe import Absent, Present, judge_here
+
+    version = config().claude_version
+    path = f"{Path(claude_binary()).parent}:/usr/bin:/bin:/usr/sbin:/sbin"
+    if not isinstance(judge_here(claude_version=version, search_path=path), Present):
+        pytest.skip("the OS layer cannot run here, so there is no sandboxed session to compare")
+    steps_seen: list[str] = []
+    module_steps = (
+        "remove_secrets",
+        "redact",
+        "read_captured",
+        "review_material_seen",
+        "require_matching_totals",
+        "classify_session_end",
+        "commit_attempt",
+        "drift",
+        "policy_limits_digest",
+    )
+    for name in module_steps:
+        real = getattr(dispatch_module, name)
+
+        def spy(*a: Any, _real: Any = real, _name: str = name, **k: Any) -> Any:  # noqa: ANN401
+            steps_seen.append(_name)
+            return _real(*a, **k)
+
+        monkeypatch.setattr(dispatch_module, name, spy)
+    owners: tuple[tuple[Any, str], ...] = (
+        (withheld_module, "survey"),
+        (placeholders_module, "sweep"),
+    )
+    for owner, name in owners:
+        real = getattr(owner, name)
+
+        def spied(*a: Any, _real: Any = real, _name: str = name, **k: Any) -> Any:  # noqa: ANN401
+            steps_seen.append(_name)
+            return _real(*a, **k)
+
+        monkeypatch.setattr(owner, name, spied)
+
+    def ended(root: Path, layer: Present | Absent | None) -> list[str]:
+        steps_seen.clear()
+        if layer is not None:
+            monkeypatch.setattr(dispatch_module.ClaudeDispatcher, "os_layer", lambda self: layer)
+        worktree = root / "run" / "worktrees" / "s1"
+        steps = [*knowledge_reads(worktree), tool("Read", file_path=str(worktree / SPEC))]
+        _, (report, _), _ = dispatch(root, install_bin, [*steps, text("done")])
+        assert report.end.outcome == "completed", report
+        return list(steps_seen)
+
+    sandboxed = ended(tmp_path / "on", None)
+    unsandboxed = ended(tmp_path / "off", Absent(reason="stand-in: compared without the layer"))
+    assert "sweep" in sandboxed and "sweep" not in unsandboxed
+    assert [s for s in sandboxed if s != "sweep"] == unsandboxed
+    assert set(module_steps) | {"survey"} <= set(unsandboxed)

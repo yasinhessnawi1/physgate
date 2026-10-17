@@ -29,9 +29,21 @@ REPAIR_BUDGET = 3
 #: can decide for itself how to count one (a turn limit may be an agent looping).
 #: ``credential_refused`` is an API error with HTTP 401 or 403: retrying cannot fix a
 #: refused credential, so the loop halts on it for a person to replace it.
+#: ``sandbox_unavailable``: the session refused to start because the OS layer it was
+#: started with could not run; retrying cannot fix that either, so the loop halts.
 InfraCause = Literal[
-    "api_error", "credential_refused", "wall_clock", "turn_limit", "no_result", "unexpected_exit"
+    "api_error",
+    "credential_refused",
+    "sandbox_unavailable",
+    "wall_clock",
+    "turn_limit",
+    "no_result",
+    "unexpected_exit",
 ]
+
+#: How the binary names a sandbox it was told it must have and could not start
+#: (measured on 2.1.301 on Linux without bubblewrap: exit 1, before any request).
+SANDBOX_UNAVAILABLE = "Sandbox required but unavailable"
 
 #: The HTTP statuses the binary reports for a credential the API refused.
 CREDENTIAL_REFUSED_STATUSES = frozenset({401, 403})
@@ -73,6 +85,13 @@ def classify_session_end(
         return SessionEnd(outcome="infrastructure", cause="no_result")
     terminal = result.get("terminal_reason")
     is_error = result.get("is_error")
+    errors = result.get("errors")
+    if (
+        is_error is True
+        and isinstance(errors, list)
+        and any(isinstance(e, str) and e.startswith(SANDBOX_UNAVAILABLE) for e in errors)
+    ):
+        return SessionEnd(outcome="infrastructure", cause="sandbox_unavailable")
     if terminal == "max_turns":
         return SessionEnd(outcome="infrastructure", cause="turn_limit")
     if is_error is True and terminal == "api_error":

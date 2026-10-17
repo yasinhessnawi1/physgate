@@ -36,8 +36,9 @@ from physgate.hooks.registry import REGISTRY
 from physgate.hooks.runtime import HookSpec
 from physgate.hooks.settings import Installed, InstallRequest, install
 
-#: The Claude Code version the hook contract was measured on.
-PINNED_VERSION = "2.1.272"
+#: The Claude Code version the hook contract was measured on: the one role
+#: sessions run on, so the hooks are proven on the binary that runs them.
+PINNED_VERSION = "2.1.301"
 
 
 class HarnessError(AssertionError):

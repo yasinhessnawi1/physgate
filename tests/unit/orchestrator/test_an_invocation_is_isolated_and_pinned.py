@@ -14,7 +14,16 @@ from physgate.orchestrator.invocation import decomposition_argv, isolated_env, r
 def test_only_the_pinned_versions_are_accepted() -> None:
     assert require_pinned("2.1.272 (Claude Code)\n") == "2.1.272"
     assert require_pinned("2.1.283 (Claude Code)\n") == "2.1.283"
-    others = ("2.1.271 (Claude Code)", "2.1.280 (Claude Code)", "2.2.0", "", "Claude Code 2.1.272")
+    assert require_pinned("2.1.301 (Claude Code)\n") == "2.1.301"
+    others = (
+        "2.1.271 (Claude Code)",
+        "2.1.280 (Claude Code)",
+        "2.1.299 (Claude Code)",
+        "2.1.302 (Claude Code)",
+        "2.2.0",
+        "",
+        "Claude Code 2.1.272",
+    )
     for other in others:
         with pytest.raises(InvocationError):
             require_pinned(other)
@@ -53,6 +62,7 @@ def test_the_environment_is_built_from_nothing(
         home=tmp_path / "h",
         config_dir=tmp_path / "c",
         binary="/opt/bin/claude",
+        claude_version="2.1.283",
         max_retries=0,
         max_output_tokens=64000,
         base_url=None,
@@ -68,6 +78,7 @@ def test_the_environment_is_built_from_nothing(
         home=tmp_path,
         config_dir=tmp_path,
         binary="claude",
+        claude_version="2.1.283",
         max_retries=2,
         max_output_tokens=1000,
         base_url="http://127.0.0.1:1",
@@ -76,6 +87,25 @@ def test_the_environment_is_built_from_nothing(
     assert with_endpoint["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:1"
     assert with_endpoint["CLAUDE_CODE_MAX_RETRIES"] == "2"
     assert with_endpoint["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] == "1000"
+    assert "DISABLE_GROWTHBOOK" not in env
+
+
+def test_a_version_silent_on_its_flags_carries_the_documented_setting(tmp_path: Path) -> None:
+    def env_for(version: str) -> dict[str, str]:
+        return isolated_env(
+            home=tmp_path,
+            config_dir=tmp_path,
+            binary="claude",
+            claude_version=version,
+            max_retries=0,
+            max_output_tokens=1,
+            base_url=None,
+            api_key=None,
+        )
+
+    assert env_for("2.1.301")["DISABLE_GROWTHBOOK"] == "1"
+    for older in ("2.1.272", "2.1.283"):
+        assert "DISABLE_GROWTHBOOK" not in env_for(older)
 
 
 def _binary(tmp_path: Path, version: str) -> Path:

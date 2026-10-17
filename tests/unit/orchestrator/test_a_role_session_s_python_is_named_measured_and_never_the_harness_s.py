@@ -94,7 +94,7 @@ def test_a_configuration_that_names_none_records_what_it_did_before() -> None:
     named = cfg.model_copy(update={"role_python": measured})
     assert b"role_python" in named.canonical_bytes()
     # Read back as a recorded run is: a field left out of the bytes as ``None`` reads as ``None``.
-    recorded = {**json.loads(named.canonical_bytes()), "git_binary": None}
+    recorded = {**json.loads(named.canonical_bytes()), "git_binary": None, "os_layer": None}
     assert RunConfig.model_validate_json(json.dumps(recorded)).role_python == named.role_python
     assert isinstance(named.role_python, RolePython)
 
@@ -134,9 +134,14 @@ def test_the_run_records_what_it_measured_never_what_the_parameters_claim(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import physgate.orchestrator.cli as cli
+    from physgate.oslayer.probe import Absent
 
     monkeypatch.setattr(cli, "binary_version", lambda: "2.1.283")
     monkeypatch.setattr(cli, "head_of", lambda *_: "c" * 40)
+    # The OS layer is measured too, against the binary; not what this test is about.
+    absent = Absent(reason="stand-in: not measured here")
+    monkeypatch.setattr(cli, "judge_here", lambda **_: absent)
+    monkeypatch.setattr(cli, "claude_binary", lambda: "/nonexistent/claude")
     cfg = cli._config(_params(tmp_path, str(BASE)))  # type: ignore[arg-type]
     assert cfg.role_python == measure(str(BASE), probe=probe_interpreter, harness=REPO)
     claimed = {"path": str(BASE), "resolved": str(BASE), "version": "9.9", "prefix": "/"}

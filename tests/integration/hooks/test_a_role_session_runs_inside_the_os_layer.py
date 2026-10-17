@@ -1,0 +1,190 @@
+"""Through the real binary: a role session installed with the OS layer runs its shell inside it.
+
+The session is installed as the dispatcher installs one where the OS layer runs:
+its settings come from the hook installer, with the sandbox generated from the
+session's configuration, and the session starts with the generated arguments
+and environment, its own temporary directory included. Its worktree is a linked
+worktree of a run repository, as a role session's is.
+
+Every command here gets past the first layer: each builds its path at run time
+inside an interpreter fed a program, the residual the shell parser cannot see.
+So whatever stops it is the OS layer. Every write is the word ``marker``, every
+read aims at a stand-in file holding a marker string.
+
+Where the layer cannot run on this machine, the tests that need it are skipped,
+and the one that needs its absence runs: a session told the layer is required
+refuses to start, and the session's end says why.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+from collections.abc import Iterator
+from pathlib import Path
+
+import pytest
+from fake_messages_api import tool
+from os_layer_rig import MARKER, Layout, layer_here, make_layout, python, run_session
+
+from physgate.orchestrator.budget import classify_session_end
+
+pytestmark = pytest.mark.integration
+
+
+@pytest.fixture
+def layer() -> None:
+    """Skip unless the OS layer runs here (judged when the test runs, not at collection)."""
+    if not layer_here():
+        pytest.skip("the OS layer cannot run here")
+
+
+@pytest.fixture
+def no_layer() -> None:
+    """Skip unless this is Linux and the OS layer cannot run here."""
+    if sys.platform != "linux":
+        pytest.skip("only Linux can lack the layer's programs")
+    if layer_here():
+        pytest.skip("the OS layer runs here, so it cannot be missing")
+
+
+@pytest.fixture
+def layout(tmp_path: Path) -> Iterator[Layout]:
+    with make_layout(tmp_path) as made:
+        yield made
+
+
+def _steps(layout: Layout) -> list[dict[str, object]]:
+    # Only the test's own root is written literally; every protected path is joined at
+    # run time from pieces, so the first layer cannot see it in the program's text.
+    root = str(layout.root)
+    attempt = (
+        "import os\nroot = {root!r}\np = os.path.join(root, *{parts!r})\n"
+        "try:\n    {action}\nexcept OSError as e:\n    print('denied:', e.strerror)\n"
+    )
+    write = "open(p, 'a').write('marker'); print('wrote')"
+    targets = [
+        (("outside", "held" + "out", "stand.txt"), "print(open(p).read())"),
+        (("run", "queue_" + "decisions.jsonl"), write),
+        (("run", "repo", ".g" + "it", "probe-marker"), write),
+        (("outside", "pl" + "ain"), write),
+    ]
+    programs = [attempt.format(root=root, parts=parts, action=action) for parts, action in targets]
+    programs += [
+        "open('made' + '.txt', 'w').write('marker'); print('wrote-worktree')",
+        "import os\nd = os.environ['TMPDIR']\n"
+        "open(os.path.join(d, 't'), 'w').write('marker'); print('TMPDIR=' + d)",
+    ]
+    return [
+        tool("Bash", command=python(p), description=f"step {n}") for n, p in enumerate(programs)
+    ]
+
+
+#: The residual forms the shell parser leaves to this layer (its own list of what parsing
+#: cannot see), each reading the held-out stand-in through a path built at run time:
+#: an interpreter fed a program, a link, a shell handed the path, xargs, a sourced file, the
+#: directory after ``cd $(...)``, a second name, and a program opening a path it is given.
+RESIDUAL_READS = {
+    "sqlite3-import": (
+        "command -v sqlite3 >/dev/null || {{ echo no-sqlite3; exit 0; }}; "
+        'sqlite3 :memory: "create table t(a)" ".import ${{d}}/stand.txt t" "select * from t"'
+    ),
+    "symlink": 'ln -s "${{d}}/stand.txt" lnk && cat lnk; rm -f lnk',
+    # A shell fed by pipe is refused by the first layer now; a shell handed the path as
+    # an argument is not, since a positional parameter is the first layer's residual.
+    "shell-argument": 'sh -c \'cat "$1"\' _ "${{d}}/stand.txt"',
+    "xargs": "printf '%s/stand.txt' \"$d\" | xargs cat",
+    "sourced-file": "printf 'cat %s/stand.txt\\n' \"$d\" > s.sh; . ./s.sh; rm -f s.sh",
+    "cd-substitution": 'cd "$(printf %s "$d")" && cat stand.txt',
+    "hard-link": 'ln "${{d}}/stand.txt" hl && cat hl; rm -f hl',
+    "awk": "awk '{{print}}' \"${{d}}/stand.txt\"",
+}
+
+
+def _residual(layout: Layout) -> list[dict[str, object]]:
+    held = f"d=$(printf %s {layout.root}/outside/held)out; "
+    return [
+        tool("Bash", command=held + form.format(), description=name)
+        for name, form in RESIDUAL_READS.items()
+    ]
+
+
+@pytest.mark.usefixtures("layer")
+def test_with_the_layer_no_residual_form_reads_the_held_out_stand_in(layout: Layout) -> None:
+    run = run_session(layout, _residual(layout), layer=True)
+    told = run["told"]
+    assert isinstance(told, list) and len(told) == len(RESIDUAL_READS)
+    reached = [name for name, said in zip(RESIDUAL_READS, told, strict=True) if MARKER in said]
+    assert reached == []
+
+
+def test_without_the_layer_the_residual_forms_read_it_which_shows_the_probe_works(
+    layout: Layout,
+) -> None:
+    run = run_session(layout, _residual(layout), layer=False)
+    told = run["told"]
+    assert isinstance(told, list)
+    reached = {name for name, said in zip(RESIDUAL_READS, told, strict=True) if MARKER in said}
+    missing = set(RESIDUAL_READS) - reached
+    # sqlite3 may be absent from a machine; every other form must reach without the layer.
+    assert missing <= {"sqlite3-import"}, missing
+
+
+@pytest.mark.usefixtures("layer")
+def test_with_the_layer_nothing_the_parser_cannot_see_reaches_a_protected_path(
+    layout: Layout,
+) -> None:
+    run = run_session(layout, _steps(layout), layer=True)
+    told = run["told"]
+    assert isinstance(told, list)
+    read, decisions, common, outside, worktree, temp = told
+    assert MARKER not in read
+    for refused in (read, decisions, common, outside):
+        assert "denied:" in refused and "wrote" not in refused, refused
+    assert layout.decisions.read_text() == ""
+    assert not (layout.common / "probe-marker").exists()
+    assert not (layout.outside / "plain").exists()
+    assert "wrote-worktree" in worktree and (layout.worktree / "made.txt").exists()
+    uid = os.getuid()
+    assert f"TMPDIR={layout.temp.resolve()}/claude-{uid}" in temp
+
+
+@pytest.mark.usefixtures("layer")
+def test_the_generated_sandbox_is_the_one_the_session_ran_with(layout: Layout) -> None:
+    run = run_session(layout, [], layer=True)
+    settings = run["settings"]
+    assert isinstance(settings, dict)
+    sandbox = settings["sandbox"]
+    assert sandbox["enabled"] and sandbox["failIfUnavailable"]
+    assert sandbox["allowUnsandboxedCommands"] is False and sandbox["excludedCommands"] == []
+    assert str(layout.common) in sandbox["filesystem"]["denyWrite"]
+    assert str(layout.held) in sandbox["filesystem"]["denyRead"]
+
+
+@pytest.mark.usefixtures("layer")
+def test_without_the_layer_the_same_commands_reach_which_shows_the_probe_works(
+    layout: Layout,
+) -> None:
+    run = run_session(layout, _steps(layout), layer=False)
+    told = run["told"]
+    assert isinstance(told, list)
+    # Each reached: the read printed the marker and each write went through. (The
+    # sentinel puts the git directory back afterwards; the session was told it wrote.)
+    assert MARKER in told[0]
+    for reached in told[1:4]:
+        assert "wrote" in reached and "denied:" not in reached, reached
+    assert (layout.outside / "plain").exists()
+    assert "sandbox" not in run["settings"]  # type: ignore[operator]
+
+
+@pytest.mark.usefixtures("no_layer")
+def test_a_session_told_the_layer_is_required_refuses_to_start_where_it_cannot_run(
+    layout: Layout,
+) -> None:
+    run = run_session(layout, [tool("Bash", command="echo marker > made.txt")], layer=True)
+    assert run["exit"] != 0
+    assert not (layout.worktree / "made.txt").exists()
+    result = run["result"]
+    assert isinstance(result, dict)
+    end = classify_session_end(result, exit_code=run["exit"], stopped_at_wall_clock=False)  # type: ignore[arg-type]
+    assert end.cause == "sandbox_unavailable"

@@ -253,6 +253,7 @@ def test_both_example_parameters_files_are_complete_configurations() -> None:
                     "endpoint": "default",
                     "harness": {"commit": None, "clean": False, "uncommitted_sha256": None},
                     "git_binary": {"path": "/usr/local/bin/git", "version": "2.54.0"},
+                    "os_layer": None,
                 }
             )
         )
@@ -578,3 +579,33 @@ def test_a_run_refuses_an_installation_whose_manifest_is_not_the_one_it_recorded
     error = json.loads(capsys.readouterr().err)
     assert error["error"].startswith("the installation's manifest is not the one this run")
     assert error["recorded"] == "0" * 64
+
+
+def test_a_registered_requirement_refuses_a_run_before_anything_is_written(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from physgate.orchestrator import requirements
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-not-a-credential")
+    monkeypatch.setenv("PHYSGATE_CLAUDE_BIN", str(fake_binary(tmp_path, "2.1.272")))
+    seen: list[requirements.RunFacts] = []
+
+    def refusing(facts: requirements.RunFacts) -> str | None:
+        seen.append(facts)
+        return "a stand-in requirement refuses"
+
+    import physgate.evaluation.requirements as evaluation_requirements
+
+    monkeypatch.setattr(evaluation_requirements, "REQUIREMENTS", (refusing,))
+    assert main(_decompose_args(tmp_path, PARAMS)) == 2
+    err = capsys.readouterr().err
+    error = json.loads(err.strip().splitlines()[-1])
+    assert error["error"] == "the run may not start"
+    assert error["requirements"] == "a stand-in requirement refuses"
+    assert not (tmp_path / "run").exists()
+    (facts,) = seen
+    assert facts.shell_sessions and facts.os_layer == facts.config.os_layer
+    # The binary predates the OS layer's pin: the layer is absent, and said so out loud.
+    assert "the OS layer is absent" in err and "predates the OS-layer pin" in err

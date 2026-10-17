@@ -260,6 +260,9 @@ def runs(context: Context, params: Mapping[str, str]) -> Response:
                 "run_id": config.run_id,
                 "manifest_id": config.sha256(),
                 "gate_mode": config.gate_mode,
+                "os_layer": (
+                    None if config.os_layer is None else config.os_layer.model_dump(mode="json")
+                ),
             }
         listed.append(entry)
     return json_response({"runs": listed})

@@ -33,7 +33,7 @@ import re
 import stat
 import sys
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, StringConstraints
 
@@ -135,6 +135,33 @@ class TrafficSettings(BaseModel):
 #: log holds besides these words (a credential included) can reach the record.
 Observed = Literal["off", "not reported off"]
 
+#: The feature flags' state on a version whose debug log never says it: off by the
+#: documented setting the session carried, not seen. A distinct value, so a record
+#: never shows a documented state as an observed one.
+FLAGS_OFF_BY_SETTING: Final = "off by setting (documented), not reported by this version"
+
+#: Versions whose debug log does not report the feature flags' state. On 2.1.272 and
+#: 2.1.283 the words "GrowthBook is off for this session" appear, inside another
+#: debug line; 2.1.301 writes no such line, with or without ``DISABLE_GROWTHBOOK``
+#: (compared side by side at the scripted endpoint, 16.10.2026). For these the
+#: session carries ``DISABLE_GROWTHBOOK=1``, which the provider's environment-variable
+#: reference (read 16.10.2026) documents as disabling the flag fetch and using code
+#: defaults for every flag.
+FLAGS_SILENT_VERSIONS = frozenset({"2.1.301"})
+
+#: The setting a session on a silent version carries, and the value it carries.
+FLAGS_SETTING = ("DISABLE_GROWTHBOOK", "1")
+
+FeatureFlags = Literal[
+    "off", "off by setting (documented), not reported by this version", "not reported off"
+]
+
+
+def flags_off_by_setting(claude_version: str, env: dict[str, str]) -> bool:
+    """Whether a session's flags count as off by setting: a silent version that carried it."""
+    name, value = FLAGS_SETTING
+    return claude_version in FLAGS_SILENT_VERSIONS and env.get(name) == value
+
 
 class ObservedTraffic(BaseModel):
     """The state of the binary's served model catalog and remote feature flags, as observed."""
@@ -144,22 +171,28 @@ class ObservedTraffic(BaseModel):
     served_catalog: Observed
     #: The reason the log gave for an off catalog (``essential_traffic``), if one.
     served_catalog_reason: Annotated[str, StringConstraints(pattern=r"^[a-z_]{1,40}$")] | None
-    feature_flags: Observed
+    feature_flags: FeatureFlags
 
     def all_off(self) -> bool:
-        """Whether both are off, the only state a run proceeds under."""
-        return self.served_catalog == "off" and self.feature_flags == "off"
+        """Whether both are off, the only state a run proceeds under.
+
+        The catalog must be seen off; the flags may be off by the documented setting
+        on a version that never reports them.
+        """
+        return self.served_catalog == "off" and self.feature_flags in ("off", FLAGS_OFF_BY_SETTING)
 
 
 _SERVED = re.compile(r"\[servedCatalog\] (\S+)(?: \(([a-z_]{1,40})\))?")
 _FLAGS_OFF = "GrowthBook is off for this session"
 
 
-def observe_traffic(debug_log: str) -> ObservedTraffic:
+def observe_traffic(debug_log: str, *, flags_off_by_setting: bool = False) -> ObservedTraffic:
     """Read the served-catalog and feature-flag state from one invocation's debug log.
 
     Either reads ``not reported off`` unless the log says off, and says nothing else:
     a line in another form, a second line saying anything but off, or no line at all.
+    The one exception is the flags on a version that never reports them
+    (``flags_off_by_setting``): they read as off by setting, a value of its own.
     """
     served = [m for line in debug_log.splitlines() if (m := _SERVED.search(line))]
     off = bool(served) and all(m.group(1) == "off" for m in served)
@@ -167,8 +200,14 @@ def observe_traffic(debug_log: str) -> ObservedTraffic:
     return ObservedTraffic(
         served_catalog="off" if off else "not reported off",
         served_catalog_reason=reasons.pop() if off and len(reasons) == 1 else None,
-        feature_flags="off" if _FLAGS_OFF in debug_log else "not reported off",
+        feature_flags=_flags(debug_log, by_setting=flags_off_by_setting),
     )
+
+
+def _flags(debug_log: str, *, by_setting: bool) -> FeatureFlags:
+    if _FLAGS_OFF in debug_log:
+        return "off"
+    return FLAGS_OFF_BY_SETTING if by_setting else "not reported off"
 
 
 def policy_limits_digest(config_dir: Path) -> str | None:

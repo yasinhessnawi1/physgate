@@ -311,3 +311,13 @@ def test_the_status_of_a_halted_run_names_its_halt(world: dict[str, Path], tmp_p
         "reason": "infrastructure_exhausted",
         "detail": "the retries ran out",
     }
+
+
+def test_the_run_list_names_each_run_s_os_layer_state_or_none(live: Live) -> None:
+    # The fixture runs were recorded before the OS layer was measured: each lists none,
+    # which the page shows as not recorded, never as present.
+    status, _, body = live.request("GET", "/api/runs")
+    assert status == 200
+    runs = json.loads(body)["runs"]
+    assert runs and all("os_layer" in r for r in runs if "error" not in r)
+    assert all(r["os_layer"] is None for r in runs if "error" not in r)

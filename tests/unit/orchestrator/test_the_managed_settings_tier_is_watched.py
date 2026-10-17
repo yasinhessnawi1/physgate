@@ -21,8 +21,10 @@ from physgate.orchestrator.decompose import read_debug_log
 from physgate.orchestrator.events import Decomposed, Halted, Incident, SessionEnded, read_events
 from physgate.orchestrator.invocation import traffic_settings
 from physgate.orchestrator.managed import (
+    FLAGS_OFF_BY_SETTING,
     ObservedTraffic,
     drift,
+    flags_off_by_setting,
     observe_traffic,
     policy_limits_change,
     policy_limits_digest,
@@ -227,3 +229,23 @@ def test_the_traffic_settings_are_read_from_the_session_environment() -> None:
     settings = traffic_settings()
     assert (settings.nonessential_traffic, settings.telemetry) == ("disabled", "disabled")
     assert "2.1.272" in settings.measured
+
+
+def test_a_version_silent_on_its_flags_reads_off_by_setting_never_off() -> None:
+    catalog_off = "[servedCatalog] off (essential_traffic)\n"
+    by_setting = observe_traffic(catalog_off, flags_off_by_setting=True)
+    assert by_setting.feature_flags == FLAGS_OFF_BY_SETTING
+    assert by_setting.all_off()
+    # Without the setting carried, silence is still not off.
+    assert observe_traffic(catalog_off).feature_flags == "not reported off"
+    # An observed line is recorded as observed, whatever was set.
+    assert observe_traffic(LOG_OFF, flags_off_by_setting=True).feature_flags == "off"
+    # The catalog stays observed: the setting never stands in for it.
+    assert not observe_traffic("", flags_off_by_setting=True).all_off()
+
+
+def test_only_a_version_known_to_be_silent_with_the_setting_carried_reads_off_by_setting() -> None:
+    assert flags_off_by_setting("2.1.301", {"DISABLE_GROWTHBOOK": "1"})
+    assert not flags_off_by_setting("2.1.301", {})
+    assert not flags_off_by_setting("2.1.283", {"DISABLE_GROWTHBOOK": "1"})
+    assert not flags_off_by_setting("2.1.272", {"DISABLE_GROWTHBOOK": "1"})

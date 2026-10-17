@@ -19,6 +19,7 @@ from observe_rig import fake_run, git, target_repo
 
 from physgate.evaluation.observe.exceptions import ManifestError
 from physgate.evaluation.observe.manifest import BINARY_DEFAULTS, RunManifest, read_manifest
+from physgate.orchestrator.invocation import PINNED_VERSIONS
 
 
 @pytest.fixture(scope="module")
@@ -52,10 +53,11 @@ def test_the_manifest_holds_every_input_and_artefact_the_run_recorded(run: Path)
     assert art.store_tree and len(art.trajectories) == 2
 
 
-def test_read_manifest_resolves_binary_defaults_for_either_pinned_version(
+def test_read_manifest_resolves_binary_defaults_for_every_pinned_version(
     tmp_path: Path,
 ) -> None:
-    for version in ("2.1.272", "2.1.283"):
+    assert set(BINARY_DEFAULTS) == PINNED_VERSIONS
+    for version in sorted(PINNED_VERSIONS):
         run = fake_run(
             tmp_path / version,
             "run-a",
@@ -66,6 +68,8 @@ def test_read_manifest_resolves_binary_defaults_for_either_pinned_version(
         assert manifest.config.claude_version == version
         assert manifest.binary_defaults == BINARY_DEFAULTS[version]
         assert manifest.binary_defaults.claude_version == version
+    # Only 2.1.301's decomposition request was measured to differ from its sessions'.
+    assert [v for v, d in sorted(BINARY_DEFAULTS.items()) if d.decomposition] == ["2.1.301"]
 
 
 @pytest.mark.parametrize(

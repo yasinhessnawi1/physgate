@@ -1,0 +1,51 @@
+"""Conditions a run must meet before it starts, registered by whoever needs them.
+
+The core states no such condition of its own about the OS layer: where the layer
+cannot run, a run records that and goes on. A party that needs more (the
+evaluation, whose numbers are reported) registers a requirement here from the
+command's composition root, and the core asks every registered requirement
+before a run spends anything: at decomposition, and again at every run and resume.
+Removing that party removes its requirement and touches nothing here.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
+
+from physgate.orchestrator.run_config import RunConfig
+from physgate.oslayer.probe import Absent, Present
+
+
+@dataclass(frozen=True)
+class RunFacts:
+    """What a requirement is shown about the run it judges."""
+
+    config: RunConfig
+    #: The OS layer's state where the run's sessions will run.
+    os_layer: Present | Absent
+    #: Whether the run's sessions run shell commands: every orchestrated run's role
+    #: sessions do; a run of reviewers alone does not.
+    shell_sessions: bool
+
+
+#: A requirement: ``None`` if the run may start, else why it may not.
+RunRequirement = Callable[[RunFacts], str | None]
+
+_registered: tuple[RunRequirement, ...] = ()
+
+
+def register(requirements: Iterable[RunRequirement]) -> None:
+    """Set the requirements every run is held to (replacing any set before)."""
+    global _registered  # noqa: PLW0603 - the one place the command's root sets them
+    _registered = tuple(requirements)
+
+
+def registered() -> tuple[RunRequirement, ...]:
+    """The requirements every run is held to now."""
+    return _registered
+
+
+def refusals(facts: RunFacts) -> list[str]:
+    """Why the run may not start, one reason per requirement that refuses it."""
+    return [why for requirement in _registered if (why := requirement(facts)) is not None]

@@ -40,6 +40,7 @@ EVENTS = (
 )
 PROFILES = ("role", "reviewer", "orchestrator")
 WATCHES = ("revert", "journal", "halt", "log", "none")
+READS = ("open", "shell_denied", "denied")
 WATCHDOG_MARGIN_SECONDS = 10
 _SESSION_ID = re.compile(r"[A-Za-z0-9_-]{1,128}")
 _SURROGATE = re.compile("[\ud800-\udfff]")
@@ -111,11 +112,11 @@ def _strings(value: object, where: str, check: Any) -> tuple[Any, ...]:  # noqa:
 class LeanRoot:
     """A protected root."""
 
-    __slots__ = ("exceptions", "path", "reason", "watch")
+    __slots__ = ("exceptions", "path", "reads", "reason", "watch")
 
     def __init__(self, raw: object, where: str) -> None:
-        """Validate one root. ``exceptions`` may be omitted; it then defaults to none."""
-        data = _object(raw, where, ("path", "reason", "watch"), optional=("exceptions",))
+        """Validate one root. ``exceptions`` and ``reads`` may be omitted; they default."""
+        data = _object(raw, where, ("path", "reason", "watch"), optional=("exceptions", "reads"))
         self.path: str = _absolute(data["path"], f"{where}.path")
         self.reason: str = _string(data["reason"], f"{where}.reason", min_length=1)
         self.exceptions: tuple[str, ...] = (
@@ -124,6 +125,10 @@ class LeanRoot:
             else ()
         )
         self.watch: str = _choice(data["watch"], f"{where}.watch", WATCHES)
+        # Read by the OS layer, not by any hook; validated so the file stays whole.
+        self.reads: str = (
+            _choice(data["reads"], f"{where}.reads", READS) if "reads" in data else "open"
+        )
 
 
 class LeanExperiment:

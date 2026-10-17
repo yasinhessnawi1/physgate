@@ -72,6 +72,10 @@ class FakeDispatcher:
     policy: dict[int, str] = field(default_factory=dict)
     #: Per call: a canary of reviewer material found in the session's stream.
     material: dict[int, str] = field(default_factory=dict)
+    #: Per call: what the OS layer's placeholder sweep refused in the worktree.
+    placeholders: dict[int, str] = field(default_factory=dict)
+    #: Per call: what the held-out and answer-key tripwire found before the commit.
+    withheld: dict[int, str] = field(default_factory=dict)
     #: Where to write real, sealed trajectory files; None keeps them notional.
     trajectories: Path | None = None
     #: Per call: something done while the session runs.
@@ -133,6 +137,8 @@ class FakeDispatcher:
             policy_limits_sha256=self.policy.get(call),
             review_material_seen=self.material.get(call),
             series=self.series.get(call, SessionSeries()),
+            placeholders_refused=self.placeholders.get(call),
+            withheld_problems=self.withheld.get(call),
             usage=(
                 MessageUsage(message_id=f"m{call}a", usage=usage(10)),
                 MessageUsage(message_id=f"m{call}a", usage=usage(10)),

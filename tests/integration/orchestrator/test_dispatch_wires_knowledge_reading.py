@@ -98,7 +98,7 @@ def test_the_installed_session_config_carries_loaders_full_reading_set(tmp_path:
     request = _request(cfg)
     worktree = run.open_subtask(request.subtask_id)
     sdir = run.run_dir / "sessions" / "probe"
-    installed = dispatcher._install(request, worktree, sdir)  # noqa: SLF001 - the thing under test
+    installed = dispatcher._install(request, worktree, sdir, None)  # noqa: SLF001 - the thing under test
 
     written = SessionConfig.model_validate_json(Path(installed.config).read_text())
     expected_reading = {
@@ -154,7 +154,7 @@ def test_a_role_whose_always_loaded_set_is_over_the_ceiling_fails_a_session_star
     request = _request(cfg)
     worktree = run.open_subtask(request.subtask_id)
     sdir = run.run_dir / "sessions" / "probe-over-ceiling"
-    installed = dispatcher._install(request, worktree, sdir)  # noqa: SLF001 - the thing under test
+    installed = dispatcher._install(request, worktree, sdir, None)  # noqa: SLF001 - the thing under test
     written = SessionConfig.model_validate_json(Path(installed.config).read_text())
 
     assert oversized is not None, "the fixture never found its own skill.md path"
