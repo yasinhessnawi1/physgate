@@ -183,7 +183,12 @@ def _write_denied(
             named.add(path)
             if _under(path, config.worktree):
                 absent.add(path)  # swept after the session for a placeholder
-    return sorted(named), sorted(absent)
+    # A path beneath another named one is denied with it. Naming it too would, on Linux,
+    # have bubblewrap make a placeholder for it wherever the outer one sits in a writable
+    # place (the run repository's common git directory, which the sandbox opens to a
+    # linked worktree): measured as ``config.worktree`` files appearing in it.
+    outer = {p for p in named if not any(p != q and _under(p, q) for q in named)}
+    return sorted(outer), sorted(absent & outer)
 
 
 def _around(

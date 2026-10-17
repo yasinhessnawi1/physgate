@@ -301,7 +301,8 @@ def test_every_write_protected_root_is_denied_or_left_to_a_script_by_name(tmp_pa
         orphan = not Path(root.path).exists() and not Path(root.path).parent.exists()
         if root.shell_writes == "allowed" or above or root.exceptions or orphan:
             continue
-        assert root.path in deny, root.path
+        # Named itself, or beneath a named path that denies it with everything else there.
+        assert any(Path(root.path).is_relative_to(d) for d in deny), root.path
     worktree = paths["worktree"]
     for absent in (worktree / ".env", worktree / ".claude"):
         assert str(absent) in deny and str(absent) in policy.absent_named
@@ -390,3 +391,14 @@ def test_a_path_given_through_a_link_is_named_where_it_really_is_too(tmp_path: P
     held_as_given = str(paths["held"])
     assert held_as_given in deny and os.path.realpath(held_as_given) in deny
     assert os.path.realpath(held_as_given) != held_as_given
+
+
+def test_a_path_beneath_another_named_one_is_not_named_again(tmp_path: Path) -> None:
+    # The common git directory is denied whole; its config files, protected on their own
+    # in the registry, are not named again, so bubblewrap makes no placeholder for them.
+    policy, paths = _policy(tmp_path)
+    deny = _fs(policy)["denyWrite"]
+    common = str(paths["common"])
+    assert common in deny
+    assert not [d for d in deny if d != common and Path(d).is_relative_to(common)]
+    assert not [a for a in deny if any(a != b and Path(a).is_relative_to(b) for b in deny)]
