@@ -166,12 +166,12 @@ assume the gate is covering scheduling and code-style discipline it does not che
 (compiler warnings and static analysis) is the one exception worth naming precisely: it is fully
 mechanically enforceable, just not by anything this project runs — it is the firmware toolchain's
 own job. The gate's own enforcement (cross-domain standards §1–6) covers declared physical
-quantities: units, sourced magnitude ranges, power/energy balance, propagation, and
-thermal/mechanical margins. Firmware's own domain discipline — bounded control flow, no dynamic
-allocation, scope discipline, preprocessor and pointer restriction, warning/analyzer cleanliness,
-ISR hygiene, watchdog design, and schedulability — is judged by the on-target test, the firmware
-toolchain, and the reviewer reading the trajectory, until or unless a future spec adds a
-corresponding gate check.
+quantities: units, sourced magnitude ranges, power/energy balance, propagation, a mount's
+equilibrium from its declared reactions, and thermal margins. Firmware's own domain discipline —
+bounded control flow, no dynamic allocation, scope discipline, preprocessor and pointer
+restriction, warning/analyzer cleanliness, ISR hygiene, watchdog design, and schedulability —
+is judged by the on-target test, the firmware toolchain, and the reviewer reading the trajectory,
+until or unless a future spec adds a corresponding gate check.
 
 **Judgement-only** — this rule states what rules 1–10 are each already marked as, individually; it
 adds no enforcement of its own beyond naming the pattern plainly.

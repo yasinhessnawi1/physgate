@@ -86,8 +86,8 @@
 5. **Report the value you read off your own recorded samples with the published extractor:**
    `series_writer.extract("phase_margin", omega=ws, magnitude=mags, phase=phases)`, or
    `series_writer.extract("max_abs", values=xs)`, on exactly the samples you recorded. The harness
-   reads the same value off the record with the same functions and refuses the attempt, before
-   the gate, if the two differ by more than three significant figures; the repair then names
+   reads the same value off the record with the same functions and refuses the attempt
+   if the two differ by more than three significant figures; the repair then names
    both numbers. A value computed another way, or on a finer grid than the one recorded, can
    differ by more than that.
 6. In a repair attempt, run the scripts again after any change: records belong to the attempt

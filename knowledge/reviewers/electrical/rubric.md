@@ -83,9 +83,15 @@ by reading, like every other item (Section 2, "Records, magnitudes and follow-up
      find, measure, compute or source (for example a datasheet rating of a part the work chose or
      changed (ES-1, ES-5), a maker's discharge rate (ES-10), a stall current of a motor the work
      chose or changed (ES-14), or a dissipation by the datasheet's method (ES-19)) is not a
-     missing input: its absence is the work's, under point 2. In form 2 this covers what the
-     revision writes; a property of a part in a node the revision did not write, absent from the
-     design graph altogether and not derivable, is a missing input ("Given values" below).
+     missing input: its absence is the work's, under point 2. In form 2 this covers every check
+     that involves a value the revision wrote: an absent input such a check needs that an item
+     requires the work itself to find, measure, compute or source is the revision's duty,
+     whichever node holds it. Whether an item requires it is what the item and the examples above
+     say for that part or quantity, as in form 1. Such an input is not the revision's duty when
+     only checks that use given values alone need it (every value such a check uses is given:
+     "Given and written values" above); absent from the design graph altogether and not
+     derivable, it is then a missing input ("Given values" below), whichever node holds it,
+     including a node the revision wrote.
 
      A check that cannot be decided because the issued specification waived a stating or sourcing
      requirement that the work followed records a blocking defect ("Every threshold is tagged in
@@ -156,8 +162,8 @@ by reading, like every other item (Section 2, "Records, magnitudes and follow-up
   revision wrote is judged normally, so a missed follow-up (a written value inconsistent with an
   unwritten one) is a finding against the revision; a given value's own source requirement is the
   exception ("Given and written values"). An input the design graph lacks altogether
-  (absent and not derivable by reading) still records a blocking specification defect ("Missing
-  evidence" above).
+  (absent and not derivable by reading), other than a duty of the revision, still records a
+  blocking specification defect ("Missing evidence" above).
 - **Allowances.** There are none.
 - **`n/a`** evidence may come from the design graph.
 
@@ -572,4 +578,4 @@ reference to its source, is the work's, even when its number equals a given valu
   made to escape or satisfy a check and the design fails the corresponding rule when judged by
   reading; without that reasoning, at most `noted`.
 
-<!-- 99ffe59211b6a5758c74c54a9d16a518 -->
+<!-- f83273111ae52cba3968f2a39e4b5c30 -->

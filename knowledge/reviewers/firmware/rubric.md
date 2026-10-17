@@ -99,9 +99,15 @@ claim.
      A duty of the work is never a missing input. A value an item requires the work itself to
      find, measure, compute or source (for example the loop's measured delay in DS-5, a `Ci` in
      DS-1, or a stack figure in DS-14) is not a missing input: its absence is the work's, under
-     point 2. For a proposed revision this covers what the revision writes; a property of a part
-     in a node the revision did not write, absent from the design graph altogether and not
-     derivable, is a missing input (*Given values* below).
+     point 2. For a proposed revision this covers every check that involves a value the revision
+     wrote: an absent input such a check needs that an item requires the work itself to find,
+     measure, compute or source is the revision's duty, whichever node holds it. Whether an item
+     requires it is what the item and the examples above say for that part or quantity, as with
+     an issued specification. Such an input is not the revision's duty when only checks that use
+     given values alone need it (every value such a check uses is given: see *Given and written
+     values* above); absent from the design graph altogether and not derivable, it is then a
+     missing input (*Given values* below), whichever node holds it, including a node the revision
+     wrote.
 
      A check that cannot be decided because the issued specification waived a stating or sourcing
      requirement that the work followed records a **blocking** specification defect, whatever the
@@ -669,4 +675,4 @@ policy).
   rather than the specification. *Confirmed when* that choice is in the delivered work; otherwise
   `noted`.
 
-<!-- a09c91b3c0793f036de1fbedea41a762 -->
+<!-- a1546769f203e7f227894807c5420dd0 -->

@@ -6,19 +6,19 @@
 > before any promotion. Every rule below names what enforces it; none is invented to fill a gap.
 
 Read this file first, before any domain's own standards file, on every task regardless of domain.
-It states the rules the automated design-quantity checks (the gate) already hold every domain's
-numbers to, and the minimum documentation discipline every role owes every other role, the gate,
+It states the rules for every domain's numbers that the automated design-quantity checks (the gate)
+cover, and the minimum documentation discipline every role owes every other role, the gate,
 and the reviewer.
 
 ## 1. Every quantity is a `{value, unit, source, written_by}` record
 
-A bare number is a schema error and is refused before it ever reaches the gate. A quantity's
+A bare number is a schema error and is refused. A quantity's
 `source` names where the number came from (a datasheet, a calculation, a cited standard) — not
 because a document requires it, but because the next role, the reviewer, and the gate's own
 magnitude check all need to know where a number claims to come from.
 
-**Enforced:** the design-state graph's schema validation (a bare number fails to write at all); the
-gate's check 1 re-validates unit consistency on every committed expression regardless.
+**Enforced:** the design-state graph's schema validation (a bare number fails to write at all); gate
+check 1 covers the unit consistency of every committed expression.
 
 ## 2. Units are SI, or an SI-coherent unit, and unit arithmetic is exact
 
@@ -64,7 +64,7 @@ number), every node its `constrains` edges name owes a later change in the same 
 subsequent one — or the owning role writes a non-empty reason in `no_change_justified`, recorded as
 unchecked, never silently passed.
 
-**Enforced:** gate check 7 (`check_propagation.py`), at the integration call.
+**Enforced:** gate check 7 (`check_propagation.py`).
 
 ## 6. A thermal or mechanical margin is checked where a limit exists, and named as absent where it does not
 
@@ -78,11 +78,14 @@ split between supports left explicitly unverified rather than assumed correct.
 
 ## 7. Nothing above substitutes for engineering judgement
 
-The gate catches a unit that does not parse, a magnitude outside its sourced range, an unbalanced
-supply, an unpropagated change, and a mount or thermal path with no margin. It does not catch wrong
-physics reasoning, a bad topology choice, or a plausible-looking number that is still wrong for the
-application. That is what the reviewer is for, and what your own domain standards file exists to
-reduce the odds of — read it next.
+The gate's checks cover unit consistency, magnitudes against sourced ranges for the quantity names
+they know, supply against demand for power and energy, the follow-up of a changed quantity, a
+mount's equilibrium from its declared reactions, and thermal margins. A claim that the automated
+checks passed is no evidence for anything: a reviewer judges units, magnitudes, balances and
+follow-ups by reading, like everything else. The checks do not catch wrong physics reasoning, a bad
+topology choice, or a plausible-looking number that is still wrong for the application. That is
+what the reviewer is for, and what your own domain standards file exists to reduce the odds of —
+read it next.
 
 **Judgement-only** — this rule is the stated limit of everything enforced above, not itself a
 further gate check; nothing in the gate verifies that a reviewer actually catches what this section
