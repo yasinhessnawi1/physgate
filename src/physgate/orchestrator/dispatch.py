@@ -933,6 +933,16 @@ class ClaudeDispatcher:
             )
         return self._os_layer
 
+    def held_out_seen(self, stream: Path) -> str | None:
+        """The first of the run's held-out canaries in a session's stream, if any is there.
+
+        Detection of verbatim display only. A hit proves the session displayed held-out
+        bytes, read by a path no hook could judge. No hit proves nothing: a read split
+        across lines, encoded, reversed, partial, or used without being printed shows no
+        canary, so the absence of a hit is never evidence of no exposure.
+        """
+        return review_material_seen(stream, frozenset(self._config.held_out_canaries))
+
     def _install(
         self, request: SessionRequest, worktree: Path, sdir: Path, temp: Path | None
     ) -> Installed:
@@ -994,7 +1004,15 @@ class ClaudeDispatcher:
             *always_loaded_args,
             *helper,
             *protect,
+            # The held-out tier: no role session reads or writes it (ARCH-141).
+            *(arg for root in self._config.held_out for arg in ("--held-out", root)),
             *(["--os-layer-temp", str(temp)] if temp is not None else []),
+            # No remote host where the run asks for it; only the OS layer can enforce that.
+            *(
+                ["--os-layer-network", self._config.network]
+                if temp is not None and self._config.network != "open"
+                else []
+            ),
             # The run's named interpreter is linked in the session's own directory, which
             # the OS layer keeps from shell commands; its directory is opened again.
             *(
@@ -1221,6 +1239,7 @@ class ClaudeDispatcher:
         placeholders_refused = self._sweep(worktree, before, sdir) if temp is not None else None
         captured = read_captured(stdout)
         seen = review_material_seen(stdout, self._canaries)
+        held_out_seen = self.held_out_seen(stdout)
         sealed, tampered = captured.seal, captured.tampered
         result, usage, answered = captured.result, captured.usage, captured.answered
         require_matching_totals(result, usage)
@@ -1286,6 +1305,7 @@ class ClaudeDispatcher:
             trajectory_seal=sealed,
             trajectory_tampered=tampered,
             review_material_seen=seen,
+            held_out_seen=held_out_seen,
             issued_spec_sha256=issued,
             series=series,
             placeholders_refused=placeholders_refused,

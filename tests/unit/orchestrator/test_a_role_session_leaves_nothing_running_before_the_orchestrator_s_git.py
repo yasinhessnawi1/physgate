@@ -55,6 +55,8 @@ from physgate.reviewers import ending
 from physgate.state.store import Store
 
 MODEL = "claude-sonnet-5"
+#: A held-out task's canary, shown in the stream by the ``canary`` stand-in.
+CANARY = "0123456789abcdef0123456789abcdef"
 MARKER = "inert-marker.txt"
 GITENV = {
     "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
@@ -210,7 +212,10 @@ if MODE in ("between", "tamper", "halted", "forget", "erase", "corrupt", "link")
     while not os.path.exists(os.path.join(FLAGS, "written")):
         time.sleep(0.02)
 usage = {"input_tokens": 3, "output_tokens": 5}
+# The ``canary`` session read a held-out file by a path no hook judged: its stream shows it.
+shown = "1\t" + CANARY if MODE == "canary" else "ordinary output"
 lines = [
+    {"type": "user", "message": {"content": [{"type": "tool_result", "content": shown}]}},
     {"type": "assistant", "message": {"id": "m1", "model": MODEL_NAME, "usage": usage}},
     {
         "type": "result",
@@ -281,7 +286,7 @@ class Session:
         binary.parent.mkdir()
         prelude = (
             f"FLAGS = {str(self.flags)!r}\nROOT = {str(self.root)!r}\nMODE = {mode!r}\n"
-            f"PAUSE = {pause!r}\nMARKER = {MARKER!r}\nMODEL_NAME = {MODEL!r}\n"
+            f"PAUSE = {pause!r}\nMARKER = {MARKER!r}\nMODEL_NAME = {MODEL!r}\nCANARY = {CANARY!r}\n"
         )
         binary.write_text(f"#!{sys.executable}\n{prelude}{SESSION}")
         binary.chmod(binary.stat().st_mode | stat.S_IXUSR)
@@ -306,8 +311,8 @@ class Session:
             infra_retry_delays_s=(),
         )
 
-    def dispatcher(self, monkeypatch: pytest.MonkeyPatch) -> ClaudeDispatcher:
-        config = make_config(bounds=self.bounds())
+    def dispatcher(self, monkeypatch: pytest.MonkeyPatch, **overrides: Any) -> ClaudeDispatcher:
+        config = make_config(bounds=self.bounds(), **overrides)
         root, store_root = self.root, self.store_root
 
         def _install(  # noqa: ANN401
@@ -406,6 +411,18 @@ def test_a_child_that_would_write_after_the_session_is_stopped_before_the_first_
     time.sleep(2.0)
     assert sorted(p.name for p in session.root.iterdir()) == ["kept.txt"]
     assert all(started_at(pid) is None for pid in children)
+
+
+@pytest.mark.parametrize(("mode", "found"), [("canary", CANARY), ("plain", None)])
+def test_a_held_out_canary_a_session_displayed_reaches_its_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str, found: str | None
+) -> None:
+    """The dispatcher's own scan of the stream, end to end: what the loop's incident reads."""
+    session = Session(tmp_path, mode, pause=0.0, wall_clock_s=60.0)
+    dispatcher = session.dispatcher(monkeypatch, held_out_canaries=(CANARY,))
+    report = dispatcher.run(session.request(), session.spawned)
+    assert report.end.outcome == "completed", report
+    assert report.held_out_seen == found
 
 
 def test_a_write_between_session_end_and_the_stop_is_put_back_before_the_first_git_call(

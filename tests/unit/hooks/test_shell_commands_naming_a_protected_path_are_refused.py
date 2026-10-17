@@ -145,6 +145,7 @@ def test_a_call_flagged_to_run_in_the_background_is_refused(root: Path) -> None:
 
 def test_the_held_out_tier_may_not_even_be_read_by_a_role(root: Path) -> None:
     assert "held-out" in _decide(root, "cat ../outside/heldout/scenario_01.json", "role")
+    assert "held-out" in _decide(root, "cat ../outside/heldout/scenario_01.json", "baseline")
     assert _decide(root, "cat ../outside/heldout/scenario_01.json", "orchestrator") == "allow"
 
 

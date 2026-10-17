@@ -142,6 +142,12 @@ def test_the_gate_is_refused_to_every_profile(layout: Path) -> None:
         assert GATE_REASON in _call(layout, "Write", "src/physgate/gate/x.py", profile)
 
 
+def test_the_raw_agent_may_neither_write_nor_read_the_held_out_tier(layout: Path) -> None:
+    target = str(layout / "heldout" / "scenario_01.json")
+    assert HELD_OUT_REASON in _call(layout, "Write", target, "baseline")
+    assert HELD_OUT_REASON in _call(layout, "Read", target, "baseline")
+
+
 def test_a_symlinked_directory_into_the_gate_is_refused(layout: Path) -> None:
     (layout / "worktree" / "innocent").symlink_to(layout / "worktree" / "src" / "physgate" / "gate")
     assert GATE_REASON in _call(layout, "Write", "innocent/x.py")
@@ -166,9 +172,11 @@ def test_a_hard_link_to_a_protected_file_is_refused(layout: Path) -> None:
     assert paths.HARD_LINKED in _call(layout, "Write", "src/physgate/electrical/twin.py")
 
 
-def test_the_held_out_tier_cannot_be_read_by_a_role_or_a_reviewer(layout: Path) -> None:
+def test_the_held_out_tier_cannot_be_read_by_a_role_a_reviewer_or_the_raw_agent(
+    layout: Path,
+) -> None:
     target = str(layout / "heldout" / "scenario_01.json")
-    for profile in ("role", "reviewer"):
+    for profile in ("role", "reviewer", "baseline"):
         assert HELD_OUT_REASON in _call(layout, "Read", target, profile)
     assert _call(layout, "Read", target, "orchestrator") == "allow"
 
@@ -225,6 +233,12 @@ def test_a_protected_root_that_contains_the_worktree_is_refused_at_install(layou
         ("reviewer", "Grep", False),
         ("reviewer", "TaskCreate", False),
         ("orchestrator", "Bash", True),
+        ("baseline", "Bash", True),
+        ("baseline", "Write", True),
+        ("baseline", "TaskCreate", True),
+        ("baseline", "WebFetch", False),
+        ("baseline", "WebSearch", False),
+        ("baseline", "Agent", False),
     ],
 )
 def test_each_profile_runs_on_its_closed_tool_list(
