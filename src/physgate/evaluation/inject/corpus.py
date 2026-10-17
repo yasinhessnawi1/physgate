@@ -121,6 +121,27 @@ def telltales(text: str) -> list[str]:
     return sorted({m.group(0) for m in _TELLTALE.finditer(fold(text))})
 
 
+#: Where one word of a name ends and the next begins with no separator between them: a
+#: lower-case letter before an upper-case one (``PlantedBracket``), the last capital of a
+#: run before a capitalised word (``HTTPServer``), and a letter beside a digit
+#: (``planted2bracket``, ``twin4``).
+_JOINED = re.compile(
+    r"(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|(?<=[A-Za-z])(?=[0-9])|(?<=[0-9])(?=[A-Za-z])"
+)
+
+
+def name_telltales(name: str) -> list[str]:
+    """Every telltale word in a file name, its words split apart however they are joined.
+
+    A name is often written with no separator between its words, so ``PlantedBracket.md``
+    and ``CleanTwin.md`` hold no telltale word read whole. Split at a change of case and at
+    a digit as well as at ``_ - . /``, they say what they are. Only names are read this way:
+    prose and quantities keep :func:`telltales`, where a part number such as ``DRV8838``
+    split apart would be read as words it does not contain.
+    """
+    return telltales(_JOINED.sub(" ", name))
+
+
 def strings_of(value: object) -> Iterator[str]:
     """Every string in a JSON value: keys, values and list items, depth first."""
     if isinstance(value, str):
