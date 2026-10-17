@@ -403,6 +403,11 @@ def runtime_entries(root: Path) -> dict[str, str]:
     return _snapshot_of([root / rel for rel in PRECREATED_PATHS], root)
 
 
+def _separate_checkout_prepare(worktree: Path) -> None:
+    """Arm 3: the runtime's paths only; the harness checkout is placed before the session."""
+    precreate_runtime_paths(worktree)
+
+
 def _first_layer_prepare(worktree: Path) -> None:
     """Arms 1 and 2: the runtime's paths first, then the suite's own placement and snapshot."""
     precreate_runtime_paths(worktree)
@@ -607,7 +612,7 @@ def _run_separate_checkout(attempt: dict[str, Any], arm: RunnerArm, root: Path) 
         root,
         Script(main=[bp.bash(code), text("end")]),
         files={"README.md": "a worktree\n"},
-        prepare=precreate_runtime_paths,
+        prepare=_separate_checkout_prepare,
         store_root=str(harness / "store"),
         held_out=(str(root / "outside" / "heldout"),),
         harness_root=str(harness),

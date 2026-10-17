@@ -20,13 +20,15 @@ import os
 import secrets
 import shutil
 import subprocess
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import bypass_corpus_runner as runner
 import pytest
-from hook_session import SessionRun, session_path
+import test_the_bypass_suite as bp
+from hook_session import PINNED_VERSION, SessionRun, session_path
 
 from physgate import bypass_corpus as bc
 from physgate.oslayer.probe import Absent, Present, claude_temp_dirs, shared_temp_dirs
@@ -327,7 +329,7 @@ def test_every_sentinel_record_s_paths_are_kept_and_a_runtime_path_put_back_is_f
     root = tmp_path
     elsewhere = str(root / "worktree" / "src" / "physgate" / "gate" / "check.py")
     runtime = str(root / "worktree" / ".claude" / ".cc-writes" / "f")
-    log = [
+    log: list[dict[str, Any]] = [
         {"hook": "sentinel", "decision": "put back", "paths": [elsewhere]},
         {"hook": "sentinel", "decision": "refuse", "reason": "put back"},
         {"hook": "shell_paths", "decision": "refuse", "reason": "no"},
@@ -402,18 +404,18 @@ def _pins(repo: Path, binary: str, **kwargs: Any) -> dict[str, object]:
 
 def test_a_run_from_the_pinned_source_and_binary_is_stamped(tmp_path: Path) -> None:
     repo, _first, head = _repo(tmp_path)
-    binary, digest = _binary(tmp_path, runner.PINNED_VERSION)
+    binary, digest = _binary(tmp_path, PINNED_VERSION)
     stamp = _pins(repo, binary, pinned_src=head, pinned_sha256=digest)
     assert stamp["physgate_package_dir"] == str((repo / "src" / "physgate").resolve())
-    assert stamp["python_executable"] == runner.sys.executable
+    assert stamp["python_executable"] == sys.executable
     assert stamp["commit"] == head and stamp["tree_clean"] is True
     assert stamp["src_matches_pin"] is True and stamp["src_tree"] == stamp["src_pinned_tree"]
-    assert (stamp["binary_version"], stamp["binary_sha256"]) == (runner.PINNED_VERSION, digest)
+    assert (stamp["binary_version"], stamp["binary_sha256"]) == (PINNED_VERSION, digest)
 
 
 def test_a_dirty_tree_is_refused(tmp_path: Path) -> None:
     repo, _first, head = _repo(tmp_path)
-    binary, digest = _binary(tmp_path, runner.PINNED_VERSION)
+    binary, digest = _binary(tmp_path, PINNED_VERSION)
     (repo / "untracked.txt").write_text("x\n")
     with pytest.raises(runner.RunRefusedError, match="clean"):
         _pins(repo, binary, pinned_src=head, pinned_sha256=digest)
@@ -425,14 +427,14 @@ def test_a_dirty_tree_is_refused(tmp_path: Path) -> None:
 
 def test_a_source_tree_other_than_the_pinned_one_is_refused(tmp_path: Path) -> None:
     repo, first, _head = _repo(tmp_path)
-    binary, digest = _binary(tmp_path, runner.PINNED_VERSION)
+    binary, digest = _binary(tmp_path, PINNED_VERSION)
     with pytest.raises(runner.RunRefusedError, match="src"):
         _pins(repo, binary, pinned_src=first, pinned_sha256=digest)
 
 
 def test_a_binary_of_another_version_or_digest_is_refused(tmp_path: Path) -> None:
     repo, _first, head = _repo(tmp_path)
-    binary, digest = _binary(tmp_path, runner.PINNED_VERSION)
+    binary, digest = _binary(tmp_path, PINNED_VERSION)
     with pytest.raises(runner.RunRefusedError, match="sha256"):
         _pins(repo, binary, pinned_src=head, pinned_sha256="0" * 64)
     other, other_digest = _binary(tmp_path, "2.1.300")
@@ -443,7 +445,7 @@ def test_a_binary_of_another_version_or_digest_is_refused(tmp_path: Path) -> Non
 
 def test_a_physgate_imported_from_another_tree_is_refused(tmp_path: Path) -> None:
     repo, _first, head = _repo(tmp_path)
-    binary, digest = _binary(tmp_path, runner.PINNED_VERSION)
+    binary, digest = _binary(tmp_path, PINNED_VERSION)
     with pytest.raises(runner.RunRefusedError, match="physgate"):
         runner.pins(
             repo,
@@ -633,8 +635,8 @@ def _arm1_session(root: Path, command: str, *, os_layer: bool, parser: bool = Tr
     registry = REGISTRY if parser else {k: v for k, v in REGISTRY.items() if k != "shell_paths"}
     return run_session(
         root,
-        Script(main=[runner.bp.bash(command), text("end")]),
-        files=runner.bp.FILES,
+        Script(main=[bp.bash(command), text("end")]),
+        files=bp.FILES,
         prepare=runner._first_layer_prepare,
         store_root=str(root / "outside" / "store"),
         held_out=(str(root / "outside" / "heldout"),),
