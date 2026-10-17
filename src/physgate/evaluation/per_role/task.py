@@ -24,25 +24,20 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from pydantic import (
-    AfterValidator,
-    BaseModel,
-    ConfigDict,
     Field,
     StringConstraints,
     ValidationError,
     model_validator,
 )
 
+from physgate.evaluation.per_role.base import Identifier, Measure, NamedMeasure, _Frozen
 from physgate.evaluation.per_role.exceptions import TaskFormatError
-from physgate.unit_spelling import UnitSpellingError, require_bounded_spelling
+from physgate.evaluation.per_role.firmware.spec import FirmwareSpec
 
 #: The largest ``task.json`` read. A task is a brief and a few dozen numbers; anything
 #: larger is not one, and it is refused before it is parsed.
 MAX_TASK_BYTES = 256 * 1024
 
-#: A task id, a spec name, a metric name and a requirement id: lower-case identifiers,
-#: because they become file names and keys in records.
-Identifier = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]*$", max_length=64)]
 TaskId = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_.-]*$", max_length=96)]
 GitSha = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
 Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
@@ -56,35 +51,8 @@ Comparison = Literal[">=", "<=", ">", "<", "in"]
 #: Whether a specification decides the task's pass, or is reported beside it only.
 Counts = Literal["headline", "secondary"]
 #: The forms an answer takes. Each has its own schema in :mod:`.answer`.
-AnswerForm = Literal["lti_tf"]
-ScorerId = Literal["control"]
-
-
-def _spelt(unit: str) -> str:
-    try:
-        return require_bounded_spelling(unit)
-    except UnitSpellingError as exc:
-        raise ValueError(str(exc)) from exc
-
-
-Unit = Annotated[str, StringConstraints(min_length=1), AfterValidator(_spelt)]
-
-
-class _Frozen(BaseModel):
-    model_config = ConfigDict(frozen=True, strict=True, extra="forbid", allow_inf_nan=False)
-
-
-class Measure(_Frozen):
-    """A number with its unit: the only way a number appears in a task or an answer."""
-
-    value: float | int
-    unit: Unit
-
-
-class NamedMeasure(Measure):
-    """A measure with a name: an input the brief gives, or a scorer parameter."""
-
-    name: Identifier
+AnswerForm = Literal["lti_tf", "espidf_project"]
+ScorerId = Literal["control", "firmware"]
 
 
 class Spec(_Frozen):
@@ -178,6 +146,8 @@ class Task(_Frozen):
     specs: tuple[Spec, ...] = Field(min_length=1)
     scorer: ScorerRef
     canary: Canary | None = None
+    #: A firmware task's closed loop: its line protocol, scenarios and probes.
+    firmware: FirmwareSpec | None = None
 
     @model_validator(mode="after")
     def _holds_its_tier_s_rules(self) -> Task:

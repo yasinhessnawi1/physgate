@@ -18,8 +18,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from physgate.evaluation.per_role.base import Measure
 from physgate.evaluation.per_role.exceptions import TaskFormatError
-from physgate.evaluation.per_role.task import Measure
 
 #: The largest answer file read: a controller is a few dozen numbers.
 MAX_ANSWER_BYTES = 64 * 1024
