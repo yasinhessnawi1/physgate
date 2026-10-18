@@ -50,7 +50,9 @@ BIN="${PHYSGATE_CLAUDE_BIN:-$HOME/pinned/claude-2.1.301}"
 ENV_FILE="${PHYSGATE_RUN_ENV:-$HOME/.config/physgate-run.env}"
 CAP_USD="${PHYSGATE_CAP_USD:-45}"
 KILL_AT_USD="${PHYSGATE_KILL_AT_USD:-42}"
-PRICES="2026-10-16"
+# The per-call cache sheet for a real run; the scripted endpoint reports no cache split, so
+# a dry run is priced on the flat sheet.
+if [ "$MODE" = dry ]; then PRICES="2026-09-27"; else PRICES="2026-10-16"; fi
 OUT="$H/$LABEL"
 RUN="$OUT/run"
 TARGET="$OUT/target"
