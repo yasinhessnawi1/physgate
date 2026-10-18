@@ -116,6 +116,9 @@ class Leftover(_Frozen):
     tampered: NonEmptyStr | None = None
     #: Whose session it was: a role's, or a reviewer's, which its tokens are put to.
     kind: SessionKind = "session"
+    #: A held-out task's canary found in its stream, if one was, as at a normal session
+    #: end: the session displayed held-out material verbatim. ``None`` proves nothing.
+    held_out_seen: NonEmptyStr | None = None
 
 
 class ChangeCheck(_Frozen):

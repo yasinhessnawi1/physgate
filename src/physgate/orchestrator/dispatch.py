@@ -1399,6 +1399,8 @@ class ClaudeDispatcher:
                     seal=captured.seal,
                     tampered=tampered,
                     kind=kind,
+                    # Scanned as a session that ended under its orchestrator is.
+                    held_out_seen=self.held_out_seen(sdir / "stdout.jsonl"),
                 )
             )
         return leftovers
