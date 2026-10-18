@@ -9,8 +9,11 @@ is for, and every check made around it, stays with the caller.
 
 **The layers held.** A run records, per session profile, which of the system's layers hold
 around a session on this engine (:class:`LayersHeld`), with the measurement behind each claim.
-A layer is recorded as held only where a measurement on this harness version showed it held;
-a harness that cannot be held by a layer says so, rather than being listed as if it were.
+The hooks are recorded as held only where a measurement showed them hold on this harness
+version **and** on the enforcement code the run has: the record names that code's tree hash
+beside the one measured. Measured on other code, they read "measured at <tree>; changed
+since", which a comparison counts as unmeasured. A harness that cannot be held by a layer
+says so, rather than being listed as if it were.
 
 This module names no harness and no vendor: a test holds it, and every other core module, to
 that.
@@ -45,6 +48,10 @@ class _Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
 
+#: A git tree object's id: forty hexadecimal characters.
+TreeHash = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
+
+
 class LayersHeld(_Frozen):
     """Which of the system's layers hold around one profile's sessions on one engine.
 
@@ -53,8 +60,10 @@ class LayersHeld(_Frozen):
     harness version has shown to hold is recorded as unmeasured, never as held.
     """
 
-    #: The pre-execution hooks: held only with the measurement that showed zero reach.
-    pre_exec_hooks: Literal["held", "unmeasured", "absent"]
+    #: The pre-execution hooks: held only with the measurement that showed zero reach on this
+    #: harness version and this enforcement code; ``changed_since`` when it was measured on
+    #: this version but on enforcement code that has changed since.
+    pre_exec_hooks: Literal["held", "changed_since", "unmeasured", "absent"]
     #: How the hooks see a tool call: through the harness's own tools, through tools the
     #: system provides in their place, or not at all.
     route: Literal["native", "provided_tools", "none"]
@@ -81,11 +90,21 @@ class LayersHeld(_Frozen):
     #: The measurement that showed the hooks held on this harness version: an experiment
     #: and what it ran on. ``None`` unless the hooks are recorded as held.
     bypass_evidence: NonEmptyStr | None
+    #: The enforcement code the run's hooks are: its git tree hash, as the files stand.
+    enforcement_tree: TreeHash
+    #: The enforcement code's tree hash the measurement ran on, when one is named.
+    measured_tree: TreeHash | None
 
     @model_validator(mode="after")
     def _a_claim_names_its_evidence(self) -> LayersHeld:
-        if (self.pre_exec_hooks == "held") != (self.bypass_evidence is not None):
-            msg = "hooks are recorded as held exactly when a measurement is named for them"
+        measured = self.pre_exec_hooks in ("held", "changed_since")
+        if measured != (self.bypass_evidence is not None and self.measured_tree is not None):
+            msg = "hooks are recorded as measured exactly when a measurement is named for them"
+            raise ValueError(msg)
+        if measured and (self.pre_exec_hooks == "held") != (
+            self.measured_tree == self.enforcement_tree
+        ):
+            msg = "hooks are held only on the enforcement code the measurement ran on"
             raise ValueError(msg)
         if (self.os_layer == "absent") != (self.os_layer_reason is not None):
             msg = "an absent OS layer says why, and a present one gives no reason"
@@ -94,6 +113,22 @@ class LayersHeld(_Frozen):
             msg = "a hook layer closed with residuals names them"
             raise ValueError(msg)
         return self
+
+    @property
+    def hooks_reading(self) -> str:
+        """How the hooks' claim reads to a person: held, measured on other code, or neither."""
+        if self.pre_exec_hooks == "changed_since":
+            return f"measured at {self.measured_tree}; changed since"
+        return self.pre_exec_hooks
+
+    @property
+    def hooks_compared_as(self) -> Literal["held", "unmeasured", "absent"]:
+        """The hooks' claim as a comparison between cells counts it.
+
+        Measured on enforcement code that has changed since counts as unmeasured: the code
+        that ran is not the code that was measured.
+        """
+        return "unmeasured" if self.pre_exec_hooks == "changed_since" else self.pre_exec_hooks
 
 
 class ModelIdentity(_Frozen):
@@ -238,12 +273,28 @@ class Engine(Protocol):
         """Take the session's credential away, and redact it from ``stream`` if one is named."""
         ...
 
-    def layers(self, profile: Profile, *, version: str, os_layer: Present | Absent) -> LayersHeld:
-        """Which layers hold around ``profile``'s sessions on this harness ``version``."""
+    def layers(
+        self,
+        profile: Profile,
+        *,
+        version: str,
+        os_layer: Present | Absent,
+        enforcement_tree: str,
+    ) -> LayersHeld:
+        """Which layers hold around ``profile``'s sessions on this harness ``version``.
+
+        ``enforcement_tree`` is the tree hash of the hook package the sessions run with
+        (``engines.enforcement``): hooks are held only on the code that was measured.
+        """
         ...
 
     def record(
-        self, *, version: str, models: Iterable[str], os_layer: Present | Absent
+        self,
+        *,
+        version: str,
+        models: Iterable[str],
+        os_layer: Present | Absent,
+        enforcement_tree: str,
     ) -> EngineRecord:
         """The engine as a run records it: harness, version, provider, models, layers held."""
         ...

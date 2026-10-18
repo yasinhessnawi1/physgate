@@ -295,40 +295,84 @@ def test_the_verdict_is_the_structured_answer_and_the_account_is_held_to_the_tot
         engine.cost(_captured(result, 8))
 
 
+#: The hook package's tree R-HK-03 measured, and another, standing for code changed since.
+MEASURED = HOOK_EVIDENCE["2.1.301"].enforcement_tree
+CHANGED = "0" * 40
+
+
 def test_a_role_s_layers_follow_the_os_layer_and_a_reviewer_runs_no_shell() -> None:
     engine = _engine()
-    role = engine.layers("role", version="2.1.301", os_layer=PRESENT)
+    role = engine.layers("role", version="2.1.301", os_layer=PRESENT, enforcement_tree=MEASURED)
     assert (role.os_layer, role.os_layer_reason) == ("harness_sandbox", None)
     assert (role.closed_tool_list, role.verdict_schema) == ("hook", "absent")
-    off = engine.layers("role", version="2.1.301", os_layer=ABSENT)
+    off = engine.layers("role", version="2.1.301", os_layer=ABSENT, enforcement_tree=MEASURED)
     assert (off.os_layer, off.os_layer_reason) == ("absent", ABSENT.reason)
-    reviewer = engine.layers("reviewer", version="2.1.301", os_layer=PRESENT)
+    reviewer = engine.layers(
+        "reviewer", version="2.1.301", os_layer=PRESENT, enforcement_tree=MEASURED
+    )
     assert (reviewer.os_layer, reviewer.os_layer_reason) == ("absent", REVIEWER_HAS_NO_SHELL)
     assert (reviewer.closed_tool_list, reviewer.verdict_schema) == ("both", "native")
 
 
 @pytest.mark.parametrize("version", sorted(PINNED_VERSIONS))
-def test_the_hooks_are_held_only_on_a_version_a_measurement_names(version: str) -> None:
-    layers = _engine().layers("role", version=version, os_layer=PRESENT)
+@pytest.mark.parametrize("profile", ["role", "reviewer"])
+def test_the_hooks_are_held_only_on_the_version_and_the_code_a_measurement_names(
+    version: str, profile: str
+) -> None:
+    def layers(tree: str) -> LayersHeld:
+        return _engine().layers(profile, version=version, os_layer=PRESENT, enforcement_tree=tree)  # type: ignore[arg-type]
+
+    at_measured, changed = layers(MEASURED), layers(CHANGED)
+    assert (at_measured.enforcement_tree, changed.enforcement_tree) == (MEASURED, CHANGED)
     if version in HOOK_EVIDENCE:
-        assert layers.pre_exec_hooks == "held"
-        assert layers.bypass_evidence == HOOK_EVIDENCE[version]
-        assert re.match(r"^R-[A-Z]+-\d\d: ", layers.bypass_evidence)
+        evidence = HOOK_EVIDENCE[version]
+        assert (at_measured.pre_exec_hooks, at_measured.hooks_compared_as) == ("held", "held")
+        assert at_measured.bypass_evidence == evidence.measurement
+        assert re.match(r"^R-[A-Z]+-\d\d: ", evidence.measurement)
+        # The same version on other enforcement code: measured, but not on this code.
+        assert changed.pre_exec_hooks == "changed_since"
+        assert changed.hooks_reading == f"measured at {evidence.enforcement_tree}; changed since"
+        assert changed.hooks_compared_as == "unmeasured"
+        assert changed.measured_tree == evidence.enforcement_tree
     else:
-        assert (layers.pre_exec_hooks, layers.bypass_evidence) == ("unmeasured", None)
+        for found in (at_measured, changed):
+            assert (found.pre_exec_hooks, found.bypass_evidence, found.measured_tree) == (
+                "unmeasured",
+                None,
+                None,
+            )
+            assert found.hooks_compared_as == "unmeasured"
     # A version outside the pinned set is never measured, so never held.
-    assert _engine().layers("role", version="2.1.999", os_layer=PRESENT).pre_exec_hooks == (
-        "unmeasured"
+    outside = _engine().layers(
+        "role", version="2.1.999", os_layer=PRESENT, enforcement_tree=MEASURED
     )
+    assert outside.pre_exec_hooks == "unmeasured"
     assert set(HOOK_EVIDENCE) <= PINNED_VERSIONS
 
 
-def test_a_claim_without_its_evidence_is_not_a_record() -> None:
-    held = _engine().layers("role", version="2.1.301", os_layer=PRESENT)
+def test_this_checkout_s_hooks_read_as_changed_since_the_measurement() -> None:
+    # The hook package has changed since R-HK-03's commit, so no run on it says "held".
+    from physgate.engines.enforcement import enforcement_tree
+
+    here = enforcement_tree()
+    assert here != MEASURED
+    found = _engine().layers("role", version="2.1.301", os_layer=PRESENT, enforcement_tree=here)
+    assert found.hooks_reading == f"measured at {MEASURED}; changed since"
+
+
+def test_a_claim_without_its_evidence_or_on_other_code_is_not_a_record() -> None:
+    held = _engine().layers("role", version="2.1.301", os_layer=PRESENT, enforcement_tree=MEASURED)
+    assert held.pre_exec_hooks == "held"
     with pytest.raises(ValueError, match="measurement is named"):
         LayersHeld.model_validate({**held.model_dump(), "bypass_evidence": None})
     with pytest.raises(ValueError, match="measurement is named"):
+        LayersHeld.model_validate({**held.model_dump(), "measured_tree": None})
+    with pytest.raises(ValueError, match="measurement is named"):
         LayersHeld.model_validate({**held.model_dump(), "pre_exec_hooks": "unmeasured"})
+    with pytest.raises(ValueError, match="enforcement code the measurement ran on"):
+        LayersHeld.model_validate({**held.model_dump(), "enforcement_tree": CHANGED})
+    with pytest.raises(ValueError, match="enforcement code the measurement ran on"):
+        LayersHeld.model_validate({**held.model_dump(), "pre_exec_hooks": "changed_since"})
     with pytest.raises(ValueError, match="says why"):
         LayersHeld.model_validate({**held.model_dump(), "os_layer": "absent"})
     with pytest.raises(ValueError, match="names them"):
@@ -339,7 +383,9 @@ def test_a_claim_without_its_evidence_is_not_a_record() -> None:
 
 def test_the_record_names_the_harness_the_provider_and_each_model_s_identity() -> None:
     models = ["claude-sonnet-5", "claude-opus-5-5", "claude-sonnet-5"]
-    vendor = _engine().record(version="2.1.301", models=models, os_layer=PRESENT)
+    vendor = _engine().record(
+        version="2.1.301", models=models, os_layer=PRESENT, enforcement_tree=MEASURED
+    )
     assert (vendor.harness, vendor.version, vendor.provider, vendor.endpoint) == (
         HARNESS,
         "2.1.301",
@@ -350,10 +396,12 @@ def test_the_record_names_the_harness_the_provider_and_each_model_s_identity() -
         ("claude-opus-5-5", "anthropic/claude-opus-5-5"),
         ("claude-sonnet-5", "anthropic/claude-sonnet-5"),
     ]
-    assert vendor.role == _engine().layers("role", version="2.1.301", os_layer=PRESENT)
+    assert vendor.role == _engine().layers(
+        "role", version="2.1.301", os_layer=PRESENT, enforcement_tree=MEASURED
+    )
     # Behind an endpoint no register names, any model may answer to a string: no identity.
     other = _engine(base_url=SCRIPTED + "/").record(
-        version="2.1.272", models=models, os_layer=ABSENT
+        version="2.1.272", models=models, os_layer=ABSENT, enforcement_tree=MEASURED
     )
     assert (other.provider, other.endpoint) == ("unregistered", SCRIPTED)
     assert all(m.identity is None and m.provider == "unregistered" for m in other.models)

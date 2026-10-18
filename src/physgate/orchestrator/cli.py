@@ -33,6 +33,7 @@ from pydantic import ValidationError
 
 import physgate
 from physgate.engines.base import Engine
+from physgate.engines.enforcement import enforcement_tree
 from physgate.evaluation.inject.runner import CONFIG_NAME as INSTRUMENT_CONFIG_NAME
 from physgate.evaluation.inject.runner import CONTROLS_DIRNAME as INSTRUMENT_CONTROLS_DIRNAME
 from physgate.evaluation.inject.runner import InstrumentConfig
@@ -388,14 +389,20 @@ def _engine_checked(
     """The run's record of the engine its sessions run on here, and the layers held around them.
 
     Every model string the run sends is named with the model it is: the decomposition's,
-    every role's and every reviewer's.
+    every role's and every reviewer's. The hooks are held only on the hook package the
+    measurement ran: this process's is named by its tree hash.
     """
     models = (
         config.models.decomposition,
         *config.models.roles.values(),
         *config.models.reviewers.values(),
     )
-    record = engine.record(version=config.claude_version, models=models, os_layer=layer)
+    record = engine.record(
+        version=config.claude_version,
+        models=models,
+        os_layer=layer,
+        enforcement_tree=enforcement_tree(),
+    )
     return EngineChecked(**envelope, engine=record)
 
 

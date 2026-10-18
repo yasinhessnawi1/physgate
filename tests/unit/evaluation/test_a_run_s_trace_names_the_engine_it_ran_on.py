@@ -12,6 +12,7 @@ from pathlib import Path
 from observe_rig import fake_run, target_repo
 
 from physgate.engines.claude_code import ClaudeCodeEngine
+from physgate.engines.enforcement import enforcement_tree
 from physgate.evaluation.observe.trace import read_traces
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.events import EngineChecked, EventLog
@@ -30,6 +31,7 @@ def test_the_trace_names_each_engine_line_and_a_run_before_them_names_none(
         version=config.claude_version,
         models=(config.models.decomposition, *config.models.roles.values()),
         os_layer=Absent(reason="stand-in: no sandbox here"),
+        enforcement_tree=enforcement_tree(),
     )
     log = EventLog(run / "events.jsonl", run_id=config.run_id, gate_mode=config.gate_mode)
     try:

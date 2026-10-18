@@ -148,12 +148,26 @@ class ClaudeCodeEngine:
         if stream is not None:
             redact(stream, self._credential.secret)
 
-    def layers(self, profile: Profile, *, version: str, os_layer: Present | Absent) -> LayersHeld:
+    def layers(
+        self,
+        profile: Profile,
+        *,
+        version: str,
+        os_layer: Present | Absent,
+        enforcement_tree: str,
+    ) -> LayersHeld:
         """Which layers hold around ``profile``'s sessions on ``version`` (``layers``)."""
-        return layers_held(profile, version=version, os_layer=os_layer)
+        return layers_held(
+            profile, version=version, os_layer=os_layer, enforcement_tree=enforcement_tree
+        )
 
     def record(
-        self, *, version: str, models: Iterable[str], os_layer: Present | Absent
+        self,
+        *,
+        version: str,
+        models: Iterable[str],
+        os_layer: Present | Absent,
+        enforcement_tree: str,
     ) -> EngineRecord:
         """The engine as a run records it, for ``version`` and every model string it sends."""
         provider = self.provider
@@ -172,8 +186,12 @@ class ClaudeCodeEngine:
                 )
                 for name in sorted(set(models))
             ),
-            role=self.layers("role", version=version, os_layer=os_layer),
-            reviewer=self.layers("reviewer", version=version, os_layer=os_layer),
+            role=self.layers(
+                "role", version=version, os_layer=os_layer, enforcement_tree=enforcement_tree
+            ),
+            reviewer=self.layers(
+                "reviewer", version=version, os_layer=os_layer, enforcement_tree=enforcement_tree
+            ),
         )
 
 

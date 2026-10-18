@@ -5,10 +5,12 @@ pre-execution and after-call event, through a wrapper that turns every outcome i
 read into a refusal. What differs is the tools each profile is offered, whether a verdict
 is held to a schema, and whether shell commands run at all.
 
-**The hooks are recorded as held only on a version a measurement showed them hold on.**
-``HOOK_EVIDENCE`` names that measurement per version: an experiment under ``experiments/``,
-with the runtime version and the enforcement code it ran on. A pinned version it does not
-name is recorded as unmeasured. R-HK-02 measured 2.1.272 on earlier enforcement code and
+**The hooks are recorded as held only on a version a measurement showed them hold on, and on
+the enforcement code it ran.** ``HOOK_EVIDENCE`` names that measurement per version: an
+experiment under ``experiments/``, and the tree hash of the hook package it ran
+(``git rev-parse <commit>:src/physgate/hooks``). Where the run's hook package is another tree,
+the hooks read "measured at <tree>; changed since". A pinned version it does not name is
+recorded as unmeasured. R-HK-02 measured 2.1.272 on earlier enforcement code and
 found one held-out read; the parser was fixed after it, and that fix was measured on 2.1.301
 only, so 2.1.272 is recorded as unmeasured rather than as held.
 """
@@ -16,18 +18,33 @@ only, so 2.1.272 is recorded as unmeasured rather than as held.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Literal
 
 from physgate.engines.base import LayersHeld, Profile
 from physgate.oslayer.probe import Absent, Present
 
+
+@dataclass(frozen=True)
+class HookEvidence:
+    """A measurement that showed the hooks hold, and the hook package it ran."""
+
+    measurement: str
+    #: The hook package's tree hash at the commit the measurement ran.
+    enforcement_tree: str
+
+
 #: The measurement that showed the pre-execution hooks hold, per runtime version: zero
 #: reach over the attempt corpus with the first layer on.
-HOOK_EVIDENCE: Mapping[str, str] = {
-    "2.1.301": (
-        "R-HK-03: zero byte reach and zero held-out leaks over all 755 attempts with the "
-        "first layer on, OS layer off and on (Claude Code 2.1.301, macOS, enforcement code "
-        "at 1c5e988)"
+HOOK_EVIDENCE: Mapping[str, HookEvidence] = {
+    "2.1.301": HookEvidence(
+        measurement=(
+            "R-HK-03: zero byte reach and zero held-out leaks over all 755 attempts with the "
+            "first layer on, OS layer off and on (Claude Code 2.1.301, macOS, enforcement code "
+            "at 1c5e988)"
+        ),
+        # src/physgate/hooks at 1c5e988, the commit R-HK-03 froze.
+        enforcement_tree="655d5a75cd24fc62c5acf556e2ab3e93b4987f7f",
     ),
 }
 
@@ -41,6 +58,7 @@ RESIDUALS: Mapping[str, tuple[str, ...]] = {
     ),
 }
 
+HooksHeld = Literal["held", "changed_since", "unmeasured", "absent"]
 ClosedToolList = Literal["harness", "hook", "both", "absent"]
 OsLayerHeld = Literal["harness_sandbox", "outside_sandbox", "absent"]
 VerdictSchema = Literal["native", "provided_tool", "absent"]
@@ -49,14 +67,21 @@ VerdictSchema = Literal["native", "provided_tool", "absent"]
 REVIEWER_HAS_NO_SHELL = "the reviewer profile is offered no tool that runs a shell command"
 
 
-def layers_held(profile: Profile, *, version: str, os_layer: Present | Absent) -> LayersHeld:
+def layers_held(
+    profile: Profile, *, version: str, os_layer: Present | Absent, enforcement_tree: str
+) -> LayersHeld:
     """The layers held around ``profile``'s sessions on Claude Code ``version``.
 
     ``os_layer`` is the OS layer's state where the sessions run, as measured for that
     version: a role session's shell commands run inside the runtime's own sandbox where it
-    is present. A reviewer runs no shell command, so none is sandboxed.
+    is present. A reviewer runs no shell command, so none is sandboxed. ``enforcement_tree``
+    is the tree hash of the hook package the sessions run with.
     """
     evidence = HOOK_EVIDENCE.get(version)
+    hooks: HooksHeld = "unmeasured"
+    if evidence is not None:
+        same = evidence.enforcement_tree == enforcement_tree
+        hooks = "held" if same else "changed_since"
     if profile == "role":
         # Offered every tool; the hooks refuse any tool not on the role's list.
         tools: ClosedToolList = "hook"
@@ -67,7 +92,7 @@ def layers_held(profile: Profile, *, version: str, os_layer: Present | Absent) -
         # Offered the read tool and the verdict tool alone, and held to them by the hooks.
         tools, sandbox, reason, verdict = "both", "absent", REVIEWER_HAS_NO_SHELL, "native"
     return LayersHeld(
-        pre_exec_hooks="held" if evidence is not None else "unmeasured",
+        pre_exec_hooks=hooks,
         route="native",
         hook_failure="closed",
         residuals=RESIDUALS.get(version, ()),
@@ -78,5 +103,7 @@ def layers_held(profile: Profile, *, version: str, os_layer: Present | Absent) -
         mandatory_reading="held",
         verdict_schema=verdict,
         cost_basis="runtime_total",
-        bypass_evidence=evidence,
+        bypass_evidence=evidence.measurement if evidence is not None else None,
+        enforcement_tree=enforcement_tree,
+        measured_tree=evidence.enforcement_tree if evidence is not None else None,
     )
