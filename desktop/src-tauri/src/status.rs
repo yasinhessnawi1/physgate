@@ -89,14 +89,15 @@ impl Status {
     /// The page for a start that gave no address.
     pub fn from_start_error(error: &StartError, checkout: &Path) -> Self {
         match error {
-            StartError::NoEntryPoint(_) => Self::new(
+            StartError::NoEntryPoint(program) => Self::new(
                 "problem",
                 "This checkout is not set up yet",
                 vec![
                     format!(
                         "The checkout at {} has no Python environment, so the operator UI \
-                         cannot start from it.",
-                        checkout.display()
+                         cannot start from it: {} is missing.",
+                        checkout.display(),
+                        program.display()
                     ),
                     "Set the checkout up as its README describes, then choose View → Restart \
                      Server."
@@ -104,7 +105,7 @@ impl Status {
                     CHOOSE_A_CHECKOUT.into(),
                 ],
             ),
-            StartError::Refused(refusal, _) => Self::from_refusal(refusal.as_ref()),
+            StartError::Refused(refusal) => Self::from_refusal(refusal.as_ref()),
             StartError::Failed(reason) => Self::new(
                 "problem",
                 "The operator UI could not start",
@@ -278,16 +279,13 @@ mod tests {
     }
 
     fn refused(error: &str, context: &[(&str, &str)]) -> StartError {
-        StartError::Refused(
-            Some(Refusal {
-                error: error.into(),
-                context: context
-                    .iter()
-                    .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
-                    .collect(),
-            }),
-            "the end of the log".into(),
-        )
+        StartError::Refused(Some(Refusal {
+            error: error.into(),
+            context: context
+                .iter()
+                .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+                .collect(),
+        }))
     }
 
     /// Every state the page can be put in, with what the server could say at its worst.
@@ -322,7 +320,7 @@ mod tests {
                 ),
                 &checkout,
             ),
-            Status::from_start_error(&StartError::Refused(None, String::new()), &checkout),
+            Status::from_start_error(&StartError::Refused(None), &checkout),
             Status::from_start_error(
                 &StartError::Failed("usage: physgate ui [-h] --root ROOT".into()),
                 &checkout,

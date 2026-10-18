@@ -366,10 +366,7 @@ impl Shell {
                     shell.show(
                         &window,
                         &Status::from_start_error(
-                            &server::StartError::Refused(
-                                server::refusal_in(&log),
-                                server::tail(&log, 20),
-                            ),
+                            &server::StartError::Refused(server::refusal_in(&log)),
                             &shell.settings().checkout,
                         ),
                     );
