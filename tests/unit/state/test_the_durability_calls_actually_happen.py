@@ -112,9 +112,9 @@ def test_the_node_file_is_synced_before_it_replaces_the_old_one(tmp_path: Path) 
         order.append("fsync")
         real_fsync(fd)
 
-    def note_replace(src: Any, dst: Any) -> None:
+    def note_replace(src: Any, dst: Any, **directories: Any) -> None:
         order.append("replace")
-        real_replace(src, dst)
+        real_replace(src, dst, **directories)
 
     with mock.patch("os.fsync", note_fsync), mock.patch("os.replace", note_replace):
         store.write_node(node(), "electrical")
