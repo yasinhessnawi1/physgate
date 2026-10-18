@@ -25,9 +25,12 @@ Two more relations bound what a supply can be asked for. A consumer's stall curr
 is at most its supply's current limit, the supply's peak rating: at stall a motor has no
 back-EMF and draws its whole stall current, so a driver rated below it is overrun at every
 start. A store's maximum continuous discharge is at most its stored energy times the
-fastest continuous rate any store class is rated for (the catalogue's ``STORE_CLASSES``),
-so an invented rating cannot make a token store a source. Each is refused with its excess,
-in amperes or watts.
+fastest rate any store class the catalogue confirms can give (the catalogue's
+``STORE_CLASSES``; for a capacitor, the most power a cell can deliver into any load, from
+the smallest confirmed time constant), so an invented rating cannot make a token store a
+source. Named limit: a capacitor cell with a smaller time constant than any the catalogue
+confirms would be refused above that bound; the bound is the catalogue's, not a law. Each
+is refused with its excess, in amperes or watts.
 
 At module scope the supplies checked are the modules of the nodes the attempt
 affected (see :meth:`physgate.gate.graph.GraphView.affected`), a module a
@@ -351,9 +354,9 @@ def _judge_discharge(view: GraphView, instance: Instance) -> Observation | None:
         message=(
             f"{instance.subject} stores {shown_wh} W*h and declares a maximum continuous "
             f"discharge of {output(watts, 'W').value} W, a rate of {rate} per hour; no class of "
-            f"energy store is rated to discharge continuously faster than {stored.factor} per "
-            f"hour ({FASTEST.name}), so the rating exceeds what it stores allows by "
-            f"{over.value} W"
+            f"energy store the catalogue confirms can give more than {stored.factor} per hour "
+            f"of what it stores ({FASTEST.name}), so the rating exceeds what it stores allows "
+            f"by {over.value} W"
         ),
         details=PowerDetails(deficit=over, contributing=(instance.subject,)),
         quantities=tuple(_ref(view, r) for r in instance.refs()),

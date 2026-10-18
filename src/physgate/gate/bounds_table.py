@@ -8,8 +8,8 @@ run, never through the read-only installation copy a role session's hooks run
 from, and a role or reviewer session's own hooks protect every curated domain
 directory under ``knowledge/`` the same way they protect the gate itself. Each
 range names the quantity, the bounds and their unit, the class of component it
-is for, its source, the date the source was read, and a note on what the range
-is and is not.
+is for, its source, the date the source was read, the date its figures were
+confirmed in the maker's own document, and a note on what the range is and is not.
 
 **A range without a source does not load, and a table that does not load stops
 the gate from being built.** A bound nobody can trace is a number invented to
@@ -76,6 +76,10 @@ class Range(_Frozen):
     component_class: _Text = Field(alias="class")
     source: _Text
     retrieved: date
+    #: The date the figures were fetched and read in the document ``source`` names, with
+    #: its revision. A range without it does not load, so no unconfirmed figure refuses a
+    #: design.
+    confirmed: date
     note: _Text
 
     @model_validator(mode="after")

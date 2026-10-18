@@ -26,6 +26,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Iterable, Mapping
+from datetime import date
 from fractions import Fraction
 from types import MappingProxyType
 from typing import Annotated, Literal
@@ -196,89 +197,111 @@ PRODUCTS: Mapping[tuple[str, str], str] = MappingProxyType(
 class StoreClass(_Frozen):
     """A class of energy store, and the fastest discharge a maker rates one of them for.
 
-    The rating is the maker's continuous one where the sheet gives one; for the lead-acid
-    class it is the shortest constant-current discharge the maker tabulates (two minutes),
-    which is above any continuous rating, so the bound built from it is looser, never
-    tighter, than a continuous figure would make it.
-
     ``per_hour`` is the part's maximum continuous discharge power over the energy it stores
     (its C-rate), rounded up to the next whole number, so the bound built from it is never
     tighter than the source and never looser than that rounding: the figure the source's own
-    arithmetic shows, and nothing else.
+    arithmetic shows, and nothing else. For the lead-acid class it is the shortest
+    constant-current discharge the maker tabulates (two minutes), above any continuous
+    rating; for the ultracapacitor class it is the most power any cell can deliver into any
+    load, from the smallest confirmed time constant. ``confirmed`` is the date the figure was
+    read in the maker's own document, with that document's number and revision in
+    ``source``; a class without it cannot be built, so no unconfirmed figure refuses a design.
     """
 
     name: _Text
     per_hour: Annotated[int, Field(gt=0)]
     source: _Text
+    confirmed: date
 
 
-#: The store classes whose fastest continuous rating bounds a store's declared discharge.
-#: A node declares no chemistry, so the relation takes the largest of them: it can refuse
-#: only a rating that no store of any listed class is made to give. Each figure was read
-#: in the maker's own document on 18.10.2026; the arithmetic is shown.
+#: The store classes whose fastest rating bounds a store's declared discharge. A node
+#: declares no chemistry, so the relation takes the largest of them: it can refuse only a
+#: rating that no store of any listed class is made to give. Every figure was fetched and
+#: read in the maker's document named, on the date given; the arithmetic is shown.
 STORE_CLASSES: tuple[StoreClass, ...] = (
     StoreClass(
         name="nickel-metal hydride cell",
         per_hour=10,
         source=(
-            "GP Batteries GP330SCHR sub-C NiMH, document ZRS1162 rev 00: discharge current "
-            "3.3 A to 30 A continuous, nominal 3300 mAh; 30 A / 3.3 A h = 9.1 per hour"
+            "GP Batteries GP330SCH sub-C NiMH data sheet, ZRS1161 rev.02 (undated): "
+            "recommended discharge current 330 mA to 30 A, nominal capacity 3300 mAh; "
+            "30 A / 3.3 A h = 9.1 per hour (the GP330SCHR sheet ZRS1162 could not be found; "
+            "the GP catalogue lists the SCHR at 3300 mAh typical with no discharge column)"
         ),
+        confirmed=date(2026, 10, 19),
     ),
     StoreClass(
         name="valve-regulated lead-acid battery",
         per_hour=9,
         source=(
-            "EnerSys ODYSSEY Battery Technical Manual, 6th edition (US-ODY-AM-001, April 2006), "
-            "PC680 constant-current table: 143.0 A for 2 min to 10.02 V at 25 C (a two-minute "
-            "rating, not a continuous one, so above any continuous figure), 17 A h at the "
-            "20-hour rate; 143 A / 17 A h = 8.4 per hour"
+            "EnerSys ODYSSEY Application Manual, SLI Drycell Battery Guide, sixth edition "
+            "(US-ODY-AM-001, April 2006), PC680 performance data at 25 C: 143.0 A for 2 min to "
+            "10.02 V (a two-minute rating, not a continuous one, so above any continuous "
+            "figure; no edition states a maximum continuous current), specifications table "
+            "PC680 17 A h at the 20-hour rate (its performance table's 20-hour row reads "
+            "16.0 A h, which would give 9.0); 143 A / 17 A h = 8.4 per hour"
         ),
+        confirmed=date(2026, 10, 19),
     ),
     StoreClass(
         name="lithium-ion cylindrical power cell",
         per_hour=12,
         source=(
-            "Samsung SDI INR21700-30T specification V0.0, section 3.6: maximum continuous "
-            "discharge 35 A at 25 C, typical capacity 3000 mAh; 35 A / 3.0 A h = 11.7 per hour"
+            "Samsung SDI INR21700-30T specification, version V0.0 (2015-12-29), section 3.6: "
+            "maximum continuous discharge 35 A at 25 C, section 3.1 typical capacity 3000 mAh; "
+            "35 A / 3.0 A h = 11.7 per hour"
         ),
+        confirmed=date(2026, 10, 19),
     ),
     StoreClass(
         name="lithium iron phosphate power cell",
         per_hour=28,
         source=(
-            "A123 Systems ANR26650M1-B data sheet MD100113-01: maximum continuous discharge "
-            "70 A, nominal capacity 2.5 A h; 70 A / 2.5 A h = 28 per hour"
+            "A123 Systems ANR26650M1-B data sheet MD100113-01 (2011): maximum continuous "
+            "discharge 70 A, nominal capacity 2.5 A h; 70 A / 2.5 A h = 28 per hour (the later "
+            "MD100113-02 reportedly states 50 A, which would give 20: the earlier, looser "
+            "figure is kept, so the bound is never tighter than a maker's sheet)"
         ),
+        confirmed=date(2026, 10, 19),
     ),
     StoreClass(
         name="lithium-polymer hobby pack",
         per_hour=150,
         source=(
-            "Tattu R-Line Version 5.0 1400 mAh 6S pack, maker's product page "
-            "(genstattu.com): discharge rate 150C, burst 260C stated separately; the maker's "
-            "own continuous figure, the highest found on any pack"
+            "Tattu R-Line Version 5.0 1400 mAh 6S pack, maker's product page (genstattu.com, "
+            "undated): discharge rate 150C, maximum burst discharge rate 260C stated "
+            "separately; the maker's own continuous figure, the highest found on any pack"
         ),
+        confirmed=date(2026, 10, 19),
     ),
     StoreClass(
         name="lithium-ion capacitor",
         per_hour=311,
         source=(
-            "Musashi Energy Solutions prismatic cells data sheet 250615 (June 2025), CPQ3300SD: "
-            "3300 F from 3.8 V to 2.2 V, continuous discharge 360 A (UL 810A); stored energy "
-            "3300 F x (3.8^2 - 2.2^2) V^2 / 2 = 4.40 W h, and 360 A x 3.8 V / 4.40 W h = "
-            "311 per hour"
+            "Musashi Energy Solutions hybrid supercapacitor prismatic cells data sheet, "
+            "Rv 250615 (June 2025), CPQ3300SD: 3300 F from 3.8 V to 2.2 V, continuous charge "
+            "and discharge current 360 A (per UL 810A; the maker's web page still says 200 A); "
+            "stored energy 3300 F x (3.8^2 - 2.2^2) V^2 / 2 = 4.40 W h, and 360 A x 3.8 V / "
+            "4.40 W h = 311 per hour"
         ),
+        confirmed=date(2026, 10, 19),
     ),
     StoreClass(
         name="electric double-layer capacitor",
-        per_hour=2578,
+        per_hour=10910,
         source=(
-            "Maxwell Technologies ultracapacitor product matrix (2019-04-09), BCAP0003 2.7 V "
-            "3 F: continuous current 2.9 A at a 40 C rise; 2.9 A x 2.7 V = 7.83 W over "
-            "3 F x (2.7 V)^2 / 2 = 3.04 mW h stored, 2577.8 per hour (the 2.7 V BCAP0005 data "
-            "sheet 3001974-EN.4 defines this current as the most usable continuously)"
+            "the most power any capacitor cell can deliver into any load, V^2 / (4 ESR) "
+            "(maximum power transfer), over the energy it stores, C V^2 / 2: 1 / (2 ESR C), "
+            "from the smallest confirmed time constant ESR x C in a maker's catalogue: "
+            "Maxwell Technologies BCAP0003 P270 S01, data sheet 3001957-EN.4 (2019): 3 F, "
+            "typical initial ESR(DC) 55 mOhm (rated maximum 70 mOhm), 0.165 s; 1 / (2 x 0.165 s) "
+            "= 3.03 per second = 10909.1 per hour. Its thermal continuous rating (2.9 A at a "
+            "40 C rise, product comparison matrix 3000489-EN.8, 2019: 2577.8 per hour) is far "
+            "below that, so this bound is above every maker's continuous figure; no cell with "
+            "a smaller time constant was confirmed (Eaton HV0810-2R7105-R 0.20 s; Maxwell "
+            "BCAP0003 P300 X11 0.186 s typical)"
         ),
+        confirmed=date(2026, 10, 19),
     ),
 )
 #: The fastest class, whose rate is the discharge relation's bound.
@@ -288,17 +311,19 @@ MAX_DISCHARGE_PER_HOUR = Fraction(FASTEST.per_hour)
 #: Why a stall current is held to its supply's current limit.
 HEADROOM = (
     "a brushed motor at stall has no back-EMF, so V = I R gives its stall current, the most "
-    "it draws (Precision Microdrives 104-10L data sheet V1, October 2025: stall 0.114 A at "
-    "3.7 V across 32.4 ohm); a driver's peak output current is the most it is rated to "
-    "deliver (TI DRV8838, SLVSBA4F section 6.3: IOUT motor peak current 1.8 A; section 6.5: "
-    "overcurrent trip at 1.9 A minimum), so a stall above it is beyond the driver's rating "
-    "at every start and reversal"
+    "it draws (Precision Microdrives 104-10L, 4 mm coreless motor, data sheet "
+    "104-10J-104-008-104-10L V1, maker's product page read 19.10.2026: rated 3.7 V, stall "
+    "0.114 A, terminal resistance 32.4 ohm); a driver's peak output current is the most it is "
+    "rated to deliver (TI DRV8838, SLVSBA4F, revised April 2021, read 19.10.2026: section 6.3 "
+    "I_OUT motor peak current 1.8 A; section 6.5 overcurrent protection trip 1.9 A minimum), "
+    "so a stall above it is beyond the driver's rating at every start and reversal"
 )
 #: Why a store's discharge rating is held to what it stores.
 DISCHARGE = (
-    "a store's continuous discharge is bounded by its class: no part of any class in the "
-    "catalogue's store classes is rated to discharge continuously faster than the fastest "
-    "of them, each read in its maker's data sheet"
+    "a store's discharge is bounded by its class: no part of any class in the catalogue's "
+    "store classes is rated to discharge faster than the fastest of them, each figure read in "
+    "its maker's document on the date the class records; for a capacitor the bound is the "
+    "most power any confirmed cell can deliver into any load"
 )
 
 
@@ -524,7 +549,7 @@ def catalogue_digest() -> str:
         "relations": [RELATIONS[r].model_dump() for r in sorted(RELATIONS)],
         "products": sorted([*pair, kind] for pair, kind in PRODUCTS.items()),
         "sources": sorted(SOURCES.items()),
-        "store_classes": [c.model_dump() for c in STORE_CLASSES],
+        "store_classes": [c.model_dump(mode="json") for c in STORE_CLASSES],
         "suffixes": [s.model_dump() for s in SUFFIXES],
     }
     canonical = json.dumps(content, sort_keys=True, separators=(",", ":"))

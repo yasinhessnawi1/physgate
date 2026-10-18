@@ -136,6 +136,7 @@ unit = "A"
 class = "a motor"
 source = "a datasheet"
 retrieved = 2026-09-26
+confirmed = 2026-10-19
 note = "a note"
 """
 
@@ -167,6 +168,8 @@ def test_a_well_formed_table_loads(tmp_path: Path) -> None:
         (GOOD.replace('source = "a datasheet"\n', ""), "source"),
         (GOOD.replace('source = "a datasheet"', 'source = "  "'), "source"),
         (GOOD.replace("retrieved = 2026-09-26\n", ""), "retrieved"),
+        (GOOD.replace("confirmed = 2026-10-19\n", ""), "confirmed"),
+        (GOOD.replace("confirmed = 2026-10-19", 'confirmed = "soon"'), "confirmed"),
         (GOOD.replace("retrieved = 2026-09-26", 'retrieved = "recently"'), "retrieved"),
         (GOOD.replace('note = "a note"\n', ""), "note"),
         (GOOD.replace('class = "a motor"\n', ""), "class"),
@@ -179,6 +182,8 @@ def test_a_well_formed_table_loads(tmp_path: Path) -> None:
         "no source",
         "blank source",
         "no date",
+        "no confirmation date",
+        "not a confirmation date",
         "not a date",
         "no note",
         "no class",
@@ -223,3 +228,17 @@ def test_an_adc_sampled_at_1_megahertz_on_an_electrical_node_is_refused_a_named_
     adc = node("electrical.adc", quantities={"sample_rate": (1_000_000, "Hz")})
     (finding,) = check(tmp_path, adc).observations
     assert finding.outcome == "fail" and "inertial" in finding.message
+
+
+def test_a_range_without_a_confirmation_date_does_not_load(tmp_path: Path) -> None:
+    # A figure nobody confirmed in the maker's own document may not refuse a design, so a
+    # range without the date it was confirmed does not load at all.
+    tables = tmp_path / "tables"
+    (tables / "electrical").mkdir(parents=True)
+    text = TABLE.read_text()
+    assert text.count("confirmed = ") == 1
+    (tables / "electrical" / BOUNDS_NAME).write_text(
+        text.replace("confirmed = ", "unconfirmed = ", 1)
+    )
+    with pytest.raises(BoundsTableError):
+        load_bounds(tables)

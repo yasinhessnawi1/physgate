@@ -150,3 +150,50 @@ def test_a_discharge_left_unchecked_by_a_refused_unit_is_not_counted_as_evaluate
 ) -> None:
     ran = run(tmp_path, "system", store(10, 5, "W*h"))
     assert [o.outcome for o in ran.observations] == ["unchecked"] and ran.evaluated == 0
+
+
+# --- the bound is the most a confirmed capacitor cell can give, and every figure is confirmed
+
+
+def test_the_fastest_class_is_the_capacitor_envelope_from_the_smallest_time_constant() -> None:
+    assert "capacitor" in FASTEST.name and FASTEST.per_hour == 10910
+    assert "3001957-EN.4" in FASTEST.source and "0.165 s" in FASTEST.source
+
+
+@pytest.mark.parametrize(
+    ("name", "milliwatt_hours", "watts"),
+    [
+        ("BCAP0003 at 7.9 W", 3.0375, 7.9),  # 2601 per hour
+        ("a 1 F 2.7 V cell at 3.5 W", 1.0125, 3.5),  # 3457 per hour
+    ],
+)
+def test_a_real_capacitor_cell_s_rating_passes(
+    tmp_path: Path, name: str, milliwatt_hours: float, watts: float
+) -> None:
+    ran = run(tmp_path, "system", store(milliwatt_hours / 1000, watts))
+    assert ran.observations == () and ran.evaluated == 1, name
+
+
+def test_a_matched_load_peak_above_every_confirmed_cell_is_refused_a_named_limit(
+    tmp_path: Path,
+) -> None:
+    # A 1 F 2.7 V cell with 100 mOhm ESR would give V^2 / 4R = 18.2 W, 17975 per hour. No
+    # maker's cell with a time constant below 0.165 s was confirmed (the smallest gives
+    # 10909 per hour), so this rating is above every confirmed cell and is refused; the
+    # bound is the catalogue's, not a law, and the docstring names the limit.
+    (finding,) = run(tmp_path, "system", store(0.0010125, 18.2)).observations
+    assert finding.outcome == "fail" and "10910 per hour" in finding.message
+
+
+def test_a_store_class_without_a_confirmation_date_cannot_be_built() -> None:
+    from pydantic import ValidationError
+
+    from physgate.gate.catalogue import StoreClass
+
+    with pytest.raises(ValidationError):
+        StoreClass.model_validate({"name": "x", "per_hour": 1, "source": "a sheet"})
+
+
+def test_every_store_class_was_confirmed_on_a_date_its_source_names() -> None:
+    for store_class in STORE_CLASSES:
+        assert store_class.confirmed.isoformat() == "2026-10-19", store_class.name
