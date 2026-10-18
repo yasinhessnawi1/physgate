@@ -6,6 +6,7 @@ import { Quantity } from "../data/Quantity";
 import { ProvenanceTag } from "../parts/ProvenanceTag";
 import { WhatIfMarker } from "../status/WhatIfMarker";
 import type { Verdict } from "../verdict/verdict";
+import { type GateMode, GateOutcome } from "../verdict/GateMode";
 import { VerdictBadge } from "../verdict/VerdictBadge";
 
 interface Common {
@@ -27,6 +28,11 @@ interface Common {
   readonly onClick?: () => void;
   readonly onKeyDown?: (event: KeyboardEvent<HTMLButtonElement>) => void;
   readonly buttonRef?: Ref<HTMLButtonElement>;
+  /**
+   * The gate mode the verdict was recorded under. Under observe a verdict reads as what the gate
+   * would have done, never as a filled verdict.
+   */
+  readonly gateMode?: GateMode;
   /** Position on a canvas: React's style property, set through the CSSOM. */
   readonly style?: CSSProperties;
 }
@@ -62,6 +68,7 @@ export function GraphNode(props: GraphNodeProps) {
     onKeyDown,
     buttonRef,
     style,
+    gateMode,
   } = props;
   if ((label as unknown) === undefined || label.trim() === "") throw new GraphLabelError(id);
   const whatIf = props.whatIf === true;
@@ -107,7 +114,11 @@ export function GraphNode(props: GraphNodeProps) {
           {whatIf ? (
             <WhatIfMarker />
           ) : verdict !== undefined ? (
-            <VerdictBadge verdict={verdict} />
+            gateMode === undefined ? (
+              <VerdictBadge verdict={verdict} />
+            ) : (
+              <GateOutcome mode={gateMode} outcome={verdict} />
+            )
           ) : (
             <span />
           )}

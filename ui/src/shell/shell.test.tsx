@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { OsLayer } from "../design/components/system/OsLayerBadge";
-import { VIEWS, type ViewDef } from "../views/registry";
+import { VIEWS, type ViewDef } from "../screens/registry";
 import { AREA_IDS } from "./areas";
 import { GROUPS } from "./groups";
 import type { Header, ViewProps } from "./header";
@@ -84,10 +84,13 @@ describe("the view registry", () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it("puts the run records (today's home screen) under Home and Queue", () => {
+  it("opens Home at the home address, and keeps the run records' old address under This run", () => {
+    const home = VIEWS.filter((v) => v.area === "home")[0];
+    expect(home?.title).toBe("Home");
+    expect(home?.group).toBe("home");
     const records = VIEWS.find((v) => v.slug === "run-records");
     expect(records?.area).toBe("home");
-    expect(records?.group).toBe("home");
+    expect(records?.group).toBe("run");
   });
 });
 

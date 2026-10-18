@@ -13,7 +13,7 @@ import { cspViolations, THEMES, watch } from "./support";
  * in. Nothing leaves the origin and no content-security rule breaks.
  */
 
-const VIEWS = ["Run records", "Approval queue", "Design graph", "Run timeline", "Gate checks"];
+const VIEWS = ["Home", "Queue", "Run timeline", "Design graph", "Gate checks", "Run records"];
 
 function operatorHash(): string {
   const started = JSON.parse(readFileSync(join(RUNS, "started.json"), "utf8")) as {

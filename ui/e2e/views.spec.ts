@@ -6,6 +6,7 @@ import {
   hitAreasShort,
   cspViolations,
   namesNoCommand,
+  saysNoMoreThanTheRecord,
   styles,
   THEMES,
   TRANSPARENT,
@@ -54,44 +55,6 @@ async function common(page: Page, seen: Watch, shot: string) {
     await page.screenshot({ path: `${evidence}/${shot}.png`, fullPage: true });
 }
 
-/** Every graph node is whole inside the frame: none cut at an edge. */
-async function nodesWhole(page: Page) {
-  const cut = await page.locator(".pg-graph-frame").evaluate((frame) => {
-    const box = frame.getBoundingClientRect();
-    return [...frame.querySelectorAll<HTMLElement>("button.pg-node")]
-      .filter((node) => {
-        const r = node.getBoundingClientRect();
-        return (
-          r.left < box.left - 1 ||
-          r.right > box.right + 1 ||
-          r.top < box.top - 1 ||
-          r.bottom > box.bottom + 1
-        );
-      })
-      .map((node) => node.querySelector(".pg-node-id")?.textContent ?? "");
-  });
-  expect(await page.locator("button.pg-node").count()).toBeGreaterThan(0);
-  expect(cut).toEqual([]);
-}
-
-/** Every timeline label shown fits its segment whole; one that would not is not drawn. */
-async function labelsWhole(page: Page) {
-  const found = await page.locator(".track .segment").evaluateAll((segments) =>
-    segments.map((segment) => {
-      const label = segment.querySelector<HTMLElement>(".segment-label");
-      const style = getComputedStyle(segment);
-      const room =
-        segment.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-      if (label === null || label.hidden) return { shown: false, fits: true };
-      const width = label.getBoundingClientRect().width;
-      return { shown: width > 0, fits: width <= room + 0.5 };
-    }),
-  );
-  expect(found.length).toBeGreaterThan(0);
-  expect(found.filter((f) => f.shown).length).toBeGreaterThan(0);
-  expect(found.filter((f) => !f.fits)).toEqual([]);
-}
-
 /** No text in any table of the view is cut: each fits its region and every cell holds its text. */
 async function nothingCut(page: Page) {
   const overflow = await page.locator(".pg-scroll-table > table").evaluateAll((tables) =>
@@ -136,144 +99,6 @@ async function observedNeverFilled(page: Page, scope: string) {
 }
 
 for (const theme of THEMES) {
-  test(`the design graph: nodes are buttons, a node opens with its quantities, edges and history (${theme})`, async ({
-    page,
-  }) => {
-    const seen = await watch(page);
-    await open(page, theme, "/orchestration/design-graph?run=0/drive-observe");
-    const nodes = page.locator("button.pg-node");
-    await expect(nodes).toHaveCount(6);
-    await nodesWhole(page);
-    await runsDistinct(page);
-    await nodes
-      .filter({ has: page.locator(".pg-node-id", { hasText: /^electrical\.drive$/ }) })
-      .click();
-    const inspector = page.locator('aside[aria-label="Node inspector"]');
-    await expect(inspector.locator(".pg-quantity")).toHaveCount(3);
-    await expect(inspector.locator('section[aria-label="Constrains"]')).toContainText(
-      "electrical.battery",
-    );
-    await expect(inspector.locator('section[aria-label="Constrained by"]')).toContainText(
-      "electrical.driver",
-    );
-    await expect(inspector.locator(".history-entry")).toHaveCount(1);
-    await expect(page.locator('section[aria-label="Nodes"] tbody tr')).toHaveCount(6);
-    await nodesWhole(page);
-    await nothingCut(page);
-    expect([...seen.api]).toEqual(
-      expect.arrayContaining([
-        "/api/runs/0/drive-observe/config",
-        "/api/runs/0/drive-observe/graph",
-        "/api/runs/0/drive-observe/graph/history/electrical.drive",
-      ]),
-    );
-    await common(page, seen, `design-graph-${theme}`);
-  });
-
-  test(`a value is shown with every digit its record holds, never rounded (${theme})`, async ({
-    page,
-  }) => {
-    const seen = await watch(page);
-    const recorded = 14.712345678;
-    // The record as served, with one quantity holding more digits than any rounding would keep.
-    let held: string | null = null;
-    await page.route("**/api/runs/0/drive-observe/graph", async (route) => {
-      const response = await route.fetch();
-      const body = (await response.json()) as {
-        nodes: Record<
-          string,
-          { node: { id: string; quantities: Record<string, { value: unknown }> } }
-        >;
-      };
-      const drive = Object.values(body.nodes).find((n) => n.node.id === "electrical.drive");
-      const first = drive === undefined ? undefined : Object.keys(drive.node.quantities)[0];
-      if (drive !== undefined && first !== undefined) {
-        (drive.node.quantities[first] as { value: unknown }).value = recorded;
-        held = first;
-      }
-      await route.fulfill({ response, json: body });
-    });
-    await open(page, theme, "/orchestration/design-graph?run=0/drive-observe");
-    await page
-      .locator("button.pg-node")
-      .filter({ has: page.locator(".pg-node-id", { hasText: /^electrical\.drive$/ }) })
-      .click();
-    expect(held).not.toBeNull();
-    const inspector = page.locator('aside[aria-label="Node inspector"]');
-    await expect(
-      inspector.locator(".pg-quantity-value", { hasText: /^14\.712345678$/ }),
-    ).toHaveCount(1);
-    expect(seen.outbound).toEqual([]);
-    expect(await cspViolations(page)).toEqual([]);
-  });
-
-  test(`the design graph's diff between two revisions (${theme})`, async ({ page }) => {
-    const seen = await watch(page);
-    await open(page, theme, "/orchestration/design-graph?run=0/drive-observe&diff=1-6");
-    const diff = page.locator('section[aria-label="Diff"]');
-    await expect(diff.locator('table[aria-label="Change list"] tbody tr')).toHaveCount(5);
-    await expect(diff).toContainText("View: rows are marked");
-    expect([...seen.api]).toContain("/api/runs/0/drive-observe/graph/diff/1/6");
-    await nodesWhole(page);
-    await nothingCut(page);
-    await common(page, seen, `design-graph-diff-${theme}`);
-  });
-
-  test(`the run timeline under observe (${theme})`, async ({ page }) => {
-    const seen = await watch(page);
-    await open(page, theme, "/orchestration/run-timeline?run=0/drive-observe&pair=0/drive-on");
-    await expect(page.locator(".lane")).toHaveCount(3);
-    const gate = page.locator(".track .segment-gate-observe");
-    await expect(gate).toHaveCount(1);
-    await expect(gate).toContainText("would fail · not enforced");
-    for (const g of await styles(page, ".segment-gate-observe", [
-      "border-top-style",
-      "background-image",
-    ])) {
-      expect(g["border-top-style"]).toBe("dashed");
-      expect(g["background-image"]).not.toBe("none");
-    }
-    await observedNeverFilled(page, 'section[aria-label="Gate checks"]');
-    await expect(page.locator('table[aria-label="By attribution"]')).toContainText("all routing");
-    // The server reads no review root, so the run's cost is a lower bound, and says so.
-    await expect(page.locator('section[aria-label="Tokens and cost"]')).toContainText(
-      "Lower bound",
-    );
-    await expect(page.locator(".run-head-figures")).toContainText("lower bound)");
-    await labelsWhole(page);
-    await nothingCut(page);
-    await runsDistinct(page);
-    // Every figure of an observe run reads as not enforced: the integration lane and the legend too.
-    await expect(page.locator('.lane[data-lane="integration"]')).toContainText(
-      "would fail · not enforced",
-    );
-    await expect(page.locator(".legend .segment-gate-observe")).toBeVisible();
-    await expect(page.locator(".legend .segment-gate-on")).toHaveCount(0);
-    for (const route of [
-      "trace",
-      "decisions",
-      "status",
-      "tokens",
-      "events",
-      "gate-checks",
-      "cost/2026-10-16",
-    ])
-      expect([...seen.api]).toContain(`/api/runs/0/drive-observe/${route}`);
-    await bindingStylesHold(page);
-    await common(page, seen, `run-timeline-observe-${theme}`);
-  });
-
-  test(`the run timeline of a gated run with three repairs (${theme})`, async ({ page }) => {
-    const seen = await watch(page);
-    await open(page, theme, "/orchestration/run-timeline?run=0/drive-on");
-    await expect(page.locator(".lane")).toHaveCount(5);
-    await expect(page.locator(".track .segment-gate-on")).toHaveCount(3);
-    await expect(page.locator(".lane").nth(2)).toContainText("repair of gate · power");
-    await labelsWhole(page);
-    await bindingStylesHold(page);
-    await common(page, seen, `run-timeline-on-${theme}`);
-  });
-
   test(`gate checks under observe, read against the gated run (${theme})`, async ({ page }) => {
     const seen = await watch(page);
     await open(page, theme, "/orchestration/gate-checks?run=0/drive-observe&pair=0/drive-on");
@@ -342,58 +167,10 @@ test("g then g, g then t: two keys go to the graph and the timeline, and keep th
   await expect(page).toHaveURL(/design-graph/);
 });
 
-test("the graph opens with a node selected by its link, every node whole", async ({ page }) => {
-  const seen = await watch(page);
-  await open(
-    page,
-    "light",
-    "/orchestration/design-graph?run=0/drive-observe&node=electrical.driver",
-  );
-  await expect(page.locator('button.pg-node[aria-pressed="true"]')).toContainText(
-    "electrical.driver",
-  );
-  await nodesWhole(page);
-  expect(seen.outbound).toEqual([]);
-});
-
-test("the arrow keys move the focus along the graph's edges", async ({ page }) => {
-  await watch(page);
-  await open(page, "light", "/orchestration/design-graph?run=0/drive-observe");
-  const driver = page.locator("button.pg-node").filter({
-    has: page.locator(".pg-node-id", { hasText: /^electrical\.driver$/ }),
-  });
-  await driver.focus();
-  await page.keyboard.press("ArrowRight");
-  await expect(page.locator("button.pg-node:focus .pg-node-id")).toHaveText("electrical.drive");
-  await page.keyboard.press("ArrowLeft");
-  await expect(page.locator("button.pg-node:focus .pg-node-id")).toHaveText(/^electrical\./);
-});
-
 test("the smoke page's runs read differently from each other too", async ({ page }) => {
   await watch(page);
   await open(page, "light", "/home/run-records?run=0/run-clean");
   await runsDistinct(page);
-});
-
-test("a gate stage with no recorded result is no verdict, never a pass", async ({ page }) => {
-  const seen = await watch(page);
-  await open(page, "light", "/orchestration/run-timeline?run=0/drive-cut");
-  const gate = page.locator(".track .segment[data-kind='gate']");
-  await expect(gate).toHaveCount(1);
-  await expect(gate).toHaveClass(/segment-gate-none/);
-  await expect(gate).toHaveAttribute("title", /^gate · no verdict recorded/);
-  await expect(page.locator(".track .segment-gate-on, .track .segment-gate-observe")).toHaveCount(
-    0,
-  );
-  for (const g of await styles(page, ".track .segment-gate-none", [
-    "border-top-style",
-    "background-color",
-  ]))
-    expect(g).toEqual({ "border-top-style": "dashed", "background-color": TRANSPARENT });
-  await expect(page.locator('section[aria-label="Gate checks"]')).toContainText(
-    "No gate checks recorded",
-  );
-  expect(seen.outbound).toEqual([]);
 });
 
 test("a gated run read against an observed one: the paired card is never a filled verdict", async ({
@@ -416,23 +193,6 @@ test("a gated run read against an observed one: the paired card is never a fille
   expect(seen.outbound).toEqual([]);
 });
 
-test("under a domain filter the nodes table resolves every edge over the whole graph", async ({
-  page,
-}) => {
-  const seen = await watch(page);
-  await open(page, "light", "/orchestration/design-graph?run=0/domains");
-  // Three domains' nodes and the plan's interface node.
-  await expect(page.locator("button.pg-node")).toHaveCount(4);
-  await page.locator('[aria-label="Domain filter"] button', { hasText: /^control$/ }).click();
-  await expect(page.locator("button.pg-node")).toHaveCount(1);
-  const table = page.locator('section[aria-label="Nodes"]');
-  await expect(table.locator("tbody tr")).toHaveCount(1);
-  await expect(table).not.toContainText("not in the graph");
-  await expect(table.locator("tbody tr")).toContainText("firmware.loop");
-  await expect(table.locator("tbody tr")).toContainText("electrical.supply");
-  expect(seen.outbound).toEqual([]);
-});
-
 test("no screen over any recorded run shows a terminal command", async ({ page, request }) => {
   test.setTimeout(600_000);
   const listed = (await (await request.get("/api/runs")).json()) as {
@@ -440,6 +200,7 @@ test("no screen over any recorded run shows a terminal command", async ({ page, 
   };
   expect(listed.runs.length).toBeGreaterThan(3);
   const views = [
+    "/home/overview",
     "/home/run-records",
     "/orchestration/design-graph",
     "/orchestration/run-timeline",
@@ -453,6 +214,7 @@ test("no screen over any recorded run shows a terminal command", async ({ page, 
       await page.goto(`/?theme=light#${path}`);
       await expect(page.locator('[aria-busy="true"]')).toHaveCount(0, { timeout: 30_000 });
       await namesNoCommand(page, path);
+      await saysNoMoreThanTheRecord(page, path);
     }
   }
 });

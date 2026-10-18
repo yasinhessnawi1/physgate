@@ -21,7 +21,7 @@ import { EmptyState, LoadingState } from "../design/components/status/States";
 import { OsLayerBadge } from "../design/components/system/OsLayerBadge";
 import { GateModeBadge } from "../design/components/verdict/GateMode";
 import markUrl from "../design/brand/mark.svg?url";
-import type { ViewDef } from "../views/registry";
+import type { ViewDef } from "../screens/registry";
 import { GROUPS, groupById } from "./groups";
 import type { Header } from "./header";
 import { InspectorContext } from "./inspector";
@@ -257,8 +257,8 @@ export function Shell({
       : page === "about"
         ? "About physgate"
         : (header?.title ?? "Nothing here");
-  // Only the gallery opens the inspector region for now; today's views keep their own inspectors.
-  const hasInspector = page === "gallery";
+  // The gallery and the views that say they have one open the inspector region.
+  const hasInspector = page === "gallery" || view?.inspector === true;
   const inspectorOpen = hasInspector && inspectorShown && !inspectorClosed;
   const Page = page === null ? undefined : pages?.[page];
 
@@ -364,8 +364,25 @@ export function Shell({
                 (header.source !== undefined ||
                   header.gateMode !== undefined ||
                   header.osLayer !== undefined ||
-                  header.inProgress === true) && (
+                  header.inProgress === true ||
+                  header.run !== undefined ||
+                  header.runState !== undefined) && (
                   <div className="pg-run-chip" role="group" aria-label="The run shown">
+                    {header.runState !== undefined ? (
+                      <span className="pg-run-label">
+                        {header.runState === "none" ? "No run yet" : "Run not read"}
+                      </span>
+                    ) : (
+                      header.run !== undefined && (
+                        <span
+                          className="pg-run-label"
+                          title={header.run.detail}
+                          aria-label={`${header.run.label}, ${header.run.detail}`}
+                        >
+                          {header.run.label}
+                        </span>
+                      )
+                    )}
                     {header.source !== undefined && (
                       <SourceChip id={header.source.id} commit={header.source.commit} compact />
                     )}

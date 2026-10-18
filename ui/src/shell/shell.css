@@ -523,3 +523,9 @@
     border-top: 1px solid var(--color-border);
   }
 }
+
+/* The run's label leads the chip; its time in UTC and its id are its title and its name. */
+.pg-run-label {
+  font-weight: 600;
+  white-space: nowrap;
+}

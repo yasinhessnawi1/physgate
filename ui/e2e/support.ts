@@ -6,6 +6,7 @@
 import { expect, type Page } from "@playwright/test";
 
 import { namesACommand } from "../src/rules/commands";
+import { bannedIn } from "../src/words/queue";
 import { PORT } from "./port";
 
 export const LOCAL = new RegExp(`^http://127\\.0\\.0\\.1:${String(PORT)}/`);
@@ -85,7 +86,7 @@ export async function bindingStylesHold(page: Page) {
     expect(q["white-space"]).toBe("nowrap");
   }
   // Buttons and run links: a hit area of at least 44 by 44 px.
-  expect(await hitAreasShort(page, ".pg-btn, .run-link")).toEqual([]);
+  expect(await hitAreasShort(page, ".pg-btn, .run-link, .pg-run-link")).toEqual([]);
 }
 
 /**
@@ -157,4 +158,35 @@ export async function namesNoCommand(page: Page, where: string) {
   expect(namesACommand(drawn), `${where}: ${drawn}`).toBe(false);
   const whole = await page.evaluate(() => document.body.textContent);
   expect(namesACommand(whole), `${where}: ${whole}`).toBe(false);
+}
+
+/**
+ * Nothing the page says about a decision claims more than the harness does: no banned word in
+ * what is drawn or in what the page holds undrawn.
+ */
+export async function saysNoMoreThanTheRecord(page: Page, where: string) {
+  const drawn = await page.locator("body").innerText();
+  expect(bannedIn(drawn), `${where}: ${drawn}`).toEqual([]);
+  const whole = await page.evaluate(() => document.body.textContent);
+  expect(bannedIn(whole), where).toEqual([]);
+}
+
+/** A run, a queue item, a dotted key or a digest: what must never lead a row or a heading. */
+const AN_ID = /^(run-\d+|Q-\d+|[a-z][a-z0-9_]*(\.[a-z0-9_]+)+|[0-9a-f]{7,64})(\b|$)/;
+
+/**
+ * Each element ``selector`` matches leads with a human label: its first text does not read as
+ * an id. Returns the ones that do.
+ */
+export async function idsLeading(page: Page, selector: string): Promise<string[]> {
+  const firsts = await page.locator(selector).evaluateAll((all) =>
+    all.map((el) => {
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let node = walker.nextNode();
+      while (node !== null && (node.textContent ?? "").trim() === "") node = walker.nextNode();
+      return (node?.textContent ?? "").trim();
+    }),
+  );
+  expect(firsts.length, `nothing matches ${selector}`).toBeGreaterThan(0);
+  return firsts.filter((text) => AN_ID.test(text));
 }

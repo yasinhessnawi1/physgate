@@ -1,6 +1,7 @@
 /**
- * Every view the app has: the navigation group it is listed in, its address, its title and icon. The shell renders the navigation from this list and
- * never imports a view itself, so a later view is one folder and one line here.
+ * Every screen the app has: the navigation group it is listed in, its address, its title and
+ * icon, and whether it opens the shell's inspector. The shell renders the navigation from this
+ * list and never imports a screen itself, so a later screen is one folder and one line here.
  */
 import { type ComponentType, lazy } from "react";
 
@@ -18,24 +19,26 @@ export interface ViewDef {
   readonly title: string;
   readonly icon: IconName;
   readonly component: ComponentType<ViewProps>;
+  /** It shows its selection in the shell's inspector region. */
+  readonly inspector?: boolean;
 }
 
 export const VIEWS: readonly ViewDef[] = [
   {
     group: "home",
     area: "home",
-    slug: "run-records",
-    title: "Run records",
-    icon: "file-text",
-    component: lazy(() => import("./run-records/RunRecords")),
+    slug: "overview",
+    title: "Home",
+    icon: "layout-dashboard",
+    component: lazy(() => import("./home/Home")),
   },
   {
-    group: "run",
-    area: "orchestration",
-    slug: "design-graph",
-    title: "Design graph",
-    icon: "network",
-    component: lazy(() => import("./design-graph/DesignGraph")),
+    group: "home",
+    area: "collaboration",
+    slug: "approval-queue",
+    title: "Queue",
+    icon: "inbox",
+    component: lazy(() => import("../views/approval-queue/ApprovalQueue")),
   },
   {
     group: "run",
@@ -44,6 +47,16 @@ export const VIEWS: readonly ViewDef[] = [
     title: "Run timeline",
     icon: "activity",
     component: lazy(() => import("./run-timeline/RunTimeline")),
+    inspector: true,
+  },
+  {
+    group: "run",
+    area: "orchestration",
+    slug: "design-graph",
+    title: "Design graph",
+    icon: "network",
+    component: lazy(() => import("./design-graph/DesignGraph")),
+    inspector: true,
   },
   {
     group: "run",
@@ -51,14 +64,14 @@ export const VIEWS: readonly ViewDef[] = [
     slug: "gate-checks",
     title: "Gate checks",
     icon: "shield-check",
-    component: lazy(() => import("./gate-checks/GateChecks")),
+    component: lazy(() => import("../views/gate-checks/GateChecks")),
   },
   {
-    group: "home",
-    area: "collaboration",
-    slug: "approval-queue",
-    title: "Approval queue",
-    icon: "inbox",
-    component: lazy(() => import("./approval-queue/ApprovalQueue")),
+    group: "run",
+    area: "home",
+    slug: "run-records",
+    title: "Run records",
+    icon: "file-text",
+    component: lazy(() => import("../views/run-records/RunRecords")),
   },
 ];

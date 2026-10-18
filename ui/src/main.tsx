@@ -2,6 +2,7 @@ import "virtual:physgate-tokens.css";
 import "./design/components.css";
 import "./shell/shell.css";
 import "./views/legacy.css";
+import "./screens/screens.css";
 
 import { lazy, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
@@ -19,7 +20,7 @@ import {
   themeOverride,
 } from "./shell/prefs";
 import { Shell } from "./shell/Shell";
-import { VIEWS } from "./views/registry";
+import { VIEWS } from "./screens/registry";
 
 // The theme and density are set before the first paint, as the shell will keep them: the viewer's
 // stored choice, or the system's theme until one is chosen. `?theme=dark` or `?theme=light`

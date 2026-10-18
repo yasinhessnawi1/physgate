@@ -225,7 +225,12 @@ function RunView({ listing, config }: { listing: RunListing; config: RunConfig }
                 Journal head revision <span className="mono">{record.headRevision}</span>.
               </p>
               <GraphCanvas
-                nodes={record.nodes.map((node) => ({ ...node, label: node.id }))}
+                nodes={record.nodes.map((node) => ({
+                  id: node.id,
+                  kind: node.kind,
+                  domain: node.domain,
+                  label: node.id,
+                }))}
                 edges={record.nodes.flatMap((node) =>
                   node.constrains.map((to) => ({ from: node.id, to })),
                 )}
