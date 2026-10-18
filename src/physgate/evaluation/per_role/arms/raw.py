@@ -50,6 +50,7 @@ from physgate.orchestrator.dispatch import (
     read_captured,
     redact,
     review_material_seen,
+    runtime_paths,
     session_end_command,
     spawn_held,
     write_record,
@@ -142,7 +143,8 @@ def raw_bounds(bounds: RunBounds) -> tuple[int, float]:
 
 def _install(setup: RawSetup, worktree: Path, sdir: Path, temp: Path | None) -> dict[str, Any]:
     state = sdir / "state"
-    state.mkdir(parents=True)
+    state.mkdir(mode=0o700, parents=True)
+    (sdir / "config").mkdir(mode=0o700, exist_ok=True)
     helper: list[str] = []
     if setup.credential.mode == "api_key":
         helper = ["--api-key-helper", str(write_key_helper(state, setup.credential.secret))]
@@ -217,7 +219,10 @@ def run_raw(task: Task, setup: RawSetup, work: Path, *, cap: int) -> dict[str, A
         msg = f"{work} exists; each raw session gets a directory of its own"
         raise RawArmError(msg, work=str(work))
     worktree, sdir = work / "worktree", work / "session"
-    worktree.mkdir(parents=True)
+    # Private from the start: the session's credential is written beneath ``sdir``.
+    work.mkdir(mode=0o700, parents=True)
+    worktree.mkdir(mode=0o700)
+    sdir.mkdir(mode=0o700)
     subprocess.run(["git", "init", "-q"], cwd=worktree, check=True, capture_output=True)
     session_id = str(uuid.uuid4())
     temp: Path | None = None
@@ -241,8 +246,10 @@ def _run(
     temp: Path | None,
     cap: int,
 ) -> dict[str, Any]:
+    # As a role session's: what the runtime makes is made first, so it is in the record.
+    (sdir / "home").mkdir(mode=0o700, exist_ok=True)
+    runtime_paths(worktree, sdir / "home")
     installed = _install(setup, worktree, sdir, temp)
-    (sdir / "home").mkdir(exist_ok=True)
     env = isolated_env(
         home=sdir / "home",
         config_dir=sdir / "config",
@@ -275,28 +282,33 @@ def _run(
         write_record(sdir.parent, sdir.name, record, "process.json")
 
     began = time.monotonic()
-    with stdout.open("wb") as out, (sdir / "stderr.txt").open("wb") as err:
-        process, started = spawn_held(
-            argv,
-            cwd=worktree,
-            env=env,
-            out=out,
-            err=err,
-            session_id=session_id,
-            on_spawn=None,
-            while_held=while_held,
-        )
-        watch = BudgetWatch(stdout, cap, process, started)
-        watch.start()
-        try:
-            ended = await_session(process, started, wall_clock)
-        finally:
-            watch.stop()
-    seconds = time.monotonic() - began
-    after = check_after_stop(check, session_id, worktree, env, sdir / "state")
-    secret = setup.credential.secret
-    remove_secrets(sdir / "state", sdir / "config")
-    redact(stdout, secret)
+    stderr = sdir / "stderr.txt"
+    try:
+        with stdout.open("wb") as out, stderr.open("wb") as err:
+            process, started = spawn_held(
+                argv,
+                cwd=worktree,
+                env=env,
+                out=out,
+                err=err,
+                session_id=session_id,
+                on_spawn=None,
+                while_held=while_held,
+            )
+            watch = BudgetWatch(stdout, cap, process, started)
+            watch.start()
+            try:
+                ended = await_session(process, started, wall_clock)
+            finally:
+                watch.stop()
+        seconds = time.monotonic() - began
+        after = check_after_stop(check, session_id, worktree, env, sdir / "state")
+    finally:
+        # As for a role session: the credential is on disk only while the session runs,
+        # and whatever of it the session printed is taken out of both of its streams.
+        remove_secrets(sdir / "state", sdir / "config")
+        redact(stdout, setup.credential.secret)
+        redact(stderr, setup.credential.secret)
     captured = read_captured(stdout)
     total = sum(m.usage.total() for m in captured.usage)
     answer_status = _take_answer(worktree, task, work / "answer" / task.answer.path)
@@ -321,7 +333,7 @@ def _run(
         "sentinel_after_stop": after.get("refused"),
         "pins": pins(task, setup),
     }
-    write_record(work, "record", record, "raw.json")
+    write_record(work.parent, work.name, record, "raw.json")
     return record
 
 
