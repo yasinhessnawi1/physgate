@@ -787,6 +787,62 @@ def harness_protection() -> list[str]:
     return args
 
 
+#: What Claude Code 2.1.301 makes on its own in a role session inside the OS layer
+#: (measured on macOS): a directory in the worktree's ``.claude``, made again before every
+#: shell command, and one line ignoring it in git's user ignore in the session's home. Each
+#: directory with the mode the runtime gives it, outermost first; then the file.
+RUNTIME_DIRECTORIES: tuple[tuple[tuple[str, ...], int], ...] = (
+    ((".claude",), 0o755),
+    ((".claude", ".cc-writes"), 0o700),
+)
+RUNTIME_HOME_DIRECTORIES: tuple[tuple[tuple[str, ...], int], ...] = (
+    ((".config",), 0o700),
+    ((".config", "git"), 0o755),
+)
+RUNTIME_GIT_IGNORE = ((".config", "git", "ignore"), b"**/.claude/.cc-writes/\n", 0o644)
+
+
+def runtime_paths(worktree: Path, home: Path) -> None:
+    """Make what the runtime makes in a session, with its own bytes and modes, if absent.
+
+    Both paths lie under roots the sentinel puts back (the worktree's ``.claude`` and git's
+    configuration in the home), so a session that found them absent would be refused on
+    its first shell command, and again after every put-back. Made here first, before the
+    session's record is taken, they are part of that record: the runtime finds them and
+    makes nothing, and a session that changes either is still caught. Nothing is exempted.
+    Made whether or not the OS layer runs, so a session's record never depends on it.
+
+    A path already present is left as it is, and nothing is made beneath one that is not a
+    real directory, so nothing is written through a link.
+    """
+
+    def directories(top: Path, chain: tuple[tuple[tuple[str, ...], int], ...]) -> bool:
+        for parts, mode in chain:
+            path = top.joinpath(*parts)
+            if os.path.lexists(path):
+                if path.is_symlink() or not path.is_dir():
+                    return False
+                continue
+            path.mkdir(mode=mode)
+            path.chmod(mode)
+        return True
+
+    directories(worktree, RUNTIME_DIRECTORIES)
+    if not directories(home, RUNTIME_HOME_DIRECTORIES):
+        return
+    parts, data, mode = RUNTIME_GIT_IGNORE
+    target = home.joinpath(*parts)
+    if os.path.lexists(target):
+        return
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(target, flags, mode)
+    try:
+        os.write(fd, data)
+        os.fchmod(fd, mode)
+    finally:
+        os.close(fd)
+
+
 class Installed(BaseModel):
     """What the hook layer's installer prints: its files and how to spawn the session."""
 
@@ -1069,10 +1125,12 @@ class ClaudeDispatcher:
         left_over: tuple[SetAside, ...],
     ) -> SessionReport:
         system_before = self.environment().system_managed
+        # Made before the installation, so the OS layer's rules name them as they will stand.
+        (sdir / "home").mkdir(parents=True, exist_ok=True)
+        runtime_paths(worktree, sdir / "home")
         installed = self._install(request, worktree, sdir, temp)
         # Read before the session starts, while nothing of it can have touched the file.
         end_check = session_end_command(Path(installed.settings))
-        (sdir / "home").mkdir(exist_ok=True)
         env = isolated_env(
             home=sdir / "home",
             config_dir=sdir / "config",

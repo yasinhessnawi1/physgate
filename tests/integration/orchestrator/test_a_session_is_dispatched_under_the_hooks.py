@@ -806,3 +806,97 @@ def test_a_sandboxed_session_and_an_unsandboxed_one_end_through_the_same_steps(
     assert "sweep" in sandboxed and "sweep" not in unsandboxed
     assert [s for s in sandboxed if s != "sweep"] == unsandboxed
     assert set(module_steps) | {"survey"} <= set(unsandboxed)
+
+
+# --- what the runtime makes on its own inside the OS layer -----------------------------
+
+#: The bytes Claude Code 2.1.301 writes to the session home's git ignore inside the OS
+#: layer on macOS, as measured (M-100); spelled here, not imported, so the dispatcher's
+#: copy is checked against the measurement.
+RUNTIME_IGNORE = b"**/.claude/.cc-writes/\n"
+
+
+def _sentinel_acts(sdir: Path) -> list[dict[str, Any]]:
+    log = sdir / "state" / "hooks.log.jsonl"
+    if not log.exists():  # written on the first record; a quiet session leaves none
+        return []
+    return [
+        e
+        for e in map(json.loads, log.read_text().splitlines())
+        if e.get("hook") == "sentinel" and e.get("decision") in ("put back", "refuse", "halt")
+    ]
+
+
+def test_a_role_session_inside_the_os_layer_is_not_refused_for_what_the_runtime_makes(
+    tmp_path: Path, install_bin: Path
+) -> None:
+    """The runtime's own two paths are made first, so its shell commands meet no put-back.
+
+    Inside the OS layer on macOS, 2.1.301 makes ``.claude/.cc-writes/`` in the worktree
+    before every shell command and ``.config/git/ignore`` in the session's home, both
+    under roots the sentinel puts back. Made by the dispatcher first, with the runtime's
+    own bytes and modes, they are part of the session's record from its start.
+    """
+    from physgate.oslayer.probe import Present, judge_here
+
+    version = config().claude_version
+    path = f"{Path(claude_binary()).parent}:/usr/bin:/bin:/usr/sbin:/sbin"
+    if not isinstance(judge_here(claude_version=version, search_path=path), Present):
+        pytest.skip("the OS layer cannot run here")
+    worktree = tmp_path / "run" / "worktrees" / "s1"
+    steps = [
+        *knowledge_reads(worktree),
+        read_spec_at(worktree),
+        tool("Bash", command="true"),
+        tool("Bash", command="true"),
+        text("done"),
+    ]
+    _, (report, _), _ = dispatch(tmp_path, install_bin, steps)
+    assert report.end.outcome == "completed", report
+    sdir = Path(str(report.trajectory)).parent
+    assert _sentinel_acts(sdir) == []
+    made = worktree / ".claude" / ".cc-writes"
+    assert made.is_dir() and list(made.iterdir()) == []
+    assert made.stat().st_mode & 0o777 == 0o700
+    ignore = sdir / "home" / ".config" / "git" / "ignore"
+    assert ignore.read_bytes() == RUNTIME_IGNORE
+    assert ignore.stat().st_mode & 0o777 == 0o644
+
+
+def test_a_session_that_changes_the_runtime_s_git_ignore_is_still_put_back(
+    tmp_path: Path, install_bin: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Made first is not exempt: the sentinel alone still puts a session's change back.
+
+    The OS layer is held off and the path is known only at run time, which the first
+    layer cannot see, so the sentinel is the one layer on trial.
+    """
+    import physgate.orchestrator.dispatch as dispatch_module
+    from physgate.oslayer.probe import Absent
+
+    off = Absent(reason="stand-in: the sentinel alone")
+    monkeypatch.setattr(dispatch_module.ClaudeDispatcher, "os_layer", lambda self: off)
+    worktree = tmp_path / "run" / "worktrees" / "s1"
+    write = (
+        "a=$(printenv HOME); b=/.config/git/ignore; "
+        "echo '*.physgate' >> \"$a$b\" && echo ran > modules/power/ran.txt"
+    )
+    steps = [
+        *knowledge_reads(worktree),
+        read_spec_at(worktree),
+        tool("Bash", command=write),
+        text("done"),
+    ]
+    _, (report, _), _ = dispatch(tmp_path, install_bin, steps)
+    assert (worktree / "modules" / "power" / "ran.txt").exists(), "the write never ran"
+    sdir = Path(str(report.trajectory)).parent
+    home_git = sdir / "home" / ".config" / "git"
+    acts = _sentinel_acts(sdir)
+    put_back = [p for e in acts if e["decision"] == "put back" for p in e.get("paths") or []]
+    assert any(Path(p).is_relative_to(home_git) for p in put_back), acts
+    assert any(e["decision"] == "refuse" for e in acts), acts
+    assert (home_git / "ignore").read_bytes() == RUNTIME_IGNORE
+
+
+def read_spec_at(worktree: Path) -> dict[str, Any]:
+    return tool("Read", file_path=str(worktree / SPEC))
