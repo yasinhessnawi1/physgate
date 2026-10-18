@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import math
 import os
-import re
 import secrets
 import shutil
 from collections.abc import Iterator
@@ -29,8 +28,9 @@ from physgate.orchestrator.run_config import HarnessState, harness_state
 from physgate.oslayer.placement import machine_writable, placement_refusal
 from physgate.state.store import Store
 
-#: The variable naming where integration tests make their trees; ``~/physgate-scratch/tests``
-#: where it is unset. It must lie outside every place the OS layer makes writable.
+#: The variable naming where integration tests make their trees; ``~/.cache/pg-tests`` where
+#: it is unset. It must lie outside every place the OS layer makes writable, and its path
+#: must hold no word a reviewer's packet may not show (a test's name may: none is used).
 TEST_ROOT_VARIABLE = "PHYSGATE_TEST_ROOT"
 
 _FAILED = pytest.StashKey[bool]()
@@ -140,7 +140,7 @@ def outside_writable_root() -> Path:
     the dispatcher and the hook installer refuse such a worktree.
     """
     named = os.environ.get(TEST_ROOT_VARIABLE)
-    root = Path(named) if named else Path.home() / "physgate-scratch" / "tests"
+    root = Path(named) if named else Path.home() / ".cache" / "pg-tests"
     refused = placement_refusal(root, machine_writable())
     if refused is not None:
         pytest.fail(f"{TEST_ROOT_VARIABLE}: {refused}")
@@ -158,8 +158,8 @@ def pytest_runtest_makereport(item: pytest.Item) -> Iterator[None]:
 
 
 def _made_outside(request: pytest.FixtureRequest) -> Path:
-    name = re.sub(r"[^A-Za-z0-9_-]+", "-", request.node.name)[:48]
-    made = outside_writable_root() / f"{name}-{secrets.token_hex(4)}"
+    # A random name alone: a test's name can hold a word a review root may not.
+    made = outside_writable_root() / f"t-{secrets.token_hex(6)}"
     made.mkdir()
     return made
 
