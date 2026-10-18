@@ -294,6 +294,32 @@ def test_none_where_no_os_layer_runs_is_said_on_stderr_and_in_the_run_s_event(
     assert cli._os_layer_checked(envelope, make_config(), ABSENT).network_enforced is None
 
 
+def test_an_offline_run_records_the_services_listening_on_loopback_at_its_start(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from datetime import UTC, datetime
+
+    from physgate.orchestrator import cli
+    from physgate.orchestrator.common import utc_stamp
+    from physgate.orchestrator.events import Envelope
+
+    stamp = utc_stamp(datetime(2026, 10, 18, tzinfo=UTC))
+    envelope = Envelope(seq=0, ts=stamp, run_id="run-1", gate_mode="on")
+    offline = make_config(network="none", os_layer=PRESENT, network_enforced=True)
+    event = cli._os_layer_checked(envelope, offline, PRESENT, listening=lambda: (631, 8811))
+    assert event.loopback_listeners == (631, 8811)
+    unread = cli._os_layer_checked(envelope, offline, PRESENT, listening=lambda: None)
+    assert unread.loopback_listeners is None and unread.loopback_listeners_read is False
+    # An open run reads nothing: the record is about what an offline session is kept from.
+    calls: list[int] = []
+    opened = cli._os_layer_checked(
+        envelope, make_config(), PRESENT, listening=lambda: calls.append(1) or ()
+    )
+    assert calls == [] and opened.loopback_listeners is None
+    cli._say_listeners(offline.network, (631, 8811))
+    assert "2 services listen on this machine's loopback" in capsys.readouterr().err
+
+
 DIGEST = "d" * 64
 
 

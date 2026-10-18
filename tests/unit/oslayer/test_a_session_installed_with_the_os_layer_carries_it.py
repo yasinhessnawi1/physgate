@@ -17,7 +17,13 @@ from pathlib import Path
 import pytest
 
 from physgate.hooks.registry import REGISTRY
-from physgate.hooks.settings import OS_LAYER_TEMP_LIMIT, InstallRequest, install
+from physgate.hooks.settings import (
+    OS_LAYER_TEMP_LIMIT,
+    InstallRequest,
+    build_config,
+    install,
+)
+from physgate.hooks.settings import current_installation as installation
 
 
 def _request(tmp_path: Path, temp: str | None) -> InstallRequest:
@@ -67,11 +73,31 @@ def test_offline_the_sandbox_refuses_every_host_in_every_permission_mode(outside
         update={"os_layer_network": "none"}
     )
     settings = json.loads(install(request, REGISTRY).settings_path.read_text())
+    # Local binding stays off: with it, every service listening on the machine's
+    # loopback is reachable from the session's shell, which is not "offline".
     assert settings["sandbox"]["network"] == {
         "strictAllowlist": True,
         "allowedDomains": [],
-        "allowLocalBinding": True,
+        "allowLocalBinding": False,
     }
+
+
+def test_each_session_gets_its_own_copy_of_the_offline_block(outside_tmp: Path) -> None:
+    from physgate.oslayer import policy
+
+    request = _request(outside_tmp, "/tmp/pg-0123456789ab").model_copy(
+        update={"os_layer_network": "none"}
+    )
+    before = dict(policy.OFFLINE)
+    done = policy.sandbox_policy(
+        build_config(request, installation()),
+        home=str(outside_tmp / "home"),
+        temp_dir="/tmp/pg-0123456789ab",
+        network="none",
+    )
+    done.settings["sandbox"]["network"]["allowedDomains"].append("example.invalid")
+    done.settings["sandbox"]["network"]["probe"] = 1
+    assert dict(policy.OFFLINE) == before
 
 
 def test_open_the_sandbox_names_no_network_block(outside_tmp: Path) -> None:

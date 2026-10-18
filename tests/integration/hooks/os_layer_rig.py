@@ -19,6 +19,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from fake_messages_api import DUMMY_KEY, Script, serving, text
 from hook_session import claude_binary
@@ -116,6 +117,7 @@ def run_session(
     layer: bool,
     timeout: float = 300,
     aborts_fail: bool = True,
+    network: Literal["open", "none"] = "open",
 ) -> dict[str, object]:
     """Install a role session for ``layout``, with or without the OS layer, and run it.
 
@@ -139,6 +141,7 @@ def run_session(
         extra_protected=(str(layout.common),),
         extra_protected_refuse_only=(str(layout.root / "run" / "sessions"), str(layout.decisions)),
         os_layer_temp_dir=str(layout.temp.resolve()) if layer else None,
+        os_layer_network=network,
     )
     installed = install(request, REGISTRY)
     binary = claude_binary()
