@@ -224,3 +224,12 @@ def test_a_process_that_takes_memory_without_end_is_stopped_by_its_memory_limit(
     ) as run:
         run.wait()
     assert run.ended_by == "limit"
+
+
+def test_a_run_that_passed_a_bound_fails_even_where_its_probes_would_pass() -> None:
+    task = _task()
+    traces = _traces(task)
+    assert score(task, traces)["passed"]
+    traces["fill"].limit = "the device sent a line longer than 200 bytes"
+    record = score(task, traces)
+    assert record["passed"] is False and record["limit"] == [traces["fill"].limit]
