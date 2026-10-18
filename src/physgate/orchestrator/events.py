@@ -85,6 +85,8 @@ IncidentCause = Literal[
     "held_out_read",
     "placeholder_refused",
     "withheld_file_unsure",
+    "os_layer_misplaced",
+    "os_layer_aborted",
 ]
 
 #: Why a run stopped short of the end of its plan.

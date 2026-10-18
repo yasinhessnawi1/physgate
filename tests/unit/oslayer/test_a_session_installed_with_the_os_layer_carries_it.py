@@ -4,7 +4,9 @@ With a temporary directory for the session, the settings carry the sandbox
 generated from the session's configuration, and the session starts with that
 directory as Claude Code's temporary directory. Without one, nothing changes.
 A directory too long for Claude Code to keep is refused, because the binary
-would silently replace it with the one every session of the user shares.
+would silently replace it with the one every session of the user shares. A session
+installed with the layer is placed outside every place the layer makes writable, as the
+installer requires.
 """
 
 from __future__ import annotations
@@ -37,8 +39,8 @@ def _request(tmp_path: Path, temp: str | None) -> InstallRequest:
     )
 
 
-def test_with_a_temporary_directory_the_settings_carry_the_sandbox(tmp_path: Path) -> None:
-    done = install(_request(tmp_path, "/tmp/pg-0123456789ab"), REGISTRY)
+def test_with_a_temporary_directory_the_settings_carry_the_sandbox(outside_tmp: Path) -> None:
+    done = install(_request(outside_tmp, "/tmp/pg-0123456789ab"), REGISTRY)
     settings = json.loads(done.settings_path.read_text())
     assert settings["sandbox"]["enabled"] is True
     assert settings["sandbox"]["failIfUnavailable"] is True
@@ -53,15 +55,15 @@ def test_without_one_nothing_changes(tmp_path: Path) -> None:
     assert "CLAUDE_CODE_TMPDIR" not in done.spawn_env
 
 
-def test_a_directory_claude_code_would_replace_is_refused(tmp_path: Path) -> None:
+def test_a_directory_claude_code_would_replace_is_refused(outside_tmp: Path) -> None:
     long = "/tmp/" + "p" * OS_LAYER_TEMP_LIMIT
     with pytest.raises(ValueError, match="shares"):
-        install(_request(tmp_path, long), REGISTRY)
+        install(_request(outside_tmp, long), REGISTRY)
     assert OS_LAYER_TEMP_LIMIT == 32
 
 
-def test_offline_the_sandbox_refuses_every_host_in_every_permission_mode(tmp_path: Path) -> None:
-    request = _request(tmp_path, "/tmp/pg-0123456789ab").model_copy(
+def test_offline_the_sandbox_refuses_every_host_in_every_permission_mode(outside_tmp: Path) -> None:
+    request = _request(outside_tmp, "/tmp/pg-0123456789ab").model_copy(
         update={"os_layer_network": "none"}
     )
     settings = json.loads(install(request, REGISTRY).settings_path.read_text())
@@ -72,6 +74,6 @@ def test_offline_the_sandbox_refuses_every_host_in_every_permission_mode(tmp_pat
     }
 
 
-def test_open_the_sandbox_names_no_network_block(tmp_path: Path) -> None:
-    done = install(_request(tmp_path, "/tmp/pg-0123456789ab"), REGISTRY)
+def test_open_the_sandbox_names_no_network_block(outside_tmp: Path) -> None:
+    done = install(_request(outside_tmp, "/tmp/pg-0123456789ab"), REGISTRY)
     assert "network" not in json.loads(done.settings_path.read_text())["sandbox"]

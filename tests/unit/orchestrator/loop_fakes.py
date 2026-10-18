@@ -13,7 +13,7 @@ from orch_helpers import gate_records, make_config, ticking_clock
 from physgate.orchestrator.budget import InfraCause, SessionEnd
 from physgate.orchestrator.common import GateMode
 from physgate.orchestrator.escalation import EscalationInterface, bind
-from physgate.orchestrator.exceptions import ReviewUnavailableError
+from physgate.orchestrator.exceptions import ReviewUnavailableError, WorktreeMisplacedError
 from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.ports import (
     ChangeCheck,
@@ -78,6 +78,10 @@ class FakeDispatcher:
     placeholders: dict[int, str] = field(default_factory=dict)
     #: Per call: what the held-out and answer-key tripwire found before the commit.
     withheld: dict[int, str] = field(default_factory=dict)
+    #: Per call: the tool calls whose command the OS layer's bubblewrap aborted.
+    aborted: dict[int, tuple[str, ...]] = field(default_factory=dict)
+    #: Per call: why the session's worktree may not hold a sandboxed session.
+    misplaced: dict[int, str] = field(default_factory=dict)
     #: Where to write real, sealed trajectory files; None keeps them notional.
     trajectories: Path | None = None
     #: Per call: something done while the session runs.
@@ -97,6 +101,8 @@ class FakeDispatcher:
             raise KilledError
         if call in self.during:
             self.during[call]()
+        if call in self.misplaced:
+            raise WorktreeMisplacedError(self.misplaced[call], subtask_id=request.subtask_id)
         sid = f"sess-{call}"
         if call in self.infra:
             infra_trajectory, infra_seal = None, None
@@ -117,6 +123,7 @@ class FakeDispatcher:
                 node_files_halted=False,
                 usage=(MessageUsage(message_id=f"m{call}", usage=usage(3)),),
                 series=self.series.get(call, SessionSeries()),
+                os_layer_aborted=self.aborted.get(call, ()),
             )
         trajectory = f"sessions/{sid}/stdout.jsonl"
         sealed = None
@@ -142,6 +149,7 @@ class FakeDispatcher:
             series=self.series.get(call, SessionSeries()),
             placeholders_refused=self.placeholders.get(call),
             withheld_problems=self.withheld.get(call),
+            os_layer_aborted=self.aborted.get(call, ()),
             usage=(
                 MessageUsage(message_id=f"m{call}a", usage=usage(10)),
                 MessageUsage(message_id=f"m{call}a", usage=usage(10)),

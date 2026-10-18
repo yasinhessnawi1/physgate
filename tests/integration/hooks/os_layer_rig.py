@@ -25,6 +25,7 @@ from hook_session import claude_binary
 
 from physgate.hooks.registry import REGISTRY
 from physgate.hooks.settings import InstallRequest, install
+from physgate.oslayer.abort import ABORT_PREFIX
 from physgate.oslayer.probe import Present, gather_facts, judge
 
 MARKER = "STANDIN-HELDOUT-MARKER"
@@ -109,9 +110,20 @@ def python(program: str) -> str:
 
 
 def run_session(
-    layout: Layout, steps: list[dict[str, object]], *, layer: bool, timeout: float = 300
+    layout: Layout,
+    steps: list[dict[str, object]],
+    *,
+    layer: bool,
+    timeout: float = 300,
+    aborts_fail: bool = True,
 ) -> dict[str, object]:
-    """Install a role session for ``layout``, with or without the OS layer, and run it."""
+    """Install a role session for ``layout``, with or without the OS layer, and run it.
+
+    A step whose result carries bubblewrap's own words (``bwrap:``) never ran: the
+    sandbox failed before the command started. It fails the test, because a refusal
+    test would otherwise pass on a command no layer judged. ``aborts_fail`` off leaves
+    that to the caller, which is shown the aborted steps under ``aborted``.
+    """
     request = InstallRequest(
         profile="role",
         role="electrical",
@@ -169,8 +181,15 @@ def run_session(
     told = {r.tool_results: r.last_user for r in api.requests if r.thread == "main"}
     stream = [json.loads(line) for line in done.stdout.splitlines() if line.startswith("{")]
     result = next((e for e in reversed(stream) if e.get("type") == "result"), None)
+    said = [told.get(n, "") for n in range(1, len(steps) + 1)]
+    aborted = [n for n, text in enumerate(said) if ABORT_PREFIX in text]
+    if aborted and aborts_fail:
+        shown = "; ".join(f"step {n}: {said[n][:200]!r}" for n in aborted)
+        msg = f"bubblewrap aborted {len(aborted)} step(s) before they ran: {shown}"
+        raise AssertionError(msg)
     return {
-        "told": [told.get(n, "") for n in range(1, len(steps) + 1)],
+        "told": said,
+        "aborted": aborted,
         "result": result,
         "exit": done.returncode,
         "settings": json.loads(installed.settings_path.read_text()),

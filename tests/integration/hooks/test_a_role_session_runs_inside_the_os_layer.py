@@ -28,6 +28,7 @@ from fake_messages_api import tool
 from os_layer_rig import MARKER, Layout, layer_here, make_layout, python, run_session
 
 from physgate.orchestrator.budget import classify_session_end
+from physgate.oslayer.placement import machine_writable, placement_refusal
 from physgate.oslayer.probe import shared_temp_dirs
 
 pytestmark = pytest.mark.integration
@@ -108,6 +109,25 @@ def _residual(layout: Layout) -> list[dict[str, object]]:
         tool("Bash", command=held + form.format(), description=name)
         for name, form in RESIDUAL_READS.items()
     ]
+
+
+def test_a_layout_lies_outside_every_place_the_os_layer_makes_writable(layout: Layout) -> None:
+    # Inside one, its sessions would share the sandbox's placeholders with every other
+    # session there, and abort each other's commands (M-107).
+    for place in (layout.root, layout.worktree):
+        assert placement_refusal(place, machine_writable()) is None, place
+
+
+def test_a_step_told_bubblewrap_s_own_words_fails_the_test(layout: Layout) -> None:
+    # An aborted command never ran, so a refusal test must not pass on it. The step ends
+    # as an abort does, bubblewrap's line and exit 1; no layer is needed to show the rig.
+    abort = 'echo "bwrap: Can\'t find source path /x/.mcp.json" >&2; exit 1'
+    with pytest.raises(AssertionError, match="bubblewrap aborted 1 step"):
+        run_session(layout, [tool("Bash", command=abort, description="abort")], layer=False)
+    shown = run_session(
+        layout, [tool("Bash", command=abort, description="abort")], layer=False, aborts_fail=False
+    )
+    assert shown["aborted"] == [0]
 
 
 @pytest.mark.usefixtures("layer")

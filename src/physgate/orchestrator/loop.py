@@ -74,6 +74,7 @@ from physgate.orchestrator.exceptions import (
     RunStateError,
     StoreRefusalError,
     TrajectoryTamperedError,
+    WorktreeMisplacedError,
 )
 from physgate.orchestrator.managed import policy_limits_change
 from physgate.orchestrator.merge import merge_message
@@ -549,7 +550,13 @@ class Loop:
             bounds=self.config.bounds,
             spec_commit=self._spec_commit(),
         )
-        report = self._dispatcher.run(request, on_spawn=self._spawned)
+        try:
+            report = self._dispatcher.run(request, on_spawn=self._spawned)
+        except WorktreeMisplacedError as exc:
+            # No session was started: the run is where sandboxed sessions abort each
+            # other's commands, and a person moves it.
+            self._incident(subtask_id, "os_layer_misplaced", str(exc))
+            return False
         for message in report.usage:
             self._emit(
                 TokensUsed(
@@ -604,6 +611,16 @@ class Loop:
             # A file no session reads had a second name, changed, or could not be checked
             # when the attempt was committed: its work is not taken, and a person looks first.
             self._incident(subtask_id, "withheld_file_unsure", report.withheld_problems)
+            return False
+        if report.os_layer_aborted:
+            # The OS layer aborted commands before they ran: the session was told of a
+            # failure nothing judged. Neither a denial nor a reach; its work is not taken,
+            # and a person looks first.
+            detail = (
+                f"bubblewrap aborted {len(report.os_layer_aborted)} command(s) of session "
+                f"{report.session_id} before they ran: {', '.join(report.os_layer_aborted)}"
+            )
+            self._incident(subtask_id, "os_layer_aborted", detail)
             return False
         if report.placeholders_refused is not None:
             # Something stood at a path only the sandbox holds that is not its placeholder:

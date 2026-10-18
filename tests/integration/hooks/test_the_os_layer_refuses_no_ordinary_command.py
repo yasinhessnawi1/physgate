@@ -31,6 +31,8 @@ import pytest
 from fake_messages_api import tool
 from os_layer_rig import Layout, layer_here, make_layout, run_session
 
+from physgate.oslayer.abort import OS_LAYER_ABORTED, is_abort
+
 pytestmark = pytest.mark.integration
 
 COMMANDS: list[str] = json.loads((Path(__file__).parent / "os_layer_commands.json").read_text())[
@@ -82,7 +84,8 @@ def _fixture(tmp_path: Path) -> Iterator[Layout]:
 
 
 def _told(layout: Layout, steps: list[dict[str, object]], *, on: bool) -> list[str]:
-    told = run_session(layout, steps, layer=on, timeout=1800)["told"]
+    # An aborted command is reported in its own column first, then fails the test below.
+    told = run_session(layout, steps, layer=on, timeout=1800, aborts_fail=False)["told"]
     assert isinstance(told, list)
     return [str(t) for t in told]
 
@@ -117,10 +120,17 @@ def test_no_ordinary_command_is_refused_by_the_os_layer(tmp_path: Path) -> None:
     for n, command in enumerate(COMMANDS):
         told_off, told_on = arms["off"][n], arms["on"][n]
         (exit_off, denied_off), (exit_on, denied_on) = _ended(told_off), _ended(told_on)
+        # Aborted: bubblewrap failed before the command ran. Nothing judged it, so it is
+        # neither refused nor let through; it is its own outcome, and fails the test.
+        aborted = is_abort(told_on)
         # Refused by the layer: it ends otherwise with the layer, and either it was told of
         # the sandbox's denial (which it was not told without the layer) or it succeeded
         # without the layer and fails with it.
-        refused = exit_on != exit_off and ((denied_on and not denied_off) or exit_off == 0)
+        refused = (
+            not aborted
+            and exit_on != exit_off
+            and ((denied_on and not denied_off) or exit_off == 0)
+        )
         rows.append(
             {
                 "n": n,
@@ -128,16 +138,19 @@ def test_no_ordinary_command_is_refused_by_the_os_layer(tmp_path: Path) -> None:
                 "exit_off": exit_off,
                 "exit_on": exit_on,
                 "denied_on": denied_on,
+                OS_LAYER_ABORTED: aborted,
                 "refused_by_layer": refused,
-                "told_on": told_on[:400] if refused or exit_on != exit_off else "",
+                "told_on": told_on[:400] if refused or aborted or exit_on != exit_off else "",
             }
         )
     refused_rows = [r for r in rows if r["refused_by_layer"]]
+    aborted_rows = [r for r in rows if r[OS_LAYER_ABORTED]]
     _report(
         "commands",
         {
             "commands": len(COMMANDS),
             "refused_by_layer": len(refused_rows),
+            OS_LAYER_ABORTED: len(aborted_rows),
             "ended_differently": sum(r["exit_on"] != r["exit_off"] for r in rows),
             "rows": rows,
         },
@@ -146,6 +159,8 @@ def test_no_ordinary_command_is_refused_by_the_os_layer(tmp_path: Path) -> None:
     # not), so the commands that write there by name are not refused.
     known: set[int] = set()
     assert {r["n"] for r in refused_rows} == known, [(r["n"], r["command"]) for r in refused_rows]
+    # No command may have gone unjudged: an abort says nothing about the layer either way.
+    assert aborted_rows == [], [(r["n"], r["told_on"]) for r in aborted_rows]
 
 
 @pytest.mark.usefixtures("layer")
