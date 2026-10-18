@@ -497,7 +497,7 @@ mod tests {
     }
 
     /// Every text the shell can put in front of a person, by file: the strings of its Rust
-    /// sources, and its bundled pages whole.
+    /// sources, and every line of its bundled pages.
     fn shell_texts() -> Vec<(String, Vec<String>)> {
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
         let mut texts = Vec::new();
@@ -514,8 +514,12 @@ mod tests {
                 .extension()
                 .is_some_and(|e| e == "html" || e == "js" || e == "css")
             {
+                // Line by line, so a finding names its line rather than the whole page.
                 let page = fs::read_to_string(&path).unwrap();
-                texts.push((path.display().to_string(), vec![page]));
+                texts.push((
+                    path.display().to_string(),
+                    page.lines().map(ToString::to_string).collect(),
+                ));
             }
         }
         texts
