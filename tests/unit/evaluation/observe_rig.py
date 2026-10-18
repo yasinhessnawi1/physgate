@@ -138,7 +138,7 @@ def node(
         "kind": kind,
         "domain": role,
         "owner_role": role,
-        "quantities": {"i": quantity},
+        "quantities": {"current_draw": quantity},
         "requirements": [],
         "constrains": [],
         "model": None,

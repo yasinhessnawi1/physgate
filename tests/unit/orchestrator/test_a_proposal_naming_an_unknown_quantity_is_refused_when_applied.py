@@ -1,0 +1,99 @@
+"""The orchestrator's second line: a proposal naming a quantity the catalogue lacks is refused.
+
+The hook refuses it as the session writes it; the orchestrator refuses it again when it reads
+the attempt's proposals from the commit, with a role the session could not choose, so a file
+that reached the commit by any other route is refused all the same. The store itself does not
+refuse such names: a corpus written straight into a store is unaffected.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from physgate.orchestrator.apply import ProposalRefusedError, read_proposals
+
+_ENV = {
+    "PATH": "/usr/bin:/bin",
+    "HOME": os.devnull,
+    "GIT_CONFIG_GLOBAL": os.devnull,
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "GIT_AUTHOR_NAME": "t",
+    "GIT_AUTHOR_EMAIL": "t@example.invalid",
+    "GIT_COMMITTER_NAME": "t",
+    "GIT_COMMITTER_EMAIL": "t@example.invalid",
+}
+
+
+def _git(cwd: Path, *args: str) -> str:
+    done = subprocess.run(
+        ["git", "-c", "commit.gpgsign=false", *args],
+        cwd=cwd,
+        env=_ENV,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return done.stdout.strip()
+
+
+def _commit(repo: Path, files: dict[str, str], message: str) -> str:
+    for name, content in files.items():
+        (repo / name).parent.mkdir(parents=True, exist_ok=True)
+        (repo / name).write_text(content)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", message)
+    return _git(repo, "rev-parse", "HEAD")
+
+
+def _node(name: str) -> dict[str, Any]:
+    return {
+        "id": "electrical.driver",
+        "kind": "component",
+        "domain": "electrical",
+        "owner_role": "electrical",
+        "quantities": {
+            name: {"value": 1, "unit": "A", "source": "datasheet", "written_by": "electrical"}
+        },
+        "requirements": [],
+        "constrains": [],
+        "model": None,
+        "geometry_hash": "sha256:" + "0" * 64,
+        "updated": "2026-10-19T00:00:00Z",
+        "no_change_justified": {},
+    }
+
+
+@pytest.fixture
+def repo(tmp_path: Path) -> tuple[Path, str]:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    base = _commit(repo, {"m.txt": "one\n"}, "one")
+    (tmp_path / "graph").mkdir()
+    return repo, base
+
+
+def test_a_proposal_with_a_catalogued_name_is_read(repo: tuple[Path, str], tmp_path: Path) -> None:
+    root, base = repo
+    path = ".physgate/proposals/electrical.driver.json"
+    commit = _commit(root, {path: json.dumps(_node("current_limit"))}, "proposal")
+    (found,) = read_proposals(root, base, commit, tmp_path / "graph")
+    assert found["id"] == "electrical.driver"
+
+
+def test_a_proposal_naming_a_quantity_the_catalogue_lacks_is_refused_naming_it(
+    repo: tuple[Path, str], tmp_path: Path
+) -> None:
+    root, base = repo
+    path = ".physgate/proposals/electrical.driver.json"
+    commit = _commit(root, {path: json.dumps(_node("motor_current"))}, "proposal")
+    with pytest.raises(ProposalRefusedError, match="motor_current") as caught:
+        read_proposals(root, base, commit, tmp_path / "graph")
+    assert "stall_current" in str(caught.value)  # the nearest catalogued name is offered
+    assert caught.value.subject == "electrical.driver"

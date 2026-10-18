@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from fractions import Fraction
 from types import MappingProxyType
 from typing import Annotated, Literal
@@ -94,6 +94,8 @@ KINDS: Mapping[str, Kind] = _kinds(
     Kind(name="torque", canonical="N*m", shape="force*length", source=SI_BROCHURE),
     Kind(name="frequency", canonical="Hz", angle=0, source=SI_BROCHURE),
     Kind(name="angular_velocity", canonical="rad/s", angle=1, source=SI_BROCHURE),
+    Kind(name="angle", canonical="rad", angle=1, source=SI_BROCHURE),
+    Kind(name="time", canonical="s", source=SI_BROCHURE),
     Kind(name="temperature", canonical="K", absolute=True, source=SI_BROCHURE),
     Kind(name="temperature_difference", canonical="K", source=SI_BROCHURE),
     Kind(name="thermal_resistance", canonical="K/W", sign="positive", source=SI_BROCHURE),
@@ -110,6 +112,10 @@ def _entries(*entries: Entry) -> Mapping[str, Entry]:
 
 
 FIXTURES = "named for the physics gate's checks, 26.09.2026"
+EXTRACTORS = (
+    "the series layer's published extractors (physgate.series.extract), which read the value "
+    "off a sealed record in this unit"
+)
 #: What ``current_limit`` means, because the current-headroom relation is judged against it:
 #: the most a driver or supply is rated to deliver, its peak output current, never a
 #: continuous rating. A continuous rating below a motor's stall current is a design that
@@ -150,6 +156,19 @@ QUANTITIES: Mapping[str, Entry] = _entries(
         source="a bench or mains power supply's rated output, as its datasheet states it",
     ),
     Entry(name="mass", kind="mass", source=WORKLOAD),
+    # The control quantities the series layer's published extractors read off a record
+    # (``physgate.series.extract``), each in the unit the extractor publishes.
+    Entry(name="phase_margin", kind="angle", source=EXTRACTORS),
+    Entry(name="gain_crossover_frequency", kind="angular_velocity", source=EXTRACTORS),
+    Entry(name="delay_margin", kind="time", source=EXTRACTORS),
+    Entry(
+        name="step_peak",
+        kind="length",
+        source=(
+            "the control stand-in's step response: the largest position the trace reaches, "
+            "read off its record by the series layer's max_abs extractor"
+        ),
+    ),
     Entry(name="support_position", kind="length", source=FIXTURES),
     Entry(name="mount_position", kind="length", source=FIXTURES),
     Entry(name="bore_diameter", kind="length", source=WORKLOAD),
@@ -468,6 +487,15 @@ def inferred_by(name: str) -> Suffix | None:
         if name.endswith(suffix.suffix) and len(name) > len(suffix.suffix):
             return suffix
     return None
+
+
+def unknown_names(names: Iterable[str]) -> tuple[str, ...]:
+    """The names among ``names`` the catalogue lacks, sorted, each once.
+
+    A suffix that gives the gate a kind does not make a name known: the suffix rule is the
+    gate's reading of a corpus written outside the hooks, not a licence for a writer.
+    """
+    return tuple(sorted({n for n in names if n not in QUANTITIES}))
 
 
 def kind_of(name: str) -> Kind | None:

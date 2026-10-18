@@ -13,6 +13,10 @@ the file as it is written. Here the orchestrator:
   created, and the relations the physics gate holds a node to follow from it (a
   module's declared mass is the sum of its parts), so rewriting the kind would
   let a node step out of a relation it failed;
+- refuses a quantity name the gate's catalogue lacks, as the hook did when the
+  file was written: a name the catalogue does not know meets no relation and no
+  range, so a renamed quantity steps out of them without saying so. The store
+  does not refuse such names, so a corpus written straight into one is unaffected;
 - pre-checks **all** of an attempt's proposals against the store's own guards on
   a scratch copy of the graph built from the canonical journal, so an attempt is
   applied whole or not at all, and a refusal is a rejected attempt carrying the
@@ -31,6 +35,7 @@ import shutil
 from collections.abc import Iterable
 from pathlib import Path
 
+from physgate.gate.catalogue import unknown_names
 from physgate.orchestrator.events import SessionEnded, read_events
 from physgate.orchestrator.exceptions import StoreRefusalError
 from physgate.orchestrator.git import (
@@ -60,6 +65,7 @@ from physgate.state.store import (
     Store,
     journal_records_after,
 )
+from physgate.state.vocabulary import nearest_quantity_names
 
 _PROPOSAL = re.compile(r"^\.physgate/proposals/(?P<id>[a-z][a-z0-9_]*(\.[a-z0-9_]+)+)\.json$")
 
@@ -117,6 +123,18 @@ def read_proposals(
             raise ProposalRefusedError(
                 f"{change.path} is not a valid node: {exc}", change.path
             ) from None
+        unknown = unknown_names(payload.get("quantities") or {})
+        if unknown:
+            hints = "; ".join(
+                f"{name}: nearest {', '.join(nearest_quantity_names(name)) or 'none'}"
+                for name in unknown
+            )
+            raise ProposalRefusedError(
+                f"{change.path} names quantities the gate's catalogue does not know "
+                f"({', '.join(unknown)}); a node is written with the catalogue's names, so that "
+                f"every relation and range that reads them applies ({hints})",
+                named["id"],
+            )
         owner, kind = fixed.get(named["id"], (None, None))
         if owner is not None and payload["owner_role"] != owner:
             raise ProposalRefusedError(

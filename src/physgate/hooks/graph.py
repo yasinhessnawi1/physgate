@@ -19,7 +19,13 @@ order, so a refused proposal is refused for the reason the store would give:
 3. an existing interface node is not written at all;
 4. every quantity is a value with a unit, a source and a writer — a bare number
    is refused here, with the schema's own message;
-5. the node as a whole is valid.
+5. every quantity's name is one the gate's catalogue knows. A name the catalogue
+   lacks gets a unit parse and at best a dimension from its suffix, never a
+   relation or a range, so a writer who renames ``stall_current`` has stepped out
+   of the headroom relation. This rule is the hook's and the orchestrator's, not
+   the store's: a corpus written straight into a store is unaffected, and the gate
+   keeps recording names it does not know as unchecked;
+6. the node as a whole is valid.
 
 The current owner and kind come from the journal, read without opening the
 store. The ownership rules are a list, so a rule the architecture adds later is
@@ -77,6 +83,8 @@ UNCHECKABLE = (
 OWNER_CHANGE = "owner_change"
 #: Not one of the store's reasons either (see ``_kind_does_not_change``).
 KIND_CHANGE = "kind_change"
+#: Not one of the store's reasons: a quantity name the gate's catalogue lacks.
+UNKNOWN_QUANTITY = "unknown_quantity"
 
 
 def _owner_is_the_session(
@@ -188,11 +196,35 @@ def _check(proposal: object, file_stem: str, config: ConfigView) -> tuple[str, s
             node_id=node_id,
         )
         return REJECT_MISSING_UNIT, str(refusal)
+    unknown = _unknown_quantities(proposal)
+    if unknown:
+        return UNKNOWN_QUANTITY, unknown
     try:
         validate_node(proposal)
     except (DesignStateError, ValidationError) as exc:
         return "invalid", _first_problem(exc)
     return None
+
+
+def _unknown_quantities(proposal: dict[str, Any]) -> str | None:
+    """Why a proposal naming quantities the catalogue lacks is refused, or None.
+
+    The names are read from :mod:`physgate.state.vocabulary`, the catalogue's names spelled
+    where a hook may load them: a hook never loads the gate.
+    """
+    from physgate.state.vocabulary import nearest_quantity_names, unknown_quantity_names
+
+    unknown = unknown_quantity_names(proposal.get("quantities") or {})
+    if not unknown:
+        return None
+    hints = "; ".join(
+        f"{name}: nearest {', '.join(nearest_quantity_names(name)) or 'none'}" for name in unknown
+    )
+    return (
+        f"{proposal.get('id')} names quantities the gate's catalogue does not know "
+        f"({', '.join(unknown)}); a node is written with the catalogue's names, so that every "
+        f"relation and range that reads them applies ({hints})"
+    )
 
 
 def _quantity_problems(proposal: dict[str, Any]) -> str:
