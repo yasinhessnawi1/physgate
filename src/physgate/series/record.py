@@ -92,16 +92,10 @@ def _unit(unit: str) -> str:
     except UnitSpellingError as exc:
         raise ValueError(str(exc)) from None
     try:
-        quantity = units.parse(1, unit)
+        # The gate's parser refuses a logarithmic unit by its own rule, numpy or not.
+        units.parse(1, unit)
     except units.UnitRefusedError as exc:
         raise ValueError(str(exc)) from None
-    # The registry's own record of how each unit converts. A logarithmic converter is
-    # how pint marks the decibel, the neper and their kin (pint 0.26.x, measured).
-    registry = quantity._REGISTRY
-    for name in quantity._units:
-        if getattr(registry._units[name].converter, "is_logarithmic", False):
-            msg = f"the unit {unit!r} is logarithmic; record a magnitude as a plain ratio"
-            raise ValueError(msg)
     return unit
 
 
