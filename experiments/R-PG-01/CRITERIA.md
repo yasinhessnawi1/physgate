@@ -1,15 +1,12 @@
 # R-PG-01 — pre-registration
 
-> **Draft, not frozen.** This text awaits approval. It is frozen by the commit that removes this
-> note and fills `⟨RUN_COMMIT⟩` and `⟨FREEZE_DATE⟩`; until then nothing here is binding.
-
 **Status:** frozen before any artefact of the corpus was reviewed by a real reviewer. Gate
 exposure before the freeze (every injected artefact was gated in the mechanical dry run, and
 the unit class while the corpus was assembled) is disclosed in R7.
 **Written:** 29.09.2026
 **Facts filled:** 16.10.2026 (the component commits and the runtime in §2; dated disclosures
 under §4 R4 and R7); 17.10.2026 (the re-pins in §2 at `3750496`, R4 at that commit, R8);
-⟨FREEZE_DATE⟩ (the run's commit). No threshold, definition or rule was changed by any fill.
+18.10.2026 (the run's commit, approved by the owner). No threshold, definition or rule was changed by any fill.
 **Added 17.10.2026, before any review of this corpus:** secondary result 10 (§6), reported and
 never scored.
 **Rule:** nothing in this file may change after the first metric is produced.
@@ -36,7 +33,7 @@ in this experiment changes them.
 
 ## 2. What is under test
 
-All component commits below are on `master`; the run's commit is **`⟨RUN_COMMIT⟩`**. Every hash
+All component commits below are on `master`; the run's commit is **the commit that freezes this file**. Every hash
 below was read at `3750496`; the launch script (§9) holds the run's commit to each of them.
 
 - **The gate:** `src/physgate/gate/` with git tree hash
@@ -61,7 +58,7 @@ below was read at `3750496`; the launch script (§9) holds the run's commit to e
   - The run's launch script (§9) checks, before the instrument starts, that the `gate/` tree,
     the bounds file and the spelling module at the run's commit have these hashes, so a merge
     that changes the gate refuses to run, and one that doesn't passes.
-- **The reviewers:** the paired reviewers of ARCH-060 at commit **`⟨RUN_COMMIT⟩`**
+- **The reviewers:** the paired reviewers of ARCH-060 at commit **the commit that freezes this file**
   (`src/physgate/reviewers/` tree **`7df979eecb5b9acba572c5687747ea33586a87e1`**, last changed at
   `1c5e988`), every role's on `claude-sonnet-5`.
   - **One review per artefact, by the paired reviewer of the artefact's role.** ARCH-060 pairs a
@@ -85,14 +82,14 @@ below was read at `3750496`; the launch script (§9) holds the run's commit to e
 - **The corpus:** `corpora/injected-errors/v1/` at sha256
   **`41553301d5b036f84df289ee6d8c87ecce4504d5a09969e05291e23c9ebc026a`**, commit **`dd7e042`**. It
   has been on `master` since `647875c`, and its tree (`77782679f15eae4301e86516541b4a3c5c6613b0`)
-  is unchanged through `⟨RUN_COMMIT⟩`.
+  is unchanged through the commit that freezes this file.
   - It holds 40 artefacts, ten per class, and each has a clean twin.
   - Two fresh sessions on `claude-opus-5-5` (the implementers' model, per the evaluation pins)
     wrote it, working blind to the gate's code and output: session A wrote the base design and
     the clean patches, and session B wrote the injections.
   - The base design is **a labelled stand-in** built from a sourced parts sheet (Pololu Balboa
     32U4), not the reference design.
-- **The instrument:** `physgate inject` as at commit **`⟨RUN_COMMIT⟩`**
+- **The instrument:** `physgate inject` as at commit **the commit that freezes this file**
   (`src/physgate/evaluation/inject/` tree **`af7ead4ac5579c86b6e19ffe7a02991ac9872eca`**, last
   changed at `f2048da`).
   - It records a review that came to no verdict as `review_unavailable`, with its cause, and a
