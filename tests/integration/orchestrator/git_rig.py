@@ -311,6 +311,7 @@ PARAMS = {
     "escalation_backend",
     "held_out",
     "held_out_canaries",
+    "held_out_sha256",
     "network",
 }
 
@@ -358,6 +359,7 @@ def config(run_id: str = "run-1") -> RunConfig:
         escalation_backend="rules",
         held_out=(),
         held_out_canaries=(),
+        held_out_sha256=(),
         network="open",
         network_enforced=None,
         os_layer=None,

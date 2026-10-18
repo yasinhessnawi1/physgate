@@ -30,7 +30,7 @@ from physgate.oslayer.probe import Absent, Present
 CANARY = "0123456789abcdef0123456789abcdef"
 
 
-@pytest.mark.parametrize("name", ["held_out", "held_out_canaries", "network"])
+@pytest.mark.parametrize("name", ["held_out", "held_out_canaries", "held_out_sha256", "network"])
 def test_each_is_a_required_parameter(name: str) -> None:
     fields = json.loads(make_config().model_dump_json())
     del fields[name]
@@ -292,3 +292,39 @@ def test_none_where_no_os_layer_runs_is_said_on_stderr_and_in_the_run_s_event(
         cli._say_os_layer(layer, network)  # type: ignore[arg-type]
         assert NETWORK_UNENFORCED not in capsys.readouterr().err
     assert cli._os_layer_checked(envelope, make_config(), ABSENT).network_enforced is None
+
+
+DIGEST = "d" * 64
+
+
+def test_each_held_out_root_is_recorded_with_its_digest_and_the_digest_is_in_the_run_s_id() -> None:
+    held = make_config(held_out=("/elsewhere/heldout",), held_out_sha256=(DIGEST,))
+    other = make_config(held_out=("/elsewhere/heldout",), held_out_sha256=("e" * 64,))
+    assert b'"held_out_sha256":["' + DIGEST.encode() + b'"]' in held.canonical_bytes()
+    assert held.sha256() != other.sha256()
+    assert b"held_out_sha256" not in make_config().canonical_bytes()
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"held_out": ("/elsewhere/heldout",), "held_out_sha256": ()},
+        {"held_out": (), "held_out_sha256": (DIGEST,)},
+        {"held_out": ("/a", "/b"), "held_out_sha256": (DIGEST,)},
+        {"held_out": ("/elsewhere/heldout",), "held_out_sha256": ("not-a-digest",)},
+    ],
+    ids=["a root without its digest", "a digest without a root", "one short", "malformed"],
+)
+def test_a_root_and_its_digest_come_in_pairs(change: dict[str, Any]) -> None:
+    with pytest.raises(ValidationError):
+        make_config(**change)
+
+
+def test_a_run_recorded_before_the_digest_reads_as_none_with_its_id_unchanged(
+    tmp_path: Path,
+) -> None:
+    recorded = make_config()
+    (tmp_path / "run.json").write_bytes(recorded.canonical_bytes())
+    loaded = load_run_config(tmp_path / "run.json")
+    assert loaded.held_out_sha256 == ()
+    assert loaded.sha256() == recorded.sha256()

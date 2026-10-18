@@ -69,11 +69,15 @@ def make_config(**overrides: Any) -> RunConfig:
         "escalation_backend": "rules",
         "held_out": (),
         "held_out_canaries": (),
+        "held_out_sha256": (),
         "network": "open",
         "network_enforced": None,
         "os_layer": None,
     }
     fields.update(overrides)
+    if "held_out" in overrides and "held_out_sha256" not in overrides:
+        # A test about something else names roots; each is given a placeholder digest.
+        fields["held_out_sha256"] = tuple("0" * 64 for _ in overrides["held_out"])
     return RunConfig(**fields)
 
 

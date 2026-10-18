@@ -294,6 +294,11 @@ class RunConfig(_Frozen):
     #: nothing (a split, encoded or unprinted read shows none). Tokens only: they say
     #: nothing of a task.
     held_out_canaries: tuple[Canary, ...]
+    #: Each held-out root's digest, in the order of ``held_out``, as recorded when the tier
+    #: was written: what the tier is held to before the run starts, recomputed from the bytes
+    #: on disk then, never from anything the tier carries. One per root, or none at all for a
+    #: run recorded before the field existed.
+    held_out_sha256: tuple[Sha256, ...]
     #: ``none`` refuses every role session's shell commands every remote host, through the
     #: OS layer; services on the machine's loopback stay reachable. ``open`` leaves the
     #: network as the layer finds it. Where the layer is absent nothing enforces ``none``:
@@ -320,6 +325,13 @@ class RunConfig(_Frozen):
         return self
 
     @model_validator(mode="after")
+    def _every_held_out_root_has_its_digest(self) -> RunConfig:
+        if len(self.held_out_sha256) != len(self.held_out):
+            msg = "held_out_sha256 records one digest per held-out root, in the same order"
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
     def _the_network_is_recorded_as_enforced_or_not(self) -> RunConfig:
         measured = None if self.os_layer is None else network_enforced(self.network, self.os_layer)
         if self.network_enforced != measured:
@@ -342,10 +354,10 @@ class RunConfig(_Frozen):
 
         ``thinking_display`` is left out when it is ``omitted``, what every run before
         the field existed ran with, and ``role_python``, ``git_binary``,
-        ``escalation_backend`` and ``os_layer`` when they are ``None``, ``held_out`` and
-        ``held_out_canaries`` when empty, ``network`` when ``open`` and ``network_enforced``
-        when ``None``, so their recorded digests still name them. A run that names a binding
-        always records it, so the binding is part of its manifest id.
+        ``escalation_backend`` and ``os_layer`` when they are ``None``, ``held_out``,
+        ``held_out_canaries`` and ``held_out_sha256`` when empty, ``network`` when ``open``
+        and ``network_enforced`` when ``None``, so their recorded digests still name them. A
+        run that names a binding always records it, so the binding is part of its manifest id.
         """
         exclude = set()
         if self.thinking_display == "omitted":
@@ -362,6 +374,8 @@ class RunConfig(_Frozen):
             exclude.add("held_out")
         if not self.held_out_canaries:
             exclude.add("held_out_canaries")
+        if not self.held_out_sha256:
+            exclude.add("held_out_sha256")
         if self.network == "open":
             exclude.add("network")
         if self.network_enforced is None:
@@ -461,6 +475,7 @@ def load_run_config(path: Path) -> RunConfig:
     for name, before in (
         ("held_out", []),
         ("held_out_canaries", []),
+        ("held_out_sha256", []),
         ("network", "open"),
         ("network_enforced", None),
     ):

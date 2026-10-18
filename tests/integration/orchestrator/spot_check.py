@@ -187,6 +187,7 @@ def params() -> dict[str, Any]:
         "escalation_backend": "rules",
         "held_out": [],
         "held_out_canaries": [],
+        "held_out_sha256": [],
         "network": "open",
     }
 
