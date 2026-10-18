@@ -54,7 +54,7 @@ def from_repro(directory: Path) -> list[tuple[str, list[dict[str, Any]]]]:
 def from_integration(root: Path) -> list[tuple[str, list[dict[str, Any]]]]:
     sys.path.insert(0, str(root / "tests" / "integration" / "orchestrator"))
     sys.path.insert(0, str(root / "tests"))
-    import domain_review_artefacts as d  # type: ignore[import-not-found]
+    import domain_review_artefacts as d
 
     found = []
     for name, (_, base, revision) in d.REVISIONS.items():
@@ -86,7 +86,7 @@ def main() -> None:
     ]
     cases += from_repro(repro)
     cases += from_integration(Path.cwd())
-    import check_3_cases  # type: ignore[import-not-found]
+    import check_3_cases
 
     cases += check_3_cases.random_mounts()
     rows = []
