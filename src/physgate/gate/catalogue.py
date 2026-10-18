@@ -174,7 +174,9 @@ class StoreClass(_Frozen):
     """A class of energy store, and the fastest continuous discharge a maker states for one.
 
     ``per_hour`` is the part's maximum continuous discharge power over the energy it stores
-    (its C-rate), rounded up, so the bound built from it is never tighter than the source.
+    (its C-rate), rounded up to the next whole number, so the bound built from it is never
+    tighter than the source and never looser than that rounding: the figure the source's own
+    arithmetic shows, and nothing else.
     """
 
     name: _Text
@@ -231,7 +233,7 @@ STORE_CLASSES: tuple[StoreClass, ...] = (
     ),
     StoreClass(
         name="lithium-ion capacitor",
-        per_hour=312,
+        per_hour=311,
         source=(
             "Musashi Energy Solutions prismatic cells data sheet 250615 (June 2025), CPQ3300SD: "
             "3300 F from 3.8 V to 2.2 V, continuous discharge 360 A (UL 810A); stored energy "

@@ -120,3 +120,26 @@ def test_the_unit_check_reads_the_relation_s_two_sides_as_powers(tmp_path: Path)
 def test_a_store_with_no_rating_gets_no_discharge_relation(tmp_path: Path) -> None:
     only = node(STORE, quantities={"energy_capacity": (10, "W*h")})
     assert run(tmp_path, "system", only).observations == ()
+
+
+def test_each_store_class_s_rate_is_the_figure_its_own_source_shows_rounded_up() -> None:
+    # No constant may differ from its source: where the source's arithmetic ends in
+    # "N per hour", the class's rate is N rounded up to the next whole number, and the
+    # one pack stated as a C-rate ("150C") is that number.
+    import math
+    import re
+
+    seen = 0
+    for store_class in STORE_CLASSES:
+        shown = re.search(r"([0-9.]+) per hour", store_class.source)
+        if shown is None:
+            rated = re.search(r"discharge rate (\d+)C", store_class.source)
+            assert rated is not None, store_class.name
+            assert store_class.per_hour == int(rated.group(1)), store_class.name
+        else:
+            assert store_class.per_hour == math.ceil(float(shown.group(1))), store_class.name
+        seen += 1
+    assert seen == len(STORE_CLASSES) >= 7
+    assert (
+        next(c for c in STORE_CLASSES if "capacitor" in c.name and "ion" in c.name).per_hour == 311
+    )
