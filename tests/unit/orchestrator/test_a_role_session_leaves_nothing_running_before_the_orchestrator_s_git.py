@@ -995,3 +995,28 @@ def test_the_loop_records_each_spawn_in_its_event_log_as_the_dispatcher_reports_
     loop.close()
     spawns = [e for e in read_events(tmp_path / "events.jsonl") if isinstance(e, SessionSpawned)]
     assert [(e.session_id, e.pid) for e in spawns][:1] == [("sess-1", 4242)]
+
+
+def test_a_stop_that_fails_kills_the_session_s_whole_group_not_only_the_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
+) -> None:
+    """The wait cannot list the tree once the session has started a child in its group.
+
+    The session leads a process group of its own and is this process's unreaped child, so
+    its group cannot be reused: the failed stop kills that whole group, and the child that
+    would write after the session is gone does not outlive the attempt.
+    """
+    session = Session(tmp_path, "sleeper", pause=1.0, wall_clock_s=60.0)
+    dispatcher = session.dispatcher(monkeypatch)
+    started = session.flags / "pids"
+    monkeypatch.setattr(processes, "subprocess", FailingPs("fails", started.exists))
+    try:
+        settled = _refused_before_git(session, dispatcher)
+    finally:
+        monkeypatch.undo()
+        leftovers += session.pids()
+    assert "the stop could not be completed" in settled["stop_unconfirmed"]
+    (child,) = session.pids()
+    assert _settle(lambda: started_at(child) is None, 2.0), "the session's group outlived it"
+    time.sleep(2.0)
+    assert sorted(p.name for p in session.root.iterdir()) == ["kept.txt"]

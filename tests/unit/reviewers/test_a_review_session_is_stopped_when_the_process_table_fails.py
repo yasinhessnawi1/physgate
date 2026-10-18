@@ -8,10 +8,14 @@ its own session, an unreaped child of its own whose pid is still its own, before
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
+import signal
 import stat
 import subprocess
 import sys
+import time
 from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
@@ -131,3 +135,75 @@ def test_a_review_s_end_record_is_never_written_through_a_link_its_session_plant
     assert victim.read_text() == "not the review's\n"
     assert not (sdir / "ended.json").is_symlink()
     assert json.loads((sdir / "ended.json").read_text())["exit"] == 0
+
+
+#: A stand-in review session that starts a child in its own process group, notes the
+#: child's pid, then waits; the child writes a marker once the session is gone.
+GROUPED = r"""
+import os, sys, time
+flag, marker = sys.argv[1], sys.argv[2]
+me = os.getpid()
+child = os.fork()
+if child == 0:
+    while True:
+        try:
+            os.kill(me, 0)
+        except ProcessLookupError:
+            break
+        if os.getppid() != me:
+            break
+        time.sleep(0.05)
+    time.sleep(1.0)
+    open(marker, "w").write("inert\n")
+    time.sleep(60)
+    os._exit(0)
+open(flag, "w").write(str(child))
+time.sleep(60)
+"""
+
+
+def test_a_failed_stop_kills_the_review_session_s_whole_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    flag, marker = tmp_path / "running", tmp_path / "marker"
+    binary = tmp_path / "bin" / "claude"
+    binary.parent.mkdir()
+    binary.write_text(
+        f"#!{sys.executable}\nimport sys\nsys.argv = [sys.argv[0], {str(flag)!r}, "
+        f"{str(marker)!r}]\n" + GROUPED
+    )
+    binary.chmod(binary.stat().st_mode | stat.S_IXUSR)
+    read = tmp_path / "rs" / "review" / "read"
+    (read / WORKTREE_NAME).mkdir(parents=True)
+    sdir = tmp_path / "rs" / "review" / "session"
+    sdir.mkdir()
+    reviewer = _reviewer(tmp_path, binary, wall_clock_s=30.0)
+    spawned = Spawned()
+    monkeypatch.setattr(dispatch, "subprocess", spawned)
+    monkeypatch.setattr(processes, "subprocess", FailingPs(lambda: bool(_text(flag))))
+    installed = Installed(settings="s", config="c", spawn_args=(), spawn_env={})
+    packet = cast(Packet, SimpleNamespace(read_root=str(read)))
+    child = 0
+    try:
+        with pytest.raises(processes.ProcessTableError):
+            reviewer._spawn(packet, sdir, installed, "sid", prompt="p", schema={})
+        child = int(flag.read_text())
+        monkeypatch.undo()
+        time.sleep(2.5)
+        assert not marker.exists(), "a member of the session's group outlived the failed stop"
+        assert processes.started_at(child) is None
+    finally:
+        for process in spawned.processes:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+        if child:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(child, signal.SIGKILL)
+
+
+def _text(path: Path) -> str:
+    try:
+        return path.read_text()
+    except OSError:
+        return ""
