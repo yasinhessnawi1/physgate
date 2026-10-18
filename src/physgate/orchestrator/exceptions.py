@@ -105,6 +105,13 @@ class InvocationError(OrchestratorError):
     """A Claude Code session cannot be invoked as measured: no binary, or another version."""
 
 
+class WorktreeMisplacedError(OrchestratorError):
+    """A sandboxed session was not started: its worktree lies where the OS layer lets all write.
+
+    Sandboxed sessions there abort each other's commands. Recorded as an incident.
+    """
+
+
 class DecompositionError(OrchestratorError):
     """The decomposition's plan cannot be written: a node the store refuses, a bad path."""
 

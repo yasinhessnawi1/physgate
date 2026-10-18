@@ -55,6 +55,7 @@ from physgate.hooks.reasons import SERIES_OUTBOX_REASON as SERIES_OUTBOX_REASON
 from physgate.hooks.reasons import SERIES_WRITER_REASON as SERIES_WRITER_REASON
 from physgate.hooks.reasons import STORE_REASON as STORE_REASON
 from physgate.hooks.runtime import EVENTS, HookSpec
+from physgate.oslayer.placement import machine_writable, placement_refusal
 from physgate.oslayer.policy import NETWORK_UNENFORCED, sandbox_policy
 from physgate.oslayer.probe import claude_temp_dirs, shared_temp_dirs
 
@@ -540,6 +541,15 @@ def install(
     ):
         msg = "the key helper must live in the session's files or its state directory"
         raise ValueError(msg)
+    if request.os_layer_temp_dir is not None:
+        # Before anything is written. A worktree in a place the sandbox makes writable
+        # shares the placeholders the Linux sandbox lays in its ancestors with every other
+        # session there, and their commands abort each other's: refused for every
+        # sandboxed session, a role's or the raw agent's.
+        writable = (*machine_writable(), request.user_home, request.os_layer_temp_dir)
+        misplaced = placement_refusal(Path(request.worktree), writable)
+        if misplaced is not None:
+            raise ValueError(misplaced)
     config = build_config(request, installation or current_installation())
     target = Path(request.target_dir)
     target.mkdir(parents=True, exist_ok=True)

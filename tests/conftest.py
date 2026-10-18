@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import math
 import os
+import secrets
+import shutil
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -23,7 +25,15 @@ from physgate import roles
 from physgate.orchestrator.cli import _harness_root
 from physgate.orchestrator.git import harness_git
 from physgate.orchestrator.run_config import HarnessState, harness_state
+from physgate.oslayer.placement import machine_writable, placement_refusal
 from physgate.state.store import Store
+
+#: The variable naming where integration tests make their trees; ``~/.cache/pg-tests`` where
+#: it is unset. It must lie outside every place the OS layer makes writable, and its path
+#: must hold no word a reviewer's packet may not show (a test's name may: none is used).
+TEST_ROOT_VARIABLE = "PHYSGATE_TEST_ROOT"
+
+_FAILED = pytest.StashKey[bool]()
 
 
 def pytest_xdist_auto_num_workers(config: pytest.Config) -> int:
@@ -119,3 +129,69 @@ def _the_harness_checkout_is_measured_once(monkeypatch: pytest.MonkeyPatch) -> N
 
     monkeypatch.setattr("physgate.orchestrator.cli.harness_state", measured)
     monkeypatch.setattr("physgate.evaluation.observe.rerun.harness_state", measured)
+
+
+def outside_writable_root() -> Path:
+    """Where integration tests make their trees: outside every place the OS layer makes writable.
+
+    A sandboxed session's worktree inside one (the shared temporary directories, where
+    pytest's own temporary directories are) shares the placeholders the Linux sandbox lays
+    in its ancestors with every other session there, and their commands abort each other's;
+    the dispatcher and the hook installer refuse such a worktree.
+    """
+    named = os.environ.get(TEST_ROOT_VARIABLE)
+    root = Path(named) if named else Path.home() / ".cache" / "pg-tests"
+    refused = placement_refusal(root, machine_writable())
+    if refused is not None:
+        pytest.fail(f"{TEST_ROOT_VARIABLE}: {refused}")
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(item: pytest.Item) -> Iterator[None]:
+    """Mark a test that failed, so its tree outside the temporary directories is kept."""
+    report = yield
+    if getattr(report, "failed", False):
+        item.stash[_FAILED] = True
+    return report
+
+
+def _made_outside(request: pytest.FixtureRequest) -> Path:
+    # A random name alone: a test's name can hold a word a review root may not.
+    made = outside_writable_root() / f"t-{secrets.token_hex(6)}"
+    made.mkdir()
+    return made
+
+
+def _drop_unless_failed(made: Path, request: pytest.FixtureRequest) -> None:
+    if not request.node.stash.get(_FAILED, False):
+        shutil.rmtree(made, ignore_errors=True)
+
+
+@pytest.fixture
+def outside_tmp(request: pytest.FixtureRequest) -> Iterator[Path]:
+    """A directory of the test's own outside every place the OS layer makes writable.
+
+    For a test that installs a sandboxed session, which the hook installer refuses a
+    worktree in pytest's own temporary directories. Removed after a test that passed.
+    """
+    made = _made_outside(request)
+    yield made
+    _drop_unless_failed(made, request)
+
+
+@pytest.fixture
+def tmp_path(tmp_path: Path, request: pytest.FixtureRequest) -> Iterator[Path]:
+    """An integration test's directory, outside every place the OS layer makes writable.
+
+    Integration tests run real sessions, sandboxed where the layer runs; their trees are
+    made under :func:`outside_writable_root`, one directory per test, removed after a test
+    that passed and kept after one that failed. Every other test gets pytest's own.
+    """
+    if request.node.get_closest_marker("integration") is None:
+        yield tmp_path
+        return
+    made = _made_outside(request)
+    yield made
+    _drop_unless_failed(made, request)

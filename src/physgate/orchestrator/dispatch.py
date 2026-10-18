@@ -62,7 +62,12 @@ from physgate.orchestrator.credentials import (
 )
 from physgate.orchestrator.decompose import binary_version, read_stream
 from physgate.orchestrator.events import SessionSpawned, read_events
-from physgate.orchestrator.exceptions import AccountingError, InvocationError, OrchestratorError
+from physgate.orchestrator.exceptions import (
+    AccountingError,
+    InvocationError,
+    OrchestratorError,
+    WorktreeMisplacedError,
+)
 from physgate.orchestrator.git import common_dir, named_from, object_format, verified_git_dir
 from physgate.orchestrator.install import InstallFacts, build_record_path, install_facts
 from physgate.orchestrator.invocation import isolated_env, role_argv, session_search_path
@@ -87,6 +92,8 @@ from physgate.orchestrator.role_python import PROBE, require_same, session_bin
 from physgate.orchestrator.run_config import RunConfig, harness_root
 from physgate.orchestrator.trajectory import Seal, forged_tail, seal, through_first_result
 from physgate.oslayer import placeholders
+from physgate.oslayer.abort import aborted_tool_uses
+from physgate.oslayer.placement import machine_writable, placement_refusal
 from physgate.oslayer.probe import Absent, Present, judge_here
 from physgate.reviewers.ending import SWEEPS, SessionEnd, await_session, group, stop_all
 from physgate.reviewers.packet import issued_spec_sha256
@@ -1096,6 +1103,12 @@ class ClaudeDispatcher:
             msg = "the binary is not the version this run recorded"
             raise InvocationError(msg, reported=reported, recorded=self._config.claude_version)
         worktree = self._run.open_subtask(request.subtask_id)
+        if self._layer_on():
+            # Before anything of the session exists: in a place the sandbox makes writable,
+            # its commands and any other sandboxed session's there can abort each other's.
+            misplaced = placement_refusal(worktree, machine_writable())
+            if misplaced is not None:
+                raise WorktreeMisplacedError(misplaced, subtask_id=request.subtask_id)
         # The specification as issued, digested before the session can touch anything.
         issued = (
             issued_spec_sha256(self._run.repo, request.spec_commit, request.spec_path)
@@ -1296,6 +1309,12 @@ class ClaudeDispatcher:
         # the sweep refuses, or a sweep that fails, is recorded and refuses the attempt.
         placeholders_refused = self._sweep(worktree, before, sdir) if temp is not None else None
         captured = read_captured(stdout)
+        # A command bubblewrap aborted never ran: recorded as such, never as a denial.
+        aborted = (
+            aborted_tool_uses(read_session_file(stdout).decode(errors="replace"))
+            if temp is not None
+            else ()
+        )
         seen = review_material_seen(stdout, self._canaries)
         held_out_seen = self.held_out_seen(stdout)
         sealed, tampered = captured.seal, captured.tampered
@@ -1368,6 +1387,7 @@ class ClaudeDispatcher:
             series=series,
             placeholders_refused=placeholders_refused,
             withheld_problems=withheld_problems,
+            os_layer_aborted=aborted,
         )
 
     @staticmethod

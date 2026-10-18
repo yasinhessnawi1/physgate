@@ -88,6 +88,10 @@ class SessionReport(_Frozen):
     #: What the held-out and answer-key tripwire found before the attempt was committed
     #: (a second name, a changed file, one it could not check), if anything.
     withheld_problems: NonEmptyStr | None = None
+    #: The tool calls whose result carries bubblewrap's own line, by their ids: a possible
+    #: abort (a command can print the line itself), never a denial and never a reach, and
+    #: recorded beside every other finding, never in place of one.
+    os_layer_aborted: tuple[NonEmptyStr, ...] = ()
 
 
 #: Whose session a leftover was, as its tokens are attributed: ``session`` or ``reviewer``.

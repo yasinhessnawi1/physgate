@@ -900,3 +900,47 @@ def test_a_session_that_changes_the_runtime_s_git_ignore_is_still_put_back(
 
 def read_spec_at(worktree: Path) -> dict[str, Any]:
     return tool("Read", file_path=str(worktree / SPEC))
+
+
+#: bubblewrap's own line, as a sibling session's removed placeholder made it print.
+BWRAP_ABORT = "bwrap: Can't find source path /tmp/pytest-of-u/pytest-1/.mcp.json: No such file"
+
+
+@pytest.mark.parametrize("sandboxed", [True, False])
+def test_a_command_bubblewrap_aborted_is_reported_as_its_own_outcome(
+    tmp_path: Path, install_bin: Path, monkeypatch: pytest.MonkeyPatch, sandboxed: bool
+) -> None:
+    """A command ending in bubblewrap's line is reported as aborted where the layer runs.
+
+    A real abort needs two sessions racing over one placeholder, which no test can
+    schedule; the command here ends exactly as one does, bubblewrap's line and exit 1.
+    Without the layer no bubblewrap of the sandbox's ran, and nothing is reported.
+    """
+    import physgate.orchestrator.dispatch as dispatch_module
+    from physgate.orchestrator.invocation import session_search_path
+    from physgate.oslayer.probe import Absent, judge_here
+
+    if sandboxed:
+        here = judge_here(
+            claude_version=config().claude_version,
+            search_path=session_search_path(claude_binary()),
+        )
+        if isinstance(here, Absent):
+            pytest.skip("the OS layer cannot run here")
+    else:
+        off = Absent(reason="stand-in: no layer")
+        monkeypatch.setattr(dispatch_module.ClaudeDispatcher, "os_layer", lambda self: off)
+    worktree = tmp_path / "run" / "worktrees" / "s1"
+    steps = [
+        *knowledge_reads(worktree),
+        read_spec_at(worktree),
+        tool("Bash", command=f"echo {json.dumps(BWRAP_ABORT)} >&2; exit 1"),
+        text("done"),
+    ]
+    _, (report, _), _ = dispatch(tmp_path, install_bin, steps)
+    assert report.end.outcome == "completed", report
+    if sandboxed:
+        (aborted,) = report.os_layer_aborted
+        assert aborted.startswith("toolu_")
+    else:
+        assert report.os_layer_aborted == ()

@@ -137,7 +137,7 @@ jobs:
       - name: What any session's end found after its stop, where it did not settle
         if: always()
         run: |
-          find /tmp/pytest-of-* -name after_stop.json -print -exec cat {} \; 2>/dev/null \
-            | head -60 || true
-          find /tmp/pytest-of-* -name config.worktree -exec ls -la {} \; 2>/dev/null \
-            | head -20 || true
+          find /tmp/pytest-of-* ~/.cache/pg-tests -name after_stop.json -print -exec cat {} \; \
+            2>/dev/null | head -60 || true
+          find /tmp/pytest-of-* ~/.cache/pg-tests -name config.worktree -exec ls -la {} \; \
+            2>/dev/null | head -20 || true

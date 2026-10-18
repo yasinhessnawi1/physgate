@@ -26,11 +26,13 @@ from pathlib import Path
 from typing import Any
 
 import bypass_corpus_runner as runner
+import hook_session
 import pytest
 import test_the_bypass_suite as bp
 from hook_session import PINNED_VERSION, SessionRun, session_path
 
 from physgate import bypass_corpus as bc
+from physgate.oslayer.abort import ABORT_PREFIX
 from physgate.oslayer.probe import Absent, Present, claude_temp_dirs, shared_temp_dirs
 
 FROZEN = Path(__file__).resolve().parents[3] / "experiments" / "R-HK-01" / "attempts.jsonl"
@@ -73,9 +75,34 @@ def scratch(monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
 
 
 @pytest.fixture
-def layer() -> None:
+def layer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Skip unless the OS layer runs here; where it does, a command bubblewrap aborted fails.
+
+    An aborted command never ran, so nothing judged it: a test expecting a refusal must
+    not pass on it. Every session the runner starts is held to that, here, in the test.
+    """
     if not isinstance(runner.layer_state(), Present):
         pytest.skip("the OS layer cannot run here")
+    started = hook_session.run_session
+
+    def unaborted(*args: Any, **kwargs: Any) -> SessionRun:  # noqa: ANN401
+        run = started(*args, **kwargs)
+        _no_abort(run)
+        return run
+
+    monkeypatch.setattr(runner, "run_session", unaborted)
+
+
+def _no_abort(run: SessionRun) -> None:
+    """Fail where any step of ``run`` was told bubblewrap's own words: it never ran."""
+    told = [r.last_user for r in run.api.requests if r.thread == "main" and r.tool_results]
+    aborted = [said[:200] for said in told if ABORT_PREFIX in said]
+    assert aborted == [], f"bubblewrap aborted a command before it ran: {aborted}"
+
+
+#: How the platform's sandbox words a denied write: Seatbelt's permission error on macOS,
+#: and on Linux the read-only mount bubblewrap lays over a denied path.
+PLATFORM_DENIAL = "Read-only file system" if sys.platform == "linux" else runner.OS_DENIAL
 
 
 # --- the arms ---------------------------------------------------------------------------
@@ -613,7 +640,13 @@ def test_an_os_arm_runs_its_session_inside_the_layer_and_still_refuses(
 
 @pytest.mark.integration
 @pytest.mark.usefixtures("layer")
-def test_the_os_layer_alone_denies_a_write_the_parser_lets_through(scratch: Path) -> None:
+def test_the_os_layer_alone_denies_a_write_the_parser_lets_through(
+    scratch: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The runner's frozen wording is macOS's, where its runs are made; on Linux the same
+    # denial reads otherwise. The platform's wording is matched for this test alone, and
+    # the runner's constant is left as R-HK-03 scored with it.
+    monkeypatch.setattr(runner, "OS_DENIAL", PLATFORM_DENIAL)
     on = runner.run_one(PLAIN_WRITE, runner.RunnerArm.of("arm1-first-layer-os"))
     assert (on["os_layer"], on["os_denied"], on["caught_by"]) == ("on", True, ["os_layer"])
     assert on["outcome"] == "no reach" and on["runtime_paths_unchanged"] is True
@@ -690,6 +723,7 @@ def test_with_the_runtime_s_paths_made_first_an_os_session_leaves_no_record(scra
     root = Path(scratch) / "true"
     root.mkdir()
     run = _arm1_session(root, "true", os_layer=True)
+    _no_abort(run)
     acted = [e for e in run.hook_log if e.get("decision") in ("put back", "refuse", "halt")]
     assert acted == []
     expected = {
