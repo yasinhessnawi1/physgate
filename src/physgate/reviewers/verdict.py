@@ -40,6 +40,7 @@ comes with its unit, never bare.
 from __future__ import annotations
 
 import json
+import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -164,12 +165,61 @@ def _judge(
         _unanswered(answer, rubric_items, criteria)
         or (None if issued else _unissued(answer))
         or _inconsistency(answer, scan_hits, not_evaluable)
+        # Last: a verdict consistent in every other way, whose findings say nothing.
+        or _degenerate(answer)
     )
     if problem_text is not None:
         return Unavailable(cause="invalid_verdict", detail=problem_text)
     if answer.verdict not in REVIEW_VERDICT:  # pragma: no cover - the type allows no other
         return Unavailable(cause="invalid_verdict", detail="an unknown verdict")
     return Answered(answer=answer)
+
+
+#: A single bare word: letters only, no digit and no punctuation. "x" or "test" is a
+#: placeholder a session leaves when the schema has refused it several times, not a
+#: judgement; a pointer such as ``n1.json:3`` or ``design/nodes/n1.json`` says where to
+#: look and is kept, as the evidence form the protocol asks for.
+_BARE_WORD = re.compile(r"[A-Za-z]*")
+
+
+def _degenerate(answer: ModelVerdict) -> str | None:
+    """A finding that is empty or a single bare word, named, so the session writes it.
+
+    Held: the verdict's own finding; the evidence of every item that rejects; the
+    evidence of every criterion not met; every specification defect's finding; the reason
+    of every indicator noted or confirmed. A placeholder in any of them would otherwise be
+    recorded as a verdict, and a reject at that. An item not evaluable may leave its
+    evidence empty: the blocking defect that names it carries the words, and is held.
+    """
+    places: list[tuple[str, str]] = [("the finding", answer.finding)]
+    places += [
+        (f"the evidence of item {i.item}", i.evidence)
+        for i in answer.items
+        if i.result in REJECTING_RESULTS
+    ]
+    places += [
+        (f"the evidence of criterion {c.criterion}", c.evidence)
+        for c in answer.acceptance_criteria
+        if c.result != "met"
+    ]
+    places += [
+        (f"the defect on {d.item or 'the specification'}", d.finding) for d in answer.spec_defects
+    ]
+    places += [
+        (f"the reason of the {r.kind} indicator", r.reason)
+        for r in answer.indicators
+        if r.disposition in ("noted", "confirmed")
+    ]
+    thin = [
+        where
+        for where, text in places
+        if len(text.split()) < 2 and _BARE_WORD.fullmatch(text.strip()) is not None  # noqa: PLR2004
+    ]
+    if thin:
+        return "a finding is empty or one word and says nothing; write it out: " + ", ".join(
+            thin[:5]
+        )
+    return None
 
 
 def _unanswered(
