@@ -546,13 +546,24 @@ def _judge_stray_reactions(view: GraphView, mount: _Mount) -> Observation | None
     return forces_refused(view, mount.mount_id, (*mount.supports, *stray), miss, how)
 
 
-def _unread(view: GraphView, nodes: list[str], read: set[str]) -> list[Observation]:
-    """A record for each node that declares statics quantities no mount reads."""
+def _unread(
+    view: GraphView, nodes: list[str], read: set[str], read_names: set[tuple[str, str]]
+) -> list[Observation]:
+    """A record for each node that declares statics quantities no mount or reading reads.
+
+    ``read`` is the nodes a mount reads whole; ``read_names`` the (node, quantity) pairs a
+    load reading read, so a torque unit's reaction force is still recorded when only its
+    reaction moment was read.
+    """
     found = []
     for node_id in nodes:
         if node_id in read:
             continue
-        names = tuple(n for n in STATICS if n in view.nodes[node_id].quantities)
+        names = tuple(
+            n
+            for n in STATICS
+            if n in view.nodes[node_id].quantities and (node_id, n) not in read_names
+        )
         if not names:
             continue
         found.append(
@@ -597,8 +608,8 @@ def run(ctx: CheckContext) -> CheckRun:
     # (:mod:`physgate.gate.check_equilibrium_loads`), judged for every node in scope.
     loads, loads_judged, loads_read = judge_loads(view, None if ctx.scope == "system" else near)
     observations += loads
-    read = {n for m in every for n in m.reads()} | loads_read
-    observations += _unread(view, in_scope, read)
+    read = {n for m in every for n in m.reads()}
+    observations += _unread(view, in_scope, read, loads_read)
     tool = f"{solver.name}, with the declared-rounding allowance"
     if by_forces:
         tool += f"; {by_forces} passed on forces alone, with no positions declared"

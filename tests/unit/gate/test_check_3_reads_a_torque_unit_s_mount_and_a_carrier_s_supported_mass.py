@@ -207,7 +207,7 @@ def test_the_readers_find_every_unit_and_carrier_and_module_scope_limits_them(
     assert torque_units(view) == [f"{M}.gearboxes"]
     assert carriers(view) == [f"{M}.drivetrain", f"{M}.wheel_left", f"{M}.wheel_right"]
     found, judged, read = judge_loads(view, {f"{M}.gearboxes"})
-    assert found == [] and judged == 1 and read == {f"{M}.gearboxes"}
+    assert found == [] and judged == 1 and read == {(f"{M}.gearboxes", "reaction_moment")}
 
 
 def test_the_whole_gate_blocks_a_stale_reaction_moment_at_system_scope(tmp_path: Path) -> None:
@@ -226,3 +226,41 @@ def test_an_attempt_that_rewrites_the_robot_s_mass_brings_its_carriers_into_scop
     view = GraphView.read(root, base_revision=base)
     ran = check_equilibrium.run(CheckContext(view=view, scope=scope, bounds=load_bounds()))
     assert [o.outcome for o in records(ran, f"{M}.drivetrain")] == ["fail"]
+
+
+# --- nothing the readings touch is passed unread ------------------------------------------
+
+
+def test_a_reaction_force_beside_a_torque_unit_that_no_mount_reads_is_still_recorded(
+    tmp_path: Path,
+) -> None:
+    # The torque reading reads the reaction moment and nothing else; the force the same node
+    # declares, which no structure reads, is recorded as read by nothing, as before.
+    stray = node(
+        f"{M}.gearboxes",
+        domain=M,
+        quantities={
+            "torque_peak": (1.1, "N*m"),
+            "reaction_moment": (1.1, "N*m"),
+            "reaction_force": (5, "N"),
+        },
+    )
+    ran = run(tmp_path, stray)
+    (record,) = records(ran, f"{M}.gearboxes")
+    assert record.outcome == "unchecked" and "no structure" in record.message
+    assert isinstance(record.details, UncheckedDetails)
+    assert record.details.quantities == ("reaction_force",)
+    assert ran.evaluated == 1
+
+
+def test_a_lone_carrier_gets_no_pass_record_from_the_gate_only_its_unchecked_one(
+    tmp_path: Path,
+) -> None:
+    # A check that judged nothing and left something unchecked writes no pass: the runner's
+    # "found nothing wrong (0 evaluated)" never stands beside an unchecked record.
+    graph(tmp_path / "g", node(f"{M}.axle", domain=M, quantities={"supported_mass": (1, "kg")}))
+    for scopes in (["system"], ["subtask", "module"]):
+        result = PhysicsGate().run(GraphView.read(tmp_path / "g", 0), scopes, "on")
+        equilibrium = [c for c in result.checks if c.name == "equilibrium"]
+        assert [c.outcome for c in equilibrium] == ["unchecked"], scopes
+        assert result.verdict == "pass"

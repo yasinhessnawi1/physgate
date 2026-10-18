@@ -239,21 +239,22 @@ def judge_carrier(view: GraphView, carrier: str) -> Observation | None:
 
 def judge_loads(
     view: GraphView, in_scope: set[str] | None
-) -> tuple[list[Observation], int, set[str]]:
-    """Every torque unit's and carrier's finding, how many were judged, and the nodes read.
+) -> tuple[list[Observation], int, set[tuple[str, str]]]:
+    """Every torque unit's and carrier's finding, how many were judged, and the names read.
 
     ``in_scope`` limits the nodes judged; ``None`` is every node. A node is judged (and
     counted) when its reading gave a pass or a failure; one left unchecked is recorded, not
-    counted. The nodes read are returned so the check never also records their statics as
-    read by no structure.
+    counted. The (node, quantity) pairs read are returned, so the check records every other
+    statics quantity of those nodes as read by no structure, as before: a torque unit's
+    reading reads its reaction moment and nothing else.
     """
     found: list[Observation] = []
     judged = 0
-    read: set[str] = set()
+    read: set[tuple[str, str]] = set()
     for node_id in torque_units(view):
         if in_scope is not None and node_id not in in_scope:
             continue
-        read.add(node_id)
+        read.add((node_id, "reaction_moment"))
         finding = judge_torque_unit(view, node_id)
         if finding is None or finding.outcome == "fail":
             judged += 1
@@ -262,7 +263,7 @@ def judge_loads(
     for node_id in carriers(view):
         if in_scope is not None and node_id not in in_scope:
             continue
-        read.add(node_id)
+        read.add((node_id, "supported_mass"))
         finding = judge_carrier(view, node_id)
         if finding is None or finding.outcome == "fail":
             judged += 1

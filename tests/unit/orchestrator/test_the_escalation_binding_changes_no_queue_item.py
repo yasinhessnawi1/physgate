@@ -143,6 +143,17 @@ def _as_the_gate_now_judges(event: dict[str, Any]) -> dict[str, Any]:
                 "details": {**record["details"], "evaluated": count},
                 "message": f"the magnitude check found nothing wrong ({count} evaluated)",
             }
+    # A check that judged nothing and left a record unchecked no longer writes a pass.
+    unchecked = {(r["name"], r["scope"]) for r in checks if r["outcome"] == "unchecked"}
+    checks = [
+        r
+        for r in checks
+        if not (
+            r["outcome"] == "pass"
+            and r["details"].get("evaluated") == 0
+            and (r["name"], r["scope"]) in unchecked
+        )
+    ]
     return {**event, "result": {**result, "checks": checks}}
 
 

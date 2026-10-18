@@ -65,7 +65,8 @@ def test_the_list_is_closed_and_every_suffix_has_one_kind_and_a_source() -> None
 
 
 @pytest.mark.parametrize(
-    "name", ["loop_rate", "specific_power", "reduction_ratio", "charge_capacity", "winding_resistance"]
+    "name",
+    ["loop_rate", "specific_power", "reduction_ratio", "charge_capacity", "winding_resistance"],
 )
 def test_an_ambiguous_suffix_infers_nothing(name: str) -> None:
     assert inferred_by(name) is None and kind_of(name) is None
