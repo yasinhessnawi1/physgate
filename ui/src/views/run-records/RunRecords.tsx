@@ -35,6 +35,7 @@ import type { ViewProps } from "../../shell/header";
 import { CostCaveat } from "../common/cost";
 import { RunPicker } from "../common/runs";
 import { useResult } from "../common/useResult";
+import { NoRunsYet } from "./NoRunsYet";
 
 /** A card that shows its record, or the reading state, or the refusal, and nothing partial. */
 function Card<T>({
@@ -343,13 +344,15 @@ export default function RunRecords({ setHeader, query }: ViewProps) {
   }, [config, setHeader]);
   if (runs === null) return <LoadingState reading="the run list" />;
   if (!runs.ok) return <ErrorState title="The run list was refused" {...runs.refusal} />;
-  if (runs.value.length === 0 || chosen === undefined) {
+  if (runs.value.length === 0) return <NoRunsYet />;
+  if (chosen === undefined) {
     return (
-      <EmptyState title="No runs under the roots yet">
-        Runs appear here once a run directory exists under a root this server was started with.
-        Start one with <code className="mono">physgate decompose</code> and{" "}
-        <code className="mono">physgate run</code>.
-      </EmptyState>
+      <div className="run-records">
+        <RunPicker runs={runs.value} chosen={chosen} area="home" slug="run-records" />
+        <EmptyState title="No run here can be read">
+          Each run listed above says why it could not be read.
+        </EmptyState>
+      </div>
     );
   }
   return (

@@ -79,7 +79,6 @@ button.quiet { background: transparent; }
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 button:focus-visible, .card:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 pre.log { max-height: 180px; overflow: auto; font-size: 12px; margin: 0; }
-pre.copy { margin: 0; user-select: all; -webkit-user-select: all; }
 table { border-collapse: collapse; width: 100%; font-size: 13px; }
 th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
 td.num { font-family: ui-monospace, "SF Mono", Menlo, monospace; white-space: nowrap; }

@@ -15,11 +15,12 @@ export interface Watch {
   readonly api: Set<string>;
 }
 
-export async function watch(page: Page): Promise<Watch> {
+/** ``local`` is the origin requests may go to: this run's server unless another is named. */
+export async function watch(page: Page, local: RegExp = LOCAL): Promise<Watch> {
   const seen: Watch = { outbound: [], api: new Set() };
   await page.route("**/*", async (route) => {
     const url = route.request().url();
-    if (LOCAL.test(url)) {
+    if (local.test(url)) {
       const path = new URL(url).pathname;
       if (path.startsWith("/api/"))
         seen.api.add(path.replace(/\/trajectories\/[^/]+$/, "/trajectories/:session"));

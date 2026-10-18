@@ -1,12 +1,21 @@
 //! The shell's own page: what it shows whenever the operator UI itself cannot be shown.
 //!
+//! That is only while the server starts, when it could not start or stopped, and when there is
+//! no checkout to start it from. A run folder with no runs in it is not one of these: the
+//! operator UI is shown, and says so itself.
+//!
 //! The page is bundled with the app and takes everything it shows from its address's
 //! fragment, as JSON. So it needs no channel back into the app, and the app grants it
 //! none: the page can only display what the shell put in its address.
+//!
+//! No state of the page shows a terminal command. It says in plain words what happened and
+//! where to look next (View → Show Server Log, the Checkout menu), and a line the server wrote
+//! that names a command is left out, so even a refusal cannot put one on the page.
 
 use std::path::Path;
+use std::sync::OnceLock;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::Url;
 
 use crate::server::{Refusal, StartError};
@@ -17,25 +26,30 @@ pub const PAGE: &str = "tauri://localhost/index.html";
 /// One state of the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Status {
-    /// Which picture the page shows: `starting`, `waiting` or `problem`.
+    /// Which picture the page shows: `starting` or `problem`.
     pub kind: &'static str,
     pub title: String,
-    /// Plain sentences, one paragraph each.
+    /// Plain sentences, one paragraph each. None names a terminal command.
     pub lines: Vec<String>,
-    /// A command to run in Terminal, shown so it can be copied; never run by the app.
-    pub command: Option<String>,
-    /// Extra detail shown smaller, such as the end of the server's log.
-    pub detail: Option<String>,
 }
 
+/// Where the whole story is, on every page that reports a problem.
+const SEE_THE_LOG: &str = "View → Show Server Log has everything the server wrote.";
+
+/// Where another checkout is chosen.
+const CHOOSE_A_CHECKOUT: &str =
+    "To use another checkout, choose Checkout → Choose Another Checkout… in the menu bar.";
+
 impl Status {
+    /// A page in this state. Any line that names a terminal command is left out.
     fn new(kind: &'static str, title: impl Into<String>, lines: Vec<String>) -> Self {
         Self {
             kind,
             title: title.into(),
-            lines,
-            command: None,
-            detail: None,
+            lines: lines
+                .into_iter()
+                .filter(|line| !names_a_command(line))
+                .collect(),
         }
     }
 
@@ -47,36 +61,6 @@ impl Status {
         )
     }
 
-    /// The default run root holds no run yet. Runs are made there; nothing is picked.
-    pub fn no_runs(root: &Path) -> Self {
-        let root = crate::runs::shown(root);
-        let mut status = Self::new(
-            "waiting",
-            "No runs yet",
-            vec![
-                format!("Runs appear here as soon as one is made in {root}."),
-                format!(
-                    "A run is made in two steps, from the physgate checkout: decompose a brief \
-                     into a run folder inside {root}, then drive it:"
-                ),
-            ],
-        );
-        status.command = Some(run_commands(&root));
-        status
-    }
-}
-
-/// The two commands that put a run in `root`: `decompose` makes it, `run` drives it.
-fn run_commands(root: &str) -> String {
-    format!(
-        "physgate decompose <brief> --seed <seed> --run-id <id> --params <params.json> \
-         --target <repository> --run-dir {root}/<id>\n\
-         physgate run --run-dir {root}/<id> --target <repository> --install <hooks folder> \
-         --review-root ~/review-scratch"
-    )
-}
-
-impl Status {
     /// The default run root is there but cannot be used, for the reason given.
     pub fn root_refused(reason: &str) -> Self {
         Self::new(
@@ -97,7 +81,7 @@ impl Status {
             "No physgate checkout here",
             vec![
                 format!("There is no physgate checkout at {}.", checkout.display()),
-                "In the menu bar, choose Checkout and pick another one.".into(),
+                CHOOSE_A_CHECKOUT.into(),
             ],
         )
     }
@@ -105,52 +89,66 @@ impl Status {
     /// The page for a start that gave no address.
     pub fn from_start_error(error: &StartError, checkout: &Path) -> Self {
         match error {
-            StartError::NoEntryPoint(program) => {
-                let mut status = Self::new(
-                    "problem",
-                    "This checkout has no Python environment",
-                    vec![
-                        format!("{} is missing.", program.display()),
-                        "Run this once in Terminal, then choose View → Restart Server:".into(),
-                    ],
-                );
-                status.command = Some(format!("cd {} && uv sync", quote(checkout)));
-                status
-            }
-            StartError::Refused(refusal, log_tail) => {
-                Self::from_refusal(refusal.as_ref(), log_tail, checkout)
-            }
+            StartError::NoEntryPoint(_) => Self::new(
+                "problem",
+                "This checkout is not set up yet",
+                vec![
+                    format!(
+                        "The checkout at {} has no Python environment, so the operator UI \
+                         cannot start from it.",
+                        checkout.display()
+                    ),
+                    "Set the checkout up as its README describes, then choose View → Restart \
+                     Server."
+                        .into(),
+                    CHOOSE_A_CHECKOUT.into(),
+                ],
+            ),
+            StartError::Refused(refusal, _) => Self::from_refusal(refusal.as_ref()),
             StartError::Failed(reason) => Self::new(
                 "problem",
                 "The operator UI could not start",
                 vec![
                     reason.clone(),
+                    SEE_THE_LOG.into(),
                     "Choose View → Restart Server to try again.".into(),
                 ],
             ),
         }
     }
 
-    fn from_refusal(refusal: Option<&Refusal>, log_tail: &str, checkout: &Path) -> Self {
+    fn from_refusal(refusal: Option<&Refusal>) -> Self {
         let Some(refusal) = refusal else {
-            let mut status = Self::new(
+            return Self::new(
                 "problem",
                 "The server stopped before it started",
-                vec!["The end of its log is below. View → Show Server Log has all of it.".into()],
+                vec![
+                    "It wrote why to its log before it stopped.".into(),
+                    SEE_THE_LOG.into(),
+                    "Choose View → Restart Server to try again.".into(),
+                ],
             );
-            status.detail = Some(log_tail.to_string());
-            return status;
         };
+        if is_about_the_build(&refusal.error) {
+            return Self::new(
+                "problem",
+                "The operator UI is not built",
+                vec![
+                    "This checkout's operator UI has no build yet, or its build is older than \
+                     its sources."
+                        .into(),
+                    "The app starts the server by itself as soon as a build of this checkout \
+                     finishes."
+                        .into(),
+                    SEE_THE_LOG.into(),
+                    CHOOSE_A_CHECKOUT.into(),
+                ],
+            );
+        }
         let mut lines = vec![format!("It said: {}.", refusal.error)];
         lines.extend(refusal.context.iter().map(|(k, v)| format!("{k}: {v}")));
-        let mut status = Self::new("problem", "The server refused to start", lines);
-        if refusal.error.contains("scripts/build-ui.sh") {
-            status
-                .lines
-                .push("Build the UI by running this in Terminal. The app reloads by itself when the build finishes:".into());
-            status.command = Some(build_command(checkout));
-        }
-        status
+        lines.push(SEE_THE_LOG.into());
+        Self::new("problem", "The server refused to start", lines)
     }
 
     /// The page's address, with this state in its fragment.
@@ -162,27 +160,62 @@ impl Status {
     }
 }
 
-/// The command that builds the checkout's UI, installing its packages first when they are missing.
-pub fn build_command(checkout: &Path) -> String {
-    let at = quote(checkout);
-    if checkout.join("ui/node_modules").is_dir() {
-        format!("cd {at} && scripts/build-ui.sh")
-    } else {
-        format!("cd {at} && (cd ui && pnpm install --frozen-lockfile) && scripts/build-ui.sh")
-    }
+/// Whether a refusal is the server's "no build, or a stale one".
+fn is_about_the_build(error: &str) -> bool {
+    error.contains("build it with") || error.contains("no build")
 }
 
-/// A path quoted for the shell, so a space in it does not split the command.
-fn quote(path: &Path) -> String {
-    let text = path.display().to_string();
-    if text
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || "/._-~".contains(c))
-    {
-        text
-    } else {
-        format!("'{}'", text.replace('\'', r"'\''"))
-    }
+/// What a terminal command looks like: the file the operator UI's rule test reads as well.
+const COMMAND_SHAPES: &str = include_str!("../../../ui/src/rules/terminal-commands.json");
+
+#[derive(Deserialize)]
+struct Shapes {
+    subcommands: Vec<String>,
+    phrases: Vec<String>,
+}
+
+fn shapes() -> &'static Shapes {
+    static SHAPES: OnceLock<Shapes> = OnceLock::new();
+    SHAPES.get_or_init(|| {
+        serde_json::from_str(COMMAND_SHAPES).expect("the bundled command shapes are valid JSON")
+    })
+}
+
+fn word_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_' || c == '-'
+}
+
+/// Each place `word` stands as a whole word followed by whitespace, with the text after the
+/// whitespace.
+fn after_word<'a>(text: &'a str, word: &'a str) -> impl Iterator<Item = &'a str> + 'a {
+    text.match_indices(word).filter_map(move |(at, _)| {
+        if text[..at].chars().next_back().is_some_and(word_char) {
+            return None;
+        }
+        let rest = &text[at + word.len()..];
+        let trimmed = rest.trim_start();
+        (trimmed.len() < rest.len()).then_some(trimmed)
+    })
+}
+
+/// Whether `text` names a terminal command: `physgate` and one of its subcommands, a shell
+/// variable exported (`export NAME=`), or one of the phrases a command is made of.
+pub fn names_a_command(text: &str) -> bool {
+    let shapes = shapes();
+    shapes.phrases.iter().any(|p| text.contains(p.as_str()))
+        || after_word(text, "physgate").any(|rest| {
+            let word: String = rest.chars().take_while(|&c| word_char(c)).collect();
+            shapes.subcommands.contains(&word)
+        })
+        || after_word(text, "export").any(|rest| {
+            let name: String = rest
+                .chars()
+                .take_while(|&c| c.is_ascii_alphanumeric() || c == '_')
+                .collect();
+            !name.is_empty()
+                && !name.starts_with(|c: char| c.is_ascii_digit())
+                && rest[name.len()..].starts_with('=')
+        })
 }
 
 /// Every byte but an unreserved one written as `%XX`, so the page can decode it whole.
@@ -204,6 +237,7 @@ fn percent_encode(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use std::path::PathBuf;
 
     fn decoded(url: &Url) -> serde_json::Value {
@@ -238,102 +272,282 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("phys gate #1 'x'"));
+        // The page carries a title, a kind and sentences: no command field, no log tail.
+        let keys: Vec<&String> = value.as_object().unwrap().keys().collect();
+        assert_eq!(keys, ["kind", "lines", "title"]);
     }
 
-    #[test]
-    fn a_stale_build_shows_the_command_and_no_button() {
-        let refusal = Refusal {
-            error: "the UI build is stale; build it with scripts/build-ui.sh".into(),
-            context: vec![],
-        };
+    fn refused(error: &str, context: &[(&str, &str)]) -> StartError {
+        StartError::Refused(
+            Some(Refusal {
+                error: error.into(),
+                context: context
+                    .iter()
+                    .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+                    .collect(),
+            }),
+            "the end of the log".into(),
+        )
+    }
+
+    /// Every state the page can be put in, with what the server could say at its worst.
+    fn every_state() -> Vec<Status> {
         let checkout = PathBuf::from("/Users/me/dev/physgate");
+        vec![
+            Status::starting(&checkout),
+            Status::root_refused("~/physgate-runs is a link"),
+            Status::no_checkout(&checkout),
+            Status::from_start_error(
+                &StartError::NoEntryPoint(checkout.join(".venv/bin/physgate")),
+                &checkout,
+            ),
+            Status::from_start_error(
+                &refused(
+                    "the UI build is stale; build it with scripts/build-ui.sh",
+                    &[("ui", "/Users/me/dev/physgate/ui")],
+                ),
+                &checkout,
+            ),
+            Status::from_start_error(
+                &refused("there is no build to stamp", &[("dist", "/c/ui/dist")]),
+                &checkout,
+            ),
+            Status::from_start_error(
+                &refused(
+                    "a root must be an existing directory",
+                    &[
+                        ("root", "/runs"),
+                        ("hint", "physgate run --run-dir /runs/x"),
+                    ],
+                ),
+                &checkout,
+            ),
+            Status::from_start_error(&StartError::Refused(None, String::new()), &checkout),
+            Status::from_start_error(
+                &StartError::Failed("usage: physgate ui [-h] --root ROOT".into()),
+                &checkout,
+            ),
+        ]
+    }
+
+    #[test]
+    fn no_state_of_the_page_names_a_command_whatever_the_server_said() {
+        for status in every_state() {
+            let shown = serde_json::to_string(&status).unwrap();
+            assert!(!names_a_command(&shown), "{shown}");
+            if status.kind == "problem" {
+                assert!(
+                    status
+                        .lines
+                        .iter()
+                        .any(|l| l.contains("View →") || l.contains("Checkout →")),
+                    "a problem says, in the menu bar, where to go next: {shown}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_stale_build_is_said_in_plain_words_and_points_at_the_log() {
         let status = Status::from_start_error(
-            &StartError::Refused(Some(refusal), String::new()),
-            &checkout,
+            &refused(
+                "the UI build is stale; build it with scripts/build-ui.sh",
+                &[],
+            ),
+            Path::new("/Users/me/dev/physgate"),
         );
-        let command = status.command.unwrap();
-        assert!(command.starts_with("cd /Users/me/dev/physgate && "));
-        assert!(command.ends_with("scripts/build-ui.sh"));
-    }
-
-    /// The arguments a parser in the CLI's source requires: its `--flags` with
-    /// `required=True`, and its positional arguments.
-    fn required_by(source: &str, parser: &str) -> (Vec<String>, Vec<String>) {
-        let marker = format!("{parser}.add_argument(");
-        let (mut flags, mut positionals) = (Vec::new(), Vec::new());
-        for (at, _) in source.match_indices(&marker) {
-            let before = source[..at].chars().last().unwrap_or(' ');
-            if before.is_alphanumeric() || before == '_' {
-                continue; // another variable whose name ends the same way
-            }
-            let rest = &source[at + marker.len()..];
-            let end = ["add_argument(", "set_defaults(", "add_parser("]
-                .iter()
-                .filter_map(|m| rest.find(m))
-                .min()
-                .unwrap_or(rest.len());
-            let call = &rest[..end];
-            let name = call.split('"').nth(1).unwrap_or_default().to_string();
-            if name.starts_with("--") {
-                if call.contains("required=True") {
-                    flags.push(name);
-                }
-            } else if !name.is_empty() {
-                positionals.push(name);
-            }
-        }
-        (flags, positionals)
+        assert_eq!(status.title, "The operator UI is not built");
+        assert!(status.lines.contains(&SEE_THE_LOG.to_string()));
+        assert!(status.lines.contains(&CHOOSE_A_CHECKOUT.to_string()));
+        assert!(!status.lines.iter().any(|l| l.contains("scripts/")));
     }
 
     #[test]
-    fn the_commands_shown_for_a_first_run_are_the_ones_the_cli_accepts() {
-        let source = include_str!("../../../src/physgate/orchestrator/cli.py");
-        let shown = run_commands("~/physgate-runs");
-        let lines: Vec<&str> = shown.lines().collect();
-        assert_eq!(lines.len(), 2);
-        // In the CLI's source, `run` is declared through the variable `command`, `decompose`
-        // through `d`.
-        for (line, verb, parser, positional_count) in [
-            (lines[0], "decompose", "d", 1),
-            (lines[1], "run", "command", 0),
+    fn a_refusal_keeps_its_sentence_and_drops_a_line_that_names_a_command() {
+        let status = Status::from_start_error(
+            &refused(
+                "a root must be an existing directory",
+                &[
+                    ("root", "/runs"),
+                    ("hint", "physgate run --run-dir /runs/x"),
+                ],
+            ),
+            Path::new("/c"),
+        );
+        assert_eq!(
+            status.lines,
+            [
+                "It said: a root must be an existing directory.",
+                "root: /runs",
+                SEE_THE_LOG,
+            ]
+        );
+    }
+
+    #[test]
+    fn a_command_is_recognised_by_its_shape() {
+        for planted in [
+            "physgate decompose <brief> --seed 1",
+            "then physgate ui",
+            "(physgate queue resolve)",
+            "physgate\trun",
+            "export CLAUDE_CODE_OAUTH_TOKEN=\"$(x)\"",
+            "export  A_1=b",
+            "security find-generic-password -s physgate-trial",
+            "physgate-x --run-dir /r",
+            "cd /c && uv run pytest",
+            "cd /c && uv sync",
+            "scripts/build-ui.sh",
+            "(cd ui && pnpm install --frozen-lockfile)",
         ] {
-            assert!(line.starts_with(&format!("physgate {verb} ")), "{line}");
-            let (flags, positionals) = required_by(source, parser);
-            assert!(
-                !flags.is_empty(),
-                "no required flags found for {verb}: the parse broke"
-            );
-            for flag in &flags {
-                assert!(
-                    line.split_whitespace().any(|w| w == flag),
-                    "{verb} needs {flag}: {line}"
-                );
-            }
-            assert_eq!(
-                positionals.len(),
-                positional_count,
-                "{verb}: {positionals:?}"
-            );
-            let shown_positionals = line
-                .split_whitespace()
-                .skip(2)
-                .take_while(|w| !w.starts_with("--"))
-                .count();
-            assert_eq!(shown_positionals, positional_count, "{line}");
-            // Every flag shown is one the parser declares.
-            for word in line.split_whitespace().filter(|w| w.starts_with("--")) {
-                assert!(
-                    source.contains(&format!("\"{word}\"")),
-                    "{word} is not an argument of physgate {verb}"
-                );
+            assert!(names_a_command(planted), "{planted}");
+        }
+        for prose in [
+            "The physgate operator",
+            "the physgate UI",
+            "a physgate checkout",
+            "physgate runs",
+            "physgate → Operator Name…",
+            "Export the table",
+            "export as CSV",
+            "export 2=x",
+            "the physgateui",
+            "nophysgate run",
+        ] {
+            assert!(!names_a_command(prose), "{prose}");
+        }
+    }
+
+    /// The string literals of a Rust source, with its test module left out.
+    fn literals(source: &str) -> Vec<String> {
+        let code = source
+            .find("#[cfg(test)]\nmod tests")
+            .map_or(source, |at| &source[..at]);
+        let chars: Vec<char> = code.chars().collect();
+        let mut found = Vec::new();
+        let mut i = 0;
+        while i < chars.len() {
+            let next = chars.get(i + 1).copied();
+            match chars[i] {
+                // A line comment: its text is no string.
+                '/' if next == Some('/') => {
+                    while i < chars.len() && chars[i] != '\n' {
+                        i += 1;
+                    }
+                }
+                // A character literal holding a quote, plain or escaped.
+                '\'' if next == Some('"') && chars.get(i + 2) == Some(&'\'') => i += 3,
+                '\'' if next == Some('\\') && chars.get(i + 3) == Some(&'\'') => i += 4,
+                // A raw string, r"…" or r#"…"#.
+                'r' if (next == Some('"') || next == Some('#'))
+                    && (i == 0 || !chars[i - 1].is_alphanumeric()) =>
+                {
+                    let mut j = i + 1;
+                    let mut hashes = 0;
+                    while chars.get(j) == Some(&'#') {
+                        hashes += 1;
+                        j += 1;
+                    }
+                    if chars.get(j) != Some(&'"') {
+                        i += 1;
+                        continue;
+                    }
+                    let mut text = String::new();
+                    j += 1;
+                    loop {
+                        match chars.get(j) {
+                            None => break,
+                            Some('"') if (1..=hashes).all(|k| chars.get(j + k) == Some(&'#')) => {
+                                j += 1 + hashes;
+                                break;
+                            }
+                            Some(&c) => {
+                                text.push(c);
+                                j += 1;
+                            }
+                        }
+                    }
+                    found.push(text);
+                    i = j;
+                }
+                '"' => {
+                    let mut text = String::new();
+                    i += 1;
+                    while i < chars.len() && chars[i] != '"' {
+                        if chars[i] == '\\' {
+                            i += 1;
+                            // A continued line: the backslash, the newline and the indent go.
+                            if chars.get(i) == Some(&'\n') {
+                                while chars.get(i).is_some_and(|c| c.is_whitespace()) {
+                                    i += 1;
+                                }
+                                continue;
+                            }
+                        }
+                        if let Some(&c) = chars.get(i) {
+                            text.push(c);
+                        }
+                        i += 1;
+                    }
+                    found.push(text);
+                    i += 1;
+                }
+                _ => i += 1,
             }
         }
-        assert!(lines[1].contains("--review-root"), "run requires it");
+        found
+    }
+
+    /// Every text the shell can put in front of a person, by file: the strings of its Rust
+    /// sources, and its bundled pages whole.
+    fn shell_texts() -> Vec<(String, Vec<String>)> {
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut texts = Vec::new();
+        for entry in fs::read_dir(manifest.join("src")).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_some_and(|e| e == "rs") {
+                let source = fs::read_to_string(&path).unwrap();
+                texts.push((path.display().to_string(), literals(&source)));
+            }
+        }
+        for entry in fs::read_dir(manifest.join("../status")).unwrap() {
+            let path = entry.unwrap().path();
+            if path
+                .extension()
+                .is_some_and(|e| e == "html" || e == "js" || e == "css")
+            {
+                let page = fs::read_to_string(&path).unwrap();
+                texts.push((path.display().to_string(), vec![page]));
+            }
+        }
+        texts
     }
 
     #[test]
-    fn a_path_with_a_quote_is_quoted_safely() {
-        assert_eq!(quote(Path::new("/a/b")), "/a/b");
-        assert_eq!(quote(Path::new("/a b/it's")), r"'/a b/it'\''s'");
+    fn no_text_of_the_shell_names_a_terminal_command() {
+        let texts = shell_texts();
+        assert!(texts.len() > 15, "the sources were found");
+        let found: Vec<String> = texts
+            .iter()
+            .flat_map(|(file, strings)| {
+                strings
+                    .iter()
+                    .filter(|s| names_a_command(s))
+                    .map(move |s| format!("{file}: {s}"))
+            })
+            .collect();
+        assert!(found.is_empty(), "{found:#?}");
+    }
+
+    #[test]
+    fn the_scan_reads_strings_as_the_compiler_does() {
+        let source = "fn a() { let x = \"one \\\n    physgate run\"; let y = r#\"export A=b\"#; \
+                      let q = '\"'; // physgate ui\n let z = \"c\"; }\n\
+                      #[cfg(test)]\nmod tests { const P: &str = \"physgate ui\"; }";
+        assert_eq!(
+            literals(source),
+            ["one physgate run", "export A=b", "c"],
+            "a continued line is joined, a raw string read, a comment and the tests left out"
+        );
     }
 }

@@ -875,3 +875,15 @@
   margin: 0;
   color: var(--color-text-2);
 }
+
+/* Home with no run yet: the disabled start control and its "Coming soon" side by side. */
+.home-start {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.home-start-note {
+  margin: var(--space-3) 0 0;
+}

@@ -20,6 +20,8 @@ interface Browsing {
   /** For a button that shows or hides a region: whether it is shown. */
   readonly expanded?: boolean;
   readonly type?: "button" | "submit";
+  /** The id of the text that says more about it, such as why it is disabled. */
+  readonly describedBy?: string;
 }
 
 interface Acting {
@@ -130,6 +132,7 @@ export function Button(props: ButtonProps) {
     disabled,
     pressed,
     expanded,
+    describedBy,
   } = props;
   const iconOnly = children === undefined;
   return (
@@ -142,6 +145,7 @@ export function Button(props: ButtonProps) {
       aria-label={iconOnly ? title : undefined}
       aria-pressed={pressed}
       aria-expanded={expanded}
+      aria-describedby={describedBy}
     >
       {icon !== undefined && <Icon name={icon} />}
       {children}

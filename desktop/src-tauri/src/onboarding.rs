@@ -34,14 +34,9 @@ pub fn onboarding_state(app: AppHandle) -> serde_json::Value {
         "implementer": settings.implementer_model,
         "reviewer": settings.reviewer_model,
         "catalogue": engine::catalogue(),
-        "install_command": engine::INSTALL_COMMAND,
         "kept": {
             "subscription_token": keychain::is_stored(Secret::SubscriptionToken),
             "api_key": keychain::is_stored(Secret::ApiKey),
-        },
-        "handover": {
-            "subscription_token": keychain::handover_line(Secret::SubscriptionToken),
-            "api_key": keychain::handover_line(Secret::ApiKey),
         },
     })
 }
@@ -221,13 +216,9 @@ mod tests {
 
     #[test]
     fn the_state_a_page_reads_never_holds_a_credential() {
-        // The page's state is built from booleans and fixed text; this checks the fixed text.
-        let lines = [
-            keychain::handover_line(Secret::SubscriptionToken),
-            keychain::handover_line(Secret::ApiKey),
-            engine::INSTALL_COMMAND.to_string(),
-        ];
-        assert!(lines.iter().all(|l| !l.contains("sk-ant-")));
+        // The page's state is built from booleans, the settings' names and the catalogue;
+        // this checks the catalogue, its one fixed text.
+        assert!(!engine::CATALOGUE.contains("sk-ant-"));
     }
 
     #[test]

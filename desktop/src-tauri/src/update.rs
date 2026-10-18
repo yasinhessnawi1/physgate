@@ -52,7 +52,7 @@ async fn run(app: &AppHandle) -> Result<Option<String>, String> {
     if public_key(app).is_empty() {
         return Err(
             "This copy of the app was built without an update key, so it cannot \
-                    update itself. Build it with scripts/build-desktop.sh."
+                    update itself."
                 .into(),
         );
     }
