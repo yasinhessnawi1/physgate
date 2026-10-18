@@ -101,7 +101,10 @@ def srt_settings(
         config, home=str(scratch / "home"), temp_dir=str(scratch / "tmp"), network="none"
     )
     filesystem = policy.settings["sandbox"]["filesystem"]
-    opened = sorted({str(scratch), *(str(p) for p in readable)})
+    # The runtime's own package (its seccomp helper among it) must stay readable inside the
+    # sandbox it builds, wherever it is installed.
+    runtime = SRT.parent.parent / "@anthropic-ai" / "sandbox-runtime"
+    opened = sorted({str(scratch), str(runtime.resolve()), *(str(p) for p in readable)})
     return {
         "filesystem": {
             "denyRead": sorted({*filesystem["denyRead"], str(home), os.path.realpath(home)}),
