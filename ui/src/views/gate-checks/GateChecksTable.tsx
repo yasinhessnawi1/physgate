@@ -1,4 +1,4 @@
-import { ScrollTable } from "../../design/components/ScrollTable";
+import { ScrollTable } from "../../design/components/layout/ScrollTable";
 /**
  * The gate's per-check records, grouped by the gate call they came from. Every outcome is drawn
  * through the mode it ran in, so an observe record reads "would … · not enforced" and is never a
@@ -6,8 +6,8 @@ import { ScrollTable } from "../../design/components/ScrollTable";
  * looked at, a pass over nothing included.
  */
 import type { GateCheck } from "../../api/run";
-import { GateOutcome } from "../../design/components/GateMode";
-import { Quantity } from "../../design/components/Quantity";
+import { GateOutcome } from "../../design/components/verdict/GateMode";
+import { Quantity } from "../../design/components/data/Quantity";
 
 function call(check: GateCheck): string {
   return check.subtask === "integration"
@@ -28,7 +28,7 @@ export function Measured({ check }: { check: GateCheck }) {
       </span>
     );
   }
-  if (check.value !== null) return <Quantity q={check.value} />;
+  if (check.value !== null) return <Quantity {...check.value} />;
   if (check.outcome === "unchecked" && check.details.quantities.length > 0)
     return <span className="mono measured-names">{check.details.quantities.join(", ")}</span>;
   return <span className="muted">—</span>;
@@ -39,7 +39,7 @@ export function Bound({ check }: { check: GateCheck }) {
   if (low !== null && high !== null)
     return (
       <span className="bound">
-        <Quantity q={low} /> to <Quantity q={high} />
+        <Quantity {...low} /> to <Quantity {...high} />
       </span>
     );
   return check.expected === null ? (

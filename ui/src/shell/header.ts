@@ -1,6 +1,6 @@
-import type { GateMode } from "../design/components/GateMode";
-import type { OsLayer } from "../design/components/OsLayer";
-import type { Source } from "../design/components/SourceChip";
+import type { GateMode } from "../design/components/verdict/GateMode";
+import type { OsLayer } from "../design/components/system/OsLayerBadge";
+import type { Source } from "../design/components/data/source";
 
 /** What a view puts in the top bar: its title, and the record its figures come from. */
 export interface Header {

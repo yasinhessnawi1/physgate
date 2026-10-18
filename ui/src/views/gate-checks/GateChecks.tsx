@@ -7,7 +7,7 @@ import { useEffect } from "react";
 
 import { getLines } from "../../api/client";
 import { gateCheck } from "../../api/run";
-import { EmptyState, ErrorState, LoadingState } from "../../design/components/States";
+import { EmptyState, ErrorState, LoadingState } from "../../design/components/status/States";
 import type { ViewProps } from "../../shell/header";
 import { hrefFor } from "../../shell/route";
 import { useConfigs } from "../common/configs";
@@ -38,7 +38,7 @@ export default function GateChecks({ setHeader, query }: ViewProps) {
       });
   }, [config, setHeader]);
   if (runs === null) return <LoadingState reading="the run list" />;
-  if (!runs.ok) return <ErrorState title="The run list was refused" refusal={runs.refusal} />;
+  if (!runs.ok) return <ErrorState title="The run list was refused" {...runs.refusal} />;
   if (chosen === undefined)
     return (
       <EmptyState title="No runs under the roots yet">
@@ -59,9 +59,9 @@ export default function GateChecks({ setHeader, query }: ViewProps) {
       {config === null || checks === null ? (
         <LoadingState reading="the gate events" />
       ) : !config.ok ? (
-        <ErrorState title="The run's configuration was refused" refusal={config.refusal} />
+        <ErrorState title="The run's configuration was refused" {...config.refusal} />
       ) : !checks.ok ? (
-        <ErrorState title="Gate checks: not shown" refusal={checks.refusal} />
+        <ErrorState title="Gate checks: not shown" {...checks.refusal} />
       ) : (
         <div className="view">
           <div className="view">
@@ -84,7 +84,7 @@ export default function GateChecks({ setHeader, query }: ViewProps) {
                 pairHref={pairHref}
               />
             ) : (
-              <ErrorState title="The other runs could not be read" refusal={configs.refusal} />
+              <ErrorState title="The other runs could not be read" {...configs.refusal} />
             )}
           </div>
         </div>

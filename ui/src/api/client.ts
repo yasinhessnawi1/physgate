@@ -2,7 +2,7 @@
  * The API client. Every response is either the record, checked at this boundary, or the
  * server's refusal with its reason: a view receives one or the other, never a partial record.
  */
-import type { Refusal } from "../design/components/States";
+import type { Refusal } from "../design/components/status/States";
 
 export type Result<T> =
   { readonly ok: true; readonly value: T } | { readonly ok: false; readonly refusal: Refusal };

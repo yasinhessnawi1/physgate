@@ -1,10 +1,11 @@
 import { getLines } from "../../api/client";
 import type { RunConfig } from "../../api/records";
 import { type GateCheck, gateCheck } from "../../api/run";
-import { GateModeBadge, GateOutcome } from "../../design/components/GateMode";
-import { SourceChip, sourceAttribute } from "../../design/components/SourceChip";
-import { EmptyState, ErrorState, LoadingState } from "../../design/components/States";
-import { Tally } from "../../design/components/VerdictBadge";
+import { GateModeBadge, GateOutcome } from "../../design/components/verdict/GateMode";
+import { SourceChip } from "../../design/components/data/SourceChip";
+import { sourceAttribute } from "../../design/components/data/source";
+import { EmptyState, ErrorState, LoadingState } from "../../design/components/status/States";
+import { Tally } from "../../design/components/verdict/Tally";
 import { tallyOfChecks } from "../../design/tally";
 import { baseOfKey, runSource } from "../common/runs";
 import { useResult } from "../common/useResult";
@@ -59,7 +60,7 @@ export function PairedRun({
         (checks === null ? (
           <LoadingState reading="the paired run's gate checks" />
         ) : !checks.ok ? (
-          <ErrorState title="The paired run's gate checks: not shown" refusal={checks.refusal} />
+          <ErrorState title="The paired run's gate checks: not shown" {...checks.refusal} />
         ) : (
           <PairedBody config={picked[1]} checks={checks.value} />
         ))}
@@ -97,7 +98,7 @@ export function PairedBody({
         <p className="view-note">The gate did not run in this run: no check result exists.</p>
       ) : (
         <>
-          <Tally counts={tallyOfChecks(checks)} observed={config.gateMode === "observe"} />
+          <Tally {...tallyOfChecks(checks)} observed={config.gateMode === "observe"} />
           <ul className="paired-list">
             {checks
               .filter((c) => c.outcome === "fail" || c.outcome === "warn")
@@ -118,7 +119,7 @@ export function PairedBody({
           fail of their own.
         </p>
       )}
-      <SourceChip source={runSource(config)} />
+      <SourceChip {...runSource(config)} />
     </div>
   );
 }

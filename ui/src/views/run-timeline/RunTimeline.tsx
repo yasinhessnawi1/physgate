@@ -17,9 +17,10 @@ import {
   tokens as tokenAccount,
   trace as runTrace,
 } from "../../api/run";
-import { Figure } from "../../design/components/Figure";
-import { type Source, SourceChip } from "../../design/components/SourceChip";
-import { EmptyState, ErrorState, LoadingState } from "../../design/components/States";
+import { Figure } from "../../design/components/data/Figure";
+import { SourceChip } from "../../design/components/data/SourceChip";
+import { type Source } from "../../design/components/data/source";
+import { EmptyState, ErrorState, LoadingState } from "../../design/components/status/States";
 import type { ViewProps } from "../../shell/header";
 import { hrefFor } from "../../shell/route";
 import { useConfigs } from "../common/configs";
@@ -68,7 +69,7 @@ function Loaded<T>({
   children: (value: T) => React.ReactNode;
 }) {
   if (result === null) return <LoadingState reading={what} />;
-  if (!result.ok) return <ErrorState title={`${what}: not shown`} refusal={result.refusal} />;
+  if (!result.ok) return <ErrorState title={`${what}: not shown`} {...result.refusal} />;
   return <>{children(result.value)}</>;
 }
 
@@ -113,7 +114,7 @@ function Timeline({
     [events, "The event log"],
     [status, "The run's status"],
   ] as const) {
-    if (!answer.ok) return <ErrorState title={`${what}: not shown`} refusal={answer.refusal} />;
+    if (!answer.ok) return <ErrorState title={`${what}: not shown`} {...answer.refusal} />;
   }
   if (!trace.ok || !decided.ok || !events.ok || !status.ok || !checks.ok) return null;
   const named = timelineEvents(events.value);
@@ -137,8 +138,8 @@ function Timeline({
             <StatusBadge status={status.value} />
           </div>
           <div className="title-with-badge">
-            <SourceChip source={source} />
-            <span className="source-chip">
+            <SourceChip {...source} />
+            <span className="pg-source">
               manifest <span className="mono">{config.manifestId.slice(0, 8)}</span>
             </span>
             <span className="label">
@@ -160,13 +161,13 @@ function Timeline({
                   : "Cost (list price"}
                 {cost.value.lowerBound ? ", lower bound)" : ")"}
               </span>
-              <Figure q={cost.value.usd} source={source} />
+              <Figure {...cost.value.usd} source={source} />
             </div>
           )}
           {tokens?.ok === true && (
             <div className="headline">
               <span className="label">Output tokens</span>
-              <Figure q={{ value: tokens.value.total.output, unit: "tok" }} source={source} />
+              <Figure {...{ value: tokens.value.total.output, unit: "tok" }} source={source} />
             </div>
           )}
         </div>
@@ -189,7 +190,7 @@ function Timeline({
                 manifestId={config.manifestId}
               >
                 <a
-                  className="button button-browse"
+                  className="pg-btn pg-btn-browse"
                   href={hrefFor(AREA, "gate-checks", new URLSearchParams(query))}
                 >
                   Open every check
@@ -210,7 +211,7 @@ function Timeline({
               pairHref={pairHref}
             />
           ) : (
-            <ErrorState title="The other runs could not be read" refusal={configs.refusal} />
+            <ErrorState title="The other runs could not be read" {...configs.refusal} />
           )}
         </div>
       </div>
@@ -238,7 +239,7 @@ export default function RunTimeline({ setHeader, query }: ViewProps) {
       });
   }, [config, setHeader]);
   if (runs === null) return <LoadingState reading="the run list" />;
-  if (!runs.ok) return <ErrorState title="The run list was refused" refusal={runs.refusal} />;
+  if (!runs.ok) return <ErrorState title="The run list was refused" {...runs.refusal} />;
   if (chosen === undefined || base === null)
     return (
       <EmptyState title="No runs under the roots yet">
@@ -270,7 +271,7 @@ export default function RunTimeline({ setHeader, query }: ViewProps) {
           pairHref={pairHref}
         />
       ) : (
-        <ErrorState title="The run's configuration was refused" refusal={config.refusal} />
+        <ErrorState title="The run's configuration was refused" {...config.refusal} />
       )}
     </div>
   );

@@ -15,7 +15,7 @@ import {
   resolved,
   type Verb,
 } from "../../api/queue";
-import { EmptyState, ErrorState, LoadingState } from "../../design/components/States";
+import { EmptyState, ErrorState, LoadingState } from "../../design/components/status/States";
 import type { ViewProps } from "../../shell/header";
 import { RunPicker, runKey, runSource, useChosenRun } from "../common/runs";
 import { useResult } from "../common/useResult";
@@ -61,7 +61,7 @@ export default function ApprovalQueue({ setHeader, query }: ViewProps) {
   }, [config, setHeader]);
 
   if (runs === null) return <LoadingState reading="the run list" />;
-  if (!runs.ok) return <ErrorState title="The run list was refused" refusal={runs.refusal} />;
+  if (!runs.ok) return <ErrorState title="The run list was refused" {...runs.refusal} />;
   if (chosen === undefined || base === null)
     return (
       <EmptyState title="No runs under the roots yet">
@@ -80,9 +80,9 @@ export default function ApprovalQueue({ setHeader, query }: ViewProps) {
       </div>
     );
   if (!config.ok)
-    return <ErrorState title="The run's configuration was refused" refusal={config.refusal} />;
+    return <ErrorState title="The run's configuration was refused" {...config.refusal} />;
   if (!listing.ok)
-    return <ErrorState title="The approval queue was refused" refusal={listing.refusal} />;
+    return <ErrorState title="The approval queue was refused" {...listing.refusal} />;
   if (views === null)
     return (
       <div className="view">
@@ -90,7 +90,7 @@ export default function ApprovalQueue({ setHeader, query }: ViewProps) {
         <LoadingState reading="the queue's items" />
       </div>
     );
-  if (!views.ok) return <ErrorState title="An item was refused" refusal={views.refusal} />;
+  if (!views.ok) return <ErrorState title="An item was refused" {...views.refusal} />;
 
   const item = chosenItem(views.value, query.get("item"));
   const decided =

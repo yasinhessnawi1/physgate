@@ -3,7 +3,7 @@
  * an item's source and a trajectory's seal status, which item is chosen, and the exact line a
  * decision writes, which the confirmation shows before anything is sent.
  */
-import type { Verdict } from "../../design/components/VerdictBadge";
+import type { Verdict } from "../../design/components/verdict/verdict";
 import type { ItemView, QueueSource, TrajectoryStatus, Verb } from "../../api/queue";
 import { decisionText, isBlank } from "../../api/queue";
 
