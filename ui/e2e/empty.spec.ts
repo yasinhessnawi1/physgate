@@ -173,7 +173,8 @@ for (const theme of THEMES) {
         window.location.hash = hash;
       }, href);
       await settle(page);
-      if (href !== "#/about") {
+      // About and the Glossary are reference text: they read no run, so they have no empty state.
+      if (href !== "#/about" && href !== "#/reference/glossary") {
         await expect(page.locator(".pg-state-empty").first(), href).toBeVisible();
         await expect(page.locator('main [role="alert"]'), href).toHaveCount(0);
       }

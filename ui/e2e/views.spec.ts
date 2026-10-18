@@ -5,6 +5,7 @@ import {
   bindingStylesHold,
   hitAreasShort,
   cspViolations,
+  idsLeading,
   namesNoCommand,
   saysNoMoreThanTheRecord,
   styles,
@@ -41,9 +42,9 @@ async function common(page: Page, seen: Watch, shot: string) {
     expect(q["font-family"]).toContain("JetBrains Mono");
     expect(q["white-space"]).toBe("nowrap");
   }
-  expect(await hitAreasShort(page, ".pg-btn, .run-link, .pg-seg button, button.pg-node")).toEqual(
-    [],
-  );
+  expect(
+    await hitAreasShort(page, ".pg-btn, .run-link, .pg-run-link, .pg-seg button, button.pg-node"),
+  ).toEqual([]);
   const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
   expect(
     axe.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`),
@@ -57,7 +58,7 @@ async function common(page: Page, seen: Watch, shot: string) {
 
 /** No text in any table of the view is cut: each fits its region and every cell holds its text. */
 async function nothingCut(page: Page) {
-  const overflow = await page.locator(".pg-scroll-table > table").evaluateAll((tables) =>
+  const overflow = await page.locator(".pg-table-wrap > table").evaluateAll((tables) =>
     tables.flatMap((table) => {
       const region = table.parentElement;
       const wide =
@@ -70,14 +71,14 @@ async function nothingCut(page: Page) {
       return [...wide, ...cells];
     }),
   );
-  expect(await page.locator(".pg-scroll-table > table").count()).toBeGreaterThan(0);
+  expect(await page.locator(".pg-table-wrap > table").count()).toBeGreaterThan(0);
   expect(overflow).toEqual([]);
 }
 
 /** Every run in the picker reads differently from every other. */
 async function runsDistinct(page: Page) {
   const labels = await page
-    .locator('nav[aria-label="Runs"] .run-link')
+    .locator('nav[aria-label="Runs"] .run-link, nav[aria-label="Runs"] .pg-run-link')
     .evaluateAll((links) => links.map((l) => l.textContent.replace(/\s+/g, " ").trim()));
   expect(labels.length).toBeGreaterThan(1);
   expect(new Set(labels).size).toBe(labels.length);
@@ -104,7 +105,13 @@ for (const theme of THEMES) {
     await open(page, theme, "/orchestration/gate-checks?run=0/drive-observe&pair=0/drive-on");
     await observedNeverFilled(page, 'section[aria-label="Gate checks"]');
     await expect(page.getByText("0 evaluated · a pass over nothing").first()).toBeVisible();
-    await expect(page.locator(".why-row").first()).toContainText("Why:");
+    await expect(page.locator(".pg-why-line").first()).not.toBeEmpty();
+    expect(
+      await idsLeading(
+        page,
+        'table[aria-label="Gate checks"] tbody tr:not(.pg-group-row) td:first-child',
+      ),
+    ).toEqual([]);
     await nothingCut(page);
     await runsDistinct(page);
     expect([...seen.api]).toEqual(
@@ -115,17 +122,21 @@ for (const theme of THEMES) {
     );
     await expect(page.locator(".pg-tally-over-nothing").first()).toContainText("over nothing");
     const measuredOfUnchecked = await page
-      .locator('section[aria-label="Gate checks"] tr:has(.pg-verdict-unchecked) td:nth-child(5)')
+      .locator('section[aria-label="Gate checks"] tr:has(.pg-verdict-unchecked) .pg-measured')
       .allTextContents();
     expect(measuredOfUnchecked.length).toBeGreaterThan(0);
     for (const text of measuredOfUnchecked) expect(text).not.toMatch(/pass|evaluated/);
     const paired = await page
-      .locator('nav[aria-label="Runs of the same brief and seed"] .run-link')
+      .locator('nav[aria-label="Runs of the same brief and seed"] .pg-run-link')
       .evaluateAll((links) => links.map((l) => l.textContent.replace(/\s+/g, " ").trim()));
     expect(paired.length).toBeGreaterThan(2);
     expect(new Set(paired).size).toBe(paired.length);
     await expect(
-      page.locator('section[aria-label="Same plan, another gate mode"] .pg-gate-on').first(),
+      page
+        .locator(
+          'section[aria-label="The same design, run with the gate in another mode"] .pg-gate-on',
+        )
+        .first(),
     ).toBeVisible();
     await bindingStylesHold(page);
     await common(page, seen, `gate-checks-observe-${theme}`);
@@ -148,7 +159,7 @@ test("the gate-off run's checks say the gate did not run, and show no result", a
   const seen = await watch(page);
   await open(page, "light", "/orchestration/gate-checks?run=0/drive-off");
   await expect(page.getByText("The gate did not run")).toBeVisible();
-  await expect(page.locator(".checks-table")).toHaveCount(0);
+  await expect(page.locator('table[aria-label="Gate checks"]')).toHaveCount(0);
   expect(seen.outbound).toEqual([]);
 });
 
@@ -178,15 +189,20 @@ test("a gated run read against an observed one: the paired card is never a fille
 }) => {
   const seen = await watch(page);
   await open(page, "light", "/orchestration/gate-checks?run=0/drive-on&pair=0/drive-observe");
-  const paired = page.locator('section[aria-label="Same plan, another gate mode"]');
-  await expect(paired.locator(".paired-body .pg-gate-observe")).toBeVisible();
+  const paired = page.locator(
+    'section[aria-label="The same design, run with the gate in another mode"]',
+  );
+  await expect(paired.locator(".pg-paired-body .pg-gate-observe")).toBeVisible();
+  expect(
+    await idsLeading(page, 'nav[aria-label="Runs of the same brief and seed"] .pg-run-link'),
+  ).toEqual([]);
   await expect(paired.locator(".pg-verdict-pass, .pg-verdict-fail, .pg-verdict-warn")).toHaveCount(
     0,
   );
   await expect(paired.locator(".pg-observed").first()).toBeVisible();
   for (const o of await styles(
     page,
-    'section[aria-label="Same plan, another gate mode"] .pg-observed',
+    'section[aria-label="The same design, run with the gate in another mode"] .pg-observed',
     ["border-top-style", "background-color"],
   ))
     expect(o).toEqual({ "border-top-style": "dashed", "background-color": TRANSPARENT });

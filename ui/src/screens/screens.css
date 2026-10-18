@@ -353,7 +353,7 @@
   align-items: start;
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1500px) {
   .pg-split {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -553,4 +553,228 @@
 /* The graph screen gives the drawing all the height it needs: every node opens whole. */
 .pg-graph-screen .pg-graph-frame {
   max-height: none;
+}
+
+/* -- gate checks ----------------------------------------------------------------------------- */
+.pg-checks-table td {
+  vertical-align: top;
+}
+
+.pg-why-line {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--color-text-2);
+  font-size: var(--type-label-size);
+}
+
+.pg-measured,
+.pg-bound-line {
+  display: block;
+}
+
+.pg-bound-line {
+  color: var(--color-text-2);
+  font-size: var(--type-label-size);
+}
+
+.pg-runs-column {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.pg-paired-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.pg-paired-body > .pg-source {
+  align-self: flex-start;
+}
+
+.pg-checks-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.pg-checks-table th:nth-child(1) {
+  width: 36%;
+}
+
+.pg-checks-table th:nth-child(2) {
+  width: 20%;
+}
+
+.pg-checks-table th:nth-child(3) {
+  width: 18%;
+}
+
+.pg-checks-table th:nth-child(4) {
+  width: 12%;
+}
+
+.pg-checks-table td,
+.pg-checks-table th {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.pg-checks-table td .pg-id {
+  display: block;
+}
+
+.pg-checks-table .pg-group-row .pg-id {
+  display: inline;
+}
+
+/* -- queue ----------------------------------------------------------------------------------- */
+.pg-queue-layout {
+  display: grid;
+  grid-template-columns: minmax(16rem, 22rem) minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .pg-queue-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.pg-queue-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.pg-queue-entry:hover {
+  background: var(--color-surface-2);
+}
+
+.pg-queue-entry-on {
+  background: var(--color-accent-bg);
+}
+
+.pg-queue-entry-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.pg-queue-entry-title {
+  font-weight: 600;
+}
+
+.pg-queue-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.pg-queue-over {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pg-queue-decision {
+  margin: 0;
+  font-size: var(--type-page-title-size);
+  line-height: var(--type-page-title-line);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.pg-queue-decide {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.pg-queue-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.pg-queue-flag {
+  margin: 0;
+  font-weight: 600;
+}
+
+.pg-transcript-session {
+  font-family: var(--font-mono);
+  font-size: var(--type-mono-small-size);
+  overflow-wrap: anywhere;
+}
+
+.pg-dialog-note {
+  margin: 0;
+  color: var(--color-text-2);
+}
+
+/* -- run records ----------------------------------------------------------------------------- */
+.pg-records {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.pg-records > section:nth-child(n + 3) {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 1100px) {
+  .pg-records {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.pg-subtotal th,
+.pg-total th {
+  text-align: left;
+  font-weight: 600;
+}
+
+.pg-total th,
+.pg-total td {
+  border-top: 2px solid var(--color-border-strong);
+}
+
+/* -- glossary -------------------------------------------------------------------------------- */
+.pg-glossary {
+  max-width: 64rem;
+}
+
+.pg-glossary-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+
+.pg-glossary-entry {
+  display: grid;
+  grid-template-columns: minmax(10rem, 14rem) minmax(0, 1fr);
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.pg-glossary-entry dt {
+  font-weight: 600;
+}
+
+.pg-glossary-entry dd {
+  margin: 0;
 }

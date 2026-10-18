@@ -1,7 +1,15 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Page, test } from "@playwright/test";
 
-import { bindingStylesHold, cspViolations, styles, THEMES, TRANSPARENT, watch } from "./support";
+import {
+  bindingStylesHold,
+  cspViolations,
+  idsLeading,
+  styles,
+  THEMES,
+  TRANSPARENT,
+  watch,
+} from "./support";
 
 /**
  * The smoke page end to end: the real server over runs the real loop made. Every request the
@@ -13,7 +21,7 @@ import { bindingStylesHold, cspViolations, styles, THEMES, TRANSPARENT, watch } 
 async function open(page: Page, theme: (typeof THEMES)[number], run: string) {
   await page.goto(`/?theme=${theme}#/home/run-records?run=${run}`);
   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0, { timeout: 30_000 });
-  await expect(page.getByText("matched its seal")).toBeVisible();
+  await expect(page.getByText("it matched its seal").first()).toBeVisible();
 }
 
 for (const theme of THEMES) {
@@ -29,7 +37,8 @@ for (const theme of THEMES) {
       "events",
       "ledger",
       "gate-events",
-      "graph",
+      "tokens",
+      "decisions",
       "cost/2026-10-16",
       "trajectories/:session",
     ]) {
@@ -51,7 +60,7 @@ for (const theme of THEMES) {
     await expect(
       page.locator(".pg-observed .pg-verdict-fail, .pg-observed.pg-verdict-fail"),
     ).toHaveCount(0);
-    const gateChecks = page.locator('section[aria-label="Gate checks"]');
+    const gateChecks = page.locator('section[aria-label="Gate records"]');
     await expect(
       gateChecks.locator(".pg-verdict-pass, .pg-verdict-fail, .pg-verdict-warn"),
     ).toHaveCount(0);
@@ -87,8 +96,14 @@ for (const theme of THEMES) {
     });
     expect(ring).toEqual(["solid", "2px"]);
 
-    // The design graph is drawn from the run's journal.
-    expect(await page.locator(".pg-node").count()).toBeGreaterThan(0);
+    // The token account is the run's own, routing included, and the cost says it is a lower
+    // bound where the server could not price every call.
+    await expect(page.locator('table[aria-label="By attribution"]')).toContainText("all routing");
+    await expect(page.locator('section[aria-label="Tokens and cost"]')).toContainText(
+      "Lower bound",
+    );
+    // Every heading of a record leads with words.
+    expect(await idsLeading(page, ".pg-panel-title")).toEqual([]);
 
     const axe = await new AxeBuilder({ page })
       .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
@@ -133,12 +148,12 @@ test("a ledger the server refuses is shown as a refusal with its reason, and not
   const ledger = page.locator('section[aria-label="Task ledger"]');
   const alert = ledger.locator('[role="alert"]');
   await expect(alert).toBeVisible();
-  await expect(alert).toContainText("Task ledger: not shown");
+  await expect(alert).toContainText("The task ledger could not be read");
   await expect(alert).toContainText("the ledger holds a record this class could not have written");
   await expect(alert).toContainText("422");
   await expect(ledger.locator("table")).toHaveCount(0);
   // The rest of the run still renders: one refused record does not hide the others.
-  await expect(page.locator('section[aria-label="Gate checks"] table')).toBeVisible();
+  await expect(page.locator('section[aria-label="Gate records"] table')).toBeVisible();
   await bindingStylesHold(page);
   expect(seen.outbound).toEqual([]);
 });

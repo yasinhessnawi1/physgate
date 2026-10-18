@@ -59,8 +59,13 @@ async function common(page: Page, seen: Watch, shot: string) {
   // The dock stays the placeholder: no collaborator action on any screen.
   await expect(page.locator(".pg-change, .pg-msg")).toHaveCount(0);
   const evidence = process.env.PHYSGATE_UI_SCREENSHOTS;
-  if (evidence !== undefined)
-    await page.screenshot({ path: `${evidence}/${shot}.png`, fullPage: true });
+  if (evidence !== undefined) {
+    // From the top of the content, so the evidence shows what a person sees first.
+    await page.evaluate(() => {
+      document.querySelector(".pg-content")?.scrollTo(0, 0);
+    });
+    await page.screenshot({ path: `${evidence}/${shot}.png` });
+  }
 }
 
 /** Every graph node is whole inside the frame: none cut at an edge. */
@@ -511,3 +516,56 @@ test("the command palette finds the graph's nodes by label, key and verdict", as
     "Driver",
   );
 });
+
+for (const theme of THEMES) {
+  for (const width of WIDTHS) {
+    test(`the glossary: five groups, every term, and the queue item as recorded (${theme}, ${String(width)})`, async ({
+      page,
+    }) => {
+      const seen = await watch(page);
+      await open(page, theme, "/reference/glossary", width);
+      await expect(page.locator(".pg-page-title")).toHaveText("Glossary");
+      await expect(page.locator(".pg-glossary section")).toHaveCount(5);
+      const glossary = page.locator(".pg-glossary");
+      for (const term of ["Gate", "Observe", "Unchecked", "Attempt", "Repair", "Safe point"])
+        await expect(glossary.locator("dt", { hasText: new RegExp(`^${term}$`) })).toHaveCount(1);
+      await expect(glossary).toContainText(
+        "A question the run could not settle by itself. Your decision is recorded against the run; it does not restart the subtask.",
+      );
+      await expect(glossary).toContainText("Power balance check");
+      await common(page, seen, `glossary-${theme}-${String(width)}`);
+    });
+  }
+
+  test(`run records: configuration, cost at a price sheet, tokens, ledger and seals (${theme})`, async ({
+    page,
+  }) => {
+    const seen = await watch(page);
+    await open(page, theme, "/home/run-records?run=0/drive-observe", 1280);
+    await expect(page.locator(".pg-page-title")).toHaveText("Run records");
+    await expect(page.locator('section[aria-label="Configuration"]')).toContainText("Manifest");
+    await expect(page.locator('section[aria-label="Cost"]')).toContainText("list-price estimate");
+    await expect(page.locator('table[aria-label="By attribution"]')).toContainText("all routing");
+    await expect(page.locator('section[aria-label="Tokens and cost"]')).toContainText(
+      "Lower bound",
+    );
+    await expect(
+      page.locator('section[aria-label="Trajectories"] [data-status-kind="seal-holds"]').first(),
+    ).toBeVisible();
+    expect(
+      await idsLeading(page, ".pg-panel-title, table[aria-label='Task ledger'] td:first-child"),
+    ).toEqual([]);
+    for (const route of [
+      "config",
+      "ledger",
+      "events",
+      "tokens",
+      "decisions",
+      "gate-events",
+      "cost/2026-10-16",
+    ])
+      expect([...seen.api]).toContain(`/api/runs/0/drive-observe/${route}`);
+    await nothingCut(page);
+    await common(page, seen, `run-records-${theme}`);
+  });
+}
