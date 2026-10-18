@@ -11,7 +11,6 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-
 HELPER = Path(__file__).resolve().parents[2] / "scripts" / "experiment" / "scan.sh"
 
 
