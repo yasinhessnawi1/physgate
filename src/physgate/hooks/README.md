@@ -108,7 +108,8 @@ without calling the Write tool. So the shell is covered twice.
    - `journal` (the graph store): the journal's existing bytes must be
      unchanged; appends are the orchestrator's, and the store's own staleness
      guard refuses one that was not; node files must hold what the journal
-     says, and one that does not is rebuilt from the journal with the store's
+     says, and one that does not, or that is missing while the journal names
+     it, is rebuilt from the journal with the store's
      own write, and the session halts;
    - `halt` (the hook code): every later call is refused;
    - `log`: recorded, because other processes write it legitimately;

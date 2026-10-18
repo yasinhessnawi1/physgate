@@ -24,9 +24,10 @@ says:
   moved under its handle. That is sound only if the orchestrator treats that
   refusal as an incident and never reopens and continues, because a reopen
   would replay an agent's line as genuine. The node files beside it are
-  derived from the journal: one that no longer holds what the journal says is
-  rebuilt from the journal's newest line for it, with the store's own write,
-  and every call after it is refused.
+  derived from the journal: one that no longer holds what the journal says, or
+  that is missing while the journal names it, is rebuilt from the journal's
+  newest line for it, with the store's own write, and every call after it is
+  refused.
 - ``halt``: the code the hooks run from. It cannot be put back by the code it
   runs, and a hook running on changed code cannot be trusted to say so, so this
   is detection at best: when it is seen, every later call is refused. What
@@ -492,12 +493,17 @@ def _read_as_the_store_does(path: str) -> bytes | None:
 def _check_nodes(base: dict[str, Any]) -> list[str]:
     """Node files that do not hold what the journal says, read-only; nothing is written.
 
+    A node the journal names whose file is missing is a finding too: the store
+    would serve nothing for it until its next open, and a deleted file is as far
+    from the journal as a rewritten one.
+
     The orchestrator writes a node in two steps, the journal line and then the
     file, and a check can land between them. So the journal is read again
     before deciding, and a file is not a finding if it matches the journal as
     it now stands, or if its node has a newer journal line than the last check
-    saw: that is the orchestrator's write in progress. A file whose node's
-    newest line was already seen, and which still does not match, is a finding.
+    saw: that is the orchestrator's write in progress, a new node's file not yet
+    written included. A file whose node's newest line was already seen, and
+    which still does not match or is still missing, is a finding.
     """
     findings: list[str] = []
     for root, was in base.get("nodes", {}).items():
@@ -506,11 +512,17 @@ def _check_nodes(base: dict[str, Any]) -> list[str]:
         if now == was["sigs"]:
             continue
         found = heads(root)
+        files = _node_files(root)
         suspects = [
             (node_id, path)
-            for node_id, path in _node_files(root).items()
+            for node_id, path in files.items()
             if node_id not in found
             or _read_as_the_store_does(path) != _expected_body(found[node_id])
+        ]
+        suspects += [
+            (node_id, os.path.join(root, "nodes", f"{node_id}.json"))
+            for node_id in sorted(found)
+            if node_id not in files
         ]
         if suspects:
             found = heads(root)
@@ -557,6 +569,14 @@ def _restore_nodes(base: dict[str, Any], mismatched: list[str]) -> list[str]:
         root = os.path.dirname(nodes)
         node_id = os.path.basename(path)[: -len(".json")]
         roots.add(root)
+        if not os.path.lexists(nodes):
+            # The whole directory was removed: made again as the store makes it, so
+            # each file can be rebuilt. A link in its place is not followed, and the
+            # write below refuses it.
+            try:
+                os.mkdir(nodes)
+            except OSError:
+                continue
         for _ in range(_REBUILD_ATTEMPTS):
             head = heads(root).get(node_id)
             if head is None:
@@ -663,14 +683,16 @@ def check(hook_input: InputView, config: ConfigView) -> Decision:
         _event(config, hook_input, "changed", logged)
     if unsure:
         _event(config, hook_input, "withheld", unsure)
+    # Every action taken is on record before any refusal is chosen: a halt for one
+    # fault may not hide another fault's put-back from the log.
+    if put_back:
+        _event(config, hook_input, "put back", put_back)
     if failed:
         _event(config, hook_input, "unrestorable", failed)
         return refuse(UNRESTORABLE.format(paths=", ".join(failed)))
     if mismatched:
         _event(config, hook_input, "node mismatch", mismatched, {"restored": restored})
         return refuse(NODE_MISMATCH.format(paths=", ".join(mismatched)))
-    if put_back:
-        _event(config, hook_input, "put back", put_back)
     if unsure:
         return refuse(LINKED.format(paths=", ".join(unsure)))
     if put_back:
