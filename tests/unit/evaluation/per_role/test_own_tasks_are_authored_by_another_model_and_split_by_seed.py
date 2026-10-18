@@ -12,6 +12,7 @@ from physgate.evaluation.per_role.authoring import (
     require_author_model,
     split,
 )
+from physgate.evaluation.per_role.metrics import CONTROL_METRIC_UNITS
 from physgate.evaluation.per_role.task import load_task
 
 
@@ -23,10 +24,29 @@ def test_an_author_on_the_implementers_model_is_refused() -> None:
 
 def test_the_author_is_told_the_format_and_the_metrics_and_nothing_of_the_harness() -> None:
     brief = author_brief("control")
-    for told in ("phase_margin: deg", "settling_time: s", "composes", "expect.json", "16 tasks"):
-        assert told in brief.replace("exactly 16", "16")
+    for told in ("phase_margin, in deg", "settling_time, in s", "composes", "expect.json"):
+        assert told in brief
+    assert "exactly 16 tasks" in brief
     for withheld in ("knowledge", "rubric", "reviewer", "gate", "physgate", "harness"):
         assert withheld not in brief.lower()
+
+
+def test_the_author_is_told_every_name_the_scorer_reads_a_plant_and_an_answer_by() -> None:
+    brief = author_brief("control")
+    # The plant's inputs, each coefficient's unit, and the two optional inputs.
+    for told in ("plant_num_0", "plant_den_0", '"s**k"', "plant_gain", "plant_delay"):
+        assert told in brief
+    # The answer's form and fields, which every task's brief must pass on to the designer.
+    for told in ('"form": "lti_tf"', '"gain"', '"num"', '"den"', "proper", "at most 10"):
+        assert told in brief
+    # The scorer needs a settling-time bound to set its horizon.
+    assert "Every task bounds settling_time" in brief
+    for metric in CONTROL_METRIC_UNITS:
+        assert f"  - {metric}, in {CONTROL_METRIC_UNITS[metric]}: " in brief
+
+
+def test_the_author_is_not_promised_a_scoring_command_it_does_not_have() -> None:
+    assert "command" not in author_brief("control")
 
 
 def _stage(root: Path, count: int = 16) -> Path:

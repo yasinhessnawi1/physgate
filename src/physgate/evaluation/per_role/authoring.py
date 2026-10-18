@@ -77,16 +77,49 @@ task.json fields:
   op is one of >=, <=, >, <, in; bound is {{"value", "unit"}} or two of them for "in"),
   scorer {{"id": "{scorer}", "version": "{scorer_version}"}}.
 
-The metrics the scorer computes, with the unit every bound on each must be written in:
+The plant, given in inputs, is G(s) = plant_gain * N(s) / D(s) * exp(-plant_delay * s),
+s in 1/s:
+  - plant_num_0, plant_num_1, ...: the coefficients of N(s), highest power first, and
+    plant_den_0, plant_den_1, ...: those of D(s), each numbered from 0 with no gap;
+  - the coefficient of s^k is written in the unit "s**k" ("s" for k = 1, "1" for k = 0);
+  - plant_gain (unit "1") and plant_delay (unit "s") are optional: 1 and 0 when absent.
+
+The loop is unity negative feedback around C(s) * G(s), driven by a unit step reference.
+The metrics the scorer computes on it, each with the unit every bound on it is written in:
 {metrics}
+Every task bounds settling_time: the scorer simulates for twenty times its upper bound.
+
+The answer, a controller C(s) = K * N(s) / D(s), is the file {answer}:
+  {{"form": "{form}", "gain": {{"value": K, "unit": "1"}}, "num": [...], "den": [...]}}
+with the coefficients of N and D highest power first, each {{"value", "unit"}} in the unit
+of its power as above. It is proper (N no higher in degree than D) and of order at most 10.
+Every task's brief tells the designer this format and the file to write it to.
 
 Rules:
   - every task composes at least two requirements: the "composes" lists of its headline
     specifications name two or more distinct requirements between them;
-  - the brief states every headline specification, and never states or hints at an answer;
+  - the brief states every headline specification, and never states or hints at an answer:
+    no number of the good reference other than 0, 1 or -1 appears in it;
   - vary the plants, the numbers and the combination of requirements across the tasks;
-  - the good reference must pass when scored; check it with the scorer command you have.
+  - when you have finished, every reference is scored: a task whose good reference fails
+    any headline specification, or whose bad reference does not fail the one it names, is
+    refused.
 """
+
+
+#: What each control metric measures, as the author is told it.
+CONTROL_METRIC_MEANINGS: dict[str, str] = {
+    "max_real_pole": "the largest real part of a closed-loop pole; the loop is stable when "
+    "it is below 0",
+    "phase_margin": "the smallest phase margin over every gain crossover, any delay "
+    "included exactly; infinite with no gain crossover",
+    "settling_time": "of the unit step response, to within 2 % of its final value; a "
+    "response that does not settle fails every bound on it",
+    "steady_state_error": "of the unit step response, |1 - T(0)|",
+    "gain_margin_ratio": "the smallest gain margin over every phase crossover, as a ratio",
+    "gain_margin_db": "the same gain margin in dB",
+    "overshoot": "of the unit step response, in percent of its final value",
+}
 
 
 def author_brief(role: Role, *, count: int = 2 * PER_TIER) -> str:
@@ -94,7 +127,10 @@ def author_brief(role: Role, *, count: int = 2 * PER_TIER) -> str:
     if role != "control":
         msg = f"no scorer exists yet for the {role} role's own tasks"
         raise AuthoringError(msg, role=role)
-    metrics = "\n".join(f"  - {name}: {unit}" for name, unit in CONTROL_METRIC_UNITS.items())
+    metrics = "\n".join(
+        f"  - {name}, in {unit}: {CONTROL_METRIC_MEANINGS[name]};"
+        for name, unit in CONTROL_METRIC_UNITS.items()
+    )
     return AUTHOR_BRIEF.format(
         role=role,
         count=count,
