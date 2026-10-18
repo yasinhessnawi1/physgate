@@ -76,6 +76,9 @@ def add_parser(subparsers: Any) -> None:
         sub.add_argument("--claude-version", default="2.1.301")
         sub.add_argument("--cap", type=int, required=True)
         if name == "author":
+            # The interpreter the arms' sessions get, with the scorer's libraries: the
+            # author computes with them, though the scorer itself is never given.
+            sub.add_argument("--role-python", required=True)
             sub.add_argument("--visible", type=Path, required=True)
             sub.add_argument("--seed", type=int, required=True)
             sub.add_argument("--count", type=int, default=16)
@@ -194,7 +197,7 @@ def _session_setup(args: argparse.Namespace, install: Path) -> Any:
         credential=credential_for(args.auth, os.environ),
         base_url=args.endpoint,
         install_bin=prepare_install(install / "hooks", CHECKOUT),
-        role_python=None,
+        role_python=_role_python(getattr(args, "role_python", None)),
         held_out=(str(args.held_out_root.resolve()),),
         withheld_reads=tuple(str(p.resolve()) for p in args.withhold),
         held_out_canaries=(),
@@ -203,14 +206,33 @@ def _session_setup(args: argparse.Namespace, install: Path) -> Any:
     )
 
 
+def _role_python(path: str | None) -> Any:
+    """The named interpreter, measured as a run's role sessions' is; ``None`` if unnamed."""
+    if path is None:
+        return None
+    from physgate.orchestrator.dispatch import probe_interpreter
+    from physgate.orchestrator.role_python import measure
+
+    return measure(path, probe=probe_interpreter, harness=CHECKOUT)
+
+
 def _with_install(args: argparse.Namespace, run: Any) -> int:
+    import os
     import shutil
 
     install = args.work.parent / f"{args.work.name}.install"
+    def writable_again(function: Any, path: str, _exc: BaseException) -> None:
+        # The installation is made read-only; its owner makes each place writable to remove it.
+        os.chmod(os.path.dirname(path), 0o700)
+        if os.path.lexists(path) and not os.path.islink(path):
+            os.chmod(path, 0o700)
+        function(path)
+
     try:
         result = run(_session_setup(args, install))
     finally:
-        shutil.rmtree(install, ignore_errors=True)
+        if install.exists():
+            shutil.rmtree(install, onexc=writable_again)
     print(json.dumps(result, sort_keys=True))
     return 0 if result.get("status", "split") == "split" and result.get("answered", True) else 1
 

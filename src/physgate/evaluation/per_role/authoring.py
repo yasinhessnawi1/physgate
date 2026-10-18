@@ -100,6 +100,10 @@ with the coefficients of N and D highest power first, each {{"value", "unit"}} i
 of its power as above. It is proper (N no higher in degree than D) and of order at most 10.
 Every task's brief tells the designer this format and the file to write it to.
 
+Tools: in the directory you work in, python3 has python-control 0.10.1, numpy and scipy,
+and nothing else can be installed (there is no network). Write each task to its directory
+as soon as it is complete, before you begin the next.
+
 Rules:
   - every task composes at least two requirements: the "composes" lists of its headline
     specifications name two or more distinct requirements between them;

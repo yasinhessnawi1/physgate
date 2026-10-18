@@ -53,6 +53,13 @@ def test_the_author_is_not_promised_a_scoring_command_it_does_not_have() -> None
     assert "command" not in author_brief("control")
 
 
+def test_the_author_is_told_its_numerical_tools_and_to_write_each_task_as_it_goes() -> None:
+    brief = author_brief("control")
+    assert "python-control 0.10.1, numpy and scipy" in brief
+    assert "no network" in brief
+    assert "as soon as it is complete, before you begin the next" in brief
+
+
 def _stage(root: Path, count: int = 16) -> Path:
     staging = root / "staging"
     for i in range(count):
