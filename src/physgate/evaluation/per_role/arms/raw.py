@@ -28,6 +28,7 @@ import subprocess
 import threading
 import time
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -207,10 +208,20 @@ def _take_answer(worktree: Path, task: Task, out: Path) -> str:
     return "found"
 
 
-def run_session(prompt: str, setup: RawSetup, work: Path, *, cap: int) -> dict[str, Any]:
+def run_session(
+    prompt: str,
+    setup: RawSetup,
+    work: Path,
+    *,
+    cap: int,
+    files: Mapping[str, bytes] | None = None,
+) -> dict[str, Any]:
     """One session on ``prompt``, as the raw arm runs one, in the new directory ``work``.
 
     The session works in ``work/worktree``; what it leaves there is the caller's to take.
+    ``files`` are written into the worktree, by plain name, before the session starts: a
+    session given material to read finds it there, never in its prompt, which any process
+    of the same user can list.
     Returns the session's record: how it ended, what it spent, and whether a held-out
     canary showed in its stream.
 
@@ -227,6 +238,11 @@ def run_session(prompt: str, setup: RawSetup, work: Path, *, cap: int) -> dict[s
     worktree.mkdir(mode=0o700)
     sdir.mkdir(mode=0o700)
     subprocess.run(["git", "init", "-q"], cwd=worktree, check=True, capture_output=True)
+    for name, data in (files or {}).items():
+        if "/" in name or name.startswith("."):
+            msg = f"{name!r} is not a plain file name for the worktree"
+            raise RawArmError(msg, name=name)
+        (worktree / name).write_bytes(data)
     session_id = str(uuid.uuid4())
     temp: Path | None = None
     if isinstance(setup.os_layer, Present):

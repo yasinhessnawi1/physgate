@@ -16,7 +16,7 @@ import hashlib
 import math
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from physgate.evaluation.per_role.answer import read_lti_tf
 from physgate.evaluation.per_role.authoring import sha256sums
@@ -46,41 +46,66 @@ def id_digest(name: str) -> str:
     return hashlib.sha256(name.encode()).hexdigest()[:16]
 
 
+class _Seen(NamedTuple):
+    directory: str
+    task: str | None
+    held: bool
+    leaks: bool
+    visible: bool
+
+
+def _examine(tier: Path) -> list[_Seen]:
+    seen = []
+    for entry in sorted(p for p in tier.iterdir() if p.is_dir()):
+        try:
+            loaded = load_task(entry)
+        except (PerRoleError, OSError):
+            # A directory with no task in it is a refused task, never a crash of the count.
+            seen.append(_Seen(entry.name, None, False, False, False))
+            continue
+        try:
+            check_references(loaded)
+            held = True
+        except PerRoleError:
+            held = False
+        seen.append(
+            _Seen(
+                entry.name,
+                loaded.task.id,
+                held,
+                brief_leaks(loaded),
+                loaded.task.tier == "visible",
+            )
+        )
+    return seen
+
+
+def sound(tier: Path) -> list[str]:
+    """The tasks of ``tier`` a split may take, by directory; for the runner, never printed.
+
+    A task qualifies when it loads, its scorer holds its references, its brief gives
+    nothing away, and its directory is named by its own id.
+    """
+    return [s.directory for s in _examine(tier) if s.task == s.directory and s.held and not s.leaks]
+
+
 def validate(tier: Path, *, show_ids: bool = False) -> dict[str, Any]:
     """The tier's counts and digest; every task held to its references and its brief.
 
     Ids are reported as their digests unless ``show_ids`` is asked for and every task in
     the tier loads as a visible one; a task that does not load cannot show it is visible.
     """
-    ids: list[str] = []
-    held: list[str] = []
-    leaks: list[str] = []
-    refused: list[str] = []
-    visible = True
-    for entry in sorted(p for p in tier.iterdir() if p.is_dir()):
-        try:
-            loaded = load_task(entry)
-        except (PerRoleError, OSError):
-            # A directory with no task in it is a refused task, never a crash of the count.
-            refused.append(entry.name)
-            visible = False
-            continue
-        visible = visible and loaded.task.tier == "visible"
-        ids.append(loaded.task.id)
-        try:
-            check_references(loaded)
-            held.append(loaded.task.id)
-        except PerRoleError:
-            refused.append(loaded.task.id)
-        if brief_leaks(loaded):
-            leaks.append(loaded.task.id)
+    seen = _examine(tier)
+    loaded = [s for s in seen if s.task is not None]
+    visible = all(s.visible for s in seen)
     shown = (lambda name: name) if show_ids and visible else id_digest
+    refused = [s.directory if s.task is None else s.task for s in seen if not s.held]
     return {
-        "tasks": len(ids),
-        "references_held": len(held),
+        "tasks": len(loaded),
+        "references_held": sum(s.held for s in loaded),
         "refused": sorted(map(shown, refused)),
-        "brief_gives_the_answer": sorted(map(shown, leaks)),
-        "ids": sorted(map(shown, ids)),
+        "brief_gives_the_answer": sorted(shown(s.task) for s in loaded if s.task and s.leaks),
+        "ids": sorted(shown(s.task) for s in loaded if s.task),
         "ids_shown": show_ids and visible,
         "sha256": hashlib.sha256(sha256sums(tier).encode()).hexdigest(),
     }

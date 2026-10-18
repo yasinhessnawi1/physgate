@@ -14,6 +14,15 @@ without being read. ``--show-ids`` prints the ids themselves, only where every t
 tier is a visible one. It exits 1 if a task is refused, a brief gives its answer away, or
 the tier does not hold ``N`` tasks.
 
+``physgate per-role author --role control --held-out-root R --visible V --work W --seed N``
+runs one authoring session on ``--author-model`` (never the implementers' model), splits
+the tasks that hold into the visible tier ``V`` and the held-out tier ``R/<role>``, and
+prints counts, the visible ids and the held-out tier's digest only. ``physgate per-role
+blind-check --role control --held-out-root R --work W`` runs the blind yes/no check on the
+held-out tier and prints counts and the digests of flagged tasks only. Both read the
+credential from the environment variable its auth mode names, refuse where the OS layer
+is absent, and call a model unless ``--endpoint`` names a scripted one.
+
 ``physgate per-role report --design D --trials T [--out O]`` writes the per-role table of
 the trial records in ``T`` (one JSON object per line) under the registered design ``D``,
 to ``O`` or the standard output. It exits 1, writing nothing, if the records are not every
@@ -51,6 +60,26 @@ def add_parser(subparsers: Any) -> None:
     val.add_argument("--tasks", type=int, default=8)
     val.add_argument("--show-ids", action="store_true")
     val.set_defaults(func=_validate)
+    for name, func, text in (
+        ("author", _author, "run one authoring session and split its tasks into tiers"),
+        ("blind-check", _blind_check, "run the blind yes/no check on a held-out tier"),
+    ):
+        sub = commands.add_parser(name, help=text)
+        sub.add_argument("--role", choices=("control",), required=True)
+        sub.add_argument("--held-out-root", type=Path, required=True)
+        sub.add_argument("--withhold", type=Path, action="append", default=[])
+        sub.add_argument("--work", type=Path, required=True)
+        sub.add_argument("--model", default="claude-sonnet-5")
+        sub.add_argument("--implementer-model", default="claude-opus-5-5")
+        sub.add_argument("--auth", choices=("subscription", "api_key"), default="subscription")
+        sub.add_argument("--endpoint")
+        sub.add_argument("--claude-version", default="2.1.301")
+        sub.add_argument("--cap", type=int, required=True)
+        if name == "author":
+            sub.add_argument("--visible", type=Path, required=True)
+            sub.add_argument("--seed", type=int, required=True)
+            sub.add_argument("--count", type=int, default=16)
+        sub.set_defaults(func=func)
     rep = commands.add_parser("report", help="the per-role table of a run's trial records")
     rep.add_argument("--design", type=Path, required=True)
     rep.add_argument("--trials", type=Path, required=True)
@@ -122,3 +151,97 @@ def _validate(args: argparse.Namespace) -> int:
     print(json.dumps(found, sort_keys=True))
     whole = found["tasks"] == args.tasks == found["references_held"]
     return 0 if whole and not found["refused"] and not found["brief_gives_the_answer"] else 1
+
+
+#: The checkout this command runs from: its hooks are copied for the session to run.
+CHECKOUT = Path(__file__).resolve().parents[4]
+
+
+def _session_setup(args: argparse.Namespace, install: Path) -> Any:
+    """A session's pins, as a role session's: the pinned binary, the OS layer, offline."""
+    import os
+
+    from physgate.evaluation.per_role.arms.raw import RawSetup
+    from physgate.orchestrator.credentials import credential_for
+    from physgate.orchestrator.decompose import binary_version
+    from physgate.orchestrator.install import prepare_install
+    from physgate.orchestrator.invocation import claude_binary, session_search_path
+    from physgate.orchestrator.run_config import RunBounds
+    from physgate.oslayer.probe import Absent, judge_here
+
+    binary = claude_binary()
+    version = binary_version(binary)
+    if version != args.claude_version:
+        msg = f"the binary is {version}, not the pinned {args.claude_version}"
+        raise SystemExit(msg)
+    layer = judge_here(claude_version=version, search_path=session_search_path(binary))
+    if isinstance(layer, Absent):
+        msg = f"the OS layer is absent here ({layer.reason}); a held-out tier is never made so"
+        raise SystemExit(msg)
+    return RawSetup(
+        binary=binary,
+        claude_version=version,
+        model=args.model,
+        effort="high",
+        max_output_tokens=64000,
+        thinking_display="summarized",
+        bounds=RunBounds(
+            binary_max_retries=0,
+            session_wall_clock_s=1800.0,
+            session_max_turns=150,
+            infra_retry_delays_s=(),
+        ),
+        credential=credential_for(args.auth, os.environ),
+        base_url=args.endpoint,
+        install_bin=prepare_install(install / "hooks", CHECKOUT),
+        role_python=None,
+        held_out=tuple(str(p.resolve()) for p in (args.held_out_root, *args.withhold)),
+        held_out_canaries=(),
+        network="none",
+        os_layer=layer,
+    )
+
+
+def _with_install(args: argparse.Namespace, run: Any) -> int:
+    import shutil
+
+    install = args.work.parent / f"{args.work.name}.install"
+    try:
+        result = run(_session_setup(args, install))
+    finally:
+        shutil.rmtree(install, ignore_errors=True)
+    print(json.dumps(result, sort_keys=True))
+    return 0 if result.get("status", "split") == "split" and result.get("answered", True) else 1
+
+
+def _author(args: argparse.Namespace) -> int:
+    from physgate.evaluation.per_role.author_session import AuthoringPlan, author
+
+    plan = AuthoringPlan(
+        role=args.role,
+        implementer_model=args.implementer_model,
+        work=args.work,
+        visible=args.visible,
+        held_out_root=args.held_out_root,
+        seed=args.seed,
+        cap=args.cap,
+        count=args.count,
+    )
+    return _with_install(args, lambda setup: author(plan, setup))
+
+
+def _blind_check(args: argparse.Namespace) -> int:
+    from physgate.evaluation.per_role.author_session import blind_check, held_out_tier
+
+    root = args.held_out_root
+    return _with_install(
+        args,
+        lambda setup: blind_check(
+            held_out_tier(root, args.role),
+            setup,
+            args.work,
+            implementer_model=args.implementer_model,
+            cap=args.cap,
+            evidence=root / f"{args.role}.check",
+        ),
+    )
