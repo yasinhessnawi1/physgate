@@ -23,6 +23,7 @@ shows no environment (checked).
 
 from __future__ import annotations
 
+import contextlib
 import os
 import signal
 import subprocess
@@ -43,7 +44,7 @@ class Proc:
 
 
 #: How long ``ps`` has to list the processes.
-_PS_TIMEOUT_S = 30.0
+PS_TIMEOUT_S = 30.0
 
 
 class ProcessTableError(OSError):
@@ -64,7 +65,7 @@ def table() -> dict[int, Proc]:
             text=True,
             check=False,
             env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
-            timeout=_PS_TIMEOUT_S,
+            timeout=PS_TIMEOUT_S,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         msg = f"ps could not be run: {exc!r}"
@@ -92,15 +93,25 @@ def started_at(pid: int) -> str | None:
 
 
 def command_of(pid: int) -> str | None:
-    """The command line ``ps`` reports for ``pid``, or ``None`` if it is not running."""
-    out = subprocess.run(
-        ["ps", "-ww", "-o", "command=", "-p", str(pid)],
-        capture_output=True,
-        text=True,
-        check=False,
-        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
-    ).stdout.strip()
-    return out or None
+    """The command line ``ps`` reports for ``pid``, or ``None`` if it is not running.
+
+    Raises:
+        ProcessTableError: ``ps`` could not be run or did not finish in time; that is no
+            answer, and "not running" is never concluded from it.
+    """
+    try:
+        done = subprocess.run(
+            ["ps", "-ww", "-o", "command=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+            timeout=PS_TIMEOUT_S,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        msg = f"ps could not be run: {exc!r}"
+        raise ProcessTableError(msg) from exc
+    return done.stdout.strip() or None
 
 
 def is_session(pid: int, started: str | None, session_id: str) -> bool:
@@ -143,6 +154,25 @@ def _signal(proc: Proc, sig: int) -> None:
             os.kill(proc.pid, sig)
         except ProcessLookupError:
             return
+
+
+def kill_own(process: subprocess.Popen[bytes]) -> None:
+    """SIGKILL a session this process spawned and has not reaped, with its whole group.
+
+    For a stop that could not be completed. The session was spawned leading a process
+    group of its own, and while it is this process's unreaped child neither its pid nor
+    its group id can be reused, so the group is killed by its id without a process table.
+    What left the group (the Bash tool runs each command in a group of its own) is not
+    reached here; the resume finds it, and refuses while it runs.
+    """
+    # A group id is its leader's pid, and a pid in use as a group id is not handed out
+    # again, so this names the session's group or none: a session that led no group
+    # leaves no group of that id, and the call fails harmlessly.
+    with contextlib.suppress(OSError):
+        os.killpg(process.pid, signal.SIGKILL)
+    with contextlib.suppress(OSError):
+        process.kill()
+        process.wait()
 
 
 def stop_tree(root: int, started: str | None = None) -> int:

@@ -81,8 +81,10 @@ from physgate.orchestrator.ports import (
     SpawnHook,
 )
 from physgate.orchestrator.processes import (
+    PS_TIMEOUT_S,
     Proc,
     is_session,
+    kill_own,
     started_at,
     stop_tree,
 )
@@ -548,7 +550,7 @@ def process_rows() -> list[tuple[int, int, str, str]] | None:
             text=True,
             check=False,
             env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
-            timeout=30.0,
+            timeout=PS_TIMEOUT_S,
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -769,7 +771,7 @@ def process_group_of(pid: int) -> int | None:
             text=True,
             check=False,
             env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
-            timeout=30.0,
+            timeout=PS_TIMEOUT_S,
         ).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         return None
@@ -1241,11 +1243,10 @@ class ClaudeDispatcher:
                 )
             except OSError as exc:
                 unconfirmed: str | None = f"the stop could not be completed: {exc!r}"
-                # The session itself is this process's own child, unreaped, so its pid is still
-                # its own: it alone is stopped here; what it started waits for the resume.
-                with contextlib.suppress(OSError):
-                    process.kill()
-                    process.wait()
+                # The session itself is this process's own child, unreaped, so its pid and
+                # its group are still its own: the whole group is killed here; what left the
+                # group waits for the resume, which refuses while it runs.
+                kill_own(process)
             stop_done = time.time()
         if ended is not None:
             # The table is read again: nothing the stop concluded is taken as its proof.

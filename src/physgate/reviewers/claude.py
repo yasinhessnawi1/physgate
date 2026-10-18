@@ -41,7 +41,6 @@ stopped before its end is recorded (``ending.await_session``).
 
 from __future__ import annotations
 
-import contextlib
 import json
 import subprocess
 import time
@@ -78,6 +77,7 @@ from physgate.orchestrator.exceptions import (
 )
 from physgate.orchestrator.invocation import REVIEWER_ENV, isolated_env, reviewer_argv
 from physgate.orchestrator.ports import SpawnHook
+from physgate.orchestrator.processes import kill_own
 from physgate.orchestrator.protocols import (
     Artefact,
     MessageUsage,
@@ -624,10 +624,11 @@ class ClaudeReviewer:
 
 
 def _stop_own(process: subprocess.Popen[bytes]) -> None:
-    """Stop a review session this process spawned and has not reaped: its pid is still its own."""
-    with contextlib.suppress(OSError):
-        process.kill()
-        process.wait()
+    """Stop a review session this process spawned and has not reaped, with its whole group.
+
+    Its pid and its group are still its own while it is unreaped (``processes.kill_own``).
+    """
+    kill_own(process)
 
 
 @dataclass(frozen=True)
