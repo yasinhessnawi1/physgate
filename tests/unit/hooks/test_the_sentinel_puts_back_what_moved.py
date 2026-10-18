@@ -345,6 +345,70 @@ def test_a_node_file_the_journal_never_named_halts(root: Path) -> None:
     assert "electrical.planted.json" in _check(root)
 
 
+def test_a_deleted_node_file_is_a_mismatch_and_is_rebuilt_from_the_journal(root: Path) -> None:
+    # A file the journal names and the session removed is as wrong as one it
+    # rewrote: the store would serve nothing for that node until its next open.
+    _started(root)
+    want = (root / NODE).read_bytes()
+    (root / NODE).unlink()
+    told = _check(root)
+    assert "does not hold what the journal says" in told
+    assert (root / NODE).read_bytes() == want
+    assert "does not hold what the journal says" in _check(root, name="PreToolUse")
+    (logged,) = [e for e in _log(root) if e["decision"] == "node mismatch"]
+    assert logged["paths"] == [str(root / NODE)]
+    assert logged["restored"] == [str(root / NODE)]
+
+
+def test_a_deleted_nodes_directory_is_made_again_and_every_node_rebuilt(root: Path) -> None:
+    make_store(root / "store", node(), node("electrical.driver"))
+    _started(root)
+    nodes = root / "store" / "nodes"
+    want = {p.name: p.read_bytes() for p in nodes.iterdir()}
+    assert len(want) == 2
+    for path in nodes.iterdir():
+        path.unlink()
+    nodes.rmdir()
+    assert "does not hold what the journal says" in _check(root)
+    assert {p.name: p.read_bytes() for p in nodes.iterdir()} == want
+    (logged,) = [e for e in _log(root) if e["decision"] == "node mismatch"]
+    assert sorted(logged["restored"]) == sorted(str(nodes / name) for name in want)
+
+
+def test_a_new_node_whose_file_the_store_has_not_written_yet_is_not_a_finding(
+    root: Path,
+) -> None:
+    # The store appends the journal line, then writes the file. A check between
+    # the two sees a node the journal names with no file yet: a write in progress,
+    # until a check has seen that line.
+    _started(root)
+    make_store(root / "store", node("electrical.driver"))
+    fresh = root / "store" / "nodes" / "electrical.driver.json"
+    want = fresh.read_bytes()
+    fresh.unlink()  # the file as it stood before the store wrote it
+    assert _check(root) == "allow", "the journal is newer than the record: a write in progress"
+    os.utime(root / "store" / "nodes")
+    assert "does not hold what the journal says" in _check(root)
+    assert fresh.read_bytes() == want
+
+
+def test_a_deleted_node_and_a_changed_gate_file_are_both_put_right_and_both_recorded(
+    root: Path,
+) -> None:
+    # Two faults in one call. Each guard must act, and each must be on record:
+    # the halt for the node may not hide the gate's put-back from the log.
+    _started(root)
+    want = (root / NODE).read_bytes()
+    (root / NODE).unlink()
+    (root / GATE / "check.py").write_text("CHECK = False\n")
+    assert "does not hold what the journal says" in _check(root)
+    assert (root / NODE).read_bytes() == want
+    assert (root / GATE / "check.py").read_text() == "CHECK = True\n"
+    decisions = {str(e["decision"]): e["paths"] for e in _log(root)}
+    assert decisions["node mismatch"] == [str(root / NODE)]
+    assert decisions["put back"] == [str(root / GATE / "check.py")]
+
+
 def test_the_orchestrators_legitimate_write_is_not_a_finding(root: Path) -> None:
     _started(root)
     make_store(root / "store", node(quantities={}))
