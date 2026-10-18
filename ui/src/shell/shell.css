@@ -209,11 +209,12 @@
   gap: var(--space-2);
 }
 
+/* Spaced so no two controls' 44 px hit areas overlap. */
 .pg-topbar-tools {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-5);
   margin-left: auto;
 }
 
@@ -340,7 +341,7 @@
 .pg-dock {
   position: relative;
   display: flex;
-  border-left: 1px solid var(--color-border);
+  box-shadow: inset 1px 0 0 var(--color-border);
   background: var(--color-surface);
 }
 
@@ -349,7 +350,12 @@
   flex-direction: column;
   align-items: center;
   width: var(--size-dock-collapsed);
-  padding-top: var(--space-2);
+}
+
+/* The rail's one control fills the rail: its whole 44 px is the target. */
+.pg-dock-rail .pg-btn {
+  width: var(--size-touch-min);
+  height: var(--size-touch-min);
 }
 
 .pg-dock-panel {

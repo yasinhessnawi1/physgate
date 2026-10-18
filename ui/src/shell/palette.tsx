@@ -110,7 +110,8 @@ export function Palette({
   const [typed, setTyped] = useState("");
   const [active, setActive] = useState(0);
   const listId = useId();
-  const shown = matching([...goTo, ...entries], typed);
+  // Listed only while open: a closed palette holds no entry text in the page.
+  const shown = open ? matching([...goTo, ...entries], typed) : [];
   const choosable = shown.filter(
     (e) => e.disabledBecause === undefined || e.disabledBecause === null,
   );
@@ -186,7 +187,7 @@ export function Palette({
         />
       </div>
       <div id={listId} role="listbox" aria-label="Views and actions" className="pg-palette-list">
-        {shown.length === 0 && <p className="pg-palette-none">Nothing matches.</p>}
+        {open && shown.length === 0 && <p className="pg-palette-none">Nothing matches.</p>}
         {sections.map((section) => (
           <div key={section} role="group" aria-label={section} className="pg-palette-section">
             <div className="pg-palette-heading" aria-hidden="true">
