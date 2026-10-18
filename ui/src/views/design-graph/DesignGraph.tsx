@@ -14,7 +14,6 @@ import { EmptyState, ErrorState, LoadingState } from "../../design/components/st
 import { Button } from "../../design/components/actions/Button";
 import { Segmented } from "../../design/components/actions/Segmented";
 import type { ViewProps } from "../../shell/header";
-import { InspectorPortal } from "../../shell/inspector";
 import { hrefFor } from "../../shell/route";
 import { RunPicker, runSource, useChosenRun } from "../common/runs";
 import { useResult } from "../common/useResult";
@@ -254,20 +253,20 @@ function Explorer({
           )}
         </section>
         {selected === null ? (
-          <EmptyState title="Choose a node">
-            Select a node in the graph or the table to see its quantities, its edges and its
-            history.
-          </EmptyState>
+          <aside className="card inspector" aria-label="Node inspector">
+            <EmptyState title="Choose a node">
+              Select a node in the graph or the table to see its quantities, its edges and its
+              history.
+            </EmptyState>
+          </aside>
         ) : (
-          <InspectorPortal>
-            <Inspector
-              node={selected}
-              nodes={graph.nodes}
-              history={history}
-              source={source}
-              diffHref={diffHref}
-            />
-          </InspectorPortal>
+          <Inspector
+            node={selected}
+            nodes={graph.nodes}
+            history={history}
+            source={source}
+            diffHref={diffHref}
+          />
         )}
       </div>
       <NodesTable

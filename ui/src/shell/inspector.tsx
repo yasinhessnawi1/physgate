@@ -1,7 +1,7 @@
 /**
- * The inspector region: 360 px on the right of the content, opened by a view's selection. A view
- * whose registry entry names an inspector puts its inspector here through ``InspectorPortal``;
- * the region is open while one is mounted, and the person can close it.
+ * The inspector region: 360 px on the right of the content. A page puts its inspector here
+ * through ``InspectorPortal``; the region is open while one is mounted, and the person can close
+ * it. Only the component gallery uses it for now: today's views keep their own inspectors.
  */
 import { createContext, type ReactNode, useContext, useEffect } from "react";
 import { createPortal } from "react-dom";

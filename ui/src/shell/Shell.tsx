@@ -257,8 +257,8 @@ export function Shell({
       : page === "about"
         ? "About physgate"
         : (header?.title ?? "Nothing here");
-  // A view whose entry names an inspector, and the gallery, can open the inspector region.
-  const hasInspector = view?.inspector !== undefined || page === "gallery";
+  // Only the gallery opens the inspector region for now; today's views keep their own inspectors.
+  const hasInspector = page === "gallery";
   const inspectorOpen = hasInspector && inspectorShown && !inspectorClosed;
   const Page = page === null ? undefined : pages?.[page];
 

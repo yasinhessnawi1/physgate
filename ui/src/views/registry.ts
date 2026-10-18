@@ -1,6 +1,5 @@
 /**
- * Every view the app has: the navigation group it is listed in, its address, its title and icon,
- * and the inspector its selection opens. The shell renders the navigation from this list and
+ * Every view the app has: the navigation group it is listed in, its address, its title and icon. The shell renders the navigation from this list and
  * never imports a view itself, so a later view is one folder and one line here.
  */
 import { type ComponentType, lazy } from "react";
@@ -19,8 +18,6 @@ export interface ViewDef {
   readonly title: string;
   readonly icon: IconName;
   readonly component: ComponentType<ViewProps>;
-  /** The kind of selection whose inspector the view shows in the shell's inspector region. */
-  readonly inspector?: "node";
 }
 
 export const VIEWS: readonly ViewDef[] = [
@@ -38,7 +35,6 @@ export const VIEWS: readonly ViewDef[] = [
     slug: "design-graph",
     title: "Design graph",
     icon: "network",
-    inspector: "node",
     component: lazy(() => import("./design-graph/DesignGraph")),
   },
   {
