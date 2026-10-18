@@ -23,8 +23,12 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 
 #: A session is spawned as one of these. ``role`` is a domain agent writing one
 #: module; ``reviewer`` judges and does not write; ``orchestrator`` is a harness
-#: session run by the orchestrator itself. None of the three writes the gate.
-Profile = Literal["role", "reviewer", "orchestrator"]
+#: session run by the orchestrator itself. ``baseline`` is the evaluation's raw coding
+#: agent, the arm the harness is measured against (ARCH-143): it keeps only what guards
+#: the evaluation itself (the held-out tier, the frozen experiments) and what keeps the
+#: session from undoing those two, and none of the harness's design discipline. None of
+#: the four writes the gate.
+Profile = Literal["role", "reviewer", "orchestrator", "baseline"]
 
 #: Claude Code's own timeout must fire later than the hook's watchdog, and with
 #: room to spare: when Claude Code's timeout fires first, the tool runs.

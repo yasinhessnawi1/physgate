@@ -530,6 +530,7 @@ class ClaudeReviewer:
             *reading,
             *helper,
             *harness_protection(),
+            *(arg for root in self._setup.held_out for arg in ("--held-out", root)),
         ]
         done = subprocess.run(argv, capture_output=True, text=True, check=False)
         if done.returncode != 0:
@@ -656,6 +657,8 @@ class ReviewerSetup:
     credential: Credential
     #: The harness checkout: its ``knowledge/`` holds the curated files and the rubrics.
     library: Path
+    #: The held-out tier's roots, which no reviewer reads (ARCH-141).
+    held_out: tuple[str, ...] = ()
 
     @classmethod
     def of_run(
@@ -691,6 +694,7 @@ class ReviewerSetup:
             base_url=base_url,
             credential=credential,
             library=library,
+            held_out=config.held_out,
         )
 
 

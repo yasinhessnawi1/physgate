@@ -38,7 +38,7 @@ from physgate.orchestrator.escalation import REGISTER, BackendName
 from physgate.orchestrator.exceptions import EscalationBackendError, GitError, RunConfigError
 from physgate.orchestrator.git import GitBinary, git
 from physgate.orchestrator.role_python import RolePython
-from physgate.oslayer.probe import OsLayerState
+from physgate.oslayer.probe import Absent, OsLayerState, Present
 
 
 class _Frozen(BaseModel):
@@ -125,6 +125,22 @@ def require_endpoint(config: RunConfig, base_url: str | None) -> None:
 
 Sha1 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
 Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+#: An absolute path, as a run parameter names one.
+AbsolutePath = Annotated[str, StringConstraints(pattern=r"^/.+")]
+#: A held-out task's canary: 32 hexadecimal characters that reveal nothing about the task.
+Canary = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{32}$")]
+#: Whether role sessions' shell commands may reach the network.
+Network = Literal["open", "none"]
+
+
+def network_enforced(network: str, layer: Present | Absent) -> bool | None:
+    """For ``none``: whether the OS layer ``layer`` describes can enforce it. ``None`` otherwise.
+
+    Only the OS layer refuses a shell remote hosts; where it is absent, ``none`` is recorded as
+    not enforceable here, never dropped silently.
+    """
+    return isinstance(layer, Present) if network == "none" else None
+
 
 #: The effort levels the pinned binary's ``--effort`` accepts. The binary sends
 #: the level it resolves in every request (``output_config.effort``); left
@@ -268,6 +284,27 @@ class RunConfig(_Frozen):
     #: a run recorded before the field existed.
     os_layer: OsLayerState | None
 
+    #: The held-out tier's roots: every role and reviewer session of the run is installed
+    #: with each, so none of them reads or writes it (ARCH-141). A required parameter, empty
+    #: for a run that measures nothing held out; a run recorded before the field existed
+    #: protected none, and reads so.
+    held_out: tuple[AbsolutePath, ...]
+    #: Opaque tokens, one carried by each held-out task. Found in a session's stream, one
+    #: proves the session displayed held-out material verbatim; not found, it proves
+    #: nothing (a split, encoded or unprinted read shows none). Tokens only: they say
+    #: nothing of a task.
+    held_out_canaries: tuple[Canary, ...]
+    #: ``none`` refuses every role session's shell commands every remote host, through the
+    #: OS layer; services on the machine's loopback stay reachable. ``open`` leaves the
+    #: network as the layer finds it. Where the layer is absent nothing enforces ``none``:
+    #: the session's shell stays online, and ``network_enforced`` records it.
+    network: Network
+    #: Measured, never taken from the parameters: for ``none``, whether the OS layer where
+    #: the run was configured enforces it (``False`` records "network: none requested, not
+    #: enforceable here"). ``None`` for ``open``, and for a run recorded before the field
+    #: existed or whose OS layer was not measured.
+    network_enforced: bool | None
+
     @model_validator(mode="after")
     def _the_binding_is_a_backend_that_ships(self) -> RunConfig:
         if self.escalation_backend is None:
@@ -283,6 +320,17 @@ class RunConfig(_Frozen):
         return self
 
     @model_validator(mode="after")
+    def _the_network_is_recorded_as_enforced_or_not(self) -> RunConfig:
+        measured = None if self.os_layer is None else network_enforced(self.network, self.os_layer)
+        if self.network_enforced != measured:
+            msg = (
+                "network_enforced must say whether the OS layer recorded enforces network "
+                f"'{self.network}': {measured} here"
+            )
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
     def _reportable_needs_a_clean_commit(self) -> RunConfig:
         if self.reportable and (self.harness.commit is None or not self.harness.clean):
             msg = "a reportable run starts only from a clean checkout with a commit"
@@ -294,9 +342,10 @@ class RunConfig(_Frozen):
 
         ``thinking_display`` is left out when it is ``omitted``, what every run before
         the field existed ran with, and ``role_python``, ``git_binary``,
-        ``escalation_backend`` and ``os_layer`` when they are ``None``, so their recorded
-        digests still name them. A run that names a binding always records it, so the
-        binding is part of its manifest id.
+        ``escalation_backend`` and ``os_layer`` when they are ``None``, ``held_out`` and
+        ``held_out_canaries`` when empty, ``network`` when ``open`` and ``network_enforced``
+        when ``None``, so their recorded digests still name them. A run that names a binding
+        always records it, so the binding is part of its manifest id.
         """
         exclude = set()
         if self.thinking_display == "omitted":
@@ -309,6 +358,14 @@ class RunConfig(_Frozen):
             exclude.add("escalation_backend")
         if self.os_layer is None:
             exclude.add("os_layer")
+        if not self.held_out:
+            exclude.add("held_out")
+        if not self.held_out_canaries:
+            exclude.add("held_out_canaries")
+        if self.network == "open":
+            exclude.add("network")
+        if self.network_enforced is None:
+            exclude.add("network_enforced")
         return self.model_dump_json(indent=None, exclude=exclude or None).encode() + b"\n"
 
     def sha256(self) -> str:
@@ -401,6 +458,17 @@ def load_run_config(path: Path) -> RunConfig:
         # Recorded before the field existed: the OS layer's state was not recorded.
         recorded = {**recorded, "os_layer": None}
         raw = json.dumps(recorded).encode()
+    for name, before in (
+        ("held_out", []),
+        ("held_out_canaries", []),
+        ("network", "open"),
+        ("network_enforced", None),
+    ):
+        if isinstance(recorded, dict) and name not in recorded:
+            # Recorded before the field existed: nothing was held out, the network was open
+            # and so nothing was asked of the OS layer about it.
+            recorded = {**recorded, name: before}
+            raw = json.dumps(recorded).encode()
     try:
         return RunConfig.model_validate_json(raw)
     except ValidationError as exc:

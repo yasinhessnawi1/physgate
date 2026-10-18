@@ -82,6 +82,7 @@ IncidentCause = Literal[
     "run_branch_moved",
     "trajectory_tampered",
     "review_material_read",
+    "held_out_read",
     "placeholder_refused",
     "withheld_file_unsure",
 ]
@@ -544,6 +545,10 @@ class OsLayerChecked(_Event):
     kind: Literal["os_layer_checked"] = "os_layer_checked"
     state: OsLayerState
     as_recorded: bool | None
+    #: For a run that asks for ``network: none``: whether the layer here enforces it.
+    #: ``False`` records "network: none requested, not enforceable here", since only the
+    #: OS layer refuses a shell remote hosts. ``None`` for ``open``, and on a line written before.
+    network_enforced: bool | None = None
 
 
 class LeftoverStopped(_Event):

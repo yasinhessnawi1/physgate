@@ -366,6 +366,7 @@ class Loop:
         if not self.log.events:
             return
         tampered: list[tuple[str, str]] = []
+        exposed = False
         for left in self._dispatcher.stop_leftovers():
             if left.stopped:
                 self._emit(
@@ -383,6 +384,14 @@ class Loop:
                     decisions_bytes=self._decisions_bytes(),
                 )
             )
+            if left.held_out_seen is not None:
+                # As at a normal session end: the tier counts as exposed (ARCH-141), and
+                # the exposure is recorded whatever else the resume finds. The canary is not.
+                exposed = True
+                detail = f"held-out material in the stream of leftover session {left.session_id}"
+                self._emit(
+                    Incident(**self._env(), subtask_id=None, cause="held_out_read", detail=detail)
+                )
             if left.tampered is not None:
                 tampered.append((left.session_id, left.tampered))
             # Spent, and never recorded: its orchestrator died first. Up to the
@@ -399,6 +408,9 @@ class Loop:
                 )
         for session_id, why in tampered:
             self._incident(None, "trajectory_tampered", f"leftover session {session_id}: {why}")
+        if exposed and not tampered:
+            # No other incident: the exposure alone stops the run, once.
+            self._halt_for(None, "held_out_read")
 
     def _clean_up_worktrees(self) -> None:
         """Remove the worktrees the rules allow, recording each; never stall or fail the run.
@@ -566,6 +578,16 @@ class Loop:
                 series=report.series,
             )
         )
+        exposed = report.held_out_seen is not None
+        if exposed:
+            # The session displayed held-out material: the tier counts as exposed (ARCH-141).
+            # Recorded first and whatever else is found below, so no other incident can
+            # leave an exposure unlogged; the run halts once, after every incident found.
+            # The canary is not recorded.
+            detail = f"held-out material in the stream of session {report.session_id}"
+            self._emit(
+                Incident(**self._env(), subtask_id=subtask_id, cause="held_out_read", detail=detail)
+            )
         if report.trajectory_tampered is not None:
             # Something other than the runtime wrote the stream after its result:
             # nothing the session did is taken, and a person looks first.
@@ -598,6 +620,10 @@ class Loop:
             # The account's policy limits are applied without a trace the hooks see: the
             # session ran under other limits than the run began with.
             self._incident(subtask_id, "managed_settings_changed", changed)
+            return False
+        if exposed:
+            # No other incident: the exposure alone stops the run, and nothing is taken.
+            self._halt_for(subtask_id, "held_out_read")
             return False
         if report.end.outcome != "completed":
             return False
@@ -637,6 +663,9 @@ class Loop:
 
     def _incident(self, subtask_id: str | None, cause: IncidentCause, detail: str) -> None:
         self._emit(Incident(**self._env(), subtask_id=subtask_id, cause=cause, detail=detail))
+        self._halt_for(subtask_id, cause)
+
+    def _halt_for(self, subtask_id: str | None, cause: IncidentCause) -> None:
         where = f" in {subtask_id}" if subtask_id else ""
         self._emit(Halted(**self._env(), reason="incident", detail=f"{cause}{where}"))
 

@@ -10,10 +10,20 @@ error is the refusal. Three things it gets wrong on its own, measured on 0.26.1:
 - an absolute temperature in degrees Celsius cannot be added to anything, which
   would refuse every legitimate thermal margin.
 
+A fourth it gets wrong differently in different environments: it converts a
+logarithmic unit (the decibel, the neper, the octave, the decade) through
+``log``, which is numpy's where numpy is installed and the standard library's
+otherwise, and only the latter takes an exact fraction. So whether pint refused a
+decibel with its own error or crashed would depend on an optional package.
+
 So a quantity is measured against the **kind** its name has in the catalogue,
 in this order, stopping at the first failure:
 
-1. its unit parses (pint's error);
+1. its unit parses (pint's error), and is not logarithmic, alone or in a product
+   (this gate's rule, applied before pint converts anything, so it is the same
+   with and without numpy: a decibel is 20 log10 of an amplitude ratio to a
+   control engineer and 10 log10 of a power ratio to the registry, and no single
+   conversion of it is right);
 2. it converts to the kind's canonical unit (pint's error);
 3. an offset unit such as the degree Celsius appears only on an absolute
    temperature (pint's error, provoked on purpose), and a difference unit such
@@ -135,11 +145,15 @@ def parse(value: float | int, unit: str) -> Any:
     limit killed it. The gate runs in the orchestrator's own process with no time bound, so
     such a unit is refused here, with the reason, and the registry never sees it.
 
+    A logarithmic unit is refused here, by this gate's rule, whatever kind it is measured
+    against and before pint converts it: pint's own handling of one depends on whether numpy
+    is installed.
+
     Raises:
         UnitRefusedError: the unit is too long, is not spelt as named units with small
-            integer powers, or does not parse. pint's parser raises several unrelated
-            types for a malformed spelling, so every one of them is caught and reported
-            with the unit.
+            integer powers, does not parse, or is logarithmic. pint's parser raises
+            several unrelated types for a malformed spelling, so every one of them is
+            caught and reported with the unit.
     """
     if len(unit) > MAX_UNIT_LENGTH:
         msg = f"the unit {unit[:32]!r}... is longer than {MAX_UNIT_LENGTH} characters"
@@ -149,10 +163,47 @@ def parse(value: float | int, unit: str) -> Any:
     except UnitSpellingError as exc:
         raise UnitRefusedError(str(exc), unit=unit) from None
     try:
-        return UREG.Quantity(exact(value), unit)
+        quantity = UREG.Quantity(exact(value), unit)
     except Exception as exc:  # noqa: BLE001 - pint raises many types for one fault
         msg = f"the unit {unit!r} is not one pint can read ({type(exc).__name__}: {exc})"
         raise UnitRefusedError(msg, unit=unit) from None
+    if _logarithmic(quantity):
+        msg = (
+            f"the unit {unit!r} is logarithmic: a decibel is 20 log10 of an amplitude ratio "
+            "to a control engineer and 10 log10 of a power ratio to the unit registry, so "
+            f"no conversion of it is right; write a magnitude as a plain ratio ({OWN_RULE})"
+        )
+        raise UnitRefusedError(msg, unit=unit)
+    return quantity
+
+
+def _logarithmic(quantity: Any) -> bool:
+    """Whether any unit of ``quantity`` is logarithmic, read off the registry's definitions.
+
+    Each factor is the unit pint parsed, resolved by pint's own name parser to the
+    definition it came from, never matched against a spelling; only the definition's
+    converter is read, never a conversion, so the answer does not depend on numpy. pint
+    marks the decibel and its kin with a logarithmic converter (0.26.x, measured); in a
+    product it names the factor ``delta_decibel``, the difference of the unit it is judged
+    by. The rule fails closed: a factor pint cannot resolve to exactly one definition is
+    refused, not read as plain.
+
+    Raises:
+        UnitRefusedError: a factor the registry cannot resolve.
+    """
+    for name in quantity.units._units:  # noqa: SLF001 - no public view of the factors
+        resolved = UREG.parse_unit_name(name.removeprefix("delta_"))
+        definition = UREG._units.get(resolved[0][1]) if len(resolved) == 1 else None  # noqa: SLF001
+        converter = None if definition is None else definition.converter
+        if converter is None:
+            msg = (
+                f"the registry cannot say whether {name!r} is logarithmic: it resolves to "
+                f"{len(resolved)} definitions, not one with a converter ({OWN_RULE})"
+            )
+            raise UnitRefusedError(msg, unit=name)
+        if converter.is_logarithmic:
+            return True
+    return False
 
 
 def _root_angle(quantity: Any) -> int:

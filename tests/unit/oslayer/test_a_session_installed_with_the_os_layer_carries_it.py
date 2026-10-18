@@ -58,3 +58,20 @@ def test_a_directory_claude_code_would_replace_is_refused(tmp_path: Path) -> Non
     with pytest.raises(ValueError, match="shares"):
         install(_request(tmp_path, long), REGISTRY)
     assert OS_LAYER_TEMP_LIMIT == 32
+
+
+def test_offline_the_sandbox_refuses_every_host_in_every_permission_mode(tmp_path: Path) -> None:
+    request = _request(tmp_path, "/tmp/pg-0123456789ab").model_copy(
+        update={"os_layer_network": "none"}
+    )
+    settings = json.loads(install(request, REGISTRY).settings_path.read_text())
+    assert settings["sandbox"]["network"] == {
+        "strictAllowlist": True,
+        "allowedDomains": [],
+        "allowLocalBinding": True,
+    }
+
+
+def test_open_the_sandbox_names_no_network_block(tmp_path: Path) -> None:
+    done = install(_request(tmp_path, "/tmp/pg-0123456789ab"), REGISTRY)
+    assert "network" not in json.loads(done.settings_path.read_text())["sandbox"]

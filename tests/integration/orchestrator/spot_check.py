@@ -185,6 +185,9 @@ def params() -> dict[str, Any]:
         "thinking_display": "summarized",
         "role_python": None,
         "escalation_backend": "rules",
+        "held_out": [],
+        "held_out_canaries": [],
+        "network": "open",
     }
 
 

@@ -72,6 +72,10 @@ class SessionReport(_Frozen):
     #: A canary of reviewer material found in the session's own stream, if one was:
     #: the session read what only reviewers read, by a path no hook could judge.
     review_material_seen: NonEmptyStr | None = None
+    #: A held-out task's canary found in the session's own stream, if one was: the session
+    #: displayed held-out material verbatim, by a path no hook could judge. ``None`` proves
+    #: nothing: a split, encoded or unprinted read leaves no canary in the stream.
+    held_out_seen: NonEmptyStr | None = None
     #: The issued specification's digest, read before the session was spawned.
     issued_spec_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")] | None = None
     #: The series records the session left: sealed, refused or discarded. Collected before
@@ -112,6 +116,9 @@ class Leftover(_Frozen):
     tampered: NonEmptyStr | None = None
     #: Whose session it was: a role's, or a reviewer's, which its tokens are put to.
     kind: SessionKind = "session"
+    #: A held-out task's canary found in its stream, if one was, as at a normal session
+    #: end: the session displayed held-out material verbatim. ``None`` proves nothing.
+    held_out_seen: NonEmptyStr | None = None
 
 
 class ChangeCheck(_Frozen):

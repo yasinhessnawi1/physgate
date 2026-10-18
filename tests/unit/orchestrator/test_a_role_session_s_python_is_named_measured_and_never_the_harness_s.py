@@ -94,7 +94,15 @@ def test_a_configuration_that_names_none_records_what_it_did_before() -> None:
     named = cfg.model_copy(update={"role_python": measured})
     assert b"role_python" in named.canonical_bytes()
     # Read back as a recorded run is: a field left out of the bytes as ``None`` reads as ``None``.
-    recorded = {**json.loads(named.canonical_bytes()), "git_binary": None, "os_layer": None}
+    recorded = {
+        **json.loads(named.canonical_bytes()),
+        "git_binary": None,
+        "os_layer": None,
+        "held_out": [],
+        "held_out_canaries": [],
+        "network": "open",
+        "network_enforced": None,
+    }
     assert RunConfig.model_validate_json(json.dumps(recorded)).role_python == named.role_python
     assert isinstance(named.role_python, RolePython)
 
@@ -118,6 +126,9 @@ def _params(tmp_path: Path, role_python: object) -> object:
         "thinking_display": cfg.thinking_display,
         "role_python": role_python,
         "escalation_backend": "rules",
+        "held_out": [],
+        "held_out_canaries": [],
+        "network": "open",
     }
     (tmp_path / "params.json").write_text(json.dumps(params))
     (tmp_path / "brief.md").write_text("brief\n")

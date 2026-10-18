@@ -229,6 +229,10 @@ def _config(version: str) -> RunConfig:
         role_python=None,
         git_binary=None,
         escalation_backend="rules",
+        held_out=(),
+        held_out_canaries=(),
+        network="open",
+        network_enforced=None,
         os_layer=None,
     )
 

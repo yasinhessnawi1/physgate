@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -20,7 +21,9 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
     hooks = subparsers.add_parser("hooks", help="the hook layer")
     actions = hooks.add_subparsers(dest="action", required=True)
     p = actions.add_parser("install", help="write a session's settings file and configuration")
-    p.add_argument("--profile", required=True, choices=["role", "reviewer", "orchestrator"])
+    p.add_argument(
+        "--profile", required=True, choices=["role", "reviewer", "orchestrator", "baseline"]
+    )
     p.add_argument("--role")
     p.add_argument("--worktree", required=True)
     p.add_argument("--own-branch")
@@ -81,6 +84,14 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
         help="the session's own temporary directory: its shell commands run inside the OS "
         "layer (Claude Code's sandbox), writing only there, in the worktree and in its home",
     )
+    p.add_argument(
+        "--os-layer-network",
+        choices=["open", "none"],
+        default="open",
+        help="with the OS layer: 'none' refuses the session's shell commands every remote "
+        "host (loopback services stay reachable); without it, 'none' cannot be enforced, "
+        "and the install says so on stderr and in what it prints",
+    )
     p.set_defaults(func=_install)
 
 
@@ -113,19 +124,20 @@ def _install(args: argparse.Namespace) -> int:
         harness_site_packages=tuple(_abs(p) for p in args.harness_site_packages),
         os_layer_temp_dir=_abs(args.os_layer_temp) if args.os_layer_temp else None,
         os_layer_readable=tuple(_abs(p) for p in args.os_layer_readable),
+        os_layer_network=args.os_layer_network,
     )
     done = install(request, REGISTRY)
-    print(
-        json.dumps(
-            {
-                "settings": str(done.settings_path),
-                "config": str(done.config_path),
-                "spawn_args": list(done.spawn_args),
-                "spawn_env": dict(done.spawn_env),
-            },
-            indent=2,
-        )
-    )
+    printed: dict[str, object] = {
+        "settings": str(done.settings_path),
+        "config": str(done.config_path),
+        "spawn_args": list(done.spawn_args),
+        "spawn_env": dict(done.spawn_env),
+    }
+    if done.network_unenforced is not None:
+        # Never silent: where a person sees it, and in the record the caller keeps.
+        print(f"physgate: {done.network_unenforced}", file=sys.stderr)
+        printed["network_unenforced"] = done.network_unenforced
+    print(json.dumps(printed, indent=2))
     return 0
 
 
