@@ -7,6 +7,13 @@ built, holds the scorer to them, and writes one row per task to ``O/references.j
 and a digest of every file to ``O/SHA256SUMS``. It exits 1 if any task lacks a good
 reference or its references do not hold.
 
+``physgate per-role validate --tier D [--tasks N] [--show-ids]`` holds every task in the
+tier ``D`` to its references and its brief to the answer-leak check, and prints only
+counts, the digest of each task's id and the tier's digest, so a tier can be approved
+without being read. ``--show-ids`` prints the ids themselves, only where every task in the
+tier is a visible one. It exits 1 if a task is refused, a brief gives its answer away, or
+the tier does not hold ``N`` tasks.
+
 ``physgate per-role report --design D --trials T [--out O]`` writes the per-role table of
 the trial records in ``T`` (one JSON object per line) under the registered design ``D``,
 to ``O`` or the standard output. It exits 1, writing nothing, if the records are not every
@@ -39,6 +46,11 @@ def add_parser(subparsers: Any) -> None:
     ce.add_argument("--category", action="append", choices=CATEGORY_CHOICES)
     ce.add_argument("--seed", type=int, default=0)
     ce.set_defaults(func=_controleval)
+    val = commands.add_parser("validate", help="check a tier without reading it out")
+    val.add_argument("--tier", type=Path, required=True)
+    val.add_argument("--tasks", type=int, default=8)
+    val.add_argument("--show-ids", action="store_true")
+    val.set_defaults(func=_validate)
     rep = commands.add_parser("report", help="the per-role table of a run's trial records")
     rep.add_argument("--design", type=Path, required=True)
     rep.add_argument("--trials", type=Path, required=True)
@@ -101,3 +113,12 @@ def _report(args: argparse.Namespace) -> int:
     else:
         args.out.write_text(text, encoding="utf-8")
     return 0
+
+
+def _validate(args: argparse.Namespace) -> int:
+    from physgate.evaluation.per_role.validate import validate
+
+    found = validate(args.tier, show_ids=args.show_ids)
+    print(json.dumps(found, sort_keys=True))
+    whole = found["tasks"] == args.tasks == found["references_held"]
+    return 0 if whole and not found["refused"] and not found["brief_gives_the_answer"] else 1
