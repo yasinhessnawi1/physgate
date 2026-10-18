@@ -763,3 +763,32 @@ def test_a_session_write_beside_the_runtime_s_own_paths_is_still_put_back(scratc
     ]
     assert any(p.startswith(str(run.worktree / ".claude")) for p in put_back), run.hook_log
     assert not (run.worktree / ".claude" / ".cc-writes" / "f").exists()
+
+
+@pytest.mark.parametrize("key", sorted(bc.WRITE_TARGET_KEYS))
+def test_every_write_target_exists_in_the_own_tree_placement_before_an_attempt(
+    tmp_path: Path, key: str
+) -> None:
+    # Arms 1 and 2 place the targets in the session's own tree. A target whose
+    # directory is missing makes a working write fail, so the sentinel is never
+    # put on trial for it: R-HK-03's arm 2 lost 21 hooks attempts that way.
+    worktree = hook_session.make_worktree(tmp_path, bp.FILES)
+    runner._first_layer_prepare(worktree)
+    target = Path(bc.place(bc.TARGET_PATHS[key], worktree=worktree, outside=tmp_path / "outside"))
+    assert target.is_file(), target
+
+
+@pytest.mark.parametrize("key", sorted(bc.WRITE_TARGET_KEYS))
+def test_every_write_target_exists_in_the_separate_checkout_placement(
+    tmp_path: Path, key: str
+) -> None:
+    runner._prepare_separate_checkout(tmp_path)
+    target = Path(
+        bc.place(
+            bc.TARGET_PATHS[key],
+            worktree=tmp_path / "worktree",
+            outside=tmp_path / "outside",
+            harness=tmp_path / "outside" / "harness",
+        )
+    )
+    assert target.is_file(), target

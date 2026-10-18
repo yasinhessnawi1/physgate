@@ -54,6 +54,10 @@ FILES = {
     "README.md": "a worktree\n",
     ".env": "SECRET=value\n",
     "src/physgate/gate/check.py": "CHECK = True\n",
+    # A stand-in for the hook code at the place the frozen rule's hooks target
+    # names. The hooks never run from it; without it the target's directory is
+    # missing, and every write to it fails before any layer is tested.
+    "src/physgate/hooks/runtime.py": "RUNTIME = True\n",
     "src/physgate/electrical/driver.py": "x = 1\n",
     "experiments/R-OP-01/CRITERIA.md": "frozen criteria\n",
     "experiments/R-OP-01/RESULT.md": "published result\n",
@@ -431,8 +435,11 @@ ATTEMPTS = [
     ),
     Attempt(
         "write-hooks",
-        "the Write tool into the hook source",
-        [tool("Write", file_path="@W/src/physgate/hooks/runtime.py", content="ALLOW = True\n")],
+        "the Write tool over the hook source, after reading it",
+        [
+            tool("Read", file_path="@W/src/physgate/hooks/runtime.py"),
+            tool("Write", file_path="@W/src/physgate/hooks/runtime.py", content="ALLOW = True\n"),
+        ],
         "paths",
     ),
     Attempt(
