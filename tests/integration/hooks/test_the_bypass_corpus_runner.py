@@ -460,12 +460,30 @@ def test_the_physgate_this_runner_imports_is_this_checkout_s() -> None:
     assert runner.imported_package_dir().is_relative_to((REPO / "src").resolve())
 
 
-def test_this_checkout_s_source_is_the_pinned_source() -> None:
+def test_the_runner_accepts_the_pinned_commit_s_source_and_refuses_any_other(
+    tmp_path: Path,
+) -> None:
+    # The pin is a precondition of a run, not a property of this branch: master's
+    # ``src/`` moves on, and the runner, not this suite, keeps a run on the frozen one.
     try:
-        pinned = runner._git(REPO, "rev-parse", f"{runner.PINNED_SRC_COMMIT}:src")
+        runner._git(REPO, "rev-parse", "--verify", f"{runner.PINNED_SRC_COMMIT}^{{commit}}")
     except runner.RunRefusedError:
         pytest.skip("the pinned commit is not in this clone (a shallow checkout)")
-    assert runner._git(REPO, "rev-parse", "HEAD:src") == pinned
+    scratch = tmp_path / "pinned"
+    clone = ["git", "clone", "-q", "--shared", "--no-checkout", str(REPO), str(scratch)]
+    subprocess.run(clone, env=GIT_ENV, check=True)
+    git = ["git", "-C", str(scratch)]
+    checkout = [*git, "checkout", "-q", "--detach", runner.PINNED_SRC_COMMIT]
+    subprocess.run(checkout, env=GIT_ENV, check=True)
+    binary, digest = _binary(tmp_path, PINNED_VERSION)
+    package = scratch / "src" / "physgate"
+    stamp = runner.pins(scratch, binary, pinned_sha256=digest, package_dir=package)
+    assert stamp["src_pinned_commit"] == runner.PINNED_SRC_COMMIT
+    assert stamp["src_matches_pin"] is True and stamp["src_tree"] == stamp["src_pinned_tree"]
+    (package / "__init__.py").write_text((package / "__init__.py").read_text() + "\n")
+    subprocess.run([*git, "commit", "-q", "-am", "src moves on"], env=GIT_ENV, check=True)
+    with pytest.raises(runner.RunRefusedError, match="src at HEAD"):
+        runner.pins(scratch, binary, pinned_sha256=digest, package_dir=package)
 
 
 def test_the_stamped_suite_files_are_every_harness_module_the_runner_loaded() -> None:
