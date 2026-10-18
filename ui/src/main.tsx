@@ -1,7 +1,6 @@
 import "virtual:physgate-tokens.css";
 import "./design/components.css";
 import "./shell/shell.css";
-import "./views/legacy.css";
 import "./screens/screens.css";
 
 import { lazy, StrictMode } from "react";

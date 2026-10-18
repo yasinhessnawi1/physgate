@@ -1099,8 +1099,7 @@ kbd,
   min-width: 0;
 }
 
-.pg-table-wrap,
-.pg-scroll-table {
+.pg-table-wrap {
   overflow: auto;
   min-width: 0;
 }
