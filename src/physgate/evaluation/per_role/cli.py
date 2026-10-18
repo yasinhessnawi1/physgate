@@ -221,6 +221,7 @@ def _with_install(args: argparse.Namespace, run: Any) -> int:
     import shutil
 
     install = args.work.parent / f"{args.work.name}.install"
+
     def writable_again(function: Any, path: str, _exc: BaseException) -> None:
         # The installation is made read-only; its owner makes each place writable to remove it.
         os.chmod(os.path.dirname(path), 0o700)
