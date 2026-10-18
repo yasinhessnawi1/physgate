@@ -12,6 +12,11 @@ judged: a count of what the layer refused must never see it, and a test expectin
 refusal must never pass on it. It is its own outcome, :data:`OS_LAYER_ABORTED`,
 wherever a command's end is recorded.
 
+The words are the session's own output, though: any command can print them, and no
+signal from outside the sandbox tells a real abort from a printed one. So an abort found
+here is a *possible* abort, recorded beside every other outcome and never in place of
+one: it neither turns a denial into an abort nor hides an incident.
+
 Standard library only, and not all of it: the hooks import this on their hot path.
 """
 

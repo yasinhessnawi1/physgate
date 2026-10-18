@@ -7,8 +7,10 @@ not a reach. The hook layer's log is what the bypass measurements count a refusa
 so the abort gets its own line there, decision ``os_layer_aborted``, which no count of
 refusals reads (they read ``refuse``, ``put back``, ``halt`` and ``node mismatch``).
 
-The hook only records. It allows every call, adds nothing to the session, and judges
-nothing but the shell's result.
+The hook only records, and only beside the others: it allows every call, adds nothing to
+the session, and changes no other hook's decision. Any command can print bubblewrap's
+words, and nothing outside the sandbox tells a real abort from a printed one, so the line
+is a possible abort, never a judgement that takes the place of another record.
 """
 
 from __future__ import annotations

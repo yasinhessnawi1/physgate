@@ -120,17 +120,14 @@ def test_no_ordinary_command_is_refused_by_the_os_layer(tmp_path: Path) -> None:
     for n, command in enumerate(COMMANDS):
         told_off, told_on = arms["off"][n], arms["on"][n]
         (exit_off, denied_off), (exit_on, denied_on) = _ended(told_off), _ended(told_on)
-        # Aborted: bubblewrap failed before the command ran. Nothing judged it, so it is
-        # neither refused nor let through; it is its own outcome, and fails the test.
+        # A possible abort: the result carries bubblewrap's own line. A command could print
+        # it, so it is a column beside the others and changes none of them; any one fails
+        # the test, since a command no layer judged says nothing about the layer.
         aborted = is_abort(told_on)
         # Refused by the layer: it ends otherwise with the layer, and either it was told of
         # the sandbox's denial (which it was not told without the layer) or it succeeded
         # without the layer and fails with it.
-        refused = (
-            not aborted
-            and exit_on != exit_off
-            and ((denied_on and not denied_off) or exit_off == 0)
-        )
+        refused = exit_on != exit_off and ((denied_on and not denied_off) or exit_off == 0)
         rows.append(
             {
                 "n": n,

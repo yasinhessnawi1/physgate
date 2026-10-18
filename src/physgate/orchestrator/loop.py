@@ -84,6 +84,7 @@ from physgate.orchestrator.ports import (
     GraphPort,
     Merger,
     RecordsSpawns,
+    SessionReport,
     SessionRequest,
 )
 from physgate.orchestrator.protocols import (
@@ -595,52 +596,27 @@ class Loop:
             self._emit(
                 Incident(**self._env(), subtask_id=subtask_id, cause="held_out_read", detail=detail)
             )
-        if report.trajectory_tampered is not None:
-            # Something other than the runtime wrote the stream after its result:
-            # nothing the session did is taken, and a person looks first.
-            self._incident(subtask_id, "trajectory_tampered", report.trajectory_tampered)
-            return False
-        if report.review_material_seen is not None:
-            # The session read what only its reviewer reads, by a path no hook could
-            # judge: its work is not taken, and a person looks first.
-            # The canary itself is not written into the record a later session can read.
-            detail = f"reviewer material in the stream of session {report.session_id}"
-            self._incident(subtask_id, "review_material_read", detail)
-            return False
-        if report.withheld_problems is not None:
-            # A file no session reads had a second name, changed, or could not be checked
-            # when the attempt was committed: its work is not taken, and a person looks first.
-            self._incident(subtask_id, "withheld_file_unsure", report.withheld_problems)
-            return False
-        if report.os_layer_aborted:
-            # The OS layer aborted commands before they ran: the session was told of a
-            # failure nothing judged. Neither a denial nor a reach; its work is not taken,
-            # and a person looks first.
-            detail = (
-                f"bubblewrap aborted {len(report.os_layer_aborted)} command(s) of session "
-                f"{report.session_id} before they ran: {', '.join(report.os_layer_aborted)}"
-            )
-            self._incident(subtask_id, "os_layer_aborted", detail)
-            return False
-        if report.placeholders_refused is not None:
-            # Something stood at a path only the sandbox holds that is not its placeholder:
-            # its work is not taken, and a person looks first.
-            self._incident(subtask_id, "placeholder_refused", report.placeholders_refused)
-            return False
-        if report.managed_drift is not None:
-            # Settings above every source the hooks were installed in changed under the
-            # session: nothing it did is taken, and a person looks first.
-            self._incident(subtask_id, "managed_settings_changed", report.managed_drift)
-            return False
-        changed = policy_limits_change(self._policy_baseline(), report.policy_limits_sha256)
-        if changed is not None:
-            # The account's policy limits are applied without a trace the hooks see: the
-            # session ran under other limits than the run began with.
-            self._incident(subtask_id, "managed_settings_changed", changed)
+        # Every other incident first, then the possible abort beside it, then one halt.
+        # ``bwrap:`` in a result is the session's own output, which any command can print:
+        # no harness-side signal tells a real abort from a printed one, so it is recorded
+        # alongside, never in place of, anything else the session's end shows.
+        other = self._other_incident(report)
+        if other is not None:
+            cause, detail = other
+            self._emit(Incident(**self._env(), subtask_id=subtask_id, cause=cause, detail=detail))
+            self._possible_abort(subtask_id, report)
+            self._halt_for(subtask_id, cause)
             return False
         if exposed:
             # No other incident: the exposure alone stops the run, and nothing is taken.
+            self._possible_abort(subtask_id, report)
             self._halt_for(subtask_id, "held_out_read")
+            return False
+        if report.os_layer_aborted:
+            # Nothing else: the session was told of failures no layer judged, if its words
+            # are bubblewrap's. Its work is not taken, and a person looks first.
+            self._possible_abort(subtask_id, report)
+            self._halt_for(subtask_id, "os_layer_aborted")
             return False
         if report.end.outcome != "completed":
             return False
@@ -648,6 +624,59 @@ class Loop:
         if not self._journal_clean():
             return False
         return not report.node_files_halted or self._repair_node_files(subtask_id, attempt)
+
+    def _other_incident(self, report: SessionReport) -> tuple[IncidentCause, str] | None:
+        """The incident a session's end shows besides an exposure or an abort, if any.
+
+        In the order a person reads them; the first found stops the run.
+        """
+        if report.trajectory_tampered is not None:
+            # Something other than the runtime wrote the stream after its result:
+            # nothing the session did is taken, and a person looks first.
+            return "trajectory_tampered", report.trajectory_tampered
+        if report.review_material_seen is not None:
+            # The session read what only its reviewer reads, by a path no hook could
+            # judge: its work is not taken, and a person looks first.
+            # The canary itself is not written into the record a later session can read.
+            return (
+                "review_material_read",
+                f"reviewer material in the stream of session {report.session_id}",
+            )
+        if report.withheld_problems is not None:
+            # A file no session reads had a second name, changed, or could not be checked
+            # when the attempt was committed: its work is not taken, and a person looks first.
+            return "withheld_file_unsure", report.withheld_problems
+        if report.placeholders_refused is not None:
+            # Something stood at a path only the sandbox holds that is not its placeholder:
+            # its work is not taken, and a person looks first.
+            return "placeholder_refused", report.placeholders_refused
+        if report.managed_drift is not None:
+            # Settings above every source the hooks were installed in changed under the
+            # session: nothing it did is taken, and a person looks first.
+            return "managed_settings_changed", report.managed_drift
+        changed = policy_limits_change(self._policy_baseline(), report.policy_limits_sha256)
+        if changed is not None:
+            # The account's policy limits are applied without a trace the hooks see: the
+            # session ran under other limits than the run began with.
+            return "managed_settings_changed", changed
+        return None
+
+    def _possible_abort(self, subtask_id: str, report: SessionReport) -> None:
+        """Record the results that carry bubblewrap's own line, if any: a possible abort.
+
+        Neither a denial nor a reach, and never a judgement on the session's word: the
+        record says what the results showed, beside whatever else was found.
+        """
+        if not report.os_layer_aborted:
+            return
+        detail = (
+            f"possible abort: {len(report.os_layer_aborted)} result(s) of session "
+            f"{report.session_id} carry bubblewrap's own line, which the command may have "
+            f"printed itself: {', '.join(report.os_layer_aborted)}"
+        )
+        self._emit(
+            Incident(**self._env(), subtask_id=subtask_id, cause="os_layer_aborted", detail=detail)
+        )
 
     def _spec_commit(self) -> str | None:
         """The commit that issued every subtask's specification: the decomposition's."""
