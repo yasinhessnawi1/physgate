@@ -370,9 +370,8 @@ corpus (§6 item 7).
   worktrees before the freeze (§4 R2), and R3 held at launch.
 - The rubrics were drafted, as R2 requires, by authors who had not read the corpus, and
   promoted by the project's human owner (commits `5b49709` and `bd14da5`).
-- **Open: whether the approver had seen the corpus or a gate outcome on it.** R2 requires this
-  file to state it. The repository does not record it, and the analyst cannot state it. It is
-  to be filled in by the owner before this file is merged.
+- The reviewer rubrics were approved by the operator, Yasin Hessnawi, before the instrument
+  pilot. At the time of approval he had seen neither the corpus nor any gate outcome on it.
 
 ## What this run shows, and what it does not
 
