@@ -158,8 +158,9 @@ def test_a_component_structure_whose_own_weight_is_carried_is_unchecked_not_refu
     assert record.outcome == "unchecked"
 
 
-def test_a_member_inside_another_member_leaves_the_structure_unchecked(tmp_path: Path) -> None:
-    # The board sits on the frame and on the body: its mass could be counted twice.
+def test_a_member_that_may_sit_inside_another_is_read_with_and_without(tmp_path: Path) -> None:
+    # The board names the frame and the body: its mass may be inside the frame's. The
+    # reactions carry the loads without it, not with it, so the readings disagree.
     board = node(
         "electrical.board",
         quantities={"mass": (0.05, "kg")},
@@ -168,14 +169,14 @@ def test_a_member_inside_another_member_leaves_the_structure_unchecked(tmp_path:
     ran = run(
         tmp_path,
         body(0.34),
-        wheel("left", 1.0),
-        wheel("right", 1.0),
+        massless("left", 1.225),
+        massless("right", 1.225),
         part("cell_pack", 0.15),
         part("frame", 0.10),
         board,
     )
     (record,) = [o for o in ran.observations if o.node == BODY]
-    assert record.outcome == "unchecked" and "counted twice" in record.message
+    assert record.outcome == "unchecked" and "inside another" in record.message
 
 
 def test_a_reaction_that_names_two_mechanical_nodes_is_attributed_to_neither(
@@ -295,7 +296,17 @@ def balanced_placed() -> tuple[dict[str, Any], ...]:
 
 
 def test_an_unplaced_reaction_that_breaks_the_force_sum_is_refused(tmp_path: Path) -> None:
-    ran = run(tmp_path, *balanced_placed(), prop(1.0))
+    # One fixed support carries the whole 2.94 N; a second reaction with no position
+    # pushes 1 N more. With two reactions none is left out, so no reading balances.
+    fixed = wheel("left", 2.94, x=0.0)
+    fixed["quantities"]["reaction_moment"] = {
+        "value": 0,
+        "unit": "N*m",
+        "source": "datasheet",
+        "written_by": "mechanical",
+    }
+    loads = (part("cell_pack", 0.15, x=0.0), *PLACED)
+    ran = run(tmp_path, body(0.32), fixed, *loads, prop(1.0))
     (finding,) = ran.observations
     assert finding.outcome == "fail" and "mechanical.prop" in finding.message
     assert isinstance(finding.details, EquilibriumDetails)
@@ -442,7 +453,7 @@ def test_a_third_reaction_that_may_push_sideways_is_unchecked_not_refused(tmp_pa
     assert record.outcome == "unchecked"
 
 
-def test_a_member_carrying_another_weighted_part_leaves_the_structure_unchecked(
+def test_a_member_carrying_another_weighted_part_is_read_with_and_without_it(
     tmp_path: Path,
 ) -> None:
     # The pack sits on a bracket that sits on the body: the bracket presses with both.
@@ -465,7 +476,7 @@ def test_a_member_carrying_another_weighted_part_leaves_the_structure_unchecked(
         *UNPLACED[1:],
     )
     (record,) = [o for o in ran.observations if o.node == BODY]
-    assert record.outcome == "unchecked" and "carry other parts" in record.message
+    assert record.outcome == "unchecked" and "outside part" in record.message
 
 
 def test_a_pass_on_forces_alone_is_counted_apart_in_the_record(tmp_path: Path) -> None:
@@ -509,3 +520,82 @@ def test_module_scope_brings_in_a_mount_through_a_member_it_cannot_place(tmp_pat
     view = GraphView.read(root, base_revision=head)
     ran = check_equilibrium.run(CheckContext(view=view, scope="module", bounds=load_bounds()))
     assert [o.outcome for o in ran.observations if o.node == BODY] == ["unchecked"]
+
+
+# --- the review's delta: every guard becomes a reading, never an escape -------------------
+
+
+def test_a_sideways_reaction_beside_a_balanced_placed_mount_is_unchecked_not_refused(
+    tmp_path: Path,
+) -> None:
+    # The review's bumper: a 5 N push with no position and no mass beside wheels that
+    # balance. (With a mass and no position it leaves the mount unchecked anyway.)
+    bumper = node(
+        "mechanical.bumper",
+        domain="mechanical",
+        quantities={"reaction_force": (5.0, "N")},
+        constrains=[BODY],
+    )
+    ran = run(tmp_path, *balanced_placed(), bumper)
+    (record,) = ran.observations
+    assert record.outcome == "unchecked"
+
+
+def test_two_reactions_are_never_read_with_one_left_out(tmp_path: Path) -> None:
+    # 2.94 N and 1.47 N on a 2.94 N load: leaving the second out would balance it, so
+    # with two reactions that reading is never made, and the structure is refused.
+    ran = run(tmp_path, body(0.30), massless("left", 2.94), massless("right", 1.47), *UNPLACED)
+    assert [o.outcome for o in ran.observations if o.node == BODY] == ["fail"]
+
+
+def test_a_small_part_naming_the_pack_never_un_blocks_an_error_in_the_weights(
+    tmp_path: Path,
+) -> None:
+    # The shape R-PG-01 found: the pack grew to 0.25 kg and the reactions were left. A 2 g fuse
+    # names the pack; read with and without the fuse's weight, the structure still fails.
+    fuse = node(
+        "electrical.fuse", quantities={"mass": (0.002, "kg")}, constrains=["electrical.cell_pack"]
+    )
+    ran = run(
+        tmp_path,
+        body(0.44),
+        massless("left", 1.47),
+        massless("right", 1.47),
+        part("cell_pack", 0.25),
+        *UNPLACED[1:],
+        fuse,
+    )
+    assert [o.outcome for o in ran.observations if o.node == BODY] == ["fail"]
+
+
+def test_a_supply_edge_between_members_never_un_blocks_an_error_in_the_weights(
+    tmp_path: Path,
+) -> None:
+    pack = {**part("cell_pack", 0.25), "constrains": [BODY, "electrical.board"]}
+    ran = run(
+        tmp_path, body(0.44), massless("left", 1.47), massless("right", 1.47), pack, *UNPLACED[1:]
+    )
+    assert [o.outcome for o in ran.observations if o.node == BODY] == ["fail"]
+
+
+def test_a_sub_module_whose_mass_is_its_parts_is_read_as_one_and_passes(tmp_path: Path) -> None:
+    plate = node(
+        "mechanical.plate",
+        domain="mechanical",
+        kind="module",
+        quantities={"mass": (0.15, "kg")},
+        constrains=[BODY],
+    )
+    pack = node(
+        "electrical.cell_pack", quantities={"mass": (0.15, "kg")}, constrains=["mechanical.plate"]
+    )
+    ran = run(
+        tmp_path,
+        body(0.30),
+        massless("left", 1.47),
+        massless("right", 1.47),
+        plate,
+        pack,
+        *UNPLACED[1:],
+    )
+    assert [o for o in ran.observations if o.node == BODY] == [] and ran.evaluated == 1

@@ -43,8 +43,10 @@ either enter a judged balance or be named in an unchecked record:
   unchecked otherwise.
 - **A reaction declared beside positioned supports with no position of its own.**
   The moments cannot be judged; the forces, with that reaction counted, can. A
-  mount that balanced without it fails if the forces miss with it, and is unchecked
-  otherwise.
+  mount that balanced without it fails only if the forces miss with it under every
+  reading a correct design could mean (the reactions negated, with three or more one
+  left out as perhaps not vertical, the reaction's own weight carried or not), and is
+  unchecked otherwise.
 - **A member with a load_force and no mount_position** loads the mount somewhere
   nobody said. A mount that fails without it still fails; one that balances without
   it is unchecked.
@@ -63,6 +65,7 @@ from physgate.gate import equilibrium
 from physgate.gate.check_equilibrium_forces import (
     READINGS,
     Reading,
+    explained,
     force_miss,
     forces_refused,
     judge_forces,
@@ -72,6 +75,7 @@ from physgate.gate.check_equilibrium_forces import (
 )
 from physgate.gate.context import CheckContext
 from physgate.gate.equilibrium import (
+    STANDARD_GRAVITY,
     ClosedFormSolver,
     EquilibriumSolver,
     Load,
@@ -518,10 +522,19 @@ def _judge_stray_reactions(view: GraphView, mount: _Mount) -> Observation | None
         declared = _declared(view, mount)
         reactions = [r.force_n for r in declared.reactions]
         reactions += [_si(view, s, "reaction_force") for s in stray]
+        stray_own = [
+            _si(view, s, "mass") * STANDARD_GRAVITY
+            for s in stray
+            if "mass" in view.nodes[s].quantities
+        ]
     except (UnitRefusedError, *PINT_ERRORS):
         return _unchecked(mount, module, why, names)
-    miss = force_miss(reactions, [ld.force_n for ld in declared.problem.loads])
-    if miss is None:
+    loads = [ld.force_n for ld in declared.problem.loads]
+    miss = force_miss(reactions, loads)
+    # A reaction with no position may be the other sign or not vertical (a bumper's
+    # push), so the forces fail only if no such reading of them balances.
+    load_sets = [loads, [*loads, *stray_own]] if stray_own else [loads]
+    if miss is None or explained(reactions, load_sets):
         return _unchecked(mount, module, why, names)
     how = f"counting the reactions of {', '.join(stray)}, which declare no position"
     return forces_refused(view, mount.mount_id, (*mount.supports, *stray), miss, how)
