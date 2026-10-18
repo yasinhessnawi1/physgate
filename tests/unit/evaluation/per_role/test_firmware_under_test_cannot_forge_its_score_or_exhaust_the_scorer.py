@@ -212,8 +212,11 @@ def _gone(pid: int, within_s: float = 5.0) -> bool:
             os.kill(pid, 0)
         except ProcessLookupError:
             return True
-        status = Path(f"/proc/{pid}/stat")
-        if status.exists() and status.read_text().split(") ", 1)[1].startswith("Z"):
+        try:
+            state = Path(f"/proc/{pid}/stat").read_text().split(") ", 1)[1]
+        except (FileNotFoundError, IndexError):
+            state = ""  # gone between the two looks, or not Linux: look again
+        if state.startswith("Z"):
             return True
         time.sleep(0.05)
     return False

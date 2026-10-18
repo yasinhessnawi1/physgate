@@ -50,6 +50,7 @@ def _hang_up(conn: socket.socket) -> None:
 
 
 def _reset(conn: socket.socket) -> None:
+    conn.recv(64)  # the line is up and the plant has spoken: now reset it
     conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
     conn.close()
 
