@@ -15,8 +15,10 @@ Time is a clock the runner is given: the wall clock in a run, a virtual one in t
 from __future__ import annotations
 
 import json
+import os
 import re
 import socket
+import subprocess
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -127,58 +129,48 @@ class WallClock:
             time.sleep(delay / 1000.0)
 
 
-class SocketDevice:
-    """A device reached through a TCP socket: QEMU's serial line, as ``-serial tcp:…``.
+class _BoundedLine:
+    """The bytes a device sends, counted as they arrive and split into bounded lines.
 
-    Every byte is counted as it arrives, before it is decoded or split: a line longer than
+    Every byte is counted before it is decoded or split: a line longer than
     :data:`MAX_LINE`, more than :data:`MAX_BYTES_PER_SCENARIO` bytes or more than
     :data:`MAX_LINES_PER_SCENARIO` lines raises :class:`DeviceLimitError`, so an endless
-    line or a flood is a bounded fail, never a buffer that grows.
+    line or a flood is a bounded fail, never a buffer that grows. Each step reads at most
+    :data:`MAX_READ_PER_STEP` bytes. A line that ends, breaks or is left half sent is a
+    :class:`DeviceFaultError`.
     """
 
-    def __init__(self, host: str, port: int, clock: Callable[[], float], connect_s: float = 10.0):
-        """Connect, retrying until ``connect_s`` has passed (QEMU listens before it boots)."""
-        deadline = time.monotonic() + connect_s
-        while True:
-            try:
-                self._sock = socket.create_connection((host, port), timeout=1.0)
-                break
-            except OSError:
-                if time.monotonic() > deadline:
-                    raise
-                time.sleep(0.05)
-        self._sock.setblocking(False)
+    def __init__(self, clock: Callable[[], float]) -> None:
+        """Count from nothing."""
         self._clock = clock
         self._pending = b""
         self._bytes = 0
         self._lines = 0
 
-    def send(self, line: str, now_ms: float) -> None:
-        """Write the line and its newline."""
-        # A device that does not read its input is judged by what it then does.
-        try:
-            self._sock.sendall(line.encode("ascii") + b"\n")
-        except BlockingIOError:
-            pass
-        except OSError as exc:
-            msg = f"the device's line closed on a write: {exc!r}"
-            raise DeviceFaultError(msg) from exc
+    def _read(self, size: int) -> bytes | None:
+        """Up to ``size`` bytes; ``None`` if nothing is waiting; ``b""`` at the end.
+
+        Raises:
+            OSError: the line failed.
+        """
+        raise NotImplementedError
 
     def receive(self, now_ms: float) -> list[tuple[float, str]]:
         """Every complete line that has arrived, stamped with the time it was read.
 
         Raises:
             DeviceLimitError: the device passed a bound.
+            DeviceFaultError: the line ended or failed.
         """
         taken = 0
         closed: str | None = None
         while taken < MAX_READ_PER_STEP:
             try:
-                chunk = self._sock.recv(min(4096, MAX_READ_PER_STEP - taken))
-            except BlockingIOError:
-                break
+                chunk = self._read(min(4096, MAX_READ_PER_STEP - taken))
             except OSError as exc:
                 closed = f"the device's line closed: {exc!r}"
+                break
+            if chunk is None:
                 break
             if not chunk:
                 closed = "the device closed its line"
@@ -221,9 +213,85 @@ class SocketDevice:
             msg = f"the device left a partial line of {len(self._pending)} bytes"
             raise DeviceFaultError(msg)
 
+
+class SocketDevice(_BoundedLine):
+    """A device reached through a TCP socket: an emulator's serial line, as ``-serial tcp:…``."""
+
+    def __init__(self, host: str, port: int, clock: Callable[[], float], connect_s: float = 10.0):
+        """Connect, retrying until ``connect_s`` has passed (an emulator listens first)."""
+        super().__init__(clock)
+        deadline = time.monotonic() + connect_s
+        while True:
+            try:
+                self._sock = socket.create_connection((host, port), timeout=1.0)
+                break
+            except OSError:
+                if time.monotonic() > deadline:
+                    raise
+                time.sleep(0.05)
+        self._sock.setblocking(False)
+
+    def _read(self, size: int) -> bytes | None:
+        try:
+            return self._sock.recv(size)
+        except BlockingIOError:
+            return None
+
+    def send(self, line: str, now_ms: float) -> None:
+        """Write the line and its newline.
+
+        Raises:
+            DeviceFaultError: the line failed on the write.
+        """
+        # A device that does not read its input is judged by what it then does.
+        try:
+            self._sock.sendall(line.encode("ascii") + b"\n")
+        except BlockingIOError:
+            pass
+        except OSError as exc:
+            msg = f"the device's line closed on a write: {exc!r}"
+            raise DeviceFaultError(msg) from exc
+
     def close(self) -> None:
         """Close the line."""
         self._sock.close()
+
+
+class PipeDevice(_BoundedLine):
+    """A device on a process's standard input and output: an emulator run as ``-serial stdio``.
+
+    The line needs no network at all, so the emulator runs with none.
+    """
+
+    def __init__(self, process: subprocess.Popen[bytes], clock: Callable[[], float] | None = None):
+        """Talk to ``process``, which was started with both pipes."""
+        super().__init__(clock or time.monotonic)
+        if process.stdin is None or process.stdout is None:
+            msg = "the emulator was not started with its serial line on its pipes"
+            raise DeviceFaultError(msg)
+        self._in, self._out = process.stdin.fileno(), process.stdout.fileno()
+        os.set_blocking(self._out, False)
+        os.set_blocking(self._in, False)
+
+    def _read(self, size: int) -> bytes | None:
+        try:
+            return os.read(self._out, size)
+        except BlockingIOError:
+            return None
+
+    def send(self, line: str, now_ms: float) -> None:
+        """Write the line and its newline, as far as the pipe takes it now.
+
+        Raises:
+            DeviceFaultError: the pipe is closed.
+        """
+        try:
+            os.write(self._in, line.encode("ascii") + b"\n")
+        except BlockingIOError:
+            pass
+        except OSError as exc:
+            msg = f"the device's line closed on a write: {exc!r}"
+            raise DeviceFaultError(msg) from exc
 
 
 def run_scenario(scenario: Scenario, device: Device, clock: Clock) -> Trace:

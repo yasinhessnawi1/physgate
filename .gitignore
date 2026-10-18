@@ -29,3 +29,6 @@ CLAUDE.md
 # The pinned Claude Code binary the hook tests run, installed from the committed
 # lockfile beside it. The lockfile is tracked; what it installs is not.
 tests/integration/hooks/claude-code/node_modules/
+
+# The evaluation's sandbox runtime, installed from the committed lockfile beside it.
+tools/srt/node_modules/

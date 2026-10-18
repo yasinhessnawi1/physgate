@@ -116,14 +116,21 @@ def guarded(
     cpu_s: int,
     memory_bytes: int | None,
     output: Path,
+    pipes: bool = False,
+    cwd: Path | None = None,
 ) -> Iterator[GuardedRun]:
-    """Run ``argv`` bounded on every side; its whole group is killed when the block ends."""
+    """Run ``argv`` bounded on every side; its whole group is killed when the block ends.
+
+    With ``pipes`` its standard input and output are pipes the caller talks on (the serial
+    line), and only its error output goes to ``output``.
+    """
     with output.open("wb") as out:
         process = subprocess.Popen(
             list(argv),
-            stdin=subprocess.DEVNULL,
-            stdout=out,
-            stderr=subprocess.STDOUT,
+            cwd=cwd,
+            stdin=subprocess.PIPE if pipes else subprocess.DEVNULL,
+            stdout=subprocess.PIPE if pipes else out,
+            stderr=out if pipes else subprocess.STDOUT,
             start_new_session=True,
             preexec_fn=lambda: _limits(cpu_s, memory_bytes),  # noqa: PLW1509 - limits must precede the program
         )
