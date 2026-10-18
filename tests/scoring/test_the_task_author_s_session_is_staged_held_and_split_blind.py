@@ -352,3 +352,147 @@ def test_a_check_on_the_implementers_model_is_refused(
 
 def test_the_id_digest_is_what_flags_are_printed_as() -> None:
     assert id_digest("control.t00") == id_digest("control.t00") != id_digest("control.t01")
+
+
+# ------------------------------------------- links and a cleanup that must fail closed
+
+
+def test_a_task_holding_a_hard_link_is_refused_as_files_and_never_copied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def write(worktree: Path) -> None:
+        _tasks(17)(worktree)
+        shared = worktree / "control.t16" / "references" / "good" / "answer.json"
+        os.link(shared, worktree / "shared-elsewhere.json")
+
+    plan, _, out = _run(tmp_path, monkeypatch, write, count=17)
+    assert out["refused_as_files"] == 1 and out["held"] == 16 and out["status"] == "split"
+    placed = {p.name for p in plan.visible.iterdir()}
+    placed |= {p.name for p in (plan.held_out_root / "control").iterdir()}
+    assert "control.t16" not in placed
+
+
+def test_every_staged_file_is_a_new_file_copied_by_content(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plan, _, _ = _run(tmp_path, monkeypatch, _tasks(16))
+    for tier in (plan.visible, plan.held_out_root / "control"):
+        for path in tier.rglob("*"):
+            assert not path.is_symlink()
+            assert path.is_dir() or path.stat().st_nlink == 1
+
+
+def test_a_split_that_fails_part_way_leaves_no_task_outside_the_protected_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def half_a_split(staging: Path, visible: Path, held_out: Path, *, seed: int) -> Any:
+        visible.mkdir(parents=True)
+        first = sorted(staging.iterdir())[0]
+        (visible / first.name).mkdir()
+        (visible / first.name / "task.json").write_bytes((first / "task.json").read_bytes())
+        held_out.mkdir(parents=True)
+        raise OSError("the disk filled part-way")
+
+    monkeypatch.setattr(author_session, "split", half_a_split)
+    with pytest.raises(OSError, match="part-way"):
+        _run(tmp_path, monkeypatch, _tasks(16))
+    plan = _plan(tmp_path)
+    assert not plan.visible.exists()
+    assert not (plan.held_out_root / "control").exists()
+    assert not plan.work.exists()
+    assert list((plan.held_out_root / "control.author").glob("*/stdout.jsonl"))
+
+
+def test_a_failing_session_leaves_nothing_it_wrote_outside_the_protected_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def write(worktree: Path) -> None:
+        _tasks(16)(worktree)
+        raise RuntimeError("the session's end failed")
+
+    with pytest.raises(RuntimeError, match="end failed"):
+        _run(tmp_path, monkeypatch, write)
+    plan = _plan(tmp_path)
+    assert not plan.work.exists()
+    assert list((plan.held_out_root / "control.author").glob("*/stdout.jsonl"))
+
+
+def test_a_cleanup_that_cannot_remove_the_work_refuses_loudly_and_reports_no_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real = author_session.shutil.rmtree
+
+    def stuck(path: Any, *args: Any, **kwargs: Any) -> None:
+        if Path(path).name == "work":
+            raise PermissionError(f"cannot remove {path}")
+        real(path, *args, **kwargs)
+
+    monkeypatch.setattr(author_session.shutil, "rmtree", stuck)
+    with pytest.raises(AuthoringError, match="could not be removed"):
+        _run(tmp_path, monkeypatch, _tasks(16))
+
+
+def test_half_a_tier_that_cannot_be_removed_refuses_loudly_after_securing_the_stream(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def half_a_split(staging: Path, visible: Path, held_out: Path, *, seed: int) -> Any:
+        visible.mkdir(parents=True)
+        raise OSError("the disk filled part-way")
+
+    real = author_session.shutil.rmtree
+
+    def stuck(path: Any, *args: Any, **kwargs: Any) -> None:
+        if Path(path).name == "visible":
+            raise PermissionError(f"cannot remove {path}")
+        real(path, *args, **kwargs)
+
+    monkeypatch.setattr(author_session, "split", half_a_split)
+    monkeypatch.setattr(author_session.shutil, "rmtree", stuck)
+    with pytest.raises(AuthoringError, match="visible") as raised:
+        _run(tmp_path, monkeypatch, _tasks(16))
+    assert "remove these by hand" in str(raised.value)
+    plan = _plan(tmp_path)
+    assert not plan.work.exists()
+    assert list((plan.held_out_root / "control.author").glob("*/stdout.jsonl"))
+
+
+def test_a_failing_check_session_leaves_no_held_out_task_outside_the_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def write(worktree: Path) -> None:
+        raise RuntimeError("the check's session failed")
+
+    with pytest.raises(RuntimeError, match="check's session failed"):
+        _check(tmp_path, monkeypatch, write)
+    assert not (tmp_path / "scratch" / "check").exists()
+    assert list((tmp_path / "private" / "v1" / "control.check").glob("*/stdout.jsonl"))
+
+
+def test_what_is_validated_shares_no_file_with_what_the_session_left(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A file shared with the worktree could be changed, after its check, by anything the
+    # session left behind; staging is checked as it is when it is validated.
+    seen: list[tuple[str, int]] = []
+    real = author_session.sound
+
+    def inspecting(staging: Path) -> list[str]:
+        seen.extend((str(p), p.lstat().st_nlink) for p in staging.rglob("*") if not p.is_dir())
+        return real(staging)
+
+    monkeypatch.setattr(author_session, "sound", inspecting)
+    _run(tmp_path, monkeypatch, _tasks(16))
+    assert seen and all(links == 1 for _, links in seen)
+
+
+def test_a_tier_reached_through_a_link_is_refused_before_any_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "real").mkdir()
+    (tmp_path / "linked").symlink_to(tmp_path / "real")
+    fake = FakeSession(_tasks(16))
+    monkeypatch.setattr(author_session, "run_session", fake)
+    plan = _plan(tmp_path, visible=tmp_path / "linked" / "visible")
+    with pytest.raises(AuthoringError, match="reached through a link"):
+        author(plan, _setup(tmp_path / "private"))
+    assert fake.calls == []

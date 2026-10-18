@@ -217,12 +217,14 @@ def _with_install(args: argparse.Namespace, run: Any) -> int:
 def _author(args: argparse.Namespace) -> int:
     from physgate.evaluation.per_role.author_session import AuthoringPlan, author
 
+    # The paths given are resolved once, before anything runs, so a system link such as
+    # macOS's /var is followed here and never met by the split's refusal of links.
     plan = AuthoringPlan(
         role=args.role,
         implementer_model=args.implementer_model,
-        work=args.work,
-        visible=args.visible,
-        held_out_root=args.held_out_root,
+        work=args.work.resolve(),
+        visible=args.visible.resolve(),
+        held_out_root=args.held_out_root.resolve(),
         seed=args.seed,
         cap=args.cap,
         count=args.count,
@@ -233,7 +235,8 @@ def _author(args: argparse.Namespace) -> int:
 def _blind_check(args: argparse.Namespace) -> int:
     from physgate.evaluation.per_role.author_session import blind_check, held_out_tier
 
-    root = args.held_out_root
+    root = args.held_out_root.resolve()
+    args.work = args.work.resolve()
     return _with_install(
         args,
         lambda setup: blind_check(

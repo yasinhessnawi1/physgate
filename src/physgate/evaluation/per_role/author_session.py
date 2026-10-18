@@ -29,9 +29,11 @@ Both are tested against the scripted endpoint; a real session is started by a pe
 from __future__ import annotations
 
 import json
+import os
 import random
 import shutil
 import stat
+import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -98,6 +100,14 @@ def _require_apart(plan: AuthoringPlan, setup: RawSetup) -> None:
         if any(_inside(path, r) for r in roots):
             msg = f"the {name} is inside a held-out root, or holds one"
             raise AuthoringError(msg, path=str(path))
+    for name, path in (
+        ("work", plan.work),
+        ("visible tier", plan.visible),
+        ("protected root", plan.held_out_root),
+    ):
+        if path.resolve() != path.absolute():
+            msg = f"the {name} is reached through a link; give its resolved path"
+            raise AuthoringError(msg, path=str(path))
     tier = held_out_tier(plan.held_out_root, plan.role)
     if plan.work.exists() or plan.visible.exists() or tier.exists():
         msg = "the work directory and both tiers are made new for each session"
@@ -107,45 +117,136 @@ def _require_apart(plan: AuthoringPlan, setup: RawSetup) -> None:
         raise AuthoringError(msg, count=str(plan.count))
 
 
+def _plain_file(path: Path) -> bool:
+    """Whether ``path`` is a regular file with one name: no link of either kind."""
+    info = path.lstat()
+    return stat.S_ISREG(info.st_mode) and info.st_nlink == 1
+
+
 def _plain_tree(directory: Path) -> bool:
-    """Whether ``directory`` holds only plain directories and small regular files."""
+    """Whether ``directory`` holds only plain directories and small, singly named files.
+
+    A symbolic link, a hard link (a file with a second name anywhere), a special file, or
+    more than a task's worth of files or bytes refuses the whole task.
+    """
     files = 0
     size = 0
     for entry in [directory, *directory.rglob("*")]:
-        mode = entry.lstat().st_mode
-        if stat.S_ISLNK(mode) or not (stat.S_ISDIR(mode) or stat.S_ISREG(mode)):
+        info = entry.lstat()
+        if stat.S_ISDIR(info.st_mode):
+            continue
+        if not _plain_file(entry):
             return False
-        if stat.S_ISREG(mode):
-            files += 1
-            size += entry.lstat().st_size
+        files += 1
+        size += info.st_size
     return files <= MOST_FILES_PER_TASK and size <= MOST_BYTES_PER_TASK
+
+
+_READ = os.O_RDONLY | os.O_NOFOLLOW
+_NEW = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+
+
+def _copy_by_content(source: Path, target: Path) -> None:
+    """Copy ``source``'s tree into the new directory ``target``, each file a new file.
+
+    Every file is opened without following a link and checked again on its descriptor (a
+    regular file with one name), then its bytes are written into a file made new here, so
+    nothing staged is shared with, or points to, anything the session left.
+
+    Raises:
+        AuthoringError: something changed into a link or a special file after it was checked.
+    """
+    target.mkdir(mode=0o700)
+    for entry in sorted(source.iterdir()):
+        if entry.is_dir() and not entry.is_symlink():
+            _copy_by_content(entry, target / entry.name)
+            continue
+        fd = os.open(entry, _READ)
+        try:
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                msg = f"{entry} is no longer a plain file"
+                raise AuthoringError(msg, path=str(entry))
+            with os.fdopen(os.dup(fd), "rb") as handle:
+                data = handle.read(MOST_BYTES_PER_TASK + 1)
+        finally:
+            os.close(fd)
+        out = os.open(target / entry.name, _NEW, 0o600)
+        try:
+            os.write(out, data)
+        finally:
+            os.close(out)
 
 
 def stage(worktree: Path, staging: Path) -> int:
     """Copy each task directory the session left into ``staging``; how many were refused.
 
-    Only top-level directories are looked at, ``.git`` aside; one that holds a link, a
-    special file or more than a task's worth is refused and not copied.
+    Only top-level directories are looked at, those whose names begin with a dot aside.
+    One holding a symbolic or a hard link, a special file or more than a task's worth is
+    refused and not copied; the rest are copied by content into files made new.
     """
     staging.mkdir(mode=0o700)
     refused = 0
     for entry in sorted(worktree.iterdir()):
-        if entry.name == ".git" or entry.is_symlink() or not entry.is_dir():
+        # A task's id never begins with a dot; ``.git`` and the binary's own directory do.
+        if entry.name.startswith(".") or entry.is_symlink() or not entry.is_dir():
             continue
         if not _plain_tree(entry):
             refused += 1
             continue
-        shutil.copytree(entry, staging / entry.name, symlinks=True)
+        _copy_by_content(entry, staging / entry.name)
     return refused
 
 
-def _keep_evidence(work: Path, record: dict[str, Any], into: Path) -> None:
-    """Move the session's stream and record inside the protected root, then drop ``work``."""
-    into.mkdir(mode=0o700, parents=True, exist_ok=True)
-    target = into / str(record["session_id"])
-    shutil.move(str(work / "session"), str(target))
-    (target / "record.json").write_text(json.dumps(record, sort_keys=True, indent=1))
-    shutil.rmtree(work)
+def _remove(path: Path) -> str | None:
+    """Remove ``path`` if it is there; the reason if it could not be, never silently."""
+    if not path.exists() and not path.is_symlink():
+        return None
+    try:
+        shutil.rmtree(path)
+    except OSError as exc:
+        return f"{path}: {exc}"
+    return None if not path.exists() else f"{path}: still there"
+
+
+def _keep_evidence(work: Path, record: dict[str, Any] | None, into: Path) -> list[str | None]:
+    """Move the session's stream and record inside the protected root, then drop ``work``.
+
+    Run however the session or what follows it ended: what the session wrote holds tasks
+    that may become held-out ones, so it never stays outside the protected root. A session
+    that left no record is kept under a name of its own. Every step is tried; what could
+    not be done is returned, for the caller to refuse on.
+    """
+    problems: list[str | None] = []
+    name = str(record["session_id"]) if record else f"unrecorded-{uuid.uuid4().hex[:12]}"
+    target = into / name
+    try:
+        into.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if (work / "session").is_dir():
+            shutil.move(str(work / "session"), str(target))
+        else:
+            target.mkdir(mode=0o700)
+        (target / "record.json").write_text(json.dumps(record or {}, sort_keys=True, indent=1))
+    except OSError as exc:
+        problems.append(f"the session's stream into {target}: {exc}")
+    problems.append(_remove(work))
+    return problems
+
+
+def _closed(problems: Sequence[str | None]) -> None:
+    """Refuse, loudly, if anything that could hold a task was left where it could be read.
+
+    Raises:
+        AuthoringError: a removal failed: say where, and report no result.
+    """
+    left = [p for p in problems if p is not None]
+    if left:
+        msg = (
+            "what the session wrote could not be removed, so a held-out task may be readable "
+            "outside the protected root; remove these by hand before anything else runs: "
+            + "; ".join(left)
+        )
+        raise AuthoringError(msg, left=" | ".join(left))
 
 
 def _spent(record: dict[str, Any]) -> dict[str, Any]:
@@ -164,30 +265,41 @@ def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
     """
     require_author_model(setup.model, plan.implementer_model)
     _require_apart(plan, setup)
-    record = run_session(author_brief(plan.role, count=plan.count), setup, plan.work, cap=plan.cap)
-    staging = plan.work / "staging"
-    refused = stage(plan.work / "worktree", staging)
-    staged = sum(1 for p in staging.iterdir() if p.is_dir())
-    held = sound(staging)
-    summary: dict[str, Any] = {
-        "asked": plan.count,
-        "written": staged + refused,
-        "refused_as_files": refused,
-        "held": len(held),
-        "session": _spent(record),
-    }
     evidence = plan.held_out_root / f"{plan.role}.author"
-    if len(held) < 2 * PER_TIER:
-        _keep_evidence(plan.work, record, evidence)
-        return {**summary, "status": "too_few_held"}
-    chosen = sorted(held)
-    random.Random(plan.seed).shuffle(chosen)
-    for entry in staging.iterdir():
-        if entry.name not in chosen[: 2 * PER_TIER]:
-            shutil.rmtree(entry)
     tier = held_out_tier(plan.held_out_root, plan.role)
-    placed = split(staging, plan.visible, tier, seed=plan.seed)
-    _keep_evidence(plan.work, record, evidence)
+    record: dict[str, Any] | None = None
+    split_started = False
+    try:
+        record = run_session(
+            author_brief(plan.role, count=plan.count), setup, plan.work, cap=plan.cap
+        )
+        staging = plan.work / "staging"
+        refused = stage(plan.work / "worktree", staging)
+        staged = sum(1 for p in staging.iterdir() if p.is_dir())
+        held = sound(staging)
+        summary: dict[str, Any] = {
+            "asked": plan.count,
+            "written": staged + refused,
+            "refused_as_files": refused,
+            "held": len(held),
+            "session": _spent(record),
+        }
+        if len(held) < 2 * PER_TIER:
+            return {**summary, "status": "too_few_held"}
+        chosen = sorted(held)
+        random.Random(plan.seed).shuffle(chosen)
+        for entry in staging.iterdir():
+            if entry.name not in chosen[: 2 * PER_TIER]:
+                shutil.rmtree(entry)
+        split_started = True
+        placed = split(staging, plan.visible, tier, seed=plan.seed)
+        split_started = False
+    finally:
+        problems: list[str | None] = []
+        if split_started:
+            # Neither tier existed before this call; half a split is no tier at all.
+            problems = [_remove(plan.visible), _remove(tier)]
+        _closed([*problems, *_keep_evidence(plan.work, record, evidence)])
     return {
         **summary,
         "status": "split",
@@ -283,9 +395,15 @@ def blind_check(
         raise AuthoringError(msg, tier=str(tier), work=str(work))
     tasks = bundle(tier)
     files = {"tasks.json": json.dumps(tasks, sort_keys=True, indent=1).encode()}
-    record = run_session(CHECK_BRIEF.format(count=len(tasks)), setup, work, cap=cap, files=files)
-    answers = read_answers(work / "worktree" / "answers.json", list(tasks))
-    _keep_evidence(work, record, evidence)
+    record: dict[str, Any] | None = None
+    try:
+        record = run_session(
+            CHECK_BRIEF.format(count=len(tasks)), setup, work, cap=cap, files=files
+        )
+        answers = read_answers(work / "worktree" / "answers.json", list(tasks))
+    finally:
+        # The work holds the held-out tasks it was given: it never stays outside the root.
+        _closed(_keep_evidence(work, record, evidence))
     if answers is None:
         return {"tasks": len(tasks), "answered": False, "session": _spent(record)}
     flagged = sorted(key for key, a in answers.items() if not all(getattr(a, q) for q in QUESTIONS))
