@@ -11,7 +11,6 @@ firmware tier refuses.
 
 from __future__ import annotations
 
-import contextlib
 import inspect
 import json
 import os
@@ -82,16 +81,18 @@ MARKER = "import sys\nopen(sys.argv[1], 'w').write('ran')\n"
 LIMITS = EmulatorLimits(wall_s=45.0, cpu_s=20, memory_bytes=1 << 30, tasks=32)
 
 
-def _setup(tmp_path: Path, body: str) -> tuple[Path, Path, list[str]]:
+def _setup(tmp_path: Path, body: str) -> tuple[Path, tuple[Path, ...], list[str]]:
+    """The scratch's path (the harness makes it), the emulator's readable files, its argv."""
     scratch = tmp_path / "scratch"
-    scratch.mkdir()
-    script = scratch / "emulator.py"
+    inputs = tmp_path / "inputs"
+    inputs.mkdir()
+    script = inputs / "emulator.py"
     script.write_text(body)
     # The base interpreter, which the emulator's own files stand for: a virtual environment's
     # interpreter lives under the user's home, which the sandbox withholds.
-    readable = Path(sys.base_prefix)
-    interpreter = readable / "bin" / f"python{sys.version_info.major}.{sys.version_info.minor}"
-    return scratch, readable, [str(interpreter), "-I", str(script)]
+    base = Path(sys.base_prefix)
+    interpreter = base / "bin" / f"python{sys.version_info.major}.{sys.version_info.minor}"
+    return scratch, (base, inputs), [str(interpreter), "-I", str(script)]
 
 
 def _held_out(tmp_path: Path) -> tuple[str]:
@@ -135,7 +136,7 @@ def test_the_emulator_reads_writes_and_reaches_only_what_it_is_given(tmp_path: P
         with sandboxed(
             argv,
             scratch=scratch,
-            readable=(readable,),
+            readable=readable,
             limits=LIMITS,
             held_out=_held_out(tmp_path),
         ) as session:
@@ -172,7 +173,7 @@ def test_a_held_out_tier_outside_home_is_withheld_from_the_emulator(tmp_path: Pa
     with sandboxed(
         [*argv, str(Path(tier[0]) / "item.json")],
         scratch=scratch,
-        readable=(readable,),
+        readable=readable,
         limits=LIMITS,
         held_out=tier,
     ) as session:
@@ -188,7 +189,7 @@ def test_an_evaluation_run_that_names_no_held_out_tier_refuses(tmp_path: Path) -
     with (
         pytest.raises(FirmwareTierRefusedError, match="held-out"),
         sandboxed(
-            [*argv, str(marker)], scratch=scratch, readable=(readable,), limits=LIMITS, held_out=()
+            [*argv, str(marker)], scratch=scratch, readable=readable, limits=LIMITS, held_out=()
         ),
     ):
         time.sleep(2)
@@ -208,7 +209,7 @@ def test_the_emulator_sees_none_of_the_harness_s_environment(
         "print('DONE', flush=True)\n",
     )
     with sandboxed(
-        argv, scratch=scratch, readable=(readable,), limits=LIMITS, held_out=_held_out(tmp_path)
+        argv, scratch=scratch, readable=readable, limits=LIMITS, held_out=_held_out(tmp_path)
     ) as session:
         _lines(_device(session), time.monotonic() + 20, 1)
     seen: dict[str, str] = json.loads((scratch / "env.json").read_text())
@@ -233,7 +234,7 @@ def test_the_emulator_s_address_space_is_limited(tmp_path: Path) -> None:
     )
     limits = EmulatorLimits(wall_s=30.0, cpu_s=20, memory_bytes=512 << 20, tasks=16)
     with sandboxed(
-        argv, scratch=scratch, readable=(readable,), limits=limits, held_out=_held_out(tmp_path)
+        argv, scratch=scratch, readable=readable, limits=limits, held_out=_held_out(tmp_path)
     ) as session:
         seen = _lines(_device(session), time.monotonic() + 20, 1)
     assert seen and seen[0].startswith("MAP denied")
@@ -261,7 +262,7 @@ def test_memory_the_emulator_stores_in_its_sandbox_s_own_files_is_capped(tmp_pat
         with sandboxed(
             [*argv, str(target)],
             scratch=scratch,
-            readable=(readable,),
+            readable=readable,
             limits=limits,
             held_out=_held_out(tmp_path),
         ) as session:
@@ -298,7 +299,7 @@ def test_files_the_emulator_writes_into_its_scratch_are_capped(tmp_path: Path) -
         scratch_files=200,
     )
     with sandboxed(
-        argv, scratch=scratch, readable=(readable,), limits=limits, held_out=_held_out(tmp_path)
+        argv, scratch=scratch, readable=readable, limits=limits, held_out=_held_out(tmp_path)
     ) as session:
         _lines(_device(session), time.monotonic() + 35, 100)
     assert len(list(scratch.glob("f*"))) < 400
@@ -312,7 +313,7 @@ def test_a_fork_bomb_is_held_to_the_process_cap(tmp_path: Path) -> None:
     scratch, readable, argv = _setup(tmp_path, FORK_BOMB)
     limits = EmulatorLimits(wall_s=20.0, cpu_s=20, memory_bytes=1 << 30, tasks=16)
     with sandboxed(
-        argv, scratch=scratch, readable=(readable,), limits=limits, held_out=_held_out(tmp_path)
+        argv, scratch=scratch, readable=readable, limits=limits, held_out=_held_out(tmp_path)
     ) as session:
         lines = _lines(_device(session), time.monotonic() + 15, 1)
         session.run.kill_group()
@@ -337,7 +338,7 @@ def test_on_macos_the_firmware_tier_refuses(
         sandboxed(
             [*argv, str(marker)],
             scratch=scratch,
-            readable=(readable,),
+            readable=readable,
             limits=LIMITS,
             held_out=_held_out(tmp_path),
         ),
@@ -362,7 +363,7 @@ def test_where_the_os_layer_is_absent_the_firmware_tier_refuses(
         sandboxed(
             argv,
             scratch=scratch,
-            readable=(readable,),
+            readable=readable,
             limits=LIMITS,
             held_out=_held_out(tmp_path),
         ),
@@ -376,7 +377,7 @@ def test_the_emulator_s_own_cpu_limit_is_set_and_its_end_is_the_answer_s(tmp_pat
     limits = EmulatorLimits(wall_s=60.0, cpu_s=2, memory_bytes=1 << 30, tasks=16)
     began = time.monotonic()
     with sandboxed(
-        argv, scratch=scratch, readable=(readable,), limits=limits, held_out=_held_out(tmp_path)
+        argv, scratch=scratch, readable=readable, limits=limits, held_out=_held_out(tmp_path)
     ) as session:
         session.run.wait()
     assert time.monotonic() - began < 20  # the emulator's 2 s, not the runtime's wider bound
@@ -403,7 +404,7 @@ def test_a_sandbox_that_fails_its_check_is_the_machine_s_and_the_guest_never_run
         sandboxed(
             [*argv, str(marker)],
             scratch=scratch,
-            readable=(readable,),
+            readable=readable,
             limits=LIMITS,
             held_out=_held_out(tmp_path),
         ),
@@ -434,7 +435,7 @@ CHOOSERS = {
 def test_a_guest_cannot_make_its_end_the_machine_s(tmp_path: Path, body: str) -> None:
     scratch, readable, argv = _setup(tmp_path, body)
     with sandboxed(
-        argv, scratch=scratch, readable=(readable,), limits=LIMITS, held_out=_held_out(tmp_path)
+        argv, scratch=scratch, readable=readable, limits=LIMITS, held_out=_held_out(tmp_path)
     ) as session:
         session.run.wait()
     assert session.record["infrastructure"] is None
@@ -442,9 +443,7 @@ def test_a_guest_cannot_make_its_end_the_machine_s(tmp_path: Path, body: str) ->
 
 @linux_only
 @pytest.mark.parametrize("trap", ["link", "fifo"])
-def test_the_harness_follows_no_link_and_waits_on_no_fifo_in_the_scratch(
-    tmp_path: Path, trap: str
-) -> None:
+def test_the_scratch_s_walk_follows_no_link_and_waits_on_no_fifo(tmp_path: Path, trap: str) -> None:
     import threading
 
     outside = tmp_path / "outside" / "target.txt"
@@ -452,41 +451,69 @@ def test_the_harness_follows_no_link_and_waits_on_no_fifo_in_the_scratch(
     outside.write_text("inert: must stay as it is")
     for i in range(50):
         (outside.parent / f"other{i}").write_text("inert")
-    scratch, readable, argv = _setup(tmp_path, "pass\n")
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
     if trap == "link":
-        os.symlink(outside, scratch / ".physgate-emulator-token")
+        os.symlink(outside, scratch / "linked-file")
         os.symlink(outside.parent, scratch / "linked-dir")
     else:
-        os.mkfifo(scratch / ".physgate-emulator-token")
         os.mkfifo(scratch / "fifo")
-    done: dict[str, object] = {}
+        os.mkfifo(scratch / "another-fifo")
+    counted: list[tuple[int, int]] = []
+    walker = threading.Thread(
+        target=lambda: counted.append(sandbox.scratch_usage(scratch, 4096)), daemon=True
+    )
+    walker.start()
+    walker.join(timeout=10)
+    assert counted, "the walk blocked on a FIFO in the scratch"
+    assert counted[0][1] < 20  # the linked directory's 51 files are not counted
+    assert outside.read_text() == "inert: must stay as it is"
 
-    def run() -> None:
-        with sandboxed(
-            argv,
+
+@linux_only
+def test_a_non_empty_scratch_is_refused(tmp_path: Path) -> None:
+    marker = tmp_path / "ran"
+    scratch, readable, argv = _setup(tmp_path, MARKER)
+    scratch.mkdir()
+    (scratch / "left-behind.txt").write_text("inert")
+    with (
+        pytest.raises(FirmwareTierRefusedError, match="not empty"),
+        sandboxed(
+            [*argv, str(marker)],
             scratch=scratch,
-            readable=(readable,),
+            readable=readable,
             limits=LIMITS,
             held_out=_held_out(tmp_path),
-        ) as session:
-            session.run.wait()
-        done["record"] = session.record
+        ),
+    ):
+        time.sleep(2)
+    assert not marker.exists()
 
-    thread = threading.Thread(target=run, daemon=True)
-    thread.start()
-    thread.join(timeout=40)
-    if thread.is_alive():  # release a harness blocked on a planted FIFO, then fail
-        for fifo in scratch.iterdir():
-            if fifo.is_fifo():
-                with contextlib.suppress(OSError):
-                    fd = os.open(fifo, os.O_RDONLY | os.O_NONBLOCK)
-                    os.close(fd)
-        thread.join(timeout=10)
-        pytest.fail("the harness blocked on a FIFO planted in the scratch")
-    assert outside.read_text() == "inert: must stay as it is"
-    record = done["record"]
-    assert isinstance(record, dict)
-    assert record["scratch"]["files"] < 20  # the linked directory's 51 files are not counted
+
+@linux_only
+def test_junk_in_the_scratch_cannot_fail_the_check_before_the_guest(tmp_path: Path) -> None:
+    # Junk that makes the sandbox itself fail where it is the sandbox's directory: a link
+    # loop at a path the runtime protects. The check never runs there, so it passes, and the
+    # run is then refused as the answer's (a scratch that is not empty), never the machine's.
+    marker = tmp_path / "ran"
+    scratch, readable, argv = _setup(tmp_path, MARKER)
+    scratch.mkdir()
+    for i in range(20):
+        (scratch / f"junk{i}").write_text("inert")
+    os.symlink(".vscode", scratch / ".vscode")
+    os.symlink("/nonexistent/inert", scratch / "dangling")
+    with (
+        pytest.raises(FirmwareTierRefusedError, match="not empty"),
+        sandboxed(
+            [*argv, str(marker)],
+            scratch=scratch,
+            readable=readable,
+            limits=LIMITS,
+            held_out=_held_out(tmp_path),
+        ),
+    ):
+        time.sleep(2)
+    assert not marker.exists()
 
 
 @linux_only
@@ -534,7 +561,7 @@ def test_the_runtime_s_pin_is_read_from_what_is_installed(tmp_path: Path) -> Non
     assert pin["integrity"].startswith("sha512-")
     scratch, readable, argv = _setup(tmp_path, "pass\n")
     with sandboxed(
-        argv, scratch=scratch, readable=(readable,), limits=LIMITS, held_out=_held_out(tmp_path)
+        argv, scratch=scratch, readable=readable, limits=LIMITS, held_out=_held_out(tmp_path)
     ) as session:
         session.run.wait()
     assert session.record["sandbox_runtime"] == pin

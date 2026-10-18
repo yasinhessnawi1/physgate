@@ -8,8 +8,11 @@ for a raw-agent session whose worktree is the answer's scratch directory:
 - **environment**: built from nothing (a search path, a home in the scratch, a fixed
   locale and time zone, and where the user's systemd manager listens); nothing of the
   harness's, its credentials among it, reaches the emulator;
-- **writes** only to the scratch directory, which is watched: past its bound in bytes or
-  entries the run is ended, as the answer's limit. The harness writes nothing there, and
+- **writes** only to the scratch directory, which the harness creates, empty, just before
+  the sandbox starts (it refuses a scratch that already holds anything: the emulator's
+  inputs are among its readable files, never in the scratch). The scratch is watched:
+  past its bound in bytes or entries the run is ended, as the answer's limit. The harness
+  writes nothing there, and
   reads it only through descriptors opened without following a link or waiting on a FIFO
   (:func:`open_directory`): the scratch is the guest's to plant traps in;
 - **reads**: never the user's home, the held-out tier (which every run must name), the
@@ -31,8 +34,10 @@ it refuses too: these are evaluation runs.
 
 Only the machine's own signals can make a run the machine's (``infrastructure``, retried
 under the evaluation's rules, never the answer's fail): before the emulator starts, the
-same scope and sandbox run a check that contains no guest, and if the check does not exit
-cleanly the run is refused as :class:`EmulatorInfrastructureError`. Once the guest runs,
+same scope and sandbox policy run a check that contains no guest, in a fresh empty
+directory the harness makes (never the answer's scratch, so nothing an answer wrote can
+fail it), and if the check does not exit cleanly the run is refused as
+:class:`EmulatorInfrastructureError`. Once the guest runs,
 nothing it can print, exit with or do to itself is read as the machine's: however it
 ends, including on one of its own limits, the end is the answer's.
 """
@@ -47,6 +52,7 @@ import shlex
 import shutil
 import stat
 import sys
+import tempfile
 import threading
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
@@ -351,15 +357,23 @@ def _watch_scratch(
             return
 
 
-def _check(command: Sequence[str], env: dict[str, str], scratch: Path) -> None:
-    """Run the scope and sandbox with no guest in them; refuse the run unless they work.
+def _check(wrapper: Sequence[str], srt: Path, held_out: Sequence[str], work: Path) -> None:
+    """Run the scope and the sandbox, with no guest, in ``work``; refuse the run unless they work.
+
+    ``work`` is a directory the harness made for the check alone, with settings generated
+    for it from the same policy: nothing the answer wrote is in it or opened to it.
 
     Raises:
         EmulatorInfrastructureError: the check did not exit cleanly.
     """
-    output = scratch.parent / f"{scratch.name}.check.stderr"
+    work.mkdir(mode=0o700, exist_ok=True)
+    settings = work.parent / f"{work.name}.check-settings.json"
+    settings.write_text(json.dumps(srt_settings(work, (), held_out), indent=1))
+    output = work.parent / f"{work.name}.check.stderr"
+    command = [*wrapper, str(srt), "--settings", str(settings), "-c", "exit 0"]
+    env = emulator_environment(work)
     with guarded(
-        command, wall_s=60.0, cpu_s=60, memory_bytes=None, output=output, env=env, cwd=scratch
+        command, wall_s=60.0, cpu_s=60, memory_bytes=None, output=output, env=env, cwd=work
     ) as check:
         ended = check.wait()
     if ended == "exited" and check.process.returncode == 0:
@@ -373,6 +387,29 @@ def _check(command: Sequence[str], env: dict[str, str], scratch: Path) -> None:
         f"status {check.process.returncode}): {said!r}"
     )
     raise EmulatorInfrastructureError(msg)
+
+
+def _fresh_scratch(scratch: Path) -> None:
+    """Create the answer's scratch, empty; refuse one that already holds anything.
+
+    Raises:
+        FirmwareTierRefusedError: the scratch exists and is not an empty directory.
+    """
+    try:
+        scratch.mkdir(mode=0o700)
+    except FileExistsError:
+        try:
+            fd = open_directory(str(scratch))
+        except OSError as exc:
+            msg = f"the scratch {scratch} is not a directory the harness can make empty"
+            raise FirmwareTierRefusedError(msg) from exc
+        try:
+            empty = not any(True for _ in os.scandir(fd))
+        finally:
+            os.close(fd)
+        if not empty:
+            msg = f"the scratch {scratch} is not empty: the harness makes it, empty, for each run"
+            raise FirmwareTierRefusedError(msg) from None
 
 
 def _ending(run: GuardedRun, over: list[str]) -> dict[str, Any]:
@@ -395,12 +432,14 @@ def sandboxed(
 ) -> Iterator[SandboxedEmulator]:
     """Run the emulator ``argv`` in ``scratch`` inside the OS layer; its serial line on its pipes.
 
-    ``held_out`` names the held-out tier's roots, withheld from the emulator; an evaluation
-    run always has one.
+    ``scratch`` is made here, empty, just before the sandbox starts; the emulator's own
+    files (the answer's image among them) are given in ``readable``. ``held_out`` names the
+    held-out tier's roots, withheld from the emulator; an evaluation run always has one.
 
     Raises:
         FirmwareTierRefusedError: this is macOS, no held-out tier is named, or the OS
             layer, the pinned sandbox runtime or the scope's caps are not available here.
+        FirmwareTierRefusedError: also, ``scratch`` already holds anything.
         EmulatorInfrastructureError: the scope and sandbox failed their check, with no
             guest in them, before the emulator ran.
     """
@@ -422,12 +461,16 @@ def sandboxed(
         raise FirmwareTierRefusedError(msg)
     pin = runtime_pin(srt)
     wrapper, cap, memory_cap = _process_cap(limits)
+    check_dir = Path(tempfile.mkdtemp(prefix="physgate-sandbox-check-"))
+    try:
+        _check(wrapper, srt, held_out, check_dir / "work")
+    finally:
+        shutil.rmtree(check_dir, ignore_errors=True)
+    _fresh_scratch(scratch)
     settings = scratch.parent / f"{scratch.name}.srt-settings.json"
     settings.write_text(json.dumps(srt_settings(scratch, readable, held_out), indent=1))
     env = emulator_environment(scratch)
-    sandbox_command = [*wrapper, str(srt), "--settings", str(settings), "-c"]
-    _check([*sandbox_command, "exit 0"], env, scratch)
-    command = [*sandbox_command, _limited(argv, limits)]
+    command = [*wrapper, str(srt), "--settings", str(settings), "-c", _limited(argv, limits)]
     record: dict[str, Any] = {
         "os_layer": layer.mechanism,
         "process_cap": cap,
