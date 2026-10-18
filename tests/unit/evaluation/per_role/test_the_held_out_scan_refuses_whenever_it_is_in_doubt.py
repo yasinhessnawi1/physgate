@@ -6,6 +6,7 @@ treat as the tier: each is a problem, and any problem keeps the run from startin
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -32,6 +33,11 @@ def _tier(base: Path, canaries: tuple[str, ...] = (CANARY_A, CANARY_B)) -> Path:
     return root
 
 
+def _recorded(root: Path) -> str:
+    """The digest the run records for the tier, taken when the tier was written."""
+    return hashlib.sha256(sha256sums(root).encode()).hexdigest() if root.is_dir() else "0" * 64
+
+
 def _scan(base: Path, root: Path, **kw: object) -> list[str]:
     args: dict[str, object] = {
         "run_held_out": (str(root),),
@@ -40,6 +46,8 @@ def _scan(base: Path, root: Path, **kw: object) -> list[str]:
         "scratch": base / "scan",
     }
     args.update(kw)
+    if "run_digests" not in args:
+        args["run_digests"] = {str(root): _recorded(root)}
     (base / "runs").mkdir(exist_ok=True)
     return scan(root, **args)  # type: ignore[arg-type]
 
@@ -167,3 +175,70 @@ def test_a_task_in_the_tier_marked_visible_refuses_the_run_even_with_its_canary(
     (root / "control.h1" / "task.json").write_text(json.dumps(task))
     (root / "SHA256SUMS").write_text(sha256sums(root))
     assert any("control.h1" in p and "not marked held out" in p for p in _scan(base, root))
+
+
+def test_a_visible_tier_nested_in_the_held_out_tier_or_around_it_refuses_the_run(
+    tmp_path: Path,
+) -> None:
+    base = tmp_path.resolve()
+    root = _tier(base)
+    inside = root / "visible"
+    around = base / "private"
+    for visible in (inside, around):
+        visible.mkdir(exist_ok=True)
+        assert any("visible tier" in p for p in _scan(base, root, visible_tier=visible)), visible
+
+
+def test_containment_is_judged_by_whole_components_after_resolving_dot_dot(tmp_path: Path) -> None:
+    base = tmp_path.resolve()
+    root = _tier(base)
+    sibling = base / "private" / "heldout-other"
+    sibling.mkdir()
+    assert _scan(base, root, places={"review root": sibling}) == []
+    dotted = base / "private" / "heldout-other" / ".." / "heldout" / "work"
+    assert "the review root lies inside the held-out root" in _scan(
+        base, root, places={"review root": dotted}
+    )
+
+
+def test_a_tier_rewritten_with_a_matching_digest_file_still_refuses_against_the_run_s_record(
+    tmp_path: Path,
+) -> None:
+    base = tmp_path.resolve()
+    root = _tier(base)
+    recorded = _recorded(root)
+    (root / "control.h0" / "references" / "good" / "answer.json").write_text("{}")
+    (root / "SHA256SUMS").write_text(sha256sums(root))  # the tier vouches for itself
+    problems = _scan(base, root, run_digests={str(root): recorded})
+    assert "the tier is not the bytes the run records" in problems
+
+
+def test_a_tier_whose_digest_the_run_does_not_record_refuses_the_run(tmp_path: Path) -> None:
+    base = tmp_path.resolve()
+    root = _tier(base)
+    assert "the run records no digest for the held-out root" in _scan(base, root, run_digests={})
+
+
+def test_a_link_anywhere_in_the_tier_refuses_the_run_and_is_never_read_through(
+    tmp_path: Path,
+) -> None:
+    base = tmp_path.resolve()
+    root = _tier(base)
+    outside = base / "outside.json"
+    outside.write_text("{}")
+    (root / "control.h0" / "references" / "good" / "extra.json").symlink_to(outside)
+    problems = _scan(base, root, run_digests={str(root): _recorded(root)})
+    assert any("link or not a plain file" in p for p in problems)
+
+
+def test_a_tier_file_that_cannot_be_read_refuses_the_run(tmp_path: Path) -> None:
+    base = tmp_path.resolve()
+    root = _tier(base)
+    locked = root / "control.h0" / "references" / "good" / "answer.json"
+    recorded = _recorded(root)
+    locked.chmod(0)
+    try:
+        problems = _scan(base, root, run_digests={str(root): recorded})
+    finally:
+        locked.chmod(0o600)
+    assert any("could not be read" in p or "could not be checked" in p for p in problems)

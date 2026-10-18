@@ -6,11 +6,14 @@ place that cannot be read whole, a configuration that cannot be generated, any e
 all) is itself a problem, never a pass. What is checked:
 
 - **the root:** the run names it, as its real absolute path, and it is a real directory;
-- **the tier:** it holds only task directories, each named as its task, and its digest
-  file, and is the bytes that digest records; every task loads whole (every field, unit,
+- **the tier:** it is the bytes the run recorded, its digest recomputed now from what is on
+  disk with no link followed (a link anywhere in it refuses the run), never taken from the
+  tier's own digest file; it holds only task directories, each named as its task, and its
+  digest file, which must agree too; every task loads whole (every field, unit,
   reference and the tier marker, unknown fields refused), is marked held out, and carries
   a canary; the canaries are exactly the run's, each carried once;
-- **the visible tier:** no task id is both visible and held out, however it is spelt;
+- **the visible tier:** it is apart from the held-out tier, neither inside it nor around it,
+  and no task id is both visible and held out, however it is spelt;
 - **the places:** no place a session works in or reads is the root, lies under it or
   holds it, and none holds a link that reaches it; each is judged by the hooks' own
   matcher (:func:`physgate.hooks.paths.reaches`: every spelling, case-folded, and the
@@ -24,10 +27,11 @@ from __future__ import annotations
 
 import hashlib
 import os
+import stat
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
-from physgate.evaluation.per_role.authoring import SUMS_NAME, sha256sums
+from physgate.evaluation.per_role.authoring import CANARIES_NAME, SUMS_NAME, sha256sums
 from physgate.evaluation.per_role.exceptions import PerRoleError
 from physgate.evaluation.per_role.task import load_task
 from physgate.hooks.paths import reaches
@@ -38,12 +42,56 @@ PROFILES = ("role", "reviewer", "baseline")
 
 
 def _relation(place: Path, root: Path) -> str | None:
-    """How ``place`` stands to ``root``, judged as the hooks judge a path."""
-    if reaches(str(place), str(root)):
-        return "is" if reaches(str(root), str(place)) else "lies inside"
-    if reaches(str(root), str(place)):
+    """How ``place`` stands to ``root``, judged as the hooks judge a path.
+
+    Both are made absolute and normalised first, as the file-tool hook does before it
+    judges, and then compared by the hooks' own matcher: every spelling (as given and
+    resolved), case-folded, by whole components, and the inode chain.
+    """
+    path, top = (os.path.normpath(os.path.abspath(p)) for p in (place, root))
+    if reaches(path, top):
+        return "is" if reaches(top, path) else "lies inside"
+    if reaches(top, path):
         return "contains"
     return None
+
+
+_READ_FLAGS = os.O_RDONLY | os.O_NOFOLLOW
+
+
+def tier_digest(root: Path) -> str:
+    """The tier's digest, recomputed from the bytes on disk now, following no link.
+
+    The same lines :func:`sha256sums` writes, over every file but the tier's own digest
+    file, digested once more. A link, or anything but a directory or a regular file,
+    anywhere in the tier is refused rather than read through or skipped.
+
+    Raises:
+        PerRoleError: the tier holds a link or something that is not a plain file, or a
+            file of it cannot be read.
+    """
+    lines: list[str] = []
+    for current, dirs, files in os.walk(root, followlinks=False, onerror=_raise):
+        for name in [*dirs, *files]:
+            path = Path(current) / name
+            mode = path.lstat().st_mode
+            if stat.S_ISLNK(mode) or not (stat.S_ISDIR(mode) or stat.S_ISREG(mode)):
+                msg = f"the tier holds {path}, a link or not a plain file"
+                raise PerRoleError(msg, path=str(path))
+        for name in files:
+            path = Path(current) / name
+            if path.parent == root and name in (SUMS_NAME, CANARIES_NAME):
+                continue
+            fd = os.open(path, _READ_FLAGS)
+            with os.fdopen(fd, "rb") as handle:
+                data = handle.read()
+            lines.append(f"{hashlib.sha256(data).hexdigest()}  {path.relative_to(root).as_posix()}")
+    text = "\n".join(sorted(lines, key=lambda line: line.split("  ", 1)[1])) + "\n"
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def _raise(error: OSError) -> None:
+    raise error
 
 
 def _root_problems(root: Path, run_held_out: tuple[str, ...]) -> list[str]:
@@ -57,9 +105,24 @@ def _root_problems(root: Path, run_held_out: tuple[str, ...]) -> list[str]:
     return problems
 
 
-def _tier_problems(root: Path, run_canaries: tuple[str, ...]) -> tuple[list[str], set[str]]:
-    """Every problem with the tier's contents, and its task ids, case-folded."""
+def _tier_problems(
+    root: Path, run_canaries: tuple[str, ...], recorded: str | None
+) -> tuple[list[str], set[str]]:
+    """Every problem with the tier's contents, and its task ids, case-folded.
+
+    The tier's digest is recomputed from the bytes on disk, following no link, and held to
+    the digest the run recorded, never to one the tier carries: a tier rewritten together
+    with its own digest file still differs from the run's record.
+    """
     problems: list[str] = []
+    if recorded is None:
+        problems.append("the run records no digest for the held-out root")
+    else:
+        try:
+            if tier_digest(root) != recorded:
+                problems.append("the tier is not the bytes the run records")
+        except (PerRoleError, OSError) as exc:
+            problems.append(f"the tier could not be read whole: {exc}")
     ids: set[str] = set()
     carried: list[str] = []
     for entry in sorted(root.iterdir()):
@@ -94,8 +157,11 @@ def _tier_problems(root: Path, run_canaries: tuple[str, ...]) -> tuple[list[str]
     return problems, ids
 
 
-def _visible_problems(visible: Path, held_ids: set[str]) -> list[str]:
+def _visible_problems(visible: Path, root: Path, held_ids: set[str]) -> list[str]:
     problems: list[str] = []
+    relation = _relation(visible, root)
+    if relation is not None:
+        return [f"the visible tier {relation} the held-out root"]
     for entry in sorted(visible.iterdir()):
         names = {entry.name.casefold()}
         try:
@@ -173,6 +239,7 @@ def scan(
     held_out: Path,
     *,
     run_held_out: tuple[str, ...],
+    run_digests: Mapping[str, str],
     run_canaries: tuple[str, ...],
     places: Mapping[str, Path],
     scratch: Path,
@@ -180,7 +247,8 @@ def scan(
 ) -> list[str]:
     """Every reason a run with these parameters and places could expose ``held_out``.
 
-    ``run_held_out`` and ``run_canaries`` are the run's parameters; ``places`` names every
+    ``run_held_out``, ``run_digests`` (each root's digest, as the run recorded it when the
+    tier was written) and ``run_canaries`` are the run's parameters; ``places`` names every
     directory a session of the run works in or reads; ``scratch`` is an empty directory
     outside the tier where the sessions' configurations are generated to be looked at.
     An empty list is the only answer that lets the run start.
@@ -190,13 +258,15 @@ def scan(
     if held_out.is_dir() and not held_out.is_symlink():
 
         def tier() -> list[str]:
-            found, ids = _tier_problems(held_out, run_canaries)
+            found, ids = _tier_problems(held_out, run_canaries, run_digests.get(str(held_out)))
             held_ids.update(ids)
             return found
 
         problems += _checked("tier", tier)
     if visible_tier is not None:
-        problems += _checked("visible tier", lambda: _visible_problems(visible_tier, held_ids))
+        problems += _checked(
+            "visible tier", lambda: _visible_problems(visible_tier, held_out, held_ids)
+        )
     for name, place in sorted(places.items()):
         problems += _checked(name, lambda n=name, p=place: _place_problems(n, p, held_out))  # type: ignore[misc]
     if _relation(scratch, held_out) is not None:
