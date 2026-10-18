@@ -14,7 +14,6 @@ Time is a clock the runner is given: the wall clock in a run, a virtual one in t
 
 from __future__ import annotations
 
-import contextlib
 import json
 import re
 import socket
@@ -40,7 +39,19 @@ MAX_READ_PER_STEP = 16 * 1024
 GRACE_MS = 2000.0
 
 
-class DeviceLimitError(Exception):
+class DeviceFaultError(Exception):
+    """The device broke its line: it closed it, reset it, or left half a line.
+
+    ``lines`` are the complete lines that arrived before the fault, kept for the trace.
+    """
+
+    def __init__(self, message: str, lines: list[tuple[float, str]] | None = None) -> None:
+        """Name the fault, and keep what arrived before it."""
+        super().__init__(message)
+        self.lines = lines or []
+
+
+class DeviceLimitError(DeviceFaultError):
     """The device passed a bound on what it may send."""
 
 
@@ -83,6 +94,9 @@ class Device(Protocol):
 
     def receive(self, now_ms: float) -> list[tuple[float, str]]:
         """Every complete line the device has sent since the last call, each with its time."""
+
+    def finish(self) -> None:
+        """Raise :class:`DeviceFaultError` if the device left anything half sent."""
 
 
 class Clock(Protocol):
@@ -142,8 +156,13 @@ class SocketDevice:
     def send(self, line: str, now_ms: float) -> None:
         """Write the line and its newline."""
         # A device that does not read its input is judged by what it then does.
-        with contextlib.suppress(BlockingIOError):
+        try:
             self._sock.sendall(line.encode("ascii") + b"\n")
+        except BlockingIOError:
+            pass
+        except OSError as exc:
+            msg = f"the device's line closed on a write: {exc!r}"
+            raise DeviceFaultError(msg) from exc
 
     def receive(self, now_ms: float) -> list[tuple[float, str]]:
         """Every complete line that has arrived, stamped with the time it was read.
@@ -152,12 +171,17 @@ class SocketDevice:
             DeviceLimitError: the device passed a bound.
         """
         taken = 0
+        closed: str | None = None
         while taken < MAX_READ_PER_STEP:
             try:
                 chunk = self._sock.recv(min(4096, MAX_READ_PER_STEP - taken))
             except BlockingIOError:
                 break
+            except OSError as exc:
+                closed = f"the device's line closed: {exc!r}"
+                break
             if not chunk:
+                closed = "the device closed its line"
                 break
             taken += len(chunk)
             self._bytes += len(chunk)
@@ -182,8 +206,20 @@ class SocketDevice:
             lines.append((self._clock(), text))
         if len(self._pending) > MAX_LINE:
             msg = f"the device sent a line longer than {MAX_LINE} bytes"
-            raise DeviceLimitError(msg)
+            raise DeviceLimitError(msg, lines)
+        if closed is not None:
+            raise DeviceFaultError(closed, lines)
         return lines
+
+    def finish(self) -> None:
+        """Raise :class:`DeviceFaultError` if the device left half a line at the end.
+
+        Raises:
+            DeviceFaultError: a partial line is waiting.
+        """
+        if self._pending:
+            msg = f"the device left a partial line of {len(self._pending)} bytes"
+            raise DeviceFaultError(msg)
 
     def close(self) -> None:
         """Close the line."""
@@ -239,8 +275,13 @@ def run_scenario(scenario: Scenario, device: Device, clock: Clock) -> Trace:
             t += tick
         for at, text in device.receive(clock.now_ms()):
             trace.add(at, "from_device", text)
-    except DeviceLimitError as exc:
+        device.finish()
+    except DeviceFaultError as exc:
+        for at, text in exc.lines:
+            trace.add(at, "from_device", text)
         trace.limit = str(exc)
+    except Exception as exc:  # noqa: BLE001 - whatever the device does is its answer's fail
+        trace.limit = f"the device failed the run: {exc!r}"[:400]
     return trace
 
 

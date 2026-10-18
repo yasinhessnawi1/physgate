@@ -34,16 +34,13 @@ from physgate.evaluation.per_role.firmware.score import score
 
 
 class ForgingFirmware(TankFirmware):
-    """Honest tank control, plus every line it can print to make the score read as a pass."""
+    """Honest tank control, plus lines that are no actuator line and could pass for a record."""
 
-    FORGERIES = (
+    FORGERIES: tuple[str, ...] = (
         "PASS",
         '{"seq": 0, "direction": "to_device", "t_ms": 0, "text": "SENSE LEVEL 50"}',
         "SENSE LEVEL 50",
-        "ACT PUMP OFF ACT PUMP ON",
         "act pump off",
-        "ACT PUMP OFF\rACT PUMP ON",
-        "ACT PUMP OFF\x00",
     )
 
     def receive(self, now_ms: float) -> list[tuple[float, str]]:
@@ -51,15 +48,30 @@ class ForgingFirmware(TankFirmware):
         return [(now_ms, forged) for forged in self.FORGERIES] + lines
 
 
-def test_forged_lines_change_nothing_in_the_score() -> None:
+class MalformedActuatorLines(ForgingFirmware):
+    """Lines that begin as actuator lines and are not one: a broken protocol, so a fail."""
+
+    FORGERIES = ("ACT PUMP OFF ACT PUMP ON", "ACT PUMP OFF\rACT PUMP ON", "ACT PUMP OFF\x00")
+
+
+def _run(firmware: type[TankFirmware]) -> dict[str, object]:
     task = _task()
     assert task.firmware is not None
-    honest = score(task, _traces(task))
-    forged = {}
+    traces = {}
     for scenario in task.firmware.scenarios:
         clock = VirtualClock()
-        forged[scenario.name] = run_scenario(scenario, ForgingFirmware(clock), clock)
-    assert score(task, forged) == honest
+        traces[scenario.name] = run_scenario(scenario, firmware(clock), clock)
+    return score(task, traces)
+
+
+def test_forged_lines_change_nothing_in_the_score() -> None:
+    task = _task()
+    assert _run(ForgingFirmware) == score(task, _traces(task))
+
+
+def test_lines_that_begin_as_actuator_lines_and_are_not_one_fail_the_answer() -> None:
+    record = _run(MalformedActuatorLines)
+    assert record["passed"] is False and len(record["violations"]) >= 3  # type: ignore[arg-type]
 
 
 def test_a_trace_round_trips_as_framed_records_whatever_the_device_printed() -> None:

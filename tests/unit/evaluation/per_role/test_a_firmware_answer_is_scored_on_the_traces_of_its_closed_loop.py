@@ -60,6 +60,9 @@ class TankFirmware:
         else:
             self._set("OFF", now_ms)
 
+    def finish(self) -> None:
+        pass
+
     def receive(self, now_ms: float) -> list[tuple[float, str]]:
         if self.timeout and self.pump == "ON" and now_ms - self.last_frame > 1000:
             self._set("OFF", now_ms)

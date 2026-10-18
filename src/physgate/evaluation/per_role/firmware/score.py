@@ -175,8 +175,52 @@ def score(task: Task, traces: Mapping[str, Trace]) -> dict[str, Any]:
             }
         )
     limits = sorted({t.limit for t in traces.values() if t.limit is not None})
-    passed = not limits and all(row["passed"] for row in rows if row["counts"] == "headline")
-    return {"task": task.id, "specs": rows, "passed": passed, "limit": limits}
+    violations = protocol_violations(spec, traces)
+    passed = (
+        not limits
+        and not violations
+        and all(row["passed"] for row in rows if row["counts"] == "headline")
+    )
+    return {
+        "task": task.id,
+        "specs": rows,
+        "passed": passed,
+        "limit": limits,
+        "violations": violations,
+    }
+
+
+def protocol_violations(spec: FirmwareSpec, traces: Mapping[str, Trace]) -> list[str]:
+    """Every actuator line the device sent that the protocol does not have.
+
+    A line that does not begin ``ACT`` is not an actuator line (a boot banner, a log line)
+    and is ignored; one that does must name an actuator and a state of the protocol, or the
+    answer has broken the protocol it was given.
+    """
+    found: list[str] = []
+    for name, trace in sorted(traces.items()):
+        for line in trace.lines:
+            if line.direction != "from_device" or not line.text.startswith("ACT"):
+                continue
+            matched = ACT_LINE.match(line.text)
+            states = spec.protocol.actuators.get(matched[1], ()) if matched else ()
+            if matched is None or matched[2] not in states:
+                shown = line.text[:60]
+                found.append(
+                    f"{name}: line {line.seq} is no actuator line of the protocol: {shown!r}"
+                )
+    return found
+
+
+def safe_score(task: Task, traces: Mapping[str, Trace]) -> dict[str, Any]:
+    """:func:`score`, except that anything going wrong is this answer's recorded fail.
+
+    One answer whose traces break the scorer fails alone; the run goes on scoring the rest.
+    """
+    try:
+        return score(task, traces)
+    except Exception as exc:  # noqa: BLE001 - one answer may not take the run down
+        return {"task": task.id, "specs": [], "passed": False, "error": repr(exc)[:400]}
 
 
 def verdict(scores: Sequence[Mapping[str, Any]]) -> Verdict:

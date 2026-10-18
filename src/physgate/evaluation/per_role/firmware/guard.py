@@ -28,41 +28,67 @@ Ending = Literal["exited", "wall_clock", "limit"]
 
 
 class GuardedRun:
-    """A bounded process: how it ended, once it has, judged from the harness's side."""
+    """A bounded process, tracked by the handle that spawned it; how it ended, once it has.
+
+    Only :meth:`wait` reaps the process, so while it has not, its pid (and so its process
+    group's id) stays allocated to it and cannot be reused by anything else: a kill of the
+    group can never reach a stranger. The watchdog and the reaper take one lock, so the
+    group is never killed after it has been reaped.
+    """
 
     def __init__(self, process: subprocess.Popen[bytes], *, output: Path, cpu_s: int, memory: bool):
-        """Watch ``process``, the leader of its own group."""
+        """Watch ``process``, the leader of its own group, which this module spawned."""
         self.process = process
         self.ended_by: Ending | None = None
         self._output, self._cpu_s, self._memory = output, cpu_s, memory
         self._deadline_hit = threading.Event()
+        self._lock = threading.Lock()
+        self._reaped = False
 
     def kill_group(self) -> None:
-        """Kill the process's whole group, whatever it is doing."""
-        with contextlib.suppress(ProcessLookupError, PermissionError):
-            os.killpg(self.process.pid, signal.SIGKILL)
+        """Kill the process's whole group, unless it has been reaped already."""
+        with self._lock:
+            if self._reaped:
+                return
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(self.process.pid, signal.SIGKILL)
 
     def wait(self) -> Ending:
         """Wait for the process to end, and say what ended it.
 
         A limit is read from what the harness can see, never from what the process says: the
         signal that ended it, the CPU time the kernel charged it, the size of its output
-        file, and, with a memory limit set, any failed exit.
+        file, and, with a memory limit set, any failed exit. A state that cannot be read
+        (the process reaped elsewhere, its output unreadable) counts as a limit passed.
         """
         if self.ended_by is not None:
             return self.ended_by
-        try:
-            _, status, usage = os.wait4(self.process.pid, 0)
-            self.process.returncode = os.waitstatus_to_exitcode(status)
-            cpu = usage.ru_utime + usage.ru_stime
-        except ChildProcessError:
-            self.process.wait()
-            cpu = 0.0
+        status, usage = None, None
+        while status is None:
+            with self._lock:
+                try:
+                    pid, raw, rusage = os.wait4(self.process.pid, os.WNOHANG)
+                except ChildProcessError:
+                    self._reaped = True
+                    self.ended_by = "limit"
+                    return self.ended_by
+                if pid != 0:
+                    self._reaped = True
+                    status, usage = raw, rusage
+            if status is None:
+                time.sleep(0.02)
+        assert usage is not None
+        self.process.returncode = os.waitstatus_to_exitcode(status)
         code = self.process.returncode
+        cpu = usage.ru_utime + usage.ru_stime
+        try:
+            too_much_output = self._output.stat().st_size >= MAX_OUTPUT_BYTES
+        except OSError:
+            too_much_output = True
         limited = (
             (code < 0 and -code in (signal.SIGXCPU, signal.SIGXFSZ))
             or cpu >= self._cpu_s - 0.05
-            or (self._output.exists() and self._output.stat().st_size >= MAX_OUTPUT_BYTES)
+            or too_much_output
             or (self._memory and code != 0)
         )
         if self._deadline_hit.is_set():
@@ -104,13 +130,15 @@ def guarded(
     run = GuardedRun(process, output=output, cpu_s=cpu_s, memory=memory_bytes is not None)
 
     def watchdog() -> None:
+        # Never polls the process (a poll would reap it); it only kills the group at the
+        # deadline, and the kill does nothing once the guard has reaped the process.
         deadline = time.monotonic() + wall_s
-        while process.poll() is None:
-            if time.monotonic() >= deadline:
-                run._deadline_hit.set()  # noqa: SLF001 - the run's own watchdog
-                run.kill_group()
+        while time.monotonic() < deadline:
+            if run.ended_by is not None:
                 return
             time.sleep(0.05)
+        run._deadline_hit.set()  # noqa: SLF001 - the run's own watchdog
+        run.kill_group()
 
     thread = threading.Thread(target=watchdog, daemon=True)
     thread.start()
