@@ -44,9 +44,10 @@ reads, and log it; the OS layer bounds the shell, where the hooks cannot see.
 from __future__ import annotations
 
 import os
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Literal
 
 from physgate.hooks.config import ExperimentRule, SessionConfig
@@ -81,15 +82,29 @@ class OsPolicy:
     absent_named: tuple[str, ...]
 
 
-#: The network block that refuses a session's shell commands every remote host. An empty
-#: allow-list alone is not enough: in ``bypassPermissions`` mode, which every session runs
-#: in, hosts outside the list are let through unless ``strictAllowlist`` is on (Claude
-#: Code's sandboxing documentation, read 17.10.2026). Local binding stays allowed on macOS,
-#: so a command may serve a port to another on the same machine (an emulator's serial
-#: line). That also leaves every service listening on the machine's loopback reachable,
-#: which ``open`` refuses (measured, 17.10.2026): ``none`` means no remote host, not no
-#: connection at all, and a local proxy would carry a command past it.
-OFFLINE: dict[str, Any] = {"strictAllowlist": True, "allowedDomains": [], "allowLocalBinding": True}
+#: The network block that takes a session's shell commands offline. An empty allow-list
+#: alone is not enough: in ``bypassPermissions`` mode, which every session runs in, hosts
+#: outside the list are let through unless ``strictAllowlist`` is on (Claude Code's
+#: sandboxing documentation, read 17.10.2026). Local binding is off: with it on, a shell
+#: command reached every service listening on the machine's loopback (a proxy, the
+#: operator's UI, an editor's bridge), measured on macOS 17.10.2026, which ``open``
+#: refuses; a local proxy would then carry a command past the allow-list. With it off,
+#: a command can neither serve a port nor reach one on the host; an emulator talks to
+#: its program over its standard streams instead. Never handed out by reference: each
+#: session's settings get a copy.
+OFFLINE: Mapping[str, Any] = MappingProxyType(
+    {"strictAllowlist": True, "allowedDomains": (), "allowLocalBinding": False}
+)
+
+
+def offline_block() -> dict[str, Any]:
+    """A fresh copy of :data:`OFFLINE`, as a session's settings carry it."""
+    return {
+        "strictAllowlist": OFFLINE["strictAllowlist"],
+        "allowedDomains": list(OFFLINE["allowedDomains"]),
+        "allowLocalBinding": OFFLINE["allowLocalBinding"],
+    }
+
 
 #: Recorded wherever ``none`` is asked for and no OS layer runs to enforce it: a shell
 #: is kept from remote hosts by the OS layer alone, so without it its commands stay online.
@@ -110,8 +125,8 @@ def sandbox_policy(
 ) -> OsPolicy:
     """The OS layer's settings for the session ``config`` describes.
 
-    ``network`` set to ``none`` refuses the session's shell commands every remote host
-    (:data:`OFFLINE`); services on the machine's loopback stay reachable.
+    ``network`` set to ``none`` refuses the session's shell commands every remote host and
+    every service on the machine's loopback (:data:`OFFLINE`).
     ``readable`` names further places of the session's own its shell commands read,
     opened again where a read-denied root holds them, as the home is. ``shared_temp`` names
     the machine's shared temporary directories, writable too, because ordinary commands
@@ -152,7 +167,7 @@ def sandbox_policy(
         },
     }
     if network == "none":
-        settings["sandbox"]["network"] = OFFLINE
+        settings["sandbox"]["network"] = offline_block()
     return OsPolicy(settings=settings, absent_named=tuple(sorted(absent_named)))
 
 

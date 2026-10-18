@@ -90,6 +90,7 @@ from physgate.orchestrator.run_config import (
     require_harness,
     require_reportable,
 )
+from physgate.oslayer.listeners import loopback_listeners
 from physgate.oslayer.policy import NETWORK_UNENFORCED
 from physgate.oslayer.probe import Absent, Present, judge_here
 from physgate.reviewers.claude import ReviewerSetup, claude_reviewers
@@ -360,19 +361,46 @@ def _say_os_layer(state: Present | Absent, network: Network) -> None:
 
 
 def _os_layer_checked(
-    envelope: Envelope, config: RunConfig, layer: Present | Absent
+    envelope: Envelope,
+    config: RunConfig,
+    layer: Present | Absent,
+    listening: Callable[[], tuple[int, ...] | None] = loopback_listeners,
 ) -> OsLayerChecked:
     """The run's record of the OS layer where this process runs its sessions.
 
     It says whether the layer is the one the run recorded, and whether the run's
-    ``network: none``, if it asks for that, is enforced here.
+    ``network: none``, if it asks for that, is enforced here. For such a run it also
+    records the services listening on the machine's loopback, which the layer keeps an
+    offline session from.
     """
+    found = listening() if config.network == "none" else None
+    _say_listeners(config.network, found)
     return OsLayerChecked(
         **envelope,
         state=layer,
         as_recorded=None if config.os_layer is None else config.os_layer == layer,
         network_enforced=network_enforced(config.network, layer),
+        loopback_listeners=found,
+        loopback_listeners_read=None if config.network != "none" else found is not None,
     )
+
+
+def _say_listeners(network: Network, found: tuple[int, ...] | None) -> None:
+    """Say, for an offline run, what listens on the machine's loopback, or that it is unread."""
+    if network != "none":
+        return
+    if found is None:
+        print(
+            "physgate: the services listening on this machine's loopback could not be read",
+            file=sys.stderr,
+        )
+    elif found:
+        print(
+            f"physgate: {len(found)} services listen on this machine's loopback "
+            f"(ports {', '.join(map(str, found))}); offline sessions are kept from them by "
+            "the OS layer, with local binding off",
+            file=sys.stderr,
+        )
 
 
 def _fail(message: str, **context: str) -> int:

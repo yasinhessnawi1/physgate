@@ -89,7 +89,7 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
         choices=["open", "none"],
         default="open",
         help="with the OS layer: 'none' refuses the session's shell commands every remote "
-        "host (loopback services stay reachable); without it, 'none' cannot be enforced, "
+        "host and every loopback service; without it, 'none' cannot be enforced, "
         "and the install says so on stderr and in what it prints",
     )
     p.set_defaults(func=_install)

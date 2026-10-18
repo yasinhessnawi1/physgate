@@ -138,7 +138,7 @@ class InstallRequest(BaseModel):
     #: directory holding the run's named interpreter for this session.
     os_layer_readable: tuple[AbsolutePath, ...] = ()
     #: With the OS layer: ``none`` refuses the session's shell commands every remote host,
-    #: in every permission mode; services on the machine's loopback stay reachable.
+    #: in every permission mode, and every service on the machine's loopback.
     #: ``open`` leaves the network as the layer found it. Without the OS layer nothing
     #: can enforce ``none``: the install says so (:data:`Installed.network_unenforced`).
     os_layer_network: Literal["open", "none"] = "open"
