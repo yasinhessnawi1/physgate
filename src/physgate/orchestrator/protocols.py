@@ -578,6 +578,9 @@ class ReviewResult(_Frozen):
     max_output_tokens: Count | None = None
     #: The context window the binary reported for the review's model, if it did.
     context_window: Count | None = None
+    #: How many times the session was resumed to repair a refused verdict; ``None``
+    #: where repair resumes are off.
+    repair_resumes: Count | None = None
 
     @model_validator(mode="after")
     def _a_verdict_is_consistent(self) -> ReviewResult:

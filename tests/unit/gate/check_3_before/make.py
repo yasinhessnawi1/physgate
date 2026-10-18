@@ -1,12 +1,15 @@
 """Record what the equilibrium check said before the fix, over every statics graph we have.
 
 Run inside a checkout of the commit before the fix (``247427b``), with that checkout's
-environment, after copying the fix's gate tests and this directory into it, so the
-graphs those tests build are judged too (they fail there, as they should):
+environment, after copying into it the gate tests of the commit that made this record
+(``8abeb79``: ``tests/unit/gate/test_check_3_*.py`` except the record's own test,
+``check_3_cases.py`` and this directory), so the graphs those tests build are judged too
+(they fail there, as they should). With ``D`` the absolute path of this directory in that
+checkout and ``G`` that of its ``tests/unit/gate``:
 
-    HARVEST_OUT=harvested.json PYTHONPATH=<this directory> \
-        uv run pytest -q -p harvest tests/unit/gate tests/injected
-    PYTHONPATH=<this directory>:<tests/unit/gate> uv run python make.py harvested.json record.json
+    HARVEST_OUT=/abs/harvested.json PYTHONPATH="$D" \
+        uv run pytest -q -p harvest -p no:cacheprovider tests/unit/gate tests/injected
+    PYTHONPATH="$D:$G" uv run python "$D/make.py" /abs/harvested.json /abs/record.json
 
 Everything it reads is in the repository, so a clean clone remakes the record; the
 test pins its digest.
