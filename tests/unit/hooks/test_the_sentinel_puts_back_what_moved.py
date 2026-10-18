@@ -461,6 +461,72 @@ def test_a_nodes_directory_swapped_for_a_link_is_a_finding_and_nothing_is_writte
     assert logged["restored"] == []
 
 
+def test_a_node_excused_as_a_write_in_progress_is_checked_again_at_the_next_hook(
+    root: Path,
+) -> None:
+    # A newer journal line excuses its node's file once, as the store's write in
+    # progress. At the next hook it is checked again whatever the signatures say: a
+    # session that adds a line and deletes the file changes nothing after that.
+    _started(root)
+    _append_journal_line(root, "electrical.motor")
+    (root / NODE).unlink()
+    assert _check(root) == "allow", "the newer line excuses the file once"
+    assert "does not hold what the journal says" in _check(root, name="PreToolUse")
+    assert (root / NODE).exists()
+
+
+def test_the_store_root_moved_behind_a_link_halts(root: Path) -> None:
+    # Where the store really is is recorded at the session's first check. A root that
+    # later resolves elsewhere (itself or a directory above it swapped for a link) is a
+    # finding, even when every file behind it is the same file.
+    _started(root)
+    store, moved = root / "store", root / "outside" / "store-moved"
+    store.rename(moved)
+    store.symlink_to(moved)
+    told = _check(root)
+    assert "does not hold what the journal says" in told
+    assert str(store) in told
+
+
+def test_every_name_the_journal_holds_is_held_to_the_store_s_name_rule(root: Path) -> None:
+    # Not only a name with no file: a file the session placed for a bad name, holding
+    # exactly the bytes the journal line implies, is no excuse.
+    from physgate.state import node_file_body
+
+    _started(root)
+    _append_journal_line(root, "Electrical.Upper")
+    body = node_file_body(2, 1, {"id": "Electrical.Upper"})
+    (root / "store" / "nodes" / "Electrical.Upper.json").write_text(body)
+    told = _check(root)
+    assert "does not hold what the journal says" in told
+    assert str(root / "store" / "journal.jsonl") in told
+
+
+def test_a_node_file_replaced_by_a_fifo_is_a_finding_and_the_check_does_not_block(
+    root: Path,
+) -> None:
+    import signal
+
+    _started(root)
+    want = (root / NODE).read_bytes()
+    (root / NODE).unlink()
+    os.mkfifo(root / NODE)
+
+    def stuck(*_args: object) -> None:
+        msg = "the check blocked on a FIFO in a node file's place"
+        raise AssertionError(msg)
+
+    previous = signal.signal(signal.SIGALRM, stuck)
+    signal.alarm(10)
+    try:
+        told = _check(root)
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous)
+    assert "does not hold what the journal says" in told
+    assert (root / NODE).is_file() and (root / NODE).read_bytes() == want
+
+
 def test_a_node_file_swapped_for_a_link_to_identical_bytes_is_a_finding(root: Path) -> None:
     # A node file is read without following a link: a link to a copy of the
     # journal's own bytes is still not the store's file, and is replaced.
