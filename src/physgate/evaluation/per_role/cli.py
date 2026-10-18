@@ -7,6 +7,11 @@ built, holds the scorer to them, and writes one row per task to ``O/references.j
 and a digest of every file to ``O/SHA256SUMS``. It exits 1 if any task lacks a good
 reference or its references do not hold.
 
+``physgate per-role report --design D --trials T [--out O]`` writes the per-role table of
+the trial records in ``T`` (one JSON object per line) under the registered design ``D``,
+to ``O`` or the standard output. It exits 1, writing nothing, if the records are not every
+trial the design registered, once each, or a published number lacks its record.
+
 The scorer's numerical libraries are the evaluation group's, which the hooks' own
 installation does not carry; so this module imports them only when a command runs, and
 the ``physgate`` command loads without them.
@@ -34,6 +39,11 @@ def add_parser(subparsers: Any) -> None:
     ce.add_argument("--category", action="append", choices=CATEGORY_CHOICES)
     ce.add_argument("--seed", type=int, default=0)
     ce.set_defaults(func=_controleval)
+    rep = commands.add_parser("report", help="the per-role table of a run's trial records")
+    rep.add_argument("--design", type=Path, required=True)
+    rep.add_argument("--trials", type=Path, required=True)
+    rep.add_argument("--out", type=Path)
+    rep.set_defaults(func=_report)
 
 
 def sha256sums(root: Path) -> str:
@@ -68,4 +78,26 @@ def _controleval(args: argparse.Namespace) -> int:
     if missing:
         print(f"{len(missing)} task(s) without a held reference set", file=sys.stderr)
         return 1
+    return 0
+
+
+def _report(args: argparse.Namespace) -> int:
+    from physgate.evaluation.per_role.report import (
+        ReportError,
+        parse_design,
+        parse_trials,
+        render,
+    )
+
+    try:
+        design = parse_design(args.design.read_bytes())
+        records = parse_trials(args.trials.read_text(encoding="utf-8").splitlines())
+        text = render(design, records)
+    except ReportError as exc:
+        print(f"no report: {exc}", file=sys.stderr)
+        return 1
+    if args.out is None:
+        sys.stdout.write(text)
+    else:
+        args.out.write_text(text, encoding="utf-8")
     return 0
