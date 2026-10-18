@@ -593,3 +593,18 @@ def test_a_task_holding_a_fifo_is_refused_without_waiting_on_it(
 
     _, _, out = _run(tmp_path, monkeypatch, write, count=17)
     assert out["refused_as_files"] == 1 and out["held"] == 16
+
+
+def test_work_inside_a_place_withheld_from_the_author_is_refused_before_any_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import dataclasses
+
+    fake = FakeSession(_tasks(16))
+    monkeypatch.setattr(author_session, "run_session", fake)
+    setup = dataclasses.replace(
+        _setup(tmp_path / "private"), withheld_reads=(str(tmp_path / "scratch"),)
+    )
+    with pytest.raises(AuthoringError, match="inside a held-out root"):
+        author(_plan(tmp_path), setup)
+    assert fake.calls == []

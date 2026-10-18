@@ -96,8 +96,8 @@ def _withheld(path: Path, roots: Sequence[Path]) -> bool:
 
 
 def _require_apart(plan: AuthoringPlan, setup: RawSetup) -> None:
-    roots = [Path(r) for r in setup.held_out]
-    if not _withheld(plan.held_out_root, roots):
+    roots = [Path(r) for r in (*setup.held_out, *setup.withheld_reads)]
+    if not _withheld(plan.held_out_root, [Path(r) for r in setup.held_out]):
         msg = "the session does not withhold the protected root the held-out tier goes in"
         raise AuthoringError(msg, root=str(plan.held_out_root))
     for name, path in (("work", plan.work), ("visible tier", plan.visible)):
@@ -429,8 +429,9 @@ def blind_check(
         PerRoleError: a task in the tier does not load.
     """
     require_author_model(setup.model, implementer_model)
-    roots = [Path(r) for r in setup.held_out]
-    if not _withheld(tier, roots) or any(_inside(work, r) for r in roots):
+    roots = [Path(r) for r in (*setup.held_out, *setup.withheld_reads)]
+    held = [Path(r) for r in setup.held_out]
+    if not _withheld(tier, held) or any(_inside(work, r) for r in roots):
         msg = "the check withholds the tier and works outside every held-out root"
         raise AuthoringError(msg, tier=str(tier), work=str(work))
     tasks = bundle(tier)

@@ -94,6 +94,11 @@ class RawSetup:
     held_out_canaries: tuple[str, ...]
     network: Network
     os_layer: Present | Absent
+    #: Further places withheld from the session's file tools and its shell, without the
+    #: held-out tier's tripwire (which refuses every call where any file has a second
+    #: name): what a task author must not read beyond the tier, such as the user's home.
+    #: Empty for the raw arm, which is held to the harness arm's pins.
+    withheld_reads: tuple[str, ...] = ()
 
 
 def stream_total(stream: Path) -> int:
@@ -172,6 +177,7 @@ def _install(setup: RawSetup, worktree: Path, sdir: Path, temp: Path | None) -> 
         # what it would find there (the knowledge, the rubrics) is the harness's help.
         *harness_protection(),
         *(arg for root in setup.held_out for arg in ("--held-out", root)),
+        *(arg for root in setup.withheld_reads for arg in ("--review-material", root)),
         *(["--os-layer-temp", str(temp)] if temp is not None else []),
         *(
             ["--os-layer-network", setup.network]

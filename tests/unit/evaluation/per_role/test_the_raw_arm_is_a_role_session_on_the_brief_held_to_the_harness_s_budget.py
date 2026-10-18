@@ -130,6 +130,20 @@ def test_the_raw_session_is_installed_as_the_raw_agent_with_the_tier_withheld(
     assert argv[argv.index("--os-layer-network") + 1] == "none"
     absent = _install_argv(tmp_path, monkeypatch, _setup(tmp_path), None)
     assert "--os-layer-network" not in absent and "--os-layer-temp" not in absent
+    # The raw arm withholds nothing beyond the harness's own pins.
+    assert "--review-material" not in argv
+
+
+def test_a_session_given_further_places_to_withhold_has_each_withheld_from_its_reads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import dataclasses
+
+    setup = dataclasses.replace(_setup(tmp_path), withheld_reads=("/home/u", "/tmp/kb"))
+    argv = _install_argv(tmp_path, monkeypatch, setup, Path("/tmp/pg-0123456789ab"))
+    given = [argv[i + 1] for i, a in enumerate(argv) if a == "--review-material"]
+    assert given == ["/home/u", "/tmp/kb"]
+    assert argv[argv.index("--held-out") + 1] == "/elsewhere/heldout"
 
 
 @pytest.mark.parametrize(
