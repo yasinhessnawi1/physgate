@@ -89,7 +89,8 @@ def test_a_load_force_declared_beside_a_mass_is_never_ignored(tmp_path: Path) ->
         part("cell_pack", 0.15, x=0.0, extra_n=3.0),
         *PLACED,
     )
-    assert any(o.node == BODY and o.outcome in ("fail", "unchecked") for o in ran.observations)
+    (record,) = ran.observations
+    assert record.outcome == "unchecked" and "both a mass and a load_force" in record.message
 
 
 def test_a_placed_structure_that_balances_its_weights_still_passes(tmp_path: Path) -> None:
@@ -105,6 +106,28 @@ def test_a_placed_structure_that_balances_its_weights_still_passes(tmp_path: Pat
 
 
 # --- the structure with no positions: guards against refusing a correct one -----------
+
+
+def test_massless_supports_that_carry_the_loads_pass_with_one_mount_evaluated(
+    tmp_path: Path,
+) -> None:
+    # With no support weight there is one reading, and it balances.
+    light = [
+        {**w, "quantities": {"reaction_force": w["quantities"]["reaction_force"]}}
+        for w in (wheel("left", 1.47), wheel("right", 1.47))
+    ]
+    ran = run(tmp_path, body(0.30), *light, *UNPLACED)
+    assert ran.observations == () and ran.evaluated == 1
+
+
+def test_supports_with_weight_leave_a_balanced_structure_unchecked_never_passed(
+    tmp_path: Path,
+) -> None:
+    # Whether the 1.47 N reactions carry the wheels' own 0.02 kg is not declared:
+    # one reading balances and the other does not, so neither may decide a pass.
+    ran = run(tmp_path, body(0.34), wheel("left", 1.47), wheel("right", 1.47), *UNPLACED)
+    (record,) = [o for o in ran.observations if o.node == BODY]
+    assert record.outcome == "unchecked" and ran.evaluated == 0
 
 
 def test_reactions_that_also_carry_the_wheels_own_weight_are_unchecked_not_refused(
@@ -233,11 +256,25 @@ def test_a_mount_failing_under_every_reading_keeps_the_record_it_has_today(
     assert with_force.observations == without.observations
 
 
-def test_a_mount_balanced_only_with_the_load_force_counted_is_unchecked(tmp_path: Path) -> None:
-    # Reactions of 2.97 N each carry 2.94 N of weight and the 3 N force together.
-    ran = run(tmp_path, *placed(3.0, 2.97))
+def test_a_mount_failing_under_the_weight_stays_failed_though_another_reading_balances(
+    tmp_path: Path,
+) -> None:
+    # Reactions of 2.97 N each carry 2.94 N of weight and the 3 N force together, but
+    # a declared force must never un-block a mount the weight alone does not balance.
+    with_force = run(tmp_path / "a", *placed(3.0, 2.97))
+    without = run(tmp_path / "b", *placed(None, 2.97))
+    assert [o.outcome for o in with_force.observations] == ["fail"]
+    assert with_force.observations == without.observations
+
+
+def test_a_load_with_a_mass_and_a_load_force_never_passes_on_the_weight_alone(
+    tmp_path: Path,
+) -> None:
+    # Even a zero force leaves a reading (the force alone) under which the weight is
+    # gone, so the mount that balances on its weights is unchecked, not passed.
+    ran = run(tmp_path, *placed(0.0, 1.47))
     (record,) = ran.observations
-    assert record.outcome == "unchecked" and "both a mass and a load_force" in record.message
+    assert record.outcome == "unchecked" and ran.evaluated == 0
 
 
 # --- a reaction beside placed supports, with no position of its own ---------------------

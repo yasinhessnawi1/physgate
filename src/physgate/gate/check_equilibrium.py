@@ -35,20 +35,22 @@ either enter a judged balance or be named in an unchecked record:
   Two conventions are honest and the declaration does not say which it follows:
   whether a support's reaction carries the support's own weight, and whether a
   component structure's own weight is among its loads. The balance fails only if
-  it fails under every such reading, passes only if it holds under the check's own
-  (a support's weight is not a load on what it supports, a structure's own weight is
-  not its member's load), and is unchecked otherwise.
+  it fails under every such reading, passes only if it holds under every one, and
+  is unchecked when they disagree: no writer can pick the reading that passes.
 - **A load that declares both a mass and a load_force.** The catalogue does not say
-  whether the force is the weight written again or a force on top of it, so the
-  mount is judged under each reading (the weight, the force, both): it fails only if
-  every reading fails, keeps its verdict if no reading fails, and is unchecked if
-  the readings disagree.
+  whether the force is the weight written again or a force on top of it. The
+  check's own reading (the weight, as it always read it) decides a failure, and a
+  failure stands whatever the other readings say, so a declared force can never
+  un-block a mount. A mount that balances under that reading passes only if it
+  also balances under the others (the force alone, the two together), and is
+  unchecked otherwise.
 - **A reaction declared beside positioned supports with no position of its own.**
   The moments cannot be judged; the forces, with that reaction counted, can. A
   mount that balanced without it fails if the forces miss with it, and is unchecked
   otherwise.
 - **A member with a load_force and no mount_position** loads the mount somewhere
-  nobody said, as a member with a mass does, and leaves it unchecked.
+  nobody said. A mount that fails without it still fails; one that balances without
+  it is unchecked.
 - **Anything else.** A node in scope that declares a reaction, a reaction moment
   or a load force that no mount reads is recorded as unchecked, naming it.
 
@@ -102,18 +104,28 @@ class _Mount:
     mount_id: str
     supports: tuple[str, ...]
     loads: tuple[str, ...]
-    #: Members with a mass or a load force and no ``mount_position``: load the
-    #: mount carries somewhere nobody said, so its balance cannot be checked.
+    #: Members with a mass and no ``mount_position``: weight the mount carries
+    #: somewhere nobody said, so its balance cannot be checked.
     unplaced: tuple[str, ...] = ()
     #: Members that declare a ``reaction_force`` and no ``support_position``,
     #: beside members that are placed: forces only can count them.
     unplaced_reactions: tuple[str, ...] = ()
     #: ``False`` when no member declares a position: only the force sum is judged.
     positioned: bool = True
+    #: Members with a load force, no mass and no ``mount_position``: a load nobody
+    #: placed. A mount that fails without them still fails; one that balances
+    #: without them cannot be said to balance with them.
+    unplaced_forces: tuple[str, ...] = ()
 
     def reads(self) -> set[str]:
         """Every member whose statics quantities this mount reads or names."""
-        return {*self.supports, *self.loads, *self.unplaced, *self.unplaced_reactions}
+        return {
+            *self.supports,
+            *self.loads,
+            *self.unplaced,
+            *self.unplaced_reactions,
+            *self.unplaced_forces,
+        }
 
 
 @dataclass(frozen=True)
@@ -146,9 +158,10 @@ def mounts(view: GraphView) -> list[_Mount]:
         loads = tuple(m for m in members if has(m, "mount_position") and m not in supports)
         if supports or loads:
             rest = [m for m in members if m not in supports and m not in loads]
-            unplaced = tuple(m for m in rest if has(m, "mass") or has(m, "load_force"))
+            unplaced = tuple(m for m in rest if has(m, "mass"))
             stray = tuple(m for m in rest if has(m, "reaction_force"))
-            found.append(_Mount(node_id, supports, loads, unplaced, stray))
+            forces = tuple(m for m in rest if has(m, "load_force") and not has(m, "mass"))
+            found.append(_Mount(node_id, supports, loads, unplaced, stray, True, forces))
             continue
         reactors = tuple(m for m in members if has(m, "reaction_force"))
         if reactors and view.nodes[node_id].domain == "mechanical":
@@ -182,11 +195,6 @@ def _mixed(view: GraphView, nodes: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(n for n in nodes if {"mass", "load_force"} <= set(view.nodes[n].quantities))
 
 
-def _unplaced_why(view: GraphView, member: str) -> str:
-    what = "a mass" if "mass" in view.nodes[member].quantities else "a load_force"
-    return f"mount_position of {member}, which has {what} and so loads this mount"
-
-
 def _declared(view: GraphView, mount: _Mount, reading: Reading = "weight") -> _Declared:
     """The mount as the graph declares it, in newtons and metres, under ``reading``.
 
@@ -194,7 +202,9 @@ def _declared(view: GraphView, mount: _Mount, reading: Reading = "weight") -> _D
         _IncompleteError: a support or load lacks what it needs.
         UnitRefusedError, pint errors: a quantity's unit is refused.
     """
-    missing: list[str] = [_unplaced_why(view, m) for m in mount.unplaced]
+    missing: list[str] = [
+        f"mount_position of {m}, which has a mass and so loads this mount" for m in mount.unplaced
+    ]
     supports, reactions, loads = [], [], []
     for s in mount.supports:
         q = view.nodes[s].quantities
@@ -353,12 +363,11 @@ def _judge(view: GraphView, mount: _Mount, solver: EquilibriumSolver) -> Observa
         return _judge_forces(view, mount)
     found = _judge_reading(view, mount, solver, "weight")
     mixed = _mixed(view, mount.loads)
-    if mixed and (found is None or found.outcome == "fail"):
-        fails = [
-            _outcome(found if r == "weight" else _judge_reading(view, mount, solver, r)) == "fail"
-            for r in READINGS
-        ]
-        if any(fails) and not all(fails):
+    # A failure under the check's own reading stands: a second reading that happens to
+    # balance must never un-block a mount. A pass needs every reading to balance.
+    if mixed and found is None:
+        others = [_judge_reading(view, mount, solver, r) for r in READINGS if r != "weight"]
+        if any(o is not None for o in others):
             return _unchecked(
                 mount,
                 view.module_of(mount.mount_id),
@@ -367,13 +376,20 @@ def _judge(view: GraphView, mount: _Mount, solver: EquilibriumSolver) -> Observa
                 "(the weight alone, the force alone, the two together)",
                 tuple(f"load_force of {n}" for n in mixed),
             )
+    if found is None and mount.unplaced_forces:
+        return _unchecked(
+            mount,
+            view.module_of(mount.mount_id),
+            "cannot be checked: it declares no "
+            + ", ".join(
+                f"mount_position of {m}, which has a load_force and so loads this mount"
+                for m in mount.unplaced_forces
+            ),
+            tuple(f"mount_position of {m}" for m in mount.unplaced_forces),
+        )
     if found is not None or not mount.unplaced_reactions:
         return found
     return _judge_stray_reactions(view, mount)
-
-
-def _outcome(found: Observation | None) -> str:
-    return "pass" if found is None else found.outcome
 
 
 def _judge_reading(
@@ -576,9 +592,8 @@ def _nested(view: GraphView, members: tuple[str, ...]) -> tuple[str, ...]:
 def _judge_forces(view: GraphView, mount: _Mount) -> Observation | None:
     """A structure that declares reactions and no positions: its force sum alone.
 
-    It fails only if no honest reading balances it, passes only if the check's own
-    reading does (and every reading of a doubly declared load agrees), and is
-    unchecked otherwise. Its moments are never judged.
+    It fails only if no honest reading balances it, passes only if every reading
+    does, and is unchecked when they disagree. Its moments are never judged.
     """
     module = view.module_of(mount.mount_id)
     names = tuple(f"reaction_force of {s}" for s in mount.supports)
@@ -637,7 +652,7 @@ def _judge_forces(view: GraphView, mount: _Mount) -> Observation | None:
         if len(misses) > 1:
             how += ", under every reading of whose weight the reactions carry"
         return _forces_refused(view, mount, mount.supports, canonical, how)
-    if all(misses[(r, False, False)] is None for r in readings):
+    if all(m is None for m in misses.values()):
         return None
     why = (
         "cannot be checked: its reactions carry its loads under some honest readings and "
