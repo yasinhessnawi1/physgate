@@ -323,8 +323,10 @@ caught because of them.
    - **How the policy names paths.** It names every write-protected path that exists. An absent
      one is named only where its parent exists (`src/physgate/oslayer/policy.py`,
      `_write_denied`).
-   - **Without the pre-creation**, as in R-HK-02 and on master, `home/.config` does not exist.
-     `home/.config/git` is then left unnamed, to the hooks alone.
+   - **Without the pre-creation**, as in R-HK-02, `home/.config` does not exist.
+     `home/.config/git` is then left unnamed, to the hooks alone. Since `11bcbfe`, master's
+     dispatcher makes the same runtime paths before it installs a role session, so real
+     dispatch now names `home/.config/git` as this run did.
    - **With the pre-creation**, `home/.config/git` itself exists, because its `ignore` file is
      made inside it. So the policy names it, and in the OS-on arms the OS layer would deny writes
      to git's user configuration as well as the hooks.
