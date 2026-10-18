@@ -150,7 +150,12 @@ def test_the_pre_flight_takes_today_s_schema_and_would_have_refused_the_second_r
 ) -> None:
     """The cheap check run before a real paired run, here on the scripted endpoint."""
     import real_paired_reviewers as driver
-    from scripted_endpoint import DUMMY_OAUTH_TOKEN
+    from scripted_endpoint import DUMMY_KEY
+
+    from physgate.orchestrator.credentials import Credential
+
+    # A key: a subscription is delivered only to its vendor's own endpoint, not this one.
+    key = Credential("api_key", DUMMY_KEY)
 
     monkeypatch.setenv("PHYSGATE_CLAUDE_BIN", binary)
     sent: dict[str, dict[str, Any]] = {
@@ -162,16 +167,16 @@ def test_the_pre_flight_takes_today_s_schema_and_would_have_refused_the_second_r
         return sent["control" if items[0].id == "A1" else "firmware"]
 
     with serving(Script(main=[text("done")])) as (_, url):
-        today = driver.preflight(tmp_path / "now", DUMMY_OAUTH_TOKEN, url)
+        today = driver.preflight(tmp_path / "now", key, url)
         monkeypatch.setattr(driver, "verdict_schema", second_run_s)
-        then = driver.preflight(tmp_path / "then", DUMMY_OAUTH_TOKEN, url)
+        then = driver.preflight(tmp_path / "then", key, url)
 
         def nested_but_untyped(items: Any, **kw: Any) -> dict[str, Any]:  # noqa: ANN401
             inner = second_run_s(items, **kw)
             return {"type": "object", "required": ["review"], "properties": {"review": inner}}
 
         monkeypatch.setattr(driver, "verdict_schema", nested_but_untyped)
-        untyped = driver.preflight(tmp_path / "untyped", DUMMY_OAUTH_TOKEN, url)
+        untyped = driver.preflight(tmp_path / "untyped", key, url)
     assert today["all_accepted"] is True
     assert all(today[r]["strict_mode_warnings"] == 0 for r in ("control", "firmware"))
     assert then["all_accepted"] is False

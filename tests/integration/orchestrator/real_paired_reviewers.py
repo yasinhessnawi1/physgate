@@ -50,8 +50,11 @@ runs. The baseline's dry run serves on the address the paired dry run recorded, 
 holds every later command to.
 
 **The token.** With ``--real``, ``CLAUDE_CODE_OAUTH_TOKEN`` is read from the env file by this
-script, held only in memory and never printed. At the end every file under the output directory
-is scanned for it, for ``sk-ant-`` and for ``oat01``, and email addresses are counted. Nothing is
+script, held only in memory and never printed. A dry run runs on a dummy key instead: a
+subscription is delivered only to its vendor's own endpoint, and the scripted endpoint is not
+it, so the dry run's sessions and pre-flight take the key route to it. At the end every file
+under the output directory is scanned for the credential, for ``sk-ant-`` and for ``oat01``,
+and email addresses are counted. Nothing is
 rewritten: a later phase holds the run's sealed trajectories and packet parts to their seals, so a
 rewrite would break the records it measures. Only the counts are printed.
 """
@@ -78,7 +81,7 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parents[1]))
 
 import real_domain_roles as base  # noqa: E402
-from scripted_endpoint import DUMMY_OAUTH_TOKEN, Script, serving, text, tool  # noqa: E402
+from scripted_endpoint import DUMMY_KEY, Script, serving, text, tool  # noqa: E402
 
 from physgate.cli import main as physgate_main  # noqa: E402
 from physgate.engines.claude_code.stream import read_stream  # noqa: E402
@@ -88,7 +91,12 @@ from physgate.hooks.verdict_shape import CORRECTION  # noqa: E402
 from physgate.knowledge import loader  # noqa: E402
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME  # noqa: E402
 from physgate.orchestrator.cli import default_registrations  # noqa: E402
-from physgate.orchestrator.credentials import remove_secrets, write_login  # noqa: E402
+from physgate.orchestrator.credentials import (  # noqa: E402
+    SECRET_VARIABLE,
+    Credential,
+    remove_secrets,
+    write_login,
+)
 from physgate.orchestrator.decompose import binary_version  # noqa: E402
 from physgate.orchestrator.dispatch import probe_interpreter  # noqa: E402
 from physgate.orchestrator.events import (  # noqa: E402
@@ -195,6 +203,8 @@ def brief(control_spec: str) -> str:
 FIRST_RUN_PARAMS = base.params
 #: The interpreter role sessions find as ``python3`` (``--role-python``), set by ``main``.
 ROLE_PYTHON: str | None = None
+#: The run's auth mode, set by ``main``: the subscription for a real run, a key for a dry run.
+AUTH = "subscription"
 
 
 def params() -> dict[str, Any]:
@@ -208,6 +218,7 @@ def params() -> dict[str, Any]:
     ).model_dump(mode="json")
     if ROLE_PYTHON is not None:
         found["role_python"] = ROLE_PYTHON
+    found["auth"] = AUTH
     return found
 
 
@@ -706,7 +717,7 @@ def preflight_schema(role: str) -> tuple[tuple[str, ...] | None, dict[str, Any]]
     return criteria, schema
 
 
-def preflight(root: Path, token: str, base_url: str | None) -> dict[str, Any]:
+def preflight(root: Path, credential: Credential, base_url: str | None) -> dict[str, Any]:
     """One short reviewer session per role, with the schema its reviews will be offered.
 
     Each role's schema counts the criteria its issued specification numbers, as its reviews'
@@ -720,7 +731,8 @@ def preflight(root: Path, token: str, base_url: str | None) -> dict[str, Any]:
         sdir = root / "preflight" / role
         (sdir / "home").mkdir(parents=True)
         config_dir = sdir / "config"
-        write_login(config_dir, token, endpoint=endpoint_of(base_url))
+        if credential.mode == "subscription":
+            write_login(config_dir, credential.secret, endpoint=endpoint_of(base_url))
         env = isolated_env(
             home=sdir / "home",
             config_dir=config_dir,
@@ -729,7 +741,7 @@ def preflight(root: Path, token: str, base_url: str | None) -> dict[str, Any]:
             max_retries=0,
             max_output_tokens=PREFLIGHT_OUTPUT_TOKENS,
             base_url=base_url,
-            api_key=None,
+            api_key=credential.secret if credential.mode == "api_key" else None,
         )
         env.update(REVIEWER_ENV)
         argv = [
@@ -778,7 +790,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("phase", choices=["preflight", "paired", "generalist"])
     kind = parser.add_mutually_exclusive_group(required=True)
-    kind.add_argument("--dry-run", action="store_true", help="scripted endpoint, dummy token")
+    kind.add_argument("--dry-run", action="store_true", help="scripted endpoint, dummy key")
     kind.add_argument("--real", action="store_true", help="the real API, on the subscription")
     parser.add_argument("--criteria", type=Path, required=True, help="the criteria stamped first")
     parser.add_argument("--out", type=Path, required=True)
@@ -841,10 +853,18 @@ def main() -> None:
         "started_utc": base.utc(),
     }
     print(json.dumps(stamp), flush=True)
-    token = DUMMY_OAUTH_TOKEN if args.dry_run else base.load_token(args.env_file)
+    global AUTH  # noqa: PLW0603 - the run's auth mode, as the parameters it writes name it
+    credential = (
+        Credential("api_key", DUMMY_KEY)
+        if args.dry_run
+        else Credential("subscription", base.load_token(args.env_file))
+    )
+    AUTH = credential.mode
+    variable = SECRET_VARIABLE[credential.mode]
     for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"):
         os.environ.pop(name, None)
-    os.environ[base.VARIABLE] = token
+    os.environ.pop(base.VARIABLE, None)
+    os.environ[variable] = credential.secret
     os.environ["DISABLE_AUTOUPDATER"] = "1"
     # The first run's driver commands, with the shipped registrations in place of its stub.
     base.command = command
@@ -855,10 +875,10 @@ def main() -> None:
             if args.dry_run:
                 # The scripted endpoint refuses what the API is known to refuse.
                 with serving(Script(main=[text("done")])) as (api, url):
-                    result = {"preflight": preflight(root, token, url)}
+                    result = {"preflight": preflight(root, credential, url)}
                     result["endpoint_refusals"] = list(api.refusals)
             else:
-                result = {"preflight": preflight(root, token, None)}
+                result = {"preflight": preflight(root, credential, None)}
         elif args.phase == "paired":
             if args.dry_run:
                 with serving(Script(main=[])) as (api, url):
@@ -887,9 +907,11 @@ def main() -> None:
             else:
                 result = generalist(paired_root, root)
     finally:
-        os.environ.pop(base.VARIABLE, None)
+        os.environ.pop(variable, None)
+        # The first run's parameters as they were: a later run in this process names its own.
+        AUTH = "subscription"
     result["finished_utc"] = base.utc()
-    result["scan"] = base.scan(root, token)
+    result["scan"] = base.scan(root, credential.secret)
     (root / "result.json").write_text(json.dumps({**stamp, **result}, indent=1, sort_keys=True))
     reviews = result.get("reviews", {})
     print(
