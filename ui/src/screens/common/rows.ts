@@ -5,6 +5,7 @@
  * (stage markers, token counts, worktree clean-ups) make no row.
  */
 import type { RunEvent } from "../../api/events";
+import type { GateCheck } from "../../api/run";
 import type { GateMode } from "../../design/components/verdict/GateMode";
 import type { Verdict } from "../../design/components/verdict/verdict";
 import type { Quantity } from "../../design/quantity";
@@ -81,6 +82,7 @@ export function rowOf(
   names: ReadonlyMap<string, string>,
   roles: Readonly<Record<string, string>>,
   models: Models,
+  checks?: readonly GateCheck[],
 ): Row | null {
   const actor = eventActor(event, roles, models);
   const base = {
@@ -212,11 +214,14 @@ export function rowOf(
       };
     case "integration_gate_ran": {
       const outcome = verdictOf(event.verdict);
+      const left = (checks ?? []).filter(
+        (c) => c.subtask === "integration" && c.seq === event.seq && c.outcome === "unchecked",
+      ).length;
       return {
         ...base,
         depth: 0,
         sentence: "The gate checked the whole design",
-        meta: "integration",
+        meta: left === 0 ? "integration" : `integration · ${String(left)} left unchecked`,
         end: outcome === null ? null : { kind: "gate", mode: gateMode(event.mode), outcome },
       };
     }
@@ -266,11 +271,15 @@ function unfinishedGate(
 }
 
 /** Every row of a run's log, in the log's order. */
-export function rowsOf(events: readonly RunEvent[], models: Models): readonly Row[] {
+export function rowsOf(
+  events: readonly RunEvent[],
+  models: Models,
+  checks?: readonly GateCheck[],
+): readonly Row[] {
   const names = subtaskNames(events);
   const roles = subtaskRoles(events);
   return events.flatMap((event) => {
-    const row = rowOf(event, names, roles, models) ?? unfinishedGate(event, events, names);
+    const row = rowOf(event, names, roles, models, checks) ?? unfinishedGate(event, events, names);
     return row === null ? [] : [row];
   });
 }

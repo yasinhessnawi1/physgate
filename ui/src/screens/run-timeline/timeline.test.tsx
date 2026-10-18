@@ -132,6 +132,65 @@ describe("the timeline's rows are sentences built from the record", () => {
   });
 });
 
+describe("repairs, infrastructure faults and the whole-design gate say what the record says", () => {
+  const more: RunEvent[] = [
+    ...LOG,
+    {
+      ...at(8),
+      kind: "session_ended",
+      subtask: "s1",
+      attempt: 2,
+      sessionId: "x",
+      outcome: "infrastructure",
+      cause: "rate_limited",
+      sealed: false,
+    },
+    { ...at(9), kind: "integration_gate_ran", verdict: "fail", mode: "observe" },
+  ];
+  const unchecked = {
+    seq: 9,
+    subtask: "integration",
+    attempt: null,
+    name: "power" as const,
+    check: 4,
+    ts: null,
+    scope: "system",
+    mode: "observe" as const,
+    outcome: "unchecked" as const,
+    blocking: true,
+    value: null,
+    node: null,
+    evaluated: null,
+    reviewerHadPassed: null,
+    expected: null,
+    message: "m",
+    details: { form: "power", evaluated: null, quantities: [], low: null, high: null },
+  };
+  const rows = rowsOf(more, MODELS, [unchecked]);
+
+  it("names a repair by the finding that caused it", () => {
+    expect(rowAt(rows, 5).sentence).toBe("Attempt 1 sent back for repair: x");
+    expect(rowAt(rows, 5).meta).toContain("finding from the gate");
+  });
+
+  it("names an infrastructure fault by its cause", () => {
+    expect(rowAt(rows, 8).sentence).toContain("infrastructure fault (rate_limited)");
+  });
+
+  it("the whole design's gate shows its mode, and what it left unchecked", () => {
+    const row = rowAt(rows, 9);
+    expect(row.end).toEqual({ kind: "gate", mode: "observe", outcome: "fail" });
+    expect(row.meta).toBe("integration · 1 left unchecked");
+    const html = renderToStaticMarkup(<RowView row={row} />);
+    expect(html).toContain("Would fail · not enforced");
+    const on = rowsOf(
+      more.map((e) => (e.kind === "integration_gate_ran" ? { ...e, mode: "on" } : e)),
+      MODELS,
+    );
+    expect(renderToStaticMarkup(<RowView row={rowAt(on, 9)} />)).toContain("pg-verdict-fail");
+  });
+});
+
 describe("an attempt's gate reading is its own records', through the one tally", () => {
   it("no record is no verdict, never a pass, in either mode", () => {
     expect(gateReading("on", [], false)).toEqual({ kind: "none" });

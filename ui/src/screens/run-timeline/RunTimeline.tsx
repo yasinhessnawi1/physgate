@@ -93,9 +93,13 @@ export default function RunTimeline({ setHeader, query }: ViewProps) {
   const rows = useMemo(
     () =>
       events.result?.ok === true && configValue !== undefined
-        ? rowsOf(events.result.value, configValue)
+        ? rowsOf(
+            events.result.value,
+            configValue,
+            checks.result?.ok === true ? checks.result.value : [],
+          )
         : [],
-    [events.result, configValue],
+    [events.result, configValue, checks.result],
   );
 
   if (runs === null) return <LoadingState reading="the run list" />;
