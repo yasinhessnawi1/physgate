@@ -207,16 +207,19 @@ def _take_answer(worktree: Path, task: Task, out: Path) -> str:
     return "found"
 
 
-def run_raw(task: Task, setup: RawSetup, work: Path, *, cap: int) -> dict[str, Any]:
-    """Run the raw arm once on ``task`` in the new directory ``work``; its record.
+def run_session(prompt: str, setup: RawSetup, work: Path, *, cap: int) -> dict[str, Any]:
+    """One session on ``prompt``, as the raw arm runs one, in the new directory ``work``.
 
-    ``cap`` is the harness arm's token total on the same task and trial.
+    The session works in ``work/worktree``; what it leaves there is the caller's to take.
+    Returns the session's record: how it ended, what it spent, and whether a held-out
+    canary showed in its stream.
 
     Raises:
-        RawArmError: ``work`` exists, or the session could not be set up.
+        RawArmError: ``work`` exists, the session could not be set up, or its credential
+            could not be removed.
     """
     if work.exists():
-        msg = f"{work} exists; each raw session gets a directory of its own"
+        msg = f"{work} exists; each session gets a directory of its own"
         raise RawArmError(msg, work=str(work))
     worktree, sdir = work / "worktree", work / "session"
     # Private from the start: the session's credential is written beneath ``sdir``.
@@ -230,14 +233,33 @@ def run_raw(task: Task, setup: RawSetup, work: Path, *, cap: int) -> dict[str, A
         temp = Path(f"/tmp/pg-{uuid.uuid4().hex[:12]}")
         temp.mkdir(mode=0o700)
     try:
-        return _run(task, setup, work, worktree, sdir, session_id, temp, cap)
+        return _run(prompt, setup, work, worktree, sdir, session_id, temp, cap)
     finally:
         if temp is not None:
             shutil.rmtree(temp, ignore_errors=True)
 
 
+def run_raw(task: Task, setup: RawSetup, work: Path, *, cap: int) -> dict[str, Any]:
+    """Run the raw arm once on ``task`` in the new directory ``work``; its record.
+
+    ``cap`` is the harness arm's token total on the same task and trial.
+
+    Raises:
+        RawArmError: ``work`` exists, the session could not be set up, or its credential
+            could not be removed.
+    """
+    record = run_session(task.brief, setup, work, cap=cap)
+    record.update(
+        task=task.id,
+        answer=_take_answer(work / "worktree", task, work / "answer" / task.answer.path),
+        pins=pins(task, setup),
+    )
+    write_record(work.parent, work.name, record, "raw.json")
+    return record
+
+
 def _run(
-    task: Task,
+    prompt: str,
     setup: RawSetup,
     work: Path,
     worktree: Path,
@@ -250,39 +272,34 @@ def _run(
     # One boundary from the first write of the credential to its removal: whatever ends
     # the session (an error, a refusal, the clock, the cap, a kill), the cleanup runs.
     try:
-        ended, watch, seconds, after = _session(task, setup, worktree, sdir, session_id, temp, cap)
+        ended, watch, seconds, after = _session(
+            prompt, setup, worktree, sdir, session_id, temp, cap
+        )
     finally:
         _clean(work, sdir, setup.credential.secret, (stdout, stderr))
     captured = read_captured(stdout)
-    total = sum(m.usage.total() for m in captured.usage)
-    answer_status = _take_answer(worktree, task, work / "answer" / task.answer.path)
     end = (
         "budget_exhausted"
         if watch.exhausted_at is not None
         else ("wall_clock" if ended.timed_out else "ended")
     )
-    record = {
-        "task": task.id,
+    return {
         "session_id": session_id,
         "end": end,
         "exit_code": ended.exit_code,
         "left_running": list(ended.left_running),
         "wall_clock_s": seconds,
-        "tokens": total,
+        "tokens": sum(m.usage.total() for m in captured.usage),
         "cap": cap,
-        "answer": answer_status,
         "answered_by": sorted(captured.answered),
         "held_out_seen": review_material_seen(stdout, frozenset(setup.held_out_canaries))
         is not None,
         "sentinel_after_stop": after.get("refused"),
-        "pins": pins(task, setup),
     }
-    write_record(work.parent, work.name, record, "raw.json")
-    return record
 
 
 def _session(
-    task: Task,
+    prompt: str,
     setup: RawSetup,
     worktree: Path,
     sdir: Path,
@@ -311,7 +328,7 @@ def _session(
     max_turns, wall_clock = raw_bounds(setup.bounds)
     argv = role_argv(
         setup.binary,
-        prompt=task.brief,
+        prompt=prompt,
         spawn_args=tuple(installed["spawn_args"]),
         model=setup.model,
         session_id=session_id,
