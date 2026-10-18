@@ -49,6 +49,7 @@ import fcntl
 import hashlib
 import json
 import os
+import stat
 import sys
 import time
 from typing import TYPE_CHECKING
@@ -297,6 +298,7 @@ def _baseline(config: ConfigView, state: _State) -> dict[str, Any]:
         "journal": {r: _journal_state(r, state.blobs) for r in _roots(config, "journal")},
         "halt": _halt_record(config),
         "nodes": {r: _nodes_record(r, heads(r)) for r in _roots(config, "journal")},
+        "node_roots": {r: os.path.realpath(r) for r in _roots(config, "journal")},
         "log": {p: list(sig) for p, sig in take_signatures(_roots(config, "log")).items()},
         "halted": None,
     }
@@ -476,22 +478,33 @@ def _node_files(root: str) -> dict[str, str]:
     }
 
 
-def _nodes_record(root: str, found: dict[str, Head]) -> dict[str, Any]:
+def _nodes_record(
+    root: str, found: dict[str, Head], pending: list[str] | None = None
+) -> dict[str, Any]:
     watched = [os.path.join(root, "journal.jsonl"), os.path.join(root, "nodes")]
     return {
         "sigs": {p: list(sig) for p, sig in take_signatures(watched).items()},
         "revs": {node_id: head[0] for node_id, head in found.items()},
+        # Nodes excused as a write in progress, checked again at the next hook.
+        "pending": sorted(pending or ()),
     }
 
 
 def _read_as_the_store_does(path: str) -> bytes | None:
-    # A link in a node file's place is not read through: it is a mismatch, and the
-    # rebuild replaces it.
+    """A node file's bytes, or ``None`` for anything but a regular file read whole.
+
+    A link in a node file's place is not read through, and a FIFO or a device is
+    never read from (opened without blocking, then refused): each is a mismatch,
+    and the rebuild replaces it. A FIFO read would otherwise hang the hook.
+    """
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except OSError:
         return None
     try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            os.close(fd)
+            return None
         with os.fdopen(fd, "rb") as handle:
             return handle.read()
     except OSError:
@@ -503,27 +516,17 @@ def _node_path(root: str, node_id: str) -> str | None:
 
     A name read from the journal becomes a path only through the store's own name
     rule, so a separator, a parent reference, an absolute name, a NUL or a final
-    newline never reaches the filesystem. The result must also stay directly in
-    the node directory once every link above it is resolved.
+    newline never reaches the filesystem. Where the root itself really is, links
+    above it included, is held to the session's first check (:func:`_check_nodes`).
     """
     from pathlib import Path
 
     from physgate.state import DesignStateError, node_file_path
 
-    nodes = Path(root, "nodes")
     try:
-        path = node_file_path(nodes, node_id)
+        return str(node_file_path(Path(root, "nodes"), node_id))
     except DesignStateError:
         return None
-    real_nodes = Path(os.path.realpath(nodes))
-    real_parent = Path(os.path.realpath(path.parent))
-    if (
-        path.parent != nodes
-        or real_parent != real_nodes
-        or not real_parent.is_relative_to(real_nodes)
-    ):
-        return None
-    return str(path)
 
 
 #: One node finding: the path named on record, the store root, and the node to
@@ -549,12 +552,21 @@ def _check_nodes(base: dict[str, Any]) -> list[NodeFinding]:
     which still does not match or is still missing, is a finding.
     """
     findings: list[NodeFinding] = []
+    reals = base.setdefault("node_roots", {})
     for root, was in base.get("nodes", {}).items():
+        # Where the root really is, links above it included, as at the first check: a
+        # root that now resolves elsewhere serves other files under the same names.
+        real = os.path.realpath(root)
+        if reals.setdefault(root, real) != real:
+            findings.append((root, root, None))
+            continue
         journal = os.path.join(root, "journal.jsonl")
         nodes = os.path.join(root, "nodes")
         watched = [journal, nodes]
         now = {p: list(sig) for p, sig in take_signatures(watched).items()}
-        if now == was["sigs"]:
+        # A node excused at the last check as a write in progress is checked again now,
+        # whatever the signatures say.
+        if now == was["sigs"] and not was.get("pending"):
             continue
         found = heads(root)
         if os.path.islink(nodes):
@@ -569,27 +581,28 @@ def _check_nodes(base: dict[str, Any]) -> list[NodeFinding]:
             or _read_as_the_store_does(path) != _expected_body(found[node_id])
         ]
         unservable = False
-        for node_id in sorted(set(found) - set(files)):
+        for node_id in sorted(found):
             path = _node_path(root, node_id)
             if path is None:
                 unservable = True
-            else:
+            elif node_id not in files:
                 suspects.append((node_id, path))
         if unservable:
             # The orchestrator never writes such a line, so it is no write in
             # progress: the journal itself is named, and nothing is rebuilt for it.
             findings.append((journal, root, None))
+        pending: list[str] = []
         if suspects:
             found = heads(root)
             for node_id, path in suspects:
                 head = found.get(node_id)
-                if head is not None and (
-                    _read_as_the_store_does(path) == _expected_body(head)
-                    or head[0] > was["revs"].get(node_id, 0)
-                ):
+                if head is not None and _read_as_the_store_does(path) == _expected_body(head):
+                    continue
+                if head is not None and head[0] > was["revs"].get(node_id, 0):
+                    pending.append(node_id)
                     continue
                 findings.append((path, root, node_id if head is not None else None))
-        base["nodes"][root] = _nodes_record(root, found)
+        base["nodes"][root] = _nodes_record(root, found, pending)
     return findings
 
 
@@ -633,7 +646,11 @@ def _restore_nodes(base: dict[str, Any], findings: list[NodeFinding]) -> list[st
                 os.mkdir(nodes)
             except OSError:
                 continue
-        if os.path.islink(nodes) or _node_path(root, node_id) != path:
+        # Held again just before the write: the root where the first check found it, and
+        # no link in the node directory's place. What changes between these lines and the
+        # write is the residual.
+        moved = os.path.realpath(root) != base.get("node_roots", {}).get(root)
+        if moved or os.path.islink(nodes) or _node_path(root, node_id) != path:
             continue
         for _ in range(_REBUILD_ATTEMPTS):
             head = heads(root).get(node_id)

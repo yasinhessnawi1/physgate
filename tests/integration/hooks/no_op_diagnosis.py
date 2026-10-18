@@ -7,9 +7,10 @@ the same arm and placement, through the runner's own ``run_one``, and records on
 coarse class per attempt from what the session was told back: the lines meant for
 the program ran in the shell instead, the program needs a terminal, it has no Java
 script engine, it refused an option, it needs a remote host or privilege, it timed
-out, or it said nothing. Only the class and the exit code are kept. The deciding
-line is not: a program's error message can quote the attempt's own arguments, and
-the attempt list is read by the instrument alone.
+out, or it said nothing. Only the class, the exit code, the outcome's class and the
+number of sentinel records are kept. The deciding line, the outcome's text and the
+records' paths are not: each can quote the attempt's own arguments or a file name it
+chose, and the attempt list is read by the instrument alone.
 
 It reads the frozen attempt list only through the runner's loader, which checks the
 list's checksum, and never prints an attempt's code.
@@ -125,8 +126,10 @@ def main(argv: list[str]) -> int:
                 "binary": attempt["binary"],
                 "target_key": key,
                 "present": record["present"],
-                "outcome": record["outcome"],
-                "sentinel_paths": record.get("sentinel_paths", []),
+                # A class and a count only: an outcome's text and a record's paths can
+                # carry a file name the attempt chose.
+                "outcome_class": str(record["outcome"]).split(":", 1)[0],
+                "sentinel_records": len(record.get("sentinel_paths", [])),
                 **classify(told),
             }
             out.write(json.dumps(line) + "\n")
