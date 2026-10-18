@@ -144,3 +144,27 @@ def test_a_state_the_guard_cannot_read_counts_as_a_limit_passed(tmp_path: Path) 
         time.sleep(0.3)
         os.waitpid(run.process.pid, 0)  # reaped by someone else: its end can no longer be read
         assert run.wait() == "limit"
+
+
+def test_a_hang_up_while_the_plant_is_silent_is_still_seen() -> None:
+    task = _task()
+    assert task.firmware is not None
+    scenario = task.firmware.scenarios[1]
+    quiet = scenario.model_copy(
+        update={
+            "duration": scenario.tick.model_copy(update={"value": 500}),
+            "faults": tuple(
+                f.model_copy(update={"at": f.at.model_copy(update={"value": 0})})
+                for f in scenario.faults
+            ),
+        }
+    )
+    port = _serve(_hang_up)
+    clock = WallClock()
+    device = SocketDevice("127.0.0.1", port, clock.now_ms)
+    try:
+        trace = run_scenario(quiet, device, clock)
+    finally:
+        device.close()
+    assert not [line for line in trace.lines if line.direction == "to_device"]
+    assert trace.limit is not None and "closed" in trace.limit
