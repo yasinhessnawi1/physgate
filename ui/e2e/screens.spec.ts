@@ -233,7 +233,8 @@ for (const theme of THEMES) {
     const timeline = page.locator('section[aria-label="Timeline"]');
     const fails = timeline.locator(".pg-trow .pg-verdict-fail");
     await expect(fails).toHaveCount(3);
-    await expect(timeline).toContainText("Attempt 2 sent back for repair");
+    await expect(timeline).toContainText("Attempt 2 rejected:");
+    await expect(timeline).not.toContainText("sent back for repair");
     await expect(timeline).toContainText("Set aside for a person to decide");
     await expect(timeline).toContainText("The run goes on with the other subtasks.");
     for (const row of await timeline.locator(".pg-trow").all())
@@ -261,6 +262,9 @@ for (const theme of THEMES) {
     await expect(inspector.locator(".pg-why").first()).toContainText(
       "Power drawn by the consumers",
     );
+    // No review line is recorded for this attempt, and the inspector says only that: not why.
+    await expect(inspector).toContainText("Not run: no review is recorded for this attempt.");
+    await expect(inspector).not.toContainText("because the gate failed");
     // Unchecked follows the separator in the inspector's list, and none is above it.
     const checks = inspector.locator('section[aria-label="Gate checks"]');
     await expect(
