@@ -282,7 +282,9 @@ class EquilibriumDetails(_Frozen):
     solved: tuple[ReactionValue, ...]
     declared: tuple[ReactionValue, ...]
     residual_force: NumericOutput
-    residual_moment: NumericOutput
+    #: ``None`` when the structure declares no positions: its force sum was judged,
+    #: and no moment was computed, because a moment needs the arms nobody wrote.
+    residual_moment: NumericOutput | None
     solver: NonEmptyStr
 
 
