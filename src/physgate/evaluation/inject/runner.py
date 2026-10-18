@@ -169,6 +169,9 @@ class InstrumentParams(_Frozen):
     lanes: Annotated[int, Field(ge=1)] | None = None
     pause_after_failures: Annotated[int, Field(ge=0)] | None = None
     pause_s: Annotated[float, Field(ge=0)] | None = None
+    #: How many times a review whose verdict was refused is resumed with the check's
+    #: reason (0 or 1); ``None`` only in parameters written before it existed.
+    repair_resumes: Annotated[int, Field(ge=0, le=1)] | None = None
 
 
 class Reviewing(_Frozen):

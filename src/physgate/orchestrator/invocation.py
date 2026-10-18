@@ -244,12 +244,17 @@ def reviewer_argv(
     session_id: str,
     max_turns: int,
     effort: str,
+    resume: bool = False,
 ) -> list[str]:
     """A reviewer session: reading only, then one structured verdict.
 
     ``--tools Read`` offers the Read tool and, with ``--json-schema``, the structured
     verdict tool beside it, nothing else. The thinking display is the binary's own:
     a reviewer's reasoning is read by nobody.
+
+    With ``resume``, the session ``session_id`` is continued, to repair a refused
+    verdict. A role session is never resumed, because its shell could write the file a
+    resume replays; a reviewer has no tool that writes, so the file is the binary's own.
     """
     return [
         binary,
@@ -270,7 +275,7 @@ def reviewer_argv(
         model,
         "--effort",
         effort,
-        "--session-id",
+        "--resume" if resume else "--session-id",
         session_id,
         "--max-turns",
         str(max_turns),

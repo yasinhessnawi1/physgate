@@ -43,7 +43,7 @@ def _params(**lanes: object) -> InstrumentParams:
     )
 
 
-RULES = {"lanes": 4, "pause_after_failures": 3, "pause_s": 900.0}
+RULES = {"lanes": 4, "pause_after_failures": 3, "pause_s": 900.0, "repair_resumes": 1}
 
 
 def test_the_parameters_file_states_the_lanes_and_the_pause() -> None:
@@ -85,3 +85,9 @@ def test_the_generalist_mode_reviews_every_role_on_its_rubric_less_the_domain_se
         assert isinstance(reviewer, ClaudeReviewer)
         assert reviewer.rubric.kind == "generalist" and reviewer.rubric.role == role
         assert reviewer.model == "claude-sonnet-5"
+
+
+def test_a_parameters_file_without_its_repair_resumes_is_refused() -> None:
+    rules = {k: v for k, v in RULES.items() if k != "repair_resumes"}
+    with pytest.raises(InstrumentParamsError, match="repair resumes"):
+        _lane_rules(argparse.Namespace(lanes=None), _params(**rules))

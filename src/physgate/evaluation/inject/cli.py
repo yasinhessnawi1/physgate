@@ -213,6 +213,9 @@ def _lane_rules(args: argparse.Namespace, params: InstrumentParams) -> tuple[int
     if params.lanes is None or params.pause_after_failures is None or params.pause_s is None:
         msg = "the parameters file states the lanes and the lane-wide pause"
         raise InstrumentParamsError(msg, needs="lanes, pause_after_failures, pause_s")
+    if params.repair_resumes is None:
+        msg = "the parameters file states how many repair resumes a review gets"
+        raise InstrumentParamsError(msg, needs="repair_resumes")
     if args.lanes is not None and args.lanes != params.lanes:
         msg = "the lanes given are not the parameters file's"
         raise InstrumentParamsError(msg, given=str(args.lanes), file=str(params.lanes))
@@ -301,4 +304,5 @@ def _setup(
         base_url=base_url,
         credential=credential,
         library=library,
+        repair_resumes=params.repair_resumes or 0,
     )
