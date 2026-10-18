@@ -84,7 +84,9 @@ def test_a_copied_number_unlike_every_row_at_its_address_is_a_mismatch(tmp_path:
     )
     driver = [f for f in found if f.node == "electrical.driver" and f.where == "base"]
     assert [f.kind for f in driver] == ["mismatch"]
-    assert "gives 1.5 A" in driver[0].fact()
+    assert "no row at its source gives that number; its rows of that kind give 1.5 A" in (
+        driver[0].fact()
+    )
 
 
 def test_a_number_whose_address_holds_no_number_of_its_kind_is_unresolved(tmp_path: Path) -> None:
