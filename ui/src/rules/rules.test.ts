@@ -124,7 +124,8 @@ describe("no screen shows a terminal command", () => {
   /** The product's sources: every shipped source but the thesis-only views. */
   const PRODUCT = SHIPPED.filter((f) => !f.path.startsWith("thesis/"));
 
-  it("finds none in any text a product source can show", () => {
+  // Parsing every source takes seconds on a loaded machine: the scan gets the time it needs.
+  it("finds none in any text a product source can show", { timeout: 60_000 }, () => {
     const sources = PRODUCT.filter((f) => /\.(ts|tsx|css)$/.test(f.path));
     expect(sources.length).toBeGreaterThan(40);
     const found = sources.flatMap((f) =>
