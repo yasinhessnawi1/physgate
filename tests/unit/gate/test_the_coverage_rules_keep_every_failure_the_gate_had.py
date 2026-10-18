@@ -13,6 +13,12 @@ Two directions are held:
   a new source. The one exception is ruled and named: a stall current outside one maker's
   hobby-motor span is not an error by itself, so that span no longer blocks (the current
   headroom relation judges a stall current instead). Each refusal lost that way is counted.
+  A second, ruled loosening leaves no refusal to count here: the electrical ``sample_rate``
+  range widened from one part's register span (3.906 Hz to 8 kHz) to six makers' output data
+  rates (0.78 Hz to 32 kHz), so an electrical rate in (8 kHz, 32 kHz] or [0.78, 3.906) Hz that
+  failed before passes now. The widening is sourced, and the range is still an inertial
+  sensor's: an ADC's or an audio codec's rate on an electrical node is refused by it, a named
+  limit.
 - **No clean design fails.** A graph that drew no failure before draws none now, except a
   graph a test built to hold an error of a kind the gate did not judge before. Each is named
   by the digest of its content (its nodes, sorted by id), never by its place in the record:
@@ -37,6 +43,8 @@ from physgate.gate.registry import REGISTRY
 from physgate.state.store import Store
 
 RECORD = Path(__file__).parent / "gate_before" / "record.json"
+#: The record's digest, so the comparison is against the bytes that were made and reviewed.
+RECORD_SHA256 = "ee0b6fde0b4b5cd16b0a9ba2a5b342fec00dfc7b128bb75632a6906265eefaa2"
 CHECKS = ("units", "magnitude", "power", "conservation", "thermal")
 
 
@@ -49,7 +57,9 @@ def digest(payloads: list[dict[str, Any]]) -> str:
 
 
 def _cases() -> list[tuple[str, list[dict[str, Any]], list[dict[str, Any]]]]:
-    record = json.loads(RECORD.read_text())["cases"]
+    data = RECORD.read_bytes()
+    assert hashlib.sha256(data).hexdigest() == RECORD_SHA256
+    record = json.loads(data)["cases"]
     drawn = {f"check_3:{cid}": nodes for cid, nodes in random_mounts()}
     return [(c["id"], c.get("nodes") or drawn[c["id"]], c["before"]) for c in record]
 

@@ -114,6 +114,9 @@ FIXTURES = "named for the physics gate's checks, 26.09.2026"
 #: the most a driver or supply is rated to deliver, its peak output current, never a
 #: continuous rating. A continuous rating below a motor's stall current is a design that
 #: needs current limiting; a peak rating below it is a stall the driver cannot carry.
+#: Named limit: a writer who puts a continuous rating under this name is refused where
+#: the stall exceeds it; the evaluation scores such a refusal, by the author's cited
+#: row, as this stated limit and not as a false alarm.
 CURRENT_LIMIT = (
     "a driver's or supply's maximum output current: the peak output current its datasheet "
     "rates (for example TI DRV8838, SLVSBA4F section 6.3, IOUT motor peak current 1.8 A), "
@@ -172,7 +175,12 @@ PRODUCTS: Mapping[tuple[str, str], str] = MappingProxyType(
 
 
 class StoreClass(_Frozen):
-    """A class of energy store, and the fastest continuous discharge a maker states for one.
+    """A class of energy store, and the fastest discharge a maker rates one of them for.
+
+    The rating is the maker's continuous one where the sheet gives one; for the lead-acid
+    class it is the shortest constant-current discharge the maker tabulates (two minutes),
+    which is above any continuous rating, so the bound built from it is looser, never
+    tighter, than a continuous figure would make it.
 
     ``per_hour`` is the part's maximum continuous discharge power over the energy it stores
     (its C-rate), rounded up to the next whole number, so the bound built from it is never
@@ -203,7 +211,8 @@ STORE_CLASSES: tuple[StoreClass, ...] = (
         per_hour=9,
         source=(
             "EnerSys ODYSSEY Battery Technical Manual, 6th edition (US-ODY-AM-001, April 2006), "
-            "PC680 constant-current table: 143.0 A for 2 min to 10.02 V at 25 C, 17 A h at the "
+            "PC680 constant-current table: 143.0 A for 2 min to 10.02 V at 25 C (a two-minute "
+            "rating, not a continuous one, so above any continuous figure), 17 A h at the "
             "20-hour rate; 143 A / 17 A h = 8.4 per hour"
         ),
     ),

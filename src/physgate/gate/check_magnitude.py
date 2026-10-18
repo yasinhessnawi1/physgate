@@ -7,6 +7,12 @@ exactly, in the range's unit: the bounds are what the source says, and rounding
 is never credited toward a pass. A value outside is refused with the value, the
 range and the range's source (ARCH-080). A quantity with no range in its
 domain's table is recorded as unchecked for magnitude, never as passed.
+
+Named limit: a range applies to every quantity of its name in its domain, and its note
+says which class it was drawn from. The electrical ``sample_rate`` range is an inertial
+sensor's output data rates, so an electrical node that samples faster for another reason
+(an analogue-to-digital converter, an audio codec) is refused by it; the evaluation
+scores such a refusal as this stated limit.
 """
 
 from __future__ import annotations

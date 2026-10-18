@@ -266,6 +266,17 @@ def _judge_headroom(view: GraphView, instance: Instance) -> Observation | None:
     or reverse the motor without tripping or exceeding its rating. The limit is the supply's
     peak rating (the catalogue's meaning of ``current_limit``), so a motor run behind current
     limiting below its stall current is not refused by a continuous rating.
+
+    Named limits:
+
+    - **Paralleled drivers.** A motor naming two drivers is held to each driver's limit alone;
+      two 1 A drivers sharing a 1.5 A stall are each refused, though together they carry it.
+      The relation does not sum the limits of the supplies one consumer names.
+    - **A continuous rating written as ``current_limit``** is read as the peak rating the
+      name means, so a stall above it is refused; the evaluation scores that as the stated
+      limit, by the author's cited row.
+    - **A supply in between.** Only the supply the motor's own edge names is read; a limit
+      two hops away, past a regulator that declares none, is not.
     """
     consumer, limit = _amperes(view, instance)
     try:
@@ -378,6 +389,11 @@ def run(ctx: CheckContext) -> CheckRun:
             if (i.nodes() & near if i.relation.name in BETWEEN else set())
             or i.subject in (near if i.relation.name in OWN else touched)
         ]
-    observations = [o for o in (JUDGES[i.relation.name](view, i) for i in budgets) if o is not None]
-    evaluated = sum(1 for i in budgets if not i.missing)
+    judged = [(i, JUDGES[i.relation.name](view, i)) for i in budgets]
+    observations = [o for _, o in judged if o is not None]
+    # Evaluated means judged: a relation with a term missing, or one left unchecked because
+    # a side is in a refused unit, was recorded and not compared, so it is not counted.
+    evaluated = sum(
+        1 for i, o in judged if not i.missing and (o is None or o.outcome != "unchecked")
+    )
     return CheckRun(tool=TOOL, evaluated=evaluated, observations=tuple(observations))

@@ -143,3 +143,10 @@ def test_each_store_class_s_rate_is_the_figure_its_own_source_shows_rounded_up()
     assert (
         next(c for c in STORE_CLASSES if "capacitor" in c.name and "ion" in c.name).per_hour == 311
     )
+
+
+def test_a_discharge_left_unchecked_by_a_refused_unit_is_not_counted_as_evaluated(
+    tmp_path: Path,
+) -> None:
+    ran = run(tmp_path, "system", store(10, 5, "W*h"))
+    assert [o.outcome for o in ran.observations] == ["unchecked"] and ran.evaluated == 0

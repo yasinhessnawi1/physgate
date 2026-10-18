@@ -212,3 +212,14 @@ def test_no_table_or_a_file_that_is_not_toml_stops_the_gate_being_built(tmp_path
     write(tmp_path, "this is = = not toml")
     with pytest.raises(BoundsTableError, match="not TOML"):
         load_bounds(tmp_path)
+
+
+def test_an_adc_sampled_at_1_megahertz_on_an_electrical_node_is_refused_a_named_limit(
+    tmp_path: Path,
+) -> None:
+    # The electrical sample_rate range is an inertial sensor's. An electrical node that
+    # samples faster for another reason is refused by it; the evaluation scores that as
+    # the stated limit, not as a false alarm.
+    adc = node("electrical.adc", quantities={"sample_rate": (1_000_000, "Hz")})
+    (finding,) = check(tmp_path, adc).observations
+    assert finding.outcome == "fail" and "inertial" in finding.message

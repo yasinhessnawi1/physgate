@@ -122,3 +122,45 @@ def test_the_whole_gate_blocks_the_stall_at_module_scope(tmp_path: Path) -> None
     assert result.verdict == "fail"
     blocking = [r for r in result.checks if r.outcome == "fail" and r.blocking]
     assert [(r.name, r.node) for r in blocking] == [("power", DRIVER)]
+
+
+def test_a_headroom_left_unchecked_by_a_refused_unit_is_not_counted_as_evaluated(
+    tmp_path: Path,
+) -> None:
+    # Evaluated means judged: a comparison the check could not make is recorded, not counted.
+    ran = check(tmp_path, "system", driver(1, "V"), motor(6))
+    assert [o.outcome for o in ran.observations] == ["unchecked"] and ran.evaluated == 0
+
+
+# --- named limits, pinned so the record says what the relation does not do -----------------
+
+
+def test_paralleled_drivers_are_each_held_to_their_own_limit_a_named_limit(tmp_path: Path) -> None:
+    # Two 1 A drivers sharing a 1.5 A stall carry it together; the relation reads each edge
+    # alone and refuses both. The evaluation scores this as the stated limit.
+    a = node("electrical.driver_a", quantities={"current_limit": (1, "A")})
+    b = node("electrical.driver_b", quantities={"current_limit": (1, "A")})
+    shared = node(
+        "electrical.motor_left",
+        quantities={"stall_current": (1.5, "A")},
+        constrains=["electrical.driver_a", "electrical.driver_b"],
+    )
+    ran = check(tmp_path, "system", a, b, shared)
+    assert sorted(o.node for o in ran.observations) == [
+        "electrical.driver_a",
+        "electrical.driver_b",
+    ]
+    assert all(o.outcome == "fail" for o in ran.observations)
+
+
+def test_a_limit_past_a_regulator_that_declares_none_is_not_read_a_named_limit(
+    tmp_path: Path,
+) -> None:
+    regulator = node("electrical.reg", constrains=[DRIVER])
+    behind = node(
+        "electrical.motor_left",
+        quantities={"stall_current": (6, "A")},
+        constrains=["electrical.reg"],
+    )
+    ran = check(tmp_path, "system", driver(1), regulator, behind)
+    assert ran.observations == () and ran.evaluated == 0
