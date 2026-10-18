@@ -17,6 +17,7 @@ import pytest
 
 from physgate.evaluation.per_role.firmware.loop import DeviceFaultError, PipeDevice
 from physgate.evaluation.per_role.firmware.sandbox import (
+    RUNTIME_TASKS,
     EmulatorLimits,
     FirmwareTierRefusedError,
     sandboxed,
@@ -121,8 +122,11 @@ def test_a_fork_bomb_is_held_to_the_process_cap(tmp_path: Path) -> None:
         lines = _lines(device, time.monotonic() + 15, 1)
         session.run.kill_group()
     count = int(lines[0].split()[1])
-    assert count < 16
-    assert session.record["process_cap"] == "TasksMax=16"
+    assert count < 16 + RUNTIME_TASKS  # the emulator's allowance, above the runtime's own tasks
+    assert (
+        session.record["process_cap"]
+        == f"TasksMax={16 + RUNTIME_TASKS} (16 above the runtime's {RUNTIME_TASKS})"
+    )
 
 
 def test_on_macos_the_absent_process_cap_is_recorded(tmp_path: Path) -> None:

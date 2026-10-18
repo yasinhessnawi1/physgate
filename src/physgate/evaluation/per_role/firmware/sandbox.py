@@ -43,6 +43,10 @@ from physgate.oslayer.probe import Absent, judge_here
 
 #: The pinned sandbox runtime: installed by ``npm ci`` in ``tools/srt``.
 SRT = Path(__file__).resolve().parents[5] / "tools" / "srt" / "node_modules" / ".bin" / "srt"
+#: Tasks the sandbox runtime itself runs in the capped scope (its runtime's threads, the
+#: sandbox, its proxies): 21 measured on Oracle (aarch64, 0.0.79), rounded up. The emulator's
+#: own allowance is added on top.
+RUNTIME_TASKS = 32
 #: The version of the Claude Code binary whose OS layer the emulator is held to.
 CLAUDE_VERSION = "2.1.301"
 
