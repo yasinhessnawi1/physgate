@@ -200,9 +200,12 @@ except Exception as exc:
     print(f"no watcher readout ({exc})")
 EOF
 
-# The scan: counts only, nothing rewritten. The key's value is never printed.
+# The scan: counts only, nothing rewritten. The key's value is never printed. The two credential
+# shapes are assembled here, because this script is snapshotted by every session's sentinel and
+# a literal would count itself.
 count() { grep -rlF -- "$1" "$OUT" 2>/dev/null | wc -l | tr -d ' '; }
-echo "scan key: $(count "$KEY") files; sk-ant-: $(count sk-ant-) files; oat01: $(count oat01) files" | tee -a "$LOG"
+SHAPE_KEY="sk-ant"; SHAPE_KEY="$SHAPE_KEY-"; SHAPE_TOKEN="oat"; SHAPE_TOKEN="${SHAPE_TOKEN}01"
+echo "scan key: $(count "$KEY") files; $SHAPE_KEY: $(count "$SHAPE_KEY") files; $SHAPE_TOKEN: $(count "$SHAPE_TOKEN") files" | tee -a "$LOG"
 unset ANTHROPIC_API_KEY KEY
 echo "== ended $(date -u +%FT%TZ), exit $CODE. Run directory for the app: $RUN" | tee -a "$LOG"
 exit "$CODE"
