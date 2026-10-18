@@ -31,9 +31,14 @@ import stat
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
-from physgate.evaluation.per_role.authoring import CANARIES_NAME, SUMS_NAME, sha256sums
+from physgate.evaluation.per_role.authoring import (
+    CANARIES_NAME,
+    SUMS_NAME,
+    AuthoringError,
+    _open_chain,
+)
 from physgate.evaluation.per_role.exceptions import PerRoleError
-from physgate.evaluation.per_role.task import load_task
+from physgate.evaluation.per_role.task import load_task, task_from_files
 from physgate.hooks.paths import reaches
 from physgate.hooks.settings import InstallRequest, build_config, current_installation
 from physgate.oslayer.policy import sandbox_policy
@@ -56,42 +61,87 @@ def _relation(place: Path, root: Path) -> str | None:
     return None
 
 
-_READ_FLAGS = os.O_RDONLY | os.O_NOFOLLOW
+_DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+_FILE_FLAGS = os.O_RDONLY | os.O_NOFOLLOW
+#: The largest file a tier holds: a task or a reference answer.
+MAX_TIER_FILE_BYTES = 1024 * 1024
+
+
+def _read_fd(fd: int) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    while chunk := os.read(fd, 65536):
+        total += len(chunk)
+        if total > MAX_TIER_FILE_BYTES:
+            msg = "a file of the tier is larger than any task file"
+            raise PerRoleError(msg)
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _walk(dir_fd: int, prefix: str, out: dict[str, bytes]) -> None:
+    for name in sorted(os.listdir(dir_fd)):
+        where = f"{prefix}{name}"
+        st = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+        if stat.S_ISDIR(st.st_mode):
+            child = os.open(name, _DIR_FLAGS, dir_fd=dir_fd)
+            try:
+                _walk(child, f"{where}/", out)
+            finally:
+                os.close(child)
+        elif stat.S_ISREG(st.st_mode):
+            fd = os.open(name, _FILE_FLAGS, dir_fd=dir_fd)
+            try:
+                opened = os.fstat(fd)
+                if not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1:
+                    msg = f"the tier's {where} has a second name (a hard link)"
+                    raise PerRoleError(msg, path=where)
+                out[where] = _read_fd(fd)
+            finally:
+                os.close(fd)
+        else:
+            msg = f"the tier holds {where}, a link or not a plain file"
+            raise PerRoleError(msg, path=where)
+
+
+def snapshot(root: Path) -> dict[str, bytes]:
+    """Every file of the tier and its bytes, read once, through descriptors only.
+
+    The tier is reached from ``/`` one component at a time without following a link, so a
+    link at the tier or at any directory above it refuses; inside it, every directory and
+    file is opened relative to its parent's descriptor without following a link, and read
+    from that descriptor. Nothing is opened by path again, so nothing put in place between
+    a check and a use is read. A link, a second name (a hard link) or anything but a plain
+    file or directory refuses.
+
+    Raises:
+        PerRoleError: any of those, or the tier cannot be read whole.
+    """
+    try:
+        fd = _open_chain(root, make=False)
+    except AuthoringError as exc:
+        raise PerRoleError(str(exc), path=str(root)) from exc
+    out: dict[str, bytes] = {}
+    try:
+        _walk(fd, "", out)
+    finally:
+        os.close(fd)
+    return out
+
+
+def _sums(files: Mapping[str, bytes]) -> str:
+    """The digest file's lines, as :func:`sha256sums` writes them, from bytes already read."""
+    lines = [
+        f"{hashlib.sha256(data).hexdigest()}  {path}"
+        for path, data in sorted(files.items())
+        if path not in (SUMS_NAME, CANARIES_NAME)
+    ]
+    return "\n".join(lines) + "\n"
 
 
 def tier_digest(root: Path) -> str:
-    """The tier's digest, recomputed from the bytes on disk now, following no link.
-
-    The same lines :func:`sha256sums` writes, over every file but the tier's own digest
-    file, digested once more. A link, or anything but a directory or a regular file,
-    anywhere in the tier is refused rather than read through or skipped.
-
-    Raises:
-        PerRoleError: the tier holds a link or something that is not a plain file, or a
-            file of it cannot be read.
-    """
-    lines: list[str] = []
-    for current, dirs, files in os.walk(root, followlinks=False, onerror=_raise):
-        for name in [*dirs, *files]:
-            path = Path(current) / name
-            mode = path.lstat().st_mode
-            if stat.S_ISLNK(mode) or not (stat.S_ISDIR(mode) or stat.S_ISREG(mode)):
-                msg = f"the tier holds {path}, a link or not a plain file"
-                raise PerRoleError(msg, path=str(path))
-        for name in files:
-            path = Path(current) / name
-            if path.parent == root and name in (SUMS_NAME, CANARIES_NAME):
-                continue
-            fd = os.open(path, _READ_FLAGS)
-            with os.fdopen(fd, "rb") as handle:
-                data = handle.read()
-            lines.append(f"{hashlib.sha256(data).hexdigest()}  {path.relative_to(root).as_posix()}")
-    text = "\n".join(sorted(lines, key=lambda line: line.split("  ", 1)[1])) + "\n"
-    return hashlib.sha256(text.encode()).hexdigest()
-
-
-def _raise(error: OSError) -> None:
-    raise error
+    """The tier's digest, recomputed now from the bytes on disk, through descriptors only."""
+    return hashlib.sha256(_sums(snapshot(root)).encode()).hexdigest()
 
 
 def _root_problems(root: Path, run_held_out: tuple[str, ...]) -> list[str]:
@@ -102,6 +152,8 @@ def _root_problems(root: Path, run_held_out: tuple[str, ...]) -> list[str]:
         problems.append("the held-out root is not given as its real, absolute path")
     if root.is_symlink() or not root.is_dir():
         problems.append("the held-out root is not a directory of its own")
+    elif os.path.normcase(str(root)) != str(root) or ".." in root.parts:
+        problems.append("the held-out root is not given in its plain spelling")
     return problems
 
 
@@ -110,34 +162,41 @@ def _tier_problems(
 ) -> tuple[list[str], set[str]]:
     """Every problem with the tier's contents, and its task ids, case-folded.
 
-    The tier's digest is recomputed from the bytes on disk, following no link, and held to
-    the digest the run recorded, never to one the tier carries: a tier rewritten together
-    with its own digest file still differs from the run's record.
+    The tier is read once, through descriptors (:func:`snapshot`), and everything below is
+    judged on those bytes: its digest, recomputed and held to the digest the run recorded,
+    never to one the tier carries; its digest file; each task.
     """
     problems: list[str] = []
+    try:
+        files = snapshot(root)
+    except (PerRoleError, OSError) as exc:
+        return [f"the tier could not be read whole: {exc}"], set()
     if recorded is None:
         problems.append("the run records no digest for the held-out root")
-    else:
-        try:
-            if tier_digest(root) != recorded:
-                problems.append("the tier is not the bytes the run records")
-        except (PerRoleError, OSError) as exc:
-            problems.append(f"the tier could not be read whole: {exc}")
+    elif hashlib.sha256(_sums(files).encode()).hexdigest() != recorded:
+        problems.append("the tier is not the bytes the run records")
+    if files.get(SUMS_NAME) is None:
+        problems.append("the tier has no digest file")
+    elif files[SUMS_NAME] != _sums(files).encode():
+        problems.append("the tier is not the bytes its digest records")
+    tasks: dict[str, dict[str, bytes]] = {}
+    for path, data in files.items():
+        top, _, rest = path.partition("/")
+        if not rest:
+            if top != SUMS_NAME:
+                problems.append(f"the tier holds {top!r}, which is not a task")
+            continue
+        tasks.setdefault(top, {})[rest] = data
     ids: set[str] = set()
     carried: list[str] = []
-    for entry in sorted(root.iterdir()):
-        if entry.name == SUMS_NAME and entry.is_file() and not entry.is_symlink():
-            continue
-        if entry.is_symlink() or not entry.is_dir():
-            problems.append(f"the tier holds {entry.name!r}, which is not a task")
-            continue
+    for name, task_files in sorted(tasks.items()):
         try:
-            task = load_task(entry).task
-        except (PerRoleError, OSError, ValueError) as exc:
-            problems.append(f"the held-out task {entry.name!r} does not load: {exc}")
+            task = task_from_files(task_files, where=name)
+        except (PerRoleError, ValueError) as exc:
+            problems.append(f"the held-out task {name!r} does not load: {exc}")
             continue
-        if entry.name != task.id:
-            problems.append(f"the directory {entry.name!r} is not named as its task {task.id!r}")
+        if name != task.id:
+            problems.append(f"the directory {name!r} is not named as its task {task.id!r}")
         if task.tier != "held_out" or task.canary is None:
             problems.append(f"the task {task.id!r} is not marked held out with its canary")
         else:
@@ -149,11 +208,6 @@ def _tier_problems(
         problems.append(f"no held-out task carries the run's canary {canary[:4]}…")
     if len(carried) != len(set(carried)):
         problems.append("two held-out tasks carry the same canary")
-    sums = root / SUMS_NAME
-    if sums.is_symlink() or not sums.is_file():
-        problems.append("the tier has no digest file")
-    elif sums.read_bytes() != sha256sums(root).encode():
-        problems.append("the tier is not the bytes its digest records")
     return problems, ids
 
 

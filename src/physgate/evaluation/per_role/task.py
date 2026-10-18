@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -274,3 +275,52 @@ def load_task(directory: Path) -> LoadedTask:
         msg = f"the task {task.id!r} needs one good reference and at least one bad"
         raise TaskFormatError(msg, task=task.id)
     return LoadedTask(task=task, references=tuple(references))
+
+
+def task_from_files(files: Mapping[str, bytes], where: str) -> Task:
+    """A task held to the same rules as :func:`load_task`, from bytes already read.
+
+    ``files`` maps each path inside one task's directory (``task.json``,
+    ``references/good/answer.json``, …) to its bytes, as read once through descriptors by a
+    caller that must never open the directory by path again.
+
+    Raises:
+        TaskFormatError: anything is missing, extra, or does not validate.
+    """
+    if "task.json" not in files:
+        msg = f"{where} holds no task.json"
+        raise TaskFormatError(msg, where=where)
+    task = parse_task(files["task.json"], where=where)
+    headline = {spec.name for spec in task.specs if spec.counts == "headline"}
+    refs: dict[str, set[str]] = {}
+    for path in files:
+        parts = path.split("/")
+        if parts[0] != "references":
+            continue
+        if len(parts) < 3:
+            msg = f"the task {task.id!r} holds {path!r}, which is not a reference"
+            raise TaskFormatError(msg, task=task.id)
+        refs.setdefault(parts[1], set()).add("/".join(parts[2:]))
+    goods = 0
+    for name, inside in sorted(refs.items()):
+        if not REFERENCE_NAME.fullmatch(name):
+            msg = f"the task {task.id!r} holds {name!r}, which is not a reference"
+            raise TaskFormatError(msg, task=task.id)
+        if task.answer.path not in inside:
+            msg = f"the reference {name!r} of {task.id!r} holds no answer"
+            raise TaskFormatError(msg, task=task.id)
+        if name == "good":
+            goods += 1
+            continue
+        try:
+            fails = _Expectation.model_validate_json(files[f"references/{name}/expect.json"]).fails
+        except (KeyError, ValidationError) as exc:
+            msg = f"the bad reference {name!r} of {task.id!r} names no spec it fails"
+            raise TaskFormatError(msg, task=task.id) from exc
+        if fails not in headline:
+            msg = f"the bad reference {name!r} names {fails!r}, not a headline spec"
+            raise TaskFormatError(msg, task=task.id)
+    if goods != 1 or len(refs) < 2:
+        msg = f"the task {task.id!r} needs one good reference and at least one bad"
+        raise TaskFormatError(msg, task=task.id)
+    return task
