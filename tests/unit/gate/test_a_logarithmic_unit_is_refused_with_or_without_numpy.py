@@ -21,18 +21,44 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from physgate.gate import units
 from physgate.gate.catalogue import KINDS
-from physgate.gate.units import UnitRefusedError, measure, parse
+from physgate.gate.units import UREG, UnitRefusedError, measure, parse
 
 REPOSITORY = Path(__file__).resolve().parents[3]
 
 #: Each logarithmic unit pint knows by a name a role might write, alone and in a product,
 #: where pint names it ``delta_decibel`` and keeps no logarithmic converter on it.
-LOGARITHMIC = ("dB", "decibel", "dBm", "dBW", "Np", "neper", "octave", "decade")
-COMBINED = ("dB*V", "V*dB", "dB/s", "dB**2", "1/dB")
+LOGARITHMIC = ("dB", "decibel", "decibels", "dBm", "dBW", "Np", "neper", "nepers", "oct", "octave")
+COMBINED = ("dB*V", "V*dB", "dB/s", "dB/Hz", "dB*m", "dB**2", "1/dB", "decade*Hz", "dBm/Hz")
+#: Prefixed: pint itself refuses to build a prefixed logarithmic unit, in both environments.
+PREFIXED = ("mdB", "kNp", "millidecibel", "mdB*m", "m/kNp")
+
+
+def _every_logarithmic_spelling() -> list[str]:
+    """Every name, symbol and alias the registry defines with a logarithmic converter.
+
+    Read off the registry, never a list kept by hand, so a unit pint reads as logarithmic is
+    not missed because this file spelt it differently. Each alone, in products and powers,
+    and with a prefix.
+    """
+    names: set[str] = set()
+    for name, definition in UREG._units.items():  # noqa: SLF001 - no public view
+        if definition.converter is not None and definition.converter.is_logarithmic:
+            names |= {name, *definition.aliases}
+            if definition.symbol:
+                names.add(definition.symbol)
+    forms = ("{}", "{}*m", "m*{}", "{}/Hz", "1/{}", "{}**2", "m", "k")
+    found = []
+    for name in sorted(names):
+        for form in forms:
+            found.append(form.format(name) if "{}" in form else form + name)
+    return found
+
 
 #: What each unit does in the gate's unit layer: parsed, and measured against every kind.
 #: Run as a script under a second interpreter; prints the outcomes as JSON.
@@ -82,7 +108,42 @@ def test_a_logarithmic_unit_is_refused_for_every_kind_by_the_same_rule(unit: str
             measure(kind, 1, unit)
 
 
-@pytest.mark.parametrize("unit", ["degC", "delta_degC", "K", "V", "dimensionless", "rad/s"])
+@pytest.mark.parametrize("unit", PREFIXED)
+def test_a_prefixed_logarithmic_unit_is_refused(unit: str) -> None:
+    with pytest.raises(UnitRefusedError):
+        parse(1, unit)
+
+
+def test_every_spelling_the_registry_reads_as_logarithmic_is_refused() -> None:
+    spellings = _every_logarithmic_spelling()
+    assert len(spellings) > 50
+    slipped = []
+    for unit in spellings:
+        try:
+            parse(1, unit)
+        except UnitRefusedError:
+            continue
+        slipped.append(unit)
+    assert slipped == []
+
+
+def test_a_unit_the_registry_cannot_resolve_is_refused_not_taken_as_plain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The rule fails closed: a factor whose definition is not found is never read as plain."""
+    real = UREG.parse_unit_name
+
+    def unresolved(name: str, case_sensitive: bool | None = None) -> tuple[Any, ...]:
+        return () if name == "volt" else real(name, case_sensitive)
+
+    monkeypatch.setattr(units.UREG, "parse_unit_name", unresolved)
+    with pytest.raises(UnitRefusedError, match="cannot say"):
+        parse(1, "V")
+
+
+@pytest.mark.parametrize(
+    "unit", ["degC", "delta_degC", "K", "V", "mV", "db", "dimensionless", "rad/s"]
+)
 def test_a_unit_that_is_not_logarithmic_is_not_refused_by_the_rule(unit: str) -> None:
     parse(1, unit)
 
@@ -96,7 +157,7 @@ def _numpy_python() -> str | None:
 
 
 def _outcomes(python: str) -> dict[str, object]:
-    units = json.dumps(LOGARITHMIC + COMBINED)
+    units = json.dumps(LOGARITHMIC + COMBINED + PREFIXED)
     done = subprocess.run(
         [python, "-c", OUTCOMES, str(REPOSITORY / "src"), units],
         capture_output=True,

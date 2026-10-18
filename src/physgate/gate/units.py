@@ -180,15 +180,28 @@ def parse(value: float | int, unit: str) -> Any:
 def _logarithmic(quantity: Any) -> bool:
     """Whether any unit of ``quantity`` is logarithmic, read off the registry's definitions.
 
-    Only the definitions are read, never a conversion, so the answer does not depend on
-    numpy. pint marks the decibel and its kin with a logarithmic converter (0.26.x,
-    measured); in a product it names the unit ``delta_decibel``, which has no definition
-    of its own, so a ``delta_`` name is judged by the unit it is the difference of.
+    Each factor is the unit pint parsed, resolved by pint's own name parser to the
+    definition it came from, never matched against a spelling; only the definition's
+    converter is read, never a conversion, so the answer does not depend on numpy. pint
+    marks the decibel and its kin with a logarithmic converter (0.26.x, measured); in a
+    product it names the factor ``delta_decibel``, the difference of the unit it is judged
+    by. The rule fails closed: a factor pint cannot resolve to exactly one definition is
+    refused, not read as plain.
+
+    Raises:
+        UnitRefusedError: a factor the registry cannot resolve.
     """
     for name in quantity.units._units:  # noqa: SLF001 - no public view of the factors
-        definition = UREG._units.get(name.removeprefix("delta_"))  # noqa: SLF001
+        resolved = UREG.parse_unit_name(name.removeprefix("delta_"))
+        definition = UREG._units.get(resolved[0][1]) if len(resolved) == 1 else None  # noqa: SLF001
         converter = None if definition is None else definition.converter
-        if converter is not None and converter.is_logarithmic:
+        if converter is None:
+            msg = (
+                f"the registry cannot say whether {name!r} is logarithmic: it resolves to "
+                f"{len(resolved)} definitions, not one with a converter ({OWN_RULE})"
+            )
+            raise UnitRefusedError(msg, unit=name)
+        if converter.is_logarithmic:
             return True
     return False
 
