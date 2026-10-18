@@ -34,6 +34,7 @@ from physgate.orchestrator.common import (
     NonEmptyStr,
     first_problem,
 )
+from physgate.orchestrator.credentials import require_vendor_endpoint
 from physgate.orchestrator.escalation import REGISTER, BackendName
 from physgate.orchestrator.exceptions import EscalationBackendError, GitError, RunConfigError
 from physgate.orchestrator.git import GitBinary, git
@@ -121,6 +122,19 @@ def require_endpoint(config: RunConfig, base_url: str | None) -> None:
     if now != config.endpoint:
         msg = "the endpoint differs from the one this run recorded"
         raise RunConfigError(msg, recorded=config.endpoint, now=now)
+
+
+def require_credential_endpoint(config: RunConfig) -> None:
+    """Refuse a run whose credential would reach an endpoint that is not its vendor's own.
+
+    A subscription goes only to its vendor's endpoint; at any other the runtime would send
+    the person's login to a third party. Asked when a run is configured and whenever a
+    recorded run is driven, before anything of a session is set up.
+
+    Raises:
+        CredentialEndpointError: the run names a subscription and another's endpoint.
+    """
+    require_vendor_endpoint(config.auth, config.endpoint)
 
 
 Sha1 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]

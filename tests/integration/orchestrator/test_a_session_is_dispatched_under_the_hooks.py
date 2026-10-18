@@ -33,7 +33,10 @@ from scripted_endpoint import (  # noqa: E402
 from physgate.knowledge import loader  # noqa: E402
 from physgate.orchestrator.credentials import Credential  # noqa: E402
 from physgate.orchestrator.dispatch import RUN_RECORDS, ClaudeDispatcher  # noqa: E402
-from physgate.orchestrator.exceptions import InvocationError  # noqa: E402
+from physgate.orchestrator.exceptions import (  # noqa: E402
+    CredentialEndpointError,
+    InvocationError,
+)
 from physgate.orchestrator.git import commit_all, git  # noqa: E402
 from physgate.orchestrator.install import prepare_install  # noqa: E402
 from physgate.orchestrator.invocation import claude_binary  # noqa: E402
@@ -259,21 +262,20 @@ def test_a_binary_that_is_not_the_recorded_version_is_refused_before_any_spawn(
     assert not (tmp_path / "run" / "sessions").exists()
 
 
-@pytest.mark.parametrize("mode", ["api_key", "subscription"])
 def test_a_credential_that_reaches_the_stream_anyway_is_redacted_before_anything_reads_it(
-    tmp_path: Path, install_bin: Path, mode: str
+    tmp_path: Path, install_bin: Path
 ) -> None:
-    # The helper or the login file keeps the secret out of the environment; this is
-    # the second layer, for a secret that reaches the stream some other way, here in
-    # the model's words.
-    secret = DUMMY_KEY if mode == "api_key" else DUMMY_OAUTH_TOKEN
+    # The helper keeps the secret out of the environment; this is the second layer, for a
+    # secret that reaches the stream some other way, here in the model's words. Only a key
+    # reaches the scripted endpoint: a subscription is never delivered to one (below).
+    secret = DUMMY_KEY
     worktree = tmp_path / "run" / "worktrees" / "s1"
     steps = [
         *knowledge_reads(worktree),
         tool("Read", file_path=str(worktree / SPEC)),
         text(f"the secret is {secret}"),
     ]
-    credential = Credential(mode, secret)  # type: ignore[arg-type]
+    credential = Credential("api_key", secret)
     _, (report, _), _ = dispatch(tmp_path, install_bin, steps, credential=credential)
     captured = Path(str(report.trajectory)).read_text()
     assert secret not in captured and "[redacted: the credential]" in captured
@@ -381,28 +383,32 @@ def _files_holding(root: Path, secret: str) -> list[str]:
     return [str(p) for p in root.rglob("*") if p.is_file() and secret.encode() in p.read_bytes()]
 
 
-def test_a_subscription_token_reaches_the_binary_as_a_login_and_nothing_else_holds_it(
+def test_a_subscription_is_never_delivered_to_an_endpoint_that_is_not_its_vendor_s(
     tmp_path: Path, install_bin: Path
 ) -> None:
+    # The scripted endpoint stands for any proxy, gateway or other provider: the binary
+    # would send the login there as a bearer token (measured in the decomposition's tests),
+    # so the dispatcher is never built for it, and nothing of a session is set up.
+    run, store_root = layout(tmp_path)
     worktree = tmp_path / "run" / "worktrees" / "s1"
-    steps = [
-        *knowledge_reads(worktree),
-        tool("Read", file_path=str(worktree / SPEC)),
-        tool("Bash", command="env > modules/power/env.txt; echo 'x = 2' > modules/power/a.py"),
-        text("done"),
-    ]
-    credential = Credential("subscription", DUMMY_OAUTH_TOKEN)
-    api, (report, _), _ = dispatch(tmp_path, install_bin, steps, credential=credential)
-    assert report.end.outcome == "completed", report
-    # As the binary's own login: a bearer token with the OAuth header, never as a key.
-    assert api.requests and all(r.carried_oauth_login for r in api.requests)
-    assert all(r.credential_headers == ("authorization",) for r in api.requests)
-    assert not any(r.carried_other_credential for r in api.requests)
-    env_seen = (worktree / "modules" / "power" / "env.txt").read_text()
-    assert "CLAUDE_CODE_OAUTH_TOKEN" not in env_seen and DUMMY_OAUTH_TOKEN not in env_seen
-    sdir = Path(str(report.trajectory)).parent
-    assert not (sdir / "config" / ".credentials.json").exists()
-    assert not (sdir / "state" / "key").exists()
+    steps = [*knowledge_reads(worktree), tool("Read", file_path=str(worktree / SPEC)), text("x")]
+    with (
+        serving(Script(main=steps)) as (api, url),
+        pytest.raises(CredentialEndpointError) as caught,
+    ):
+        ClaudeDispatcher(
+            config=config(),
+            run=run,
+            store_root=store_root,
+            install_bin=install_bin,
+            binary=claude_binary(),
+            base_url=url,
+            credential=Credential("subscription", DUMMY_OAUTH_TOKEN),
+            review_root=Path("/nonexistent/review-scratch"),
+        )
+    assert caught.value.context["endpoint"] == url.rstrip("/")
+    assert api.requests == []
+    assert not (tmp_path / "run" / "sessions").exists()
     assert _files_holding(tmp_path, DUMMY_OAUTH_TOKEN) == []
 
 

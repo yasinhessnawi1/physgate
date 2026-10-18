@@ -104,7 +104,7 @@ from physgate.orchestrator.invocation import (  # noqa: E402
     isolated_env,
 )
 from physgate.orchestrator.role_python import measure as measure_role_python  # noqa: E402
-from physgate.orchestrator.run_config import RunBounds, load_run_config  # noqa: E402
+from physgate.orchestrator.run_config import RunBounds, endpoint_of, load_run_config  # noqa: E402
 from physgate.reviewers.claude import SYNTHETIC_MODEL  # noqa: E402
 from physgate.reviewers.contract import issued_criteria, verdict_schema  # noqa: E402
 from physgate.reviewers.packet import (  # noqa: E402
@@ -719,7 +719,7 @@ def preflight(root: Path, token: str, base_url: str | None) -> dict[str, Any]:
         sdir = root / "preflight" / role
         (sdir / "home").mkdir(parents=True)
         config_dir = sdir / "config"
-        write_login(config_dir, token)
+        write_login(config_dir, token, endpoint=endpoint_of(base_url))
         env = isolated_env(
             home=sdir / "home",
             config_dir=config_dir,

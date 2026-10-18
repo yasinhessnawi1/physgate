@@ -20,6 +20,13 @@ session runs; it is removed when the session ends, by a later resume if the
 orchestrator was killed first, and replaced in the captured stream if it ever
 appears there. A credential the API refuses ends the session with HTTP 401 or
 403, which halts the run for a person to replace it.
+
+A subscription is delivered only to its vendor's own endpoint. The binary sends the
+login to whichever endpoint the session's environment names (measured against the
+scripted local endpoint), so a subscription session pointed at a proxy, a gateway or
+another provider would hand the person's own login to that third party. The login
+file is never written for such an endpoint; an API key is the provider's own and is
+not held to this rule.
 """
 
 from __future__ import annotations
@@ -31,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from physgate.orchestrator.common import AuthMode
-from physgate.orchestrator.exceptions import InvocationError
+from physgate.orchestrator.exceptions import CredentialEndpointError, InvocationError
 
 #: Where each mode's secret is read from, in the orchestrator's own environment.
 SECRET_VARIABLE: dict[AuthMode, str] = {
@@ -41,6 +48,11 @@ SECRET_VARIABLE: dict[AuthMode, str] = {
 
 #: The binary's login file, inside its configuration directory.
 LOGIN_FILE = ".credentials.json"
+
+#: The vendor's own endpoints, as a run records them (``run_config.endpoint_of``): the
+#: binary's default, or the vendor's API host named outright. Nothing else, not the host
+#: in clear text, on another port or under a path, receives a subscription.
+VENDOR_ENDPOINTS = frozenset({"default", "https://api.anthropic.com"})
 
 #: What a secret found in a captured stream is replaced with.
 REDACTED_TEXT = "[redacted: the credential]"
@@ -77,6 +89,23 @@ def credential_for(mode: AuthMode, environ: Mapping[str, str]) -> Credential:
     return Credential(mode=mode, secret=secret)
 
 
+def require_vendor_endpoint(mode: AuthMode, endpoint: str) -> None:
+    """Refuse a subscription for any endpoint that is not its vendor's own.
+
+    ``endpoint`` is the recorded form (``run_config.endpoint_of``), never a secret. An API
+    key passes: it belongs to the provider it is sent to.
+
+    Raises:
+        CredentialEndpointError: ``mode`` is ``subscription`` and ``endpoint`` is another's.
+    """
+    if mode == "subscription" and endpoint not in VENDOR_ENDPOINTS:
+        msg = (
+            "a subscription is delivered only to its vendor's own endpoint, and this endpoint "
+            "is not it; use that provider's own key instead"
+        )
+        raise CredentialEndpointError(msg, auth=mode, endpoint=endpoint)
+
+
 def _write_private(path: Path, data: str, mode: int) -> None:
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
     try:
@@ -95,8 +124,16 @@ def write_key_helper(state_dir: Path, key: str) -> Path:
     return helper
 
 
-def write_login(config_dir: Path, token: str) -> Path:
-    """The subscription mode: the token as the binary's own login file, owner-only."""
+def write_login(config_dir: Path, token: str, *, endpoint: str) -> Path:
+    """The subscription mode: the token as the binary's own login file, owner-only.
+
+    ``endpoint`` is where the session's model calls go, as a run records it. Refused before
+    anything is written unless it is the vendor's own (:func:`require_vendor_endpoint`).
+
+    Raises:
+        CredentialEndpointError: the endpoint is not the vendor's own.
+    """
+    require_vendor_endpoint("subscription", endpoint)
     config_dir.mkdir(parents=True, exist_ok=True)
     path = config_dir / LOGIN_FILE
     login = {"claudeAiOauth": {"accessToken": token, "scopes": ["user:inference"]}}

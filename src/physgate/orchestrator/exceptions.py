@@ -105,6 +105,15 @@ class InvocationError(OrchestratorError):
     """A Claude Code session cannot be invoked as measured: no binary, or another version."""
 
 
+class CredentialEndpointError(OrchestratorError):
+    """A credential would be delivered to an endpoint that is not its vendor's own.
+
+    A subscription is the person's own login with its vendor. The runtime sends it to
+    whichever endpoint the session is pointed at, so pointed anywhere else it would reach a
+    third party. Nothing of the session is set up once this is raised.
+    """
+
+
 class WorktreeMisplacedError(OrchestratorError):
     """A sandboxed session was not started: its worktree lies where the OS layer lets all write.
 

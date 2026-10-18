@@ -45,7 +45,7 @@ from physgate.gate.exceptions import GateError
 from physgate.orchestrator import cli as orchestrator_cli
 from physgate.orchestrator.cli import Registrations, ReviewerFactory, default_registrations
 from physgate.orchestrator.common import first_problem
-from physgate.orchestrator.credentials import credential_for
+from physgate.orchestrator.credentials import credential_for, require_vendor_endpoint
 from physgate.orchestrator.decompose import binary_version
 from physgate.orchestrator.exceptions import OrchestratorError, ReviewerNotRegisteredError
 from physgate.orchestrator.install import prepare_install, require_current
@@ -151,6 +151,8 @@ def _real_reviewers(
 ) -> tuple[Mapping[str, Reviewer], Reviewing]:
     """The real reviewers, built from ``params``, and the record of how they run."""
     credential = credential_for(params.auth, os.environ)
+    # A subscription only to its vendor's own endpoint, before anything is built.
+    require_vendor_endpoint(params.auth, endpoint_of(os.environ.get("ANTHROPIC_BASE_URL")))
     binary = claude_binary()
     version = binary_version(binary)
     install = args.install.resolve()

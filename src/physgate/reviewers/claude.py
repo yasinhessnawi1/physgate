@@ -57,6 +57,7 @@ from physgate.orchestrator.budget import classify_session_end
 from physgate.orchestrator.credentials import (
     Credential,
     remove_secrets,
+    require_vendor_endpoint,
     write_key_helper,
     write_login,
 )
@@ -86,7 +87,7 @@ from physgate.orchestrator.protocols import (
     SpecDefect,
     UnavailableCause,
 )
-from physgate.orchestrator.run_config import Effort, RunBounds, RunConfig
+from physgate.orchestrator.run_config import Effort, RunBounds, RunConfig, endpoint_of
 from physgate.reviewers.contract import contract_text, issued_criteria, verdict_schema
 from physgate.reviewers.ending import await_session
 from physgate.reviewers.exceptions import ReviewError
@@ -337,6 +338,8 @@ class ClaudeReviewer:
         if rubric.role != role:
             msg = "a reviewer judges with its own role's rubric"
             raise ReviewError(msg, role=role, rubric=rubric.role)
+        # A subscription only to its vendor's own endpoint: no reviewer exists for another.
+        require_vendor_endpoint(setup.credential.mode, endpoint_of(setup.base_url))
         self._role = role
         self._model = model
         self._setup = setup
@@ -538,7 +541,11 @@ class ClaudeReviewer:
             msg = "the hook layer's installer refused the review session"
             raise InvocationError(msg, stderr=done.stderr[-600:])
         if self._setup.credential.mode == "subscription":
-            write_login(sdir / "config", self._setup.credential.secret)
+            write_login(
+                sdir / "config",
+                self._setup.credential.secret,
+                endpoint=endpoint_of(self._setup.base_url),
+            )
         return Installed.model_validate_json(done.stdout)
 
     def _spawn(

@@ -35,6 +35,7 @@ from physgate.orchestrator.credentials import (
     REDACTED_TEXT,
     Credential,
     remove_secrets,
+    require_vendor_endpoint,
     write_login,
 )
 from physgate.orchestrator.exceptions import DecompositionError, InvocationError, RunStateError
@@ -62,7 +63,7 @@ from physgate.orchestrator.record import (
     PlanEntry,
     RunRecord,
 )
-from physgate.orchestrator.run_config import RunConfig
+from physgate.orchestrator.run_config import RunConfig, endpoint_of
 from physgate.series.collect import series_library
 from physgate.state.schema import Node
 from physgate.state.store import Store
@@ -352,8 +353,11 @@ def call(
 
     The call has no tools, so no agent runs in it. An API key goes in its
     environment; a subscription token goes in as the binary's login file in the
-    call's own configuration directory, removed when the call ends.
+    call's own configuration directory, removed when the call ends, and only for its
+    vendor's own endpoint: for another the call is refused before anything is set up.
     """
+    endpoint = endpoint_of(base_url)
+    require_vendor_endpoint(credential.mode, endpoint)
     binary = claude_binary()
     reported = binary_version(binary)
     if reported != config.claude_version:
@@ -387,7 +391,7 @@ def call(
     )
     system_before = system_managed_facts()
     if credential.mode == "subscription":
-        write_login(workdir / "config", credential.secret)
+        write_login(workdir / "config", credential.secret, endpoint=endpoint)
     try:
         done = subprocess.run(
             argv,

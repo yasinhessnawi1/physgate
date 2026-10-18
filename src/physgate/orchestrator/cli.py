@@ -41,7 +41,11 @@ from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper
 from physgate.orchestrator.catches import catches, parse_time
 from physgate.orchestrator.common import first_problem, render_jsonl
-from physgate.orchestrator.credentials import SECRET_VARIABLE, credential_for
+from physgate.orchestrator.credentials import (
+    SECRET_VARIABLE,
+    credential_for,
+    require_vendor_endpoint,
+)
 from physgate.orchestrator.decompose import binary_version, call, require_fresh, start_run
 from physgate.orchestrator.dispatch import ClaudeDispatcher, probe_interpreter
 from physgate.orchestrator.events import (
@@ -86,6 +90,7 @@ from physgate.orchestrator.run_config import (
     harness_state,
     load_run_config,
     network_enforced,
+    require_credential_endpoint,
     require_endpoint,
     require_harness,
     require_reportable,
@@ -446,6 +451,10 @@ def _decompose(args: argparse.Namespace) -> int:
         mode = json.loads(args.params.read_text()).get("auth")
         known = isinstance(mode, str) and mode in SECRET_VARIABLE
         credential = credential_for(mode, os.environ) if known else None
+        if credential is not None:
+            # And only to its vendor's own endpoint, before anything of the run exists.
+            endpoint = endpoint_of(os.environ.get("ANTHROPIC_BASE_URL"))
+            require_vendor_endpoint(credential.mode, endpoint)
         config = _config(args)
     except OrchestratorError as exc:
         return _fail(str(exc), **exc.context)
@@ -533,6 +542,8 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
         config = load_run_config(run_dir / "run.json")
         # The recorded mode decides which secret the run needs; a resume cannot change it.
         credential = credential_for(config.auth, os.environ)
+        # And a subscription goes only to its vendor's endpoint, before anything is built.
+        require_credential_endpoint(config)
         # The gate and the reviewers first: without them nothing else is worth building.
         require_gate(config, registrations.gate)
         # Where reviews are prepared: refused before any is, if a reviewer reading a path

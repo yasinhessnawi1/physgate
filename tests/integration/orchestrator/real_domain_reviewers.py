@@ -104,7 +104,7 @@ from physgate.orchestrator.invocation import (  # noqa: E402
     isolated_env,
 )
 from physgate.orchestrator.protocols import Artefact, IssuedSpec, ReviewResult, Usage  # noqa: E402
-from physgate.orchestrator.run_config import RunBounds  # noqa: E402
+from physgate.orchestrator.run_config import RunBounds, endpoint_of  # noqa: E402
 from physgate.orchestrator.trajectory import seal  # noqa: E402
 from physgate.reviewers.claude import SYNTHETIC_MODEL, ClaudeReviewer, ReviewerSetup  # noqa: E402
 from physgate.reviewers.contract import (  # noqa: E402
@@ -480,7 +480,7 @@ def preflight(root: Path, token: str, base_url: str | None) -> dict[str, Any]:
             sdir = root / "preflight" / f"{role}-{form}"
             (sdir / "home").mkdir(parents=True)
             config_dir = sdir / "config"
-            write_login(config_dir, token)
+            write_login(config_dir, token, endpoint=endpoint_of(base_url))
             env = isolated_env(
                 home=sdir / "home",
                 config_dir=config_dir,

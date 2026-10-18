@@ -10,8 +10,11 @@ than one request inside it.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shutil
+import subprocess
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -29,9 +32,15 @@ from scripted_endpoint import (  # noqa: E402
 
 from physgate.orchestrator.accounting import TokenAccount  # noqa: E402
 from physgate.orchestrator.credentials import Credential  # noqa: E402
-from physgate.orchestrator.decompose import call, start_run  # noqa: E402
+from physgate.orchestrator.decompose import call, plan_schema, start_run  # noqa: E402
 from physgate.orchestrator.events import Decomposed, Halted, read_events  # noqa: E402
+from physgate.orchestrator.exceptions import CredentialEndpointError  # noqa: E402
 from physgate.orchestrator.git import head_of  # noqa: E402
+from physgate.orchestrator.invocation import (  # noqa: E402
+    claude_binary,
+    decomposition_argv,
+    isolated_env,
+)
 from physgate.state.store import Store  # noqa: E402
 from physgate.state.task_ledger import TaskLedger  # noqa: E402
 
@@ -226,30 +235,82 @@ def test_a_plan_from_a_model_other_than_the_pinned_one_fails_the_run(tmp_path: P
     assert not (run_dir / "store").exists()
 
 
-def test_the_one_call_on_a_subscription_carries_the_token_as_a_login_and_keeps_it_nowhere(
+def _files_holding(root: Path, secret: str) -> list[str]:
+    return [str(p) for p in root.rglob("*") if p.is_file() and secret.encode() in p.read_bytes()]
+
+
+def test_the_pinned_binary_sends_its_login_to_whatever_endpoint_it_is_given(
     tmp_path: Path,
 ) -> None:
-    credential = Credential("subscription", DUMMY_OAUTH_TOKEN)
-    api, outcome, run_dir = decompose_once(
-        tmp_path, 7, [tool("StructuredOutput", **PLAN)], credential=credential
+    # The binary measured on its own, not through the orchestrator: a login file in its
+    # configuration directory reaches the endpoint the environment names, as an OAuth
+    # bearer token. This is why a subscription is delivered only to its vendor's endpoint.
+    binary = claude_binary()
+    for name in ("home", "config", "cwd"):
+        (tmp_path / name).mkdir()
+    login = {"claudeAiOauth": {"accessToken": DUMMY_OAUTH_TOKEN, "scopes": ["user:inference"]}}
+    (tmp_path / "config" / ".credentials.json").write_text(json.dumps(login))
+    (tmp_path / "settings.json").write_text("{}\n")
+    argv = decomposition_argv(
+        binary,
+        prompt="Build a self-balancing robot.",
+        schema=plan_schema(),
+        model=config().models.decomposition,
+        session_id=str(uuid.uuid4()),
+        settings=tmp_path / "settings.json",
+        effort=config().effort,
+        debug_file=tmp_path / "debug.log",
     )
-    assert outcome.ok, outcome.detail
+    with serving(Script(main=[tool("StructuredOutput", **PLAN)])) as (api, url):
+        env = isolated_env(
+            home=tmp_path / "home",
+            config_dir=tmp_path / "config",
+            binary=binary,
+            claude_version=recorded_version(),
+            max_retries=0,
+            max_output_tokens=config().max_output_tokens,
+            base_url=url,
+            api_key=None,
+        )
+        subprocess.run(
+            argv,
+            cwd=tmp_path / "cwd",
+            env=env,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            check=False,
+            timeout=120,
+        )
     assert len(api.requests) == 1 and api.requests[0].carried_oauth_login
     assert api.requests[0].credential_headers == ("authorization",)
-    assert not (run_dir / "decomposition" / "config" / ".credentials.json").exists()
-    held = [
-        str(p)
-        for p in tmp_path.rglob("*")
-        if p.is_file() and DUMMY_OAUTH_TOKEN.encode() in p.read_bytes()
-    ]
-    assert held == []
 
 
-def test_the_decompose_command_in_subscription_mode_records_the_mode_and_not_the_token(
+def test_the_one_call_on_a_subscription_never_reaches_an_endpoint_that_is_not_its_vendor_s(
+    tmp_path: Path,
+) -> None:
+    repo = target_repo(tmp_path)
+    cfg = config().model_copy(update={"seed": 7, "target_head": head_of(repo, "master")})
+    workdir = tmp_path / "run" / "decomposition"
+    with (
+        serving(Script(main=[tool("StructuredOutput", **PLAN)])) as (api, url),
+        pytest.raises(CredentialEndpointError) as caught,
+    ):
+        call(
+            "Build a self-balancing robot.",
+            config=cfg,
+            workdir=workdir,
+            base_url=url,
+            credential=Credential("subscription", DUMMY_OAUTH_TOKEN),
+        )
+    assert caught.value.context["endpoint"] == url.rstrip("/")
+    assert api.requests == []
+    assert not workdir.exists()
+    assert _files_holding(tmp_path, DUMMY_OAUTH_TOKEN) == []
+
+
+def test_the_decompose_command_refuses_a_subscription_to_a_foreign_endpoint_and_keeps_it_nowhere(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    import json
-
     from physgate.cli import main
     from physgate.orchestrator.cli import EXAMPLES
 
@@ -279,32 +340,24 @@ def test_the_decompose_command_in_subscription_mode_records_the_mode_and_not_the
                 str(tmp_path / "run"),
             ]
         )
-    out = capsys.readouterr()
-    assert code == 0, out.err
-    recorded = json.loads((tmp_path / "run" / "run.json").read_text())
-    assert recorded["auth"] == "subscription"
-    assert len(api.requests) == 1 and api.requests[0].carried_oauth_login
-    held = [
-        str(p)
-        for p in tmp_path.rglob("*")
-        if p.is_file() and DUMMY_OAUTH_TOKEN.encode() in p.read_bytes()
-    ]
-    assert held == []
+    error = json.loads(capsys.readouterr().err)
+    assert code == 2 and "its vendor's own endpoint" in error["error"]
+    assert api.requests == []
+    assert not (tmp_path / "run").exists()
+    assert _files_holding(tmp_path, DUMMY_OAUTH_TOKEN) == []
 
 
-def test_a_subscription_token_in_the_one_call_s_stream_is_redacted_before_it_is_kept(
+def test_a_credential_in_the_one_call_s_stream_is_redacted_before_it_is_kept(
     tmp_path: Path,
 ) -> None:
-    # The login file keeps the token out of the call's environment; this is the
-    # second layer, for a token that reaches the stream anyway, here in the answer.
-    leaky = {**PLAN, "modules": [{**PLAN["modules"][0], "spec": f"use {DUMMY_OAUTH_TOKEN}"}]}
-    credential = Credential("subscription", DUMMY_OAUTH_TOKEN)
-    _, outcome, run_dir = decompose_once(
-        tmp_path, 7, [tool("StructuredOutput", **leaky)], credential=credential
-    )
+    # The helper keeps the key out of the call's environment; this is the second layer,
+    # for a credential that reaches the stream anyway, here in the answer. Only a key
+    # reaches the scripted endpoint: a subscription is never delivered to one (above).
+    leaky = {**PLAN, "modules": [{**PLAN["modules"][0], "spec": f"use {DUMMY_KEY}"}]}
+    _, outcome, run_dir = decompose_once(tmp_path, 7, [tool("StructuredOutput", **leaky)])
     assert outcome.ok, outcome.detail
     kept = (run_dir / "decomposition" / "stdout.jsonl").read_text()
-    assert DUMMY_OAUTH_TOKEN not in kept and "[redacted: the credential]" in kept
+    assert DUMMY_KEY not in kept and "[redacted: the credential]" in kept
 
 
 def test_the_schema_the_binary_offers_names_nothing_at_its_root(tmp_path: Path) -> None:

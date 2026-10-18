@@ -57,6 +57,7 @@ from physgate.orchestrator.credentials import (
     Credential,
     open_in_session,
     remove_secrets,
+    require_vendor_endpoint,
     write_key_helper,
     write_login,
 )
@@ -89,7 +90,7 @@ from physgate.orchestrator.processes import (
 from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.queue import DECISIONS_NAME
 from physgate.orchestrator.role_python import PROBE, require_same, session_bin
-from physgate.orchestrator.run_config import RunConfig, harness_root
+from physgate.orchestrator.run_config import RunConfig, endpoint_of, harness_root
 from physgate.orchestrator.trajectory import Seal, forged_tail, seal, through_first_result
 from physgate.oslayer import placeholders
 from physgate.oslayer.abort import aborted_tool_uses
@@ -959,6 +960,8 @@ class ClaudeDispatcher:
         ``review_root`` is where reviews are prepared, every packet with its copy of a
         rubric; no role session may read or write anything beneath it.
         """
+        # A subscription only to its vendor's own endpoint: no dispatcher exists for another.
+        require_vendor_endpoint(credential.mode, endpoint_of(base_url))
         self._config = config
         self._run = run
         self._store_root = store_root
@@ -1089,7 +1092,9 @@ class ClaudeDispatcher:
             msg = "the hook layer's installer refused the session"
             raise InvocationError(msg, stderr=done.stderr[-600:])
         if self._credential.mode == "subscription":
-            write_login(sdir / "config", self._credential.secret)
+            write_login(
+                sdir / "config", self._credential.secret, endpoint=endpoint_of(self._base_url)
+            )
         return Installed.model_validate_json(done.stdout)
 
     def run(self, request: SessionRequest, on_spawn: SpawnHook | None = None) -> SessionReport:

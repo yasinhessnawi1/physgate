@@ -278,7 +278,11 @@ def _generalist(args: argparse.Namespace) -> int:
     from physgate.orchestrator.credentials import credential_for
     from physgate.orchestrator.exceptions import ReviewerNotRegisteredError
     from physgate.orchestrator.invocation import claude_binary
-    from physgate.orchestrator.run_config import load_run_config, require_endpoint
+    from physgate.orchestrator.run_config import (
+        load_run_config,
+        require_credential_endpoint,
+        require_endpoint,
+    )
     from physgate.reviewers.exceptions import ReviewError
     from physgate.reviewers.places import require_review_root
 
@@ -286,6 +290,8 @@ def _generalist(args: argparse.Namespace) -> int:
     config = load_run_config(run_dir / "run.json")
     base_url = os.environ.get("ANTHROPIC_BASE_URL")
     require_endpoint(config, base_url)
+    # A subscription only to its vendor's own endpoint, before anything is built.
+    require_credential_endpoint(config)
     prices = load_price_sheet(args.prices)
     # Refused before the review runs, so no call is made at a sheet the ratio cannot use.
     require_single_rate(prices)
