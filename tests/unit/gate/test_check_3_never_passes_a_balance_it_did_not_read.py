@@ -497,7 +497,9 @@ def test_module_scope_brings_in_a_mount_through_a_member_it_cannot_place(tmp_pat
         quantities={"mass": (0.10, "kg")},
         constrains=[BODY],
     )
-    head = graph(root, *placed(None, 1.47), tray)
+    # A component, not a module: a module would be brought in as the tray's module anyway.
+    plate = node(BODY, domain="mechanical", kind="component", quantities={"mass": (0.34, "kg")})
+    head = graph(root, plate, *placed(None, 1.47)[1:], tray)
     graph(
         root,
         node(
