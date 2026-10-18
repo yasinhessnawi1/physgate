@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from physgate.evaluation.per_role import heldout
 from physgate.evaluation.per_role.heldout import scan
+from physgate.oslayer.policy import sandbox_policy as real_policy
 
 
 def _layout(tmp_path: Path) -> tuple[Path, dict[str, Path], Path]:
@@ -71,14 +71,13 @@ def test_a_profile_whose_sessions_would_not_withhold_the_root_is_found(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root, places, scratch = _layout(tmp_path)
-    real_policy = heldout.sandbox_policy
 
     def leaky(config, **kwargs):  # type: ignore[no-untyped-def]
         policy = real_policy(config, **kwargs)
         policy.settings["sandbox"]["filesystem"]["denyRead"] = []
         return policy
 
-    monkeypatch.setattr(heldout, "sandbox_policy", leaky)
+    monkeypatch.setattr("physgate.evaluation.per_role.heldout.sandbox_policy", leaky)
     problems = scan(root, (str(root),), places, scratch)
     assert "a baseline session's OS layer would not denyRead the root" in problems
     assert "a role session's OS layer would not denyRead the root" in problems
