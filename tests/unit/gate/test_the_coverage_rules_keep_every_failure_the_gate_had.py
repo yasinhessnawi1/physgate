@@ -14,12 +14,15 @@ Two directions are held:
   hobby-motor span is not an error by itself, so that span no longer blocks (the current
   headroom relation judges a stall current instead). Each refusal lost that way is counted.
 - **No clean design fails.** A graph that drew no failure before draws none now, except a
-  graph a test built to hold an error of a kind the gate did not judge before. Each is named,
-  with the error it holds.
+  graph a test built to hold an error of a kind the gate did not judge before. Each is named
+  by the digest of its content (its nodes, sorted by id), never by its place in the record:
+  the record's ``tests:NNNN`` ids are sorted indices, and every graph the suite gains moves
+  them.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -35,6 +38,14 @@ from physgate.state.store import Store
 
 RECORD = Path(__file__).parent / "gate_before" / "record.json"
 CHECKS = ("units", "magnitude", "power", "conservation", "thermal")
+
+
+def digest(payloads: list[dict[str, Any]]) -> str:
+    """The sha256 of a graph's nodes, sorted by id and written canonically."""
+    canonical = json.dumps(
+        sorted(payloads, key=lambda p: str(p["id"])), sort_keys=True, separators=(",", ":")
+    )
+    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 def _cases() -> list[tuple[str, list[dict[str, Any]], list[dict[str, Any]]]]:
@@ -74,22 +85,23 @@ def _ruled(record: dict[str, Any]) -> bool:
 
 
 @pytest.fixture(scope="module")
-def judged(tmp_path_factory: pytest.TempPathFactory) -> list[tuple[str, Any, Any]]:
+def judged(tmp_path_factory: pytest.TempPathFactory) -> list[tuple[str, str, Any, Any]]:
+    """(the case's id, its content digest, its records before, its records now)."""
     root = tmp_path_factory.mktemp("cases")
     return [
-        (cid, before, _now(root / str(k), payloads))
+        (cid, digest(payloads), before, _now(root / str(k), payloads))
         for k, (cid, payloads, before) in enumerate(_cases())
     ]
 
 
 def test_every_refusal_the_gate_made_before_the_rules_it_still_makes(
-    judged: list[tuple[str, Any, Any]],
+    judged: list[tuple[str, str, Any, Any]],
 ) -> None:
-    failing = [o for _, before, _ in judged for o in before if o["outcome"] == "fail"]
+    failing = [o for _, _, before, _ in judged for o in before if o["outcome"] == "fail"]
     assert len(failing) == FAILURES_BEFORE
     lost: list[tuple[str, str, str]] = []
     ruled: list[tuple[str, str, str]] = []
-    for cid, before, now in judged:
+    for cid, _, before, now in judged:
         kept = {_key(o) for o in now if o["outcome"] == "fail"}
         for o in before:
             if o["outcome"] == "fail" and _key(o) not in kept:
@@ -99,16 +111,25 @@ def test_every_refusal_the_gate_made_before_the_rules_it_still_makes(
 
 
 def test_no_graph_that_drew_no_failure_draws_one_now_unless_it_holds_a_named_error(
-    judged: list[tuple[str, Any, Any]],
+    judged: list[tuple[str, str, Any, Any]],
 ) -> None:
     clean = [
-        (cid, now) for cid, before, now in judged if not any(o["outcome"] == "fail" for o in before)
+        (content, now)
+        for _, content, before, now in judged
+        if not any(o["outcome"] == "fail" for o in before)
     ]
     assert len(clean) == CLEAN_BEFORE
     new = sorted(
-        (cid, o["check"], o["node"]) for cid, now in clean for o in now if o["outcome"] == "fail"
+        (content, o["check"], o["node"])
+        for content, now in clean
+        for o in now
+        if o["outcome"] == "fail"
     )
     assert new == sorted(NAMED_ERRORS)
+    # Every named error is a graph the record holds: a digest that matches nothing would let
+    # a stale name stand for a failure that no longer happens.
+    held = {content for _, content, _, _ in judged}
+    assert all(content in held for content, _, _ in NAMED_ERRORS)
 
 
 def _reaches(payloads: list[dict[str, Any]]) -> set[str]:
@@ -145,9 +166,15 @@ FAILURES_BEFORE = 310
 RULED_LOST = 5
 #: The graphs that drew no failure before the rules.
 CLEAN_BEFORE = 1299
-#: Graphs a test built to hold an error the gate did not judge before, and the error.
+#: Graphs a test built to hold an error the gate did not judge before, each by the digest
+#: of its content, with the check that now refuses it and the node refused.
 NAMED_ERRORS: list[tuple[str, str, str]] = [
-    # The unit check's test of the headroom relation it could not judge: a 6 A stall on a
-    # 1 A driver, recorded then as unchecked. The power check now refuses it.
-    ("tests:0578", "power", "electrical.driver"),
+    # The unit check's test of the headroom relation it could not judge: electrical.driver
+    # with a 1 A current_limit and electrical.motor with a 6 A stall_current, recorded then
+    # as unchecked. The power check now refuses it.
+    (
+        "92ec6d55a91138cf800e434e2574d1054e3c138a5a1bec71064a57fb04a593ad",
+        "power",
+        "electrical.driver",
+    ),
 ]
