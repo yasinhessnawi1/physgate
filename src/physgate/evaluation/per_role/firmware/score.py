@@ -174,8 +174,9 @@ def score(task: Task, traces: Mapping[str, Trace]) -> dict[str, Any]:
                 "passed": _held(item, value),
             }
         )
-    passed = all(row["passed"] for row in rows if row["counts"] == "headline")
-    return {"task": task.id, "specs": rows, "passed": passed}
+    limits = sorted({t.limit for t in traces.values() if t.limit is not None})
+    passed = not limits and all(row["passed"] for row in rows if row["counts"] == "headline")
+    return {"task": task.id, "specs": rows, "passed": passed, "limit": limits}
 
 
 def verdict(scores: Sequence[Mapping[str, Any]]) -> Verdict:
