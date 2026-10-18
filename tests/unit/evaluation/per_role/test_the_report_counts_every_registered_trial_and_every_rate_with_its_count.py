@@ -284,9 +284,26 @@ def test_a_raw_trial_records_no_gate_and_no_reviewer() -> None:
         TrialRecord.model_validate_json(json.dumps(_record(gate=gate)))
 
 
-def test_a_control_trial_is_never_flaky_or_unscored() -> None:
-    with pytest.raises(ValueError, match="never flaky or unscored"):
-        TrialRecord.model_validate_json(json.dumps(_record(outcome="unscored")))
+def test_a_control_trial_is_never_flaky_but_may_be_unscored() -> None:
+    with pytest.raises(ValueError, match="never flaky"):
+        TrialRecord.model_validate_json(json.dumps(_record(outcome="flaky")))
+    record = TrialRecord.model_validate_json(json.dumps(_record(outcome="unscored")))
+    assert record.outcome == "unscored"
+
+
+def test_an_unscored_control_trial_is_a_fail_for_its_arm_and_is_counted_beside() -> None:
+    records = trials()
+    target = next(
+        r
+        for r in records
+        if r["suite"] == "control_visible" and r["arm"] == "harness" and r["outcome"] == "pass"
+    )
+    before = _row(_render(records=records), "Control, own tasks, visible", "harness (gate on)")
+    target["outcome"] = "unscored"
+    after = _row(_render(records=records), "Control, own tasks, visible", "harness (gate on)")
+    passed = int(before[1].split("/")[0])
+    assert after[1].startswith(f"{passed - 1}/6 ")
+    assert after[-1] == "1" and before[-1] == "0"
 
 
 def test_a_bare_float_for_dollars_is_kept_exact() -> None:

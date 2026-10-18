@@ -11,8 +11,10 @@ report: a trial that is absent is never a trial that did not count. Every outcom
 not a pass is a fail for its arm in the headline:
 
 - ``flaky``: a firmware answer whose three executions split;
-- ``unscored``: a firmware answer the machine ended on its first attempt and on its retry.
-  Counting it as anything but a fail would let an answer gain by not being scored;
+- ``unscored``: a trial the infrastructure ended before an answer existed, on its first
+  run and on its one re-run (a firmware answer the machine ended before its guest started;
+  a control trial ended by an API error, a refused credential or the sandbox). Counting it
+  as anything but a fail would let an arm gain by not being scored;
 - an emulator limit the answer hit: the answer's fail, the same limits for both arms.
 
 Each is counted beside the headline, so the reader sees how many fails are of which kind.
@@ -188,8 +190,8 @@ class TrialRecord(_Frozen):
         if (self.control is None) == (self.firmware is None):
             msg = "a trial is a control trial or a firmware trial"
             raise ValueError(msg)
-        if self.control is not None and self.outcome in ("flaky", "unscored"):
-            msg = "a control answer is scored once, so it is never flaky or unscored"
+        if self.control is not None and self.outcome == "flaky":
+            msg = "a control answer is scored once, so it is never flaky"
             raise ValueError(msg)
         return self
 

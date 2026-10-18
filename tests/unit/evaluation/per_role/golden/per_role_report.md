@@ -44,7 +44,7 @@ Every rate is a count of trials with its denominator, the design's tasks times i
 |---|---|---|---|---|---|---|
 | harness (gate on) | 3/6 · 50.0 % [18.8, 81.2] | [50.0, 50.0] | 3/3 · 100.0 % [43.9, 100.0] | 3 | 0 | 0 |
 | harness (gate observes) | 1/6 · 16.7 % [3.0, 56.4] | [0.0, 50.0] | 1/3 · 33.3 % [6.1, 79.2] | 5 | 0 | 0 |
-| raw agent | 1/6 · 16.7 % [3.0, 56.4] | [0.0, 50.0] | 1/3 · 33.3 % [6.1, 79.2] | 5 | 0 | 0 |
+| raw agent | 1/6 · 16.7 % [3.0, 56.4] | [0.0, 50.0] | 1/3 · 33.3 % [6.1, 79.2] | 4 | 0 | 1 |
 
 | Paired, per task | Difference | Task-cluster bootstrap 95 % |
 |---|---|---|

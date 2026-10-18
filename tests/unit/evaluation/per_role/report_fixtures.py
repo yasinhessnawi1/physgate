@@ -138,6 +138,8 @@ def trials(spec: dict[str, Any] | None = None) -> list[dict[str, Any]]:
                             "blocked": int(i == 2 and t == 0),
                         }
                     if suite["role"] == "control":
+                        if suite["tier"] == "held_out" and arm == "raw" and i == 2 and t == 1:
+                            record["outcome"] = "unscored"
                         record["control"] = {"no_gain_crossover": i == 2 and arm == "raw"}
                         if suite["tier"] == "external":
                             record["control"].update(
