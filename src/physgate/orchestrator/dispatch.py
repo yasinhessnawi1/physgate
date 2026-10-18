@@ -52,6 +52,7 @@ from physgate.knowledge import loader
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, canaries
 from physgate.orchestrator.accounting import require_matching_totals
 from physgate.orchestrator.budget import classify_session_end
+from physgate.orchestrator.canaries import canary_seen
 from physgate.orchestrator.credentials import (
     REDACTED_TEXT,
     Credential,
@@ -81,8 +82,10 @@ from physgate.orchestrator.ports import (
     SpawnHook,
 )
 from physgate.orchestrator.processes import (
+    PS_TIMEOUT_S,
     Proc,
     is_session,
+    kill_own,
     started_at,
     stop_tree,
 )
@@ -373,13 +376,13 @@ def review_material_seen(stream: Path, live: frozenset[str]) -> str | None:
     Detection, not prevention: the hook layer refuses every read of the reviewer
     tree it can judge, and a read whose path the session builds while its command
     runs is judged by nothing. Such a read that reaches a rubric shows the rubric's
-    canary in the session's own stream, as a tool's output. A read that never shows
-    the canary verbatim (a part of the file, or the file transformed) is not found.
+    canary in the session's own stream, as a tool's output: verbatim, or in one of
+    the forms :func:`canary_seen` looks for. A read that shows only part of the canary,
+    or uses the file without printing it, is not found.
     """
     if not live:
         return None
-    data = read_session_file(stream)
-    return next((c for c in sorted(live) if c.encode() in data), None)
+    return canary_seen(read_session_file(stream), live)
 
 
 def role_prompt(request: SessionRequest) -> str:
@@ -548,7 +551,7 @@ def process_rows() -> list[tuple[int, int, str, str]] | None:
             text=True,
             check=False,
             env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
-            timeout=30.0,
+            timeout=PS_TIMEOUT_S,
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -769,7 +772,7 @@ def process_group_of(pid: int) -> int | None:
             text=True,
             check=False,
             env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
-            timeout=30.0,
+            timeout=PS_TIMEOUT_S,
         ).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         return None
@@ -999,10 +1002,11 @@ class ClaudeDispatcher:
     def held_out_seen(self, stream: Path) -> str | None:
         """The first of the run's held-out canaries in a session's stream, if any is there.
 
-        Detection of verbatim display only. A hit proves the session displayed held-out
-        bytes, read by a path no hook could judge. No hit proves nothing: a read split
-        across lines, encoded, reversed, partial, or used without being printed shows no
-        canary, so the absence of a hit is never evidence of no exposure.
+        Detection of display only. A hit proves the session displayed held-out bytes,
+        verbatim or in a form :func:`canary_seen` looks for (two halves, upper case,
+        reversed, hex, base64), read by a path no hook could judge. No hit proves
+        nothing: a partial read, or one used without being printed, shows no canary, so
+        the absence of a hit is never evidence of no exposure.
         """
         return review_material_seen(stream, frozenset(self._config.held_out_canaries))
 
@@ -1241,11 +1245,10 @@ class ClaudeDispatcher:
                 )
             except OSError as exc:
                 unconfirmed: str | None = f"the stop could not be completed: {exc!r}"
-                # The session itself is this process's own child, unreaped, so its pid is still
-                # its own: it alone is stopped here; what it started waits for the resume.
-                with contextlib.suppress(OSError):
-                    process.kill()
-                    process.wait()
+                # The session itself is this process's own child, unreaped, so its pid and
+                # its group are still its own: the whole group is killed here; what left the
+                # group waits for the resume, which refuses while it runs.
+                kill_own(process)
             stop_done = time.time()
         if ended is not None:
             # The table is read again: nothing the stop concluded is taken as its proof.
@@ -1479,6 +1482,11 @@ class ClaudeDispatcher:
                     kind=kind,
                     # Scanned as a session that ended under its orchestrator is.
                     held_out_seen=self.held_out_seen(sdir / "stdout.jsonl"),
+                    review_material_seen=(
+                        review_material_seen(sdir / "stdout.jsonl", self._canaries)
+                        if kind == "session"
+                        else None
+                    ),
                 )
             )
         return leftovers

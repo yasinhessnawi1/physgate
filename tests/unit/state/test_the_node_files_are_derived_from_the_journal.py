@@ -458,3 +458,19 @@ def test_a_link_in_place_of_a_node_file_is_replaced_not_written_through(
     assert target.read_text() == "not the store's\n"
     assert not path.is_symlink()
     assert json.loads(path.read_text())["rev"] == 2
+
+
+def test_the_node_file_write_refuses_a_node_directory_that_is_a_link(tmp_path: Path) -> None:
+    # The write opens the node directory refusing a link in its place, so a directory
+    # swapped for a link takes no node file, wherever the link points.
+    from physgate.state.store import write_node_file
+
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    nodes = tmp_path / "graph" / "nodes"
+    nodes.parent.mkdir()
+    nodes.symlink_to(elsewhere)
+    payload = node("mechanical.gearbox", owner_role="mechanical")
+    with pytest.raises(OSError):
+        write_node_file(nodes, "mechanical.gearbox", 1, 1, payload)
+    assert list(elsewhere.iterdir()) == []

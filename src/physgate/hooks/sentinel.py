@@ -24,9 +24,12 @@ says:
   moved under its handle. That is sound only if the orchestrator treats that
   refusal as an incident and never reopens and continues, because a reopen
   would replay an agent's line as genuine. The node files beside it are
-  derived from the journal: one that no longer holds what the journal says is
-  rebuilt from the journal's newest line for it, with the store's own write,
-  and every call after it is refused.
+  derived from the journal: one that no longer holds what the journal says, or
+  that is missing while the journal names it, is rebuilt from the journal's
+  newest line for it, with the store's own write, and every call after it is
+  refused. A node's name becomes a path only through the store's own name rule;
+  a node directory replaced by a link, or a journal line naming a node no store
+  could serve, halts the session with nothing rebuilt.
 - ``halt``: the code the hooks run from. It cannot be put back by the code it
   runs, and a hook running on changed code cannot be trusted to say so, so this
   is detection at best: when it is seen, every later call is refused. What
@@ -46,6 +49,7 @@ import fcntl
 import hashlib
 import json
 import os
+import stat
 import sys
 import time
 from typing import TYPE_CHECKING
@@ -294,6 +298,7 @@ def _baseline(config: ConfigView, state: _State) -> dict[str, Any]:
         "journal": {r: _journal_state(r, state.blobs) for r in _roots(config, "journal")},
         "halt": _halt_record(config),
         "nodes": {r: _nodes_record(r, heads(r)) for r in _roots(config, "journal")},
+        "node_roots": {r: os.path.realpath(r) for r in _roots(config, "journal")},
         "log": {p: list(sig) for p, sig in take_signatures(_roots(config, "log")).items()},
         "halted": None,
     }
@@ -473,56 +478,131 @@ def _node_files(root: str) -> dict[str, str]:
     }
 
 
-def _nodes_record(root: str, found: dict[str, Head]) -> dict[str, Any]:
+def _nodes_record(
+    root: str, found: dict[str, Head], pending: list[str] | None = None
+) -> dict[str, Any]:
     watched = [os.path.join(root, "journal.jsonl"), os.path.join(root, "nodes")]
     return {
         "sigs": {p: list(sig) for p, sig in take_signatures(watched).items()},
         "revs": {node_id: head[0] for node_id, head in found.items()},
+        # Nodes excused as a write in progress, checked again at the next hook.
+        "pending": sorted(pending or ()),
     }
 
 
 def _read_as_the_store_does(path: str) -> bytes | None:
+    """A node file's bytes, or ``None`` for anything but a regular file read whole.
+
+    A link in a node file's place is not read through, and a FIFO or a device is
+    never read from (opened without blocking, then refused): each is a mismatch,
+    and the rebuild replaces it. A FIFO read would otherwise hang the hook.
+    """
     try:
-        with open(path, "rb") as handle:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            os.close(fd)
+            return None
+        with os.fdopen(fd, "rb") as handle:
             return handle.read()
     except OSError:
         return None
 
 
-def _check_nodes(base: dict[str, Any]) -> list[str]:
+def _node_path(root: str, node_id: str) -> str | None:
+    """The file the store serves ``node_id`` from under ``root``, or ``None``.
+
+    A name read from the journal becomes a path only through the store's own name
+    rule, so a separator, a parent reference, an absolute name, a NUL or a final
+    newline never reaches the filesystem. Where the root itself really is, links
+    above it included, is held to the session's first check (:func:`_check_nodes`).
+    """
+    from pathlib import Path
+
+    from physgate.state import DesignStateError, node_file_path
+
+    try:
+        return str(node_file_path(Path(root, "nodes"), node_id))
+    except DesignStateError:
+        return None
+
+
+#: One node finding: the path named on record, the store root, and the node to
+#: rebuild, or ``None`` when there is nothing the sentinel may rebuild.
+NodeFinding = tuple[str, str, str | None]
+
+
+def _check_nodes(base: dict[str, Any]) -> list[NodeFinding]:
     """Node files that do not hold what the journal says, read-only; nothing is written.
+
+    A node the journal names whose file is missing is a finding too: the store
+    would serve nothing for it until its next open, and a deleted file is as far
+    from the journal as a rewritten one. A node directory replaced by a link is a
+    finding, and so is a journal line naming a node no store could serve; neither
+    is turned into a path to read or write.
 
     The orchestrator writes a node in two steps, the journal line and then the
     file, and a check can land between them. So the journal is read again
     before deciding, and a file is not a finding if it matches the journal as
     it now stands, or if its node has a newer journal line than the last check
-    saw: that is the orchestrator's write in progress. A file whose node's
-    newest line was already seen, and which still does not match, is a finding.
+    saw: that is the orchestrator's write in progress, a new node's file not yet
+    written included. A file whose node's newest line was already seen, and
+    which still does not match or is still missing, is a finding.
     """
-    findings: list[str] = []
+    findings: list[NodeFinding] = []
+    reals = base.setdefault("node_roots", {})
     for root, was in base.get("nodes", {}).items():
-        watched = [os.path.join(root, "journal.jsonl"), os.path.join(root, "nodes")]
+        # Where the root really is, links above it included, as at the first check: a
+        # root that now resolves elsewhere serves other files under the same names.
+        real = os.path.realpath(root)
+        if reals.setdefault(root, real) != real:
+            findings.append((root, root, None))
+            continue
+        journal = os.path.join(root, "journal.jsonl")
+        nodes = os.path.join(root, "nodes")
+        watched = [journal, nodes]
         now = {p: list(sig) for p, sig in take_signatures(watched).items()}
-        if now == was["sigs"]:
+        # A node excused at the last check as a write in progress is checked again now,
+        # whatever the signatures say.
+        if now == was["sigs"] and not was.get("pending"):
             continue
         found = heads(root)
+        if os.path.islink(nodes):
+            findings.append((nodes, root, None))
+            base["nodes"][root] = _nodes_record(root, found)
+            continue
+        files = _node_files(root)
         suspects = [
             (node_id, path)
-            for node_id, path in _node_files(root).items()
+            for node_id, path in files.items()
             if node_id not in found
             or _read_as_the_store_does(path) != _expected_body(found[node_id])
         ]
+        unservable = False
+        for node_id in sorted(found):
+            path = _node_path(root, node_id)
+            if path is None:
+                unservable = True
+            elif node_id not in files:
+                suspects.append((node_id, path))
+        if unservable:
+            # The orchestrator never writes such a line, so it is no write in
+            # progress: the journal itself is named, and nothing is rebuilt for it.
+            findings.append((journal, root, None))
+        pending: list[str] = []
         if suspects:
             found = heads(root)
             for node_id, path in suspects:
                 head = found.get(node_id)
-                if head is not None and (
-                    _read_as_the_store_does(path) == _expected_body(head)
-                    or head[0] > was["revs"].get(node_id, 0)
-                ):
+                if head is not None and _read_as_the_store_does(path) == _expected_body(head):
                     continue
-                findings.append(path)
-        base["nodes"][root] = _nodes_record(root, found)
+                if head is not None and head[0] > was["revs"].get(node_id, 0):
+                    pending.append(node_id)
+                    continue
+                findings.append((path, root, node_id if head is not None else None))
+        base["nodes"][root] = _nodes_record(root, found, pending)
     return findings
 
 
@@ -530,13 +610,15 @@ def _check_nodes(base: dict[str, Any]) -> list[str]:
 _REBUILD_ATTEMPTS = 3
 
 
-def _restore_nodes(base: dict[str, Any], mismatched: list[str]) -> list[str]:
+def _restore_nodes(base: dict[str, Any], findings: list[NodeFinding]) -> list[str]:
     """Rebuild each mismatched node file from the journal. Returns the files rebuilt.
 
     The journal is the authority, so the file is written as the journal's newest
     line for its node says, with the store's own write: atomic, and following no
     link. A file the journal never named has nothing to be rebuilt from and is
-    left for the store, whose next open refuses it or moves it aside.
+    left for the store, whose next open refuses it or moves it aside. Nothing is
+    written into a node directory that is a link, and the only directory ever
+    made is the store's own node directory, by its fixed name.
 
     The orchestrator may write the same node meanwhile: its journal line, then
     its file. If its file lands before this one, this one would be older, so the
@@ -552,11 +634,24 @@ def _restore_nodes(base: dict[str, Any], mismatched: list[str]) -> list[str]:
 
     restored: list[str] = []
     roots: set[str] = set()
-    for path in mismatched:
-        nodes = os.path.dirname(path)
-        root = os.path.dirname(nodes)
-        node_id = os.path.basename(path)[: -len(".json")]
+    for path, root, node_id in findings:
         roots.add(root)
+        if node_id is None:
+            continue
+        nodes = os.path.join(root, "nodes")
+        if not os.path.lexists(nodes):
+            # The whole directory was removed: made again as the store makes it, so
+            # each file can be rebuilt.
+            try:
+                os.mkdir(nodes)
+            except OSError:
+                continue
+        # Held again just before the write: the root where the first check found it, and
+        # no link in the node directory's place. What changes between these lines and the
+        # write is the residual.
+        moved = os.path.realpath(root) != base.get("node_roots", {}).get(root)
+        if moved or os.path.islink(nodes) or _node_path(root, node_id) != path:
+            continue
         for _ in range(_REBUILD_ATTEMPTS):
             head = heads(root).get(node_id)
             if head is None:
@@ -638,8 +733,9 @@ def check(hook_input: InputView, config: ConfigView) -> Decision:
         put_back, failed = _revert(base, state)
         journals_put_back, appended = _check_journals(base, state)
         put_back += journals_put_back
-        mismatched = _check_nodes(base)
-        restored = _restore_nodes(base, mismatched) if mismatched else []
+        node_findings = _check_nodes(base)
+        mismatched = [path for path, _root, _node in node_findings]
+        restored = _restore_nodes(base, node_findings) if node_findings else []
         logged = _check_logged(base, config)
         # The withheld-file tripwire runs after everything above has been put back, so
         # finding something there never costs a put-back; it adds a halt of its own.
@@ -663,14 +759,16 @@ def check(hook_input: InputView, config: ConfigView) -> Decision:
         _event(config, hook_input, "changed", logged)
     if unsure:
         _event(config, hook_input, "withheld", unsure)
+    # Every action taken is on record before any refusal is chosen: a halt for one
+    # fault may not hide another fault's put-back from the log.
+    if put_back:
+        _event(config, hook_input, "put back", put_back)
     if failed:
         _event(config, hook_input, "unrestorable", failed)
         return refuse(UNRESTORABLE.format(paths=", ".join(failed)))
     if mismatched:
         _event(config, hook_input, "node mismatch", mismatched, {"restored": restored})
         return refuse(NODE_MISMATCH.format(paths=", ".join(mismatched)))
-    if put_back:
-        _event(config, hook_input, "put back", put_back)
     if unsure:
         return refuse(LINKED.format(paths=", ".join(unsure)))
     if put_back:

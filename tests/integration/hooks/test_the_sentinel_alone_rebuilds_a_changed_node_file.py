@@ -97,3 +97,28 @@ def test_with_the_parser_off_a_rewritten_node_file_is_rebuilt_from_the_journal(
     assert events[0]["restored"] == [str(tmp_path / NODE)]
     assert [e for e in run.hook_log if e.get("hook") == "shell_paths"] == []
     assert sentinel.NODE_MISMATCH.split("{paths}")[0] in run.told_after(1)
+
+
+def test_with_the_parser_off_a_deleted_node_file_is_rebuilt_from_the_journal(
+    tmp_path: Path,
+) -> None:
+    # A node file the journal names and the session removed: the sentinel finds it
+    # missing, writes the journal's version back, and the session stays halted.
+    run = _run(tmp_path, f"rm ../{NODE} && echo ran > ran.txt")
+    assert (run.worktree / "ran.txt").read_text() == "ran\n", "the command did not run"
+    store = tmp_path / "outside" / "store"
+    (rev, version, payload) = heads(str(store))["electrical.motor"]
+    assert (tmp_path / NODE).read_bytes() == node_file_body(rev, version, payload).encode()
+    reopened = Store(store)
+    try:
+        assert reopened.repaired_node_files == 0, "the session left the node file missing"
+        assert reopened.read_node("electrical.motor") == _node()
+    finally:
+        reopened.close()
+    events = [e for e in run.hook_log if e.get("hook") == "sentinel"]
+    decisions = [e["decision"] for e in events]
+    assert decisions[:2] == ["node mismatch", "refuse"], run.hook_log
+    assert set(decisions[2:]) <= {"refuse"}, run.hook_log
+    assert events[0]["paths"] == [str(tmp_path / NODE)]
+    assert events[0]["restored"] == [str(tmp_path / NODE)]
+    assert sentinel.NODE_MISMATCH.split("{paths}")[0] in run.told_after(1)

@@ -551,6 +551,14 @@ class OsLayerChecked(_Event):
     #: ``False`` records "network: none requested, not enforceable here", since only the
     #: OS layer refuses a shell remote hosts. ``None`` for ``open``, and on a line written before.
     network_enforced: bool | None = None
+    #: For a run that asks for ``network: none``: the TCP ports listening where the
+    #: machine's loopback reaches them, at this check. The layer keeps an offline session
+    #: from them; this says what was there. ``None`` for ``open``, where it was not read,
+    #: and on a line written before.
+    loopback_listeners: tuple[int, ...] | None = None
+    #: Whether that listing was read: ``False`` when it could not be, which is never
+    #: taken for "nothing listens". ``None`` for ``open``, and on a line written before.
+    loopback_listeners_read: bool | None = None
 
 
 class LeftoverStopped(_Event):

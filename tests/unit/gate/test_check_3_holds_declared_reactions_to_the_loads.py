@@ -80,6 +80,7 @@ def test_a_cantilever_declaring_no_moment_reaction_is_refused_with_reactions_and
     assert finding.outcome == "fail" and finding.node == MOUNT
     details = finding.details
     assert isinstance(details, EquilibriumDetails)
+    assert details.residual_moment is not None
     assert details.residual_moment.value == pytest.approx(-0.980665)
     assert details.residual_force.value == 0
     (solved,) = details.solved
@@ -373,6 +374,7 @@ def test_all_the_weight_on_the_far_standoff_is_refused_wherever_the_plate_sits(
     (finding,) = ran.observations
     assert finding.outcome == "fail" and "do not balance" in finding.message
     assert isinstance(finding.details, EquilibriumDetails)
+    assert finding.details.residual_moment is not None
     assert finding.details.residual_moment.value == pytest.approx(-1.96133)
 
 
@@ -468,6 +470,7 @@ def test_a_mount_whose_moments_hold_about_its_one_support_but_forces_miss_is_ref
     ran = check(tmp_path, support("bearing", 0, 5, moment=0), load("wheel", 0, 1))
     (finding,) = ran.observations
     assert isinstance(finding.details, EquilibriumDetails)
+    assert finding.details.residual_moment is not None
     assert finding.details.residual_moment.value == 0
     assert finding.details.residual_force.value == pytest.approx(5 - 9.80665)
 
@@ -501,6 +504,7 @@ def test_a_far_support_carrying_nothing_does_not_widen_the_allowance(tmp_path: P
     (finding,) = ran.observations
     assert finding.outcome == "fail" and "do not balance" in finding.message
     assert isinstance(finding.details, EquilibriumDetails)
+    assert finding.details.residual_moment is not None
     assert abs(finding.details.residual_moment.value) == pytest.approx(1.96133)
 
 
