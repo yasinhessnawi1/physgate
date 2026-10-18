@@ -156,10 +156,11 @@ def _process_cap(limits: EmulatorLimits) -> tuple[list[str], str]:
         "--quiet",
         "--collect",
         "-p",
-        f"TasksMax={limits.tasks}",
+        f"TasksMax={RUNTIME_TASKS + limits.tasks}",
         "--",
     ]
-    return wrapper, f"TasksMax={limits.tasks}"
+    total = RUNTIME_TASKS + limits.tasks
+    return wrapper, f"TasksMax={total} ({limits.tasks} above the runtime's {RUNTIME_TASKS})"
 
 
 @contextlib.contextmanager
