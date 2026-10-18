@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from physgate.gate.catalogue import kind_of
+from physgate.gate.catalogue import inferred_by, kind_of
 from physgate.gate.context import CheckContext
 from physgate.gate.graph import GraphView
 from physgate.gate.relations import Factor, Instance, Product, Scaled, instances, touching
@@ -146,11 +146,14 @@ def run(ctx: CheckContext) -> CheckRun:
     refused: set[tuple[str, str]] = set()
     evaluated = 0
     for node_id in own:
-        unknown = []
+        unknown: list[str] = []
+        inferred: list[str] = []
         for name, q in view.nodes[node_id].quantities.items():
             evaluated += 1
             if kind_of(name) is None:
                 unknown.append(name)
+            elif inferred_by(name) is not None:
+                inferred.append(name)
             try:
                 parse(q.value, q.unit)
             except UnitRefusedError as exc:
@@ -172,6 +175,28 @@ def run(ctx: CheckContext) -> CheckRun:
                         "magnitudes looked up, and no relation or kind was checked"
                     ),
                     details=UncheckedDetails(quantities=tuple(sorted(unknown))),
+                )
+            )
+        if inferred:
+            rules = ", ".join(
+                f"{name} by {suffix.suffix}"
+                for name in sorted(inferred)
+                if (suffix := inferred_by(name)) is not None
+            )
+            observations.append(
+                Observation(
+                    outcome="unchecked",
+                    node=node_id,
+                    module=view.module_of(node_id),
+                    value=None,
+                    expected=None,
+                    message=(
+                        f"{node_id} carries quantities the gate's catalogue does not know, "
+                        f"whose kind their suffix gives ({rules}): their unit's dimension and "
+                        "their sign were checked by that kind, and no relation forms from them "
+                        "and no range applies to them by name"
+                    ),
+                    details=UncheckedDetails(quantities=tuple(sorted(inferred))),
                 )
             )
     for instance in touching(instances(view), own):
@@ -208,19 +233,23 @@ def run(ctx: CheckContext) -> CheckRun:
             kind = kind_of(name)
             if kind is None or (node_id, name) in refused:
                 continue
+            suffix = inferred_by(name)
+            by = f" (the kind the suffix {suffix.suffix} gives the name)" if suffix else ""
             try:
                 measure(kind, q.value, q.unit)
             except PINT_ERRORS as exc:
                 observations.append(
-                    _quantity_finding(view, node_id, name, pint_message(exc), kind.canonical)
+                    _quantity_finding(view, node_id, name, pint_message(exc) + by, kind.canonical)
                 )
             except SignRefusedError as exc:
                 observations.append(
-                    _quantity_finding(view, node_id, name, str(exc), kind.canonical, exc.wanted)
+                    _quantity_finding(
+                        view, node_id, name, str(exc) + by, kind.canonical, exc.wanted
+                    )
                 )
             except UnitRefusedError as exc:
                 observations.append(
-                    _quantity_finding(view, node_id, name, str(exc), kind.canonical)
+                    _quantity_finding(view, node_id, name, str(exc) + by, kind.canonical)
                 )
     return CheckRun(tool=TOOL, evaluated=evaluated, observations=tuple(observations))
 

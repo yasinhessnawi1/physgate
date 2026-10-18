@@ -11,9 +11,10 @@ cannot weaken one from inside a session. The catalogue says
   constrain it, a module's mass against its members, a component's temperature
   against its limit.
 
-A quantity whose name is not here is checked for a unit that parses and nothing
-else, and every gate run records it as unchecked. Coverage is a number, not an
-assumption.
+A quantity whose name is not here is checked for a unit that parses and, where its
+name ends in a word with one SI meaning (``SUFFIXES``), for that word's dimension
+and sign; nothing else, and every gate run records it as unchecked. Coverage is a
+number, not an assumption.
 
 Every kind, every name and every relation names its source. An entry without one
 fails when this module is imported, so a gate with an unsourced entry cannot be
@@ -397,10 +398,79 @@ SOURCES: Mapping[str, str] = MappingProxyType(
 )
 
 
+class Suffix(_Frozen):
+    """A word that ends a quantity name and has one SI meaning, so it fixes the name's kind."""
+
+    suffix: _Text
+    kind: _Text
+    source: _Text
+
+
+SUFFIX_RULE = (
+    "a closed list, 18.10.2026: a name the catalogue lacks whose last word has one SI "
+    "dimension (the dimension of the word's quantity in the SI brochure, 9th edition, "
+    "2019, section 2.3) is held to that dimension and sign and to nothing else; a word "
+    "with more than one meaning (_rate, _speed, _power, _ratio, _capacity, _resistance, "
+    "_limit, _draw) is not here"
+)
+
+
+def _suffixes(*suffixes: Suffix) -> tuple[Suffix, ...]:
+    for s in suffixes:
+        if s.kind not in KINDS:
+            msg = f"the suffix {s.suffix!r} names an unknown kind {s.kind!r}"
+            raise ValueError(msg)
+    return suffixes
+
+
+#: Each suffix is written with its leading underscore: the word must end the name and
+#: be a whole word of it. Longer suffixes are matched first (``_current_draw`` before
+#: ``_current``). The suffix alone is not a name.
+SUFFIXES: tuple[Suffix, ...] = _suffixes(
+    Suffix(suffix="_current", kind="current", source=SUFFIX_RULE),
+    Suffix(suffix="_current_draw", kind="current", source=SUFFIX_RULE),
+    Suffix(suffix="_voltage", kind="voltage", source=SUFFIX_RULE),
+    Suffix(suffix="_mass", kind="mass", source=SUFFIX_RULE),
+    Suffix(suffix="_force", kind="force", source=SUFFIX_RULE),
+    Suffix(suffix="_torque", kind="torque", source=SUFFIX_RULE),
+    Suffix(suffix="_energy", kind="energy", source=SUFFIX_RULE),
+    Suffix(suffix="_frequency", kind="frequency", source=SUFFIX_RULE),
+    Suffix(suffix="_temperature", kind="temperature", source=SUFFIX_RULE),
+    Suffix(suffix="_position", kind="length", source=SUFFIX_RULE),
+    Suffix(suffix="_length", kind="length", source=SUFFIX_RULE),
+    Suffix(suffix="_diameter", kind="length", source=SUFFIX_RULE),
+    Suffix(suffix="_radius", kind="length", source=SUFFIX_RULE),
+    Suffix(suffix="_height", kind="length", source=SUFFIX_RULE),
+    Suffix(suffix="_width", kind="length", source=SUFFIX_RULE),
+    Suffix(suffix="_thickness", kind="length", source=SUFFIX_RULE),
+    Suffix(suffix="_power_draw", kind="power", source=SUFFIX_RULE),
+)
+
+
+def inferred_by(name: str) -> Suffix | None:
+    """The suffix that gives an uncatalogued ``name`` its kind, or ``None``.
+
+    A catalogued name is never inferred: its entry says what it is. The suffix must end
+    the name and leave something before it, so the bare word is not a name.
+    """
+    if name in QUANTITIES:
+        return None
+    for suffix in sorted(SUFFIXES, key=lambda s: -len(s.suffix)):
+        if name.endswith(suffix.suffix) and len(name) > len(suffix.suffix):
+            return suffix
+    return None
+
+
 def kind_of(name: str) -> Kind | None:
-    """The kind of the quantity called ``name``, or ``None`` if the catalogue does not know it."""
+    """The kind of the quantity called ``name``: its catalogue entry's, else its suffix's.
+
+    ``None`` if the catalogue does not know the name and no suffix gives it a kind.
+    """
     entry = QUANTITIES.get(name)
-    return KINDS[entry.kind] if entry is not None else None
+    if entry is not None:
+        return KINDS[entry.kind]
+    suffix = inferred_by(name)
+    return KINDS[suffix.kind] if suffix is not None else None
 
 
 def catalogue_digest() -> str:
@@ -418,6 +488,7 @@ def catalogue_digest() -> str:
         "products": sorted([*pair, kind] for pair, kind in PRODUCTS.items()),
         "sources": sorted(SOURCES.items()),
         "store_classes": [c.model_dump() for c in STORE_CLASSES],
+        "suffixes": [s.model_dump() for s in SUFFIXES],
     }
     canonical = json.dumps(content, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest()
