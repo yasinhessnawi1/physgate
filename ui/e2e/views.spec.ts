@@ -222,6 +222,7 @@ test("no screen over any recorded run shows a terminal command", async ({ page, 
     "/orchestration/run-timeline",
     "/orchestration/gate-checks",
     "/collaboration/approval-queue",
+    "/reference/glossary",
   ];
   for (const run of listed.runs) {
     for (const view of views) {
