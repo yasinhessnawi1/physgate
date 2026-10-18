@@ -58,8 +58,10 @@ export function QueueItem({
         <dl className="pg-facts">
           <dt>Why you are asked</dt>
           <dd>
-            {words.why}
-            <Id value={item.source} copy={false} />
+            {words.why}{" "}
+            <span className="pg-block">
+              <Id value={item.source} copy={false} />
+            </span>
           </dd>
           <dt>What it is about</dt>
           <dd>

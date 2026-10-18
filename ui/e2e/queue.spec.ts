@@ -177,11 +177,12 @@ test("a page opened without the operator's address can only read, and says how t
   await open(page, "light", "run-esc-view", false);
   await expect(page.locator(".pg-queue-actions > .pg-btn-act")).toBeDisabled();
   await expect(page.locator(".pg-queue-actions > .pg-btn-reject")).toBeDisabled();
-  await expect(
-    page
-      .getByText("This page was opened without the operator's address, so it can only read.")
-      .first(),
-  ).toBeVisible();
+  await expect(page.locator(".pg-queue-why-not")).toContainText(
+    "This page was opened without the operator's address, so it can only read.",
+  );
+  await expect(page.locator(".pg-queue-actions > .pg-btn-act")).toHaveAccessibleDescription(
+    /opened without the operator's address/,
+  );
   // The page any local client can fetch carries no token, and neither does any response here.
   const index = await (await page.request.get(`${ORIGIN}/`)).text();
   const token = new URL(operatorUrl()).hash.replace("#act=", "");

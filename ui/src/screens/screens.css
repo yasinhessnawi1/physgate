@@ -778,3 +778,17 @@
 .pg-glossary-entry dd {
   margin: 0;
 }
+
+.pg-block {
+  display: block;
+}
+
+/* Each act button keeps its reason as its description; the screen says it once, under both. */
+.pg-queue-actions .pg-act-reason {
+  display: none;
+}
+
+.pg-queue-why-not {
+  margin: 0;
+  color: var(--color-text-2);
+}

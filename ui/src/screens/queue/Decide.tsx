@@ -113,6 +113,7 @@ export function Decide({
           }}
         />
       </div>
+      {why !== null && <p className="pg-queue-why-not">{why}</p>}
       <p className="pg-panel-note">
         {DECISION_COPY.reasonRule} {DECISION_COPY.setAside}
       </p>
