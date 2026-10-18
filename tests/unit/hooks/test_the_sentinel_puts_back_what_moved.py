@@ -573,6 +573,71 @@ def test_the_rebuild_writes_nothing_through_a_nodes_directory_that_became_a_link
     assert list(elsewhere.iterdir()) == []
 
 
+def test_a_fifo_fed_the_journal_s_own_bytes_is_still_a_finding(root: Path) -> None:
+    # A FIFO kept open by a writer that holds exactly the bytes the journal implies
+    # would read as a matching node file: only a regular file is a node file.
+    _started(root)
+    want = (root / NODE).read_bytes()
+    (root / NODE).unlink()
+    os.mkfifo(root / NODE)
+    writer = os.open(root / NODE, os.O_RDWR | os.O_NONBLOCK)
+    try:
+        os.write(writer, want)
+        assert "does not hold what the journal says" in _check(root)
+    finally:
+        os.close(writer)
+    assert (root / NODE).is_file() and (root / NODE).read_bytes() == want
+
+
+def _spy_on_the_store_write(monkeypatch: pytest.MonkeyPatch) -> list[tuple[object, ...]]:
+    from physgate.state import store as store_module
+
+    calls: list[tuple[object, ...]] = []
+    monkeypatch.setattr(store_module, "write_node_file", lambda *a: calls.append(a))
+    return calls
+
+
+def test_the_rebuild_itself_never_calls_the_write_through_a_linked_nodes_directory(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The rebuild's own guard, apart from the store write's: with the write stood in
+    # for by one that would follow anything, it is still never called through a link.
+    _started(root)
+    store, nodes = root / "store", root / "store" / "nodes"
+    elsewhere = root / "outside" / "elsewhere"
+    elsewhere.mkdir()
+    for path in nodes.iterdir():
+        path.unlink()
+    nodes.rmdir()
+    nodes.symlink_to(elsewhere)
+    calls = _spy_on_the_store_write(monkeypatch)
+    base = {
+        "nodes": {str(store): {"sigs": {}, "revs": {}}},
+        "node_roots": {str(store): os.path.realpath(store)},
+    }
+    finding = (str(nodes / "electrical.motor.json"), str(store), "electrical.motor")
+    assert sentinel._restore_nodes(base, [finding]) == []
+    assert calls == []
+
+
+def test_the_rebuild_writes_nothing_once_the_root_resolves_elsewhere(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The root is held again just before the write: one that moved since the check
+    # (here, recorded as elsewhere) gets no write at all.
+    _started(root)
+    store = root / "store"
+    (store / "nodes" / "electrical.motor.json").unlink()
+    calls = _spy_on_the_store_write(monkeypatch)
+    base = {
+        "nodes": {str(store): {"sigs": {}, "revs": {}}},
+        "node_roots": {str(store): str(root / "outside" / "where-it-was")},
+    }
+    finding = (str(store / "nodes" / "electrical.motor.json"), str(store), "electrical.motor")
+    assert sentinel._restore_nodes(base, [finding]) == []
+    assert calls == []
+
+
 def test_the_orchestrators_legitimate_write_is_not_a_finding(root: Path) -> None:
     _started(root)
     make_store(root / "store", node(quantities={}))
