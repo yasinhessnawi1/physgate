@@ -49,14 +49,16 @@ describe("no private vocabulary reaches the UI", () => {
   });
 
   it("would find each kind", () => {
+    // Each planted string is built at run time from parts, so no literal id sits in this file.
+    const id = (...parts: string[]) => parts.join("-");
     for (const planted of [
-      "see D-ARK-45",
-      "D-UX1-3",
-      "in .docs/specs",
-      "spec_UX1",
-      "UX2 adds it",
-      "M-96",
-      "T4.3-S07",
+      `see ${id("D", "QQQ", "0")}`,
+      id("D", "QQ9", "0"),
+      ["in .", "docs/specs"].join(""),
+      ["spec", "Q9"].join("_"),
+      ["U", "X0 adds it"].join(""),
+      id("M", "00"),
+      ["T4", "0-S00"].join("."),
     ])
       expect(PRIVATE_WORDS.some((w) => w.test(planted))).toBe(true);
   });

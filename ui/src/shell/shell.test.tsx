@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { act, useEffect } from "react";
-import { createRoot } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { OsLayer } from "../design/components/system/OsLayerBadge";
@@ -13,11 +13,27 @@ import { Shell } from "./Shell";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+/** Every root a test mounts, unmounted after it so no React work outlives the test's window. */
+const roots: Root[] = [];
+
 beforeEach(() => {
   window.localStorage.clear();
+  // No server answers here: every read is refused at once, so none is still pending at teardown.
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ error: "no server in this test" }), { status: 503 }),
+      ),
+    ),
+  );
 });
 
 afterEach(() => {
+  act(() => {
+    for (const root of roots.splice(0)) root.unmount();
+  });
+  vi.unstubAllGlobals();
   document.body.innerHTML = "";
   document.head.innerHTML = "";
   window.location.hash = "";
@@ -27,8 +43,10 @@ afterEach(() => {
 function mount(views: readonly ViewDef[] = []) {
   const host = document.createElement("div");
   document.body.append(host);
+  const root = createRoot(host);
+  roots.push(root);
   act(() => {
-    createRoot(host).render(<Shell views={views} />);
+    root.render(<Shell views={views} />);
   });
   return host;
 }
