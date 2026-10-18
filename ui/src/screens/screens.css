@@ -801,7 +801,8 @@
 }
 
 .pg-unchecked-name {
-  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: keep-all;
 }
 
 /* A node's verdict that covers part of the node says so beside the badge. */

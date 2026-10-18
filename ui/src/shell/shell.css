@@ -530,20 +530,30 @@
   white-space: nowrap;
 }
 
-/* The skip link is the first tab stop; it is drawn only while it has the keyboard's focus. */
+/* The skip link is the first tab stop. Until it has the keyboard's focus it takes no space at all,
+   so nothing is drawn; focused, it is a control of a full hit area at the top of the page. */
 .pg-skip-link {
   position: absolute;
   top: var(--space-2);
   left: var(--space-2);
   z-index: 40;
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  width: 0;
+  height: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
   border-radius: var(--radius-badge);
   background: var(--color-surface);
   color: var(--color-text);
-  transform: translateY(-200%);
 }
 
 .pg-skip-link:focus-visible {
-  transform: none;
+  width: auto;
+  height: auto;
+  min-width: 44px;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-border);
 }
