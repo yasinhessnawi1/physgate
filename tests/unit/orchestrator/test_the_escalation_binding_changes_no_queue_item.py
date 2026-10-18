@@ -12,8 +12,10 @@ queue and its decisions, the graph journal and the trees of every commit, normal
 as an exact rerun comparison normalises them. Two things are set aside, and only
 these: the sequence number of an event line, since a line the interface adds moves
 every later one; and the lines and fields named below, each added on purpose after
-the golden file was written. Anything else that differs is a change in what the loop
-did.
+the golden file was written. The real gate's own records are compared as the gate now
+writes them: where the gate's coverage changed after the golden file was written, the
+recorded result is rewritten by the one rule that change states (``_as_the_gate_now_judges``),
+and nothing else in it. Anything else that differs is a change in what the loop did.
 """
 
 from __future__ import annotations
@@ -32,7 +34,9 @@ from escalation_paths import (
     records,
     scenario_names,
 )
+from stand_in_drive_plan import DRIVE_MODULE
 
+from physgate.gate.catalogue import catalogue_digest
 from physgate.orchestrator import decompose
 
 #: Event kinds the escalation interface writes, absent from the golden file by
@@ -76,6 +80,56 @@ def _runs_as_the_golden_file_was_recorded(monkeypatch: pytest.MonkeyPatch) -> No
     about the runs is changed, and they are compared exactly as before.
     """
     monkeypatch.setattr(decompose, "series_library", dict)
+
+
+#: The stand-in plan's nodes that declare a stall current.
+STALLING = frozenset(n["id"] for n in DRIVE_MODULE if "stall_current" in n["quantities"])
+
+
+def _as_the_gate_now_judges(event: dict[str, Any]) -> dict[str, Any]:
+    """A recorded gate result as the gate's later coverage rules write it, and nothing else.
+
+    Three things changed after the golden file was written, all in the gate: its catalogue
+    (so its digest); the stall-current headroom, which the unit check recorded as a relation
+    no check judged and the power check now judges (the plan's motors fit their driver, so
+    it writes nothing); and the stall current's magnitude range, which no longer exists, so
+    each motor's stall current joins the quantities with no range and leaves the count of
+    those evaluated.
+    """
+    if event.get("kind") not in ("gate_ran", "integration_gate_ran"):
+        return event
+    result = {**event["result"], "catalogue_sha256": catalogue_digest()}
+    checks: list[dict[str, Any]] = []
+    for record in result["checks"]:
+        if record["name"] == "units" and "is not one of the gate's checks" in record["message"]:
+            continue
+        unranged = record["name"] == "magnitude" and record["outcome"] == "unchecked"
+        if unranged and record["node"] in STALLING:
+            names = sorted({*record["details"]["quantities"], "stall_current"})
+            record = {
+                **record,
+                "details": {**record["details"], "quantities": names},
+                "message": f"{', '.join(names)} of {record['node']} have no sourced range "
+                "for their domain",
+            }
+        checks.append(record)
+    for k, record in enumerate(checks):
+        if record["name"] == "magnitude" and record["outcome"] == "pass":
+            moved = sum(
+                1
+                for r in checks
+                if r["name"] == "magnitude"
+                and r["outcome"] == "unchecked"
+                and r["node"] in STALLING
+                and r["scope"] == record["scope"]
+            )
+            count = record["details"]["evaluated"] - moved
+            checks[k] = {
+                **record,
+                "details": {**record["details"], "evaluated": count},
+                "message": f"the magnitude check found nothing wrong ({count} evaluated)",
+            }
+    return {**event, "result": {**result, "checks": checks}}
 
 
 def _golden() -> dict[str, dict[str, list[Any]]]:
@@ -148,7 +202,11 @@ def test_the_real_gate_s_three_modes_reach_the_queue_exactly_as_before(tmp_path:
     assert len(built) == len(MODES)
     for run_dir in built:
         name = f"real_gate_three_modes/{run_dir.name.removeprefix('drive-')}"
-        assert differences(comparable(golden[name]), comparable(records(run_dir))) == [], name
+        recorded = {
+            **golden[name],
+            "events": [_as_the_gate_now_judges(e) for e in golden[name]["events"]],
+        }
+        assert differences(comparable(recorded), comparable(records(run_dir))) == [], name
 
 
 def test_the_comparison_sees_one_changed_queue_item_and_one_extra_event() -> None:

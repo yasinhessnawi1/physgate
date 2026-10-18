@@ -82,8 +82,8 @@ def test_check_1_records_the_refusal_and_never_asks_the_registry(
 def test_check_2_leaves_the_quantity_to_check_1_and_never_asks_the_registry(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unit: str
 ) -> None:
-    motor = node("electrical.motor_left", quantities={"stall_current": (2.4, unit)})
-    ctx = _context(tmp_path, motor)
+    imu = node("electrical.imu", quantities={"sample_rate": (50, unit)})
+    ctx = _context(tmp_path, imu)
     registry = _stubbed(monkeypatch)
     ran = check_magnitude.run(ctx)
     assert [o.outcome for o in ran.observations] == ["unchecked"]

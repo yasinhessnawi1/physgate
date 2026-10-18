@@ -25,8 +25,12 @@ from physgate.orchestrator.protocols import MagnitudeDetails, UncheckedDetails
 TABLE = KNOWLEDGE_DIR / "electrical" / BOUNDS_NAME
 
 
-def motor(value: float | int, unit: str = "A", domain: str = "electrical") -> dict[str, Any]:
-    return node(f"{domain}.motor_left", domain=domain, quantities={"stall_current": (value, unit)})
+def imu(value: float | int, unit: str = "Hz", domain: str = "electrical") -> dict[str, Any]:
+    return node(f"{domain}.imu", domain=domain, quantities={"sample_rate": (value, unit)})
+
+
+def motor(value: float | int, unit: str = "A") -> dict[str, Any]:
+    return node("electrical.motor_left", quantities={"stall_current": (value, unit)})
 
 
 def check(tmp_path: Path, *payloads: dict[str, Any], bounds_dir: Path = KNOWLEDGE_DIR) -> Any:
@@ -36,62 +40,85 @@ def check(tmp_path: Path, *payloads: dict[str, Any], bounds_dir: Path = KNOWLEDG
     return check_magnitude.run(ctx)
 
 
-def test_a_stall_current_of_240_amperes_on_a_hobby_motor_is_refused_with_its_range_and_source(
+def test_an_imu_sampled_at_50_kilohertz_is_refused_with_its_range_and_source(
     tmp_path: Path,
 ) -> None:
-    ran = check(tmp_path, motor(240))
+    ran = check(tmp_path, imu(50_000))
     (finding,) = ran.observations
-    assert finding.outcome == "fail" and finding.node == "electrical.motor_left"
+    assert finding.outcome == "fail" and finding.node == "electrical.imu"
     details = finding.details
     assert isinstance(details, MagnitudeDetails)
-    assert (details.value.value, details.value.unit) == (240, "A")
-    assert (details.low.value, details.high.value, details.high.unit) == (0.36, 6.5, "A")
-    assert "Pololu" in details.source
+    assert (details.value.value, details.value.unit) == (50_000, "Hz")
+    assert (details.low.value, details.high.value, details.high.unit) == (0.78, 32000, "Hz")
+    assert "ICM-42688-P" in details.source and "BMI270" in details.source
     assert details.table_sha256 == hashlib.sha256(TABLE.read_bytes()).hexdigest()
-    assert "brushed DC metal gearmotor" in finding.message
+    assert "MEMS inertial measurement unit" in finding.message
 
 
-def test_a_stall_current_of_2_4_amperes_passes(tmp_path: Path) -> None:
-    ran = check(tmp_path, motor(2.4))
+def test_an_imu_sampled_at_1_kilohertz_passes(tmp_path: Path) -> None:
+    ran = check(tmp_path, imu(1000))
     assert ran.observations == () and ran.evaluated == 1
 
 
+@pytest.mark.parametrize(
+    ("rate", "maker"), [(32_000, "TDK ICM-42688-P"), (1.6, "ST LSM6DSO"), (0.78, "Bosch BMI270")]
+)
+def test_a_rate_another_maker_s_imu_is_set_to_is_not_refused(
+    tmp_path: Path, rate: float, maker: str
+) -> None:
+    # One maker's register span refused these; each is a rate the named part can be set to.
+    assert check(tmp_path, imu(rate)).observations == (), maker
+
+
 def test_the_range_is_compared_after_unit_conversion(tmp_path: Path) -> None:
-    assert check(tmp_path / "a", motor(2400, "mA")).observations == ()
-    (finding,) = check(tmp_path / "b", motor(240000, "mA")).observations
+    assert check(tmp_path / "a", imu(32, "kHz")).observations == ()
+    (finding,) = check(tmp_path / "b", imu(50, "kHz")).observations
     assert finding.outcome == "fail"
 
 
 def test_the_bounds_are_exact_and_no_rounding_is_credited(tmp_path: Path) -> None:
-    assert check(tmp_path / "edge", motor(6.5)).observations == ()
-    (finding,) = check(tmp_path / "past", motor(6.5000001)).observations
+    assert check(tmp_path / "edge", imu(32_000)).observations == ()
+    (finding,) = check(tmp_path / "past", imu(32_000.001)).observations
     assert finding.outcome == "fail"
-    (below,) = check(tmp_path / "under", motor(0.3599999)).observations
+    (below,) = check(tmp_path / "under", imu(0.7799999)).observations
     assert below.outcome == "fail"
 
 
 def test_a_quantity_with_no_range_in_its_domain_is_unchecked_never_passed(tmp_path: Path) -> None:
-    ran = check(tmp_path, motor(240, domain="mechanical"))
+    ran = check(tmp_path, imu(50_000, domain="mechanical"))
     (record,) = ran.observations
     assert record.outcome == "unchecked" and ran.evaluated == 0
     assert isinstance(record.details, UncheckedDetails)
-    assert record.details.quantities == ("stall_current",)
+    assert record.details.quantities == ("sample_rate",)
+
+
+@pytest.mark.parametrize("amps", [0.05, 0.114, 6.0, 133, 483])
+def test_a_stall_current_has_no_range_so_no_legitimate_motor_is_refused_by_one(
+    tmp_path: Path, amps: float
+) -> None:
+    # From a coreless micro motor's 50 mA to a robot-competition motor's 483 A: no span
+    # holds every motor and tells anything, so a stall current is judged by its relation
+    # to its supply's current limit instead, and its magnitude is recorded as unchecked.
+    ran = check(tmp_path, motor(amps))
+    (record,) = ran.observations
+    assert record.outcome == "unchecked" and ran.evaluated == 0
+    assert "stall_current" not in load_bounds().tables["electrical"].ranges
 
 
 def test_the_range_comes_from_the_table_file_not_the_code(tmp_path: Path) -> None:
     widened = tmp_path / "tables"
     (widened / "electrical").mkdir(parents=True)
-    text = TABLE.read_text().replace("high = 6.5\n", "high = 300\n", 1)
+    text = TABLE.read_text().replace("high = 32000\n", "high = 60000\n", 1)
     assert text != TABLE.read_text()
     (widened / "electrical" / BOUNDS_NAME).write_text(text)
-    assert check(tmp_path / "g", motor(240), bounds_dir=widened).observations == ()
+    assert check(tmp_path / "g", imu(50_000), bounds_dir=widened).observations == ()
 
 
-def test_the_real_gate_refuses_240_amperes_at_subtask_scope(tmp_path: Path) -> None:
-    graph(tmp_path / "g", motor(240))
+def test_the_real_gate_refuses_50_kilohertz_at_subtask_scope(tmp_path: Path) -> None:
+    graph(tmp_path / "g", imu(50_000))
     result = PhysicsGate().run(GraphView.read(tmp_path / "g", 0), ["subtask"], "on")
     assert result.verdict == "fail" and result.failing_check == "magnitude"
-    assert result.numeric_output is not None and result.numeric_output.value == 240
+    assert result.numeric_output is not None and result.numeric_output.value == 50_000
 
 
 # --- the table: a range without a source does not load -------------------------------
