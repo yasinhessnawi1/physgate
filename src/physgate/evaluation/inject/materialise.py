@@ -23,6 +23,7 @@ message, so the same patch gives the same commit and the same files every time.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -51,6 +52,39 @@ JOURNAL_NAME = f"{DESIGN_DIRNAME}/journal.jsonl"
 NODES_PREFIX = f"{DESIGN_DIRNAME}/nodes/"
 #: The corpus's parts sheet, where a review's worktree holds it.
 PARTS_SHEET_NAME = "parts_sheet.json"
+#: What the account says of every revision's form, the same bytes for every artefact: a
+#: change to the design graph is judged as what it is, not as a whole implementation. A
+#: record a full implementation would carry was not written by it, and a review that
+#: holds the revision to such a record holds it to a duty it could not meet.
+ACCOUNT_FORM = (
+    "This revision is a proposed change to the design graph alone. Its work product is "
+    "the written values, each with its unit and its source, together with any "
+    "`no_change_justified` entry for a node it leaves as it was. It ran and wrote no "
+    "simulation, measurement, test, margin computation or timing budget: where a rubric "
+    "item asks for such a record, this revision did not write one.\n"
+)
+#: What the parts sheet does not give, listed from the sheet itself, so that a quantity
+#: the sheet lacks is read as absent by construction, never as an input the revision
+#: left out. The same bytes for every artefact of a corpus that carries the sheet.
+ACCOUNT_ABSENCES = (
+    "The parts sheet gives, for no part, a plant pole, a moment of inertia, a "
+    "centre-of-mass height, an actuator rate limit or slew rate, a disturbance magnitude, "
+    "a floor friction coefficient, a worst-case execution time, or a measured loop delay "
+    "or jitter. A quantity the parts sheet does not give is absent from the design by "
+    "construction, not a missing input of this revision.\n"
+)
+#: The precision the design's numbers are written to, as the authors' brief asks and as
+#: the source check and the gate's rounding allowance read them.
+ACCOUNT_PRECISION = (
+    "Numbers in the design are written to three significant figures. A number copied "
+    "from a row of the parts sheet is that row's number, converted only between units. A "
+    "derived number is the arithmetic of the rows its source cites, and it is that "
+    "arithmetic when the two agree within half a unit in the third significant figure.\n"
+)
+#: The three paragraphs' digest, pinned by a test and recorded on every run.
+ACCOUNT_SHA256 = hashlib.sha256(
+    (ACCOUNT_FORM + ACCOUNT_ABSENCES + ACCOUNT_PRECISION).encode()
+).hexdigest()
 #: Names that belong to a gate result or to the corpus. None may reach a reviewer.
 ANSWER_FIELDS: tuple[str, ...] = (
     "verdict",
@@ -210,6 +244,12 @@ def neutral_trajectory(nodes: tuple[dict[str, object], ...], *, parts_sheet: boo
             "and the address it was read from. A source written as `derived: [R1.03] * "
             "[R5.02]` is arithmetic over the rows it names.\n"
         )
+    # The revision's form, and with a sheet what it lacks and how its numbers are
+    # written: fixed bytes, so no item is told more than another.
+    parts.append(ACCOUNT_FORM)
+    if parts_sheet:
+        parts.append(ACCOUNT_ABSENCES)
+        parts.append(ACCOUNT_PRECISION)
     for payload in nodes:
         body = json.dumps(payload, indent=1, sort_keys=True)
         parts.append(f"## {payload['id']}\n\n```json\n{body}\n```\n")
