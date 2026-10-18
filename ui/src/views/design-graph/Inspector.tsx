@@ -1,12 +1,15 @@
-import { ScrollTable } from "../../design/components/ScrollTable";
+import { ScrollTable } from "../../design/components/layout/ScrollTable";
 import { useState } from "react";
+
+import { Button } from "../../design/components/actions/Button";
 
 import type { Result } from "../../api/client";
 import type { NodeHistory, NodeRecord, Writer } from "../../api/graph";
-import { DomainChip } from "../../design/components/GraphCanvas";
-import { Quantity } from "../../design/components/Quantity";
-import { type Source, SourceChip, sourceAttribute } from "../../design/components/SourceChip";
-import { ErrorState, LoadingState } from "../../design/components/States";
+import { DomainChip } from "../../design/components/data/DomainChip";
+import { Quantity } from "../../design/components/data/Quantity";
+import { SourceChip } from "../../design/components/data/SourceChip";
+import { type Source, sourceAttribute } from "../../design/components/data/source";
+import { ErrorState, LoadingState } from "../../design/components/status/States";
 import { type EdgeEnd, edgesOf } from "./edges";
 
 /** How many quantities show before the rest are asked for. */
@@ -91,7 +94,7 @@ export function Inspector({
                   <tr key={name}>
                     <td>{name}</td>
                     <td className="numeric">
-                      <Quantity q={q} />
+                      <Quantity {...q} />
                     </td>
                   </tr>
                 ))}
@@ -100,15 +103,13 @@ export function Inspector({
           </ScrollTable>
         )}
         {node.quantities.length > FIRST_QUANTITIES && (
-          <button
-            type="button"
-            className="button button-browse"
+          <Button
             onClick={() => {
               setAll((a) => !a);
             }}
           >
             {all ? "Show fewer" : `Show all ${String(node.quantities.length)} quantities`}
-          </button>
+          </Button>
         )}
       </section>
 
@@ -143,7 +144,7 @@ export function Inspector({
         {history === null ? (
           <LoadingState reading="the node's history" />
         ) : !history.ok ? (
-          <ErrorState title="History: not shown" refusal={history.refusal} />
+          <ErrorState title="History: not shown" {...history.refusal} />
         ) : (
           <ol className="history">
             {[...history.value.history].reverse().map((entry, index, newestFirst) => {
@@ -167,7 +168,7 @@ export function Inspector({
           </ol>
         )}
       </section>
-      <SourceChip source={{ ...source, id: `${source.id} · journal r${String(node.revision)}` }} />
+      <SourceChip {...{ ...source, id: `${source.id} · journal r${String(node.revision)}` }} />
     </aside>
   );
 }

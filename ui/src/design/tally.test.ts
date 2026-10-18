@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import type { Verdict } from "./components/VerdictBadge";
+import type { Verdict } from "./components/verdict/verdict";
 import { evaluatedOf, tallyOf } from "./tally";
 
 const SRC = fileURLToPath(new URL("..", import.meta.url));

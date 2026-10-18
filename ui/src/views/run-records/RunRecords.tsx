@@ -21,18 +21,21 @@ import {
   runListing,
   sealedSessions,
 } from "../../api/records";
-import { Figure } from "../../design/components/Figure";
-import { GateModeBadge, GateOutcome } from "../../design/components/GateMode";
-import { GraphCanvas } from "../../design/components/GraphCanvas";
-import { Quantity } from "../../design/components/Quantity";
-import { type Source, SourceChip, sourceAttribute } from "../../design/components/SourceChip";
-import { EmptyState, ErrorState, LoadingState } from "../../design/components/States";
-import { Tally, VerdictBadge } from "../../design/components/VerdictBadge";
+import { Figure } from "../../design/components/data/Figure";
+import { GateModeBadge, GateOutcome } from "../../design/components/verdict/GateMode";
+import { GraphCanvas } from "../../design/components/graph/GraphCanvas";
+import { Quantity } from "../../design/components/data/Quantity";
+import { SourceChip } from "../../design/components/data/SourceChip";
+import { type Source, sourceAttribute } from "../../design/components/data/source";
+import { EmptyState, ErrorState, LoadingState } from "../../design/components/status/States";
+import { Tally } from "../../design/components/verdict/Tally";
+import { VerdictBadge } from "../../design/components/verdict/VerdictBadge";
 import { tallyOf } from "../../design/tally";
 import type { ViewProps } from "../../shell/header";
 import { CostCaveat } from "../common/cost";
 import { RunPicker } from "../common/runs";
 import { useResult } from "../common/useResult";
+import { NoRunsYet } from "./NoRunsYet";
 
 /** A card that shows its record, or the reading state, or the refusal, and nothing partial. */
 function Card<T>({
@@ -54,7 +57,7 @@ function Card<T>({
       ) : result.ok ? (
         children(result.value)
       ) : (
-        <ErrorState title={`${title}: not shown`} refusal={result.refusal} />
+        <ErrorState title={`${title}: not shown`} {...result.refusal} />
       )}
     </section>
   );
@@ -116,7 +119,7 @@ function RunView({ listing, config }: { listing: RunListing; config: RunConfig }
           <dt>Harness commit</dt>
           <dd className="mono">{config.harnessCommit ?? "no commit"}</dd>
         </dl>
-        <SourceChip source={source} />
+        <SourceChip {...source} />
       </section>
 
       <Card title="Task ledger" reading="ledger.jsonl" result={ledger}>
@@ -149,7 +152,7 @@ function RunView({ listing, config }: { listing: RunListing; config: RunConfig }
                   ))}
                 </tbody>
               </table>
-              <SourceChip source={source} />
+              <SourceChip {...source} />
             </>
           )
         }
@@ -169,7 +172,7 @@ function RunView({ listing, config }: { listing: RunListing; config: RunConfig }
               <p className="view-note" data-source={sourceAttribute(source)}>
                 View: counted from <span className="mono">{lines.length}</span> gate events.
               </p>
-              <Tally counts={counts} observed={config.gateMode === "observe"} />
+              <Tally {...counts} observed={config.gateMode === "observe"} />
               <table className="table">
                 <thead>
                   <tr>
@@ -193,7 +196,7 @@ function RunView({ listing, config }: { listing: RunListing; config: RunConfig }
                       <td>
                         <GateOutcome mode={line.mode} outcome={line.outcome} />
                       </td>
-                      <td>{line.value === null ? "—" : <Quantity q={line.value} />}</td>
+                      <td>{line.value === null ? "—" : <Quantity {...line.value} />}</td>
                       <td className="mono">{line.node ?? "—"}</td>
                       <td>
                         {line.reviewerHadPassed === null
@@ -206,7 +209,7 @@ function RunView({ listing, config }: { listing: RunListing; config: RunConfig }
                   ))}
                 </tbody>
               </table>
-              <SourceChip source={source} />
+              <SourceChip {...source} />
             </>
           );
         }}
@@ -222,7 +225,7 @@ function RunView({ listing, config }: { listing: RunListing; config: RunConfig }
                 Journal head revision <span className="mono">{record.headRevision}</span>.
               </p>
               <GraphCanvas
-                nodes={record.nodes}
+                nodes={record.nodes.map((node) => ({ ...node, label: node.id }))}
                 edges={record.nodes.flatMap((node) =>
                   node.constrains.map((to) => ({ from: node.id, to })),
                 )}
@@ -242,7 +245,7 @@ function RunView({ listing, config }: { listing: RunListing; config: RunConfig }
                         <td className="mono">{node.id}</td>
                         <td>{name}</td>
                         <td>
-                          <Figure q={q} source={source} />
+                          <Figure {...q} source={source} />
                         </td>
                       </tr>
                     )),
@@ -266,8 +269,8 @@ function RunView({ listing, config }: { listing: RunListing; config: RunConfig }
               <CostCaveat cost={line} />
             </p>
             <div className="figures">
-              <Figure q={line.usd} source={source} />
-              <Figure q={line.nok} source={source} />
+              <Figure {...line.usd} source={source} />
+              <Figure {...line.nok} source={source} />
             </div>
           </>
         )}
@@ -297,7 +300,7 @@ function RunView({ listing, config }: { listing: RunListing; config: RunConfig }
                       <td className="mono">{session.subtask}</td>
                       <td className="mono">{session.attempt}</td>
                       <td>
-                        <Figure q={session.length} source={source} />
+                        <Figure {...session.length} source={source} />
                       </td>
                     </tr>
                   ))}
@@ -340,14 +343,16 @@ export default function RunRecords({ setHeader, query }: ViewProps) {
     }
   }, [config, setHeader]);
   if (runs === null) return <LoadingState reading="the run list" />;
-  if (!runs.ok) return <ErrorState title="The run list was refused" refusal={runs.refusal} />;
-  if (runs.value.length === 0 || chosen === undefined) {
+  if (!runs.ok) return <ErrorState title="The run list was refused" {...runs.refusal} />;
+  if (runs.value.length === 0) return <NoRunsYet />;
+  if (chosen === undefined) {
     return (
-      <EmptyState title="No runs under the roots yet">
-        Runs appear here once a run directory exists under a root this server was started with.
-        Start one with <code className="mono">physgate decompose</code> and{" "}
-        <code className="mono">physgate run</code>.
-      </EmptyState>
+      <div className="run-records">
+        <RunPicker runs={runs.value} chosen={chosen} area="home" slug="run-records" />
+        <EmptyState title="No run here can be read">
+          Each run listed above says why it could not be read.
+        </EmptyState>
+      </div>
     );
   }
   return (
@@ -358,7 +363,7 @@ export default function RunRecords({ setHeader, query }: ViewProps) {
       ) : config.ok ? (
         <RunView key={configKey} listing={chosen} config={config.value} />
       ) : (
-        <ErrorState title="The run's configuration was refused" refusal={config.refusal} />
+        <ErrorState title="The run's configuration was refused" {...config.refusal} />
       )}
     </div>
   );

@@ -1,0 +1,56 @@
+/* The component gallery's own layout: groups of labelled rows. */
+.pg-gallery {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+
+/* Controls are spaced so no two 44 px hit areas overlap. */
+.pg-gallery-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.pg-gallery-title {
+  margin: 0;
+  font-size: var(--type-section-title-size);
+  line-height: var(--type-section-title-line);
+  font-weight: 600;
+}
+
+.pg-gallery-row {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.pg-gallery-label {
+  font-size: var(--type-label-size);
+  color: var(--color-text-2);
+}
+
+.pg-gallery-items {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-5);
+}
+
+.pg-gallery-stack,
+.pg-gallery-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* Terms one per line, far enough apart that their hit areas never overlap. */
+.pg-gallery-terms {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}

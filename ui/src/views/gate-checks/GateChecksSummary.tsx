@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
 
 import type { GateCheck } from "../../api/run";
-import { type GateMode, GateModeBadge } from "../../design/components/GateMode";
-import { type Source, SourceChip, sourceAttribute } from "../../design/components/SourceChip";
-import { EmptyState } from "../../design/components/States";
-import { Tally } from "../../design/components/VerdictBadge";
+import { type GateMode, GateModeBadge } from "../../design/components/verdict/GateMode";
+import { SourceChip } from "../../design/components/data/SourceChip";
+import { type Source, sourceAttribute } from "../../design/components/data/source";
+import { EmptyState } from "../../design/components/status/States";
+import { Tally } from "../../design/components/verdict/Tally";
 import { tallyOfChecks } from "../../design/tally";
 
 /**
@@ -32,9 +33,7 @@ export function GateChecksSummary({
           <h2 className="card-title">Gate checks</h2>
           <GateModeBadge mode={mode} />
         </div>
-        {checks.length > 0 && (
-          <Tally counts={tallyOfChecks(checks)} observed={mode === "observe"} />
-        )}
+        {checks.length > 0 && <Tally {...tallyOfChecks(checks)} observed={mode === "observe"} />}
       </div>
       {mode === "off" ? (
         <EmptyState title="The gate did not run">
@@ -56,7 +55,7 @@ export function GateChecksSummary({
         Source: gate events of {source.id}, manifest{" "}
         <span className="mono">{manifestId.slice(0, 8)}</span>
       </p>
-      <SourceChip source={source} />
+      <SourceChip {...source} />
     </section>
   );
 }

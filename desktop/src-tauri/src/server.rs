@@ -218,19 +218,14 @@ pub fn refusal_in(log: &str) -> Option<Refusal> {
     })
 }
 
-/// The last `n` lines of a log, for a page that says the server stopped.
-pub fn tail(log: &str, n: usize) -> String {
-    let lines: Vec<&str> = log.lines().collect();
-    lines[lines.len().saturating_sub(n)..].join("\n")
-}
-
 /// Why a start did not give an address.
 #[derive(Debug)]
 pub enum StartError {
     /// The checkout has no installed entry point.
     NoEntryPoint(PathBuf),
-    /// The server exited before announcing itself: its refusal if it wrote one, and its log's end.
-    Refused(Option<Refusal>, String),
+    /// The server exited before announcing itself, with its refusal if it wrote one. The rest
+    /// of what it wrote is in its log, which the menu opens.
+    Refused(Option<Refusal>),
     /// Something else went wrong: the program could not run, or it announced no usable address.
     Failed(String),
 }
@@ -299,7 +294,7 @@ impl Server {
             if let Ok(Some(_)) = child.try_wait() {
                 given_up(&mut child);
                 let text = fs::read_to_string(log).unwrap_or_default();
-                return Err(StartError::Refused(refusal_in(&text), tail(&text, 20)));
+                return Err(StartError::Refused(refusal_in(&text)));
             }
             if started.elapsed() > START_TIMEOUT {
                 given_up(&mut child);
@@ -496,12 +491,6 @@ mod tests {
             vec![("ui".to_string(), "/c/ui".to_string())]
         );
         assert!(refusal_in("127.0.0.1 - - \"GET / HTTP/1.1\" 200 -\n").is_none());
-    }
-
-    #[test]
-    fn the_tail_keeps_the_last_lines() {
-        assert_eq!(tail("a\nb\nc\n", 2), "b\nc");
-        assert_eq!(tail("a\n", 5), "a");
     }
 
     /// A made-up action token, put together so that no scanner takes it for a real one.

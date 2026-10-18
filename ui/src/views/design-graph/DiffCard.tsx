@@ -1,8 +1,9 @@
-import { ScrollTable } from "../../design/components/ScrollTable";
+import { ScrollTable } from "../../design/components/layout/ScrollTable";
 import type { GraphDiff } from "../../api/graph";
-import { Quantity } from "../../design/components/Quantity";
-import { type Source, SourceChip, sourceAttribute } from "../../design/components/SourceChip";
-import { EmptyState } from "../../design/components/States";
+import { Quantity } from "../../design/components/data/Quantity";
+import { SourceChip } from "../../design/components/data/SourceChip";
+import { type Source, sourceAttribute } from "../../design/components/data/source";
+import { EmptyState } from "../../design/components/status/States";
 import { quantityRows } from "./compare";
 
 /**
@@ -74,14 +75,14 @@ export function DiffCard({ diff, source }: { diff: GraphDiff; source: Source }) 
                           {row.before === undefined ? (
                             <span className="muted">absent</span>
                           ) : (
-                            <Quantity q={row.before} />
+                            <Quantity {...row.before} />
                           )}
                         </td>
                         <td>
                           {row.after === undefined ? (
                             <span className="muted">absent</span>
                           ) : (
-                            <Quantity q={row.after} />
+                            <Quantity {...row.after} />
                           )}
                         </td>
                         <td>{row.differs ? <span className="diff-mark">differs</span> : ""}</td>
@@ -105,7 +106,7 @@ export function DiffCard({ diff, source }: { diff: GraphDiff; source: Source }) 
           ))}
         </>
       )}
-      <SourceChip source={{ ...source, id: `${source.id} · journal ${range}` }} />
+      <SourceChip {...{ ...source, id: `${source.id} · journal ${range}` }} />
     </section>
   );
 }

@@ -95,17 +95,6 @@ fn check(root: &Path, meta: &fs::Metadata) -> Result<(), String> {
     Ok(())
 }
 
-/// Whether any of `folders` holds anything but hidden files: a run, or runs.
-pub fn has_runs(folders: &[PathBuf]) -> bool {
-    folders.iter().any(|folder| {
-        fs::read_dir(folder).is_ok_and(|entries| {
-            entries
-                .flatten()
-                .any(|e| !e.file_name().to_string_lossy().starts_with('.'))
-        })
-    })
-}
-
 /// A path as a person reads it: the home folder as `~`.
 pub fn shown(path: &Path) -> String {
     match path.strip_prefix(home()) {
@@ -198,19 +187,6 @@ mod tests {
         let root = dir.path().join("physgate-runs");
         fs::write(&root, "not a folder").unwrap();
         assert!(ensure(&root).unwrap_err().contains("is not a folder"));
-    }
-
-    #[test]
-    fn runs_are_seen_only_when_a_folder_holds_something() {
-        let dir = TestDir::new("root-runs");
-        let root = dir.path().join("physgate-runs");
-        fs::create_dir(&root).unwrap();
-        let folders = vec![root.clone(), dir.path().join("missing")];
-        assert!(!has_runs(&folders), "empty");
-        fs::write(root.join(".DS_Store"), "").unwrap();
-        assert!(!has_runs(&folders), "hidden files are not runs");
-        fs::create_dir(root.join("run-one")).unwrap();
-        assert!(has_runs(&folders));
     }
 
     #[test]

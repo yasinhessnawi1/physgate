@@ -1,5 +1,5 @@
 // The shell's own page. Everything it shows comes from its address's fragment, put there by
-// the shell as JSON; it is written as text, never as markup.
+// the shell as JSON: a title and plain sentences, written as text, never as markup.
 "use strict";
 
 function render() {
@@ -19,11 +19,6 @@ function render() {
       return p;
     }),
   );
-  for (const id of ["command", "detail"]) {
-    const el = document.getElementById(id);
-    el.textContent = state[id] || "";
-    el.hidden = !state[id];
-  }
 }
 
 window.addEventListener("hashchange", render);

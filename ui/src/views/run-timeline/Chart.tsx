@@ -1,10 +1,10 @@
-import { ScrollTable } from "../../design/components/ScrollTable";
+import { ScrollTable } from "../../design/components/layout/ScrollTable";
 import { useLayoutEffect, useRef } from "react";
 
 import type { StepTiming } from "../../api/run";
-import { Quantity } from "../../design/components/Quantity";
-import { type Source, sourceAttribute } from "../../design/components/SourceChip";
-import type { GateMode } from "../../design/components/GateMode";
+import { Quantity } from "../../design/components/data/Quantity";
+import { type Source, sourceAttribute } from "../../design/components/data/source";
+import type { GateMode } from "../../design/components/verdict/GateMode";
 import { at, type Lane, position } from "./model";
 
 /** A log timestamp as a clock time, to the millisecond, in UTC. */
@@ -175,7 +175,7 @@ export function StagesTable({ steps, source }: { steps: readonly StepTiming[]; s
                 <td>{step.stage}</td>
                 <td className="mono">{clock(step.entered)}</td>
                 <td className="numeric">
-                  <Quantity q={{ value: step.seconds, unit: "s" }} />
+                  <Quantity {...{ value: step.seconds, unit: "s" }} />
                 </td>
               </tr>
             ))}

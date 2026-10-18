@@ -3,8 +3,8 @@
 //! The shell writes a credential straight from where it arrives (the sign-in's output, or
 //! the key field) into the Keychain. It never writes one to a file, a log or the settings,
 //! and no command hands one back to a page. Each item is a generic password under the
-//! service `physgate`, with the account named after the variable a run reads it from, so
-//! the line that hands it to a run is obvious.
+//! service `physgate`, with the account named after the variable a run reads it from.
+//! No screen shows how to read one back: the app says only that a credential is kept.
 
 use security_framework::item::{ItemClass, ItemSearchOptions, Limit};
 use security_framework::passwords;
@@ -113,16 +113,6 @@ pub fn forget(secret: Secret) {
     let _ = passwords::delete_generic_password(&service(), secret.account());
 }
 
-/// The line that puts a credential into a Terminal session for a run. It names the item;
-/// it holds no secret, so it can be shown and copied.
-pub fn handover_line(secret: Secret) -> String {
-    format!(
-        "export {account}=\"$(security find-generic-password -s {service} -a {account} -w)\"",
-        account = secret.account(),
-        service = service()
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -140,16 +130,6 @@ mod tests {
         assert!(!Secret::ApiKey.plausible(&format!("sk-ant-api03-{}", "short")));
         assert!(!Secret::ApiKey.plausible(&format!("{key} trailing")));
         assert!(!Secret::ApiKey.plausible(&format!("{key}\n")));
-    }
-
-    #[test]
-    fn the_handover_line_names_the_item_and_holds_no_secret() {
-        let line = handover_line(Secret::SubscriptionToken);
-        assert!(
-            line.starts_with("export CLAUDE_CODE_OAUTH_TOKEN=\"$(security find-generic-password")
-        );
-        assert!(line.contains("-a CLAUDE_CODE_OAUTH_TOKEN -w"));
-        assert!(!line.contains("sk-ant-"));
     }
 
     #[test]

@@ -7,7 +7,7 @@
  * It counts records as the gate wrote them: one pass record per check and scope that ran, one
  * record per failing, warning or unchecked instance.
  */
-import type { Verdict } from "./components/VerdictBadge";
+import type { Verdict } from "./components/verdict/verdict";
 
 export interface TallyCounts {
   readonly pass: number;

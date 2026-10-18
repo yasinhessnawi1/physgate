@@ -7,8 +7,9 @@
 import type { ReactNode } from "react";
 
 import type { Decided, ItemView } from "../../api/queue";
-import { Quantity } from "../../design/components/Quantity";
-import { type Source, SourceChip, sourceAttribute } from "../../design/components/SourceChip";
+import { Quantity } from "../../design/components/data/Quantity";
+import { SourceChip } from "../../design/components/data/SourceChip";
+import { type Source, sourceAttribute } from "../../design/components/data/source";
 import { hrefFor } from "../../shell/route";
 import { SOURCE_LABEL, STATUS_SHOWN } from "./model";
 
@@ -49,7 +50,7 @@ export function ItemDetail({
         <div className="queue-chips">
           <span className="chip mono">{item.subtaskId}</span>
           <span className="chip">{SOURCE_LABEL[item.source]}</span>
-          <SourceChip source={source} />
+          <SourceChip {...source} />
         </div>
       </div>
       <Section title="Key quantities">
@@ -60,7 +61,7 @@ export function ItemDetail({
             {item.quantities.map((cited) => (
               <div key={`${cited.nodeId}/${cited.name}`} className="queue-quantity">
                 <span className="label">{cited.name}</span>
-                <Quantity q={cited.q} />
+                <Quantity {...cited.q} />
                 <span className="muted mono">{cited.nodeId}</span>
               </div>
             ))}

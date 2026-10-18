@@ -4,8 +4,8 @@
  * event lines the timeline names directly. Each guard checks the fields the views show. Every
  * number here is the server's: nothing is counted or summed in this module.
  */
-import type { GateMode } from "../design/components/GateMode";
-import type { Verdict } from "../design/components/VerdictBadge";
+import type { GateMode } from "../design/components/verdict/GateMode";
+import type { Verdict } from "../design/components/verdict/verdict";
 import type { Quantity } from "../design/quantity";
 import { requireQuantity } from "../design/quantity";
 import {

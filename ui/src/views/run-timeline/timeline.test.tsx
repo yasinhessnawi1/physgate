@@ -331,8 +331,8 @@ describe("the token figures are the account's, never a sum made here", () => {
   it("shows the total the account gave", () => {
     const html = renderToStaticMarkup(<TokensCard tokens={TOKENS} cost={null} source={SOURCE} />);
     const total = html.slice(html.indexOf("the run"));
-    expect(total).toContain('<span class="quantity-value">999</span>');
-    expect(total).toContain('<span class="quantity-value">777</span>');
+    expect(total).toContain('<span class="pg-quantity-value">999</span>');
+    expect(total).toContain('<span class="pg-quantity-value">777</span>');
     expect(html).toContain("all routing");
   });
 });

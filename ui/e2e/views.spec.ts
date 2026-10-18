@@ -3,7 +3,9 @@ import { expect, type Page, test } from "@playwright/test";
 
 import {
   bindingStylesHold,
+  hitAreasShort,
   cspViolations,
+  namesNoCommand,
   styles,
   THEMES,
   TRANSPARENT,
@@ -28,21 +30,19 @@ async function open(page: Page, theme: string, path: string) {
 
 async function common(page: Page, seen: Watch, shot: string) {
   const unsourced = await page
-    .locator(".quantity")
+    .locator(".pg-quantity")
     .evaluateAll((all) =>
       all.filter((q) => q.closest("[data-source]") === null).map((q) => q.textContent),
     );
-  expect(await page.locator(".quantity").count()).toBeGreaterThan(0);
+  expect(await page.locator(".pg-quantity").count()).toBeGreaterThan(0);
   expect(unsourced).toEqual([]);
-  for (const q of await styles(page, ".quantity", ["font-family", "white-space"])) {
-    expect(q["font-family"]).toContain("IBM Plex Mono");
+  for (const q of await styles(page, ".pg-quantity", ["font-family", "white-space"])) {
+    expect(q["font-family"]).toContain("JetBrains Mono");
     expect(q["white-space"]).toBe("nowrap");
   }
-  const heights = await page
-    .locator(".button, .run-link, .segmented button, button.graph-node")
-    .evaluateAll((all) => all.map((el) => el.getBoundingClientRect().height));
-  expect(heights.length).toBeGreaterThan(0);
-  for (const height of heights) expect(height).toBeGreaterThanOrEqual(44);
+  expect(await hitAreasShort(page, ".pg-btn, .run-link, .pg-seg button, button.pg-node")).toEqual(
+    [],
+  );
   const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
   expect(
     axe.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`),
@@ -56,9 +56,9 @@ async function common(page: Page, seen: Watch, shot: string) {
 
 /** Every graph node is whole inside the frame: none cut at an edge. */
 async function nodesWhole(page: Page) {
-  const cut = await page.locator(".graph-frame").evaluate((frame) => {
+  const cut = await page.locator(".pg-graph-frame").evaluate((frame) => {
     const box = frame.getBoundingClientRect();
-    return [...frame.querySelectorAll<HTMLElement>("button.graph-node")]
+    return [...frame.querySelectorAll<HTMLElement>("button.pg-node")]
       .filter((node) => {
         const r = node.getBoundingClientRect();
         return (
@@ -68,9 +68,9 @@ async function nodesWhole(page: Page) {
           r.bottom > box.bottom + 1
         );
       })
-      .map((node) => node.querySelector(".graph-node-id")?.textContent ?? "");
+      .map((node) => node.querySelector(".pg-node-id")?.textContent ?? "");
   });
-  expect(await page.locator("button.graph-node").count()).toBeGreaterThan(0);
+  expect(await page.locator("button.pg-node").count()).toBeGreaterThan(0);
   expect(cut).toEqual([]);
 }
 
@@ -94,7 +94,7 @@ async function labelsWhole(page: Page) {
 
 /** No text in any table of the view is cut: each fits its region and every cell holds its text. */
 async function nothingCut(page: Page) {
-  const overflow = await page.locator(".table-scroll > table").evaluateAll((tables) =>
+  const overflow = await page.locator(".pg-scroll-table > table").evaluateAll((tables) =>
     tables.flatMap((table) => {
       const region = table.parentElement;
       const wide =
@@ -107,7 +107,7 @@ async function nothingCut(page: Page) {
       return [...wide, ...cells];
     }),
   );
-  expect(await page.locator(".table-scroll > table").count()).toBeGreaterThan(0);
+  expect(await page.locator(".pg-scroll-table > table").count()).toBeGreaterThan(0);
   expect(overflow).toEqual([]);
 }
 
@@ -122,17 +122,17 @@ async function runsDistinct(page: Page) {
 
 /** Nothing the gate decided under observe is a filled verdict, and the observe badge is hatched. */
 async function observedNeverFilled(page: Page, scope: string) {
-  await expect(page.locator(".topbar .gate-mode-observe")).toBeVisible();
+  await expect(page.locator(".pg-topbar .pg-gate-observe")).toBeVisible();
   await expect(
-    page.locator(`${scope} .verdict-pass, ${scope} .verdict-fail, ${scope} .verdict-warn`),
+    page.locator(`${scope} .pg-verdict-pass, ${scope} .pg-verdict-fail, ${scope} .pg-verdict-warn`),
   ).toHaveCount(0);
-  for (const o of await styles(page, `${scope} .observed`, [
+  for (const o of await styles(page, `${scope} .pg-observed`, [
     "border-top-style",
     "background-color",
   ])) {
     expect(o).toEqual({ "border-top-style": "dashed", "background-color": TRANSPARENT });
   }
-  await expect(page.locator(".tally-evaluated .verdict-unchecked")).toHaveCount(0);
+  await expect(page.locator(".pg-tally-evaluated .pg-verdict-unchecked")).toHaveCount(0);
 }
 
 for (const theme of THEMES) {
@@ -141,15 +141,15 @@ for (const theme of THEMES) {
   }) => {
     const seen = await watch(page);
     await open(page, theme, "/orchestration/design-graph?run=0/drive-observe");
-    const nodes = page.locator("button.graph-node");
+    const nodes = page.locator("button.pg-node");
     await expect(nodes).toHaveCount(6);
     await nodesWhole(page);
     await runsDistinct(page);
     await nodes
-      .filter({ has: page.locator(".graph-node-id", { hasText: /^electrical\.drive$/ }) })
+      .filter({ has: page.locator(".pg-node-id", { hasText: /^electrical\.drive$/ }) })
       .click();
     const inspector = page.locator('aside[aria-label="Node inspector"]');
-    await expect(inspector.locator(".quantity")).toHaveCount(3);
+    await expect(inspector.locator(".pg-quantity")).toHaveCount(3);
     await expect(inspector.locator('section[aria-label="Constrains"]')).toContainText(
       "electrical.battery",
     );
@@ -168,6 +168,43 @@ for (const theme of THEMES) {
       ]),
     );
     await common(page, seen, `design-graph-${theme}`);
+  });
+
+  test(`a value is shown with every digit its record holds, never rounded (${theme})`, async ({
+    page,
+  }) => {
+    const seen = await watch(page);
+    const recorded = 14.712345678;
+    // The record as served, with one quantity holding more digits than any rounding would keep.
+    let held: string | null = null;
+    await page.route("**/api/runs/0/drive-observe/graph", async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as {
+        nodes: Record<
+          string,
+          { node: { id: string; quantities: Record<string, { value: unknown }> } }
+        >;
+      };
+      const drive = Object.values(body.nodes).find((n) => n.node.id === "electrical.drive");
+      const first = drive === undefined ? undefined : Object.keys(drive.node.quantities)[0];
+      if (drive !== undefined && first !== undefined) {
+        (drive.node.quantities[first] as { value: unknown }).value = recorded;
+        held = first;
+      }
+      await route.fulfill({ response, json: body });
+    });
+    await open(page, theme, "/orchestration/design-graph?run=0/drive-observe");
+    await page
+      .locator("button.pg-node")
+      .filter({ has: page.locator(".pg-node-id", { hasText: /^electrical\.drive$/ }) })
+      .click();
+    expect(held).not.toBeNull();
+    const inspector = page.locator('aside[aria-label="Node inspector"]');
+    await expect(
+      inspector.locator(".pg-quantity-value", { hasText: /^14\.712345678$/ }),
+    ).toHaveCount(1);
+    expect(seen.outbound).toEqual([]);
+    expect(await cspViolations(page)).toEqual([]);
   });
 
   test(`the design graph's diff between two revisions (${theme})`, async ({ page }) => {
@@ -251,9 +288,9 @@ for (const theme of THEMES) {
         "/api/runs/0/drive-on/gate-checks",
       ]),
     );
-    await expect(page.locator(".tally-over-nothing").first()).toContainText("over nothing");
+    await expect(page.locator(".pg-tally-over-nothing").first()).toContainText("over nothing");
     const measuredOfUnchecked = await page
-      .locator('section[aria-label="Gate checks"] tr:has(.verdict-unchecked) td:nth-child(5)')
+      .locator('section[aria-label="Gate checks"] tr:has(.pg-verdict-unchecked) td:nth-child(5)')
       .allTextContents();
     expect(measuredOfUnchecked.length).toBeGreaterThan(0);
     for (const text of measuredOfUnchecked) expect(text).not.toMatch(/pass|evaluated/);
@@ -263,7 +300,7 @@ for (const theme of THEMES) {
     expect(paired.length).toBeGreaterThan(2);
     expect(new Set(paired).size).toBe(paired.length);
     await expect(
-      page.locator('section[aria-label="Same plan, another gate mode"] .gate-mode-on').first(),
+      page.locator('section[aria-label="Same plan, another gate mode"] .pg-gate-on').first(),
     ).toBeVisible();
     await bindingStylesHold(page);
     await common(page, seen, `gate-checks-observe-${theme}`);
@@ -273,9 +310,9 @@ for (const theme of THEMES) {
     const seen = await watch(page);
     await open(page, theme, "/orchestration/gate-checks?run=0/drive-on");
     await expect(
-      page.locator('section[aria-label="Gate checks"] td .verdict-fail').first(),
+      page.locator('section[aria-label="Gate checks"] td .pg-verdict-fail').first(),
     ).toBeVisible();
-    await expect(page.locator(".tally-evaluated .verdict-unchecked")).toHaveCount(0);
+    await expect(page.locator(".pg-tally-evaluated .pg-verdict-unchecked")).toHaveCount(0);
     await nothingCut(page);
     await bindingStylesHold(page);
     await common(page, seen, `gate-checks-on-${theme}`);
@@ -312,7 +349,7 @@ test("the graph opens with a node selected by its link, every node whole", async
     "light",
     "/orchestration/design-graph?run=0/drive-observe&node=electrical.driver",
   );
-  await expect(page.locator('button.graph-node[aria-pressed="true"]')).toContainText(
+  await expect(page.locator('button.pg-node[aria-pressed="true"]')).toContainText(
     "electrical.driver",
   );
   await nodesWhole(page);
@@ -322,16 +359,14 @@ test("the graph opens with a node selected by its link, every node whole", async
 test("the arrow keys move the focus along the graph's edges", async ({ page }) => {
   await watch(page);
   await open(page, "light", "/orchestration/design-graph?run=0/drive-observe");
-  const driver = page.locator("button.graph-node").filter({
-    has: page.locator(".graph-node-id", { hasText: /^electrical\.driver$/ }),
+  const driver = page.locator("button.pg-node").filter({
+    has: page.locator(".pg-node-id", { hasText: /^electrical\.driver$/ }),
   });
   await driver.focus();
   await page.keyboard.press("ArrowRight");
-  await expect(page.locator("button.graph-node:focus .graph-node-id")).toHaveText(
-    "electrical.drive",
-  );
+  await expect(page.locator("button.pg-node:focus .pg-node-id")).toHaveText("electrical.drive");
   await page.keyboard.press("ArrowLeft");
-  await expect(page.locator("button.graph-node:focus .graph-node-id")).toHaveText(/^electrical\./);
+  await expect(page.locator("button.pg-node:focus .pg-node-id")).toHaveText(/^electrical\./);
 });
 
 test("the smoke page's runs read differently from each other too", async ({ page }) => {
@@ -367,12 +402,14 @@ test("a gated run read against an observed one: the paired card is never a fille
   const seen = await watch(page);
   await open(page, "light", "/orchestration/gate-checks?run=0/drive-on&pair=0/drive-observe");
   const paired = page.locator('section[aria-label="Same plan, another gate mode"]');
-  await expect(paired.locator(".paired-body .gate-mode-observe")).toBeVisible();
-  await expect(paired.locator(".verdict-pass, .verdict-fail, .verdict-warn")).toHaveCount(0);
-  await expect(paired.locator(".observed").first()).toBeVisible();
+  await expect(paired.locator(".paired-body .pg-gate-observe")).toBeVisible();
+  await expect(paired.locator(".pg-verdict-pass, .pg-verdict-fail, .pg-verdict-warn")).toHaveCount(
+    0,
+  );
+  await expect(paired.locator(".pg-observed").first()).toBeVisible();
   for (const o of await styles(
     page,
-    'section[aria-label="Same plan, another gate mode"] .observed',
+    'section[aria-label="Same plan, another gate mode"] .pg-observed',
     ["border-top-style", "background-color"],
   ))
     expect(o).toEqual({ "border-top-style": "dashed", "background-color": TRANSPARENT });
@@ -385,13 +422,37 @@ test("under a domain filter the nodes table resolves every edge over the whole g
   const seen = await watch(page);
   await open(page, "light", "/orchestration/design-graph?run=0/domains");
   // Three domains' nodes and the plan's interface node.
-  await expect(page.locator("button.graph-node")).toHaveCount(4);
+  await expect(page.locator("button.pg-node")).toHaveCount(4);
   await page.locator('[aria-label="Domain filter"] button', { hasText: /^control$/ }).click();
-  await expect(page.locator("button.graph-node")).toHaveCount(1);
+  await expect(page.locator("button.pg-node")).toHaveCount(1);
   const table = page.locator('section[aria-label="Nodes"]');
   await expect(table.locator("tbody tr")).toHaveCount(1);
   await expect(table).not.toContainText("not in the graph");
   await expect(table.locator("tbody tr")).toContainText("firmware.loop");
   await expect(table.locator("tbody tr")).toContainText("electrical.supply");
   expect(seen.outbound).toEqual([]);
+});
+
+test("no screen over any recorded run shows a terminal command", async ({ page, request }) => {
+  test.setTimeout(600_000);
+  const listed = (await (await request.get("/api/runs")).json()) as {
+    runs: { root: number; name: string }[];
+  };
+  expect(listed.runs.length).toBeGreaterThan(3);
+  const views = [
+    "/home/run-records",
+    "/orchestration/design-graph",
+    "/orchestration/run-timeline",
+    "/orchestration/gate-checks",
+    "/collaboration/approval-queue",
+  ];
+  for (const run of listed.runs) {
+    for (const view of views) {
+      const query = new URLSearchParams({ run: `${String(run.root)}/${run.name}` });
+      const path = `${view}?${query.toString()}`;
+      await page.goto(`/?theme=light#${path}`);
+      await expect(page.locator('[aria-busy="true"]')).toHaveCount(0, { timeout: 30_000 });
+      await namesNoCommand(page, path);
+    }
+  }
 });
