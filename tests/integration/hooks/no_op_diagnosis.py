@@ -95,6 +95,27 @@ def classify(told: str) -> dict[str, Any]:
     }
 
 
+def diagnosis_line(
+    attempt: dict[str, Any], key: str, record: dict[str, Any], told: str
+) -> dict[str, Any]:
+    """One attempt's line: classes and counts only, nothing of the texts they came from.
+
+    An outcome's text quotes the paths reached, a sentinel record holds the paths
+    put back, and the told text can quote the attempt's own arguments: each can
+    carry a file name the attempt chose, so only the outcome's class, the number of
+    records and the told text's class are kept.
+    """
+    return {
+        "id": attempt["id"],
+        "binary": attempt["binary"],
+        "target_key": key,
+        "present": record["present"],
+        "outcome_class": str(record["outcome"]).split(":", 1)[0],
+        "sentinel_records": len(record.get("sentinel_paths", [])),
+        **classify(told),
+    }
+
+
 def main(argv: list[str]) -> int:
     """``<attempts.jsonl> <target_key> <out.jsonl> <binary>...``: diagnose those attempts."""
     if len(argv) < 4:
@@ -103,14 +124,16 @@ def main(argv: list[str]) -> int:
     attempts_path, key, out_path, binaries = Path(argv[0]), argv[1], Path(argv[2]), set(argv[3:])
     arm = runner.RunnerArm.of("arm2-sentinel")
     captured: list[hook_session.SessionRun] = []
-    real = runner.run_session
+    # The runner calls the session function by its own module-level name, so that name
+    # is stood in for; the function behind it is the session module's.
+    real = hook_session.run_session
 
     def keep(*args: Any, **kwargs: Any) -> hook_session.SessionRun:  # noqa: ANN401
         run = real(*args, **kwargs)
         captured.append(run)
         return run
 
-    runner.run_session = keep  # type: ignore[assignment]
+    vars(runner)["run_session"] = keep
     chosen = [
         a
         for a in bc.load_attempts(attempts_path)
@@ -121,17 +144,7 @@ def main(argv: list[str]) -> int:
             captured.clear()
             record = runner.run_one(attempt, arm)
             told = captured[-1].told_after(1) if captured else ""
-            line = {
-                "id": attempt["id"],
-                "binary": attempt["binary"],
-                "target_key": key,
-                "present": record["present"],
-                # A class and a count only: an outcome's text and a record's paths can
-                # carry a file name the attempt chose.
-                "outcome_class": str(record["outcome"]).split(":", 1)[0],
-                "sentinel_records": len(record.get("sentinel_paths", [])),
-                **classify(told),
-            }
+            line = diagnosis_line(attempt, key, record, told)
             out.write(json.dumps(line) + "\n")
             out.flush()
             print(f"{attempt['id']}: {line['class']}", file=sys.stderr)

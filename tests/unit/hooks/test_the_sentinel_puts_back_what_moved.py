@@ -372,7 +372,9 @@ def test_a_deleted_nodes_directory_is_made_again_and_every_node_rebuilt(root: Pa
     assert "does not hold what the journal says" in _check(root)
     assert {p.name: p.read_bytes() for p in nodes.iterdir()} == want
     (logged,) = [e for e in _log(root) if e["decision"] == "node mismatch"]
-    assert sorted(logged["restored"]) == sorted(str(nodes / name) for name in want)
+    restored = logged["restored"]
+    assert isinstance(restored, list)
+    assert sorted(restored) == sorted(str(nodes / name) for name in want)
 
 
 def test_a_new_node_whose_file_the_store_has_not_written_yet_is_not_a_finding(
@@ -549,9 +551,15 @@ def test_the_rebuild_writes_nothing_for_a_finding_whose_path_is_not_the_store_s(
     _started(root)
     store = str(root / "store")
     stray = str(root / "store" / "nodes" / ".." / "electrical.motor.json")
-    base = {"nodes": {store: {"sigs": {}, "revs": {}}}}
+    (root / "store" / "nodes" / "electrical.motor.json").unlink()
+    # The root is where the first check found it, so this guard alone decides.
+    base = {
+        "nodes": {store: {"sigs": {}, "revs": {}}},
+        "node_roots": {store: os.path.realpath(store)},
+    }
     assert sentinel._restore_nodes(base, [(stray, store, "electrical.motor")]) == []
     assert not (root / "store" / "electrical.motor.json").exists()
+    assert not (root / "store" / "nodes" / "electrical.motor.json").exists()
 
 
 def test_the_rebuild_writes_nothing_through_a_nodes_directory_that_became_a_link(
@@ -567,7 +575,12 @@ def test_the_rebuild_writes_nothing_through_a_nodes_directory_that_became_a_link
         path.unlink()
     nodes.rmdir()
     nodes.symlink_to(elsewhere)
-    base = {"nodes": {str(store): {"sigs": {}, "revs": {}}}}
+    # The root is where the first check found it: only the two guards against the
+    # link decide, the rebuild's own and the store write's.
+    base = {
+        "nodes": {str(store): {"sigs": {}, "revs": {}}},
+        "node_roots": {str(store): os.path.realpath(store)},
+    }
     finding = (str(nodes / "electrical.motor.json"), str(store), "electrical.motor")
     assert sentinel._restore_nodes(base, [finding]) == []
     assert list(elsewhere.iterdir()) == []
