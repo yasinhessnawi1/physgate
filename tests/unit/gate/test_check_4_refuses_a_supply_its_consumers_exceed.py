@@ -86,8 +86,9 @@ def test_a_balanced_module_passes(tmp_path: Path) -> None:
         consumer("motor_left", 7.5, "drive"),
         consumer("motor_right", 7500, "drive", unit="mW"),
     )
-    # Two: its consumers against its supply, and its supply against what it draws.
-    assert ran.observations == () and ran.evaluated == 3
+    # Two: its consumers against its supply, and its supply against what it draws; the
+    # battery's discharge rating against what it stores is the third.
+    assert ran.observations == () and ran.evaluated == 4
 
 
 def test_modules_that_each_balance_but_not_together_pass_at_module_and_fail_at_system(
@@ -101,7 +102,8 @@ def test_modules_that_each_balance_but_not_together_pass_at_module_and_fail_at_s
         consumer("mcu", 10, "control"),
     )
     at_module = check(tmp_path / "m", "module", *payloads)
-    assert at_module.observations == () and at_module.evaluated == 5
+    # The battery's discharge rate is judged here too: a node's own relation.
+    assert at_module.observations == () and at_module.evaluated == 6
     at_system = check(tmp_path / "s", "system", *payloads)
     (finding,) = at_system.observations
     assert finding.node == "electrical.battery"
@@ -253,7 +255,8 @@ def test_a_stage_that_draws_from_a_supply_and_declares_no_draw_is_refused(
 
 def test_a_declared_source_with_nothing_upstream_is_not_held_to_a_draw(tmp_path: Path) -> None:
     ran = check(tmp_path, "system", battery(20), consumer("mcu", 5, "battery"))
-    assert ran.observations == () and ran.evaluated == 2
+    # The budget, the rating and the discharge rate.
+    assert ran.observations == () and ran.evaluated == 3
 
 
 def test_a_bench_supply_is_a_declared_source(tmp_path: Path) -> None:
@@ -305,7 +308,8 @@ def test_a_bench_supply_that_delivers_more_than_its_rating_is_refused(tmp_path: 
 
 def test_a_battery_with_a_discharge_rating_that_covers_its_supply_passes(tmp_path: Path) -> None:
     ran = check(tmp_path, "system", battery(20), consumer("mcu", 20, "battery"))
-    assert ran.observations == () and ran.evaluated == 2
+    # The budget, the rating and the discharge rate.
+    assert ran.observations == () and ran.evaluated == 3
 
 
 def test_a_battery_supplying_past_its_discharge_rating_is_refused(tmp_path: Path) -> None:

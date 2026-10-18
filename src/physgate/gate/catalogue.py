@@ -25,10 +25,11 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping
+from fractions import Fraction
 from types import MappingProxyType
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 _Text = Annotated[str, StringConstraints(min_length=1)]
 
@@ -108,11 +109,20 @@ def _entries(*entries: Entry) -> Mapping[str, Entry]:
 
 
 FIXTURES = "named for the physics gate's checks, 26.09.2026"
+#: What ``current_limit`` means, because the current-headroom relation is judged against it:
+#: the most a driver or supply is rated to deliver, its peak output current, never a
+#: continuous rating. A continuous rating below a motor's stall current is a design that
+#: needs current limiting; a peak rating below it is a stall the driver cannot carry.
+CURRENT_LIMIT = (
+    "a driver's or supply's maximum output current: the peak output current its datasheet "
+    "rates (for example TI DRV8838, SLVSBA4F section 6.3, IOUT motor peak current 1.8 A), "
+    "not a continuous rating"
+)
 
 QUANTITIES: Mapping[str, Entry] = _entries(
     Entry(name="stall_current", kind="current", source=WORKLOAD),
     Entry(name="current_draw", kind="current", source=FIXTURES),
-    Entry(name="current_limit", kind="current", source=FIXTURES),
+    Entry(name="current_limit", kind="current", source=CURRENT_LIMIT),
     Entry(name="supply_voltage", kind="voltage", source=WORKLOAD),
     Entry(name="rated_voltage", kind="voltage", source=FIXTURES),
     Entry(name="power_draw", kind="power", source=FIXTURES),
@@ -160,17 +170,118 @@ PRODUCTS: Mapping[tuple[str, str], str] = MappingProxyType(
 )
 
 
+class StoreClass(_Frozen):
+    """A class of energy store, and the fastest continuous discharge a maker states for one.
+
+    ``per_hour`` is the part's maximum continuous discharge power over the energy it stores
+    (its C-rate), rounded up, so the bound built from it is never tighter than the source.
+    """
+
+    name: _Text
+    per_hour: Annotated[int, Field(gt=0)]
+    source: _Text
+
+
+#: The store classes whose fastest continuous rating bounds a store's declared discharge.
+#: A node declares no chemistry, so the relation takes the largest of them: it can refuse
+#: only a rating that no store of any listed class is made to give. Each figure was read
+#: in the maker's own document on 18.10.2026; the arithmetic is shown.
+STORE_CLASSES: tuple[StoreClass, ...] = (
+    StoreClass(
+        name="nickel-metal hydride cell",
+        per_hour=10,
+        source=(
+            "GP Batteries GP330SCHR sub-C NiMH, document ZRS1162 rev 00: discharge current "
+            "3.3 A to 30 A continuous, nominal 3300 mAh; 30 A / 3.3 A h = 9.1 per hour"
+        ),
+    ),
+    StoreClass(
+        name="valve-regulated lead-acid battery",
+        per_hour=9,
+        source=(
+            "EnerSys ODYSSEY Battery Technical Manual, 6th edition (US-ODY-AM-001, April 2006), "
+            "PC680 constant-current table: 143.0 A for 2 min to 10.02 V at 25 C, 17 A h at the "
+            "20-hour rate; 143 A / 17 A h = 8.4 per hour"
+        ),
+    ),
+    StoreClass(
+        name="lithium-ion cylindrical power cell",
+        per_hour=12,
+        source=(
+            "Samsung SDI INR21700-30T specification V0.0, section 3.6: maximum continuous "
+            "discharge 35 A at 25 C, typical capacity 3000 mAh; 35 A / 3.0 A h = 11.7 per hour"
+        ),
+    ),
+    StoreClass(
+        name="lithium iron phosphate power cell",
+        per_hour=28,
+        source=(
+            "A123 Systems ANR26650M1-B data sheet MD100113-01: maximum continuous discharge "
+            "70 A, nominal capacity 2.5 A h; 70 A / 2.5 A h = 28 per hour"
+        ),
+    ),
+    StoreClass(
+        name="lithium-polymer hobby pack",
+        per_hour=150,
+        source=(
+            "Tattu R-Line Version 5.0 1400 mAh 6S pack, maker's product page "
+            "(genstattu.com): discharge rate 150C, burst 260C stated separately; the maker's "
+            "own continuous figure, the highest found on any pack"
+        ),
+    ),
+    StoreClass(
+        name="lithium-ion capacitor",
+        per_hour=312,
+        source=(
+            "Musashi Energy Solutions prismatic cells data sheet 250615 (June 2025), CPQ3300SD: "
+            "3300 F from 3.8 V to 2.2 V, continuous discharge 360 A (UL 810A); stored energy "
+            "3300 F x (3.8^2 - 2.2^2) V^2 / 2 = 4.40 W h, and 360 A x 3.8 V / 4.40 W h = "
+            "311 per hour"
+        ),
+    ),
+    StoreClass(
+        name="electric double-layer capacitor",
+        per_hour=2578,
+        source=(
+            "Maxwell Technologies ultracapacitor product matrix (2019-04-09), BCAP0003 2.7 V "
+            "3 F: continuous current 2.9 A at a 40 C rise; 2.9 A x 2.7 V = 7.83 W over "
+            "3 F x (2.7 V)^2 / 2 = 3.04 mW h stored, 2577.8 per hour (the 2.7 V BCAP0005 data "
+            "sheet 3001974-EN.4 defines this current as the most usable continuously)"
+        ),
+    ),
+)
+#: The fastest class, whose rate is the discharge relation's bound.
+FASTEST: StoreClass = max(STORE_CLASSES, key=lambda c: c.per_hour)
+MAX_DISCHARGE_PER_HOUR = Fraction(FASTEST.per_hour)
+
+#: Why a stall current is held to its supply's current limit.
+HEADROOM = (
+    "a brushed motor at stall has no back-EMF, so V = I R gives its stall current, the most "
+    "it draws (Precision Microdrives 104-10L data sheet V1, October 2025: stall 0.114 A at "
+    "3.7 V across 32.4 ohm); a driver's peak output current is the most it is rated to "
+    "deliver (TI DRV8838, SLVSBA4F section 6.3: IOUT motor peak current 1.8 A; section 6.5: "
+    "overcurrent trip at 1.9 A minimum), so a stall above it is beyond the driver's rating "
+    "at every start and reversal"
+)
+#: Why a store's discharge rating is held to what it stores.
+DISCHARGE = (
+    "a store's continuous discharge is bounded by its class: no part of any class in the "
+    "catalogue's store classes is rated to discharge continuously faster than the fastest "
+    "of them, each read in its maker's data sheet"
+)
+
+
 class Relation(_Frozen):
     """A relation between quantities that the checks evaluate over the graph.
 
-    ``judged_by`` is the check that decides whether it holds; ``None`` means the
-    unit check makes sure its two sides can be compared and no check among the
-    gate's judges the comparison itself.
+    ``judged_by`` is the check that decides whether it holds; the unit check makes
+    sure its two sides can be compared. Every relation has a judge: a relation whose
+    units alone were checked would be a comparison the gate states and never makes.
     """
 
     name: _Text
     statement: _Text
-    judged_by: Literal[3, 4, 5, 6] | None
+    judged_by: Literal[3, 4, 5, 6]
     source: _Text
 
 
@@ -211,8 +322,18 @@ RELATIONS: Mapping[str, Relation] = MappingProxyType(
             Relation(
                 name="current_limit",
                 statement="a consumer's stall current is at most its supply's current limit",
-                judged_by=None,
-                source="a driver's rated output current bounds the load it can carry",
+                judged_by=4,
+                source=HEADROOM,
+            ),
+            Relation(
+                name="discharge_rate",
+                statement=(
+                    "an energy store's maximum continuous discharge power is at most its stored "
+                    "energy times the highest continuous discharge rate any store class is "
+                    "rated for"
+                ),
+                judged_by=4,
+                source=DISCHARGE,
             ),
             Relation(
                 name="mass_sum",
@@ -294,6 +415,7 @@ def catalogue_digest() -> str:
         "relations": [RELATIONS[r].model_dump() for r in sorted(RELATIONS)],
         "products": sorted([*pair, kind] for pair, kind in PRODUCTS.items()),
         "sources": sorted(SOURCES.items()),
+        "store_classes": [c.model_dump() for c in STORE_CLASSES],
     }
     canonical = json.dumps(content, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest()

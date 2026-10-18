@@ -289,7 +289,7 @@ class EquilibriumDetails(_Frozen):
 
 
 class PowerDetails(_Frozen):
-    """Check 4: the deficit in watts and the nodes that contribute to it."""
+    """Check 4: the shortfall (watts, or amperes for a current headroom) and the nodes in it."""
 
     form: Literal["power"] = "power"
     deficit: NumericOutput

@@ -12,8 +12,7 @@ node, the ones the decomposition wrote included:
    :mod:`physgate.gate.units`), its sign included: a negative mass or power is
    refused here.
 
-A relation no check judges (its ``judged_by`` is ``None``) has only its units
-checked here, and a record says so: whether it holds is counted as unchecked.
+Whether a relation holds is the business of the check its ``judged_by`` names.
 
 Returns the offending expression and both unit sides (ARCH-080).
 """
@@ -25,7 +24,7 @@ from typing import Any
 from physgate.gate.catalogue import kind_of
 from physgate.gate.context import CheckContext
 from physgate.gate.graph import GraphView
-from physgate.gate.relations import Factor, Instance, Product, instances, touching
+from physgate.gate.relations import Factor, Instance, Product, Scaled, instances, touching
 from physgate.gate.result import CheckRun, Observation
 from physgate.gate.units import (
     PINT,
@@ -66,12 +65,16 @@ def _declared(view: GraphView, node: str, name: str) -> Any:
 def _sum(view: GraphView, factors: tuple[Factor, ...]) -> Any:
     total: Any = None
     for factor in factors:
-        value = (
-            _declared(view, factor.left.node, factor.left.name)
-            * _declared(view, factor.right.node, factor.right.name)
-            if isinstance(factor, Product)
-            else _declared(view, factor.node, factor.name)
-        )
+        if isinstance(factor, Scaled):
+            value = _declared(view, factor.ref.node, factor.ref.name) * UREG.Quantity(
+                factor.factor, factor.unit
+            )
+        elif isinstance(factor, Product):
+            value = _declared(view, factor.left.node, factor.left.name) * _declared(
+                view, factor.right.node, factor.right.name
+            )
+        else:
+            value = _declared(view, factor.node, factor.name)
         if total is None:
             total = value
             continue
@@ -132,23 +135,6 @@ def _relation_finding(view: GraphView, instance: Instance) -> Observation | None
             quantities=_refs(view, instance),
         )
     return None
-
-
-def _unjudged(view: GraphView, instance: Instance) -> Observation:
-    """The record for a relation whose units agree and whose comparison no check makes."""
-    return Observation(
-        outcome="unchecked",
-        node=instance.subject,
-        module=view.module_of(instance.subject),
-        value=None,
-        expected=None,
-        message=(
-            f"{instance.expression()}: its units were checked and agree, but whether it holds "
-            f"('{instance.relation.statement}') is not one of the gate's checks, so it is "
-            "counted as unchecked, never as passed"
-        ),
-        details=UncheckedDetails(quantities=tuple(sorted({r.name for r in instance.refs()}))),
-    )
 
 
 def run(ctx: CheckContext) -> CheckRun:
@@ -217,8 +203,6 @@ def run(ctx: CheckContext) -> CheckRun:
         if finding is not None:
             observations.append(finding)
             refused.update((r.node, r.name) for r in instance.refs())
-        elif instance.relation.judged_by is None:
-            observations.append(_unjudged(view, instance))
     for node_id in own:
         for name, q in view.nodes[node_id].quantities.items():
             kind = kind_of(name)
