@@ -258,3 +258,16 @@ def test_the_serial_line_is_a_socket_read_line_by_line_with_arrival_times() -> N
         thread.join()
         server.close()
     assert received == ["ACT PUMP ON", "ACT PUMP OFF"]
+
+
+def test_a_state_set_before_the_fault_is_no_reaction_to_it() -> None:
+    task = _task()
+    assert task.firmware is not None
+    silence = task.firmware.scenarios[1]
+    full = silence.model_copy(
+        update={"initial": tuple(m.model_copy(update={"value": 90.0}) for m in silence.initial)}
+    )
+    clock = VirtualClock()
+    trace = run_scenario(full, TankFirmware(clock), clock)  # OFF at 5 ms, the fault at 200 ms
+    record = score(task, {"silence": trace, "fill": _traces(task)["fill"]})
+    assert record["specs"][0]["measured"] is None
