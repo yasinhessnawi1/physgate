@@ -336,3 +336,16 @@ def test_an_infrastructure_end_is_neither_a_pass_nor_the_answer_s_fail() -> None
     assert verdict([passing, passing, machine]) == "infrastructure"
     assert verdict([machine, {"passed": False}, {"passed": False}]) == "infrastructure"
     assert verdict([passing] * 3) == "pass"
+
+
+def test_an_infrastructure_end_is_retried_once_and_then_unscored_never_passed() -> None:
+    from physgate.evaluation.per_role.firmware.score import settle
+
+    assert settle(["infrastructure"]) == "retry"
+    assert settle(["infrastructure", "infrastructure"]) == "unscored"
+    assert settle(["infrastructure", "pass"]) == "pass"
+    assert settle(["fail"]) == "fail"
+    with pytest.raises(ValueError, match="final"):
+        settle(["pass", "fail"])
+    with pytest.raises(ValueError, match="retr"):
+        settle(["infrastructure"] * 3)

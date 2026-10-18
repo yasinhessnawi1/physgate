@@ -9,7 +9,9 @@ for a raw-agent session whose worktree is the answer's scratch directory:
   locale and time zone, and where the user's systemd manager listens); nothing of the
   harness's, its credentials among it, reaches the emulator;
 - **writes** only to the scratch directory, which is watched: past its bound in bytes or
-  files the run is ended;
+  entries the run is ended, as the answer's limit. The harness writes nothing there, and
+  reads it only through descriptors opened without following a link or waiting on a FIFO
+  (:func:`open_directory`): the scratch is the guest's to plant traps in;
 - **reads**: never the user's home, the held-out tier (which every run must name), the
   harness checkout or anything the policy withholds, except the scratch directory and the
   emulator's own files, named;
@@ -27,25 +29,23 @@ outlives the group's kill, and no address-space limit is applied, so the tier re
 there rather than record limits the platform does not hold. Where the OS layer is absent
 it refuses too: these are evaluation runs.
 
-How the emulator ended is read from the shell that ran it, on the sandbox's error output,
-and a run the machine ended (the sandbox never started the emulator, or the emulator
-passed one of its own limits) is recorded as ``infrastructure``, never as the answer's
-fail. The shell's status line carries a token the emulator never sees, so the emulator
-cannot write one; it could at most end itself on a limit's signal, which turns its own
-fail into a recorded infrastructure end, never into a pass.
+Only the machine's own signals can make a run the machine's (``infrastructure``, retried
+under the evaluation's rules, never the answer's fail): before the emulator starts, the
+same scope and sandbox run a check that contains no guest, and if the check does not exit
+cleanly the run is refused as :class:`EmulatorInfrastructureError`. Once the guest runs,
+nothing it can print, exit with or do to itself is read as the machine's: however it
+ends, including on one of its own limits, the end is the answer's.
 """
 
 from __future__ import annotations
 
 import contextlib
 import hashlib
-import hmac
 import json
 import os
-import secrets
 import shlex
 import shutil
-import signal
+import stat
 import sys
 import threading
 from collections.abc import Iterator, Sequence
@@ -80,31 +80,17 @@ RUNTIME_MEMORY = 256 * 1024 * 1024
 #: The version of the Claude Code binary whose OS layer the emulator is held to.
 CLAUDE_VERSION = "2.1.301"
 SYSTEM_PATH = ("/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin")
-#: The status lines of the shell that runs the emulator, on the sandbox's error output.
-START_LINE = "physgate-emulator-start"
-END_LINE = "physgate-emulator-end"
-#: Ends of the emulator, as its shell sees them, that are the machine's: it could not be
-#: run (126, 127), or it ended on a signal one of its own limits sends: the CPU limit's
-#: (and the kill at its hard limit, or at the scope's memory cap), the file-size limit's,
-#: or an abort or fault (QEMU aborts when an allocation fails under its address-space limit).
-INFRASTRUCTURE_STATUSES = frozenset(
-    {126, 127}
-    | {
-        128 + int(s)
-        for s in (
-            signal.SIGKILL,
-            signal.SIGXCPU,
-            signal.SIGXFSZ,
-            signal.SIGABRT,
-            signal.SIGSEGV,
-            signal.SIGBUS,
-        )
-    }
-)
+#: The most directories the scratch's walk holds open at once; deeper is past the bound.
+MAX_OPEN_DIRECTORIES = 256
+_DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 
 
 class FirmwareTierRefusedError(PerRoleError):
     """The firmware tier cannot run here as an evaluation run must."""
+
+
+class EmulatorInfrastructureError(PerRoleError):
+    """The sandbox failed its check before the emulator ran: the machine's, not the answer's."""
 
 
 @dataclass(frozen=True)
@@ -123,8 +109,9 @@ class EmulatorLimits:
 class SandboxedEmulator:
     """A running emulator, its guard, and the record of how it was held and how it ended.
 
-    The record's ending (``ended_by``, ``emulator_status``, ``infrastructure``,
-    ``scratch``) is filled in once the block has ended.
+    The record's ending (``ended_by``, ``limit``, ``scratch``, and ``infrastructure``,
+    which is always ``None`` for a run whose guest started) is filled in once the block
+    has ended.
     """
 
     run: GuardedRun
@@ -239,24 +226,15 @@ def runtime_pin(srt: Path) -> dict[str, str]:
     }
 
 
-def _limited(argv: Sequence[str], limits: EmulatorLimits, token_file: Path) -> str:
-    """A shell line that sets the emulator's limits, runs it, and reports how it ended.
-
-    The shell reads its token and deletes it before the emulator starts, so only the shell
-    can write a status line the harness accepts.
-    """
+def _limited(argv: Sequence[str], limits: EmulatorLimits) -> str:
+    """A shell line that sets the emulator's limits, then becomes the emulator."""
     parts = [
         f"ulimit -t {limits.cpu_s}",
         f"ulimit -f {MAX_OUTPUT_BYTES // 1024}",
         "ulimit -c 0",
         f"ulimit -v {limits.memory_bytes // 1024}",
-        f"IFS= read -r token < {shlex.quote(str(token_file))}",
-        f"rm -f {shlex.quote(str(token_file))}",
-        f"printf '%s\\n' {START_LINE} >&2",
-        shlex.join(argv),
     ]
-    end = f'status=$?; printf \'%s %s %s\\n\' {END_LINE} "$token" "$status" >&2; exit "$status"'
-    return "; ".join(parts) + "; " + end
+    return "; ".join(parts) + "; exec " + shlex.join(argv)
 
 
 def _process_cap(limits: EmulatorLimits) -> tuple[list[str], str, str]:
@@ -299,16 +277,63 @@ def _process_cap(limits: EmulatorLimits) -> tuple[list[str], str, str]:
     return wrapper, tasks, f"MemoryMax={memory} (the runtime's {RUNTIME_MEMORY} included)"
 
 
+def open_directory(name: str, dir_fd: int | None = None) -> int:
+    """A descriptor on the directory ``name`` (under ``dir_fd``), never through a link.
+
+    The open neither follows a link nor waits on a FIFO, and what it opened is checked to be
+    a directory before it is used.
+
+    Raises:
+        OSError: ``name`` is a link, a FIFO, a file or anything but a directory.
+    """
+    fd = os.open(name, _DIRECTORY, dir_fd=dir_fd)
+    if not stat.S_ISDIR(os.fstat(fd).st_mode):
+        os.close(fd)
+        msg = f"{name!r} is not a directory"
+        raise NotADirectoryError(msg)
+    return fd
+
+
 def scratch_usage(scratch: Path, most_files: int) -> tuple[int, int]:
-    """The bytes on disk and the entries under ``scratch``; counting stops past ``most_files``."""
-    used, entries = 0, 0
-    for root, dirs, files in os.walk(scratch):
-        for name in (*dirs, *files):
-            entries += 1
-            with contextlib.suppress(OSError):
-                used += os.lstat(os.path.join(root, name)).st_blocks * 512
-            if entries > most_files:
-                return used, entries
+    """The bytes on disk and the entries under ``scratch``, read through checked descriptors.
+
+    Nothing is followed and nothing is opened but directories (:func:`open_directory`).
+    Counting stops past ``most_files``; a tree the walk cannot hold or open (too deep, or a
+    directory it may not read) counts as past the bound.
+    """
+    over = (0, most_files + 1)
+    try:
+        root = open_directory(str(scratch))
+    except OSError:
+        return over
+    used, entries, stack = 0, 0, [root]
+    try:
+        while stack:
+            fd = stack.pop()
+            try:
+                for entry in os.scandir(fd):
+                    entries += 1
+                    if entries > most_files:
+                        return used, entries
+                    try:
+                        info = os.stat(entry.name, dir_fd=fd, follow_symlinks=False)
+                    except FileNotFoundError:
+                        continue
+                    used += info.st_blocks * 512
+                    if stat.S_ISDIR(info.st_mode):
+                        if len(stack) >= MAX_OPEN_DIRECTORIES:
+                            return over
+                        try:
+                            stack.append(open_directory(entry.name, fd))
+                        except (FileNotFoundError, NotADirectoryError):
+                            continue  # replaced since it was listed: not followed
+            except OSError:
+                return over
+            finally:
+                os.close(fd)
+    finally:
+        for fd in stack:
+            os.close(fd)
     return used, entries
 
 
@@ -326,37 +351,36 @@ def _watch_scratch(
             return
 
 
-def _ending(run: GuardedRun, output: Path, token: str, over: list[str]) -> dict[str, Any]:
-    """How the run ended, read from the guard and from the emulator's shell's status lines."""
+def _check(command: Sequence[str], env: dict[str, str], scratch: Path) -> None:
+    """Run the scope and sandbox with no guest in them; refuse the run unless they work.
+
+    Raises:
+        EmulatorInfrastructureError: the check did not exit cleanly.
+    """
+    output = scratch.parent / f"{scratch.name}.check.stderr"
+    with guarded(
+        command, wall_s=60.0, cpu_s=60, memory_bytes=None, output=output, env=env, cwd=scratch
+    ) as check:
+        ended = check.wait()
+    if ended == "exited" and check.process.returncode == 0:
+        return
     try:
-        text = output.read_bytes()[-MAX_OUTPUT_BYTES:].decode("utf-8", errors="replace")
+        said = output.read_bytes()[-400:].decode("utf-8", errors="replace").strip()
     except OSError:
-        text = ""
-    lines = text.splitlines()
-    started = START_LINE in lines
-    status: int | None = None
-    for line in lines:
-        parts = line.split(" ")
-        if (
-            len(parts) == 3
-            and parts[0] == END_LINE
-            and hmac.compare_digest(parts[1], token)
-            and parts[2].isdigit()
-        ):
-            status = int(parts[2])
-    infrastructure: str | None = None
-    if over:
-        infrastructure = over[0]
-    elif not started:
-        last = next((line for line in reversed(lines) if line.strip()), "")[:200]
-        infrastructure = f"the sandbox did not start the emulator: {last!r}"
-    elif status in INFRASTRUCTURE_STATUSES:
-        infrastructure = (
-            f"the emulator ended on one of its own limits, or could not be run (status {status})"
-        )
-    elif run.ended_by == "limit":
-        infrastructure = "the sandbox runtime passed its own outer bounds"
-    return {"ended_by": run.ended_by, "emulator_status": status, "infrastructure": infrastructure}
+        said = ""
+    msg = (
+        f"the sandbox failed its check before the emulator ran ({ended}, "
+        f"status {check.process.returncode}): {said!r}"
+    )
+    raise EmulatorInfrastructureError(msg)
+
+
+def _ending(run: GuardedRun, over: list[str]) -> dict[str, Any]:
+    """How the run ended, from the harness's own records: the answer's end, however it came."""
+    limit = over[0] if over else None
+    if limit is None and run.ended_by == "limit":
+        limit = "the sandbox passed the guard's outer bounds"
+    return {"ended_by": run.ended_by, "limit": limit, "infrastructure": None}
 
 
 @contextlib.contextmanager
@@ -377,6 +401,8 @@ def sandboxed(
     Raises:
         FirmwareTierRefusedError: this is macOS, no held-out tier is named, or the OS
             layer, the pinned sandbox runtime or the scope's caps are not available here.
+        EmulatorInfrastructureError: the scope and sandbox failed their check, with no
+            guest in them, before the emulator ran.
     """
     if _platform() == "darwin":
         msg = (
@@ -398,12 +424,10 @@ def sandboxed(
     wrapper, cap, memory_cap = _process_cap(limits)
     settings = scratch.parent / f"{scratch.name}.srt-settings.json"
     settings.write_text(json.dumps(srt_settings(scratch, readable, held_out), indent=1))
-    token = secrets.token_hex(16)
-    token_file = scratch / ".physgate-emulator-token"
-    token_file.touch(mode=0o600)
-    token_file.write_text(token + "\n")
-    shell = _limited(argv, limits, token_file)
-    command = [*wrapper, str(srt), "--settings", str(settings), "-c", shell]
+    env = emulator_environment(scratch)
+    sandbox_command = [*wrapper, str(srt), "--settings", str(settings), "-c"]
+    _check([*sandbox_command, "exit 0"], env, scratch)
+    command = [*sandbox_command, _limited(argv, limits)]
     record: dict[str, Any] = {
         "os_layer": layer.mechanism,
         "process_cap": cap,
@@ -431,7 +455,7 @@ def sandboxed(
             cpu_s=limits.cpu_s + 30,
             memory_bytes=None,
             output=output,
-            env=emulator_environment(scratch),
+            env=env,
             pipes=True,
             cwd=scratch,
         ) as run:
@@ -445,9 +469,8 @@ def sandboxed(
         stop.set()
         if watcher is not None:
             watcher.join(timeout=5.0)
-        token_file.unlink(missing_ok=True)
         if session is not None:
-            record.update(_ending(session.run, output, token, over))
+            record.update(_ending(session.run, over))
             used, entries = scratch_usage(scratch, limits.scratch_files)
             record["scratch"] = {"bytes": used, "files": entries}
 
@@ -460,10 +483,12 @@ def _binary() -> str:
 
 
 __all__ = [
+    "EmulatorInfrastructureError",
     "EmulatorLimits",
     "FirmwareTierRefusedError",
     "SandboxedEmulator",
     "emulator_environment",
+    "open_directory",
     "runtime_pin",
     "sandboxed",
     "scratch_usage",

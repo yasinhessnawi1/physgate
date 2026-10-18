@@ -11,6 +11,7 @@ firmware tier refuses.
 
 from __future__ import annotations
 
+import contextlib
 import inspect
 import json
 import os
@@ -301,7 +302,8 @@ def test_files_the_emulator_writes_into_its_scratch_are_capped(tmp_path: Path) -
     ) as session:
         _lines(_device(session), time.monotonic() + 35, 100)
     assert len(list(scratch.glob("f*"))) < 400
-    assert "scratch" in (session.record["infrastructure"] or "")
+    assert "scratch" in (session.record["limit"] or "")  # the answer's, never the machine's
+    assert session.record["infrastructure"] is None
     assert session.record["scratch"]["files"] >= 1
 
 
@@ -369,7 +371,7 @@ def test_where_the_os_layer_is_absent_the_firmware_tier_refuses(
 
 
 @linux_only
-def test_the_emulator_s_own_cpu_limit_is_an_infrastructure_end(tmp_path: Path) -> None:
+def test_the_emulator_s_own_cpu_limit_is_set_and_its_end_is_the_answer_s(tmp_path: Path) -> None:
     scratch, readable, argv = _setup(tmp_path, "while True:\n    pass\n")
     limits = EmulatorLimits(wall_s=60.0, cpu_s=2, memory_bytes=1 << 30, tasks=16)
     began = time.monotonic()
@@ -378,11 +380,12 @@ def test_the_emulator_s_own_cpu_limit_is_an_infrastructure_end(tmp_path: Path) -
     ) as session:
         session.run.wait()
     assert time.monotonic() - began < 20  # the emulator's 2 s, not the runtime's wider bound
-    assert "own limits" in (session.record["infrastructure"] or "")
+    # A guest can spin to its limit at will: never the machine's end, so never retried.
+    assert session.record["infrastructure"] is None
 
 
 @linux_only
-def test_a_sandbox_that_never_starts_the_emulator_is_an_infrastructure_end(
+def test_a_sandbox_that_fails_its_check_is_the_machine_s_and_the_guest_never_runs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     real = sandbox.srt_settings
@@ -395,50 +398,132 @@ def test_a_sandbox_that_never_starts_the_emulator_is_an_infrastructure_end(
     monkeypatch.setattr(sandbox, "srt_settings", malformed)
     marker = tmp_path / "ran"
     scratch, readable, argv = _setup(tmp_path, MARKER)
-    with sandboxed(
-        [*argv, str(marker)],
-        scratch=scratch,
-        readable=(readable,),
-        limits=LIMITS,
-        held_out=_held_out(tmp_path),
-    ) as session:
-        session.run.wait()
+    with (
+        pytest.raises(sandbox.EmulatorInfrastructureError, match="check"),
+        sandboxed(
+            [*argv, str(marker)],
+            scratch=scratch,
+            readable=(readable,),
+            limits=LIMITS,
+            held_out=_held_out(tmp_path),
+        ),
+    ):
+        time.sleep(2)
     assert not marker.exists()
-    assert "did not start" in (session.record["infrastructure"] or "")
+
+
+#: Inert guests that try to make their own end look like the machine's.
+CHOOSERS = {
+    "exits on its own": "import sys\nsys.exit(3)\n",
+    "erases its error output": "import os, sys\nos.ftruncate(2, 0)\nsys.exit(1)\n",
+    "kills itself as the CPU limit would": (
+        "import os, signal\nos.kill(os.getpid(), signal.SIGKILL)\n"
+    ),
+    "signals itself as the CPU limit would": (
+        "import os, signal\nos.kill(os.getpid(), signal.SIGXCPU)\n"
+    ),
+    "forges a status line": (
+        "import sys\nsys.stderr.write('physgate-emulator-end x 137\\n')\nsys.exit(1)\n"
+    ),
+    "floods its error output": "import sys\nwhile True:\n    sys.stderr.write('x' * 65536)\n",
+}
 
 
 @linux_only
-def test_an_emulator_that_ends_on_its_own_is_the_answer_s_end(tmp_path: Path) -> None:
-    scratch, readable, argv = _setup(
-        tmp_path,
-        "import sys\n"
-        "sys.stderr.write('physgate-emulator-end forged 137\\n')\n"  # a forged status line
-        "sys.exit(3)\n",
-    )
+@pytest.mark.parametrize("body", CHOOSERS.values(), ids=CHOOSERS.keys())
+def test_a_guest_cannot_make_its_end_the_machine_s(tmp_path: Path, body: str) -> None:
+    scratch, readable, argv = _setup(tmp_path, body)
     with sandboxed(
         argv, scratch=scratch, readable=(readable,), limits=LIMITS, held_out=_held_out(tmp_path)
     ) as session:
         session.run.wait()
     assert session.record["infrastructure"] is None
-    assert session.record["emulator_status"] == 3
 
 
 @linux_only
-def test_a_status_line_the_emulator_writes_is_not_believed(tmp_path: Path) -> None:
-    scratch, readable, argv = _setup(
-        tmp_path,
-        "import sys, time\n"
-        "sys.stderr.write('physgate-emulator-end forged 137\\n'); sys.stderr.flush()\n"
-        "print('READY', flush=True)\n"
-        "time.sleep(30)\n",
-    )
-    with sandboxed(
-        argv, scratch=scratch, readable=(readable,), limits=LIMITS, held_out=_held_out(tmp_path)
-    ) as session:
-        assert _lines(_device(session), time.monotonic() + 20, 1) == ["READY"]
-        session.run.kill_group()  # the harness ends the run: the shell reports nothing
-    assert session.record["emulator_status"] is None
-    assert session.record["infrastructure"] is None
+@pytest.mark.parametrize("trap", ["link", "fifo"])
+def test_the_harness_follows_no_link_and_waits_on_no_fifo_in_the_scratch(
+    tmp_path: Path, trap: str
+) -> None:
+    import threading
+
+    outside = tmp_path / "outside" / "target.txt"
+    outside.parent.mkdir()
+    outside.write_text("inert: must stay as it is")
+    for i in range(50):
+        (outside.parent / f"other{i}").write_text("inert")
+    scratch, readable, argv = _setup(tmp_path, "pass\n")
+    if trap == "link":
+        os.symlink(outside, scratch / ".physgate-emulator-token")
+        os.symlink(outside.parent, scratch / "linked-dir")
+    else:
+        os.mkfifo(scratch / ".physgate-emulator-token")
+        os.mkfifo(scratch / "fifo")
+    done: dict[str, object] = {}
+
+    def run() -> None:
+        with sandboxed(
+            argv,
+            scratch=scratch,
+            readable=(readable,),
+            limits=LIMITS,
+            held_out=_held_out(tmp_path),
+        ) as session:
+            session.run.wait()
+        done["record"] = session.record
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    thread.join(timeout=40)
+    if thread.is_alive():  # release a harness blocked on a planted FIFO, then fail
+        for fifo in scratch.iterdir():
+            if fifo.is_fifo():
+                with contextlib.suppress(OSError):
+                    fd = os.open(fifo, os.O_RDONLY | os.O_NONBLOCK)
+                    os.close(fd)
+        thread.join(timeout=10)
+        pytest.fail("the harness blocked on a FIFO planted in the scratch")
+    assert outside.read_text() == "inert: must stay as it is"
+    record = done["record"]
+    assert isinstance(record, dict)
+    assert record["scratch"]["files"] < 20  # the linked directory's 51 files are not counted
+
+
+@linux_only
+def test_a_directory_in_the_scratch_is_opened_only_through_a_checked_descriptor(
+    tmp_path: Path,
+) -> None:
+    import threading
+
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    (scratch / "real").mkdir()
+    os.symlink(tmp_path, scratch / "link")
+    os.mkfifo(scratch / "fifo")
+    (scratch / "file").write_text("inert")
+    root = os.open(scratch, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.close(sandbox.open_directory("real", root))
+        for name in ("link", "fifo", "file"):
+            outcome: list[object] = []
+            opener = threading.Thread(
+                target=lambda n=name, out=outcome: out.append(_attempt(n, root)), daemon=True
+            )
+            opener.start()
+            opener.join(timeout=5)
+            assert outcome, f"opening the planted {name} blocked"
+            assert isinstance(outcome[0], OSError), f"the planted {name} was opened"
+    finally:
+        os.close(root)
+
+
+def _attempt(name: str, root: int) -> object:
+    try:
+        fd = sandbox.open_directory(name, root)
+    except OSError as exc:
+        return exc
+    os.close(fd)
+    return fd
 
 
 @linux_only

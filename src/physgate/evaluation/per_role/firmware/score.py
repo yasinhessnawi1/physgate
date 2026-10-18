@@ -19,7 +19,10 @@ from physgate.evaluation.per_role.firmware.spec import PROBE_UNITS, FirmwareSpec
 from physgate.evaluation.per_role.task import Spec, Task
 
 Verdict = Literal["pass", "fail", "flaky", "infrastructure"]
+Standing = Literal["pass", "fail", "flaky", "retry", "unscored"]
 RUNS = 3
+#: How often an answer whose runs the machine ended is run again, at most.
+INFRASTRUCTURE_RETRIES = 1
 
 
 def _states(trace: Trace) -> list[tuple[float, str, str]]:
@@ -256,3 +259,28 @@ def verdict(scores: Sequence[Mapping[str, Any]]) -> Verdict:
     if outcomes == {False}:
         return "fail"
     return "flaky"
+
+
+def settle(attempts: Sequence[Verdict]) -> Standing:
+    """An answer's standing from its attempts' verdicts, in order.
+
+    Only an infrastructure end is run again, at most :data:`INFRASTRUCTURE_RETRIES` times;
+    an answer the machine still ends after that is ``unscored``, never passed.
+
+    Raises:
+        ValueError: no attempts, more than the retries allow, or a final verdict that was
+            not the last attempt.
+    """
+    if not attempts or len(attempts) > 1 + INFRASTRUCTURE_RETRIES:
+        msg = (
+            f"an answer has one attempt and at most {INFRASTRUCTURE_RETRIES} retries, "
+            f"not {len(attempts)} attempts"
+        )
+        raise ValueError(msg)
+    if any(v != "infrastructure" for v in attempts[:-1]):
+        msg = "only an infrastructure end is run again: an earlier verdict was final"
+        raise ValueError(msg)
+    last = attempts[-1]
+    if last != "infrastructure":
+        return last
+    return "retry" if len(attempts) <= INFRASTRUCTURE_RETRIES else "unscored"
