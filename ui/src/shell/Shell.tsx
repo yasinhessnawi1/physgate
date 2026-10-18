@@ -229,7 +229,10 @@ export function Shell({
     };
   }, []);
 
-  const goTo: PaletteEntry[] = views.map((v) => {
+  const byGroup = [...views].sort(
+    (a, b) => GROUPS.findIndex((g) => g.id === a.group) - GROUPS.findIndex((g) => g.id === b.group),
+  );
+  const goTo: PaletteEntry[] = byGroup.map((v) => {
     const run = route.query.get("run");
     return {
       id: `go-${v.area}-${v.slug}`,

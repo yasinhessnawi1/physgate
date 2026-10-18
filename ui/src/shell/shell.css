@@ -4,10 +4,16 @@
  * panel). Below 1600 px the open dock overlays the content instead of narrowing it; below 760 px
  * the navigation stacks above the content.
  */
+/*
+ * The shell fills the window and the window itself never scrolls: the navigation, the content
+ * and the inspector each scroll in their own column. A scrolling window would lay its scroll
+ * bar over the dock's rail, the last column, and take its control's hit area.
+ */
 .pg-shell {
   display: grid;
   grid-template-columns: var(--size-sidebar) minmax(0, 1fr) var(--size-dock-collapsed);
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   background: var(--color-bg);
 }
 
@@ -19,6 +25,7 @@
 .pg-nav {
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
   gap: var(--space-5);
   padding: var(--space-4) var(--space-3);
   border-right: 1px solid var(--color-border);
@@ -153,6 +160,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
 }
 
 .pg-topbar {
@@ -168,8 +176,19 @@
 }
 
 .pg-breadcrumb {
+  display: flex;
+  align-items: center;
   flex: 1 1 240px;
   min-width: 0;
+}
+
+/* Every row of the top bar is a target's height, so a control on a wrapped row keeps its hit
+   area inside the bar. */
+.pg-breadcrumb,
+.pg-run-chip,
+.pg-topbar-tools {
+  min-height: var(--size-touch-min);
+  align-content: center;
 }
 
 .pg-breadcrumb ol {
@@ -316,14 +335,24 @@
   flex: 1;
   min-width: 0;
   max-width: var(--size-content-max);
+  overflow: auto;
   padding: var(--space-7);
 }
 
+/* The close bar stays put and only the inspector scrolls, so no scroll bar lies over the bar. */
 .pg-inspector-region {
   flex: none;
+  display: flex;
+  flex-direction: column;
   width: var(--size-inspector);
   border-left: 1px solid var(--color-border);
   background: var(--color-surface);
+  overflow: hidden;
+}
+
+.pg-inspector-slot {
+  flex: 1;
+  min-height: 0;
   overflow: auto;
 }
 
@@ -331,10 +360,13 @@
   display: none;
 }
 
+/* The close control sits 22 px or more from the region's edges, so its hit area is whole. */
 .pg-inspector-close {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
-  padding: var(--space-2) var(--space-3) 0;
+  min-height: var(--size-touch-min);
+  padding: 0 10px;
 }
 
 /* -- the collaborator's dock ------------------------------------------------------------------ */
@@ -463,6 +495,12 @@
   .pg-shell,
   .pg-shell[data-nav="collapsed"] {
     display: block;
+    height: auto;
+    overflow: visible;
+  }
+
+  .pg-content {
+    overflow: visible;
   }
 
   .pg-nav {

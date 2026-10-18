@@ -473,11 +473,13 @@ export default function Gallery() {
       </Group>
 
       <Group id="help" title="Terms">
-        <Row label="Term">
+        <ul className="pg-gallery-terms">
           {(Object.keys(GLOSSARY) as TermKey[]).map((key) => (
-            <Term key={key} term={key} />
+            <li key={key}>
+              <Term term={key} />
+            </li>
           ))}
-        </Row>
+        </ul>
       </Group>
     </div>
   );

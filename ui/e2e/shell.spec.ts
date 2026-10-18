@@ -275,6 +275,8 @@ test("the run chip shows each recorded OS-layer state, and never an unrecorded o
     [undefined, "OS layer not recorded"],
   ];
   for (const [layer, words] of states) {
+    // A fresh document each time: a hash-only change would not read the configuration again.
+    await page.goto("about:blank");
     await page.unrouteAll();
     await watch(page);
     const rest = Object.fromEntries(
@@ -312,9 +314,11 @@ for (const theme of THEMES) {
     expect(await cspViolations(page)).toEqual([]);
   });
 
-  test(`the shell is clean to axe at 1440 and 1280 (${theme})`, async ({ page }) => {
-    await watch(page);
-    for (const width of [1440, 1280]) {
+  for (const width of [1440, 1280]) {
+    test(`the shell, notifications and the dock open, is clean to axe (${theme}, ${String(width)})`, async ({
+      page,
+    }) => {
+      await watch(page);
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/?theme=${theme}#/home/run-records?run=0/run-clean`);
       await settle(page);
@@ -322,12 +326,13 @@ for (const theme of THEMES) {
       await expect(page.locator('section[aria-label="Notifications"]')).toBeVisible();
       await settle(page);
       await page.keyboard.press("Control+j");
+      await expect(page.locator(".pg-dock-panel")).toBeVisible();
       const axe = await new AxeBuilder({ page })
         .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
         .analyze();
       expect(
         axe.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`),
       ).toEqual([]);
-    }
-  });
+    });
+  }
 }

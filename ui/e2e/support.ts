@@ -89,8 +89,9 @@ export async function bindingStylesHold(page: Page) {
 /**
  * The controls ``selector`` matches whose hit area is under 44 by 44 px. The hit area is what a
  * pointer reaches, the control's own box and any invisible extension of it (its ``::before``):
- * each drawn control is scrolled into view and the page is asked what lies 21.5 px left, right,
- * above and below its centre. Every one of the four points must land on the control. Controls
+ * each drawn control is scrolled to the middle of the view and the page is asked what lies at
+ * the outermost whole pixels of a 44 px span centred on it, left, right, above and below. All four
+ * must land on the control. Controls
  * not drawn (a closed dialog's) are skipped; none drawn at all fails.
  */
 export async function hitAreasShort(page: Page, selector: string): Promise<string[]> {
@@ -101,16 +102,21 @@ export async function hitAreasShort(page: Page, selector: string): Promise<strin
     const control = page.locator(selector).nth(i);
     if (!(await control.isVisible())) continue;
     drawn += 1;
-    await control.scrollIntoViewIfNeeded();
+    // In the middle of the viewport, so no probe falls outside it.
+    await control.evaluate((el) => {
+      el.scrollIntoView({ block: "center", inline: "center" });
+    });
     const missed = await control.evaluate((el) => {
       const box = el.getBoundingClientRect();
       const [cx, cy] = [box.left + box.width / 2, box.top + box.height / 2];
-      const reach = 21.5;
+      // The first and the last whole pixel of a 44 px span centred on the control: a target of
+      // 44 px or more covers both, one of 43 misses one.
+      const [low, high] = [(c: number) => Math.ceil(c - 22), (c: number) => Math.floor(c + 22) - 1];
       const points: [number, number][] = [
-        [cx - reach, cy],
-        [cx + reach, cy],
-        [cx, cy - reach],
-        [cx, cy + reach],
+        [low(cx), cy],
+        [high(cx), cy],
+        [cx, low(cy)],
+        [cx, high(cy)],
       ];
       return points.flatMap(([x, y]) => {
         const hit = document.elementFromPoint(x, y);
@@ -128,6 +134,11 @@ export async function hitAreasShort(page: Page, selector: string): Promise<strin
     }
   }
   if (drawn === 0) short.push(`nothing drawn matches ${selector}`);
+  // Scrolling moved the browser's starting point for Tab to the last control probed; put it
+  // back at the start of the page, where a person's first Tab begins.
+  await page.evaluate(() => {
+    document.body.firstElementChild?.scrollIntoView({ block: "start" });
+  });
   return short;
 }
 

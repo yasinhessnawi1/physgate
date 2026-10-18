@@ -685,6 +685,8 @@ kbd,
   position: relative;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  min-width: var(--size-touch-min);
   gap: var(--space-1);
   min-height: calc(var(--size-control) - 6px);
   padding: 0 var(--space-3);
@@ -1108,11 +1110,12 @@ kbd,
   font-size: var(--type-body-size);
 }
 
+/* A header row holds sort controls, so it is as tall as a target. */
 .pg-table th {
   position: sticky;
   top: 0;
   z-index: 1;
-  height: var(--size-row);
+  height: max(var(--size-row), var(--size-touch-min));
   padding: 0 var(--pad-cell-x);
   text-align: left;
   background: var(--color-surface-2);
@@ -1487,10 +1490,11 @@ kbd,
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-card);
   background: var(--color-surface);
-  overflow: hidden;
 }
 
+/* No overflow clipping on the card: it would cut its buttons' hit areas. */
 .pg-change-head {
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;

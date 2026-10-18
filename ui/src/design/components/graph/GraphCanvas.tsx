@@ -219,12 +219,26 @@ export function GraphCanvas({
   const height = Math.max(layout.height, 1);
   // Open with every node whole: shrunk to the frame's width if a readable zoom does it, and
   // otherwise at the graph's start, at full size.
+  // The fit is taken again whenever the frame changes width (an inspector opening beside it).
   const frame = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
-    const room = frame.current?.clientWidth ?? 0;
-    const fit = room / width;
-    setZoom(room > 0 && fit < 1 && fit >= READABLE_ZOOM ? fit : 1);
-    if (frame.current !== null) frame.current.scrollLeft = 0;
+    const node = frame.current;
+    if (node === null) return;
+    const fit = () => {
+      const room = node.clientWidth;
+      const ratio = room / width;
+      setZoom(room > 0 && ratio < 1 && ratio >= READABLE_ZOOM ? ratio : 1);
+      node.scrollLeft = 0;
+    };
+    if (typeof ResizeObserver === "undefined") {
+      fit();
+      return;
+    }
+    const observer = new ResizeObserver(fit);
+    observer.observe(node);
+    return () => {
+      observer.disconnect();
+    };
   }, [width]);
 
   const touches = (e: CanvasEdge) =>

@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Page, test } from "@playwright/test";
 
-import tokens from "../src/design/tokens.json";
+import tokens from "../src/design/tokens.json" with { type: "json" };
 import { srgbOf } from "../src/design/tokens";
 import {
   cspViolations,

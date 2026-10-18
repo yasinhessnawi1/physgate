@@ -126,6 +126,7 @@ export function Palette({
       node.showModal();
       input.current?.focus();
     } else if (!open && node.open) {
+      setTyped("");
       node.close();
       if (returnTo.current instanceof HTMLElement && returnTo.current.isConnected)
         returnTo.current.focus();

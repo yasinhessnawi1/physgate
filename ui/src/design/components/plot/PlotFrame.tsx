@@ -55,7 +55,10 @@ export function PlotFrame({
         />
       </div>
       {legend !== undefined && <div className="pg-plot-legend">{legend}</div>}
-      <div className="pg-plot-area">{view === "plot" ? plot : data}</div>
+      {/* A region the keyboard can reach, since a wide plot or table scrolls inside it. */}
+      <div className="pg-plot-area" role="region" aria-label={`${title}: ${view}`} tabIndex={0}>
+        {view === "plot" ? plot : data}
+      </div>
       <figcaption className="pg-plot-foot">
         <p className="pg-plot-summary">{summary}</p>
         <SourceChip id={source?.id ?? null} commit={source?.commit ?? null} />
