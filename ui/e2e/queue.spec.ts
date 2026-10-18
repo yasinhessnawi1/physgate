@@ -6,7 +6,17 @@ import { expect, type Page, test } from "@playwright/test";
 
 import { RUNS } from "../playwright.config";
 import { PORT } from "./port";
-import { cspViolations, hitAreasShort, styles, THEMES, TRANSPARENT, watch } from "./support";
+import {
+  cspViolations,
+  hitAreasShort,
+  idsLeading,
+  saysNoMoreThanTheRecord,
+  styles,
+  THEMES,
+  TRANSPARENT,
+  watch,
+} from "./support";
+import { DECISION_COPY } from "../src/words/queue";
 
 /**
  * The approval queue end to end: the real server, started with an operator, over runs the real
@@ -53,7 +63,7 @@ async function open(page: Page, theme: string, run: string, asOperator = true) {
   );
   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0, { timeout: 30_000 });
   await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
-  await expect(page.locator(".queue-detail")).toBeVisible();
+  await expect(page.locator(".pg-queue-item")).toBeVisible();
 }
 
 interface Decided {
@@ -89,11 +99,22 @@ for (const theme of THEMES) {
     const seen = await watch(page);
     await open(page, theme, "run-esc-view");
     await expect(page.locator('[role="alert"]')).toHaveCount(0);
-    await expect(page.locator(".pg-page-title")).toHaveText("Approval queue");
-    const detail = page.locator(".queue-detail");
-    await expect(detail.locator(".queue-decision")).toContainText("was rejected on all 3 attempts");
+    await expect(page.locator(".pg-page-title")).toHaveText("Queue");
+    const detail = page.locator(".pg-queue-item");
+    await expect(detail.locator(".pg-queue-decision")).toContainText(
+      "was rejected on all 3 attempts",
+    );
+    await expect(detail).toContainText(
+      "The subtask was sent back on every attempt it was allowed, so no repair is left.",
+    );
+    await expect(detail.locator(".pg-seals summary")).toHaveText(
+      "All 3 agent transcripts are intact (sealed).",
+    );
+    expect(
+      await idsLeading(page, ".pg-queue-decision, .pg-queue-entry-title, .pg-section-label"),
+    ).toEqual([]);
     await expect(detail.getByText("the stall current is too high")).toBeVisible();
-    await expect(detail.locator(".queue-diff")).toContainText("diff --git");
+    await expect(detail.locator(".pg-queue-diff")).toContainText("diff --git");
     // Two cited quantities, each with its unit, inside the element naming the run they come from.
     await expect(detail.locator(".pg-quantity")).toHaveCount(2);
     await expect(detail.locator(".pg-quantity").first()).toHaveText("3.4A");
@@ -110,18 +131,18 @@ for (const theme of THEMES) {
     await expect(page.getByText("Start a run")).toHaveCount(0);
 
     // Act is solid action blue with a leading glyph; reject is a red outline.
-    const [approve] = await styles(page, ".queue-actions > .pg-btn-act", [
+    const [approve] = await styles(page, ".pg-queue-actions > .pg-btn-act", [
       "background-color",
       "color",
     ]);
     expect(approve?.["background-color"]).toBe(await tokenColour(page, "--color-action"));
     expect(approve?.color).toBe(await tokenColour(page, "--color-action-text"));
     // Its words end with "…" (it opens a confirmation), after a leading check.
-    await expect(page.locator(".queue-actions > .pg-btn-act")).toHaveText("Approve…");
+    await expect(page.locator(".pg-queue-actions > .pg-btn-act")).toHaveText("Approve…");
     await expect(
-      page.locator('.queue-actions > .pg-btn-act > .pg-icon:first-child[data-icon="check"]'),
+      page.locator('.pg-queue-actions > .pg-btn-act > .pg-icon:first-child[data-icon="check"]'),
     ).toBeVisible();
-    const [reject] = await styles(page, ".queue-actions > .pg-btn-reject", [
+    const [reject] = await styles(page, ".pg-queue-actions > .pg-btn-reject", [
       "border-top-color",
       "border-top-style",
       "color",
@@ -133,7 +154,8 @@ for (const theme of THEMES) {
     expect(reject?.["background-color"]).not.toBe(await tokenColour(page, "--color-fail"));
     expect(reject?.["background-color"]).not.toBe(TRANSPARENT);
     // Every button and item: a hit area of at least 44 by 44 px.
-    expect(await hitAreasShort(page, ".pg-btn, .run-link, .queue-item")).toEqual([]);
+    expect(await hitAreasShort(page, ".pg-btn, .pg-run-link, .pg-queue-entry")).toEqual([]);
+    await saysNoMoreThanTheRecord(page, `queue-${theme}`);
 
     const axe = await new AxeBuilder({ page })
       .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
@@ -153,8 +175,8 @@ test("a page opened without the operator's address can only read, and says how t
   page,
 }) => {
   await open(page, "light", "run-esc-view", false);
-  await expect(page.locator(".queue-actions > .pg-btn-act")).toBeDisabled();
-  await expect(page.locator(".queue-actions > .pg-btn-reject")).toBeDisabled();
+  await expect(page.locator(".pg-queue-actions > .pg-btn-act")).toBeDisabled();
+  await expect(page.locator(".pg-queue-actions > .pg-btn-reject")).toBeDisabled();
   await expect(
     page
       .getByText("This page was opened without the operator's address, so it can only read.")
@@ -168,13 +190,21 @@ test("a page opened without the operator's address can only read, and says how t
   expect(await decisions(page, "run-esc-view")).toEqual([]);
 });
 
-test("a rejection cannot be opened until its note says why", async ({ page }) => {
+test("a rejection cannot be confirmed blank: its confirmation waits for the reason", async ({
+  page,
+}) => {
   await open(page, "light", "run-esc-view");
-  const reject = page.locator(".queue-actions > .pg-btn-reject");
-  await expect(reject).toBeDisabled();
-  await expect(page.getByText("A rejection says why: write the note first.")).toBeVisible();
-  await page.getByLabel("Note for the ledger (optional to approve, required to reject)").fill("x");
-  await expect(reject).toBeEnabled();
+  await page.locator(".pg-queue-actions > .pg-btn-reject").click();
+  const dialog = page.locator("dialog[open]");
+  const confirm = dialog.getByRole("button", { name: "Reject", exact: true });
+  await expect(confirm).toBeDisabled();
+  await dialog.getByLabel("Reason · required").fill("   ");
+  await expect(confirm).toBeDisabled();
+  await dialog.getByLabel("Reason · required").fill("x");
+  await expect(confirm).toBeEnabled();
+  await expect(dialog.locator(".pg-writes-line")).toContainText('"decision":"reject: x"');
+  await expect(dialog).toContainText(DECISION_COPY.then);
+  await page.keyboard.press("Escape");
   expect(await decisions(page, "run-esc-view")).toEqual([]);
 });
 
@@ -183,21 +213,22 @@ test("a decision goes through its confirmation and lands as the queue's own line
 }) => {
   const seen = await watch(page);
   await open(page, "light", "run-esc-approve");
-  await page
-    .getByLabel("Note for the ledger (optional to approve, required to reject)")
-    .fill("accept the last attempt — checked by hand");
-  await page.locator(".queue-actions > .pg-btn-act").click();
+  await page.locator(".pg-queue-actions > .pg-btn-act").click();
   const dialog = page.locator("dialog[open]");
   await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText(
-    "This writes: one line appended to queue_decisions.jsonl in run run-esc",
+  await dialog.getByLabel("Note · optional").fill("accept the last attempt — checked by hand");
+  await expect(dialog.locator(".pg-dialog-summary")).toHaveText(
+    /^This records: e2e-operator approved '.*was rejected on all 3 attempts.*', with the note 'accept the last attempt — checked by hand'\.$/,
   );
-  const line = await dialog.locator(".confirm-line").textContent();
+  await expect(dialog).toContainText("One line appended to queue_decisions.jsonl in run run-esc");
+  const line = await dialog.locator(".pg-writes-line").textContent();
   expect(JSON.parse(line ?? "")).toMatchObject({
     kind: "resolution",
     decision: "approve: accept the last attempt — checked by hand",
     resolved_by: "e2e-operator",
   });
+  await expect(dialog).toContainText("Checked first, not written");
+  await expect(dialog).toContainText(DECISION_COPY.then);
   await expect(dialog).toContainText("This cannot be edited or undone; the item closes.");
   const evidence = process.env.PHYSGATE_UI_SCREENSHOTS;
   if (evidence !== undefined)
@@ -205,7 +236,7 @@ test("a decision goes through its confirmation and lands as the queue's own line
   // Nothing is written until the person confirms.
   expect(await decisions(page, "run-esc-approve")).toEqual([]);
   await dialog.getByRole("button", { name: "Approve", exact: true }).click();
-  await expect(page.locator(".queue-decided-text")).toHaveText(
+  await expect(page.locator(".pg-queue-decided-text")).toHaveText(
     "approve: accept the last attempt — checked by hand",
   );
   const recorded = await decisions(page, "run-esc-approve");
@@ -215,7 +246,9 @@ test("a decision goes through its confirmation and lands as the queue's own line
     resolved_by: "e2e-operator",
     flag: null,
   });
-  await expect(page.locator(".queue-item-on .queue-decided")).toHaveText("Decided");
+  await expect(page.locator('.pg-queue-entry-on [data-status-kind="resolved"]')).toHaveText(
+    "Resolved",
+  );
   expect(seen.outbound).toEqual([]);
   expect(await cspViolations(page)).toEqual([]);
 });
@@ -225,14 +258,12 @@ test("a decision on a view whose trajectory changed since is refused with the se
 }) => {
   await open(page, "light", "run-esc-stale");
   const session = await page
-    .locator('[data-status="holds"]')
+    .locator('[data-status="holds"] .pg-transcript-session')
     .first()
-    .evaluate((badge) => {
-      return badge.parentElement?.querySelector(".mono")?.textContent ?? "";
-    });
+    .evaluate((el) => el.textContent);
   expect(session).not.toBe("");
   appendFileSync(join(RUNS, "runs", "run-esc-stale", "sessions", session, "stdout.jsonl"), "{}\n");
-  await page.locator(".queue-actions > .pg-btn-act").click();
+  await page.locator(".pg-queue-actions > .pg-btn-act").click();
   await page.locator("dialog[open]").getByRole("button", { name: "Approve", exact: true }).click();
   const alert = page.locator('[role="alert"]');
   await expect(alert).toContainText("a trajectory of the item is no longer as it was shown");
@@ -244,10 +275,10 @@ test("a decision made while a session's window is open shows the queue's own mar
   page,
 }) => {
   await open(page, "light", "run-esc-window");
-  await page.locator(".queue-actions > .pg-btn-act").click();
+  await page.locator(".pg-queue-actions > .pg-btn-act").click();
   await page.locator("dialog[open]").getByRole("button", { name: "Approve", exact: true }).click();
   const mark = "made while session still running or not yet resumed ran; confirm";
-  await expect(page.locator(".queue-flag")).toContainText(mark);
+  await expect(page.locator(".pg-queue-flag")).toContainText(mark);
   const evidence = process.env.PHYSGATE_UI_SCREENSHOTS;
   if (evidence !== undefined)
     await page.screenshot({ path: `${evidence}/queue-decided-marked-light.png`, fullPage: true });
@@ -316,6 +347,6 @@ test("a page on another origin cannot take a decision, read the token, or frame 
   expect(outcomes["a simple text post"]).toBe("failed: TypeError");
   // Framed, our page is refused by its own headers and shows nothing of itself.
   const framed = page.frameLocator("#framed");
-  await expect(framed.locator(".queue-detail")).toHaveCount(0);
+  await expect(framed.locator(".pg-queue-item")).toHaveCount(0);
   expect(await decisions(page, "run-esc-forged")).toEqual([]);
 });

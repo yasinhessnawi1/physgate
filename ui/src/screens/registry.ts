@@ -38,7 +38,7 @@ export const VIEWS: readonly ViewDef[] = [
     slug: "approval-queue",
     title: "Queue",
     icon: "inbox",
-    component: lazy(() => import("../views/approval-queue/ApprovalQueue")),
+    component: lazy(() => import("./queue/Queue")),
   },
   {
     group: "run",
@@ -64,7 +64,7 @@ export const VIEWS: readonly ViewDef[] = [
     slug: "gate-checks",
     title: "Gate checks",
     icon: "shield-check",
-    component: lazy(() => import("../views/gate-checks/GateChecks")),
+    component: lazy(() => import("./gate-checks/GateChecks")),
   },
   {
     group: "run",
@@ -72,6 +72,14 @@ export const VIEWS: readonly ViewDef[] = [
     slug: "run-records",
     title: "Run records",
     icon: "file-text",
-    component: lazy(() => import("../views/run-records/RunRecords")),
+    component: lazy(() => import("./run-records/RunRecords")),
+  },
+  {
+    group: "reference",
+    area: "reference",
+    slug: "glossary",
+    title: "Glossary",
+    icon: "book-open",
+    component: lazy(() => import("./glossary/Glossary")),
   },
 ];
