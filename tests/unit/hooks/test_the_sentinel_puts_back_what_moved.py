@@ -409,6 +409,104 @@ def test_a_deleted_node_and_a_changed_gate_file_are_both_put_right_and_both_reco
     assert decisions["put back"] == [str(root / GATE / "check.py")]
 
 
+def _append_journal_line(root: Path, node_id: str) -> None:
+    line = {"node_id": node_id, "op": "create", "payload": {"id": node_id}, "rev": 2, "version": 1}
+    with (root / "store" / "journal.jsonl").open("a") as journal:
+        journal.write(json.dumps(line) + "\n")
+
+
+@pytest.mark.parametrize(
+    "node_id",
+    ["../escaped.node", "../../outside/escaped", "/abs/escaped", "a/b", "electrical.motor\n"],
+)
+def test_a_journal_name_no_store_could_serve_is_never_made_a_path(root: Path, node_id: str) -> None:
+    # A node's name becomes a path only through the store's own name rule. A
+    # journal line naming something else is refused at once, never treated as a
+    # write in progress, and nothing is read, made or written outside the
+    # store's node directory on its account.
+    _started(root)
+    outside = sorted(str(p) for p in (root / "outside").rglob("*"))
+    _append_journal_line(root, node_id)
+    told = _check(root)
+    assert "does not hold what the journal says" in told
+    assert str(root / "store" / "journal.jsonl") in told
+    assert sorted(str(p) for p in (root / "outside").rglob("*") if "state" not in p.parts) == [
+        p for p in outside if "/state" not in p
+    ]
+    assert not (root / "store" / "escaped.node.json").exists()
+    assert not (root / "abs").exists() and not (root / "store" / "nodes" / "a").exists()
+    assert sorted(p.name for p in (root / "store" / "nodes").iterdir()) == ["electrical.motor.json"]
+    (logged,) = [e for e in _log(root) if e["decision"] == "node mismatch"]
+    assert logged["paths"] == [str(root / "store" / "journal.jsonl")]
+    assert logged["restored"] == []
+
+
+def test_a_nodes_directory_swapped_for_a_link_is_a_finding_and_nothing_is_written_through_it(
+    root: Path,
+) -> None:
+    _started(root)
+    nodes = root / "store" / "nodes"
+    elsewhere = root / "outside" / "elsewhere"
+    elsewhere.mkdir()
+    for path in nodes.iterdir():
+        path.unlink()
+    nodes.rmdir()
+    nodes.symlink_to(elsewhere)
+    told = _check(root)
+    assert "does not hold what the journal says" in told
+    assert str(nodes) in told
+    assert list(elsewhere.iterdir()) == [], "nothing is written through the link"
+    (logged,) = [e for e in _log(root) if e["decision"] == "node mismatch"]
+    assert logged["paths"] == [str(nodes)]
+    assert logged["restored"] == []
+
+
+def test_a_node_file_swapped_for_a_link_to_identical_bytes_is_a_finding(root: Path) -> None:
+    # A node file is read without following a link: a link to a copy of the
+    # journal's own bytes is still not the store's file, and is replaced.
+    _started(root)
+    want = (root / NODE).read_bytes()
+    copy = root / "outside" / "copy.json"
+    copy.write_bytes(want)
+    (root / NODE).unlink()
+    (root / NODE).symlink_to(copy)
+    assert "does not hold what the journal says" in _check(root)
+    assert not (root / NODE).is_symlink()
+    assert (root / NODE).read_bytes() == want
+
+
+def test_the_rebuild_writes_nothing_for_a_finding_whose_path_is_not_the_store_s(
+    root: Path,
+) -> None:
+    # The rebuild maps the node's name to its file again and writes only where
+    # that lands; a finding naming any other path is written nowhere.
+    _started(root)
+    store = str(root / "store")
+    stray = str(root / "store" / "nodes" / ".." / "electrical.motor.json")
+    base = {"nodes": {store: {"sigs": {}, "revs": {}}}}
+    assert sentinel._restore_nodes(base, [(stray, store, "electrical.motor")]) == []
+    assert not (root / "store" / "electrical.motor.json").exists()
+
+
+def test_the_rebuild_writes_nothing_through_a_nodes_directory_that_became_a_link(
+    root: Path,
+) -> None:
+    # Between the check and the rebuild the directory may be swapped for a link.
+    _started(root)
+    store = root / "store"
+    nodes = store / "nodes"
+    elsewhere = root / "outside" / "elsewhere"
+    elsewhere.mkdir()
+    for path in nodes.iterdir():
+        path.unlink()
+    nodes.rmdir()
+    nodes.symlink_to(elsewhere)
+    base = {"nodes": {str(store): {"sigs": {}, "revs": {}}}}
+    finding = (str(nodes / "electrical.motor.json"), str(store), "electrical.motor")
+    assert sentinel._restore_nodes(base, [finding]) == []
+    assert list(elsewhere.iterdir()) == []
+
+
 def test_the_orchestrators_legitimate_write_is_not_a_finding(root: Path) -> None:
     _started(root)
     make_store(root / "store", node(quantities={}))

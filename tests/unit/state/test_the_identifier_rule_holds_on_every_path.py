@@ -23,7 +23,15 @@ from physgate.state.exceptions import CorruptRecordError, MalformedNodeIdError
 from physgate.state.store import Store
 
 ESCAPING = ["../../secrets", "/etc/hosts", "a/b", "..", "electrical.motor/../.."]
-ILLEGAL_WITHOUT_ESCAPING = ["NoDots", "Electrical.Motor", "has space.x", "", "electrical..motor"]
+ILLEGAL_WITHOUT_ESCAPING = [
+    "NoDots",
+    "Electrical.Motor",
+    "has space.x",
+    "",
+    "electrical..motor",
+    # A pattern's ``$`` also matches before a final newline: the rule is the whole name.
+    "electrical.motor\n",
+]
 
 
 # --- the public entry points -------------------------------------------------
