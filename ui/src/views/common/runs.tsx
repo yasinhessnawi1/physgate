@@ -5,9 +5,9 @@
  */
 import { getJson, type Result } from "../../api/client";
 import { type RunConfig, runConfig, type RunListing, runListing } from "../../api/records";
-import { GateModeBadge } from "../../design/components/GateMode";
-import { OsLayerBadge } from "../../design/components/OsLayer";
-import type { Source } from "../../design/components/SourceChip";
+import { GateModeBadge } from "../../design/components/verdict/GateMode";
+import { OsLayerBadge } from "../../design/components/system/OsLayerBadge";
+import type { Source } from "../../design/components/data/source";
 import type { AreaId } from "../../shell/areas";
 import { hrefFor } from "../../shell/route";
 import { useResult } from "./useResult";

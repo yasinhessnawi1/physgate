@@ -258,7 +258,7 @@ describe("the item view shows the five things, and every seal status apart", () 
     );
     const text = host.textContent;
     expect(text).toContain("Subtask s1 was rejected on all 3 attempts. Decide.");
-    expect(host.querySelector(".quantity")?.textContent).toBe("3.4A");
+    expect(host.querySelector(".pg-quantity")?.textContent).toBe("3.4A");
     expect(text).toContain("the stall current is too high");
     expect(host.querySelector(".queue-diff")?.textContent).toBe("--- a/x\n+++ b/x\n");
     const statuses = [...host.querySelectorAll("[data-status]")].map((b) =>
@@ -354,7 +354,7 @@ describe("deciding goes through a confirmation naming the line it writes", () =>
     expect(dialog?.textContent).toContain("This cannot be edited or undone; the item closes.");
     expect(send).not.toHaveBeenCalled();
     const confirm = [...(dialog?.querySelectorAll("button") ?? [])].find(
-      (b) => b.textContent === "✕ Reject",
+      (b) => b.textContent === "Reject",
     );
     await act(async () => {
       confirm?.click();
@@ -379,7 +379,7 @@ describe("deciding goes through a confirmation naming the line it writes", () =>
       approve?.click();
     });
     const confirm = [...host.querySelectorAll("dialog button")].find(
-      (b) => b.textContent === "✓ Approve",
+      (b) => b.textContent === "Approve",
     ) as HTMLButtonElement | undefined;
     await act(async () => {
       confirm?.click();

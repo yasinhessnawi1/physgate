@@ -8,9 +8,11 @@ import { type SyntheticEvent, useEffect, useState } from "react";
 
 import { getJson } from "../../api/client";
 import { type GraphAt, graphAt, graphDiff, nodeHistory, type NodeRecord } from "../../api/graph";
-import { GraphCanvas, layoutGraph } from "../../design/components/GraphCanvas";
-import { type Source, sourceAttribute } from "../../design/components/SourceChip";
-import { EmptyState, ErrorState, LoadingState } from "../../design/components/States";
+import { GraphCanvas, layoutGraph } from "../../design/components/graph/GraphCanvas";
+import { type Source, sourceAttribute } from "../../design/components/data/source";
+import { EmptyState, ErrorState, LoadingState } from "../../design/components/status/States";
+import { Button } from "../../design/components/actions/Button";
+import { Segmented } from "../../design/components/actions/Segmented";
 import type { ViewProps } from "../../shell/header";
 import { hrefFor } from "../../shell/route";
 import { RunPicker, runSource, useChosenRun } from "../common/runs";
@@ -21,6 +23,9 @@ import { Inspector } from "./Inspector";
 import { NodesTable } from "./NodesTable";
 
 const AREA = "orchestration";
+
+/** The domain filter's "every domain" choice. */
+const ALL = "all";
 
 export function quantitiesLabel(n: number): string {
   return `${String(n)} ${n === 1 ? "quantity" : "quantities"}`;
@@ -97,9 +102,7 @@ function CompareForm({
           </option>
         ))}
       </select>
-      <button type="submit" className="button button-browse">
-        Show the diff
-      </button>
+      <Button type="submit">Show the diff</Button>
     </form>
   );
 }
@@ -141,8 +144,10 @@ function Explorer({
   const edges = shown.flatMap((n) => n.constrains.map((to) => ({ from: n.id, to })));
   const drawn = edges.filter((e) => shown.some((n) => n.id === e.to));
   const missing = missingTargets(graph.nodes);
+  // The label is the key as written until the schema carries labels a person wrote.
   const canvasNodes = shown.map((n) => ({
     id: n.id,
+    label: n.id,
     kind: n.kind,
     domain: n.domain,
     summary: quantitiesLabel(n.quantities.length),
@@ -174,39 +179,25 @@ function Explorer({
             ),
           )}
         </select>
-        <div className="segmented" role="group" aria-label="Domain filter">
-          <button
-            type="button"
-            aria-pressed={domain === null}
-            onClick={() => {
-              go(withQuery(query, { domain: null }));
-            }}
-          >
-            All domains
-          </button>
-          {domains.map((d) => (
-            <button
-              key={d}
-              type="button"
-              aria-pressed={domain === d}
-              onClick={() => {
-                go(withQuery(query, { domain: d }));
-              }}
-            >
-              {d}
-            </button>
-          ))}
-        </div>
-        <button
-          type="button"
-          className="button button-browse"
-          aria-expanded={comparing}
+        <Segmented
+          label="Domain filter"
+          value={domain ?? ALL}
+          onChange={(d) => {
+            go(withQuery(query, { domain: d === ALL ? null : d }));
+          }}
+          options={[
+            { value: ALL, label: "All domains" },
+            ...domains.map((d) => ({ value: d, label: d })),
+          ]}
+        />
+        <Button
+          expanded={comparing}
           onClick={() => {
             setComparing((c) => !c);
           }}
         >
           Compare revisions…
-        </button>
+        </Button>
       </div>
       {comparing && (
         <CompareForm
@@ -222,7 +213,7 @@ function Explorer({
         ) : diffResult.ok ? (
           <DiffCard diff={diffResult.value} source={source} />
         ) : (
-          <ErrorState title="Diff: not shown" refusal={diffResult.refusal} />
+          <ErrorState title="Diff: not shown" {...diffResult.refusal} />
         ))}
       <div className="explorer-main">
         <section
@@ -308,7 +299,7 @@ export default function DesignGraph({ setHeader, query }: ViewProps) {
     }
   }, [config, setHeader]);
   if (runs === null) return <LoadingState reading="the run list" />;
-  if (!runs.ok) return <ErrorState title="The run list was refused" refusal={runs.refusal} />;
+  if (!runs.ok) return <ErrorState title="The run list was refused" {...runs.refusal} />;
   if (chosen === undefined || base === null)
     return (
       <EmptyState title="No runs under the roots yet">
@@ -322,9 +313,9 @@ export default function DesignGraph({ setHeader, query }: ViewProps) {
       {config === null || graph === null ? (
         <LoadingState reading="the graph journal" />
       ) : !config.ok ? (
-        <ErrorState title="The run's configuration was refused" refusal={config.refusal} />
+        <ErrorState title="The run's configuration was refused" {...config.refusal} />
       ) : !graph.ok ? (
-        <ErrorState title="The graph was refused" refusal={graph.refusal} />
+        <ErrorState title="The graph was refused" {...graph.refusal} />
       ) : (
         <Explorer base={base} graph={graph.value} query={query} source={runSource(config.value)} />
       )}

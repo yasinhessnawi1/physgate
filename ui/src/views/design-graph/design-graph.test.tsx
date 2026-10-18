@@ -94,14 +94,14 @@ describe("the inspector", () => {
 
   it("shows every quantity with its unit once all are asked for", () => {
     const host = render();
-    expect(host.querySelectorAll(".quantity")).toHaveLength(FIRST_QUANTITIES);
+    expect(host.querySelectorAll(".pg-quantity")).toHaveLength(FIRST_QUANTITIES);
     act(() => {
       host.querySelector<HTMLButtonElement>("button")?.click();
     });
-    const shown = [...host.querySelectorAll(".quantity")];
+    const shown = [...host.querySelectorAll(".pg-quantity")];
     expect(shown).toHaveLength(MANY.length);
     for (const q of shown)
-      expect(q.querySelector(".quantity-unit")?.textContent).toMatch(/^(W|dimensionless)$/);
+      expect(q.querySelector(".pg-quantity-unit")?.textContent).toMatch(/^(W|dimensionless)$/);
   });
 
   it("shows its edges both ways, and says when a target is not in the graph", () => {

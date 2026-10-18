@@ -1,0 +1,39 @@
+/* The About page: two cards, the licences as disclosures with their full text. */
+.pg-about {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  max-width: 80ch;
+}
+
+.pg-about-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--pad-card);
+}
+
+.pg-about-title {
+  margin: 0;
+  font-size: var(--type-card-title-size);
+  line-height: var(--type-card-title-line);
+  font-weight: 600;
+}
+
+.pg-about-licence > summary {
+  min-height: var(--size-touch-min);
+  display: flex;
+  align-items: center;
+}
+
+.pg-about-text {
+  max-height: 24rem;
+  overflow: auto;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-2);
+  font-family: var(--font-mono);
+  font-size: var(--type-mono-small-size);
+  white-space: pre-wrap;
+}

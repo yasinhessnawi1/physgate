@@ -4,12 +4,13 @@
  * run; only confirming sends it. What the page showed of the item goes with the decision, so the
  * server refuses it if the item changed meanwhile, and its answer is shown as it came.
  */
-import { useId, useState } from "react";
+import { useId, useMemo, useState } from "react";
 
 import type { Result } from "../../api/client";
 import type { ItemView, Resolved, Verb } from "../../api/queue";
-import { ActButton } from "../../design/components/Buttons";
-import { ErrorState } from "../../design/components/States";
+import { Button, type Confirmation } from "../../design/components/actions/Button";
+import { ErrorState } from "../../design/components/status/States";
+import { usePaletteEntries } from "../../shell/palette";
 import { lineToWrite, whyNot } from "./model";
 
 export function DecisionPanel({
@@ -30,14 +31,45 @@ export function DecisionPanel({
 }) {
   const [note, setNote] = useState("");
   const [answer, setAnswer] = useState<Result<Resolved> | null>(null);
+  // The buttons and the command palette open the same confirmation, under the same rules.
+  const [opened, setOpened] = useState<Verb | null>(null);
+  const approveWhyNot = whyNot("approve", note, operator, holdsToken);
+  const rejectWhyNot = whyNot("reject", note, operator, holdsToken);
+  const entries = useMemo(
+    () => [
+      {
+        id: "queue-approve",
+        section: "This item",
+        label: "Approve…",
+        disabledBecause: approveWhyNot,
+        run: () => {
+          setOpened("approve");
+        },
+      },
+      {
+        id: "queue-reject",
+        section: "This item",
+        label: "Reject…",
+        disabledBecause: rejectWhyNot,
+        run: () => {
+          setOpened("reject");
+        },
+      },
+    ],
+    [approveWhyNot, rejectWhyNot],
+  );
+  usePaletteEntries(entries);
   const noteId = useId();
 
-  const act = (verb: Verb) => {
+  const confirmation = (verb: Verb): Confirmation => {
     const line = operator === null ? null : lineToWrite(view, verb, note, operator);
+    const label = verb === "approve" ? "Approve" : "Reject";
     return {
-      label: verb === "approve" ? "Approve" : "Reject",
+      title: `${label}?`,
       writes: `one line appended to queue_decisions.jsonl in run ${runId}`,
-      detail: (
+      recordedAs: operator === null ? "no operator: this page names none" : `${operator} (human)`,
+      confirmLabel: label,
+      children: (
         <>
           <pre className="confirm-line" aria-label="The line that will be written">
             {line ?? ""}
@@ -73,15 +105,25 @@ export function DecisionPanel({
         }}
       />
       <div className="queue-actions">
-        <ActButton
-          act={act("approve")}
-          glyph="✓"
-          disabledBecause={whyNot("approve", note, operator, holdsToken)}
+        <Button
+          variant="act"
+          label="Approve…"
+          confirm={confirmation("approve")}
+          disabledBecause={approveWhyNot}
+          open={opened === "approve"}
+          onOpenChange={(open) => {
+            setOpened(open ? "approve" : null);
+          }}
         />
-        <ActButton
-          act={act("reject")}
-          reject
-          disabledBecause={whyNot("reject", note, operator, holdsToken)}
+        <Button
+          variant="reject"
+          label="Reject…"
+          confirm={confirmation("reject")}
+          disabledBecause={rejectWhyNot}
+          open={opened === "reject"}
+          onOpenChange={(open) => {
+            setOpened(open ? "reject" : null);
+          }}
         />
         <span className="muted queue-actions-note">
           Each writes one decision, exactly as <span className="mono">physgate queue resolve</span>{" "}
@@ -104,7 +146,7 @@ export function DecisionPanel({
             <span className="mono">{answer.value.ts}</span>
           </p>
         ) : (
-          <ErrorState title="The decision was refused" refusal={answer.refusal} />
+          <ErrorState title="The decision was refused" {...answer.refusal} />
         ))}
     </section>
   );

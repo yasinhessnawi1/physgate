@@ -1,7 +1,7 @@
-import { ScrollTable } from "../../design/components/ScrollTable";
+import { ScrollTable } from "../../design/components/layout/ScrollTable";
 import type { NodeRecord } from "../../api/graph";
-import { DomainChip } from "../../design/components/GraphCanvas";
-import { type Source, sourceAttribute } from "../../design/components/SourceChip";
+import { DomainChip } from "../../design/components/data/DomainChip";
+import { type Source, sourceAttribute } from "../../design/components/data/source";
 import { edgesOf } from "./edges";
 
 /** The graph's data as a table beside the drawing: every node, its edges both ways, in id order. */

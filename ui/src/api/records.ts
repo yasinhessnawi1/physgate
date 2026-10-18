@@ -3,9 +3,10 @@
  * checks the fields the page shows. A field the page does not show is not checked here and
  * not shown.
  */
-import type { GateMode } from "../design/components/GateMode";
-import type { OsLayer } from "../design/components/OsLayer";
-import type { Verdict } from "../design/components/VerdictBadge";
+import type { GateMode } from "../design/components/verdict/GateMode";
+import type { OsLayer } from "../design/components/system/OsLayerBadge";
+import type { Verdict } from "../design/components/verdict/verdict";
+import { DOMAINS, type Domain } from "./graph";
 import type { Quantity } from "../design/quantity";
 import { requireQuantity } from "../design/quantity";
 import { ShapeError } from "./client";
@@ -190,11 +191,18 @@ export interface GraphRecord {
   readonly nodes: readonly {
     readonly id: string;
     readonly kind: string;
-    readonly domain: string;
+    readonly domain: Domain;
     readonly revision: number;
     readonly constrains: readonly string[];
     readonly quantities: readonly (readonly [string, Quantity])[];
   }[];
+}
+
+/** A node's domain: one of the schema's five, or the record is refused. */
+function domainOf(value: unknown): Domain {
+  const found = DOMAINS.find((d) => d === value);
+  if (found === undefined) throw new ShapeError("a node domain");
+  return found;
 }
 
 export function graphRecord(value: unknown): GraphRecord {
@@ -210,7 +218,7 @@ export function graphRecord(value: unknown): GraphRecord {
       return {
         id,
         kind: text(node.kind, "a node kind"),
-        domain: text(node.domain, "a node domain"),
+        domain: domainOf(node.domain),
         revision: count(entry.revision, "a revision"),
         constrains: constrains.map((c) => text(c, "an edge target")),
         quantities: Object.entries(object(node.quantities, "a node's quantities")).map(

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import type { RunConfig } from "../../api/records";
 import type { GateCheck } from "../../api/run";
-import type { GateMode } from "../../design/components/GateMode";
+import type { GateMode } from "../../design/components/verdict/GateMode";
 import { GateChecksSummary } from "./GateChecksSummary";
 import { GateChecksTable } from "./GateChecksTable";
 import { PairedBody, pairedWhere } from "./PairedRun";
@@ -72,15 +72,15 @@ describe("unchecked is its own category", () => {
   const html = summary("on", every("on"));
 
   it("is counted after the separator and never inside the evaluated", () => {
-    const evaluated = html.slice(html.indexOf("tally-evaluated"), html.indexOf("tally-separator"));
+    const evaluated = html.slice(html.indexOf("pg-tally-evaluated"), html.indexOf("pg-tally-sep"));
     expect(evaluated).toContain('data-evaluated="4"');
     expect(evaluated).not.toContain("verdict-unchecked");
     const after = html.slice(
-      html.indexOf("tally-separator"),
-      html.indexOf("</span></span>", html.indexOf("tally-unchecked")) + 14,
+      html.indexOf("pg-tally-sep"),
+      html.indexOf("</span></span>", html.indexOf("pg-tally-unchecked")) + 14,
     );
     expect(after).toContain("verdict-unchecked");
-    expect(after).toContain('<span class="mono">2</span>');
+    expect(after).toContain('<span class="pg-tally-n">2</span>');
   });
 
   it("never reads as a pass, and says why it was left unchecked", () => {
@@ -103,7 +103,7 @@ describe("unchecked is its own category", () => {
 describe("every gate figure shows its mode", () => {
   it("under on: the badge says gate on, and a fail is a filled fail", () => {
     const html = summary("on", every("on"));
-    expect(html).toContain("gate-mode-on");
+    expect(html).toContain("pg-gate-on");
     expect(html).toContain("verdict-fail");
   });
 
@@ -117,7 +117,7 @@ describe("every gate figure shows its mode", () => {
 
   it("under off: no result is shown, and the badge says the gate was off", () => {
     const html = summary("off", []);
-    expect(html).toContain("gate-mode-off");
+    expect(html).toContain("pg-gate-off");
     expect(html).toContain("The gate did not run");
   });
 });
@@ -165,7 +165,7 @@ describe("the tally says how many passes looked at nothing", () => {
   it("next to the evaluated count, from the records", () => {
     const html = summary("on", every("on"));
     expect(html).toContain("tally-over-nothing");
-    expect(html).toMatch(/<span class="mono">1<\/span> pass over nothing/);
+    expect(html).toMatch(/<span class="pg-tally-n">1<\/span> pass over nothing/);
   });
 });
 

@@ -1,0 +1,525 @@
+/*
+ * The app shell: the navigation (232 px, 52 collapsed), the top bar (48 px), the content (at most
+ * 1600 px wide), the inspector region (360 px) and the collaborator's dock (a 44 px rail, a 380 px
+ * panel). Below 1600 px the open dock overlays the content instead of narrowing it; below 760 px
+ * the navigation stacks above the content.
+ */
+/*
+ * The shell fills the window and the window itself never scrolls: the navigation, the content
+ * and the inspector each scroll in their own column. A scrolling window would lay its scroll
+ * bar over the dock's rail, the last column, and take its control's hit area.
+ */
+.pg-shell {
+  display: grid;
+  grid-template-columns: var(--size-sidebar) minmax(0, 1fr) var(--size-dock-collapsed);
+  height: 100vh;
+  overflow: hidden;
+  background: var(--color-bg);
+}
+
+.pg-shell[data-nav="collapsed"] {
+  grid-template-columns: var(--size-sidebar-collapsed) minmax(0, 1fr) var(--size-dock-collapsed);
+}
+
+/* -- navigation ------------------------------------------------------------------------------ */
+.pg-nav {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  gap: var(--space-5);
+  padding: var(--space-4) var(--space-3);
+  border-right: 1px solid var(--color-border);
+  background: var(--color-surface);
+  min-width: 0;
+}
+
+.pg-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--size-touch-min);
+}
+
+.pg-brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-control);
+  background: var(--color-text);
+  color: var(--color-surface);
+  flex: none;
+}
+
+.pg-mark {
+  --pg-icon-size: 16px;
+}
+
+.pg-brand-words {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.pg-brand-name {
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.pg-brand-role {
+  font-size: var(--type-label-size);
+  color: var(--color-text-2);
+}
+
+.pg-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.pg-nav-heading {
+  margin: 0 var(--space-3);
+  font-size: var(--type-badge-size);
+  line-height: var(--type-badge-line);
+  font-weight: 600;
+  letter-spacing: var(--type-badge-tracking);
+  text-transform: uppercase;
+  color: var(--color-text-2);
+}
+
+.pg-nav-items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0);
+}
+
+.pg-nav-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--size-touch-min);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-control);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.pg-nav-link:hover {
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+
+.pg-nav-link-on {
+  background: var(--color-accent-bg);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.pg-nav-foot {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.pg-nav-note {
+  margin: 0 var(--space-3);
+  font-size: var(--type-label-size);
+  color: var(--color-text-2);
+  overflow-wrap: anywhere;
+}
+
+.pg-shell[data-nav="collapsed"] .pg-brand-words,
+.pg-shell[data-nav="collapsed"] .pg-nav-word,
+.pg-shell[data-nav="collapsed"] .pg-nav-heading,
+.pg-shell[data-nav="collapsed"] .pg-nav-note {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.pg-shell[data-nav="collapsed"] .pg-brand {
+  flex-direction: column;
+}
+
+.pg-shell[data-nav="collapsed"] .pg-nav-link {
+  justify-content: center;
+  padding: 0;
+}
+
+/* -- main, top bar ---------------------------------------------------------------------------- */
+.pg-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.pg-topbar {
+  container: topbar / inline-size;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  min-height: var(--size-topbar);
+  padding: var(--space-2) var(--space-6);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.pg-breadcrumb {
+  display: flex;
+  align-items: center;
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+/* Every row of the top bar is a target's height, so a control on a wrapped row keeps its hit
+   area inside the bar. */
+.pg-breadcrumb,
+.pg-run-chip,
+.pg-topbar-tools {
+  min-height: var(--size-touch-min);
+  align-content: center;
+}
+
+.pg-breadcrumb ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pg-crumb-group {
+  color: var(--color-text-2);
+  font-size: var(--type-label-size);
+}
+
+.pg-crumb-group::after {
+  content: "/";
+  margin-left: var(--space-2);
+  color: var(--color-text-3);
+}
+
+/* The title is whole: it wraps, it is never cut. */
+.pg-page-title {
+  margin: 0;
+  font-size: var(--type-card-title-size);
+  line-height: var(--type-card-title-line);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.pg-run-chip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Spaced so no two controls' 44 px hit areas overlap. */
+.pg-topbar-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-5);
+  margin-left: auto;
+}
+
+.pg-search {
+  gap: var(--space-2);
+}
+
+.pg-notices-anchor {
+  position: relative;
+}
+
+/* A narrow top bar gives up the group and the search label first, never the title. */
+@container topbar (max-width: 900px) {
+  .pg-crumb-group {
+    display: none;
+  }
+
+  .pg-search-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+/* -- popovers: notifications ------------------------------------------------------------------ */
+.pg-popover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + var(--space-2));
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: min(420px, calc(100vw - 32px));
+  max-height: 70vh;
+  overflow: auto;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  box-shadow: var(--elevation-popover);
+}
+
+.pg-popover-title {
+  margin: 0;
+  font-size: var(--type-card-title-size);
+  line-height: var(--type-card-title-line);
+  font-weight: 600;
+}
+
+.pg-popover-empty {
+  margin: 0;
+  color: var(--color-text-2);
+}
+
+.pg-notice-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.pg-notice-link {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-height: var(--size-touch-min);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.pg-notice-link:hover {
+  background: var(--color-surface-2);
+}
+
+.pg-notice-ids {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+/* -- body: content and inspector -------------------------------------------------------------- */
+.pg-body {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.pg-content {
+  flex: 1;
+  min-width: 0;
+  max-width: var(--size-content-max);
+  overflow: auto;
+  padding: var(--space-7);
+}
+
+/* The close bar stays put and only the inspector scrolls, so no scroll bar lies over the bar. */
+.pg-inspector-region {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  width: var(--size-inspector);
+  border-left: 1px solid var(--color-border);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+.pg-inspector-slot {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.pg-inspector-region[hidden] {
+  display: none;
+}
+
+/* The close control sits 22 px or more from the region's edges, so its hit area is whole. */
+.pg-inspector-close {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: var(--size-touch-min);
+  padding: 0 10px;
+}
+
+/* -- the collaborator's dock ------------------------------------------------------------------ */
+.pg-dock {
+  position: relative;
+  display: flex;
+  box-shadow: inset 1px 0 0 var(--color-border);
+  background: var(--color-surface);
+}
+
+.pg-dock-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: var(--size-dock-collapsed);
+}
+
+/* The rail's one control fills the rail: its whole 44 px is the target. */
+.pg-dock-rail .pg-btn {
+  width: var(--size-touch-min);
+  height: var(--size-touch-min);
+}
+
+.pg-dock-panel {
+  width: var(--size-dock);
+  padding: var(--space-5);
+  border-left: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+/* At 1600 px and wider the open dock takes its own column. */
+@media (min-width: 1600px) {
+  .pg-shell[data-dock="open"] {
+    grid-template-columns:
+      var(--size-sidebar) minmax(0, 1fr)
+      calc(var(--size-dock-collapsed) + var(--size-dock));
+  }
+
+  .pg-shell[data-nav="collapsed"][data-dock="open"] {
+    grid-template-columns:
+      var(--size-sidebar-collapsed) minmax(0, 1fr)
+      calc(var(--size-dock-collapsed) + var(--size-dock));
+  }
+}
+
+/* Below 1600 px the open dock overlays the content and leaves its width alone. */
+@media (max-width: 1599px) {
+  .pg-dock-panel {
+    position: absolute;
+    top: 0;
+    right: 100%;
+    bottom: 0;
+    z-index: 25;
+    box-shadow: var(--elevation-popover);
+  }
+}
+
+/* -- the command palette ---------------------------------------------------------------------- */
+.pg-palette {
+  width: min(560px, calc(100vw - 32px));
+  margin-top: 12vh;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  box-shadow: var(--elevation-dialog);
+  color: var(--color-text);
+}
+
+.pg-palette::backdrop {
+  background: var(--color-scrim);
+}
+
+.pg-palette-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 50vh;
+  overflow: auto;
+  margin-top: var(--space-3);
+}
+
+.pg-palette-heading {
+  padding: 0 var(--space-3);
+  font-size: var(--type-badge-size);
+  font-weight: 600;
+  letter-spacing: var(--type-badge-tracking);
+  text-transform: uppercase;
+  color: var(--color-text-2);
+}
+
+.pg-palette-entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: var(--size-touch-min);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+.pg-palette-entry[aria-selected="true"] {
+  background: var(--color-accent-bg);
+}
+
+.pg-palette-entry[aria-disabled="true"] {
+  cursor: not-allowed;
+  color: var(--color-text-2);
+}
+
+.pg-palette-why {
+  font-size: var(--type-label-size);
+  color: var(--color-text-2);
+}
+
+.pg-palette-none {
+  margin: 0;
+  padding: var(--space-3);
+  color: var(--color-text-2);
+}
+
+/* -- below 760 px: the navigation stacks above the content ------------------------------------ */
+@media (max-width: 760px) {
+  .pg-shell,
+  .pg-shell[data-nav="collapsed"] {
+    display: block;
+    height: auto;
+    overflow: visible;
+  }
+
+  .pg-content {
+    overflow: visible;
+  }
+
+  .pg-nav {
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .pg-dock {
+    border-left: 0;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .pg-body {
+    flex-direction: column;
+  }
+
+  .pg-inspector-region {
+    width: auto;
+    border-left: 0;
+    border-top: 1px solid var(--color-border);
+  }
+}

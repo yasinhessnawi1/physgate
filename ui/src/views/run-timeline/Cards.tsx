@@ -1,13 +1,14 @@
-import { ScrollTable } from "../../design/components/ScrollTable";
+import { ScrollTable } from "../../design/components/layout/ScrollTable";
 import type { CostRecord } from "../../api/records";
 import type { SessionTrace, TimelineEvents, Tokens, Usage } from "../../api/run";
-import { Quantity } from "../../design/components/Quantity";
-import { type Source, SourceChip, sourceAttribute } from "../../design/components/SourceChip";
-import { VerdictBadge } from "../../design/components/VerdictBadge";
+import { Quantity } from "../../design/components/data/Quantity";
+import { SourceChip } from "../../design/components/data/SourceChip";
+import { type Source, sourceAttribute } from "../../design/components/data/source";
+import { VerdictBadge } from "../../design/components/verdict/VerdictBadge";
 import { CostCaveat } from "../common/cost";
 
 function tok(value: number) {
-  return <Quantity q={{ value, unit: "tok" }} />;
+  return <Quantity {...{ value, unit: "tok" }} />;
 }
 
 function UsageCells({ usage }: { usage: Usage }) {
@@ -82,7 +83,7 @@ export function SessionsCard({
                   {s.wallClockS === null ? (
                     <span className="muted">not recorded</span>
                   ) : (
-                    <Quantity q={{ value: s.wallClockS, unit: "s" }} />
+                    <Quantity {...{ value: s.wallClockS, unit: "s" }} />
                   )}
                 </td>
                 <UsageCells usage={s.tokens} />
@@ -145,10 +146,10 @@ export function TokensCard({
                   <tr key={row.model}>
                     <td className="mono">{row.model}</td>
                     <td className="numeric">
-                      <Quantity q={row.outputTokens} />
+                      <Quantity {...row.outputTokens} />
                     </td>
                     <td className="numeric">
-                      <Quantity q={row.usd} />
+                      <Quantity {...row.usd} />
                     </td>
                   </tr>
                 ))}
@@ -185,7 +186,7 @@ export function TokensCard({
           </tbody>
         </table>
       </ScrollTable>
-      <SourceChip source={{ ...source, id: `${source.id} · token account` }} />
+      <SourceChip {...{ ...source, id: `${source.id} · token account` }} />
     </section>
   );
 }

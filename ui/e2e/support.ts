@@ -65,28 +65,81 @@ export const TRANSPARENT = "rgba(0, 0, 0, 0)";
  */
 export async function bindingStylesHold(page: Page) {
   // Unchecked: dashed and unfilled, never drawn like a pass.
-  for (const u of await styles(page, ".verdict-unchecked", [
+  for (const u of await styles(page, ".pg-verdict-unchecked", [
     "border-top-style",
     "background-color",
   ])) {
     expect(u).toEqual({ "border-top-style": "dashed", "background-color": TRANSPARENT });
   }
-  // Every quantity: Plex Mono, tabular figures, never wrapped.
-  for (const q of await styles(page, ".quantity", [
+  // Every quantity: JetBrains Mono, tabular figures with the zero told apart, never wrapped.
+  for (const q of await styles(page, ".pg-quantity", [
     "font-family",
     "font-variant-numeric",
     "white-space",
   ])) {
-    expect(q["font-family"]).toContain("IBM Plex Mono");
+    expect(q["font-family"]).toContain("JetBrains Mono");
     expect(q["font-variant-numeric"]).toContain("tabular-nums");
+    expect(q["font-variant-numeric"]).toContain("slashed-zero");
     expect(q["white-space"]).toBe("nowrap");
   }
-  // Buttons and run links are at least 44 px tall.
-  const heights = await page
-    .locator(".button, .run-link")
-    .evaluateAll((all) => all.map((el) => el.getBoundingClientRect().height));
-  expect(heights.length).toBeGreaterThan(0);
-  for (const height of heights) expect(height).toBeGreaterThanOrEqual(44);
+  // Buttons and run links: a hit area of at least 44 by 44 px.
+  expect(await hitAreasShort(page, ".pg-btn, .run-link")).toEqual([]);
+}
+
+/**
+ * The controls ``selector`` matches whose hit area is under 44 by 44 px. The hit area is what a
+ * pointer reaches, the control's own box and any invisible extension of it (its ``::before``):
+ * each drawn control is scrolled to the middle of the view and the page is asked what lies at
+ * the outermost whole pixels of a 44 px span centred on it, left, right, above and below. All four
+ * must land on the control. Controls
+ * not drawn (a closed dialog's) are skipped; none drawn at all fails.
+ */
+export async function hitAreasShort(page: Page, selector: string): Promise<string[]> {
+  const count = await page.locator(selector).count();
+  const short: string[] = [];
+  let drawn = 0;
+  for (let i = 0; i < count; i += 1) {
+    const control = page.locator(selector).nth(i);
+    if (!(await control.isVisible())) continue;
+    drawn += 1;
+    // In the middle of the viewport, so no probe falls outside it.
+    await control.evaluate((el) => {
+      el.scrollIntoView({ block: "center", inline: "center" });
+    });
+    const missed = await control.evaluate((el) => {
+      const box = el.getBoundingClientRect();
+      const [cx, cy] = [box.left + box.width / 2, box.top + box.height / 2];
+      // The first and the last whole pixel of a 44 px span centred on the control: a target of
+      // 44 px or more covers both, one of 43 misses one.
+      const [low, high] = [(c: number) => Math.ceil(c - 22), (c: number) => Math.floor(c + 22) - 1];
+      const points: [number, number][] = [
+        [low(cx), cy],
+        [high(cx), cy],
+        [cx, low(cy)],
+        [cx, high(cy)],
+      ];
+      return points.flatMap(([x, y]) => {
+        const hit = document.elementFromPoint(x, y);
+        if (hit !== null && (hit === el || el.contains(hit))) return [];
+        const what =
+          hit === null
+            ? "nothing"
+            : `${hit.tagName.toLowerCase()}.${hit.getAttribute("class") ?? ""}`;
+        return [`${String(Math.round(x - cx))},${String(Math.round(y - cy))} (${what})`];
+      });
+    });
+    if (missed.length > 0) {
+      const name = (await control.textContent())?.trim().slice(0, 40) ?? "";
+      short.push(`${selector} #${String(i)} "${name}": misses ${missed.join(" ")}`);
+    }
+  }
+  if (drawn === 0) short.push(`nothing drawn matches ${selector}`);
+  // Scrolling moved the browser's starting point for Tab to the last control probed; put it
+  // back at the start of the page, where a person's first Tab begins.
+  await page.evaluate(() => {
+    document.body.firstElementChild?.scrollIntoView({ block: "start" });
+  });
+  return short;
 }
 
 export async function cspViolations(page: Page): Promise<string[]> {

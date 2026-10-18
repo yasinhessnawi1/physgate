@@ -13,7 +13,7 @@ import type {
   Trace,
 } from "../../api/run";
 import { evaluatedOf, tallyOf } from "../../design/tally";
-import type { GateMode } from "../../design/components/GateMode";
+import type { GateMode } from "../../design/components/verdict/GateMode";
 
 export type SegmentKind = "session" | "infrastructure" | "gate" | "review";
 

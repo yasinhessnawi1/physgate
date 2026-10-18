@@ -1,0 +1,877 @@
+/*
+ * The styles of today's five views (run records, design graph, run timeline, gate checks and the
+ * approval queue), kept as they were, on the new tokens, until those views are rebuilt on the new
+ * layout. Every value is a token or a structural constant. Component styles live with the design
+ * system (design/components.css); nothing here restyles a component.
+ */
+
+/* -- cards and tables -------------------------------------------------------------------- */
+
+.cards {
+  display: grid;
+  gap: var(--space-7);
+}
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--elevation-card);
+  padding: var(--space-7);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.card-title {
+  margin: 0;
+  font-size: var(--type-card-title-size);
+  line-height: var(--type-card-title-line);
+  font-weight: var(--type-card-title-weight);
+}
+
+.view-note {
+  margin: 0;
+  color: var(--color-text-2);
+}
+
+.muted {
+  color: var(--color-text-2);
+}
+
+/* The views' own non-verdict badges (run status, review): the badge shape, as before. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-badge);
+  border: 1px solid transparent;
+  font-size: var(--type-badge-size);
+  line-height: var(--type-badge-line);
+  font-weight: var(--type-badge-weight);
+  text-transform: uppercase;
+  letter-spacing: var(--type-badge-tracking);
+  white-space: nowrap;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-3) var(--space-5);
+  margin: 0;
+}
+
+.facts dt {
+  color: var(--color-text-3);
+}
+
+.facts dd {
+  margin: 0;
+}
+
+.digest {
+  overflow-wrap: anywhere;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.table th {
+  color: var(--color-text-2);
+  font-size: var(--type-label-size);
+  line-height: var(--type-label-line);
+  font-weight: var(--type-card-title-weight);
+}
+
+.figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+}
+
+.run-records {
+  display: grid;
+  gap: var(--space-7);
+}
+
+.run-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.run-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--size-touch-min);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.run-link-on {
+  border-color: var(--color-accent);
+  background: var(--color-accent-bg);
+}
+
+/* -- the views over one run ------------------------------------------------------------- */
+
+.view,
+.explorer {
+  display: grid;
+  /* One column that never grows past its container: a wide table scrolls in its own region. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-7);
+  min-width: 0;
+}
+
+.label {
+  font-size: var(--type-label-size);
+  line-height: var(--type-label-line);
+  color: var(--color-text-3);
+  margin: 0;
+}
+
+.section-title {
+  margin: 0;
+  font-size: var(--type-section-title-size);
+  line-height: var(--type-section-title-line);
+  font-weight: var(--type-section-title-weight);
+}
+
+.section-label {
+  margin: 0 0 var(--space-1);
+  font-size: var(--type-label-size);
+  line-height: var(--type-label-line);
+  font-weight: var(--type-card-title-weight);
+  color: var(--color-text-2);
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.toolbar .section-title {
+  margin-right: auto;
+}
+
+.select {
+  min-height: var(--size-touch-min);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.compare-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.explorer-main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  align-items: flex-start;
+}
+
+.graph-card {
+  flex: 999 1 560px;
+  max-width: 100%;
+}
+
+.inspector {
+  flex: 1 1 340px;
+}
+
+.card-head,
+.inspector-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.inspector-name {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+
+.inspector .table {
+  display: table;
+}
+
+.inspector .pg-source {
+  white-space: normal;
+}
+
+.numeric {
+  text-align: right;
+}
+
+.table th.numeric,
+.table td.numeric {
+  text-align: right;
+}
+
+.edges,
+.history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.edge {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+}
+
+/* An edge to a node the graph does not hold: said in words, outlined like unchecked. */
+.edge-missing {
+  color: var(--color-unchecked);
+  border: 1px dashed var(--color-unchecked-border);
+  border-radius: var(--radius-badge);
+  padding: 0 var(--space-1);
+  font-size: var(--type-label-size);
+}
+
+.history-entry {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.diff-node {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.diff-row-differs td {
+  background: var(--color-accent-bg);
+}
+
+.diff-mark {
+  color: var(--color-accent);
+  font-weight: var(--type-card-title-weight);
+}
+
+.split {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  align-items: flex-start;
+}
+
+.split-main {
+  flex: 999 1 560px;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-5);
+}
+
+.split-side {
+  flex: 1 1 340px;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-5);
+}
+
+.title-with-badge {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.run-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-5);
+}
+
+.run-head-titles {
+  display: grid;
+  gap: var(--space-3);
+  margin-right: auto;
+}
+
+.run-head-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-7);
+}
+
+.headline {
+  display: grid;
+  gap: var(--space-0);
+}
+
+.headline .pg-quantity {
+  font-size: var(--type-section-title-size);
+}
+
+/* -- the run timeline ---------------------------------------------------------------------- */
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.legend-item {
+  position: static;
+}
+
+.timeline-frame {
+  overflow-x: auto;
+}
+
+.timeline {
+  min-width: 900px;
+}
+
+.lane {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  align-items: center;
+  min-height: var(--size-touch-min);
+  border-bottom: 1px solid var(--color-surface-2);
+}
+
+.lane-name {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-1) var(--space-4) var(--space-1) 0;
+}
+
+.lane-title {
+  font-weight: var(--type-card-title-weight);
+}
+
+.track {
+  position: relative;
+  height: var(--size-touch-min);
+  /* Room for a marker or a segment drawn at the run's last line. */
+  margin-right: 88px;
+}
+
+.segment {
+  position: absolute;
+  top: 10px;
+  box-sizing: border-box;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-1);
+  border: 1px solid transparent;
+  border-radius: var(--radius-badge);
+  font-family: var(--font-mono);
+  font-size: var(--type-label-size);
+  white-space: nowrap;
+  overflow: hidden;
+  color: var(--color-text);
+}
+
+.legend .segment {
+  position: static;
+  height: 20px;
+}
+
+/* A label that does not fit its segment whole is not drawn; the title and the stage table carry it. */
+.segment-label {
+  flex: none;
+  white-space: nowrap;
+}
+
+.segment-label[hidden] {
+  display: none;
+}
+
+.run-where {
+  color: var(--color-text-3);
+  font-size: var(--type-label-size);
+}
+
+.segment-session {
+  background: var(--color-accent-bg);
+  border-color: var(--color-accent);
+}
+
+.segment-gate-on {
+  background: var(--color-gate-on-bg);
+  color: var(--color-gate-on-text);
+}
+
+/* An observed gate: hatched and dashed, and it says it was not enforced. */
+.segment-gate-observe {
+  color: var(--color-observe);
+  border: 1px dashed var(--color-observe-border);
+  background: repeating-linear-gradient(
+    135deg,
+    var(--color-observe-hatch) 0 4px,
+    var(--color-surface) 4px 8px
+  );
+}
+
+.segment-gate-off {
+  background: var(--color-gate-off-bg);
+  color: var(--color-gate-off);
+  border-color: var(--color-border);
+}
+
+.segment-review-pass {
+  background: var(--color-pass-bg);
+  border-color: var(--color-pass-border);
+}
+
+.segment-review-fail {
+  background: var(--color-fail-bg);
+  border-color: var(--color-fail-border);
+}
+
+.segment-review-other {
+  background: var(--color-warn-bg);
+  border-color: var(--color-warn-border);
+}
+
+/* A gate stage with no verdict recorded, or with only unchecked records: it judged nothing, so
+   it is drawn like unchecked, outlined and dashed, never filled like a pass. */
+.segment-gate-none {
+  background: transparent;
+  color: var(--color-unchecked);
+  border: 1px dashed var(--color-unchecked-border);
+}
+
+/* An infrastructure outcome: no attempt was spent; outlined and dashed, never filled. */
+.segment-infrastructure {
+  background: transparent;
+  color: var(--color-unchecked);
+  border: 1px dashed var(--color-unchecked-border);
+}
+
+.marker {
+  position: absolute;
+  top: 10px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-2);
+  color: var(--color-text-2);
+  font-family: var(--font-mono);
+  font-size: var(--type-label-size);
+  white-space: nowrap;
+}
+
+/* -- statuses, reviews, tokens, checks --------------------------------------------------- */
+
+.status-done {
+  color: var(--color-pass);
+  background: var(--color-pass-bg);
+  border-color: var(--color-pass-border);
+}
+
+.status-escalated {
+  color: var(--color-warn);
+  background: var(--color-warn-bg);
+  border-color: var(--color-warn-border);
+}
+
+.status-halted {
+  color: var(--color-fail);
+  background: var(--color-fail-bg);
+  border-color: var(--color-fail-border);
+}
+
+.status-open {
+  color: var(--color-text-2);
+  background: var(--color-surface-2);
+  border-color: var(--color-border);
+}
+
+.reviews,
+.paired-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-3);
+}
+
+.review,
+.paired-list li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.review-other {
+  color: var(--color-warn);
+  background: var(--color-warn-bg);
+  border-color: var(--color-warn-border);
+}
+
+.row-subtotal th,
+.row-total th {
+  text-align: left;
+  font-weight: var(--type-card-title-weight);
+}
+
+.row-total td,
+.row-total th {
+  border-top: 2px solid var(--color-border-strong);
+}
+
+.checks-call th {
+  background: var(--color-surface-2);
+  text-align: left;
+  font-weight: var(--type-body-weight);
+}
+
+.checks-table tr.has-why td {
+  border-bottom: 0;
+}
+
+.checks-table .why-row td {
+  white-space: normal;
+  padding-top: 0;
+  color: var(--color-text-2);
+}
+
+/* A table in a view fits its card: its text wraps in its cell and is never cut. A quantity
+   keeps its value and unit together, as everywhere. */
+.pg-scroll-table > .table th,
+.pg-scroll-table > .table td {
+  white-space: normal;
+  padding-left: var(--space-3);
+  padding-right: var(--space-3);
+}
+
+/* An id breaks at its dots, or anywhere, before it would push the table past its card. */
+.pg-scroll-table > .table td.mono,
+.pg-scroll-table > .table td .mono {
+  overflow-wrap: anywhere;
+}
+
+.checks-table td.bound-cell {
+  min-width: 10rem;
+}
+
+.bound {
+  white-space: normal;
+}
+
+.measured-names {
+  display: inline-block;
+  white-space: normal;
+  max-width: 14rem;
+}
+
+.card > .pg-btn {
+  align-self: flex-start;
+}
+
+/* A pass that looked at nothing says so in words, outlined like unchecked. */
+.evaluated-none {
+  color: var(--color-unchecked);
+  border: 1px dashed var(--color-unchecked-border);
+  border-radius: var(--radius-badge);
+  padding: 0 var(--space-1);
+}
+
+.bound {
+  display: inline-flex;
+  gap: var(--space-1);
+  align-items: center;
+}
+
+.paired-body {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.pg-scroll-table {
+  overflow-x: auto;
+}
+
+.pg-scroll-table > .table {
+  display: table;
+  width: 100%;
+}
+
+.bound-text {
+  white-space: normal;
+}
+
+/* -- the approval queue ------------------------------------------------------------------- */
+
+.queue-layout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-7);
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.queue-list {
+  flex: 1 1 280px;
+  max-width: 340px;
+}
+
+.queue-detail {
+  flex: 999 1 560px;
+  gap: 0;
+  padding: 0;
+}
+
+.queue-items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.queue-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0);
+  min-height: var(--size-touch-min);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-control);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.queue-item:hover {
+  background: var(--color-surface-2);
+}
+
+.queue-item-on {
+  background: var(--color-accent-bg);
+}
+
+.queue-item-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.queue-item-source {
+  font-weight: var(--type-card-title-weight);
+}
+
+.queue-open {
+  color: var(--color-warn);
+  background: var(--color-warn-bg);
+  border-color: var(--color-warn-border);
+}
+
+.queue-decided {
+  color: var(--color-text-2);
+  background: var(--color-surface-2);
+  border-color: var(--color-border);
+}
+
+.queue-detail-head,
+.queue-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-7);
+  border-top: 1px solid var(--color-surface-2);
+  min-width: 0;
+}
+
+.queue-detail-head {
+  border-top: 0;
+}
+
+.queue-decision {
+  margin: 0;
+  font-size: var(--type-section-title-size);
+  line-height: var(--type-section-title-line);
+  font-weight: var(--type-section-title-weight);
+}
+
+.queue-section-title {
+  margin: 0;
+  font-size: var(--type-card-title-size);
+  line-height: var(--type-card-title-line);
+  font-weight: var(--type-card-title-weight);
+}
+
+.queue-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-2);
+  color: var(--color-text-2);
+  overflow-wrap: anywhere;
+}
+
+.queue-quantities {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-4);
+}
+
+.queue-quantity {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  min-width: 0;
+}
+
+.queue-text {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.queue-diff,
+.confirm-line {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-2);
+  font-family: var(--font-mono);
+  font-size: var(--type-label-size);
+  line-height: var(--type-label-line);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.queue-trajectories {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.queue-trajectory {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.queue-flag {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-warn-border);
+  border-radius: var(--radius-control);
+  background: var(--color-warn-bg);
+  color: var(--color-warn);
+}
+
+.queue-decide {
+  background: var(--color-surface-2);
+}
+
+.queue-note {
+  width: 100%;
+  min-height: 72px;
+  box-sizing: border-box;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  resize: vertical;
+}
+
+.queue-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.queue-actions-note {
+  margin-left: auto;
+}
+
+.queue-recorded {
+  margin: 0;
+  color: var(--color-pass);
+}
+
+.act-reason {
+  flex-basis: 100%;
+  color: var(--color-text-2);
+  font-size: var(--type-label-size);
+}
+
+.pg-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.confirm-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.confirm-note {
+  margin: 0;
+  color: var(--color-text-2);
+}
