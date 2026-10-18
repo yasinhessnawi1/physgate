@@ -50,6 +50,11 @@ either enter a judged balance or be named in an unchecked record:
 - **A member with a load_force and no mount_position** loads the mount somewhere
   nobody said. A mount that fails without it still fails; one that balances without
   it is unchecked.
+- **A torque unit, and a carrier.** A node declaring both a peak torque and a reaction
+  moment is a unit held by its mount, and a node declaring a supported mass carries the
+  weighted parts that name it; :mod:`physgate.gate.check_equilibrium_loads` reads each
+  under every plausible reading, refuses it only when every reading misses, and names its
+  limits.
 - **Anything else.** A node in scope that declares a reaction, a reaction moment
   or a load force that no mount reads is recorded as unchecked, naming it.
 
@@ -73,6 +78,7 @@ from physgate.gate.check_equilibrium_forces import (
     shared,
     weight,
 )
+from physgate.gate.check_equilibrium_loads import judge_loads
 from physgate.gate.context import CheckContext
 from physgate.gate.equilibrium import (
     STANDARD_GRAVITY,
@@ -587,13 +593,17 @@ def run(ctx: CheckContext) -> CheckRun:
     # A pass on forces alone is weaker than a placed one, so the record says how many.
     by_forces = sum(1 for m, o in judged if not m.positioned and o is None)
     in_scope = [n for n in view.nodes if ctx.scope == "system" or n in near]
-    read = {n for m in every for n in m.reads()}
+    # Two balances no mount reads: a torque unit's mount and a carrier's supported mass
+    # (:mod:`physgate.gate.check_equilibrium_loads`), judged for every node in scope.
+    loads, loads_judged, loads_read = judge_loads(view, None if ctx.scope == "system" else near)
+    observations += loads
+    read = {n for m in every for n in m.reads()} | loads_read
     observations += _unread(view, in_scope, read)
     tool = f"{solver.name}, with the declared-rounding allowance"
     if by_forces:
         tool += f"; {by_forces} passed on forces alone, with no positions declared"
     return CheckRun(
         tool=tool,
-        evaluated=len(found) - unchecked,
+        evaluated=len(found) - unchecked + loads_judged,
         observations=tuple(observations),
     )

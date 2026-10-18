@@ -157,6 +157,24 @@ QUANTITIES: Mapping[str, Entry] = _entries(
         source="a bench or mains power supply's rated output, as its datasheet states it",
     ),
     Entry(name="mass", kind="mass", source=WORKLOAD),
+    Entry(
+        name="supported_mass",
+        kind="mass",
+        source=(
+            "the mass a carrier declares it carries: held to the weighted parts whose edges "
+            "name it, by the equilibrium check's carrier readings"
+        ),
+    ),
+    Entry(
+        name="gear_ratio",
+        kind="dimensionless",
+        source="a gear train's ratio, output over input; read by the torque-unit readings",
+    ),
+    Entry(
+        name="external_gear_ratio",
+        kind="dimensionless",
+        source="an external gear stage's ratio, output over input; read by the torque readings",
+    ),
     # The control quantities the series layer's published extractors read off a record
     # (``physgate.series.extract``), each in the unit the extractor publishes.
     Entry(name="phase_margin", kind="angle", source=EXTRACTORS),
