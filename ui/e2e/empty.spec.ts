@@ -130,7 +130,7 @@ for (const theme of THEMES) {
     await expect(start).toBeDisabled();
     await expect(home.locator("button").first()).toHaveText("Start a project");
     await expect(start).toHaveAccessibleDescription("Coming soon");
-    await expect(home.getByText("Coming soon")).toBeVisible();
+    await expect(home.getByText("Coming soon", { exact: true })).toBeVisible();
     await showsNoCommand(page, "Home");
 
     // Notifications over no run: nothing open, and no command.
