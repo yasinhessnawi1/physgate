@@ -88,6 +88,8 @@ class SessionRun:
     stderr: str
     #: The generated settings as written before the session started: what it was given.
     settings: dict[str, Any] = field(default_factory=dict)
+    #: The stream exactly as the binary wrote it, for a scan of its bytes.
+    raw_stdout: str = ""
 
     def told_after(self, results: int) -> str:
         """What the agent was told back after its ``results``-th tool call."""
@@ -289,7 +291,15 @@ def _run_session(
         else []
     )
     run = SessionRun(
-        proc.returncode, api, stream, hook_log, installed, worktree, proc.stderr, given
+        proc.returncode,
+        api,
+        stream,
+        hook_log,
+        installed,
+        worktree,
+        proc.stderr,
+        given,
+        raw_stdout=proc.stdout,
     )
     check_the_run_means_something(run)
     return run

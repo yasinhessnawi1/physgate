@@ -131,3 +131,49 @@ def test_an_exposed_leftover_is_recorded_when_its_stream_was_also_tampered(
     assert all(CANARY[:8] not in i.detail for i in incidents)
     (halted,) = [e for e in events if isinstance(e, Halted)]
     assert events.index(halted) > max(events.index(i) for i in incidents)
+
+
+RUBRIC_CANARY = "0123456789abcdef0011223344556677"
+
+
+def test_a_leftover_role_session_that_displayed_a_rubric_canary_is_found(tmp_path: Path) -> None:
+    # Reviewer material is scanned at a resume as at a normal session end.
+    run_dir = tmp_path / "run"
+    _left(run_dir, "read-the-rubric", f"rubric text <!-- {RUBRIC_CANARY} -->")
+    _left(run_dir, "clean", "nothing here")
+    dispatcher = _dispatcher(run_dir)
+    dispatcher._canaries = frozenset({RUBRIC_CANARY})
+    found = {left.session_id: left.review_material_seen for left in dispatcher.stop_leftovers()}
+    assert found == {"read-the-rubric": RUBRIC_CANARY, "clean": None}
+
+
+class _RubricLeftover(FakeDispatcher):
+    def stop_leftovers(self) -> list[Leftover]:
+        return [
+            Leftover(
+                session_id="sess-old",
+                pid=4242,
+                killed=0,
+                stopped=False,
+                complete=True,
+                seal=seal(b"the stream as read\n"),
+                review_material_seen=RUBRIC_CANARY,
+            )
+        ]
+
+
+def test_a_leftover_that_read_reviewer_material_is_an_incident_and_the_run_halts(
+    tmp_path: Path,
+) -> None:
+    rig = Rig(tmp_path, dispatcher=_RubricLeftover())
+    loop = rig.open()
+    loop.start(plan("s1"))
+    assert loop.run().kind == "halted"
+    loop.close()
+    assert rig.dispatcher.requests == []
+    events = read_events(tmp_path / "events.jsonl")
+    (incident,) = [e for e in events if isinstance(e, Incident)]
+    assert incident.cause == "review_material_read" and "sess-old" in incident.detail
+    assert RUBRIC_CANARY[:8] not in incident.detail
+    (halted,) = [e for e in events if isinstance(e, Halted)]
+    assert events.index(halted) > events.index(incident)

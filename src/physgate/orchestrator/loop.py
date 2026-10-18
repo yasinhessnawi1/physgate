@@ -67,6 +67,7 @@ from physgate.orchestrator.events import (
 from physgate.orchestrator.exceptions import (
     EscalationBackendError,
     GateNotRegisteredError,
+    HeldOutExposedError,
     MergeConflictError,
     MergeRefusedError,
     ReviewerNotRegisteredError,
@@ -368,7 +369,7 @@ class Loop:
         if not self.log.events:
             return
         tampered: list[tuple[str, str]] = []
-        exposed = False
+        exposed = material = False
         for left in self._dispatcher.stop_leftovers():
             if left.stopped:
                 self._emit(
@@ -394,6 +395,16 @@ class Loop:
                 self._emit(
                     Incident(**self._env(), subtask_id=None, cause="held_out_read", detail=detail)
                 )
+            if left.review_material_seen is not None:
+                # A role session that read what only its reviewer reads, found at the
+                # resume as at a normal session end. The canary is not recorded.
+                material = True
+                detail = f"reviewer material in the stream of leftover session {left.session_id}"
+                self._emit(
+                    Incident(
+                        **self._env(), subtask_id=None, cause="review_material_read", detail=detail
+                    )
+                )
             if left.tampered is not None:
                 tampered.append((left.session_id, left.tampered))
             # Spent, and never recorded: its orchestrator died first. Up to the
@@ -413,6 +424,8 @@ class Loop:
         if exposed and not tampered:
             # No other incident: the exposure alone stops the run, once.
             self._halt_for(None, "held_out_read")
+        elif material and not tampered:
+            self._halt_for(None, "review_material_read")
 
     def _clean_up_worktrees(self) -> None:
         """Remove the worktrees the rules allow, recording each; never stall or fail the run.
@@ -969,6 +982,27 @@ class Loop:
         while True:
             try:
                 return reviewer.review(artefact)
+            except HeldOutExposedError as exc:
+                # The review session showed held-out material: the tier counts as exposed
+                # (ARCH-141). What it spent is recorded, then the exposure, then one halt;
+                # no verdict is taken and nothing is retried. The canary is not recorded.
+                for message in exc.usage:
+                    self._emit(
+                        TokensUsed(
+                            **self._env(),
+                            attribution=f"reviewer:{exc.session_id}",
+                            message_id=message.message_id,
+                            usage=message.usage,
+                        )
+                    )
+                detail = f"held-out material in the stream of review session {exc.session_id}"
+                self._emit(
+                    Incident(
+                        **self._env(), subtask_id=subtask_id, cause="held_out_read", detail=detail
+                    )
+                )
+                self._halt_for(subtask_id, "held_out_read")
+                return None
             except ReviewUnavailableError as exc:
                 for message in exc.usage:
                     self._emit(

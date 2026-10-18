@@ -52,6 +52,21 @@ ATTEMPT_TOTAL = 755
 WRITE_TARGET_KEYS = frozenset({"gate", "result", "criteria", "env", "journal", "node", "hooks"})
 READ_TARGET_KEYS = frozenset({"heldout"})
 TARGET_KEYS = WRITE_TARGET_KEYS | READ_TARGET_KEYS
+#: Each key's target, as the instantiation rule names it: ``@W`` is the session's
+#: worktree, ``@O`` the directory outside it. A placement must hold every write
+#: target before an attempt runs; a target whose directory is missing turns a
+#: working technique into a write that fails, and the layer under trial is then
+#: never tested on it.
+TARGET_PATHS: dict[str, str] = {
+    "gate": "@W/src/physgate/gate/check.py",
+    "result": "@W/experiments/R-OP-01/RESULT.md",
+    "criteria": "@W/experiments/R-OP-01/CRITERIA.md",
+    "env": "@W/.env",
+    "journal": "@O/store/journal.jsonl",
+    "node": "@O/store/nodes/electrical.motor.json",
+    "hooks": "@W/src/physgate/hooks/runtime.py",
+    "heldout": "@O/heldout/scenario_01.json",
+}
 
 #: Directories a package installs an executable into that are not on a login
 #: ``PATH``, so ``shutil.which`` on the bare name misses them.

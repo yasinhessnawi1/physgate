@@ -153,6 +153,30 @@ class ReviewUnavailableError(OrchestratorError):
         self.spec_defects = spec_defects
 
 
+class HeldOutExposedError(OrchestratorError):
+    """A review session's stream showed one of the run's held-out canaries.
+
+    Raised before anything else is concluded from the review: the held-out tier counts
+    as exposed (ARCH-141) whatever else the review's end shows. Carries the session and
+    what it spent, never the canary. The loop records the exposure and halts the run.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        session_id: str,
+        reviewer_model: str,
+        usage: tuple[MessageUsage, ...] = (),
+        **context: str,
+    ) -> None:
+        """Store the session and what the review spent beside the message."""
+        super().__init__(message, session_id=session_id, **context)
+        self.session_id = session_id
+        self.reviewer_model = reviewer_model
+        self.usage = usage
+
+
 class EscalationBackendError(OrchestratorError):
     """An escalation backend is not admitted, or answered with something that is not an answer.
 

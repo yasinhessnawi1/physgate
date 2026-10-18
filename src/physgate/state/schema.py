@@ -194,7 +194,9 @@ def validate_node_id(node_id: object) -> str:
     if len(node_id) > NODE_ID_MAX_LENGTH:
         msg = "node id is too long"
         raise MalformedNodeIdError(msg, node_id=node_id[:64], length=str(len(node_id)))
-    if not NODE_ID_PATTERN.match(node_id):
+    # The whole name: the pattern's ``$`` also matches before a final newline, and a
+    # newline in a name would reach a file name and every log that prints it.
+    if NODE_ID_PATTERN.fullmatch(node_id) is None:
         msg = "node id is not a dotted identifier"
         raise MalformedNodeIdError(msg, node_id=node_id)
     return node_id

@@ -345,6 +345,312 @@ def test_a_node_file_the_journal_never_named_halts(root: Path) -> None:
     assert "electrical.planted.json" in _check(root)
 
 
+def test_a_deleted_node_file_is_a_mismatch_and_is_rebuilt_from_the_journal(root: Path) -> None:
+    # A file the journal names and the session removed is as wrong as one it
+    # rewrote: the store would serve nothing for that node until its next open.
+    _started(root)
+    want = (root / NODE).read_bytes()
+    (root / NODE).unlink()
+    told = _check(root)
+    assert "does not hold what the journal says" in told
+    assert (root / NODE).read_bytes() == want
+    assert "does not hold what the journal says" in _check(root, name="PreToolUse")
+    (logged,) = [e for e in _log(root) if e["decision"] == "node mismatch"]
+    assert logged["paths"] == [str(root / NODE)]
+    assert logged["restored"] == [str(root / NODE)]
+
+
+def test_a_deleted_nodes_directory_is_made_again_and_every_node_rebuilt(root: Path) -> None:
+    make_store(root / "store", node(), node("electrical.driver"))
+    _started(root)
+    nodes = root / "store" / "nodes"
+    want = {p.name: p.read_bytes() for p in nodes.iterdir()}
+    assert len(want) == 2
+    for path in nodes.iterdir():
+        path.unlink()
+    nodes.rmdir()
+    assert "does not hold what the journal says" in _check(root)
+    assert {p.name: p.read_bytes() for p in nodes.iterdir()} == want
+    (logged,) = [e for e in _log(root) if e["decision"] == "node mismatch"]
+    restored = logged["restored"]
+    assert isinstance(restored, list)
+    assert sorted(restored) == sorted(str(nodes / name) for name in want)
+
+
+def test_a_new_node_whose_file_the_store_has_not_written_yet_is_not_a_finding(
+    root: Path,
+) -> None:
+    # The store appends the journal line, then writes the file. A check between
+    # the two sees a node the journal names with no file yet: a write in progress,
+    # until a check has seen that line.
+    _started(root)
+    make_store(root / "store", node("electrical.driver"))
+    fresh = root / "store" / "nodes" / "electrical.driver.json"
+    want = fresh.read_bytes()
+    fresh.unlink()  # the file as it stood before the store wrote it
+    assert _check(root) == "allow", "the journal is newer than the record: a write in progress"
+    os.utime(root / "store" / "nodes")
+    assert "does not hold what the journal says" in _check(root)
+    assert fresh.read_bytes() == want
+
+
+def test_a_deleted_node_and_a_changed_gate_file_are_both_put_right_and_both_recorded(
+    root: Path,
+) -> None:
+    # Two faults in one call. Each guard must act, and each must be on record:
+    # the halt for the node may not hide the gate's put-back from the log.
+    _started(root)
+    want = (root / NODE).read_bytes()
+    (root / NODE).unlink()
+    (root / GATE / "check.py").write_text("CHECK = False\n")
+    assert "does not hold what the journal says" in _check(root)
+    assert (root / NODE).read_bytes() == want
+    assert (root / GATE / "check.py").read_text() == "CHECK = True\n"
+    decisions = {str(e["decision"]): e["paths"] for e in _log(root)}
+    assert decisions["node mismatch"] == [str(root / NODE)]
+    assert decisions["put back"] == [str(root / GATE / "check.py")]
+
+
+def _append_journal_line(root: Path, node_id: str) -> None:
+    line = {"node_id": node_id, "op": "create", "payload": {"id": node_id}, "rev": 2, "version": 1}
+    with (root / "store" / "journal.jsonl").open("a") as journal:
+        journal.write(json.dumps(line) + "\n")
+
+
+@pytest.mark.parametrize(
+    "node_id",
+    ["../escaped.node", "../../outside/escaped", "/abs/escaped", "a/b", "electrical.motor\n"],
+)
+def test_a_journal_name_no_store_could_serve_is_never_made_a_path(root: Path, node_id: str) -> None:
+    # A node's name becomes a path only through the store's own name rule. A
+    # journal line naming something else is refused at once, never treated as a
+    # write in progress, and nothing is read, made or written outside the
+    # store's node directory on its account.
+    _started(root)
+    outside = sorted(str(p) for p in (root / "outside").rglob("*"))
+    _append_journal_line(root, node_id)
+    told = _check(root)
+    assert "does not hold what the journal says" in told
+    assert str(root / "store" / "journal.jsonl") in told
+    assert sorted(str(p) for p in (root / "outside").rglob("*") if "state" not in p.parts) == [
+        p for p in outside if "/state" not in p
+    ]
+    assert not (root / "store" / "escaped.node.json").exists()
+    assert not (root / "abs").exists() and not (root / "store" / "nodes" / "a").exists()
+    assert sorted(p.name for p in (root / "store" / "nodes").iterdir()) == ["electrical.motor.json"]
+    (logged,) = [e for e in _log(root) if e["decision"] == "node mismatch"]
+    assert logged["paths"] == [str(root / "store" / "journal.jsonl")]
+    assert logged["restored"] == []
+
+
+def test_a_nodes_directory_swapped_for_a_link_is_a_finding_and_nothing_is_written_through_it(
+    root: Path,
+) -> None:
+    _started(root)
+    nodes = root / "store" / "nodes"
+    elsewhere = root / "outside" / "elsewhere"
+    elsewhere.mkdir()
+    for path in nodes.iterdir():
+        path.unlink()
+    nodes.rmdir()
+    nodes.symlink_to(elsewhere)
+    told = _check(root)
+    assert "does not hold what the journal says" in told
+    assert str(nodes) in told
+    assert list(elsewhere.iterdir()) == [], "nothing is written through the link"
+    (logged,) = [e for e in _log(root) if e["decision"] == "node mismatch"]
+    assert logged["paths"] == [str(nodes)]
+    assert logged["restored"] == []
+
+
+def test_a_node_excused_as_a_write_in_progress_is_checked_again_at_the_next_hook(
+    root: Path,
+) -> None:
+    # A newer journal line excuses its node's file once, as the store's write in
+    # progress. At the next hook it is checked again whatever the signatures say: a
+    # session that adds a line and deletes the file changes nothing after that.
+    _started(root)
+    _append_journal_line(root, "electrical.motor")
+    (root / NODE).unlink()
+    assert _check(root) == "allow", "the newer line excuses the file once"
+    assert "does not hold what the journal says" in _check(root, name="PreToolUse")
+    assert (root / NODE).exists()
+
+
+def test_the_store_root_moved_behind_a_link_halts(root: Path) -> None:
+    # Where the store really is is recorded at the session's first check. A root that
+    # later resolves elsewhere (itself or a directory above it swapped for a link) is a
+    # finding, even when every file behind it is the same file.
+    _started(root)
+    store, moved = root / "store", root / "outside" / "store-moved"
+    store.rename(moved)
+    store.symlink_to(moved)
+    told = _check(root)
+    assert "does not hold what the journal says" in told
+    assert str(store) in told
+
+
+def test_every_name_the_journal_holds_is_held_to_the_store_s_name_rule(root: Path) -> None:
+    # Not only a name with no file: a file the session placed for a bad name, holding
+    # exactly the bytes the journal line implies, is no excuse.
+    from physgate.state import node_file_body
+
+    _started(root)
+    _append_journal_line(root, "Electrical.Upper")
+    body = node_file_body(2, 1, {"id": "Electrical.Upper"})
+    (root / "store" / "nodes" / "Electrical.Upper.json").write_text(body)
+    told = _check(root)
+    assert "does not hold what the journal says" in told
+    assert str(root / "store" / "journal.jsonl") in told
+
+
+def test_a_node_file_replaced_by_a_fifo_is_a_finding_and_the_check_does_not_block(
+    root: Path,
+) -> None:
+    import signal
+
+    _started(root)
+    want = (root / NODE).read_bytes()
+    (root / NODE).unlink()
+    os.mkfifo(root / NODE)
+
+    def stuck(*_args: object) -> None:
+        msg = "the check blocked on a FIFO in a node file's place"
+        raise AssertionError(msg)
+
+    previous = signal.signal(signal.SIGALRM, stuck)
+    signal.alarm(10)
+    try:
+        told = _check(root)
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous)
+    assert "does not hold what the journal says" in told
+    assert (root / NODE).is_file() and (root / NODE).read_bytes() == want
+
+
+def test_a_node_file_swapped_for_a_link_to_identical_bytes_is_a_finding(root: Path) -> None:
+    # A node file is read without following a link: a link to a copy of the
+    # journal's own bytes is still not the store's file, and is replaced.
+    _started(root)
+    want = (root / NODE).read_bytes()
+    copy = root / "outside" / "copy.json"
+    copy.write_bytes(want)
+    (root / NODE).unlink()
+    (root / NODE).symlink_to(copy)
+    assert "does not hold what the journal says" in _check(root)
+    assert not (root / NODE).is_symlink()
+    assert (root / NODE).read_bytes() == want
+
+
+def test_the_rebuild_writes_nothing_for_a_finding_whose_path_is_not_the_store_s(
+    root: Path,
+) -> None:
+    # The rebuild maps the node's name to its file again and writes only where
+    # that lands; a finding naming any other path is written nowhere.
+    _started(root)
+    store = str(root / "store")
+    stray = str(root / "store" / "nodes" / ".." / "electrical.motor.json")
+    (root / "store" / "nodes" / "electrical.motor.json").unlink()
+    # The root is where the first check found it, so this guard alone decides.
+    base = {
+        "nodes": {store: {"sigs": {}, "revs": {}}},
+        "node_roots": {store: os.path.realpath(store)},
+    }
+    assert sentinel._restore_nodes(base, [(stray, store, "electrical.motor")]) == []
+    assert not (root / "store" / "electrical.motor.json").exists()
+    assert not (root / "store" / "nodes" / "electrical.motor.json").exists()
+
+
+def test_the_rebuild_writes_nothing_through_a_nodes_directory_that_became_a_link(
+    root: Path,
+) -> None:
+    # Between the check and the rebuild the directory may be swapped for a link.
+    _started(root)
+    store = root / "store"
+    nodes = store / "nodes"
+    elsewhere = root / "outside" / "elsewhere"
+    elsewhere.mkdir()
+    for path in nodes.iterdir():
+        path.unlink()
+    nodes.rmdir()
+    nodes.symlink_to(elsewhere)
+    # The root is where the first check found it: only the two guards against the
+    # link decide, the rebuild's own and the store write's.
+    base = {
+        "nodes": {str(store): {"sigs": {}, "revs": {}}},
+        "node_roots": {str(store): os.path.realpath(store)},
+    }
+    finding = (str(nodes / "electrical.motor.json"), str(store), "electrical.motor")
+    assert sentinel._restore_nodes(base, [finding]) == []
+    assert list(elsewhere.iterdir()) == []
+
+
+def test_a_fifo_fed_the_journal_s_own_bytes_is_still_a_finding(root: Path) -> None:
+    # A FIFO kept open by a writer that holds exactly the bytes the journal implies
+    # would read as a matching node file: only a regular file is a node file.
+    _started(root)
+    want = (root / NODE).read_bytes()
+    (root / NODE).unlink()
+    os.mkfifo(root / NODE)
+    writer = os.open(root / NODE, os.O_RDWR | os.O_NONBLOCK)
+    try:
+        os.write(writer, want)
+        assert "does not hold what the journal says" in _check(root)
+    finally:
+        os.close(writer)
+    assert (root / NODE).is_file() and (root / NODE).read_bytes() == want
+
+
+def _spy_on_the_store_write(monkeypatch: pytest.MonkeyPatch) -> list[tuple[object, ...]]:
+    from physgate.state import store as store_module
+
+    calls: list[tuple[object, ...]] = []
+    monkeypatch.setattr(store_module, "write_node_file", lambda *a: calls.append(a))
+    return calls
+
+
+def test_the_rebuild_itself_never_calls_the_write_through_a_linked_nodes_directory(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The rebuild's own guard, apart from the store write's: with the write stood in
+    # for by one that would follow anything, it is still never called through a link.
+    _started(root)
+    store, nodes = root / "store", root / "store" / "nodes"
+    elsewhere = root / "outside" / "elsewhere"
+    elsewhere.mkdir()
+    for path in nodes.iterdir():
+        path.unlink()
+    nodes.rmdir()
+    nodes.symlink_to(elsewhere)
+    calls = _spy_on_the_store_write(monkeypatch)
+    base = {
+        "nodes": {str(store): {"sigs": {}, "revs": {}}},
+        "node_roots": {str(store): os.path.realpath(store)},
+    }
+    finding = (str(nodes / "electrical.motor.json"), str(store), "electrical.motor")
+    assert sentinel._restore_nodes(base, [finding]) == []
+    assert calls == []
+
+
+def test_the_rebuild_writes_nothing_once_the_root_resolves_elsewhere(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The root is held again just before the write: one that moved since the check
+    # (here, recorded as elsewhere) gets no write at all.
+    _started(root)
+    store = root / "store"
+    (store / "nodes" / "electrical.motor.json").unlink()
+    calls = _spy_on_the_store_write(monkeypatch)
+    base = {
+        "nodes": {str(store): {"sigs": {}, "revs": {}}},
+        "node_roots": {str(store): str(root / "outside" / "where-it-was")},
+    }
+    finding = (str(store / "nodes" / "electrical.motor.json"), str(store), "electrical.motor")
+    assert sentinel._restore_nodes(base, [finding]) == []
+    assert calls == []
+
+
 def test_the_orchestrators_legitimate_write_is_not_a_finding(root: Path) -> None:
     _started(root)
     make_store(root / "store", node(quantities={}))

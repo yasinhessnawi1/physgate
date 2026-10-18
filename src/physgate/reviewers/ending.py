@@ -30,7 +30,14 @@ import time
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from physgate.orchestrator.processes import Proc, stop_tree, table, tree
+from physgate.orchestrator.processes import (
+    PS_TIMEOUT_S,
+    Proc,
+    ProcessTableError,
+    stop_tree,
+    table,
+    tree,
+)
 
 #: How often the session's tree is collected while it runs.
 POLL_S = 0.25
@@ -56,22 +63,37 @@ class SessionEnd:
 
 
 def group(pgid: int) -> list[Proc]:
-    """Every running process in the process group ``pgid``; zombies are left out."""
-    out = subprocess.run(
-        ["ps", "-axo", "pid=,ppid=,pgid=,stat=,lstart="],
-        capture_output=True,
-        text=True,
-        check=False,
-        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
-    ).stdout
-    found = []
-    for line in out.splitlines():
+    """Every running process in the process group ``pgid``; zombies are left out.
+
+    Raises:
+        ProcessTableError: ``ps`` could not be run, did not finish in time, failed, or did
+            not list this very process: an empty answer is then no answer, and a group is
+            never concluded empty from it.
+    """
+    try:
+        done = subprocess.run(
+            ["ps", "-axo", "pid=,ppid=,pgid=,stat=,lstart="],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+            timeout=PS_TIMEOUT_S,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        msg = f"ps could not be run: {exc!r}"
+        raise ProcessTableError(msg) from exc
+    found, listed_self = [], False
+    for line in done.stdout.splitlines():
         parts = line.split(None, 4)
         if len(parts) != 5 or not all(p.isdigit() for p in parts[:3]):
             continue
+        listed_self = listed_self or int(parts[0]) == os.getpid()
         if int(parts[2]) != pgid or parts[3].startswith("Z"):
             continue
         found.append(Proc(int(parts[0]), int(parts[1]), " ".join(parts[4].split())))
+    if done.returncode != 0 or not listed_self:
+        msg = f"ps exited {done.returncode} and did not list this process"
+        raise ProcessTableError(msg)
     return found
 
 

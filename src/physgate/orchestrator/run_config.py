@@ -300,7 +300,7 @@ class RunConfig(_Frozen):
     #: run recorded before the field existed.
     held_out_sha256: tuple[Sha256, ...]
     #: ``none`` refuses every role session's shell commands every remote host, through the
-    #: OS layer; services on the machine's loopback stay reachable. ``open`` leaves the
+    #: OS layer, and every service on the machine's loopback. ``open`` leaves the
     #: network as the layer finds it. Where the layer is absent nothing enforces ``none``:
     #: the session's shell stays online, and ``network_enforced`` records it.
     network: Network
