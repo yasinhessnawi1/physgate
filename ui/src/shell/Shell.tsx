@@ -448,7 +448,11 @@ export function Shell({
               </div>
             </header>
             <div className="pg-body">
-              <main className="pg-content">{content}</main>
+              {/* The content scrolls on its own, so it is a tab stop: a screen with nothing to
+                  focus, such as the glossary, can still be scrolled from the keyboard. */}
+              <main className="pg-content" tabIndex={0}>
+                {content}
+              </main>
               {hasInspector && (
                 <aside
                   className="pg-inspector-region"

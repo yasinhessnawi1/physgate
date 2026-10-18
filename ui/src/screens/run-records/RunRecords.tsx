@@ -28,7 +28,9 @@ import { EmptyState, ErrorState, LoadingState } from "../../design/components/st
 import { StatusTag } from "../../design/components/status/StatusTag";
 import { OsLayerBadge } from "../../design/components/system/OsLayerBadge";
 import { GateModeBadge, GateOutcome } from "../../design/components/verdict/GateMode";
+import { Tally } from "../../design/components/verdict/Tally";
 import { VerdictBadge } from "../../design/components/verdict/VerdictBadge";
+import { tallyOf } from "../../design/tally";
 import type { ViewProps } from "../../shell/header";
 import { checkWords } from "../../words/checks";
 import { nodeLabel } from "../../words/humanise";
@@ -393,54 +395,64 @@ function Records({
         ) : gates.result.value.length === 0 ? (
           <EmptyState title="No gate records">The gate has not run in this run.</EmptyState>
         ) : (
-          <details className="pg-details" open>
-            <summary>{gates.result.value.length} records, as the gate wrote them</summary>
-            <div
-              className="pg-table-wrap"
-              role="region"
-              aria-label="Gate records table"
-              tabIndex={0}
-            >
-              <table className="pg-table" aria-label="Gate records">
-                <thead>
-                  <tr>
-                    <th scope="col">Check</th>
-                    <th scope="col">Outcome</th>
-                    <th scope="col">Value</th>
-                    <th scope="col">Reviewer approved before the gate?</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {gates.result.value.map((g, i) => (
-                    <tr key={String(i)}>
-                      <td>
-                        {checkWords(g.check).name}
-                        {g.node === null ? "" : ` · ${nodeLabel(g.node)}`}{" "}
-                        <Id value={`seq ${String(g.seq)}`} copy={false} />
-                      </td>
-                      <td>
-                        <GateOutcome mode={g.mode} outcome={g.outcome} />
-                      </td>
-                      <td>
-                        {g.value === null ? (
-                          <span className="pg-muted">none recorded</span>
-                        ) : (
-                          <Quantity {...g.value} />
-                        )}
-                      </td>
-                      <td>
-                        {g.reviewerHadPassed === null
-                          ? "not reviewed"
-                          : g.reviewerHadPassed
-                            ? "yes"
-                            : "no"}
-                      </td>
+          <>
+            <Tally
+              {...tallyOf(gates.result.value.map((g) => g.outcome))}
+              observed={config.gateMode === "observe"}
+              partial={going}
+            />
+            <p className="pg-panel-note">
+              View: counted from {gates.result.value.length} gate records.
+            </p>
+            <details className="pg-details" open>
+              <summary>{gates.result.value.length} records, as the gate wrote them</summary>
+              <div
+                className="pg-table-wrap"
+                role="region"
+                aria-label="Gate records table"
+                tabIndex={0}
+              >
+                <table className="pg-table" aria-label="Gate records">
+                  <thead>
+                    <tr>
+                      <th scope="col">Check</th>
+                      <th scope="col">Outcome</th>
+                      <th scope="col">Value</th>
+                      <th scope="col">Reviewer approved before the gate?</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </details>
+                  </thead>
+                  <tbody>
+                    {gates.result.value.map((g, i) => (
+                      <tr key={String(i)}>
+                        <td>
+                          {checkWords(g.check).name}
+                          {g.node === null ? "" : ` · ${nodeLabel(g.node)}`}{" "}
+                          <Id value={`seq ${String(g.seq)}`} copy={false} />
+                        </td>
+                        <td>
+                          <GateOutcome mode={g.mode} outcome={g.outcome} />
+                        </td>
+                        <td>
+                          {g.value === null ? (
+                            <span className="pg-muted">none recorded</span>
+                          ) : (
+                            <Quantity {...g.value} />
+                          )}
+                        </td>
+                        <td>
+                          {g.reviewerHadPassed === null
+                            ? "not reviewed"
+                            : g.reviewerHadPassed
+                              ? "yes"
+                              : "no"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          </>
         )}
       </section>
 
