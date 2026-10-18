@@ -67,10 +67,12 @@ from physgate.orchestrator.dispatch import (
     read_captured,
     read_in_full,
     redact,
+    review_material_seen,
     spawn_held,
     write_record,
 )
 from physgate.orchestrator.exceptions import (
+    HeldOutExposedError,
     InvocationError,
     ReviewerNotRegisteredError,
     ReviewUnavailableError,
@@ -407,6 +409,13 @@ class ClaudeReviewer:
         redact(stdout, self._setup.credential.secret)
         captured = read_captured(stdout)
         result, usage = captured.result, captured.usage
+        # Before anything else is concluded from the review: an exposure is recorded
+        # whatever else its end shows. The canary itself is never named.
+        if review_material_seen(stdout, frozenset(self._setup.held_out_canaries)):
+            msg = f"held-out material in the stream of review session {session_id}"
+            raise HeldOutExposedError(
+                msg, session_id=session_id, reviewer_model=self._model, usage=usage
+            )
         require_matching_totals(result, usage)
         answered = sorted(captured.answered - {SYNTHETIC_MODEL})
         if answered and answered != [self._model]:
@@ -660,6 +669,9 @@ class ReviewerSetup:
     library: Path
     #: The held-out tier's roots, which no reviewer reads (ARCH-141).
     held_out: tuple[str, ...] = ()
+    #: The held-out tier's canaries: a review session's stream is scanned for them, as a
+    #: role session's is. A hit proves display; no hit proves nothing.
+    held_out_canaries: tuple[str, ...] = ()
 
     @classmethod
     def of_run(
@@ -696,6 +708,7 @@ class ReviewerSetup:
             credential=credential,
             library=library,
             held_out=config.held_out,
+            held_out_canaries=config.held_out_canaries,
         )
 
 

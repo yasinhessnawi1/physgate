@@ -123,6 +123,10 @@ class Leftover(_Frozen):
     #: A held-out task's canary found in its stream, if one was, as at a normal session
     #: end: the session displayed held-out material verbatim. ``None`` proves nothing.
     held_out_seen: NonEmptyStr | None = None
+    #: A rubric's canary found in a role session's stream, as at a normal session end:
+    #: the session displayed reviewer material. Not looked for in a reviewer's own
+    #: stream, which holds its rubric's canary by right. ``None`` proves nothing.
+    review_material_seen: NonEmptyStr | None = None
 
 
 class ChangeCheck(_Frozen):
