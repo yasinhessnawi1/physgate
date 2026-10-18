@@ -30,9 +30,10 @@ the internet, so macOS opens it without a warning.
    Settings, it shows as a still.
 2. **Engine.** You choose how physgate's roles reach a model. Two choices work today:
    - **Claude Code**, signed in with your Claude subscription.
-     - **If Claude Code is missing,** the app shows Anthropic's official installer
-       (`curl -fsSL https://claude.ai/install.sh | bash`) and opens Terminal with it when you
-       click. The app downloads nothing itself. Then **Check Again**.
+     - **If Claude Code is missing,** the app opens Terminal with Anthropic's official
+       installer when you click. Terminal prints the installer's command
+       (`curl -fsSL https://claude.ai/install.sh | bash`) and runs it only once you press
+       Return there. The app downloads nothing itself. Then **Check Again**.
      - **Sign In** runs `claude setup-token` inside the app and opens your browser. The
        token it prints goes straight into the macOS Keychain and is never shown. If that
        doesn't work, **Sign in in Terminal instead** runs it in Terminal, and you paste the
@@ -50,8 +51,9 @@ the internet, so macOS opens it without a warning.
    and **physgate → Engine…** returns to it.
 3. **The operator UI.** The app serves `~/physgate-runs` without asking. It makes the
    folder on the first start (readable by you only), uses it as it is afterwards, and
-   refuses it if it is a link. Runs appear as soon as one is made there. Until then the
-   window says so and shows the two steps that make one:
+   refuses it if it is a link. With no runs yet, the operator UI opens as usual and shows
+   its own empty state; runs appear as soon as one is made there. The app cannot start a
+   run yet, so for now a run is made from Terminal, in two steps:
 
    ```sh
    physgate decompose <brief> --seed <seed> --run-id <id> --params <params.json> --target <repository> --run-dir ~/physgate-runs/<id>
@@ -84,8 +86,9 @@ own parameters name, and runs on an API key still ask the owner before they spen
 - **Never anywhere else:** not in the settings, a log, the repository, or the operator UI
   the server serves. The app's commands only store a credential, forget one, or say
   whether one is kept. None hands one back.
-- **To start a run from Terminal,** load the credential first with the line the engine
-  step shows. It holds no secret; macOS asks you once to allow it:
+- **To start a run from Terminal,** load the credential first with this line. The app
+  itself never shows it: the engine step says only that a credential is kept. It holds no
+  secret; macOS asks you once to allow it:
 
   ```sh
   export CLAUDE_CODE_OAUTH_TOKEN="$(security find-generic-password -s physgate -a CLAUDE_CODE_OAUTH_TOKEN -w)"
@@ -120,9 +123,11 @@ own parameters name, and runs on an API key still ask the owner before they spen
 | Checkout | Every worktree of the repository, to try a UI branch before it merges; or another folder |
 | Run Folders | The folders served (`~/physgate-runs` unless you set others), and adding or removing one |
 
-When the server can't start, the window says why, in the server's own words. If the UI
-build is missing or out of date, the window shows the command that builds it. You run it
-in Terminal; the app never runs it.
+When the server can't start, the window says why in plain words, and **View → Show Server
+Log** has everything the server wrote. If the UI build is missing or out of date, the
+window says so: build it with `scripts/build-ui.sh` in the checkout, and the app starts the
+server by itself when the build finishes. No screen of the app shows a terminal command;
+the commands live here, in this README.
 
 ## What stays on this machine, and what stays local
 

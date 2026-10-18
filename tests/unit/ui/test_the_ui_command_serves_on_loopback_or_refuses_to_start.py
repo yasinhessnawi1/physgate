@@ -161,6 +161,45 @@ def test_the_command_serves_the_app_and_the_runs_on_loopback_and_stops_cleanly(
     assert process.returncode == 0
 
 
+def test_an_empty_run_folder_is_served_and_lists_no_runs(
+    world: dict[str, Path], tmp_path: Path
+) -> None:
+    """A machine with no run yet: the app is served, and the run list is empty, not refused."""
+    empty = tmp_path / "physgate-runs"
+    empty.mkdir(mode=0o700)
+    process = subprocess.Popen(
+        [sys.executable, "-c", LAUNCH, str(world["ui"]), "ui", "--root", str(empty)]
+        + ["--port", "0"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert process.stdout is not None
+        lines: list[str] = []
+        while not lines or lines[-1] != "}":
+            line = process.stdout.readline()
+            assert line, process.stderr.read() if process.stderr else "no output"
+            lines.append(line.rstrip("\n"))
+        started = json.loads("\n".join(lines))
+        assert started["roots"] == [str(empty.resolve())]
+        port = int(started["url"].rsplit(":", 1)[1].strip("/"))
+        answers: dict[str, tuple[int, bytes]] = {}
+        for path in ("/", "/api/runs"):
+            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+            connection.request("GET", path)
+            response = connection.getresponse()
+            answers[path] = (response.status, response.read())
+            connection.close()
+        assert answers["/"][0] == 200
+        assert answers["/"][1].lstrip().lower().startswith(b"<!doctype html>")
+        assert answers["/api/runs"][0] == 200
+        assert json.loads(answers["/api/runs"][1])["runs"] == []
+    finally:
+        _interrupt(process)
+    assert process.returncode == 0
+
+
 def test_an_operator_name_that_does_not_print_is_refused_before_anything_listens(
     world: dict[str, Path], capsys: pytest.CaptureFixture[str]
 ) -> None:

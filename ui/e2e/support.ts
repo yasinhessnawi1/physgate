@@ -5,6 +5,7 @@
  */
 import { expect, type Page } from "@playwright/test";
 
+import { namesACommand } from "../src/rules/commands";
 import { PORT } from "./port";
 
 export const LOCAL = new RegExp(`^http://127\\.0\\.0\\.1:${String(PORT)}/`);
@@ -15,11 +16,12 @@ export interface Watch {
   readonly api: Set<string>;
 }
 
-export async function watch(page: Page): Promise<Watch> {
+/** ``local`` is the origin requests may go to: this run's server unless another is named. */
+export async function watch(page: Page, local: RegExp = LOCAL): Promise<Watch> {
   const seen: Watch = { outbound: [], api: new Set() };
   await page.route("**/*", async (route) => {
     const url = route.request().url();
-    if (LOCAL.test(url)) {
+    if (local.test(url)) {
       const path = new URL(url).pathname;
       if (path.startsWith("/api/"))
         seen.api.add(path.replace(/\/trajectories\/[^/]+$/, "/trajectories/:session"));
@@ -144,4 +146,15 @@ export async function hitAreasShort(page: Page, selector: string): Promise<strin
 
 export async function cspViolations(page: Page): Promise<string[]> {
   return page.evaluate(() => (window as unknown as { cspViolations: string[] }).cspViolations);
+}
+
+/**
+ * The page's text holds no terminal command: what is drawn, and what is in the page but not
+ * drawn (a closed disclosure, a hidden panel).
+ */
+export async function namesNoCommand(page: Page, where: string) {
+  const drawn = await page.locator("body").innerText();
+  expect(namesACommand(drawn), `${where}: ${drawn}`).toBe(false);
+  const whole = await page.evaluate(() => document.body.textContent);
+  expect(namesACommand(whole), `${where}: ${whole}`).toBe(false);
 }

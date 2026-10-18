@@ -11,6 +11,7 @@
 
 mod channel;
 mod checkout;
+mod commands;
 mod config;
 mod engine;
 mod instance;
@@ -23,6 +24,7 @@ mod server;
 mod shell;
 mod signals;
 mod status;
+mod terminal;
 #[cfg(test)]
 mod testdir;
 mod tour;

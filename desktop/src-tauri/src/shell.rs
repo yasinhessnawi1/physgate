@@ -1,7 +1,7 @@
 //! The shell's state and its one routine: (re)start the server and show what it serves.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
@@ -40,8 +40,6 @@ struct State {
     worktrees: Vec<Worktree>,
     /// The build stamp the running server (or the last refusal) saw.
     stamp: Option<String>,
-    /// Every run folder was empty at the last start: start the server once one is not.
-    waiting_for_runs: bool,
 }
 
 impl Shell {
@@ -56,7 +54,6 @@ impl Shell {
                 server: None,
                 worktrees,
                 stamp: None,
-                waiting_for_runs: false,
             }),
             restarting: Mutex::new(()),
             shown: Mutex::new(None),
@@ -104,8 +101,8 @@ impl Shell {
             use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
             let set = app
                 .dialog()
-                .message(READ_ONLY_NOTICE)
-                .title("The operator UI is read-only")
+                .message(crate::commands::plain(READ_ONLY_NOTICE))
+                .title(crate::commands::plain("The operator UI is read-only"))
                 .kind(MessageDialogKind::Info)
                 .buttons(MessageDialogButtons::OkCancelCustom(
                     "Set a Name…".into(),
@@ -270,42 +267,19 @@ impl Shell {
             state.worktrees = checkout::worktrees(&settings.checkout);
             state.settings = settings.clone();
             state.stamp = checkout::build_stamp(&settings.checkout);
-            state.waiting_for_runs = false;
         }
         crate::menu::refresh(app);
 
-        if !settings.onboarded {
-            let step = if settings.intro_seen {
-                "engine"
-            } else {
-                "intro"
-            };
-            self.go(&window, &crate::onboarding::page(step));
-            return;
-        }
-        if operator_mode(&settings) == OperatorMode::Ask {
-            self.go(&window, &crate::onboarding::page("operator"));
-            return;
-        }
-        if !checkout::is_checkout(&settings.checkout) {
-            self.show(&window, &Status::no_checkout(&settings.checkout));
-            return;
-        }
-        if settings.run_folders.contains(&root) {
-            match runs::ensure(&root) {
-                Ok(runs::Root::Created) => self.note(&format!("made {}", runs::shown(&root))),
-                Ok(runs::Root::Existing) => {}
-                Err(reason) => {
-                    self.note(&format!("the run folder was refused: {reason}"));
-                    self.show(&window, &Status::root_refused(&reason));
-                    return;
-                }
+        match opening(&settings, &root, |line| self.note(line)) {
+            Opening::Onboarding(step) => {
+                self.go(&window, &crate::onboarding::page(step));
+                return;
             }
-        }
-        if !runs::has_runs(&settings.run_folders) {
-            self.state().waiting_for_runs = true;
-            self.show(&window, &Status::no_runs(&root));
-            return;
+            Opening::Page(status) => {
+                self.show(&window, &status);
+                return;
+            }
+            Opening::Serve => {}
         }
         self.show(&window, &Status::starting(&settings.checkout));
         self.note(&format!(
@@ -372,13 +346,8 @@ impl Shell {
             let (rebuilt, stopped) = {
                 let mut state = shell.state();
                 let now = checkout::build_stamp(&state.settings.checkout);
-                let built = now.is_some() && now != state.stamp;
-                let arrived = state.waiting_for_runs && runs::has_runs(&state.settings.run_folders);
-                let rebuilt = match (built, arrived) {
-                    (true, _) => Some("the UI was rebuilt; restarting the server"),
-                    (false, true) => Some("a run arrived; starting the server"),
-                    (false, false) => None,
-                };
+                let rebuilt = (now.is_some() && now != state.stamp)
+                    .then_some("the UI was rebuilt; restarting the server");
                 let gone = state
                     .server
                     .as_mut()
@@ -397,10 +366,7 @@ impl Shell {
                     shell.show(
                         &window,
                         &Status::from_start_error(
-                            &server::StartError::Refused(
-                                server::refusal_in(&log),
-                                server::tail(&log, 20),
-                            ),
+                            &server::StartError::Refused(server::refusal_in(&log)),
                             &shell.settings().checkout,
                         ),
                     );
@@ -408,6 +374,47 @@ impl Shell {
             }
         });
     }
+}
+
+/// What a start shows first.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Opening {
+    /// The onboarding page, at this step.
+    Onboarding(&'static str),
+    /// The app's own page: the operator UI cannot be shown, and this says why.
+    Page(Status),
+    /// Start the server and show the operator UI. With no runs yet, it says so itself.
+    Serve,
+}
+
+/// What a start with `settings` shows first, making the default run root `root` if it is
+/// served and missing. Whether any run exists yet plays no part: an empty run folder is
+/// served like any other, and the operator UI shows its own empty state.
+pub fn opening(settings: &Settings, root: &Path, mut note: impl FnMut(&str)) -> Opening {
+    if !settings.onboarded {
+        return Opening::Onboarding(if settings.intro_seen {
+            "engine"
+        } else {
+            "intro"
+        });
+    }
+    if operator_mode(settings) == OperatorMode::Ask {
+        return Opening::Onboarding("operator");
+    }
+    if !checkout::is_checkout(&settings.checkout) {
+        return Opening::Page(Status::no_checkout(&settings.checkout));
+    }
+    if settings.run_folders.iter().any(|folder| folder == root) {
+        match runs::ensure(root) {
+            Ok(runs::Root::Created) => note(&format!("made {}", runs::shown(root))),
+            Ok(runs::Root::Existing) => {}
+            Err(reason) => {
+                note(&format!("the run folder was refused: {reason}"));
+                return Opening::Page(Status::root_refused(&reason));
+            }
+        }
+    }
+    Opening::Serve
 }
 
 /// The view worth keeping across a relaunch: the window's fragment, unless it carries an
@@ -548,6 +555,126 @@ mod tests {
             None
         );
         assert_eq!(rememberable(None), None);
+    }
+
+    /// A checkout whose entry point records its arguments, announces an address and runs on.
+    fn stand_in_checkout(dir: &Path) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let checkout = dir.join("checkout");
+        let bin = checkout.join(".venv/bin");
+        fs::create_dir_all(&bin).unwrap();
+        fs::create_dir_all(checkout.join("ui")).unwrap();
+        fs::write(checkout.join("pyproject.toml"), "").unwrap();
+        let program = bin.join("physgate");
+        fs::write(
+            &program,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\n\
+                 printf '{{\"url\": \"http://127.0.0.1:5555/\"}}\\n'\nwhile :; do sleep 1; done\n",
+                dir.join("args.txt").display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&program, fs::Permissions::from_mode(0o700)).unwrap();
+        checkout
+    }
+
+    #[test]
+    fn a_start_with_an_empty_run_root_serves_the_operator_ui() {
+        let dir = TestDir::new("empty-start");
+        let root = dir.path().join("physgate-runs");
+        let mut settings = Settings {
+            checkout: stand_in_checkout(dir.path()),
+            onboarded: true,
+            intro_seen: true,
+            operator_asked: true,
+            ..Settings::default()
+        };
+        assert!(runs::with_default(&mut settings, &root));
+        let mut notes = Vec::new();
+
+        // The first start: the root is made, holds nothing, and the server is started.
+        assert_eq!(
+            opening(&settings, &root, |l| notes.push(l.to_string())),
+            Opening::Serve
+        );
+        assert!(root.is_dir());
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 0, "no run in it");
+        assert_eq!(notes, [format!("made {}", runs::shown(&root))]);
+
+        // Later starts over a root still empty (a hidden file is no run) serve it too.
+        fs::write(root.join(".DS_Store"), "").unwrap();
+        assert_eq!(opening(&settings, &root, |_| {}), Opening::Serve);
+        // So does a run folder of the operator's own choosing that holds nothing.
+        let chosen = dir.path().join("chosen");
+        fs::create_dir(&chosen).unwrap();
+        let elsewhere = Settings {
+            run_folders: vec![chosen.clone()],
+            ..settings.clone()
+        };
+        assert_eq!(opening(&elsewhere, &root, |_| {}), Opening::Serve);
+
+        // And the server it starts is given the empty root.
+        let server = Server::start(
+            &settings,
+            &dir.path().join("server.log"),
+            &dir.path().join("server.pid"),
+        )
+        .unwrap();
+        assert_eq!(server.url().as_str(), "http://127.0.0.1:5555/");
+        let args = fs::read_to_string(dir.path().join("args.txt")).unwrap();
+        let args: Vec<&str> = args.lines().collect();
+        let at = args.iter().position(|a| *a == "--root").unwrap();
+        assert_eq!(args[at + 1], root.display().to_string());
+        drop(server);
+    }
+
+    #[test]
+    fn the_app_shows_its_own_page_only_when_the_ui_cannot_be_shown() {
+        let dir = TestDir::new("own-page");
+        let root = dir.path().join("physgate-runs");
+        let ready = Settings {
+            checkout: stand_in_checkout(dir.path()),
+            run_folders: vec![root.clone()],
+            onboarded: true,
+            intro_seen: true,
+            operator_asked: true,
+            ..Settings::default()
+        };
+        // Onboarding and the name come first, as before.
+        let fresh = Settings {
+            onboarded: false,
+            intro_seen: false,
+            ..ready.clone()
+        };
+        assert_eq!(opening(&fresh, &root, |_| {}), Opening::Onboarding("intro"));
+        let unnamed = Settings {
+            operator_asked: false,
+            ..ready.clone()
+        };
+        assert_eq!(
+            opening(&unnamed, &root, |_| {}),
+            Opening::Onboarding("operator")
+        );
+        // No checkout: the app's page, which says where to choose one.
+        let lost = Settings {
+            checkout: dir.path().join("nowhere"),
+            ..ready.clone()
+        };
+        let Opening::Page(page) = opening(&lost, &root, |_| {}) else {
+            panic!("no checkout is the app's own page");
+        };
+        assert_eq!(page.title, "No physgate checkout here");
+        assert!(page
+            .lines
+            .iter()
+            .any(|l| l.contains("Choose Another Checkout")));
+        // A root that is not a folder: the app's page.
+        fs::write(&root, "a file").unwrap();
+        let Opening::Page(page) = opening(&ready, &root, |_| {}) else {
+            panic!("a refused root is the app's own page");
+        };
+        assert_eq!(page.title, "The run folder can't be used");
     }
 
     #[test]

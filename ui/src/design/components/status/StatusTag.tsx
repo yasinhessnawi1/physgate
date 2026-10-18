@@ -20,6 +20,7 @@ export const STATUS_KINDS = {
   "seal-none": ["minus", "No seal"],
   "seal-elsewhere": ["minus", "Not in this run"],
   "seal-too-large": ["minus", "Too large to check"],
+  "coming-soon": ["clock", "Coming soon"],
 } as const satisfies Record<string, readonly [IconName, string]>;
 
 export type StatusKind = keyof typeof STATUS_KINDS;

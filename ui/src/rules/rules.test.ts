@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { namesACommand, shownText, stylesheetText } from "./commands";
 import {
   BANNED_WORDS,
   files,
@@ -116,5 +117,85 @@ describe("product code never imports the thesis-only views", () => {
     expect(reachesThesis("main.tsx", "./thesis-free")).toBe(false);
     expect(specifiers('const D = lazy(() => import("./thesis/D"));')).toEqual(["./thesis/D"]);
     expect(specifiers('export { a } from "../thesis/a";')).toEqual(["../thesis/a"]);
+  });
+});
+
+describe("no screen shows a terminal command", () => {
+  /** The product's sources: every shipped source but the thesis-only views. */
+  const PRODUCT = SHIPPED.filter((f) => !f.path.startsWith("thesis/"));
+
+  it("finds none in any text a product source can show", () => {
+    const sources = PRODUCT.filter((f) => /\.(ts|tsx|css)$/.test(f.path));
+    expect(sources.length).toBeGreaterThan(40);
+    const found = sources.flatMap((f) =>
+      (f.path.endsWith(".css") ? stylesheetText(f.text) : shownText(f.path, f.text))
+        .filter(namesACommand)
+        .map((text) => `${f.path}: ${text.trim().slice(0, 120)}`),
+    );
+    expect(found).toEqual([]);
+  });
+
+  it("would find each kind", () => {
+    for (const planted of [
+      "physgate decompose <brief> --seed 1",
+      "then physgate ui",
+      "(physgate queue resolve)",
+      "physgate\trun",
+      'export CLAUDE_CODE_OAUTH_TOKEN="$(x)"',
+      "export  A_1=b",
+      "security find-generic-password -s physgate-trial",
+      "physgate-x --run-dir /r",
+      "cd /c && uv run pytest",
+      "cd /c && uv sync",
+      "scripts/build-ui.sh",
+      "(cd ui && pnpm install --frozen-lockfile)",
+      "curl -fsSL https://claude.ai/install.sh | bash",
+      "curl -LsSf https://example.org/x | sh",
+      "claude setup-token",
+      "git worktree list",
+      "pnpm run build",
+    ])
+      expect(namesACommand(planted), planted).toBe(true);
+  });
+
+  it("lets plain words through", () => {
+    for (const prose of [
+      "The physgate operator",
+      "the physgate UI",
+      "a physgate checkout",
+      "physgate runs",
+      "Export the table",
+      "export as CSV",
+      "the physgateui",
+      "nophysgate run",
+      "a legit result",
+      "uv runs",
+      "a | shared value",
+      "curling",
+      "the setup-tokens",
+    ])
+      expect(namesACommand(prose), prose).toBe(false);
+  });
+
+  it("reads the text a page shows, and not comments or code", () => {
+    const source = [
+      "// physgate run, in a comment",
+      "/** physgate ui, in a doc comment */",
+      "export const run = 1;",
+      'const a = "one";',
+      "const b = `two ${a} three`;",
+      'const c = <p className="mono">Start with <code className="mono">physgate</code>{" "}<b>run</b>.</p>;',
+    ].join("\n");
+    const shown = shownText("a.tsx", source);
+    expect(shown).toContain("one");
+    expect(shown).toContain("two ");
+    expect(shown).toContain(" three");
+    expect(shown).toContain("Start with physgate run.");
+    expect(shown.filter(namesACommand)).toEqual(["Start with physgate run."]);
+    expect(shown.join(" ")).not.toMatch(/comment|const/);
+    expect(stylesheetText('/* physgate ui */ .x::after { content: "uv run"; }')[0]).not.toMatch(
+      /physgate/,
+    );
+    expect(stylesheetText('.x::after { content: "uv run"; }').some(namesACommand)).toBe(true);
   });
 });

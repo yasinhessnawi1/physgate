@@ -14,6 +14,8 @@ use std::path::PathBuf;
 
 use tauri::{AppHandle, Manager, State, Url};
 
+use crate::commands::{plain, plain_err};
+use crate::config::Settings;
 use crate::engine::{self, ClaudeCode, Device, SignIn, SignInView};
 use crate::keychain::{self, Secret};
 use crate::shell::Shell;
@@ -27,28 +29,44 @@ pub fn page(step: &str) -> Url {
 
 #[tauri::command]
 pub fn onboarding_state(app: AppHandle) -> serde_json::Value {
-    let settings = app.state::<Shell>().settings();
+    page_state(
+        &app.state::<Shell>().settings(),
+        keychain::is_stored(Secret::SubscriptionToken),
+        keychain::is_stored(Secret::ApiKey),
+    )
+}
+
+/// What the page reads: the settings' choices, the catalogue, and whether each credential is
+/// kept. Never a credential, and never a command.
+fn page_state(settings: &Settings, token_kept: bool, key_kept: bool) -> serde_json::Value {
     serde_json::json!({
         "intro_seen": settings.intro_seen,
         "engine": settings.engine,
         "implementer": settings.implementer_model,
         "reviewer": settings.reviewer_model,
         "catalogue": engine::catalogue(),
-        "install_command": engine::INSTALL_COMMAND,
         "kept": {
-            "subscription_token": keychain::is_stored(Secret::SubscriptionToken),
-            "api_key": keychain::is_stored(Secret::ApiKey),
-        },
-        "handover": {
-            "subscription_token": keychain::handover_line(Secret::SubscriptionToken),
-            "api_key": keychain::handover_line(Secret::ApiKey),
+            "subscription_token": token_kept,
+            "api_key": key_kept,
         },
     })
 }
 
+/// Claude Code as the page shows it. What it printed of itself passes the command filter.
 #[tauri::command]
 pub fn claude_code_detect() -> ClaudeCode {
-    engine::detect()
+    let mut found = engine::detect();
+    for text in [
+        &mut found.version,
+        &mut found.auth_method,
+        &mut found.subscription,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        *text = plain(text);
+    }
+    found
 }
 
 /// Open Terminal with Claude Code's official installer, on the operator's click.
@@ -56,11 +74,11 @@ pub fn claude_code_detect() -> ClaudeCode {
 pub fn claude_code_install(app: AppHandle) -> Result<(), String> {
     let shell = app.state::<Shell>();
     shell.note("opened the Claude Code installer in Terminal");
-    engine::open_in_terminal(
+    plain_err(engine::open_in_terminal(
         shell.paths.root(),
         "install-claude-code.command",
-        &engine::install_script(),
-    )
+        &crate::terminal::install_script(),
+    ))
 }
 
 fn claude_path() -> Result<PathBuf, String> {
@@ -73,7 +91,7 @@ fn claude_path() -> Result<PathBuf, String> {
 #[tauri::command]
 pub fn sign_in_start(app: AppHandle, sign_in: State<'_, SignIn>) -> Result<SignInView, String> {
     app.state::<Shell>().note("sign-in for runs started");
-    sign_in.start(&claude_path()?)
+    plain_err(sign_in.start(&claude_path()?))
 }
 
 #[tauri::command]
@@ -97,11 +115,11 @@ pub fn sign_in_in_terminal(app: AppHandle) -> Result<(), String> {
     let path = claude_path()?;
     let shell = app.state::<Shell>();
     shell.note("opened the sign-in in Terminal");
-    engine::open_in_terminal(
+    plain_err(engine::open_in_terminal(
         shell.paths.root(),
         "sign-in-claude-code.command",
-        &engine::sign_in_script(&path.display().to_string()),
-    )
+        &crate::terminal::sign_in_script(&path.display().to_string()),
+    ))
 }
 
 /// Keep a credential typed or pasted into the page. It goes to the Keychain and nowhere else.
@@ -114,7 +132,7 @@ pub fn store_secret(app: AppHandle, secret: Secret, value: String) -> Result<(),
         Ok(()) => shell.note(&format!("{} kept in the Keychain", secret.account())),
         Err(_) => shell.note(&format!("{} refused", secret.account())),
     }
-    result
+    plain_err(result)
 }
 
 #[tauri::command]
@@ -130,7 +148,7 @@ pub fn forget_secret(app: AppHandle, secret: Secret) {
 pub async fn test_api_key(app: AppHandle) -> Result<String, String> {
     app.state::<Shell>()
         .note("Test Key: one request to api.anthropic.com, asked for by the operator");
-    engine::test_api_key().await
+    plain_err(engine::test_api_key().await.map(|said| plain(&said)))
 }
 
 #[tauri::command]
@@ -140,15 +158,19 @@ pub fn choose_engine(
     implementer: Option<String>,
     reviewer: Option<String>,
 ) -> Result<(), String> {
-    engine::check_choice(&engine, implementer.as_deref(), reviewer.as_deref())?;
+    plain_err(engine::check_choice(
+        &engine,
+        implementer.as_deref(),
+        reviewer.as_deref(),
+    ))?;
     let api = engine == "claude-api";
-    app.state::<Shell>().change_settings(|s| {
+    plain_err(app.state::<Shell>().change_settings(|s| {
         s.engine = Some(engine);
         if api {
             s.implementer_model = implementer;
             s.reviewer_model = reviewer;
         }
-    })
+    }))
 }
 
 #[tauri::command]
@@ -158,8 +180,10 @@ pub fn device_report() -> Device {
 
 #[tauri::command]
 pub fn intro_seen(app: AppHandle) -> Result<(), String> {
-    app.state::<Shell>()
-        .change_settings(|s| s.intro_seen = true)
+    plain_err(
+        app.state::<Shell>()
+            .change_settings(|s| s.intro_seen = true),
+    )
 }
 
 /// The operator's name as the page asks for it: the one set, and the default to offer.
@@ -175,13 +199,11 @@ pub fn operator_state(app: AppHandle) -> serde_json::Value {
 /// it. Asked once; physgate → Operator Name… changes it.
 #[tauri::command]
 pub fn set_operator(app: AppHandle, name: Option<String>) -> Result<(), String> {
-    let name = name
-        .map(|n| crate::server::valid_operator(&n))
-        .transpose()?;
-    app.state::<Shell>().change_settings(|s| {
+    let name = plain_err(name.map(|n| crate::server::valid_operator(&n)).transpose())?;
+    plain_err(app.state::<Shell>().change_settings(|s| {
         s.operator = name;
         s.operator_asked = true;
-    })?;
+    }))?;
     crate::menu::restart_in_background(app);
     Ok(())
 }
@@ -189,10 +211,10 @@ pub fn set_operator(app: AppHandle, name: Option<String>) -> Result<(), String> 
 /// Done: remember it, and show the operator UI.
 #[tauri::command]
 pub fn finish_onboarding(app: AppHandle) -> Result<(), String> {
-    app.state::<Shell>().change_settings(|s| {
+    plain_err(app.state::<Shell>().change_settings(|s| {
         s.onboarded = true;
         s.intro_seen = true;
-    })?;
+    }))?;
     crate::menu::restart_in_background(app);
     Ok(())
 }
@@ -220,14 +242,22 @@ mod tests {
     }
 
     #[test]
+    fn the_state_the_page_reads_names_no_command() {
+        for (token, key) in [(false, false), (true, true)] {
+            let state = page_state(&Settings::default(), token, key);
+            let shown = serde_json::to_string(&state).unwrap();
+            assert!(!crate::commands::names_a_command(&shown), "{shown}");
+            for gone in ["handover", "install_command"] {
+                assert!(state.get(gone).is_none(), "{gone} is back: {shown}");
+            }
+        }
+    }
+
+    #[test]
     fn the_state_a_page_reads_never_holds_a_credential() {
-        // The page's state is built from booleans and fixed text; this checks the fixed text.
-        let lines = [
-            keychain::handover_line(Secret::SubscriptionToken),
-            keychain::handover_line(Secret::ApiKey),
-            engine::INSTALL_COMMAND.to_string(),
-        ];
-        assert!(lines.iter().all(|l| !l.contains("sk-ant-")));
+        // The page's state is built from booleans, the settings' names and the catalogue;
+        // this checks the catalogue, its one fixed text.
+        assert!(!engine::CATALOGUE.contains("sk-ant-"));
     }
 
     #[test]

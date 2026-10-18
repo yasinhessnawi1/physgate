@@ -5,6 +5,7 @@ import {
   bindingStylesHold,
   hitAreasShort,
   cspViolations,
+  namesNoCommand,
   styles,
   THEMES,
   TRANSPARENT,
@@ -430,4 +431,28 @@ test("under a domain filter the nodes table resolves every edge over the whole g
   await expect(table.locator("tbody tr")).toContainText("firmware.loop");
   await expect(table.locator("tbody tr")).toContainText("electrical.supply");
   expect(seen.outbound).toEqual([]);
+});
+
+test("no screen over any recorded run shows a terminal command", async ({ page, request }) => {
+  test.setTimeout(600_000);
+  const listed = (await (await request.get("/api/runs")).json()) as {
+    runs: { root: number; name: string }[];
+  };
+  expect(listed.runs.length).toBeGreaterThan(3);
+  const views = [
+    "/home/run-records",
+    "/orchestration/design-graph",
+    "/orchestration/run-timeline",
+    "/orchestration/gate-checks",
+    "/collaboration/approval-queue",
+  ];
+  for (const run of listed.runs) {
+    for (const view of views) {
+      const query = new URLSearchParams({ run: `${String(run.root)}/${run.name}` });
+      const path = `${view}?${query.toString()}`;
+      await page.goto(`/?theme=light#${path}`);
+      await expect(page.locator('[aria-busy="true"]')).toHaveCount(0, { timeout: 30_000 });
+      await namesNoCommand(page, path);
+    }
+  }
 });

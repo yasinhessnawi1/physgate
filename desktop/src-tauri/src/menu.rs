@@ -167,7 +167,9 @@ pub fn on_event(app: &AppHandle, event: &MenuEvent) {
                 let picked = app
                     .dialog()
                     .file()
-                    .set_title("Add a run folder: a run, or a folder of runs")
+                    .set_title(crate::commands::plain(
+                        "Add a run folder: a run, or a folder of runs",
+                    ))
                     .blocking_pick_folder()
                     .and_then(|p| p.into_path().ok());
                 if let Some(folder) = picked {
@@ -182,7 +184,7 @@ pub fn on_event(app: &AppHandle, event: &MenuEvent) {
                 let picked = app
                     .dialog()
                     .file()
-                    .set_title("Choose a physgate checkout")
+                    .set_title(crate::commands::plain("Choose a physgate checkout"))
                     .blocking_pick_folder()
                     .and_then(|p| p.into_path().ok());
                 if let Some(folder) = picked {
@@ -222,7 +224,7 @@ fn change(app: &AppHandle, edit: impl FnOnce(&mut crate::config::Settings)) {
     let shell = app.state::<Shell>();
     if let Err(problem) = shell.change_settings(edit) {
         app.dialog()
-            .message(problem)
+            .message(crate::commands::plain(&problem))
             .kind(MessageDialogKind::Error)
             .buttons(MessageDialogButtons::Ok)
             .blocking_show();

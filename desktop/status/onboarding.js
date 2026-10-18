@@ -127,8 +127,7 @@ async function renderClaudeCode() {
       el("h2", {}, "Claude Code is not installed"),
       el("p", {}, "Install it with Anthropic's official installer. It runs in Terminal, where you can see every step."),
       el("ol", { class: "howto" },
-        el("li", {}, "Open Terminal with the installer. It runs this command:",
-          el("pre", { class: "copy" }, state.install_command),
+        el("li", {}, "Open Terminal with the installer.",
           el("div", { class: "row" }, el("button", { type: "button", onclick: install }, "Open in Terminal"))),
         el("li", {}, "Wait until Terminal says it is done. It downloads Claude Code from Anthropic."),
         el("li", {}, "Come back here and check again.",
@@ -158,8 +157,6 @@ function signInSection() {
     section.append(
       el("h2", {}, "Signed in for runs"),
       el("p", { class: "ok" }, "A token is kept in the macOS Keychain. It is never shown."),
-      el("p", {}, "To start a run from Terminal, load it first with this line. It names the Keychain item and holds no secret:"),
-      el("pre", { class: "copy" }, state.handover.subscription_token),
       el("div", { class: "row" }, el("button", { type: "button", onclick: () => forget("subscription_token") }, "Remove the Token")),
     );
     return section;
@@ -265,8 +262,6 @@ async function renderApi(engine) {
         } }, "Test Key — contacts Anthropic"),
         el("button", { class: "quiet", type: "button", onclick: () => forget("api_key") }, "Remove the Key")),
       result,
-      el("p", {}, "To start a run from Terminal, load it first with this line. It holds no secret:"),
-      el("pre", { class: "copy" }, state.handover.api_key),
     );
   } else {
     box.append(

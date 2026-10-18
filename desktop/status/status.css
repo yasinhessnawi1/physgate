@@ -61,5 +61,3 @@ pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.command { user-select: all; -webkit-user-select: all; cursor: text; }
-.detail { font-size: 12px; color: var(--text-2); max-height: 280px; overflow: auto; }

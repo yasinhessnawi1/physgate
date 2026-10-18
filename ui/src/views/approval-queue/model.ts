@@ -70,7 +70,7 @@ export function whyNot(
   if (!holdsToken)
     return (
       "This page was opened without the operator's address, so it can only read. Open the " +
-      "operator_url that physgate ui printed (the address ending in #act=…) to decide here."
+      "operator's address the server gave when it started (the one ending in #act=…) to decide here."
     );
   if (verb === "reject" && isBlank(note)) return "A rejection says why: write the note first.";
   return null;

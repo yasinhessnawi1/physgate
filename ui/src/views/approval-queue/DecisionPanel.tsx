@@ -126,8 +126,7 @@ export function DecisionPanel({
           }}
         />
         <span className="muted queue-actions-note">
-          Each writes one decision, exactly as <span className="mono">physgate queue resolve</span>{" "}
-          would{operator === null ? "" : ","}
+          Each writes one decision to this run's queue{operator === null ? "" : ","}
           {operator === null ? (
             "."
           ) : (
