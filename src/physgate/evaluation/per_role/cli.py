@@ -80,6 +80,10 @@ def add_parser(subparsers: Any) -> None:
         # their references outlasts a role session's defaults.
         sub.add_argument("--session-wall-clock-s", type=float, default=1800.0)
         sub.add_argument("--session-max-turns", type=int, default=150)
+        # How often the binary retries a failed request before the session ends with an
+        # error. One long session is lost whole to a dropped connection unless the
+        # binary retries; the token cap holds whatever the count.
+        sub.add_argument("--binary-max-retries", type=int, default=0)
         if name == "author":
             # The interpreter the arms' sessions get, with the scorer's libraries: the
             # author computes with them, though the scorer itself is never given.
@@ -194,7 +198,7 @@ def _session_setup(args: argparse.Namespace, install: Path) -> Any:
         max_output_tokens=64000,
         thinking_display="summarized",
         bounds=RunBounds(
-            binary_max_retries=0,
+            binary_max_retries=args.binary_max_retries,
             session_wall_clock_s=args.session_wall_clock_s,
             session_max_turns=args.session_max_turns,
             infra_retry_delays_s=(),

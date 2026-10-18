@@ -612,9 +612,12 @@ def test_the_commands_take_a_session_s_bounds_with_a_role_session_s_defaults(
         common += ["--role-python", "/p", "--visible", "/v", "--seed", "1"]
     given = parser.parse_args(["per-role", command, *common])
     assert (given.session_wall_clock_s, given.session_max_turns) == (1800.0, 150)
+    assert given.binary_max_retries == 0
     longer = ["--session-wall-clock-s", "3600", "--session-max-turns", "300"]
-    given = parser.parse_args(["per-role", command, *common, *longer])
+    retries = ["--binary-max-retries", "5"]
+    given = parser.parse_args(["per-role", command, *common, *longer, *retries])
     assert (given.session_wall_clock_s, given.session_max_turns) == (3600.0, 300)
+    assert given.binary_max_retries == 5
 
 
 def test_work_inside_a_place_withheld_from_the_author_is_refused_before_any_session(

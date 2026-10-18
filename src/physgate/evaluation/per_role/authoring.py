@@ -102,7 +102,9 @@ Every task's brief tells the designer this format and the file to write it to.
 
 Tools: in the directory you work in, python3 has python-control 0.10.1, numpy and scipy,
 and nothing else can be installed (there is no network). Write each task to its directory
-as soon as it is complete, before you begin the next.
+as soon as it is complete, before you begin the next: begin with the first task's own
+plant and reference, not with a tool for every task, since a session that ends before it
+has written a task has written nothing.
 
 Rules:
   - every task composes at least two requirements: the "composes" lists of its headline
