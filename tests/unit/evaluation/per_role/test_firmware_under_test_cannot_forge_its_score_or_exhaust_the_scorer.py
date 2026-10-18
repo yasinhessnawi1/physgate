@@ -187,10 +187,24 @@ def test_a_process_that_ignores_a_stop_and_leaves_children_is_killed_whole(
     assert run.ended_by == "wall_clock"
     assert time.monotonic() - began < 8
     child = int(pid_file.read_text())
-    with pytest.raises(ProcessLookupError):
-        import os
+    assert _gone(child), "the grandchild outlived the group's kill"
 
-        os.kill(child, 0)
+
+def _gone(pid: int, within_s: float = 5.0) -> bool:
+    """Whether ``pid`` is gone (or only a zombie, awaiting its new parent's reaping)."""
+    import os
+
+    deadline = time.monotonic() + within_s
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        status = Path(f"/proc/{pid}/stat")
+        if status.exists() and status.read_text().split(") ", 1)[1].startswith("Z"):
+            return True
+        time.sleep(0.05)
+    return False
 
 
 def test_a_process_that_spins_is_stopped_by_its_cpu_limit(tmp_path: Path) -> None:
