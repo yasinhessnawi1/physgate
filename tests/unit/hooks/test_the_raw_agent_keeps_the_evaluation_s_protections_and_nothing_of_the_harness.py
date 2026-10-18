@@ -78,7 +78,7 @@ def test_the_raw_agent_has_exactly_a_role_s_tools() -> None:
 
 
 def test_the_installer_command_takes_the_raw_agent_offline(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    outside_tmp: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     import json
 
@@ -86,8 +86,8 @@ def test_the_installer_command_takes_the_raw_agent_offline(
 
     parser = argparse.ArgumentParser()
     add_parser(parser.add_subparsers(dest="command"))
-    outside = tmp_path / "outside"
-    (tmp_path / "worktree").mkdir()
+    outside = outside_tmp / "outside"
+    (outside_tmp / "worktree").mkdir()
     args = parser.parse_args(
         [
             "hooks",
@@ -95,7 +95,7 @@ def test_the_installer_command_takes_the_raw_agent_offline(
             "--profile",
             "baseline",
             "--worktree",
-            str(tmp_path / "worktree"),
+            str(outside_tmp / "worktree"),
             "--state-dir",
             str(outside / "state"),
             "--target",
@@ -107,7 +107,7 @@ def test_the_installer_command_takes_the_raw_agent_offline(
             "--ceiling",
             "1000",
             "--held-out",
-            str(tmp_path / "heldout"),
+            str(outside_tmp / "heldout"),
             "--os-layer-temp",
             "/tmp/pg-0123456789ab",
             "--os-layer-network",
@@ -123,7 +123,7 @@ def test_the_installer_command_takes_the_raw_agent_offline(
 
 
 def test_offline_asked_for_without_the_os_layer_is_said_never_silently_dropped(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    outside_tmp: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Only the OS layer can take a shell offline: without it the install says so, twice."""
     import json
@@ -133,10 +133,10 @@ def test_offline_asked_for_without_the_os_layer_is_said_never_silently_dropped(
 
     parser = argparse.ArgumentParser()
     add_parser(parser.add_subparsers(dest="command"))
-    outside = tmp_path / "outside"
-    (tmp_path / "worktree").mkdir()
+    outside = outside_tmp / "outside"
+    (outside_tmp / "worktree").mkdir()
     common = [
-        *("hooks", "install", "--profile", "baseline", "--worktree", str(tmp_path / "worktree")),
+        *("hooks", "install", "--profile", "baseline", "--worktree", str(outside_tmp / "worktree")),
         *("--state-dir", str(outside / "state"), "--target", str(outside / "session")),
         *("--claude-config-dir", str(outside / "config"), "--user-home", str(outside / "home")),
         *("--ceiling", "1000", "--os-layer-network", "none"),
