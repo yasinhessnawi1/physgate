@@ -51,8 +51,9 @@ fn holds_phrase(text: &str, phrase: &str) -> bool {
     text.match_indices(phrase).any(|(at, _)| {
         let before = text[..at].chars().next_back();
         let after = text[at + phrase.len()..].chars().next();
-        !(starts_word && before.is_some_and(word_char))
-            && !(ends_word && after.is_some_and(word_char))
+        let joined_before = starts_word && before.is_some_and(word_char);
+        let joined_after = ends_word && after.is_some_and(word_char);
+        !(joined_before || joined_after)
     })
 }
 
