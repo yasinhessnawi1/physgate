@@ -366,6 +366,7 @@ class Loop:
         if not self.log.events:
             return
         tampered: list[tuple[str, str]] = []
+        exposed = False
         for left in self._dispatcher.stop_leftovers():
             if left.stopped:
                 self._emit(
@@ -383,6 +384,14 @@ class Loop:
                     decisions_bytes=self._decisions_bytes(),
                 )
             )
+            if left.held_out_seen is not None:
+                # As at a normal session end: the tier counts as exposed (ARCH-141), and
+                # the exposure is recorded whatever else the resume finds. The canary is not.
+                exposed = True
+                detail = f"held-out material in the stream of leftover session {left.session_id}"
+                self._emit(
+                    Incident(**self._env(), subtask_id=None, cause="held_out_read", detail=detail)
+                )
             if left.tampered is not None:
                 tampered.append((left.session_id, left.tampered))
             # Spent, and never recorded: its orchestrator died first. Up to the
@@ -399,6 +408,9 @@ class Loop:
                 )
         for session_id, why in tampered:
             self._incident(None, "trajectory_tampered", f"leftover session {session_id}: {why}")
+        if exposed and not tampered:
+            # No other incident: the exposure alone stops the run, once.
+            self._halt_for(None, "held_out_read")
 
     def _clean_up_worktrees(self) -> None:
         """Remove the worktrees the rules allow, recording each; never stall or fail the run.

@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+import pint
 import pytest
 from series_fixture import DIGEST
 
@@ -60,6 +61,8 @@ def _loop(magnitude: list[float], phase: list[float]) -> list[dict[str, Any]]:
 
 
 #: A loop crossing unit gain between 1 and 2 rad/s at a phase of -2 rad: a margin of pi - 2.
+#: A registry of floats, to write a declared value into a logarithmic unit in any environment.
+FLOATS = pint.UnitRegistry()
 PLAIN = ([1.0, 2.0, 3.0], _loop([2.0, 0.5, 0.5], [-2.0, -2.0, -2.0]))
 
 
@@ -227,7 +230,9 @@ def test_a_declared_unit_that_is_logarithmic_or_counts_information_is_refused(
     entry = _sealed(run_dir, *PLAIN)
     ws, (mags, phases) = PLAIN[0], (t["values"] for t in PLAIN[1])
     read = writer.extract("stability_margin", omega=ws, magnitude=mags, phase=phases)
-    declared = float(units.parse(read, "dimensionless").to(unit).magnitude)
+    # In a registry of floats: pint converts into a logarithmic unit through numpy's log
+    # where numpy is installed, which takes no exact fraction, so the gate's cannot.
+    declared = float(FLOATS.Quantity(read, "dimensionless").to(unit).magnitude)
     result = _one(run_dir, entry, ("margin", declared, unit, "stability_margin"))
     assert result.outcome == "unreadable", result
     assert result.reason is not None and says in result.reason

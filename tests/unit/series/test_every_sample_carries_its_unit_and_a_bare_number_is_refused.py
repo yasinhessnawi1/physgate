@@ -68,7 +68,7 @@ def test_a_unit_the_gate_cannot_read_is_refused(unit: str) -> None:
     _refused(record, "traces.0.unit")
 
 
-@pytest.mark.parametrize("unit", ["dB", "dBm", "Np", "decade"])
+@pytest.mark.parametrize("unit", ["dB", "dBm", "Np", "decade", "dB*V", "1/dB"])
 def test_a_logarithmic_unit_is_refused(unit: str) -> None:
     record = frequency_record_dict()
     record["traces"][0]["unit"] = unit
