@@ -73,9 +73,15 @@ class SourceFinding:
                 f"{self.where}: {self.quantity} of {self.node} is {self.written}, and no row at "
                 f"its source gives a number of that kind ({self.source})"
             )
+        if self.source.startswith("derived:"):
+            return (
+                f"{self.where}: {self.quantity} of {self.node} is {self.written}, and its source "
+                f"gives {self.source_gives} ({self.source})"
+            )
         return (
-            f"{self.where}: {self.quantity} of {self.node} is {self.written}, and its source "
-            f"gives {self.source_gives} ({self.source})"
+            f"{self.where}: {self.quantity} of {self.node} is {self.written}, and no row at its "
+            f"source gives that number; its rows of that kind give {self.source_gives} "
+            f"({self.source})"
         )
 
 
