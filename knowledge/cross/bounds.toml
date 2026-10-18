@@ -1,0 +1,61 @@
+# The cross-domain bounds table: envelopes for whole kinds of quantity.
+#
+# A range (in a domain's own table) is for one named quantity in one domain. An envelope
+# is for every quantity of one kind, in every domain and under any name the catalogue or
+# its suffix rules give that kind: the span outside which no value of that kind occurs on
+# the class of machine this gate judges. It bounds the size of a value; the sign is the
+# unit check's. A range in the writer's own domain is applied before any envelope and is
+# never replaced by one. Each envelope names its source, the date it was read, the date its
+# figures were confirmed in the document named, and what it does and does not claim.
+#
+# Withheld, awaiting a ruling (drafted and sourced, not loaded): a mass envelope of 0 to
+# 13.6 kg (SPARC Robot Construction Specifications v1.6, 21 September 2025, section 4: the
+# 30 lb / 13.61 kg class, the heaviest below 60 lb; confirmed 19.10.2026) and a length
+# envelope of 0 to 1 m (twice the 18 in sizing cube of the 2026-2027 FIRST Tech Challenge
+# Competition Manual, rule R102, and of the VEX V5 Robotics Competition 2026-2027 manual,
+# rule R3; confirmed 19.10.2026). Each refuses graphs the equilibrium suite builds on
+# purpose far outside any hobby robot (standoffs at 10 m, ballast of 20 kg): 42 of the
+# record's clean graphs. A rule that fails a clean graph goes back to unchecked until the
+# ruling says whether those fixtures count as designs or the class is wider.
+
+[meta]
+domain = "cross"
+curated_by = "the physics gate's own build, drafted from the sources named and confirmed in them on 19.10.2026; not yet reviewed through the knowledge layer's promotion step"
+
+[[envelope]]
+kind = "voltage"
+low = 0
+high = 60
+unit = "V"
+class = "an extra-low-voltage machine: a battery-powered robot kit and every part of it"
+source = """The ES1 and SELV direct-voltage limit, 60 V DC: IEC 62368-1 subclause 5.2.1.1 \
+(ES1, at most 60 V DC above 2 mA) and IEC 61140 subclause 5.2.6 (SELV, touch voltage at most \
+60 V DC in a dry location), as summarised in IEEE 802.3 PDCC ad hoc, "ES1, LPS and SELV \
+voltage and source requirements summary", D. Law, version 1.5, 18.08.2021, and in UL Japan's \
+IEC 62368-1 technical brief "Electrical Energy Source (ES) vs. SELV and LCC" (2014); the \
+standards themselves were not opened."""
+retrieved = 2026-10-19
+confirmed = 2026-10-19
+note = """Applied to the size of a voltage, so a -0.3 V absolute-maximum rating is inside. A \
+kit built from hobby parts runs below the extra-low-voltage limit (the stand-in's highest \
+figure is a regulator input of 36 V); above 60 V DC a machine is no longer extra-low-voltage \
+and no part of this class is rated for it. It catches a millivolt or kilovolt mislabel, not a \
+wrong voltage inside the span."""
+
+[[envelope]]
+kind = "temperature"
+low = 200
+high = 550
+unit = "K"
+class = "any temperature a hobby-class electronic or mechanical part sees or is rated for"
+source = """IPC/JEDEC J-STD-020F (December 2022), Table 2: a peak reflow temperature of 260 C \
+(533 K) for packages under 1.6 mm thick, 245 to 250 C for thicker ones, the hottest any \
+assembled part is rated to see; AEC-Q100 grade 0 operating ambient -40 C to 150 C and the \
+industrial range -40 C to 85 C (Renesas, "Temperature ranges", and the MPS webinar \
+"Fundamentals of AEC-Q100", 06.11.2018; the AEC document itself was not reachable)."""
+retrieved = 2026-10-19
+confirmed = 2026-10-19
+note = """An absolute temperature, so a Celsius figure is converted before the comparison. \
+Below 200 K (-73 C) or above 550 K (277 C) no part of this class operates, is stored or is \
+soldered. It catches a figure written in the wrong temperature unit by a large factor and a \
+Celsius figure mistaken for kelvin, not a wrong temperature inside the span."""
