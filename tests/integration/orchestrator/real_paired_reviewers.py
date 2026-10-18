@@ -81,6 +81,7 @@ import real_domain_roles as base  # noqa: E402
 from scripted_endpoint import DUMMY_OAUTH_TOKEN, Script, serving, text, tool  # noqa: E402
 
 from physgate.cli import main as physgate_main  # noqa: E402
+from physgate.engines.claude_code.stream import read_stream  # noqa: E402
 from physgate.evaluation.observe.cost import load_price_sheet, price_run  # noqa: E402
 from physgate.hooks.reading import content_lines  # noqa: E402
 from physgate.hooks.verdict_shape import CORRECTION  # noqa: E402
@@ -88,7 +89,7 @@ from physgate.knowledge import loader  # noqa: E402
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME  # noqa: E402
 from physgate.orchestrator.cli import default_registrations  # noqa: E402
 from physgate.orchestrator.credentials import remove_secrets, write_login  # noqa: E402
-from physgate.orchestrator.decompose import binary_version, read_stream  # noqa: E402
+from physgate.orchestrator.decompose import binary_version  # noqa: E402
 from physgate.orchestrator.dispatch import probe_interpreter  # noqa: E402
 from physgate.orchestrator.events import (  # noqa: E402
     ReviewRan,

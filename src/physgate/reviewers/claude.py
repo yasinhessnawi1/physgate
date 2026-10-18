@@ -51,24 +51,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from physgate.engines.base import Engine, Launch
+from physgate.engines.claude_code import ClaudeCodeEngine
 from physgate.knowledge.promote import KNOWLEDGE_ROOT
-from physgate.orchestrator.accounting import require_matching_totals
 from physgate.orchestrator.budget import classify_session_end
-from physgate.orchestrator.credentials import (
-    Credential,
-    remove_secrets,
-    require_vendor_endpoint,
-    write_key_helper,
-    write_login,
-)
+from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.decompose import binary_version, schema_refusal
 from physgate.orchestrator.dispatch import (
     OWNER_NAME,
     Installed,
     harness_protection,
-    read_captured,
     read_in_full,
-    redact,
     spawn_held,
     write_record,
 )
@@ -77,7 +70,7 @@ from physgate.orchestrator.exceptions import (
     ReviewerNotRegisteredError,
     ReviewUnavailableError,
 )
-from physgate.orchestrator.invocation import REVIEWER_ENV, isolated_env, reviewer_argv
+from physgate.orchestrator.invocation import REVIEWER_ENV
 from physgate.orchestrator.ports import SpawnHook
 from physgate.orchestrator.protocols import (
     Artefact,
@@ -87,9 +80,8 @@ from physgate.orchestrator.protocols import (
     SpecDefect,
     UnavailableCause,
 )
-from physgate.orchestrator.run_config import Effort, RunBounds, RunConfig, endpoint_of
+from physgate.orchestrator.run_config import Effort, RunBounds, RunConfig
 from physgate.reviewers.contract import contract_text, issued_criteria, verdict_schema
-from physgate.reviewers.ending import await_session
 from physgate.reviewers.exceptions import ReviewError
 from physgate.reviewers.packet import (
     KNOWLEDGE_NAME,
@@ -338,8 +330,11 @@ class ClaudeReviewer:
         if rubric.role != role:
             msg = "a reviewer judges with its own role's rubric"
             raise ReviewError(msg, role=role, rubric=rubric.role)
-        # A subscription only to its vendor's own endpoint: no reviewer exists for another.
-        require_vendor_endpoint(setup.credential.mode, endpoint_of(setup.base_url))
+        # Everything about the session that is the harness's. A subscription only to its
+        # vendor's own endpoint: no engine, and so no reviewer, exists for another.
+        self._engine: Engine = ClaudeCodeEngine(
+            base_url=setup.base_url, credential=setup.credential
+        )
         self._role = role
         self._model = model
         self._setup = setup
@@ -406,11 +401,10 @@ class ClaudeReviewer:
         stdout, exit_code, timed_out = self._spawn(
             packet, sdir, installed, session_id, prompt=prompt, schema=schema
         )
-        remove_secrets(sdir / "state", sdir / "config")
-        redact(stdout, self._setup.credential.secret)
-        captured = read_captured(stdout)
-        result, usage = captured.result, captured.usage
-        require_matching_totals(result, usage)
+        self._engine.release(sdir / "state", sdir / "config", stdout)
+        captured = self._engine.stream(stdout)
+        result = captured.result
+        usage = self._engine.cost(captured)
         answered = sorted(captured.answered - {SYNTHETIC_MODEL})
         if answered and answered != [self._model]:
             msg = "the review was answered by a model other than the pinned one"
@@ -440,7 +434,7 @@ class ClaudeReviewer:
             raise unavailable("no_verdict", "no model message in the review")
         if not read_in_full(Path(installed.config), session_id):
             raise unavailable("reading_incomplete", "a required file was not read in full")
-        structured = (result or {}).get("structured_output")
+        structured = self._engine.verdict(captured)
         judged = judge(
             structured,
             packet.indicators,
@@ -504,10 +498,7 @@ class ClaudeReviewer:
     def _install(self, packet: Packet, sdir: Path) -> Installed:
         state = sdir / "state"
         state.mkdir()
-        helper: list[str] = []
-        if self._setup.credential.mode == "api_key":
-            helper_path = write_key_helper(state, self._setup.credential.secret)
-            helper = ["--api-key-helper", str(helper_path)]
+        helper = self._engine.credential_settings(state)
         read = Path(packet.read_root)
         reading = [arg for path in packet.required_reading for arg in ("--reading", path)]
         argv = [
@@ -537,15 +528,9 @@ class ClaudeReviewer:
         ]
         done = subprocess.run(argv, capture_output=True, text=True, check=False)
         if done.returncode != 0:
-            remove_secrets(state, sdir / "config")
+            self._engine.release(state, sdir / "config", None)
             msg = "the hook layer's installer refused the review session"
             raise InvocationError(msg, stderr=done.stderr[-600:])
-        if self._setup.credential.mode == "subscription":
-            write_login(
-                sdir / "config",
-                self._setup.credential.secret,
-                endpoint=endpoint_of(self._setup.base_url),
-            )
         return Installed.model_validate_json(done.stdout)
 
     def _spawn(
@@ -560,28 +545,26 @@ class ClaudeReviewer:
     ) -> tuple[Path, int | None, bool]:
         (sdir / "home").mkdir(exist_ok=True)
         bounds = self._setup.bounds
-        env = isolated_env(
-            home=sdir / "home",
-            config_dir=sdir / "config",
-            binary=self._setup.binary,
-            claude_version=self._setup.claude_version,
-            max_retries=bounds.binary_max_retries,
-            max_output_tokens=self._setup.max_output_tokens,
-            base_url=self._setup.base_url,
-            api_key=None,
+        launched = self._engine.start(
+            Launch(
+                kind="reviewer",
+                binary=self._setup.binary,
+                version=self._setup.claude_version,
+                prompt=prompt,
+                model=self._model,
+                session_id=session_id,
+                home=sdir / "home",
+                config_dir=sdir / "config",
+                max_retries=bounds.binary_max_retries,
+                max_output_tokens=self._setup.max_output_tokens,
+                effort=self._setup.effort,
+                max_turns=bounds.session_max_turns,
+                spawn_args=installed.spawn_args,
+                spawn_env=installed.spawn_env,
+                schema=json.dumps(schema, sort_keys=True, separators=(",", ":")),
+            )
         )
-        env.update(installed.spawn_env)
-        env.update(REVIEWER_ENV)
-        argv = reviewer_argv(
-            self._setup.binary,
-            prompt=prompt,
-            spawn_args=installed.spawn_args,
-            schema=json.dumps(schema, sort_keys=True, separators=(",", ":")),
-            model=self._model,
-            session_id=session_id,
-            max_turns=bounds.session_max_turns,
-            effort=self._setup.effort,
-        )
+        env, argv = launched.env, launched.argv
         stdout = sdir / "stdout.jsonl"
 
         def while_held(pid: int, started: str) -> None:
@@ -613,7 +596,7 @@ class ClaudeReviewer:
             # However the session ends, nothing it started is left running: a process it
             # left could still read, or write, under the review root once it is gone.
             try:
-                ended = await_session(process, started, bounds.session_wall_clock_s)
+                ended = self._engine.stop(process, started, bounds.session_wall_clock_s)
             except OSError:
                 _stop_own(process)
                 raise

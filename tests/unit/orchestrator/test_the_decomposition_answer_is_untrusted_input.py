@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from physgate.engines.claude_code.stream import read_stream
 from physgate.orchestrator.decompose import (
     SPEC_MAX_CHARS,
     Plan,
@@ -15,7 +16,6 @@ from physgate.orchestrator.decompose import (
     plan_problems,
     plan_schema,
     prompt_for,
-    read_stream,
     schema_refusal,
 )
 

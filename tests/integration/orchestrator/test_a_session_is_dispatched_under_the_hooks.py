@@ -436,16 +436,16 @@ def test_each_message_is_counted_once_at_its_final_usage_and_matches_the_binary(
 def test_an_account_that_differs_from_the_binary_s_totals_is_an_error(
     tmp_path: Path, install_bin: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import physgate.orchestrator.dispatch as dispatch_module
+    import physgate.engines.claude_code.stream as stream_module
     from physgate.orchestrator.exceptions import AccountingError
 
-    real = dispatch_module.read_stream  # type: ignore[attr-defined]
+    real = stream_module.read_stream
 
     def losing_a_message(text: str) -> Any:  # noqa: ANN401
         result, usages, models = real(text)
         return result, usages[:-1], models
 
-    monkeypatch.setattr(dispatch_module, "read_stream", losing_a_message)
+    monkeypatch.setattr(stream_module, "read_stream", losing_a_message)
     worktree = tmp_path / "run" / "worktrees" / "s1"
     steps = [*knowledge_reads(worktree), tool("Read", file_path=str(worktree / SPEC)), text("done")]
     with pytest.raises(AccountingError, match="differs from the binary's own totals"):
@@ -613,13 +613,13 @@ def test_a_tail_after_the_runtime_s_result_is_found_and_not_read(
     # dispatcher reads the stream, the test itself appends a tail carrying a message
     # and a result of its own, as a longer write left after the runtime's last byte
     # would.
-    import physgate.orchestrator.dispatch as dispatch_module
+    import physgate.engines.claude_code.engine as engine_module
 
     usage = {"input_tokens": 1, "output_tokens": 1}
     message = {"id": "msg_forged", "model": "claude-sonnet-5", "usage": usage, "content": []}
     tail = json.dumps({"type": "assistant", "message": message}) + "\n"
     tail += json.dumps({"type": "result", "subtype": "success", "is_error": False}) + "\n"
-    real_redact = dispatch_module.redact
+    real_redact = engine_module.redact  # type: ignore[attr-defined]
 
     def redact_then_append(path: Path, secret: str | None) -> None:
         real_redact(path, secret)
@@ -627,7 +627,7 @@ def test_a_tail_after_the_runtime_s_result_is_found_and_not_read(
             with path.open("a") as stream:
                 stream.write(tail)
 
-    monkeypatch.setattr(dispatch_module, "redact", redact_then_append)
+    monkeypatch.setattr(engine_module, "redact", redact_then_append)
     worktree = tmp_path / "run" / "worktrees" / "s1"
     reads = knowledge_reads(worktree)
     steps = [*reads, tool("Read", file_path=str(worktree / SPEC)), text("done")]
@@ -755,6 +755,7 @@ def test_a_sandboxed_session_and_an_unsandboxed_one_end_through_the_same_steps(
     tmp_path: Path, install_bin: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """No step after a session is skipped because the OS layer ran: only the sweep is added."""
+    import physgate.engines.claude_code.engine as engine_module
     import physgate.hooks.withheld as withheld_module
     import physgate.orchestrator.dispatch as dispatch_module
     import physgate.oslayer.placeholders as placeholders_module
@@ -766,11 +767,7 @@ def test_a_sandboxed_session_and_an_unsandboxed_one_end_through_the_same_steps(
         pytest.skip("the OS layer cannot run here, so there is no sandboxed session to compare")
     steps_seen: list[str] = []
     module_steps = (
-        "remove_secrets",
-        "redact",
-        "read_captured",
         "review_material_seen",
-        "require_matching_totals",
         "classify_session_end",
         "commit_attempt",
         "drift",
@@ -785,6 +782,11 @@ def test_a_sandboxed_session_and_an_unsandboxed_one_end_through_the_same_steps(
 
         monkeypatch.setattr(dispatch_module, name, spy)
     owners: tuple[tuple[Any, str], ...] = (
+        # The session's harness side: its credential's removal, its stream, its account.
+        (engine_module, "remove_secrets"),
+        (engine_module, "redact"),
+        (engine_module, "read_captured"),
+        (engine_module, "require_matching_totals"),
         (withheld_module, "survey"),
         (placeholders_module, "sweep"),
     )
@@ -811,7 +813,8 @@ def test_a_sandboxed_session_and_an_unsandboxed_one_end_through_the_same_steps(
     unsandboxed = ended(tmp_path / "off", Absent(reason="stand-in: compared without the layer"))
     assert "sweep" in sandboxed and "sweep" not in unsandboxed
     assert [s for s in sandboxed if s != "sweep"] == unsandboxed
-    assert set(module_steps) | {"survey"} <= set(unsandboxed)
+    harness_steps = {"remove_secrets", "redact", "read_captured", "require_matching_totals"}
+    assert set(module_steps) | harness_steps | {"survey"} <= set(unsandboxed)
 
 
 # --- what the runtime makes on its own inside the OS layer -----------------------------

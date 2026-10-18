@@ -18,8 +18,9 @@ from pathlib import Path
 import pytest
 
 from physgate.orchestrator.credentials import KEY_FILE, KEY_HELPER, LOGIN_FILE, remove_secrets
-from physgate.orchestrator.dispatch import REDACTED, redact, write_record
+from physgate.orchestrator.dispatch import write_record
 from physgate.orchestrator.exceptions import InvocationError
+from physgate.orchestrator.session_files import REDACTED, redact
 
 SECRET = "inert-stand-in-not-a-credential"
 
@@ -119,7 +120,7 @@ def test_an_end_record_is_never_written_into_a_session_directory_replaced_by_a_l
 
 
 def test_a_session_file_replaced_by_a_link_is_never_read_through(tmp_path: Path) -> None:
-    from physgate.orchestrator.dispatch import read_session_file
+    from physgate.orchestrator.session_files import read_session_file
 
     sdir = _session(tmp_path)
     victim = tmp_path / "elsewhere.txt"

@@ -75,6 +75,7 @@ from record_scan import INSTALL_DIRNAME  # noqa: E402
 from record_scan import scan as record_scan  # noqa: E402
 from scripted_endpoint import DUMMY_OAUTH_TOKEN, Script, serving, text, tool  # noqa: E402
 
+from physgate.engines.claude_code.stream import read_stream  # noqa: E402
 from physgate.evaluation.inject.corpus import Base, Patch  # noqa: E402
 from physgate.evaluation.inject.materialise import materialise, require_blind  # noqa: E402
 from physgate.evaluation.observe.cost import load_price_sheet  # noqa: E402
@@ -88,7 +89,6 @@ from physgate.orchestrator.credentials import (  # noqa: E402
     write_login,
 )
 from physgate.orchestrator.decompose import binary_version as version_of  # noqa: E402
-from physgate.orchestrator.decompose import read_stream  # noqa: E402
 from physgate.orchestrator.events import (  # noqa: E402
     EventLog,
     ReviewRan,

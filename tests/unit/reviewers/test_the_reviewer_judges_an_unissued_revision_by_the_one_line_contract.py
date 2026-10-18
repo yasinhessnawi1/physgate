@@ -18,6 +18,7 @@ from typing import Any
 import pytest
 
 import physgate.reviewers.claude as claude
+from physgate.engines.claude_code import ClaudeCodeEngine
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.dispatch import Installed
 from physgate.orchestrator.exceptions import ReviewUnavailableError
@@ -88,10 +89,10 @@ def _review(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, answer: dict[str, A
     )
     monkeypatch.setattr(ClaudeReviewer, "_spawn", lambda self, *a, **k: (stdout, 0, False))
     monkeypatch.setattr(claude, "review_prompt", lambda *a, **k: "p")
-    monkeypatch.setattr(claude, "remove_secrets", lambda *a: None)
-    monkeypatch.setattr(claude, "redact", lambda *a: None)
-    monkeypatch.setattr(claude, "read_captured", lambda path: captured)
-    monkeypatch.setattr(claude, "require_matching_totals", lambda *a: None)
+    # The session's harness side, stood in for: its credential's removal, its stream, its account.
+    monkeypatch.setattr(ClaudeCodeEngine, "release", lambda *a: None)
+    monkeypatch.setattr(ClaudeCodeEngine, "stream", lambda self, path: captured)
+    monkeypatch.setattr(ClaudeCodeEngine, "cost", lambda self, c: c.usage)
     monkeypatch.setattr(claude, "unavailable_end", lambda *a, **k: None)
     monkeypatch.setattr(claude, "read_in_full", lambda *a: True)
     setup = ReviewerSetup(

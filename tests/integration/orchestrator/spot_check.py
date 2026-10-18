@@ -48,6 +48,7 @@ from scripted_endpoint import DUMMY_OAUTH_TOKEN, Script, serving, text, tool  # 
 
 import physgate.orchestrator.cli as orchestrator_cli  # noqa: E402
 from physgate.cli import main as physgate_main  # noqa: E402
+from physgate.engines.claude_code.stream import read_stream  # noqa: E402
 from physgate.knowledge import loader  # noqa: E402
 from physgate.orchestrator.accounting import TokenAccount  # noqa: E402
 from physgate.orchestrator.decompose import (  # noqa: E402
@@ -55,7 +56,6 @@ from physgate.orchestrator.decompose import (  # noqa: E402
     Plan,
     PlannedModule,
     binary_version,
-    read_stream,
     start_run,
 )
 from physgate.orchestrator.events import read_events  # noqa: E402

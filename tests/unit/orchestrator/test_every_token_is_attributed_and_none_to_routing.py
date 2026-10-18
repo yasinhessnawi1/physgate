@@ -9,8 +9,8 @@ import pytest
 from orch_helpers import ticking_clock
 from pydantic import ValidationError
 
+from physgate.engines.claude_code.stream import read_stream
 from physgate.orchestrator.accounting import TokenAccount, require_matching_totals
-from physgate.orchestrator.decompose import read_stream
 from physgate.orchestrator.events import (
     EventLog,
     RunStarted,

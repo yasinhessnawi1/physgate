@@ -384,7 +384,7 @@ def test_the_one_call_s_account_must_match_the_binary_s_totals(
     import physgate.orchestrator.decompose as decompose_module
     from physgate.orchestrator.exceptions import AccountingError
 
-    real = decompose_module.read_stream
+    real = decompose_module.read_stream  # type: ignore[attr-defined]
 
     def starting_usage_only(text: str) -> Any:  # noqa: ANN401
         # What the account read before: each message's usage as it started.

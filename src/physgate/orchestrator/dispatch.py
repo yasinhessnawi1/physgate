@@ -41,6 +41,8 @@ from typing import IO, Any
 
 from pydantic import BaseModel, ConfigDict
 
+from physgate.engines.base import Engine, Launch
+from physgate.engines.claude_code import ClaudeCodeEngine
 from physgate.hooks import withheld
 from physgate.hooks.config import SessionConfig
 from physgate.hooks.reading import outstanding
@@ -50,18 +52,9 @@ from physgate.hooks.snapshot import Signature, file_digest, signature
 from physgate.hooks.state import LOG_NAME
 from physgate.knowledge import loader
 from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, canaries
-from physgate.orchestrator.accounting import require_matching_totals
 from physgate.orchestrator.budget import classify_session_end
-from physgate.orchestrator.credentials import (
-    REDACTED_TEXT,
-    Credential,
-    open_in_session,
-    remove_secrets,
-    require_vendor_endpoint,
-    write_key_helper,
-    write_login,
-)
-from physgate.orchestrator.decompose import binary_version, read_stream
+from physgate.orchestrator.credentials import Credential
+from physgate.orchestrator.decompose import binary_version
 from physgate.orchestrator.events import SessionSpawned, read_events
 from physgate.orchestrator.exceptions import (
     AccountingError,
@@ -71,7 +64,7 @@ from physgate.orchestrator.exceptions import (
 )
 from physgate.orchestrator.git import common_dir, named_from, object_format, verified_git_dir
 from physgate.orchestrator.install import InstallFacts, build_record_path, install_facts
-from physgate.orchestrator.invocation import isolated_env, role_argv, session_search_path
+from physgate.orchestrator.invocation import session_search_path
 from physgate.orchestrator.managed import drift, policy_limits_digest
 from physgate.orchestrator.merge import RunGit, commit_attempt
 from physgate.orchestrator.ports import (
@@ -87,22 +80,19 @@ from physgate.orchestrator.processes import (
     started_at,
     stop_tree,
 )
-from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.queue import DECISIONS_NAME
 from physgate.orchestrator.role_python import PROBE, require_same, session_bin
-from physgate.orchestrator.run_config import RunConfig, endpoint_of, harness_root
-from physgate.orchestrator.trajectory import Seal, forged_tail, seal, through_first_result
+from physgate.orchestrator.run_config import RunConfig, harness_root
+from physgate.orchestrator.session_files import read_session_file
 from physgate.oslayer import placeholders
 from physgate.oslayer.abort import aborted_tool_uses
 from physgate.oslayer.placement import machine_writable, placement_refusal
 from physgate.oslayer.probe import Absent, Present, judge_here
-from physgate.reviewers.ending import SWEEPS, SessionEnd, await_session, group, stop_all
+from physgate.reviewers.ending import SWEEPS, SessionEnd, group, stop_all
 from physgate.reviewers.packet import issued_spec_sha256
 from physgate.reviewers.places import SESSION_DIRNAME
 from physgate.series.collect import collect, empty_outbox, temporary_roots
 from physgate.series.seal import SetAside
-
-REDACTED = REDACTED_TEXT.encode()
 
 #: The record a review's session directory gets first, before anything that holds a
 #: credential: which run it belongs to, so that run's resume finds it.
@@ -172,40 +162,6 @@ def spawn_held(
     os.write(release, b"go\n")
     os.close(release)
     return process, started
-
-
-def read_session_file(path: Path) -> bytes:
-    """The bytes of a session's own file, read without following a link (``b""`` if absent).
-
-    The file is reached as :func:`open_in_session` reaches its directory, and opened without
-    following a link: a link a session's process planted there is never read through.
-
-    Raises:
-        InvocationError: the file, or a directory on the way, is a link or not a regular file.
-    """
-    directory = open_in_session(path.parent)
-    if directory is None:
-        return b""
-    try:
-        try:
-            fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory)
-        except FileNotFoundError:
-            return b""
-        except OSError as exc:
-            msg = "a session's file is a link or cannot be opened; it is not read through"
-            raise InvocationError(msg, path=str(path), error=repr(exc)) from exc
-    finally:
-        os.close(directory)
-    try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            msg = "a session's file is not a regular file; it is not read"
-            raise InvocationError(msg, path=str(path))
-        chunks = []
-        while chunk := os.read(fd, 1 << 20):
-            chunks.append(chunk)
-        return b"".join(chunks)
-    finally:
-        os.close(fd)
 
 
 #: The run's own records, in the run directory. The session's working directory is
@@ -336,36 +292,6 @@ def git_dir_roots(repo: Path, common_git_dir: Path) -> tuple[Path, ...]:
         if pointer.name == ".git":
             roots.append(pointer)
     return tuple(roots)
-
-
-@dataclass(frozen=True)
-class Captured:
-    """A session's captured stream, as read once: sealed, checked, parsed from the same bytes."""
-
-    seal: Seal
-    tampered: str | None
-    # The binary's result object: an untyped boundary.
-    result: dict[str, Any] | None
-    usage: tuple[MessageUsage, ...]
-    answered: frozenset[str]
-
-
-def read_captured(stream: Path) -> Captured:
-    """Read a session's stream once: seal it, find a forged tail, parse what the runtime wrote.
-
-    One read path for every reader, the session that ended under its orchestrator
-    and the leftover a resume finds. A stream with a tail after the runtime's
-    result is parsed only up to that result; the tail is reported, never read.
-    """
-    data = read_session_file(stream)
-    text = data.decode(errors="replace")
-    tampered = forged_tail(text)
-    if tampered is not None:
-        text = through_first_result(text)
-    result, usage, answered = read_stream(text)
-    return Captured(
-        seal=seal(data), tampered=tampered, result=result, usage=usage, answered=answered
-    )
 
 
 def review_material_seen(stream: Path, live: frozenset[str]) -> str | None:
@@ -862,47 +788,6 @@ class Installed(BaseModel):
     spawn_env: dict[str, str]
 
 
-def redact(path: Path, secret: str | None) -> None:
-    """Replace every occurrence of ``secret`` in the file at ``path``, a session's own file.
-
-    The file is reached through its directory without following a link, and opened without
-    following one (:func:`open_in_session`): a link planted at its name is never written
-    through.
-
-    Raises:
-        InvocationError: the file, or a directory on the way, is a link.
-    """
-    if not secret:
-        return
-    directory = open_in_session(path.parent)
-    if directory is None:
-        return
-    try:
-        try:
-            fd = os.open(path.name, os.O_RDWR | os.O_NOFOLLOW, dir_fd=directory)
-        except FileNotFoundError:
-            return
-        except OSError as exc:
-            msg = "a session's file is a link or cannot be opened; it is not written through"
-            raise InvocationError(msg, path=str(path), error=repr(exc)) from exc
-    finally:
-        os.close(directory)
-    try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            msg = "a session's file is not a regular file; it is not written"
-            raise InvocationError(msg, path=str(path))
-        chunks = []
-        while chunk := os.read(fd, 1 << 20):
-            chunks.append(chunk)
-        data = b"".join(chunks)
-        if secret.encode() in data:
-            redacted = data.replace(secret.encode(), REDACTED)
-            os.ftruncate(fd, 0)
-            os.pwrite(fd, redacted, 0)
-    finally:
-        os.close(fd)
-
-
 #: How long an interpreter has to answer the probe.
 PROBE_TIMEOUT_S = 60
 
@@ -960,15 +845,15 @@ class ClaudeDispatcher:
         ``review_root`` is where reviews are prepared, every packet with its copy of a
         rubric; no role session may read or write anything beneath it.
         """
-        # A subscription only to its vendor's own endpoint: no dispatcher exists for another.
-        require_vendor_endpoint(credential.mode, endpoint_of(base_url))
+        # Everything about the session that is the harness's: its start, its stream, its
+        # account, its stop and its credential. A subscription only to its vendor's own
+        # endpoint: no engine, and so no dispatcher, exists for another.
+        self._engine: Engine = ClaudeCodeEngine(base_url=base_url, credential=credential)
         self._config = config
         self._run = run
         self._store_root = store_root
         self._install_bin = install_bin
         self._binary = binary
-        self._base_url = base_url
-        self._credential = credential
         self._review_root = Path(review_root)
         self._facts: InstallFacts | None = None
         self._os_layer: Present | Absent | None = None
@@ -977,6 +862,11 @@ class ClaudeDispatcher:
         self._canaries = (
             canaries(harness / KNOWLEDGE_ROOT / PROMOTIONS_NAME) if harness else frozenset()
         )
+
+    @property
+    def engine(self) -> Engine:
+        """The engine this dispatcher's sessions run on."""
+        return self._engine
 
     def environment(self) -> InstallFacts:
         """The installation's and the session directories' facts, taken once."""
@@ -1014,10 +904,7 @@ class ClaudeDispatcher:
     ) -> Installed:
         state = sdir / "state"
         state.mkdir(parents=True)
-        helper: list[str] = []
-        if self._credential.mode == "api_key":
-            key_helper = write_key_helper(state, self._credential.secret)
-            helper = ["--api-key-helper", str(key_helper)]
+        helper = self._engine.credential_settings(state)
         reverted, refused = session_protected_roots(
             self._run, self._store_root, worktree, self._install_bin.parent.parent
         )
@@ -1091,10 +978,6 @@ class ClaudeDispatcher:
         if done.returncode != 0:
             msg = "the hook layer's installer refused the session"
             raise InvocationError(msg, stderr=done.stderr[-600:])
-        if self._credential.mode == "subscription":
-            write_login(
-                sdir / "config", self._credential.secret, endpoint=endpoint_of(self._base_url)
-            )
         return Installed.model_validate_json(done.stdout)
 
     def run(self, request: SessionRequest, on_spawn: SpawnHook | None = None) -> SessionReport:
@@ -1167,17 +1050,26 @@ class ClaudeDispatcher:
         installed = self._install(request, worktree, sdir, temp)
         # Read before the session starts, while nothing of it can have touched the file.
         end_check = session_end_command(Path(installed.settings))
-        env = isolated_env(
-            home=sdir / "home",
-            config_dir=sdir / "config",
-            binary=self._binary,
-            claude_version=self._config.claude_version,
-            max_retries=request.bounds.binary_max_retries,
-            max_output_tokens=self._config.max_output_tokens,
-            base_url=self._base_url,
-            api_key=None,
+        launched = self._engine.start(
+            Launch(
+                kind="role",
+                binary=self._binary,
+                version=self._config.claude_version,
+                prompt=role_prompt(request),
+                model=request.model,
+                session_id=session_id,
+                home=sdir / "home",
+                config_dir=sdir / "config",
+                max_retries=request.bounds.binary_max_retries,
+                max_output_tokens=self._config.max_output_tokens,
+                effort=self._config.effort,
+                max_turns=request.bounds.session_max_turns,
+                spawn_args=installed.spawn_args,
+                spawn_env=installed.spawn_env,
+                thinking_display=self._config.thinking_display,
+            )
         )
-        env.update(installed.spawn_env)
+        env, argv = launched.env, launched.argv
         recorded_python = self._config.role_python
         if recorded_python is not None:
             # The run's named interpreter, measured again, first on the session's PATH as
@@ -1189,16 +1081,6 @@ class ClaudeDispatcher:
                 install=self._install_bin.parent.parent,
             )
             env["PATH"] = f"{session_bin(sdir, recorded_python)}:{env['PATH']}"
-        argv = role_argv(
-            self._binary,
-            prompt=role_prompt(request),
-            spawn_args=installed.spawn_args,
-            model=request.model,
-            session_id=session_id,
-            max_turns=request.bounds.session_max_turns,
-            effort=self._config.effort,
-            thinking_display=self._config.thinking_display,
-        )
         stdout = sdir / "stdout.jsonl"
         before = placeholders.snapshot(str(worktree), absent=named_in(installed, worktree))
         held: list[RootsRecord] = []
@@ -1239,7 +1121,7 @@ class ClaudeDispatcher:
             # once more, for what was written between SessionEnd and the stop.
             ended: SessionEnd | None = None
             try:
-                ended = await_session(
+                ended = self._engine.stop(
                     process,
                     spawned,
                     request.bounds.session_wall_clock_s,
@@ -1270,8 +1152,7 @@ class ClaudeDispatcher:
         finally:
             # The credential is on disk only while its session runs: removed whatever the
             # check did.
-            remove_secrets(sdir / "state", sdir / "config")
-            redact(stdout, self._credential.secret)
+            self._engine.release(sdir / "state", sdir / "config", stdout)
         # Read afresh after the check, against the record taken before the spawn: a check
         # skipped, or satisfied by a sentinel record the session's process rewrote, shows here.
         try:
@@ -1313,7 +1194,7 @@ class ClaudeDispatcher:
         # worktree; they are removed before anything is committed, and recorded. What
         # the sweep refuses, or a sweep that fails, is recorded and refuses the attempt.
         placeholders_refused = self._sweep(worktree, before, sdir) if temp is not None else None
-        captured = read_captured(stdout)
+        captured = self._engine.stream(stdout)
         # A command bubblewrap aborted never ran: recorded as such, never as a denial.
         aborted = (
             aborted_tool_uses(read_session_file(stdout).decode(errors="replace"))
@@ -1323,8 +1204,8 @@ class ClaudeDispatcher:
         seen = review_material_seen(stdout, self._canaries)
         held_out_seen = self.held_out_seen(stdout)
         sealed, tampered = captured.seal, captured.tampered
-        result, usage, answered = captured.result, captured.usage, captured.answered
-        require_matching_totals(result, usage)
+        result, answered = captured.result, captured.answered
+        usage = self._engine.cost(captured)
         end = classify_session_end(result, exit_code=exit_code, stopped_at_wall_clock=timed_out)
         if end.outcome == "completed":
             echoed = sorted(answered)
@@ -1457,18 +1338,17 @@ class ClaudeDispatcher:
         # Nothing of this run is running now, so no session still needs its credential.
         # A killed orchestrator never removed it; its stream was never redacted either.
         for sdir in session_dirs:
-            remove_secrets(sdir / "state", sdir / "config")
-            redact(sdir / "stdout.jsonl", self._credential.secret)
+            self._engine.release(sdir / "state", sdir / "config", sdir / "stdout.jsonl")
         leftovers = []
         for sdir, session_id, pid, killed, stopped, kind in found:
             # The same read as a session that ended under its orchestrator: sealed as
             # read, a tail after the runtime's result not taken, and a stream with a
             # result held to the runtime's own totals.
-            captured = read_captured(sdir / "stdout.jsonl")
+            captured = self._engine.stream(sdir / "stdout.jsonl")
             tampered = captured.tampered
             if tampered is None:
                 try:
-                    require_matching_totals(captured.result, captured.usage)
+                    self._engine.cost(captured)
                 except AccountingError as exc:
                     tampered = f"{exc}: {exc.context}"
             leftovers.append(

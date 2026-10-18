@@ -9,11 +9,12 @@ from pathlib import Path
 from loop_fakes import FakeDispatcher, Rig, plan
 from orch_helpers import SCRIPTED_BOUNDS
 
-from physgate.orchestrator.dispatch import REDACTED, ClaudeDispatcher, redact, role_prompt
+from physgate.orchestrator.dispatch import ClaudeDispatcher, role_prompt
 from physgate.orchestrator.events import EnvironmentRecorded, read_events
 from physgate.orchestrator.install import InstallFacts, filesystem_of
 from physgate.orchestrator.invocation import role_argv
 from physgate.orchestrator.ports import SessionRequest, SpawnHook
+from physgate.orchestrator.session_files import REDACTED, redact
 
 REQUEST = SessionRequest(
     subtask_id="power-1a2b3c",

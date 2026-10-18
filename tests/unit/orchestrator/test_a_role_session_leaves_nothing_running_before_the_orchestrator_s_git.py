@@ -39,6 +39,7 @@ import pytest
 from left_session import spawn_logged
 from orch_helpers import make_config
 
+from physgate.engines.claude_code import ClaudeCodeEngine
 from physgate.hooks.registry import REGISTRY
 from physgate.hooks.settings import InstallRequest, install
 from physgate.orchestrator import dispatch, processes
@@ -552,7 +553,7 @@ def _orchestrator_dies(
         raise Died
 
     with mp.context() as killed:
-        killed.setattr(dispatch, "await_session", die)
+        killed.setattr(ClaudeCodeEngine, "stop", die)
         with pytest.raises(Died):
             dispatcher.run(session.request(), session.spawned)
 
