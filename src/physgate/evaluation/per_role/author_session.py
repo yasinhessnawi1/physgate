@@ -49,8 +49,12 @@ from physgate.evaluation.per_role.authoring import (
     require_author_model,
     split,
 )
+from physgate.evaluation.per_role.firmware.sandbox import open_directory
 from physgate.evaluation.per_role.task import Role, load_task
 from physgate.evaluation.per_role.validate import id_digest, sound, validate
+
+_READ = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+_NEW = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
 
 #: The most files and bytes one staged task may hold: a task, a good reference and a few
 #: bad ones, each a small JSON file.
@@ -117,61 +121,71 @@ def _require_apart(plan: AuthoringPlan, setup: RawSetup) -> None:
         raise AuthoringError(msg, count=str(plan.count))
 
 
-def _plain_file(path: Path) -> bool:
-    """Whether ``path`` is a regular file with one name: no link of either kind."""
-    info = path.lstat()
-    return stat.S_ISREG(info.st_mode) and info.st_nlink == 1
+class _NotPlainError(Exception):
+    """A staged task holds something that is not a plain directory or a singly named file."""
 
 
-def _plain_tree(directory: Path) -> bool:
-    """Whether ``directory`` holds only plain directories and small, singly named files.
+def _classify(name: str, dir_fd: int) -> os.stat_result:
+    """What ``name`` is, under ``dir_fd``, without following it: the listing's view only.
 
-    A symbolic link, a hard link (a file with a second name anywhere), a special file, or
-    more than a task's worth of files or bytes refuses the whole task.
+    Only the type decides how the entry is opened; whatever it is opened as is checked
+    again on the descriptor, since the entry can be replaced between here and the open.
     """
-    files = 0
-    size = 0
-    for entry in [directory, *directory.rglob("*")]:
-        info = entry.lstat()
-        if stat.S_ISDIR(info.st_mode):
-            continue
-        if not _plain_file(entry):
-            return False
-        files += 1
-        size += info.st_size
-    return files <= MOST_FILES_PER_TASK and size <= MOST_BYTES_PER_TASK
+    return os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
 
 
-_READ = os.O_RDONLY | os.O_NOFOLLOW
-_NEW = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+def _new_file(name: str, dir_fd: int) -> int:
+    """A file made new as ``name`` under ``dir_fd``: never one already there, never a link."""
+    return os.open(name, _NEW, 0o600, dir_fd=dir_fd)
 
 
-def _copy_by_content(source: Path, target: Path) -> None:
-    """Copy ``source``'s tree into the new directory ``target``, each file a new file.
+def _copy_into(source_fd: int, target_fd: int, budget: list[int]) -> None:
+    """Copy the directory ``source_fd`` into the empty directory ``target_fd``, by content.
 
-    Every file is opened without following a link and checked again on its descriptor (a
-    regular file with one name), then its bytes are written into a file made new here, so
-    nothing staged is shared with, or points to, anything the session left.
+    ``budget`` is the files and bytes the task may still hold.
 
     Raises:
-        AuthoringError: something changed into a link or a special file after it was checked.
+        _NotPlainError: an entry is a link of either kind, a special file, or past the budget.
     """
-    target.mkdir(mode=0o700)
-    for entry in sorted(source.iterdir()):
-        if entry.is_dir() and not entry.is_symlink():
-            _copy_by_content(entry, target / entry.name)
+    for name in sorted(os.listdir(source_fd)):
+        kind = _classify(name, source_fd).st_mode
+        if stat.S_ISDIR(kind):
+            try:
+                child = open_directory(name, source_fd)
+            except OSError as exc:
+                raise _NotPlainError(name) from exc
+            try:
+                os.mkdir(name, 0o700, dir_fd=target_fd)
+                made = open_directory(name, target_fd)
+                try:
+                    _copy_into(child, made, budget)
+                finally:
+                    os.close(made)
+            finally:
+                os.close(child)
             continue
-        fd = os.open(entry, _READ)
+        if not stat.S_ISREG(kind):
+            raise _NotPlainError(name)
+        try:
+            fd = os.open(name, _READ, dir_fd=source_fd)
+        except OSError as exc:  # replaced by a link or a FIFO since it was listed
+            raise _NotPlainError(name) from exc
         try:
             info = os.fstat(fd)
             if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
-                msg = f"{entry} is no longer a plain file"
-                raise AuthoringError(msg, path=str(entry))
+                raise _NotPlainError(name)
+            budget[0] -= 1
+            budget[1] -= info.st_size
+            if budget[0] < 0 or budget[1] < 0:
+                raise _NotPlainError(name)
             with os.fdopen(os.dup(fd), "rb") as handle:
                 data = handle.read(MOST_BYTES_PER_TASK + 1)
         finally:
             os.close(fd)
-        out = os.open(target / entry.name, _NEW, 0o600)
+        try:
+            out = _new_file(name, target_fd)
+        except OSError as exc:  # something stands where the copy goes
+            raise _NotPlainError(name) from exc
         try:
             os.write(out, data)
         finally:
@@ -181,20 +195,46 @@ def _copy_by_content(source: Path, target: Path) -> None:
 def stage(worktree: Path, staging: Path) -> int:
     """Copy each task directory the session left into ``staging``; how many were refused.
 
-    Only top-level directories are looked at, those whose names begin with a dot aside.
-    One holding a symbolic or a hard link, a special file or more than a task's worth is
-    refused and not copied; the rest are copied by content into files made new.
+    Everything is reached through descriptors, never by a path checked and then opened:
+    the worktree and each directory in it are opened without following a link and checked
+    on the descriptor (:func:`.firmware.sandbox.open_directory`); each file is opened the
+    same way and checked on its descriptor to be a regular file with one name; each copy
+    is a file made new under the staging directory's descriptor. Only top-level
+    directories are looked at, those whose names begin with a dot aside. A task holding a
+    symbolic or a hard link, a special file or more than a task's worth is refused, and
+    what was copied of it removed.
+
+    Raises:
+        OSError: the staging directory cannot be made new (something stands there).
     """
     staging.mkdir(mode=0o700)
+    target = open_directory(str(staging))
+    source = open_directory(str(worktree))
     refused = 0
-    for entry in sorted(worktree.iterdir()):
-        # A task's id never begins with a dot; ``.git`` and the binary's own directory do.
-        if entry.name.startswith(".") or entry.is_symlink() or not entry.is_dir():
-            continue
-        if not _plain_tree(entry):
-            refused += 1
-            continue
-        _copy_by_content(entry, staging / entry.name)
+    try:
+        for name in sorted(os.listdir(source)):
+            if name.startswith(".") or not stat.S_ISDIR(_classify(name, source).st_mode):
+                continue
+            try:
+                task = open_directory(name, source)
+            except OSError:
+                refused += 1
+                continue
+            try:
+                os.mkdir(name, 0o700, dir_fd=target)
+                made = open_directory(name, target)
+                try:
+                    _copy_into(task, made, [MOST_FILES_PER_TASK, MOST_BYTES_PER_TASK])
+                except _NotPlainError:
+                    refused += 1
+                    shutil.rmtree(name, dir_fd=target)
+                finally:
+                    os.close(made)
+            finally:
+                os.close(task)
+    finally:
+        os.close(source)
+        os.close(target)
     return refused
 
 

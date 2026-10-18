@@ -496,3 +496,100 @@ def test_a_tier_reached_through_a_link_is_refused_before_any_session(
     with pytest.raises(AuthoringError, match="reached through a link"):
         author(plan, _setup(tmp_path / "private"))
     assert fake.calls == []
+
+
+# ------------------------------------- staging is walked through descriptors only
+
+
+def _secret(tmp_path: Path) -> Path:
+    secret = tmp_path / "outside" / "secret.json"
+    secret.parent.mkdir()
+    secret.write_text('{"secret": "never staged"}')
+    return secret
+
+
+def test_a_file_swapped_for_a_link_after_it_was_listed_is_refused_not_followed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    secret = _secret(tmp_path)
+    real = author_session._classify
+
+    swapped: list[str] = []
+
+    def swap(name: str, dir_fd: int) -> os.stat_result:
+        info = real(name, dir_fd)
+        if name == "answer.json" and not swapped:
+            os.unlink(name, dir_fd=dir_fd)
+            os.symlink(secret, name, dir_fd=dir_fd)
+            swapped.append(name)
+        return info
+
+    monkeypatch.setattr(author_session, "_classify", swap)
+    plan, _, out = _run(tmp_path, monkeypatch, _tasks(17), count=17)
+    assert swapped and out["refused_as_files"] == 1 and out["held"] == 16
+    for tier in (plan.visible, plan.held_out_root / "control"):
+        for path in tier.rglob("*"):
+            assert path.is_dir() or "never staged" not in path.read_text()
+
+
+def test_a_link_planted_where_a_staged_file_is_written_is_never_written_through(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    secret = _secret(tmp_path)
+    real = author_session._new_file
+    planted: list[str] = []
+
+    def plant(name: str, dir_fd: int) -> int:
+        if name == "task.json" and not planted:
+            os.symlink(secret, name, dir_fd=dir_fd)
+            planted.append(name)
+        return real(name, dir_fd)
+
+    monkeypatch.setattr(author_session, "_new_file", plant)
+    _, _, out = _run(tmp_path, monkeypatch, _tasks(17), count=17)
+    assert planted and out["refused_as_files"] == 1 and out["held"] == 16
+    assert secret.read_text() == '{"secret": "never staged"}'
+
+
+def test_a_link_planted_where_the_staging_directory_goes_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    secret_dir = _secret(tmp_path).parent
+
+    def write(worktree: Path) -> None:
+        _tasks(16)(worktree)
+        (worktree.parent / "staging").symlink_to(secret_dir)
+
+    with pytest.raises(OSError):
+        _run(tmp_path, monkeypatch, write)
+    assert sorted(p.name for p in secret_dir.iterdir()) == ["secret.json"]
+    assert not _plan(tmp_path).work.exists()
+
+
+def test_a_task_refused_after_its_files_were_copied_leaves_nothing_to_be_drawn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The link sorts after task.json and the references, so everything a task needs has
+    # been copied by the time it is met: what was copied must go, or it would be drawn.
+    secret = _secret(tmp_path)
+
+    def write(worktree: Path) -> None:
+        _tasks(17)(worktree)
+        os.symlink(secret, worktree / "control.t16" / "zz-last.json")
+
+    plan, _, out = _run(tmp_path, monkeypatch, write, count=17)
+    assert out["refused_as_files"] == 1 and out["held"] == 16
+    placed = {p.name for p in plan.visible.iterdir()}
+    placed |= {p.name for p in (plan.held_out_root / "control").iterdir()}
+    assert "control.t16" not in placed
+
+
+def test_a_task_holding_a_fifo_is_refused_without_waiting_on_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def write(worktree: Path) -> None:
+        _tasks(17)(worktree)
+        os.mkfifo(worktree / "control.t16" / "references" / "good" / "pipe")
+
+    _, _, out = _run(tmp_path, monkeypatch, write, count=17)
+    assert out["refused_as_files"] == 1 and out["held"] == 16
