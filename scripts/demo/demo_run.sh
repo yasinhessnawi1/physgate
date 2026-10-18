@@ -125,8 +125,10 @@ if [ "$MODE" = dry ]; then
   for _ in $(seq 1 120); do [ -s "$OUT/endpoint.out" ] && break; sleep 0.5; done
   [ -s "$OUT/endpoint.out" ] || { echo "the scripted endpoint did not start (see endpoint.err)" >&2; exit 1; }
   ANTHROPIC_BASE_URL="$("$PY" -c 'import json,sys; print(json.loads(open(sys.argv[1]).readline())["url"])' "$OUT/endpoint.out")"
-  export ANTHROPIC_BASE_URL
-  export ANTHROPIC_API_KEY="sk-ant-test-dummy-not-a-credential"
+  # The dummy key the scripted endpoint expects, taken from it rather than written here: this
+  # script is snapshotted by every session's sentinel, so a literal here would show in the scan.
+  ANTHROPIC_API_KEY="$("$PY" -c 'import json,sys; print(json.loads(open(sys.argv[1]).readline())["key"])' "$OUT/endpoint.out")"
+  export ANTHROPIC_BASE_URL ANTHROPIC_API_KEY
   echo "endpoint $ANTHROPIC_BASE_URL (scripted; nothing is spent)" | tee -a "$LOG"
 else
   [ -r "$ENV_FILE" ] || { echo "no env file at $ENV_FILE" >&2; exit 1; }

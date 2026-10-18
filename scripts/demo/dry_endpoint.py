@@ -9,7 +9,8 @@ at the printed URL.
 
     python scripts/demo/dry_endpoint.py --seed 21
 
-Prints one JSON line with the URL, serves until SIGTERM or SIGINT, then prints what it saw.
+Prints one JSON line with the URL and the dummy key the run presents, serves until SIGTERM or
+SIGINT, then prints what it saw.
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ sys.path.insert(0, str(ROOT / "tests" / "integration" / "orchestrator"))
 
 import real_domain_roles as base  # noqa: E402
 import real_paired_reviewers as paired  # noqa: E402
-from scripted_endpoint import Script, serving  # noqa: E402
+from scripted_endpoint import DUMMY_KEY, Script, serving  # noqa: E402
 
 from physgate.orchestrator.decompose import mint_id  # noqa: E402
 
@@ -52,7 +53,12 @@ def main() -> None:
         paired.dry_reviews(api, args.control)
         print(
             json.dumps(
-                {"url": url, "control_id": base.CONTROL_ID, "firmware_id": base.FIRMWARE_ID}
+                {
+                    "url": url,
+                    "key": DUMMY_KEY,
+                    "control_id": base.CONTROL_ID,
+                    "firmware_id": base.FIRMWARE_ID,
+                }
             ),
             flush=True,
         )
