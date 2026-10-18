@@ -155,3 +155,15 @@ def test_a_held_out_root_that_is_a_link_or_missing_refuses_the_run(tmp_path: Pat
     assert any("not a directory" in p for p in _scan(base, base / "nowhere"))
     os.symlink(_tier(base), base / "alias")
     assert _scan(base, base / "alias") != []
+
+
+def test_a_task_in_the_tier_marked_visible_refuses_the_run_even_with_its_canary(
+    tmp_path: Path,
+) -> None:
+    base = tmp_path.resolve()
+    root = _tier(base)
+    task = json.loads((root / "control.h1" / "task.json").read_text())
+    task["tier"] = "visible"  # the canary stays
+    (root / "control.h1" / "task.json").write_text(json.dumps(task))
+    (root / "SHA256SUMS").write_text(sha256sums(root))
+    assert any("control.h1" in p and "not marked held out" in p for p in _scan(base, root))
