@@ -23,6 +23,12 @@ import {
 
 const WIDTHS = [1440, 1280] as const;
 
+/** A pattern that finds ``words`` whole inside a longer text, however its spaces were laid out. */
+function wholeIn(words: string): RegExp {
+  const escaped = words.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(escaped.replace(/\s+/g, "\\s+"));
+}
+
 async function open(page: Page, theme: string, width: number, height = 900): Promise<Watch> {
   const seen = await watch(page);
   await page.setViewportSize({ width, height });
@@ -46,22 +52,28 @@ for (const theme of THEMES) {
       const labels = await page.locator(".pg-node-label, .pg-node-id").evaluateAll((all) =>
         all.map((el) => {
           const style = getComputedStyle(el);
-          const button = el.closest("button");
           return {
             text: el.textContent,
             fits: el.scrollWidth <= el.clientWidth,
             ellipsis: style.textOverflow,
             clamp: style.getPropertyValue("-webkit-line-clamp"),
-            inName: button?.textContent.includes(el.textContent) ?? false,
+            inButton: el.closest("button") !== null,
           };
         }),
       );
       expect(labels.length).toBeGreaterThan(20);
       for (const label of labels) {
-        expect(label, label.text).toMatchObject({ fits: true, inName: true });
+        expect(label, label.text).toMatchObject({ fits: true, inButton: true });
         expect(label.ellipsis, label.text).not.toBe("ellipsis");
         expect(["none", ""]).toContain(label.clamp);
       }
+      // The whole label and the whole key are in the node's accessible name, as the browser
+      // computes it: a shorter name set over the visible text would leave a reader without them.
+      const nodes = page.locator("button").filter({ has: page.locator(".pg-node-label") });
+      expect(await nodes.count()).toBeGreaterThan(10);
+      for (const node of await nodes.all())
+        for (const words of await node.locator(".pg-node-label, .pg-node-id").allTextContents())
+          await expect(node, words).toHaveAccessibleName(wholeIn(words));
       // A long label wraps onto more lines, and the canvas lays the cards out apart.
       const boxes = await page
         .locator(".pg-graph-layer .pg-node")
@@ -249,9 +261,20 @@ for (const density of ["compact", "comfortable"] as const) {
     const seen = await open(page, "light", 1440);
     if (density === "comfortable") await page.locator('button[title^="Density"]').click();
     await expect(page.locator("html")).toHaveAttribute("data-density", density);
+    // Every kind of control a person can reach, the disclosures and graph nodes among them.
     const controls =
-      ".pg-btn, .pg-seg button, .pg-hit, .pg-nav-link, .pg-table-filter, .pg-term-word";
+      ".pg-btn, .pg-seg button, .pg-hit, .pg-nav-link, .pg-table-filter, .pg-term-word, " +
+      "button:not([disabled]), a[href], summary, select, [tabindex='0']";
     expect(await hitAreasShort(page, controls)).toEqual([]);
+    const focus = await page.evaluate(() => {
+      const probe = document.createElement("span");
+      probe.style.color = "var(--color-focus)";
+      document.body.append(probe);
+      const colour = getComputedStyle(probe).color;
+      probe.remove();
+      return colour;
+    });
+    expect(focus).not.toBe(TRANSPARENT);
     // Every focusable control shows the ring when reached by keyboard; a text field shows it on
     // the wrapper around it.
     const rings = await page
@@ -271,11 +294,16 @@ for (const density of ["compact", "comfortable"] as const) {
               name: el.outerHTML.slice(0, 60),
               style: style.outlineStyle,
               width: style.outlineWidth,
+              colour: style.outlineColor,
             };
           }),
       );
     expect(rings.length).toBeGreaterThan(30);
-    expect(rings.filter((r) => r.style !== "solid" || r.width !== "2px")).toEqual([]);
+    // Solid, 2 px, and drawn in the focus colour: a ring in a transparent or borrowed colour is
+    // no ring a person can see.
+    expect(
+      rings.filter((r) => r.style !== "solid" || r.width !== "2px" || r.colour !== focus),
+    ).toEqual([]);
     await nothingLeft(page, seen);
   });
 }
@@ -301,6 +329,53 @@ test("under observe nothing is filled, and the three gate modes draw apart", asy
     expect(u).toEqual({ "border-top-style": "dashed", "background-color": TRANSPARENT });
   for (const w of await styles(page, ".pg-whatif", ["border-top-style"]))
     expect(w["border-top-style"]).toBe("dashed");
+});
+
+test("a state that is not a verdict is never drawn in the pass, fail or warn colours", async ({
+  page,
+}) => {
+  await open(page, "light", 1440);
+  for (const theme of THEMES) {
+    await page.evaluate((t) => {
+      document.documentElement.dataset.theme = t;
+    }, theme);
+    const tags = await page.locator(".pg-status").evaluateAll((all) => {
+      const probe = document.createElement("span");
+      document.body.append(probe);
+      const verdicts = new Map<string, string>();
+      for (const verdict of ["pass", "fail", "warn"])
+        for (const part of ["", "-bg", "-border"]) {
+          probe.style.color = `var(--color-${verdict}${part})`;
+          verdicts.set(getComputedStyle(probe).color, `${verdict}${part}`);
+        }
+      probe.remove();
+      return all.map((el) => {
+        const drawn = [el, ...el.querySelectorAll("*")].flatMap((part) => {
+          const s = getComputedStyle(part);
+          return [
+            s.color,
+            s.backgroundColor,
+            s.borderTopColor,
+            s.borderRightColor,
+            s.borderBottomColor,
+            s.borderLeftColor,
+          ];
+        });
+        return {
+          kind: el.getAttribute("data-status-kind"),
+          verdict: [...new Set(drawn.flatMap((c) => verdicts.get(c) ?? []))],
+        };
+      });
+    });
+    const kinds = new Set(tags.map((t) => t.kind));
+    expect(kinds.size).toBeGreaterThanOrEqual(16);
+    for (const kind of ["refused", "declined", "seal-tampered", "seal-missing"])
+      expect(kinds.has(kind), kind).toBe(true);
+    expect(
+      tags.filter((t) => t.verdict.length > 0),
+      theme,
+    ).toEqual([]);
+  }
 });
 
 test("motion comes from the tokens, and stops under reduced motion", async ({ page }) => {

@@ -83,7 +83,8 @@ kbd,
 
 .pg-hit::before,
 .pg-btn::before,
-.pg-seg button::before {
+.pg-seg button::before,
+.pg-details > summary::before {
   content: "";
   position: absolute;
   left: 50%;
@@ -953,6 +954,7 @@ kbd,
 }
 
 .pg-details > summary {
+  position: relative;
   cursor: pointer;
   color: var(--color-text-2);
   font-size: var(--type-label-size);

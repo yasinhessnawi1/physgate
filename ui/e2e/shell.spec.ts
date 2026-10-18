@@ -159,6 +159,32 @@ test("notifications list every open item across the runs, a sentence first, and 
   await page2.close();
 });
 
+test("notifications show a listed run the server could not read, with its reason, never nothing", async ({
+  page,
+}) => {
+  const seen = await watch(page);
+  const reason = "the run's record is not one this version can read";
+  // The server lists one more run, which it could not read: its listing carries only the reason.
+  await page.route("**/api/runs", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { runs: unknown[] };
+    body.runs.push({ root: 0, name: "run-unreadable", error: reason });
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto("/#/home/run-records?run=0/run-clean");
+  await settle(page);
+  await page.getByRole("button", { name: "Notifications" }).click();
+  const notices = page.locator('section[aria-label="Notifications"]');
+  const refused = notices.locator('[role="alert"]');
+  await expect(refused).toHaveCount(1);
+  await expect(refused).toContainText("The queue of run-unreadable could not be read");
+  await expect(refused).toContainText(reason);
+  // The runs that could be read still list their items.
+  await expect(notices.locator(".pg-notice-link").first()).toBeVisible();
+  expect(seen.outbound).toEqual([]);
+  expect(await cspViolations(page)).toEqual([]);
+});
+
 test("the collaborator's dock is a placeholder; below 1600 px it overlays the content", async ({
   page,
 }) => {

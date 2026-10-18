@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import tokens from "../../tokens.json";
-import { BareNumberError, requireQuantity } from "../../quantity";
+import { BareNumberError, requireQuantity, valueLabel } from "../../quantity";
 import { DOMAIN_KINDS, DomainChip } from "./DomainChip";
 import { Figure, WhatIfVerdictError } from "./Figure";
 import { Quantity } from "./Quantity";
@@ -20,6 +20,15 @@ describe("a quantity is always shown with its unit", () => {
 
   it("says dimensionless rather than showing nothing", () => {
     expect(renderToStaticMarkup(<Quantity value={2.36} unit="1" />)).toContain("dimensionless");
+  });
+
+  it("shows a number with every digit the record holds, never rounded", () => {
+    for (const value of [0.123456789, 14.7123, 1234.5678, -0.000123456, 6.02214076e23]) {
+      expect(valueLabel(value)).toBe(String(value));
+      expect(renderToStaticMarkup(<Quantity value={value} unit="m" />)).toContain(
+        `<span class="pg-quantity-value">${String(value)}</span>`,
+      );
+    }
   });
 
   it("shows an exact decimal as the record wrote it", () => {
@@ -102,9 +111,13 @@ describe("every figure names its source", () => {
 
   it("says when a record has no commit, dashed, never with a dash where the commit goes", () => {
     const html = renderToStaticMarkup(<SourceChip id="run r-2" commit={null} />);
-    expect(html).toContain("no commit");
+    // The words are drawn on the chip itself, not only carried in its accessible name.
+    const drawn = html.replace(/<[^>]*>/g, "");
+    expect(drawn).toContain("no commit");
     expect(html).toContain("pg-source-missing");
     expect(html).not.toContain("—");
+    const compact = renderToStaticMarkup(<SourceChip id="run r-2" commit={null} compact />);
+    expect(compact).toContain('data-full="run r-2 · no commit"');
   });
 
   it("says when a figure has no source, dashed", () => {

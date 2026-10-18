@@ -169,6 +169,43 @@ for (const theme of THEMES) {
     await common(page, seen, `design-graph-${theme}`);
   });
 
+  test(`a value is shown with every digit its record holds, never rounded (${theme})`, async ({
+    page,
+  }) => {
+    const seen = await watch(page);
+    const recorded = 14.712345678;
+    // The record as served, with one quantity holding more digits than any rounding would keep.
+    let held: string | null = null;
+    await page.route("**/api/runs/0/drive-observe/graph", async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as {
+        nodes: Record<
+          string,
+          { node: { id: string; quantities: Record<string, { value: unknown }> } }
+        >;
+      };
+      const drive = Object.values(body.nodes).find((n) => n.node.id === "electrical.drive");
+      const first = drive === undefined ? undefined : Object.keys(drive.node.quantities)[0];
+      if (drive !== undefined && first !== undefined) {
+        (drive.node.quantities[first] as { value: unknown }).value = recorded;
+        held = first;
+      }
+      await route.fulfill({ response, json: body });
+    });
+    await open(page, theme, "/orchestration/design-graph?run=0/drive-observe");
+    await page
+      .locator("button.pg-node")
+      .filter({ has: page.locator(".pg-node-id", { hasText: /^electrical\.drive$/ }) })
+      .click();
+    expect(held).not.toBeNull();
+    const inspector = page.locator('aside[aria-label="Node inspector"]');
+    await expect(
+      inspector.locator(".pg-quantity-value", { hasText: /^14\.712345678$/ }),
+    ).toHaveCount(1);
+    expect(seen.outbound).toEqual([]);
+    expect(await cspViolations(page)).toEqual([]);
+  });
+
   test(`the design graph's diff between two revisions (${theme})`, async ({ page }) => {
     const seen = await watch(page);
     await open(page, theme, "/orchestration/design-graph?run=0/drive-observe&diff=1-6");
