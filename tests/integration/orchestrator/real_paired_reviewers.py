@@ -81,7 +81,8 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parents[1]))
 
 import real_domain_roles as base  # noqa: E402
-from scripted_endpoint import DUMMY_KEY, Script, serving, text, tool  # noqa: E402
+from run_credential import run_credential  # noqa: E402
+from scripted_endpoint import Script, serving, text, tool  # noqa: E402
 
 from physgate.cli import main as physgate_main  # noqa: E402
 from physgate.engines.claude_code.stream import read_stream  # noqa: E402
@@ -854,10 +855,8 @@ def main() -> None:
     }
     print(json.dumps(stamp), flush=True)
     global AUTH  # noqa: PLW0603 - the run's auth mode, as the parameters it writes name it
-    credential = (
-        Credential("api_key", DUMMY_KEY)
-        if args.dry_run
-        else Credential("subscription", base.load_token(args.env_file))
+    credential = run_credential(
+        dry_run=args.dry_run, subscription=lambda: base.load_token(args.env_file)
     )
     AUTH = credential.mode
     variable = SECRET_VARIABLE[credential.mode]

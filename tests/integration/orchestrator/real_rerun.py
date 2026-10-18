@@ -54,7 +54,8 @@ from gate_fixtures import node  # noqa: E402
 from gate_run import INTERFACE  # noqa: E402
 from git_rig import Reviewer, target_repo  # noqa: E402
 from record_scan import scan as record_scan  # noqa: E402
-from scripted_endpoint import DUMMY_OAUTH_TOKEN, Script, serving, text, tool  # noqa: E402
+from run_credential import run_credential  # noqa: E402
+from scripted_endpoint import Script, serving, text, tool  # noqa: E402
 
 import physgate.orchestrator.cli as orchestrator_cli  # noqa: E402
 from physgate.cli import main as physgate_main  # noqa: E402
@@ -69,6 +70,8 @@ from physgate.evaluation.observe.trace import read_traces  # noqa: E402
 from physgate.gate.runner import PhysicsGate  # noqa: E402
 from physgate.knowledge import loader  # noqa: E402
 from physgate.orchestrator.cli import Registrations  # noqa: E402
+from physgate.orchestrator.common import AuthMode  # noqa: E402
+from physgate.orchestrator.credentials import SECRET_VARIABLE  # noqa: E402
 from physgate.orchestrator.decompose import binary_version  # noqa: E402
 from physgate.orchestrator.events import (  # noqa: E402
     Decomposed,
@@ -82,6 +85,9 @@ from physgate.orchestrator.invocation import claude_binary  # noqa: E402
 from physgate.orchestrator.run_config import ModelStrings, RunBounds  # noqa: E402
 
 VARIABLE = "CLAUDE_CODE_OAUTH_TOKEN"
+#: The run's auth mode, set by ``main``: the subscription for a real run, a key for a dry run
+#: (``run_credential``). Every parameters file the run writes names it.
+AUTH: AuthMode = "subscription"
 #: The evaluation pins: Opus implements and decomposes, Sonnet reviews (here a stub).
 MODEL = "claude-opus-5-5"
 REVIEWER = "claude-sonnet-5"
@@ -144,7 +150,7 @@ BRIEF = (
 def params() -> dict[str, Any]:
     """The run parameters, as the parameters file holds them."""
     return {
-        "auth": "subscription",
+        "auth": AUTH,
         "gate_mode": "on",
         "models": ModelStrings(
             decomposition=MODEL, roles={"electrical": MODEL}, reviewers={"electrical": REVIEWER}
@@ -482,11 +488,16 @@ def main() -> None:
         "started_utc": utc(),
     }
     print(json.dumps(stamp), flush=True)
-    token = DUMMY_OAUTH_TOKEN if args.dry_run else load_token(args.env_file)
-    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"):
+    global AUTH  # noqa: PLW0603 - the run's auth mode, as the parameters it writes name it
+    credential = run_credential(
+        dry_run=args.dry_run, subscription=lambda: load_token(args.env_file)
+    )
+    variable = SECRET_VARIABLE[credential.mode]
+    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", VARIABLE):
         os.environ.pop(name, None)
-    os.environ[VARIABLE] = token
+    os.environ[variable] = credential.secret
     os.environ["DISABLE_AUTOUPDATER"] = "1"
+    AUTH = credential.mode
     try:
         if args.dry_run:
             scripted_endpoint.FakeMessagesApi.answer = _recording  # type: ignore[method-assign]
@@ -501,10 +512,11 @@ def main() -> None:
         else:
             result = both_runs(root)
     finally:
-        os.environ.pop(VARIABLE, None)
+        os.environ.pop(variable, None)
+        AUTH = "subscription"
     result["finished_utc"] = utc()
     (root / "result.json").write_text(json.dumps({**stamp, **result}, indent=1, sort_keys=True))
-    result["scan"] = scan(root, token)
+    result["scan"] = scan(root, credential.secret)
     (root / "result.json").write_text(json.dumps({**stamp, **result}, indent=1, sort_keys=True))
     print(
         json.dumps(

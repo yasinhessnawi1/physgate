@@ -44,13 +44,16 @@ sys.path.insert(0, str(HERE))
 
 from git_rig import Gate, Reviewer, config, sh, target_repo  # noqa: E402
 from kill_cycles import left_running, node, printed_step  # noqa: E402
-from scripted_endpoint import DUMMY_OAUTH_TOKEN, Script, serving, text, tool  # noqa: E402
+from run_credential import run_credential  # noqa: E402
+from scripted_endpoint import Script, serving, text, tool  # noqa: E402
 
 import physgate.orchestrator.cli as orchestrator_cli  # noqa: E402
 from physgate.cli import main as physgate_main  # noqa: E402
 from physgate.engines.claude_code.stream import read_stream  # noqa: E402
 from physgate.knowledge import loader  # noqa: E402
 from physgate.orchestrator.accounting import TokenAccount  # noqa: E402
+from physgate.orchestrator.common import AuthMode  # noqa: E402
+from physgate.orchestrator.credentials import SECRET_VARIABLE  # noqa: E402
 from physgate.orchestrator.decompose import (  # noqa: E402
     Outcome,
     Plan,
@@ -72,6 +75,9 @@ from physgate.state.schema import Node  # noqa: E402
 from physgate.state.store import journal_records_after  # noqa: E402
 
 VARIABLE = "CLAUDE_CODE_OAUTH_TOKEN"
+#: The run's auth mode, set by ``main``: the subscription for a real run, a key for a dry run
+#: (``run_credential``). Every parameters file the run writes names it.
+AUTH: AuthMode = "subscription"
 MODEL = "claude-sonnet-5"
 REVIEWER = "claude-opus-5-5"
 MODULE_DIR = "modules/driver"
@@ -167,7 +173,7 @@ def load_token(env_file: Path) -> str:
 def params() -> dict[str, Any]:
     """The run parameters, as a parameters file holds them."""
     return {
-        "auth": "subscription",
+        "auth": AUTH,
         "gate_mode": "on",
         "models": ModelStrings(
             decomposition=MODEL, roles={"electrical": MODEL}, reviewers={"electrical": REVIEWER}
@@ -557,7 +563,11 @@ def main() -> None:
     root = args.out.resolve()
     root.mkdir(parents=True)
     version = binary_version()  # refused unless it is the pinned one
-    token = DUMMY_OAUTH_TOKEN if args.dry_run else load_token(args.env_file)
+    global AUTH  # noqa: PLW0603 - the run's auth mode, as the parameters it writes name it
+    credential = run_credential(
+        dry_run=args.dry_run, subscription=lambda: load_token(args.env_file)
+    )
+    AUTH = credential.mode
     stamp = {
         "variant": args.variant,
         "kind": "dry-run" if args.dry_run else "real",
@@ -577,7 +587,7 @@ def main() -> None:
         for k, v in os.environ.items()
         if k not in ("ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", VARIABLE)
     }
-    env = {**base, VARIABLE: token, "DISABLE_AUTOUPDATER": "1"}
+    env = {**base, SECRET_VARIABLE[credential.mode]: credential.secret, "DISABLE_AUTOUPDATER": "1"}
     if args.dry_run:
         first = (
             Script(
@@ -605,7 +615,8 @@ def main() -> None:
             result["endpoint_failures"] = list(api.failures)
     else:
         result = run_cycle(run_root, args.variant, env, str(install), version, None)
-    result["files_holding_the_token"] = files_holding(root, token)
+    AUTH = "subscription"
+    result["files_holding_the_token"] = files_holding(root, credential.secret)
     checks = result.setdefault("checks", {})
     checks[C8] = result["files_holding_the_token"] == 0
     result["passed"], result["not_reached"] = verdict(checks, args.variant)

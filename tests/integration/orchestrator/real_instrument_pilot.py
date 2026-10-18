@@ -89,7 +89,8 @@ import pilot_corpus  # noqa: E402
 import scripted_endpoint  # noqa: E402
 from real_domain_reviewers import load_token, scripted_verdict  # noqa: E402
 from record_scan import scan as record_scan  # noqa: E402
-from scripted_endpoint import DUMMY_OAUTH_TOKEN, Script, serving, text, tool  # noqa: E402
+from run_credential import run_credential  # noqa: E402
+from scripted_endpoint import Script, serving, text, tool  # noqa: E402
 
 from physgate.cli import main as physgate_main  # noqa: E402
 from physgate.evaluation.inject import cli as inject_cli  # noqa: E402
@@ -111,6 +112,8 @@ from physgate.evaluation.observe.manifest import BINARY_DEFAULTS  # noqa: E402
 from physgate.hooks.reading import content_lines  # noqa: E402
 from physgate.knowledge.promote import KNOWLEDGE_ROOT  # noqa: E402
 from physgate.orchestrator.cli import Registrations  # noqa: E402
+from physgate.orchestrator.common import AuthMode  # noqa: E402
+from physgate.orchestrator.credentials import SECRET_VARIABLE  # noqa: E402
 from physgate.orchestrator.decompose import binary_version  # noqa: E402
 from physgate.orchestrator.events import (  # noqa: E402
     ReviewRan,
@@ -133,6 +136,9 @@ from physgate.reviewers.places import require_review_root  # noqa: E402
 from physgate.reviewers.rubric import load_rubric  # noqa: E402
 
 VARIABLE = "CLAUDE_CODE_OAUTH_TOKEN"
+#: The run's auth mode, set by ``main``: the subscription for a real run, a key for a dry run
+#: (``run_credential``). Every parameters file the run writes names it.
+AUTH: AuthMode = "subscription"
 #: The binary the pilot runs on: the one the measurement will be pinned to.
 PILOT_VERSION = "2.1.301"
 RUN_ID = "instrument-pilot"
@@ -201,10 +207,15 @@ def argv(out: Path) -> list[str]:
     ]
 
 
+def params() -> dict[str, Any]:
+    """The reviewer parameters this run writes: the measurement's, on this run's auth mode."""
+    return {**PARAMS, "auth": AUTH}
+
+
 def prepare(out: Path) -> None:
     """Write the corpus and the parameters file into ``out``."""
     pilot_corpus.write_pilot_corpus(out / CORPUS_DIRNAME)
-    (out / "params.json").write_text(json.dumps(PARAMS, indent=1, sort_keys=True) + "\n")
+    (out / "params.json").write_text(json.dumps(params(), indent=1, sort_keys=True) + "\n")
 
 
 # --- The dollar cap ---------------------------------------------------------------------------
@@ -649,17 +660,23 @@ def main(argv_: list[str] | None = None, *, binary_check: Callable[[], str] | No
         "started_utc": utc(),
     }
     print(json.dumps(stamp), flush=True)
-    token = DUMMY_OAUTH_TOKEN if args.dry_run else load_token(args.env_file)
-    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"):
+    global AUTH  # noqa: PLW0603 - the run's auth mode, as the parameters it writes name it
+    credential = run_credential(
+        dry_run=args.dry_run, subscription=lambda: load_token(args.env_file)
+    )
+    variable = SECRET_VARIABLE[credential.mode]
+    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", VARIABLE):
         os.environ.pop(name, None)
     os.environ["DISABLE_AUTOUPDATER"] = "1"
-    os.environ[VARIABLE] = token
+    os.environ[variable] = credential.secret
+    AUTH = credential.mode
     try:
         result = run(out, dry_run=args.dry_run, version=version, max_usd=args.max_usd)
     finally:
-        os.environ.pop(VARIABLE, None)
+        os.environ.pop(variable, None)
+        AUTH = "subscription"
     result["finished_utc"] = utc()
-    result["scan"] = record_scan(out, token)
+    result["scan"] = record_scan(out, credential.secret)
     (out / "result.json").write_text(json.dumps({**stamp, **result}, indent=1, sort_keys=True))
     report = result.get("report") or {}
     print(

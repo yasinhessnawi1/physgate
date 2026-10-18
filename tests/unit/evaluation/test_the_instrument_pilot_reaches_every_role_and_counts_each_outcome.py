@@ -34,7 +34,7 @@ from physgate.reviewers.rubric import load_rubric
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "integration" / "orchestrator"))
 import real_instrument_pilot as pilot  # noqa: E402
-from scripted_endpoint import DUMMY_OAUTH_TOKEN  # noqa: E402
+from scripted_endpoint import DUMMY_KEY  # noqa: E402
 
 REPOSITORY = Path(__file__).resolve().parents[3]
 
@@ -176,7 +176,11 @@ def test_a_dry_run_never_reads_the_env_file(
     seen: dict[str, object] = {}
 
     def ran(out: Path, **kwargs: object) -> dict[str, object]:
-        seen.update(kwargs, token=os.environ.get(pilot.VARIABLE))
+        seen.update(
+            kwargs,
+            key=os.environ.get("ANTHROPIC_API_KEY"),
+            subscription=os.environ.get(pilot.VARIABLE),
+        )
         return {}
 
     monkeypatch.setattr(pilot, "load_token", read)
@@ -184,8 +188,9 @@ def test_a_dry_run_never_reads_the_env_file(
     out = tmp_path / "out"
     argv = ["--dry-run", "--out", str(out), "--env-file", str(env_file)]
     assert pilot.main(argv, binary_check=lambda: pilot.PILOT_VERSION) == 0
-    assert seen["dry_run"] is True and seen["token"] == DUMMY_OAUTH_TOKEN
-    assert os.environ.get(pilot.VARIABLE) is None  # not left behind either
+    # A dummy key: a subscription is never delivered to the scripted endpoint.
+    assert seen["dry_run"] is True and seen["key"] == DUMMY_KEY and seen["subscription"] is None
+    assert os.environ.get("ANTHROPIC_API_KEY") is None  # not left behind either
     capsys.readouterr()
 
 

@@ -73,7 +73,8 @@ sys.path.insert(0, str(REPO_ROOT / "tests"))
 import domain_review_artefacts as artefacts  # noqa: E402
 from record_scan import INSTALL_DIRNAME  # noqa: E402
 from record_scan import scan as record_scan  # noqa: E402
-from scripted_endpoint import DUMMY_OAUTH_TOKEN, Script, serving, text, tool  # noqa: E402
+from run_credential import run_credential  # noqa: E402
+from scripted_endpoint import Script, serving, text, tool  # noqa: E402
 
 from physgate.engines.claude_code.stream import read_stream  # noqa: E402
 from physgate.evaluation.inject.corpus import Base, Patch  # noqa: E402
@@ -462,7 +463,7 @@ def scripted_reviews(api: Any, verdicts: dict[str, tuple[str, tuple[str, ...]]])
 # --- The phases ------------------------------------------------------------------------------
 
 
-def preflight(root: Path, token: str, base_url: str | None) -> dict[str, Any]:
+def preflight(root: Path, credential: Credential, base_url: str | None) -> dict[str, Any]:
     """One short session per schema the reviews are offered: each role, each input form."""
     found: dict[str, Any] = {}
     specs = {"electrical": artefacts.ELECTRICAL_SPEC, "mechanical": artefacts.MECHANICAL_SPEC}
@@ -480,7 +481,8 @@ def preflight(root: Path, token: str, base_url: str | None) -> dict[str, Any]:
             sdir = root / "preflight" / f"{role}-{form}"
             (sdir / "home").mkdir(parents=True)
             config_dir = sdir / "config"
-            write_login(config_dir, token, endpoint=endpoint_of(base_url))
+            if credential.mode == "subscription":
+                write_login(config_dir, credential.secret, endpoint=endpoint_of(base_url))
             env = isolated_env(
                 home=sdir / "home",
                 config_dir=config_dir,
@@ -489,7 +491,7 @@ def preflight(root: Path, token: str, base_url: str | None) -> dict[str, Any]:
                 max_retries=0,
                 max_output_tokens=PREFLIGHT_OUTPUT_TOKENS,
                 base_url=base_url,
-                api_key=None,
+                api_key=credential.secret if credential.mode == "api_key" else None,
             )
             env.update(REVIEWER_ENV)
             argv = [
@@ -764,19 +766,20 @@ def main() -> None:
         "started_utc": utc(),
     }
     print(json.dumps(stamp), flush=True)
-    token = DUMMY_OAUTH_TOKEN if args.dry_run else load_token(args.env_file)
+    credential = run_credential(
+        dry_run=args.dry_run, subscription=lambda: load_token(args.env_file)
+    )
     for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"):
         os.environ.pop(name, None)
     os.environ["DISABLE_AUTOUPDATER"] = "1"
-    credential = Credential(mode="subscription", secret=token)
     result: dict[str, Any]
     if args.phase == "preflight":
         if args.dry_run:
             with serving(Script(main=[text("done")])) as (api, url):
-                result = {"preflight": preflight(root, token, url)}
+                result = {"preflight": preflight(root, credential, url)}
                 result["endpoint_refusals"] = list(api.refusals)
         else:
-            result = {"preflight": preflight(root, token, None)}
+            result = {"preflight": preflight(root, credential, None)}
     elif args.dry_run:
         verdicts = {
             review_id(aid): (exp, items) for aid, (exp, items, _) in artefacts.EXPECTED.items()
@@ -790,7 +793,7 @@ def main() -> None:
     else:
         result = {"reviews": reviews(root, credential, None, only)}
     result["finished_utc"] = utc()
-    result["scan"] = record_scan(root, token)
+    result["scan"] = record_scan(root, credential.secret)
     (root / "result.json").write_text(json.dumps({**stamp, **result}, indent=1, sort_keys=True))
     found = result.get("reviews") or {}
     print(
