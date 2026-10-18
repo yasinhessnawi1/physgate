@@ -84,7 +84,7 @@ def test_the_clean_twin_switch_reaches_the_run_and_is_off_unless_given(
     import physgate.evaluation.inject.cli as inject_cli
 
     asked: list[bool] = []
-    monkeypatch.setattr(inject_cli, "require_complete", lambda corpus: None)
+    monkeypatch.setattr(inject_cli, "require_complete", lambda corpus, per_class: None)
 
     def stand_in(*_: object, **given: object) -> tuple[()]:
         asked.append(bool(given["review_clean_twins"]))

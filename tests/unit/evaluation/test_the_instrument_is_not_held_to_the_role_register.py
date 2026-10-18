@@ -52,7 +52,7 @@ def test_the_command_starts_for_an_unregistered_role(
     import physgate.evaluation.inject.cli as inject_cli
 
     # The fixture corpus is smaller than a measurement's, which the command refuses.
-    monkeypatch.setattr(inject_cli, "require_complete", lambda corpus: None)
+    monkeypatch.setattr(inject_cli, "require_complete", lambda corpus, per_class: None)
     argv = [
         "inject",
         "--corpus",
