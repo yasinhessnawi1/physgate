@@ -18,7 +18,7 @@ from physgate.evaluation.per_role.firmware.loop import ACT_LINE, Trace
 from physgate.evaluation.per_role.firmware.spec import PROBE_UNITS, FirmwareSpec, Probe
 from physgate.evaluation.per_role.task import Spec, Task
 
-Verdict = Literal["pass", "fail", "flaky"]
+Verdict = Literal["pass", "fail", "flaky", "infrastructure"]
 RUNS = 3
 
 
@@ -37,9 +37,15 @@ def _reaction(trace: Trace, probe: Probe, spec: FirmwareSpec) -> float | None:
     scenario = next(s for s in spec.scenarios if s.name == probe.scenario)
     fault = next(f for f in scenario.faults if f.name == probe.fault)
     start = float(fault.at.value)
+    # Only a change into the state is a reaction: a device that re-sends a state it is
+    # already in has not reacted to anything.
+    previous: str | None = None
     for t, actuator, state in _states(trace):
-        if t >= start and actuator == probe.actuator and state == probe.state:
+        if actuator != probe.actuator:
+            continue
+        if t >= start and state == probe.state and previous != probe.state:
             return t - start
+        previous = state
     return None
 
 
@@ -212,11 +218,18 @@ def protocol_violations(spec: FirmwareSpec, traces: Mapping[str, Trace]) -> list
     return found
 
 
-def safe_score(task: Task, traces: Mapping[str, Trace]) -> dict[str, Any]:
+def safe_score(
+    task: Task, traces: Mapping[str, Trace], *, infrastructure: str | None = None
+) -> dict[str, Any]:
     """:func:`score`, except that anything going wrong is this answer's recorded fail.
 
     One answer whose traces break the scorer fails alone; the run goes on scoring the rest.
+    A run the machine ended (``infrastructure``: the sandbox never started the emulator, or
+    the emulator passed one of its own limits) is not scored at all: it is recorded as the
+    machine's, never as the answer's fail.
     """
+    if infrastructure is not None:
+        return {"task": task.id, "specs": [], "passed": False, "infrastructure": infrastructure}
     try:
         return score(task, traces)
     except Exception as exc:  # noqa: BLE001 - one answer may not take the run down
@@ -226,12 +239,17 @@ def safe_score(task: Task, traces: Mapping[str, Trace]) -> dict[str, Any]:
 def verdict(scores: Sequence[Mapping[str, Any]]) -> Verdict:
     """The answer's verdict from its runs' scores: all pass, all fail, or flaky.
 
+    A run the machine ended makes the verdict ``infrastructure``: neither a pass nor the
+    answer's fail, but recorded, and the answer is run again under the evaluation's rules.
+
     Raises:
         ValueError: not exactly :data:`RUNS` runs were scored.
     """
     if len(scores) != RUNS:
         msg = f"a firmware answer is scored on {RUNS} runs, not {len(scores)}"
         raise ValueError(msg)
+    if any(s.get("infrastructure") for s in scores):
+        return "infrastructure"
     outcomes = {bool(s["passed"]) for s in scores}
     if outcomes == {True}:
         return "pass"

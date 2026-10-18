@@ -191,7 +191,12 @@ def test_a_process_that_ignores_a_stop_and_leaves_children_is_killed_whole(
     pid_file = tmp_path / "child.pid"
     began = time.monotonic()
     with guarded(
-        [*argv, str(pid_file)], wall_s=2.0, cpu_s=60, memory_bytes=None, output=tmp_path / "out"
+        [*argv, str(pid_file)],
+        wall_s=2.0,
+        cpu_s=60,
+        memory_bytes=None,
+        output=tmp_path / "out",
+        env={},
     ) as run:
         while not pid_file.exists():
             time.sleep(0.05)
@@ -226,7 +231,9 @@ def test_a_process_that_spins_is_stopped_by_its_cpu_limit(tmp_path: Path) -> Non
     from physgate.evaluation.per_role.firmware.guard import guarded
 
     argv = _script(tmp_path, "while True:\n    pass\n")
-    with guarded(argv, wall_s=30.0, cpu_s=1, memory_bytes=None, output=tmp_path / "out") as run:
+    with guarded(
+        argv, wall_s=30.0, cpu_s=1, memory_bytes=None, output=tmp_path / "out", env={}
+    ) as run:
         run.wait()
     assert run.ended_by == "limit"
 
@@ -235,7 +242,9 @@ def test_a_process_that_writes_without_end_is_stopped_by_its_output_limit(tmp_pa
     from physgate.evaluation.per_role.firmware.guard import MAX_OUTPUT_BYTES, guarded
 
     argv = _script(tmp_path, "import sys\nwhile True:\n    sys.stdout.write('x' * 65536)\n")
-    with guarded(argv, wall_s=30.0, cpu_s=30, memory_bytes=None, output=tmp_path / "out") as run:
+    with guarded(
+        argv, wall_s=30.0, cpu_s=30, memory_bytes=None, output=tmp_path / "out", env={}
+    ) as run:
         run.wait()
     assert run.ended_by == "limit"
     assert (tmp_path / "out").stat().st_size <= MAX_OUTPUT_BYTES
@@ -249,7 +258,7 @@ def test_a_process_that_takes_memory_without_end_is_stopped_by_its_memory_limit(
 
     argv = _script(tmp_path, "blocks = []\nwhile True:\n    blocks.append(bytearray(1 << 24))\n")
     with guarded(
-        argv, wall_s=30.0, cpu_s=30, memory_bytes=512 << 20, output=tmp_path / "out"
+        argv, wall_s=30.0, cpu_s=30, memory_bytes=512 << 20, output=tmp_path / "out", env={}
     ) as run:
         run.wait()
     assert run.ended_by == "limit"
@@ -262,3 +271,76 @@ def test_a_run_that_passed_a_bound_fails_even_where_its_probes_would_pass() -> N
     traces["fill"].limit = "the device sent a line longer than 200 bytes"
     record = score(task, traces)
     assert record["passed"] is False and record["limit"] == [traces["fill"].limit]
+
+
+#: Inert stand-in firmware on a pipe: the pump on below 30, and never off again.
+PUMP_LEFT_ON = (
+    "import sys\n"
+    "on = False\n"
+    "for line in sys.stdin:\n"
+    "    parts = line.split()\n"
+    "    if parts[:2] == ['SENSE', 'LEVEL'] and int(parts[2]) < 30 and not on:\n"
+    "        on = True\n"
+    "        print('ACT PUMP ON', flush=True)\n"
+)
+
+
+def test_a_piped_device_needs_the_scenario_s_clock() -> None:
+    import inspect
+
+    from physgate.evaluation.per_role.firmware.loop import PipeDevice
+
+    clock = inspect.signature(PipeDevice.__init__).parameters["clock"]
+    assert clock.default is inspect.Parameter.empty
+
+
+def test_a_forbidden_state_on_a_piped_line_fails_its_window(tmp_path: Path) -> None:
+    import json
+
+    from physgate.evaluation.per_role.firmware.guard import guarded
+    from physgate.evaluation.per_role.firmware.loop import GRACE_MS, PipeDevice
+    from physgate.evaluation.per_role.task import parse_task
+
+    raw = json.loads(_task().model_dump_json())
+    ms = lambda v: {"value": v, "unit": "ms"}  # noqa: E731
+    raw["firmware"]["probes"].append(
+        {
+            "name": "pump_on_while_blind",
+            "scenario": "silence",
+            "kind": "off_state",
+            "actuator": "PUMP",
+            "state": "ON",
+            "window": [ms(1500), ms(2500)],
+        }
+    )
+    raw["specs"].append(
+        {
+            "name": "never_pumps_blind",
+            "metric": "pump_on_while_blind",
+            "op": "<=",
+            "bound": {"value": 0, "unit": "1"},
+            "composes": ["timeout_policy"],
+        }
+    )
+    task = parse_task(json.dumps(raw).encode())
+    assert task.firmware is not None
+    silence = task.firmware.scenarios[1]
+    with guarded(
+        [sys.executable, "-I", "-c", PUMP_LEFT_ON],
+        wall_s=20.0,
+        cpu_s=20,
+        memory_bytes=None,
+        output=tmp_path / "err",
+        pipes=True,
+        env={},
+    ) as run:
+        clock = WallClock()
+        trace = run_scenario(silence, PipeDevice(run.process, clock.now_ms), clock)
+        run.kill_group()
+    end = float(silence.duration.value) + GRACE_MS
+    stamps = [line.t_ms for line in trace.lines if line.direction == "from_device"]
+    assert stamps and all(0.0 <= t <= end for t in stamps)
+    record = score(task, {"silence": trace, "fill": trace})
+    row = next(r for r in record["specs"] if r["name"] == "never_pumps_blind")
+    assert row["measured"]["value"] == 1.0 and row["passed"] is False
+    assert record["passed"] is False

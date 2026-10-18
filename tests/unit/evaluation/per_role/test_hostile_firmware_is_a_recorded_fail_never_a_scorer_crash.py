@@ -9,6 +9,7 @@ behind the guard's back, and a state the guard cannot read counts as a limit pas
 
 from __future__ import annotations
 
+import json
 import os
 import socket
 import struct
@@ -129,7 +130,12 @@ def test_nothing_reaps_the_emulator_behind_the_guard_s_back(tmp_path: Path) -> N
     from physgate.evaluation.per_role.firmware.guard import guarded
 
     with guarded(
-        _script(tmp_path, "pass\n"), wall_s=5.0, cpu_s=5, memory_bytes=None, output=tmp_path / "o"
+        _script(tmp_path, "pass\n"),
+        wall_s=5.0,
+        cpu_s=5,
+        memory_bytes=None,
+        output=tmp_path / "o",
+        env={},
     ) as run:
         time.sleep(0.5)  # it has exited; the watchdog has looked at it many times
         assert run.process.returncode is None  # still the guard's to reap, its pid still held
@@ -140,7 +146,12 @@ def test_a_state_the_guard_cannot_read_counts_as_a_limit_passed(tmp_path: Path) 
     from physgate.evaluation.per_role.firmware.guard import guarded
 
     with guarded(
-        _script(tmp_path, "pass\n"), wall_s=5.0, cpu_s=5, memory_bytes=None, output=tmp_path / "o"
+        _script(tmp_path, "pass\n"),
+        wall_s=5.0,
+        cpu_s=5,
+        memory_bytes=None,
+        output=tmp_path / "o",
+        env={},
     ) as run:
         time.sleep(0.3)
         os.waitpid(run.process.pid, 0)  # reaped by someone else: its end can no longer be read
@@ -169,3 +180,29 @@ def test_a_hang_up_while_the_plant_is_silent_is_still_seen() -> None:
         device.close()
     assert not [line for line in trace.lines if line.direction == "to_device"]
     assert trace.limit is not None and "closed" in trace.limit
+
+
+def test_the_guarded_process_sees_only_the_environment_it_is_given(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from physgate.evaluation.per_role.firmware.guard import guarded
+
+    fake = f"inert-fake-secret-{os.getpid()}"
+    monkeypatch.setenv("PHYSGATE_TEST_FAKE_SECRET", fake)
+    seen = tmp_path / "env.json"
+    argv = _script(
+        tmp_path,
+        "import json, os, sys\nopen(sys.argv[1], 'w').write(json.dumps(dict(os.environ)))\n",
+    )
+    with guarded(
+        [*argv, str(seen)],
+        wall_s=10.0,
+        cpu_s=10,
+        memory_bytes=None,
+        output=tmp_path / "o",
+        env={"LANG": "C.UTF-8"},
+    ) as run:
+        run.wait()
+    environment = json.loads(seen.read_text())
+    assert fake not in seen.read_text()
+    assert set(environment) <= {"LANG", "LC_CTYPE", "__CF_USER_TEXT_ENCODING"}  # what the OS adds

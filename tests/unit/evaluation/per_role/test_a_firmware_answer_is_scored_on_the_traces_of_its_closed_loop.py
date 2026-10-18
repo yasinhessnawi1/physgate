@@ -15,7 +15,7 @@ import pytest
 from physgate.evaluation.per_role.exceptions import TaskFormatError
 from physgate.evaluation.per_role.firmware.loop import run_scenario
 from physgate.evaluation.per_role.firmware.plant import Plant
-from physgate.evaluation.per_role.firmware.score import score, verdict
+from physgate.evaluation.per_role.firmware.score import probe_value, score, verdict
 from physgate.evaluation.per_role.task import Task, parse_task
 
 
@@ -274,3 +274,65 @@ def test_a_state_set_before_the_fault_is_no_reaction_to_it() -> None:
     trace = run_scenario(full, TankFirmware(clock), clock)  # OFF at 5 ms, the fault at 200 ms
     record = score(task, {"silence": trace, "fill": _traces(task)["fill"]})
     assert record["specs"][0]["measured"] is None
+
+
+class RebroadcastingFirmware(TankFirmware):
+    """The tank controller, re-sending its pump's state after every frame, changed or not."""
+
+    def send(self, line: str, now_ms: float) -> None:
+        super().send(line, now_ms)
+        if self.pump is not None and line.startswith("SENSE"):
+            self.out.append((now_ms + self.latency, f"ACT PUMP {self.pump}"))
+
+
+def _with_a_fault_line(level: float) -> Task:
+    raw = json.loads(_task().model_dump_json())
+    fill = dict(raw["firmware"]["scenarios"][0])
+    fill.update(
+        name="fault_line",
+        initial=[_pct("level", level)],
+        duration=_ms(1000),
+        faults=[{"name": "timeout_line", "kind": "fault_frame", "at": _ms(200)}],
+    )
+    raw["firmware"]["scenarios"].append(fill)
+    raw["firmware"]["probes"].append(
+        {
+            "name": "fault_line_reaction",
+            "scenario": "fault_line",
+            "kind": "reaction",
+            "fault": "timeout_line",
+            "actuator": "PUMP",
+            "state": "OFF",
+        }
+    )
+    return parse_task(json.dumps(raw).encode())
+
+
+def _reaction_to_the_fault_line(task: Task, firmware: type[TankFirmware]) -> float | None:
+    assert task.firmware is not None
+    scenario = next(s for s in task.firmware.scenarios if s.name == "fault_line")
+    probe = next(p for p in task.firmware.probes if p.name == "fault_line_reaction")
+    clock = VirtualClock()
+    trace = run_scenario(scenario, firmware(clock), clock)
+    return probe_value(probe, {"fault_line": trace}, task.firmware)
+
+
+def test_a_state_re_sent_after_the_fault_is_no_reaction_to_it() -> None:
+    already_off = _with_a_fault_line(90.0)  # the pump is off before the fault, and stays off
+    assert _reaction_to_the_fault_line(already_off, RebroadcastingFirmware) is None
+    pumping = _with_a_fault_line(10.0)  # the pump is on at the fault and turns off
+    assert _reaction_to_the_fault_line(pumping, RebroadcastingFirmware) == 5.0
+    assert _reaction_to_the_fault_line(pumping, TankFirmware) == 5.0
+
+
+def test_an_infrastructure_end_is_neither_a_pass_nor_the_answer_s_fail() -> None:
+    from physgate.evaluation.per_role.firmware.score import safe_score
+
+    task = _task()
+    passing = safe_score(task, _traces(task))
+    assert passing["passed"] and "infrastructure" not in passing
+    machine = safe_score(task, _traces(task), infrastructure="the sandbox did not start")
+    assert machine["passed"] is False and machine["infrastructure"] == "the sandbox did not start"
+    assert verdict([passing, passing, machine]) == "infrastructure"
+    assert verdict([machine, {"passed": False}, {"passed": False}]) == "infrastructure"
+    assert verdict([passing] * 3) == "pass"

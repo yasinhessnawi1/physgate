@@ -3,7 +3,8 @@
 QEMU runs the firmware under test, so its process is as adversarial as the firmware. It is
 started as the leader of a process group of its own, with resource limits set before it
 runs anything: CPU seconds, the size of any file it writes (its output is a file of
-bounded size), and, where the kernel enforces it, its address space. A thread of the
+bounded size), and, where the kernel enforces it, its address space. Its environment is
+the one it is given, whole: nothing of the harness's is inherited. A thread of the
 harness's, on the harness's clock, kills the whole group at the wall-clock bound; the group
 is killed again however the run ends. None of this asks the process to cooperate.
 """
@@ -17,7 +18,7 @@ import signal
 import subprocess
 import threading
 import time
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Literal
 
@@ -116,18 +117,21 @@ def guarded(
     cpu_s: int,
     memory_bytes: int | None,
     output: Path,
+    env: Mapping[str, str],
     pipes: bool = False,
     cwd: Path | None = None,
 ) -> Iterator[GuardedRun]:
     """Run ``argv`` bounded on every side; its whole group is killed when the block ends.
 
-    With ``pipes`` its standard input and output are pipes the caller talks on (the serial
-    line), and only its error output goes to ``output``.
+    ``env`` is the process's whole environment: the harness's own (its credentials among
+    it) never reaches the process. With ``pipes`` its standard input and output are pipes
+    the caller talks on (the serial line), and only its error output goes to ``output``.
     """
     with output.open("wb") as out:
         process = subprocess.Popen(
             list(argv),
             cwd=cwd,
+            env=dict(env),
             stdin=subprocess.PIPE if pipes else subprocess.DEVNULL,
             stdout=subprocess.PIPE if pipes else out,
             stderr=out if pipes else subprocess.STDOUT,

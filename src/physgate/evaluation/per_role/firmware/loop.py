@@ -263,9 +263,14 @@ class PipeDevice(_BoundedLine):
     The line needs no network at all, so the emulator runs with none.
     """
 
-    def __init__(self, process: subprocess.Popen[bytes], clock: Callable[[], float] | None = None):
-        """Talk to ``process``, which was started with both pipes."""
-        super().__init__(clock or time.monotonic)
+    def __init__(self, process: subprocess.Popen[bytes], clock: Callable[[], float]):
+        """Talk to ``process``, which was started with both pipes.
+
+        ``clock`` is the scenario's own (its milliseconds since the scenario began), which
+        stamps every line; there is no default, because a line stamped on another clock
+        falls outside every window the score reads.
+        """
+        super().__init__(clock)
         if process.stdin is None or process.stdout is None:
             msg = "the emulator was not started with its serial line on its pipes"
             raise DeviceFaultError(msg)
