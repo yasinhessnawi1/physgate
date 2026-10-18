@@ -68,7 +68,7 @@ INSTALL="$H/install-${COMMIT:0:12}"
 mkdir -p "$OUT" "$REVIEW"
 LOG="$OUT/launch.log"
 
-export PATH="$HOME/.local/bin:/usr/bin:/bin"
+export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 export PHYSGATE_CLAUDE_BIN="$BIN"
 export DISABLE_AUTOUPDATER=1
 unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL CLAUDE_CODE_OAUTH_TOKEN
