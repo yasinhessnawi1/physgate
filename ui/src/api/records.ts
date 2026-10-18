@@ -97,6 +97,10 @@ export interface RunConfig {
   readonly seed: number;
   /** The model each role's sessions ran on, by role, as the run recorded it. */
   readonly roleModels: Readonly<Record<string, string>>;
+  /** The model the brief was split by, as recorded; ``null`` when the run names none. */
+  readonly decompositionModel: string | null;
+  /** The model each role's reviewer ran on, by role, as recorded. */
+  readonly reviewerModels: Readonly<Record<string, string>>;
   /** Whether the run's role sessions ran inside the OS layer; ``null`` if not recorded. */
   readonly osLayer: OsLayer | null;
 }
@@ -120,6 +124,16 @@ export function runConfig(value: unknown): RunConfig {
         text(m, "a model string"),
       ]),
     ),
+    decompositionModel: optionalText(models.decomposition, "a model string"),
+    reviewerModels:
+      models.reviewers === undefined || models.reviewers === null
+        ? {}
+        : Object.fromEntries(
+            Object.entries(object(models.reviewers, "the reviewer models")).map(([role, m]) => [
+              role,
+              text(m, "a model string"),
+            ]),
+          ),
     osLayer: osLayer(config.os_layer),
   };
 }

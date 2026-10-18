@@ -141,6 +141,8 @@ function record(seq: number, attempt: number | null, outcome: GateCheck["outcome
     subtask: attempt === null ? "integration" : "s1",
     attempt,
     name: "power",
+    check: 4,
+    ts: null,
     scope: "module",
     mode: "on",
     outcome,

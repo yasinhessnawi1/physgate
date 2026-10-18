@@ -174,6 +174,7 @@ def test_the_operator_interface_knows_every_queue_source() -> None:
     listed = re.search(r"export const SOURCES = \[(.*?)\] as const;", text, re.DOTALL)
     assert listed is not None
     assert re.findall(r'"([a-z_]+)"', listed.group(1)) == list(typing.get_args(QueueSource))
-    labels = (ROOT / "ui" / "src" / "views" / "approval-queue" / "model.ts").read_text()
+    labels = (ROOT / "ui" / "src" / "words" / "queue.ts").read_text()
+    entry = r"{source}: {{\n    kind: \"[^\"]+\",\n    why: \"[^\"]+\","
     for source in typing.get_args(QueueSource):
-        assert re.search(rf"\n  {source}: \"[^\"]+\",", labels), source
+        assert re.search("\n  " + entry.format(source=source), labels), source

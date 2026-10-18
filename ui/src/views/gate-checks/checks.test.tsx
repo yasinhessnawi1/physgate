@@ -21,6 +21,8 @@ function check(
     subtask: "s1",
     attempt: 1,
     name: "magnitude",
+    check: 2,
+    ts: null,
     scope: "subtask",
     mode,
     outcome,
@@ -133,6 +135,8 @@ describe("a run is read against another only of the same brief and seed", () => 
       briefSha256: brief,
       seed,
       roleModels: {},
+      decompositionModel: null,
+      reviewerModels: {},
       osLayer: null,
     };
   }
@@ -180,6 +184,8 @@ describe("the paired run is drawn in its own mode", () => {
       briefSha256: "a",
       seed: 7,
       roleModels: {},
+      decompositionModel: null,
+      reviewerModels: {},
       osLayer: null,
     };
   }

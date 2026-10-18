@@ -28,6 +28,7 @@ function node(
     domain: "electrical",
     owner: "electrical",
     revision,
+    provenance: {},
     constrains,
     quantities,
   };
