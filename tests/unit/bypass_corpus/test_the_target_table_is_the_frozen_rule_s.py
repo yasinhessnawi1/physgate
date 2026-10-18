@@ -17,7 +17,9 @@ ROW = re.compile(r"^\| `([a-z]+)` \| `(@[WO]/[^`]+)` \|$")
 
 
 def test_the_table_holds_every_key_and_the_rule_s_path_for_each() -> None:
-    rows = dict(m.groups() for line in RULE.read_text().splitlines() if (m := ROW.match(line)))
+    rows: dict[str, str] = {
+        m.group(1): m.group(2) for line in RULE.read_text().splitlines() if (m := ROW.match(line))
+    }
     assert rows, "no target row was read from the rule"
     assert set(rows) == bc.TARGET_KEYS
     assert rows == bc.TARGET_PATHS

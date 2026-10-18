@@ -312,9 +312,12 @@ def test_an_offline_run_records_the_services_listening_on_loopback_at_its_start(
     assert unread.loopback_listeners is None and unread.loopback_listeners_read is False
     # An open run reads nothing: the record is about what an offline session is kept from.
     calls: list[int] = []
-    opened = cli._os_layer_checked(
-        envelope, make_config(), PRESENT, listening=lambda: calls.append(1) or ()
-    )
+
+    def counted() -> tuple[int, ...]:
+        calls.append(1)
+        return ()
+
+    opened = cli._os_layer_checked(envelope, make_config(), PRESENT, listening=counted)
     assert calls == [] and opened.loopback_listeners is None
     cli._say_listeners(offline.network, (631, 8811))
     assert "2 services listen on this machine's loopback" in capsys.readouterr().err

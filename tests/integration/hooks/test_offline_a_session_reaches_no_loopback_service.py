@@ -85,7 +85,9 @@ def test_offline_a_sandboxed_command_cannot_reach_a_service_on_the_host_s_loopba
         layer=True,
         network="none",
     )
-    (told,) = run["told"]  # type: ignore[misc]
+    said = run["told"]
+    assert isinstance(said, list) and len(said) == 1
+    told = str(said[0])
     assert token not in told, "the session reached a service on the host's loopback"
     assert "REFUSED" in told, told
     settings = run["settings"]
