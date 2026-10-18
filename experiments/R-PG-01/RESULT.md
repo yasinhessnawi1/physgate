@@ -457,9 +457,7 @@ intervals given are descriptive and were chosen by the analyst after the run.
 The script's "not judged on the expected check" list is read as stated under item 3. The
 equilibrium counts under item 3 were added by the analyst from the gate records, counts only.
 
-### 8. The rubric approver's exposure is not yet stated
-
-R2 requires it; see "Blindness (R2)". Open until the owner fills it in.
+Departure 8 (closed before merge): the rubric approver's statement was added; see Blindness (R2).
 
 ### 9. The gate on `master` has since changed
 
