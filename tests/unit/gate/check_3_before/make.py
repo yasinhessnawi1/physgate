@@ -1,19 +1,20 @@
 """Record what the equilibrium check said before the fix, over every statics graph we have.
 
-Run inside a checkout of the commit before the fix, with that checkout's environment:
+Run inside a checkout of the commit before the fix (``247427b``), with that checkout's
+environment, after copying the fix's gate tests and this directory into it, so the
+graphs those tests build are judged too (they fail there, as they should):
 
     HARVEST_OUT=harvested.json PYTHONPATH=<this directory> \
         uv run pytest -q -p harvest tests/unit/gate tests/injected
-    PYTHONPATH=<tests/unit/gate> uv run python make.py harvested.json <repro dir> record.json
+    PYTHONPATH=<this directory>:<tests/unit/gate> uv run python make.py harvested.json record.json
 
-The test files of the fix are copied into the old checkout before the harvest, so the graphs
-they build are judged too (they fail there, as they should). The hand-made reproduction
-script is not in the repository; the graphs it built are kept in the record whole.
+Everything it reads is in the repository, so a clean clone remakes the record; the
+test pins its digest.
 
 Cases, each a whole graph written as one revision and judged at system scope:
 - every graph the gate's own tests and the injected-error tests had the gate read that
   carries a statics quantity (harvested with harvest.py);
-- the hand-made reproduction designs and their errors, each patch applied over its base;
+- the hand-made designs, their errors and the probe shapes of ``handmade``;
 - the integration fixtures' designed revisions (domain_review_artefacts.REVISIONS);
 - the seeded random mounts of ``check_3_cases``.
 
@@ -23,7 +24,6 @@ value, and every other record's node and outcome.
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import sys
 import tempfile
@@ -35,20 +35,6 @@ from physgate.gate.bounds_table import load_bounds
 from physgate.gate.context import CheckContext
 from physgate.gate.graph import GraphView
 from physgate.state.store import Store
-
-
-def from_repro(directory: Path) -> list[tuple[str, list[dict[str, Any]]]]:
-    spec = importlib.util.spec_from_file_location("g1_repro", directory / "g1_repro.py")
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    found = []
-    for name, base, patch, _ in mod.cases():
-        merged = {n["id"]: n for n in base}
-        for n in patch or []:
-            merged[n["id"]] = n
-        found.append((f"handmade:{name}", list(merged.values())))
-    return found
 
 
 def from_integration(root: Path) -> list[tuple[str, list[dict[str, Any]]]]:
@@ -80,11 +66,13 @@ def judge(payloads: list[dict[str, Any]], tmp: Path) -> list[dict[str, Any]]:
 
 
 def main() -> None:
-    harvested, repro, out = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
+    harvested, out = Path(sys.argv[1]), Path(sys.argv[2])
     cases: list[tuple[str, list[dict[str, Any]]]] = [
         (f"tests:{i:03d}", p) for i, p in enumerate(json.loads(harvested.read_text()))
     ]
-    cases += from_repro(repro)
+    import handmade
+
+    cases += handmade.handmade()
     cases += from_integration(Path.cwd())
     import check_3_cases
 

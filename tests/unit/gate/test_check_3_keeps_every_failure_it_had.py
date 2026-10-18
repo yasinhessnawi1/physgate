@@ -4,14 +4,15 @@ The fix made the check read balances it used to pass unread. It must not turn an
 it refused into a pass or an unchecked record, so a declared force or a second reading
 can never un-block a mount. The record in ``check_3_before/record.json`` holds what the
 check said before the fix about every graph that carries a statics quantity: every graph
-the gate's own tests and the injected-error tests build, the hand-made reproduction
-designs with their errors, the integration fixtures' revisions and the seeded random
-mounts of ``check_3_cases``. ``check_3_before/make.py`` says how it was made, and from
-which commit.
+the gate's own tests and the injected-error tests build, the hand-made designs, errors
+and probe shapes of ``check_3_before/handmade.py``, the integration fixtures' revisions
+and the seeded random mounts of ``check_3_cases``. ``check_3_before/make.py`` says how
+it was made, and from which commit.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -25,12 +26,16 @@ from physgate.gate.graph import GraphView
 from physgate.state.store import Store
 
 RECORD = Path(__file__).parent / "check_3_before" / "record.json"
+#: The record's digest: a regenerated or edited record is a different record.
+RECORD_SHA256 = "d37b3981fc4cf59ad7e4c0a772f588e3ce2b49d59e145339f081e3209865aaed"
 #: The failing records the check wrote before the fix, counted when the record was made.
-FAILURES_BEFORE = 310
+FAILURES_BEFORE = 314
 
 
 def _cases() -> list[tuple[str, list[dict[str, Any]], list[dict[str, Any]]]]:
-    record = json.loads(RECORD.read_text())["cases"]
+    data = RECORD.read_bytes()
+    assert hashlib.sha256(data).hexdigest() == RECORD_SHA256
+    record = json.loads(data)["cases"]
     drawn = dict(random_mounts())
     return [(c["id"], c.get("nodes") or drawn[c["id"]], c["before"]) for c in record]
 
@@ -66,9 +71,11 @@ def test_every_balance_the_check_refused_before_the_fix_it_still_refuses_in_the_
     assert lost == []
 
 
-def test_the_record_covers_the_shapes_the_fix_reads_anew() -> None:
-    # Mixed loads, unplaced reactions and members with a load force and no position are
-    # all in the record, so the comparison reaches every new branch beside a refusal.
+def test_the_record_covers_the_shapes_the_fix_reads_anew(tmp_path: Path) -> None:
+    # Beside a refusal: loads with both a mass and a load force (some in a refused unit),
+    # reactions with no position, and load forces with no position, so the comparison
+    # reaches every new branch of the placed path. And structures with no positions at
+    # all, which the check now judges by forces alone, both refused and passed.
     cases = _cases()
 
     def has(payloads: list[dict[str, Any]], *names: str) -> bool:
@@ -77,14 +84,32 @@ def test_the_record_covers_the_shapes_the_fix_reads_anew() -> None:
     def refused(before: list[dict[str, Any]]) -> bool:
         return any(o["outcome"] == "fail" for o in before)
 
-    mixed = [c for c, p, b in cases if refused(b) and has(p, "mass", "load_force")]
-    stray = [
-        c
-        for c, p, b in cases
-        if refused(b)
-        and any(
-            "reaction_force" in q["quantities"] and "support_position" not in q["quantities"]
-            for q in p
-        )
+    def bare(p: dict[str, Any], name: str, place: str) -> bool:
+        return name in p["quantities"] and place not in p["quantities"]
+
+    beside = [(p, b) for _, p, b in cases if refused(b)]
+    mixed = [p for p, _ in beside if has(p, "mass", "load_force")]
+    refused_unit = [
+        p
+        for p in mixed
+        if any(q["quantities"].get("load_force", {}).get("unit") not in (None, "N") for q in p)
     ]
-    assert len(mixed) >= 20 and len(stray) >= 20
+    stray = [p for p, _ in beside if any(bare(q, "reaction_force", "support_position") for q in p)]
+    forces = [
+        p
+        for p, _ in beside
+        if any(bare(q, "load_force", "mount_position") and "mass" not in q["quantities"] for q in p)
+    ]
+    assert len(mixed) >= 20 and len(stray) >= 20 and len(refused_unit) >= 3 and len(forces) >= 5
+    by_forces = {"fail": 0, "pass": 0}
+    for k, (_, payloads, _) in enumerate(cases):
+        if any(
+            set(q["quantities"]) & {"support_position", "mount_position"} for q in payloads
+        ) or not any("reaction_force" in q["quantities"] for q in payloads):
+            continue
+        now = _now(tmp_path / str(k), payloads)
+        if any(o["outcome"] == "fail" for o in now):
+            by_forces["fail"] += 1
+        elif not any(o["outcome"] == "unchecked" for o in now):
+            by_forces["pass"] += 1
+    assert by_forces["fail"] >= 20 and by_forces["pass"] >= 5, by_forces

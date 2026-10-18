@@ -27,19 +27,16 @@ either enter a judged balance or be named in an unchecked record:
 
 - **A structure with no positions.** When no member of a node declares a position
   but some declare a ``reaction_force``, the node is a structure all the same, and
-  its vertical force sum needs no position: the reactions must carry the weights
-  and forces of the other members. That sum is judged; the moments, which need the
-  arms nobody wrote, are not, and the record says so. It is formed only for a
-  mechanical node, only from reactions that name no other mechanical node, and
-  never where one member constrains another (a nested mass would be counted twice).
-  Two conventions are honest and the declaration does not say which it follows:
-  whether a support's reaction carries the support's own weight, and whether a
-  component structure's own weight is among its loads. The balance fails only if
-  it fails under every such reading, passes only if it holds under every one, and
-  is unchecked when they disagree: no writer can pick the reading that passes.
-- **A load that declares both a mass and a load_force.** The catalogue does not say
-  whether the force is the weight written again or a force on top of it. The
-  check's own reading (the weight, as it always read it) decides a failure, and a
+  its vertical force sum needs no position. It is formed only for a mechanical node,
+  and judged by :mod:`physgate.gate.check_equilibrium_forces`, which says how each
+  open reading is read, when it fails, passes or is unchecked, and its named limits
+  (a dummy reaction pair among them). A pass there is counted apart in the record's
+  tool line, since forces alone are weaker evidence than a placed balance.
+- **A load that declares both a mass and a load_force.** Nothing in the
+  declaration says whether the force is the weight written again or a force on top
+  of it. The check's own reading (the weight, as it always read it, reading the mass
+  alone, so a load force in a refused unit spoils only the readings that use it)
+  decides a failure, and a
   failure stands whatever the other readings say, so a declared force can never
   un-block a mount. A mount that balances under that reading passes only if it
   also balances under the others (the force alone, the two together), and is
@@ -61,12 +58,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from fractions import Fraction
-from typing import Literal
 
 from physgate.gate import equilibrium
+from physgate.gate.check_equilibrium_forces import (
+    READINGS,
+    Reading,
+    force_miss,
+    forces_refused,
+    judge_forces,
+    mixed,
+    shared,
+    weight,
+)
 from physgate.gate.context import CheckContext
 from physgate.gate.equilibrium import (
-    STANDARD_GRAVITY,
     ClosedFormSolver,
     EquilibriumSolver,
     Load,
@@ -92,11 +97,6 @@ from physgate.orchestrator.protocols import (
 SPLIT_UNVERIFIED = "load split between supports unverified; needs FEA"
 #: The quantities that only mean something inside a structure's balance.
 STATICS: tuple[str, ...] = ("reaction_force", "reaction_moment", "load_force")
-#: How a load that declares both a mass and a load_force is read: its weight alone,
-#: its declared force alone, or the two together. Today's reading is the first.
-Reading = Literal["weight", "force", "both"]
-READINGS: tuple[Reading, ...] = ("weight", "force", "both")
-FORCES_ONLY = "force sum only: the structure declares no positions"
 
 
 @dataclass(frozen=True)
@@ -176,25 +176,6 @@ def _si(view: GraphView, node: str, name: str) -> Fraction:
     return measured(view, TermRef(node, name)).magnitude
 
 
-def _weight(view: GraphView, node: str, reading: Reading) -> Fraction | None:
-    """What ``node`` presses down with under ``reading``; ``None`` if it declares neither.
-
-    A node with only a mass, or only a load force, has one answer under every
-    reading. Only a node with both is read three ways.
-    """
-    q = view.nodes[node].quantities
-    weight = _si(view, node, "mass") * STANDARD_GRAVITY if "mass" in q else None
-    force = _si(view, node, "load_force") if "load_force" in q else None
-    if weight is None or force is None:
-        return weight if weight is not None else force
-    return {"weight": weight, "force": force, "both": weight + force}[reading]
-
-
-def _mixed(view: GraphView, nodes: tuple[str, ...]) -> tuple[str, ...]:
-    """Those of ``nodes`` that declare both a mass and a load force."""
-    return tuple(n for n in nodes if {"mass", "load_force"} <= set(view.nodes[n].quantities))
-
-
 def _declared(view: GraphView, mount: _Mount, reading: Reading = "weight") -> _Declared:
     """The mount as the graph declares it, in newtons and metres, under ``reading``.
 
@@ -216,7 +197,7 @@ def _declared(view: GraphView, mount: _Mount, reading: Reading = "weight") -> _D
         moment = _si(view, s, "reaction_moment") if fixed else Fraction(0)
         reactions.append(Reaction(s, _si(view, s, "reaction_force"), moment))
     for ld in mount.loads:
-        force = _weight(view, ld, reading)
+        force = weight(view, ld, reading)
         if force is None:
             missing.append(f"mass or load_force of {ld}")
             continue
@@ -360,21 +341,21 @@ def _values(reactions: tuple[Reaction, ...], fixed: set[str]) -> tuple[ReactionV
 def _judge(view: GraphView, mount: _Mount, solver: EquilibriumSolver) -> Observation | None:
     """The finding for one mount, or ``None`` if it holds under every reading of it."""
     if not mount.positioned:
-        return _judge_forces(view, mount)
+        return judge_forces(view, mount.mount_id, mount.supports, mount.loads)
     found = _judge_reading(view, mount, solver, "weight")
-    mixed = _mixed(view, mount.loads)
+    doubled = mixed(view, mount.loads)
     # A failure under the check's own reading stands: a second reading that happens to
     # balance must never un-block a mount. A pass needs every reading to balance.
-    if mixed and found is None:
+    if doubled and found is None:
         others = [_judge_reading(view, mount, solver, r) for r in READINGS if r != "weight"]
         if any(o is not None for o in others):
             return _unchecked(
                 mount,
                 view.module_of(mount.mount_id),
-                f"cannot be checked: {', '.join(mixed)} declare both a mass and a load_force, "
+                f"cannot be checked: {', '.join(doubled)} declare both a mass and a load_force, "
                 "and the reactions balance under some readings of them and not others "
                 "(the weight alone, the force alone, the two together)",
-                tuple(f"load_force of {n}" for n in mixed),
+                tuple(f"load_force of {n}" for n in doubled),
             )
     if found is None and mount.unplaced_forces:
         return _unchecked(
@@ -517,151 +498,6 @@ def _unchecked(mount: _Mount, module: str | None, why: str, names: tuple[str, ..
     )
 
 
-def _force_miss(
-    reactions: list[Fraction], loads: list[Fraction]
-) -> tuple[Fraction, Fraction] | None:
-    """The force residual and what rounding explains, or ``None`` if rounding explains it."""
-    residual = sum(reactions, Fraction(0)) - sum(loads, Fraction(0))
-    terms = [*reactions, *loads]
-    if holds_within_rounding(residual, terms):
-        return None
-    return residual, ROUNDING_SHARE * sum((abs(t) for t in terms), Fraction(0))
-
-
-def _forces_refused(
-    view: GraphView,
-    mount: _Mount,
-    supports: tuple[str, ...],
-    miss: tuple[Fraction, Fraction],
-    how: str,
-) -> Observation:
-    residual, bound = miss
-    declared = tuple(
-        ReactionValue(
-            support=s,
-            force=output(_si(view, s, "reaction_force"), "N"),
-            moment=None,
-        )
-        for s in supports
-    )
-    return Observation(
-        outcome="fail",
-        node=mount.mount_id,
-        module=view.module_of(mount.mount_id),
-        value=output(residual, "N"),
-        expected="declared reactions that carry the loads, within declared rounding",
-        message=(
-            f"mount {mount.mount_id}: its declared reactions do not carry its loads ({how}): "
-            f"the forces miss by {output(residual, 'N').value} N, and moving each declared "
-            f"force and weight within half a unit in its third significant figure explains "
-            f"at most {output(bound, 'N').value} N"
-        ),
-        details=EquilibriumDetails(
-            solved=(),
-            declared=declared,
-            residual_force=output(residual, "N"),
-            residual_moment=None,
-            solver=FORCES_ONLY,
-        ),
-        quantities=tuple(_reaction_ref(view, s) for s in supports)[:3],
-    )
-
-
-def _shared(view: GraphView, mount: _Mount, reactors: tuple[str, ...]) -> tuple[str, ...]:
-    """Those of ``reactors`` whose reaction could be meant for another mechanical node.
-
-    A node declares one reaction force. If it names more than one mechanical node,
-    nothing says which of them that force holds up, so it is attributed to none.
-    """
-    return tuple(
-        r
-        for r in reactors
-        if any(
-            t != mount.mount_id and t in view.nodes and view.nodes[t].domain == "mechanical"
-            for t in view.nodes[r].constrains
-        )
-    )
-
-
-def _nested(view: GraphView, members: tuple[str, ...]) -> tuple[str, ...]:
-    """Members that constrain another member: a mass that may be counted twice."""
-    inside = set(members)
-    return tuple(m for m in members if inside & (set(view.nodes[m].constrains) - {m}))
-
-
-def _judge_forces(view: GraphView, mount: _Mount) -> Observation | None:
-    """A structure that declares reactions and no positions: its force sum alone.
-
-    It fails only if no honest reading balances it, passes only if every reading
-    does, and is unchecked when they disagree. Its moments are never judged.
-    """
-    module = view.module_of(mount.mount_id)
-    names = tuple(f"reaction_force of {s}" for s in mount.supports)
-    shared = _shared(view, mount, mount.supports)
-    if shared:
-        why = (
-            f"cannot be checked: {', '.join(shared)} declare a reaction and name another "
-            "mechanical node as well, so which structure that reaction holds up is not said"
-        )
-        return _unchecked(mount, module, why, names)
-    nested = _nested(view, (*mount.supports, *mount.loads))
-    if nested:
-        why = (
-            f"cannot be checked: {', '.join(nested)} constrain another of its members, so a "
-            "mass could be counted twice"
-        )
-        return _unchecked(mount, module, why, names)
-    if not mount.loads:
-        why = "declares reactions but no member it carries, so there is no load to hold them to"
-        return _unchecked(mount, module, why, names)
-    structure = view.nodes[mount.mount_id]
-    try:
-        reactions = [_si(view, s, "reaction_force") for s in mount.supports]
-        own_supports = [
-            _si(view, s, "mass") * STANDARD_GRAVITY
-            for s in mount.supports
-            if "mass" in view.nodes[s].quantities
-        ]
-        own = (
-            [_si(view, mount.mount_id, "mass") * STANDARD_GRAVITY]
-            if structure.kind != "module" and "mass" in structure.quantities
-            else []
-        )
-        weighed = {
-            r: [w for ld in mount.loads if (w := _weight(view, ld, r)) is not None]
-            for r in READINGS
-        }
-    except (UnitRefusedError, *PINT_ERRORS):
-        return _unchecked(mount, module, "has a quantity in a unit the unit check refuses", names)
-    readings = READINGS if _mixed(view, mount.loads) else ("weight",)
-    supports_too = (False, True) if own_supports else (False,)
-    own_too = (False, True) if own else (False,)
-    misses = {
-        (r, s, o): _force_miss(
-            reactions, [*weighed[r], *(own_supports if s else []), *(own if o else [])]
-        )
-        for r in readings
-        for s in supports_too
-        for o in own_too
-    }
-    if all(m is not None for m in misses.values()):
-        canonical = misses[("weight", False, False)]
-        if canonical is None:  # pragma: no cover - every reading missed, this one included
-            return None
-        how = "no positions are declared, so only the forces are judged"
-        if len(misses) > 1:
-            how += ", under every reading of whose weight the reactions carry"
-        return _forces_refused(view, mount, mount.supports, canonical, how)
-    if all(m is None for m in misses.values()):
-        return None
-    why = (
-        "cannot be checked: its reactions carry its loads under some honest readings and "
-        "not others (whether a support's or the structure's own weight is carried, or how a "
-        "load declaring both a mass and a load_force is read)"
-    )
-    return _unchecked(mount, module, why, names)
-
-
 def _judge_stray_reactions(view: GraphView, mount: _Mount) -> Observation | None:
     """A placed mount that balanced, beside reactions with no position: forces only.
 
@@ -671,12 +507,12 @@ def _judge_stray_reactions(view: GraphView, mount: _Mount) -> Observation | None
     module = view.module_of(mount.mount_id)
     stray = mount.unplaced_reactions
     names = tuple(f"support_position of {s}" for s in stray)
-    shared = _shared(view, mount, stray)
+    attributed = shared(view, mount.mount_id, stray)
     why = (
         f"cannot be checked: {', '.join(stray)} declare a reaction_force on it and no "
         "support_position, so its moments cannot be judged"
     )
-    if shared:
+    if attributed:
         return _unchecked(mount, module, why, names)
     try:
         declared = _declared(view, mount)
@@ -684,11 +520,11 @@ def _judge_stray_reactions(view: GraphView, mount: _Mount) -> Observation | None
         reactions += [_si(view, s, "reaction_force") for s in stray]
     except (UnitRefusedError, *PINT_ERRORS):
         return _unchecked(mount, module, why, names)
-    miss = _force_miss(reactions, [ld.force_n for ld in declared.problem.loads])
+    miss = force_miss(reactions, [ld.force_n for ld in declared.problem.loads])
     if miss is None:
         return _unchecked(mount, module, why, names)
     how = f"counting the reactions of {', '.join(stray)}, which declare no position"
-    return _forces_refused(view, mount, (*mount.supports, *stray), miss, how)
+    return forces_refused(view, mount.mount_id, (*mount.supports, *stray), miss, how)
 
 
 def _unread(view: GraphView, nodes: list[str], read: set[str]) -> list[Observation]:
@@ -731,14 +567,20 @@ def run(ctx: CheckContext) -> CheckRun:
     every = mounts(view)
     found = [m for m in every if ctx.scope == "system" or near & {m.mount_id, *m.reads()}]
     solver = ctx.solver if ctx.solver is not None else ClosedFormSolver()
-    observations = [o for o in (_judge(view, m, solver) for m in found) if o is not None]
+    judged = [(m, _judge(view, m, solver)) for m in found]
+    observations = [o for _, o in judged if o is not None]
     # A mount recorded as unchecked was not judged, so it is not counted as evaluated.
     unchecked = sum(1 for o in observations if o.outcome == "unchecked")
+    # A pass on forces alone is weaker than a placed one, so the record says how many.
+    by_forces = sum(1 for m, o in judged if not m.positioned and o is None)
     in_scope = [n for n in view.nodes if ctx.scope == "system" or n in near]
     read = {n for m in every for n in m.reads()}
     observations += _unread(view, in_scope, read)
+    tool = f"{solver.name}, with the declared-rounding allowance"
+    if by_forces:
+        tool += f"; {by_forces} passed on forces alone, with no positions declared"
     return CheckRun(
-        tool=f"{solver.name}, with the declared-rounding allowance",
+        tool=tool,
         evaluated=len(found) - unchecked,
         observations=tuple(observations),
     )

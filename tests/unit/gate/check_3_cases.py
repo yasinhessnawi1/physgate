@@ -4,7 +4,8 @@ Shared by the test that compares the check with its record from before the fix a
 script that made that record, so both judge exactly the same graphs. Each mount has 1 to 4
 supports (pins, or one fixed), 0 to 5 loads by mass, by force or both, placed or not, and
 reactions solved by statics, perturbed or missing, with supports' own masses and a stray
-reaction beside them now and then.
+reaction beside them now and then. About three in ten declare no position at all, so the
+structures judged by forces alone are reached, failing and passing.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ import random
 from typing import Any
 
 SEED = 20261018
-COUNT = 600
+COUNT = 800
 G = 9.80665
 
 
@@ -47,7 +48,7 @@ def _sig(x: float) -> float:
 
 
 def _loads(
-    rng: random.Random, i: int, m: str
+    rng: random.Random, i: int, m: str, placing: bool
 ) -> tuple[list[dict[str, Any]], list[tuple[float, float]]]:
     out, loads = [], []
     for j in range(rng.randint(0, 5)):
@@ -59,7 +60,7 @@ def _loads(
             q["mass"] = (mass, "kg")
         if kind in ("force", "both"):
             q["load_force"] = (force, "N")
-        placed = rng.random() < 0.85
+        placed = placing and rng.random() < 0.85
         if placed:
             q["mount_position"] = (x, "m")
         loads.append((mass * G if kind != "force" else force, x if placed else 0.0))
@@ -72,11 +73,12 @@ def random_mount(rng: random.Random, i: int) -> list[dict[str, Any]]:
     m = f"mechanical.plate_{i}"
     own = {"mass": (_sig(rng.uniform(0.05, 2)), "kg")} if rng.random() < 0.3 else {}
     out = [node(m, "mechanical", own, [], kind=rng.choice(["module", "component"]))]
-    members, loads = _loads(rng, i, m)
+    placing = rng.random() >= 0.3
+    members, loads = _loads(rng, i, m, placing)
     out += members
     n_sup = rng.randint(1, 4)
     xs = sorted(round(rng.uniform(-0.25, 0.25), 3) for _ in range(n_sup))
-    fixed = n_sup == 1 and rng.random() < 0.6
+    fixed = placing and n_sup == 1 and rng.random() < 0.6
     total = sum(w for w, _ in loads)
     moment = 0.0
     if n_sup == 1:
@@ -93,7 +95,7 @@ def random_mount(rng: random.Random, i: int) -> list[dict[str, Any]]:
         if mode == "perturbed" and rng.random() < 0.7:
             r = r * rng.uniform(0.3, 1.7) + rng.uniform(-1, 1)
         q: dict[str, tuple[float, str]] = {}
-        if rng.random() < 0.9:
+        if placing and rng.random() < 0.9:
             q["support_position"] = (xs[k], "m")
         if not (mode == "missing" and k == 0):
             q["reaction_force"] = (_sig(r) if r else 0.0, "N")

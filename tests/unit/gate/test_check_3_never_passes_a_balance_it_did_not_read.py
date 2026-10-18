@@ -24,6 +24,7 @@ from physgate.gate.bounds_table import load_bounds
 from physgate.gate.context import CheckContext
 from physgate.gate.graph import GraphView
 from physgate.gate.result import CheckRun
+from physgate.gate.runner import PhysicsGate
 from physgate.orchestrator.protocols import EquilibriumDetails
 
 BODY = "mechanical.body"
@@ -338,3 +339,135 @@ def test_a_reaction_declared_where_no_structure_reads_it_is_recorded_unchecked(
     (record,) = ran.observations
     assert record.outcome == "unchecked" and record.node == "mechanical.stand"
     assert ran.evaluated == 0
+
+
+# --- each reading reads only what it needs; a weight failure always stands ---------------
+
+
+@pytest.mark.parametrize("unit", ["kg", "degC", "flibbet"])
+def test_a_load_force_in_a_refused_unit_never_un_blocks_an_attempt_the_weights_fail(
+    tmp_path: Path, unit: str
+) -> None:
+    # The base balances on its weights; the attempt raises one reaction. The pack's load
+    # force is given in a unit the unit check refuses and is not the attempt's own, so
+    # only check 3 can refuse the attempt, and the weight reading never reads the force.
+    root = tmp_path / "g"
+    pack = part("cell_pack", 0.15, x=0.0)
+    pack["quantities"]["load_force"] = {
+        "value": 3.0,
+        "unit": unit,
+        "source": "datasheet",
+        "written_by": "electrical",
+    }
+    base = (
+        body(0.34),
+        wheel("left", 1.47, x=-0.05),
+        wheel("right", 1.47, x=0.05),
+        pack,
+        *PLACED,
+    )
+    head = graph(root, *base)
+    graph(root, wheel("right", 2.40, x=0.05))
+    view = GraphView.read(root, base_revision=head)
+    result = PhysicsGate().run(view, ("subtask", "module"), "on")
+    assert result.verdict == "fail" and result.failing_check == "equilibrium"
+
+
+def test_a_stale_load_force_never_un_blocks_a_structure_without_positions(
+    tmp_path: Path,
+) -> None:
+    # The pack grew from 0.15 to 0.25 kg and the reactions were left; its load force
+    # still says the old weight, 1.471 N. Read by its weight, the structure fails.
+    pack = part("cell_pack", 0.25, extra_n=1.471)
+    ran = run(tmp_path, body(0.44), wheel("left", 1.47), wheel("right", 1.47), pack, *UNPLACED[1:])
+    assert [o.outcome for o in ran.observations if o.node == BODY] == ["fail"]
+
+
+def massless(side: str, force: float) -> dict[str, Any]:
+    payload = wheel(side, force)
+    payload["quantities"] = {"reaction_force": payload["quantities"]["reaction_force"]}
+    return payload
+
+
+def test_the_force_sum_allowance_is_half_a_unit_in_each_term_s_third_figure(
+    tmp_path: Path,
+) -> None:
+    # 0.30 kg is 2.941995 N. Missing by 0.030 N, the allowance is 0.005 of 5.913990 N,
+    # 0.029570 N: refused. Missing by 0.029 N, it is 0.029565 N: held.
+    over = run(
+        tmp_path / "a",
+        body(0.30),
+        massless("left", 1.4859975),
+        massless("right", 1.4859975),
+        *UNPLACED,
+    )
+    under = run(
+        tmp_path / "b",
+        body(0.30),
+        massless("left", 1.4854975),
+        massless("right", 1.4854975),
+        *UNPLACED,
+    )
+    (finding,) = [o for o in over.observations if o.node == BODY]
+    assert finding.outcome == "fail"
+    assert "explains at most 0.02956995 N" in finding.message
+    assert [o for o in under.observations if o.node == BODY] == []
+
+
+def test_a_wheel_naming_the_motor_it_drives_still_has_its_reaction_judged(
+    tmp_path: Path,
+) -> None:
+    # A wheel names its electrical motor as well as the body: the motor holds nothing up,
+    # so the reaction is still the body's, and an error in it is refused.
+    motor = node("electrical.motor_left", quantities={"mass": (0.03, "kg")})
+    left = {**wheel("left", 1.47), "constrains": [BODY, "electrical.motor_left"]}
+    ran = run(tmp_path, body(0.34), motor, left, wheel("right", 2.40), *UNPLACED)
+    assert [o.outcome for o in ran.observations if o.node == BODY] == ["fail"]
+
+
+def test_reactions_given_on_the_supports_rather_than_the_body_are_unchecked_not_refused(
+    tmp_path: Path,
+) -> None:
+    ran = run(tmp_path, body(0.30), massless("left", -1.47), massless("right", -1.47), *UNPLACED)
+    (record,) = [o for o in ran.observations if o.node == BODY]
+    assert record.outcome == "unchecked"
+
+
+def test_a_third_reaction_that_may_push_sideways_is_unchecked_not_refused(tmp_path: Path) -> None:
+    bumper = massless("bumper", 5.0)
+    ran = run(
+        tmp_path, body(0.30), massless("left", 1.47), massless("right", 1.47), bumper, *UNPLACED
+    )
+    (record,) = [o for o in ran.observations if o.node == BODY]
+    assert record.outcome == "unchecked"
+
+
+def test_a_member_carrying_another_weighted_part_leaves_the_structure_unchecked(
+    tmp_path: Path,
+) -> None:
+    # The pack sits on a bracket that sits on the body: the bracket presses with both.
+    bracket = node(
+        "mechanical.bracket",
+        domain="mechanical",
+        quantities={"mass": (0.05, "kg")},
+        constrains=[BODY],
+    )
+    pack = node(
+        "electrical.cell_pack", quantities={"mass": (0.15, "kg")}, constrains=["mechanical.bracket"]
+    )
+    ran = run(
+        tmp_path,
+        body(0.39),
+        massless("left", 1.716),
+        massless("right", 1.716),
+        bracket,
+        pack,
+        *UNPLACED[1:],
+    )
+    (record,) = [o for o in ran.observations if o.node == BODY]
+    assert record.outcome == "unchecked" and "carry other parts" in record.message
+
+
+def test_a_pass_on_forces_alone_is_counted_apart_in_the_record(tmp_path: Path) -> None:
+    ran = run(tmp_path, body(0.30), massless("left", 1.47), massless("right", 1.47), *UNPLACED)
+    assert ran.observations == () and "1 passed on forces alone" in ran.tool
