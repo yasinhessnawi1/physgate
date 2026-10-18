@@ -155,3 +155,12 @@ def test_where_the_os_layer_is_absent_the_firmware_tier_refuses(
         sandboxed(argv, scratch=scratch, readable=(readable,), limits=limits),
     ):
         pass
+
+
+def test_the_emulator_s_own_cpu_limit_is_set_before_it_runs(tmp_path: Path) -> None:
+    scratch, readable, argv = _setup(tmp_path, "while True:\n    pass\n")
+    limits = EmulatorLimits(wall_s=60.0, cpu_s=2, memory_bytes=None, tasks=16)
+    began = time.monotonic()
+    with sandboxed(argv, scratch=scratch, readable=(readable,), limits=limits) as session:
+        session.run.wait()
+    assert time.monotonic() - began < 20  # the emulator's 2 s, not the runtime's wider bound
