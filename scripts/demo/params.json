@@ -1,0 +1,35 @@
+{
+ "auth": "api_key",
+ "gate_mode": "on",
+ "models": {
+  "decomposition": "claude-opus-5-5",
+  "roles": {
+   "control": "claude-opus-5-5",
+   "firmware": "claude-opus-5-5"
+  },
+  "reviewers": {
+   "control": "claude-sonnet-5",
+   "firmware": "claude-sonnet-5"
+  }
+ },
+ "bounds": {
+  "binary_max_retries": 0,
+  "session_wall_clock_s": 4500.0,
+  "session_max_turns": 80,
+  "infra_retry_delays_s": [
+   60.0,
+   300.0
+  ]
+ },
+ "token_ceiling": 400000,
+ "reportable": true,
+ "effort": "high",
+ "max_output_tokens": 64000,
+ "thinking_display": "summarized",
+ "role_python": "/usr/bin/python3",
+ "escalation_backend": "rules",
+ "held_out": [],
+ "held_out_canaries": [],
+ "held_out_sha256": [],
+ "network": "open"
+}
