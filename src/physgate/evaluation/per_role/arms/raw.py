@@ -60,7 +60,7 @@ from physgate.orchestrator.processes import stop_tree
 from physgate.orchestrator.role_python import RolePython, session_bin
 from physgate.orchestrator.run_config import Effort, Network, RunBounds, ThinkingDisplay
 from physgate.oslayer.probe import Absent, Present
-from physgate.reviewers.ending import await_session
+from physgate.reviewers.ending import SessionEnd, await_session
 
 #: How often the watcher reads the stream.
 WATCH_S = 0.5
@@ -246,6 +246,51 @@ def _run(
     temp: Path | None,
     cap: int,
 ) -> dict[str, Any]:
+    stdout, stderr = sdir / "stdout.jsonl", sdir / "stderr.txt"
+    # One boundary from the first write of the credential to its removal: whatever ends
+    # the session (an error, a refusal, the clock, the cap, a kill), the cleanup runs.
+    try:
+        ended, watch, seconds, after = _session(task, setup, worktree, sdir, session_id, temp, cap)
+    finally:
+        _clean(work, sdir, setup.credential.secret, (stdout, stderr))
+    captured = read_captured(stdout)
+    total = sum(m.usage.total() for m in captured.usage)
+    answer_status = _take_answer(worktree, task, work / "answer" / task.answer.path)
+    end = (
+        "budget_exhausted"
+        if watch.exhausted_at is not None
+        else ("wall_clock" if ended.timed_out else "ended")
+    )
+    record = {
+        "task": task.id,
+        "session_id": session_id,
+        "end": end,
+        "exit_code": ended.exit_code,
+        "left_running": list(ended.left_running),
+        "wall_clock_s": seconds,
+        "tokens": total,
+        "cap": cap,
+        "answer": answer_status,
+        "answered_by": sorted(captured.answered),
+        "held_out_seen": review_material_seen(stdout, frozenset(setup.held_out_canaries))
+        is not None,
+        "sentinel_after_stop": after.get("refused"),
+        "pins": pins(task, setup),
+    }
+    write_record(work.parent, work.name, record, "raw.json")
+    return record
+
+
+def _session(
+    task: Task,
+    setup: RawSetup,
+    worktree: Path,
+    sdir: Path,
+    session_id: str,
+    temp: Path | None,
+    cap: int,
+) -> tuple[SessionEnd, BudgetWatch, float, dict[str, Any]]:
+    """Install, spawn, watch and end the raw session; the credential's removal is the caller's."""
     # As a role session's: what the runtime makes is made first, so it is in the record.
     (sdir / "home").mkdir(mode=0o700, exist_ok=True)
     runtime_paths(worktree, sdir / "home")
@@ -275,66 +320,60 @@ def _run(
         thinking_display=setup.thinking_display,
     )
     check = session_end_command(Path(installed["settings"]))
-    stdout = sdir / "stdout.jsonl"
+    stdout, stderr = sdir / "stdout.jsonl", sdir / "stderr.txt"
 
     def while_held(pid: int, started: str) -> None:
         record = {"pid": pid, "started": started, "session_id": session_id, "kind": "raw"}
         write_record(sdir.parent, sdir.name, record, "process.json")
 
     began = time.monotonic()
-    stderr = sdir / "stderr.txt"
+    with stdout.open("wb") as out, stderr.open("wb") as err:
+        process, started = spawn_held(
+            argv,
+            cwd=worktree,
+            env=env,
+            out=out,
+            err=err,
+            session_id=session_id,
+            on_spawn=None,
+            while_held=while_held,
+        )
+        watch = BudgetWatch(stdout, cap, process, started)
+        watch.start()
+        try:
+            ended = await_session(process, started, wall_clock)
+        finally:
+            watch.stop()
+    seconds = time.monotonic() - began
+    after = check_after_stop(check, session_id, worktree, env, sdir / "state")
+    return ended, watch, seconds, after
+
+
+def _clean(work: Path, sdir: Path, secret: str, streams: tuple[Path, ...]) -> None:
+    """Remove the credential and scrub it from the session's streams, or record why not.
+
+    The role session's own helpers, which reach every file through descriptors without
+    following a link. A cleanup that fails is recorded beside the session and refuses the
+    result: the credential may still be on disk.
+
+    Raises:
+        RawArmError: any part of the cleanup failed.
+    """
+    errors: list[str] = []
     try:
-        with stdout.open("wb") as out, stderr.open("wb") as err:
-            process, started = spawn_held(
-                argv,
-                cwd=worktree,
-                env=env,
-                out=out,
-                err=err,
-                session_id=session_id,
-                on_spawn=None,
-                while_held=while_held,
-            )
-            watch = BudgetWatch(stdout, cap, process, started)
-            watch.start()
-            try:
-                ended = await_session(process, started, wall_clock)
-            finally:
-                watch.stop()
-        seconds = time.monotonic() - began
-        after = check_after_stop(check, session_id, worktree, env, sdir / "state")
-    finally:
-        # As for a role session: the credential is on disk only while the session runs,
-        # and whatever of it the session printed is taken out of both of its streams.
         remove_secrets(sdir / "state", sdir / "config")
-        redact(stdout, setup.credential.secret)
-        redact(stderr, setup.credential.secret)
-    captured = read_captured(stdout)
-    total = sum(m.usage.total() for m in captured.usage)
-    answer_status = _take_answer(worktree, task, work / "answer" / task.answer.path)
-    end = (
-        "budget_exhausted"
-        if watch.exhausted_at is not None
-        else ("wall_clock" if ended.timed_out else "ended")
-    )
-    record = {
-        "task": task.id,
-        "session_id": session_id,
-        "end": end,
-        "exit_code": ended.exit_code,
-        "left_running": list(ended.left_running),
-        "wall_clock_s": seconds,
-        "tokens": total,
-        "cap": cap,
-        "answer": answer_status,
-        "answered_by": sorted(captured.answered),
-        "held_out_seen": review_material_seen(stdout, frozenset(setup.held_out_canaries))
-        is not None,
-        "sentinel_after_stop": after.get("refused"),
-        "pins": pins(task, setup),
-    }
-    write_record(work.parent, work.name, record, "raw.json")
-    return record
+    except Exception as exc:  # noqa: BLE001 - every failure is recorded and refuses below
+        errors.append(repr(exc))
+    for stream in streams:
+        try:
+            redact(stream, secret)
+        except Exception as exc:  # noqa: BLE001 - every failure is recorded and refuses below
+            errors.append(repr(exc))
+    if errors:
+        record = {"error": "; ".join(errors).replace(secret, "[redacted]")}
+        write_record(work.parent, work.name, record, "cleanup.json")
+        msg = "the raw session's credential could not be removed: " + record["error"]
+        raise RawArmError(msg, work=str(work))
 
 
 def pins(task: Task, setup: RawSetup) -> dict[str, Any]:

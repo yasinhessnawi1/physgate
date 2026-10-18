@@ -147,3 +147,47 @@ def test_the_raw_session_s_shell_is_denied_its_credential_files_by_the_os_layer(
     for secret_place in (sdir / "config", sdir / "state"):
         assert any(Path(secret_place).is_relative_to(Path(d)) for d in deny_read), secret_place
     assert DUMMY not in " ".join(seen[0])
+
+
+@pytest.mark.parametrize(
+    ("step", "error"),
+    [
+        ("session_end_command", RuntimeError("the settings could not be read")),
+        ("spawn_held", OSError("the process could not be started")),
+        ("await_session", KeyboardInterrupt()),
+    ],
+    ids=["before the spawn", "at the spawn", "killed while it runs"],
+)
+def test_the_credential_is_removed_on_every_path_out(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, step: str, error: BaseException
+) -> None:
+    binary = _script(tmp_path / "claude", LEAKY)
+
+    def failing(*_a: object, **_k: object) -> object:
+        raise error
+
+    monkeypatch.setattr(raw, step, failing)
+    work = tmp_path / "work"
+    with pytest.raises(type(error)):
+        raw.run_raw(TASK, _setup(tmp_path, binary), work, cap=10**9)
+    assert _holders(work) == []
+
+
+def test_a_cleanup_that_fails_is_recorded_and_refuses_the_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from physgate.orchestrator.exceptions import InvocationError
+
+    binary = _script(tmp_path / "claude", LEAKY)
+
+    def cannot(*_a: object, **_k: object) -> None:
+        raise InvocationError("a directory on the way is a link")
+
+    monkeypatch.setattr(raw, "remove_secrets", cannot)
+    work = tmp_path / "work"
+    with pytest.raises(raw.RawArmError, match="credential"):
+        raw.run_raw(TASK, _setup(tmp_path, binary), work, cap=10**9)
+    record = json.loads((work / "cleanup.json").read_text())
+    assert "a directory on the way is a link" in record["error"]
+    assert DUMMY not in (work / "cleanup.json").read_text()
+    assert not (work / "raw.json").exists()
