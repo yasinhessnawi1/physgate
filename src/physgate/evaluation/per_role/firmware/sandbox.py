@@ -516,6 +516,10 @@ def sandboxed(
             record.update(_ending(session.run, over))
             used, entries = scratch_usage(scratch, limits.scratch_files)
             record["scratch"] = {"bytes": used, "files": entries}
+            # Anything on the error stream is the sandbox runtime's, its shell's or the
+            # emulator's own (the guest's line is the standard output): counted per arm in
+            # the report, as an upper bound on the runtime failing mid-run.
+            record["sandbox_stderr_bytes"] = output.stat().st_size if output.exists() else 0
 
 
 def _binary() -> str:

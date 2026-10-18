@@ -442,6 +442,25 @@ def test_a_guest_cannot_make_its_end_the_machine_s(tmp_path: Path, body: str) ->
 
 
 @linux_only
+@pytest.mark.parametrize(
+    ("body", "quiet"),
+    [("print('ACT A ON', flush=True)\n", True), (CHOOSERS["forges a status line"], False)],
+    ids=["a clean run", "an error stream written"],
+)
+def test_the_size_of_the_sandbox_s_error_stream_is_recorded(
+    tmp_path: Path, body: str, quiet: bool
+) -> None:
+    scratch, readable, argv = _setup(tmp_path, body)
+    with sandboxed(
+        argv, scratch=scratch, readable=readable, limits=LIMITS, held_out=_held_out(tmp_path)
+    ) as session:
+        session.run.wait()
+    # A clean run leaves the error stream empty, so a count of runs that did not is an
+    # upper bound on the sandbox runtime failing mid-run, and not every run's noise.
+    assert (session.record["sandbox_stderr_bytes"] == 0) is quiet
+
+
+@linux_only
 @pytest.mark.parametrize("trap", ["link", "fifo"])
 def test_the_scratch_s_walk_follows_no_link_and_waits_on_no_fifo(tmp_path: Path, trap: str) -> None:
     import threading
