@@ -106,25 +106,28 @@ def _serve(args: argparse.Namespace) -> int:
         return _fail("the server could not listen", reason=str(exc))
     host, port = str(args.bind), int(server.server_address[1])
     literal = f"[{host}]" if ":" in host else host
-    print(
-        json.dumps(
-            {
-                "url": f"http://{literal}:{port}/",
-                "roots": [str(root.path) for root in allowlist.roots],
-                "operator": args.operator,
-                **(
-                    {"operator_url": operator_url(server, host)}
-                    if args.operator is not None
-                    else {}
-                ),
-                "refused": list(allowlist.refused),
-            },
-            indent=1,
-            sort_keys=True,
-        ),
-        flush=True,
-    )
+    # The address is the readiness signal: a caller that has read it may interrupt at once.
+    # So it is printed inside the block that turns the interrupt into a clean stop; printed
+    # before it, an interrupt landing as the print returns ended the command by the signal.
     try:
+        print(
+            json.dumps(
+                {
+                    "url": f"http://{literal}:{port}/",
+                    "roots": [str(root.path) for root in allowlist.roots],
+                    "operator": args.operator,
+                    **(
+                        {"operator_url": operator_url(server, host)}
+                        if args.operator is not None
+                        else {}
+                    ),
+                    "refused": list(allowlist.refused),
+                },
+                indent=1,
+                sort_keys=True,
+            ),
+            flush=True,
+        )
         server.serve_forever()
     except KeyboardInterrupt:
         pass

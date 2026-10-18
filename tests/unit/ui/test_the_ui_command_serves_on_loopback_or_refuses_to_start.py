@@ -258,3 +258,37 @@ def test_the_command_stops_on_the_interrupt_even_when_started_with_it_ignored(
     finally:
         _interrupt(process)
     assert process.returncode == 0
+
+
+def test_an_interrupt_that_lands_as_the_address_is_printed_still_stops_the_command_cleanly(
+    world: dict[str, Path],
+) -> None:
+    """The printed address is what a caller waits for, so its interrupt may land at once.
+
+    Here it lands as the print returns, every time, with no wait on either side: the command
+    must stop as it does on any later interrupt, not die of the signal (exit -2).
+    """
+    interrupted_as_printed = (
+        "import builtins\n"
+        "printed = builtins.print\n"
+        "def interrupting(*a, **k):\n"
+        "    printed(*a, **k)\n"
+        "    if a and '\"url\"' in str(a[0]):\n"
+        "        raise KeyboardInterrupt\n"
+        "builtins.print = interrupting\n" + LAUNCH
+    )
+    process = subprocess.Popen(
+        [sys.executable, "-c", interrupted_as_printed, str(world["ui"]), "ui",
+         "--root", str(world["root"]), "--port", "0"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )  # fmt: skip
+    try:
+        out, err = process.communicate(timeout=10)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.communicate()
+        raise
+    assert process.returncode == 0, err
+    assert json.loads(out)["url"].startswith("http://127.0.0.1:")
