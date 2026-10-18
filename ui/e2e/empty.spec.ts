@@ -79,11 +79,15 @@ async function settle(page: Page) {
   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0, { timeout: 30_000 });
 }
 
-/** The page's whole visible text holds no terminal command. */
+/**
+ * The page's whole visible text holds no terminal command, and no code or preformatted block
+ * stands in its content. The About page is the one exception to the second: it sets the
+ * licences' own texts as preformatted text, and its text is still held to the first.
+ */
 async function showsNoCommand(page: Page, where: string) {
   const text = await page.locator("body").innerText();
   expect(namesACommand(text), `${where}: ${text}`).toBe(false);
-  await expect(page.locator("main code, main pre")).toHaveCount(0);
+  if (where !== "#/about") await expect(page.locator("main code, main pre")).toHaveCount(0);
 }
 
 test("the server over an empty run folder serves the app and lists no runs", async ({
