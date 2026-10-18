@@ -39,6 +39,9 @@ type Who = "all" | "harness" | "agents";
 
 function shownFor(who: Who, row: Row): boolean {
   if (who === "all") return true;
+  // A row the record maps to no actor belongs to neither filter: it is neither the harness's nor
+  // an agent's, so only "all" shows it.
+  if (row.actor === null) return false;
   if (who === "harness") return row.actor.kind === "deterministic";
   return row.actor.kind === "agent" || row.actor.kind === "unmapped";
 }

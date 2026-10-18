@@ -168,9 +168,31 @@ describe("repairs, infrastructure faults and the whole-design gate say what the 
   };
   const rows = rowsOf(more, MODELS, [unchecked]);
 
-  it("names a repair by the finding that caused it", () => {
-    expect(rowAt(rows, 5).sentence).toBe("Attempt 1 sent back for repair: x");
+  it("names a rejected attempt by the finding that rejected it, and says nothing of a repair", () => {
+    // The log records a rejection and its finding. Whether a repair follows is not in this line.
+    expect(rowAt(rows, 5).sentence).toBe("Attempt 1 rejected: x");
+    expect(rowAt(rows, 5).sentence).not.toMatch(/repair/i);
     expect(rowAt(rows, 5).meta).toContain("finding from the gate");
+  });
+
+  it("a gate line in a mode the interface does not know is shown as written, never as on", () => {
+    const strange = rowsOf(
+      more.map((e) => (e.kind === "integration_gate_ran" ? { ...e, mode: "dry-run" } : e)),
+      MODELS,
+    );
+    const row = rowAt(strange, 9);
+    expect(row.end).toEqual({ kind: "gate-unknown-mode", mode: "dry-run", outcome: "fail" });
+    const html = renderToStaticMarkup(<RowView row={row} />);
+    expect(html).toContain("dry-run");
+    expect(html).not.toMatch(/pg-verdict-(pass|fail|warn)|pg-observed|pg-gate-on/);
+  });
+
+  it("a row the record maps to no actor shows none, never a default one", () => {
+    const row: Row = { ...rowAt(rows, 5), actor: null };
+    const html = renderToStaticMarkup(<RowView row={row} />);
+    expect(html).not.toContain("pg-actor");
+    expect(html).not.toContain("Orchestrator");
+    expect(html).toContain("Attempt 1 rejected: x");
   });
 
   it("names an infrastructure fault by its cause", () => {

@@ -118,6 +118,23 @@ describe("the shell", () => {
     expect(shown).not.toContain("Analyse");
   });
 
+  it("a skip link is the first tab stop; it focuses the content and leaves the route alone", () => {
+    window.location.hash = "#/home/run-records";
+    const host = mount(VIEWS);
+    const first = host.querySelector("a, button, [tabindex]");
+    expect(first?.classList.contains("pg-skip-link")).toBe(true);
+    expect(first?.textContent).toBe("Skip to content");
+    const main = host.querySelector("main");
+    expect(main?.id).toBe("pg-content");
+    expect(main?.getAttribute("aria-labelledby")).toBe("pg-page-title");
+    expect(host.querySelector("#pg-page-title")?.textContent).toBe("Run records");
+    act(() => {
+      (first as HTMLAnchorElement).click();
+    });
+    expect(document.activeElement).toBe(main);
+    expect(window.location.hash).toBe("#/home/run-records");
+  });
+
   it("shows an address with nothing registered as an empty state, not a blank page", () => {
     window.location.hash = "#/simulation";
     const host = mount([]);

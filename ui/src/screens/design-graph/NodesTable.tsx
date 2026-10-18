@@ -9,9 +9,9 @@ import { Id } from "../../design/components/data/Id";
 import { SourceChip } from "../../design/components/data/SourceChip";
 import { type Source, sourceAttribute } from "../../design/components/data/source";
 import { type GateMode, GateOutcome } from "../../design/components/verdict/GateMode";
-import type { Verdict } from "../../design/components/verdict/verdict";
 import { nodeLabel } from "../../words/humanise";
 import { edgesOf } from "./edges";
+import type { NodeVerdict } from "./verdicts";
 
 export function NodesTable({
   nodes,
@@ -25,7 +25,7 @@ export function NodesTable({
   readonly nodes: readonly NodeRecord[];
   /** The whole graph at this revision, which every edge is resolved against, filtered or not. */
   readonly all: readonly NodeRecord[];
-  readonly verdicts: ReadonlyMap<string, Verdict>;
+  readonly verdicts: ReadonlyMap<string, NodeVerdict>;
   readonly gateMode: GateMode;
   readonly source: Source;
   readonly hrefFor: (id: string) => string;
@@ -49,7 +49,7 @@ export function NodesTable({
           <tbody>
             {sorted.map((node) => {
               const edges = edgesOf(node.id, all);
-              const verdict = gateMode === "off" ? undefined : verdicts.get(node.id);
+              const found = gateMode === "off" ? undefined : verdicts.get(node.id);
               return (
                 <tr key={node.id}>
                   <td>
@@ -62,10 +62,15 @@ export function NodesTable({
                     <DomainChip domain={node.domain} />
                   </td>
                   <td>
-                    {verdict === undefined ? (
+                    {found === undefined ? (
                       <span className="pg-muted">none recorded</span>
                     ) : (
-                      <GateOutcome mode={gateMode} outcome={verdict} />
+                      <span className="pg-node-verdict">
+                        <GateOutcome mode={gateMode} outcome={found.verdict} />
+                        {found.partUnchecked && (
+                          <span className="pg-node-part">· part unchecked</span>
+                        )}
+                      </span>
                     )}
                   </td>
                   <td>{node.kind}</td>

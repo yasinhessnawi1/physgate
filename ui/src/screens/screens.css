@@ -794,3 +794,31 @@
   margin: 0;
   color: var(--color-text-2);
 }
+
+/* The quantities a check left unchecked, each name whole: a word never breaks in its middle. */
+.pg-unchecked-list {
+  overflow-wrap: normal;
+}
+
+.pg-unchecked-name {
+  white-space: nowrap;
+}
+
+/* A node's verdict that covers part of the node says so beside the badge. */
+.pg-node-verdict {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.pg-node-part {
+  color: var(--color-text-2);
+  font-size: var(--type-label-size);
+}
+
+/* A gate line whose recorded mode is not known: the outcome as written, in no verdict colour. */
+.pg-gate-unknown {
+  color: var(--color-text-2);
+  border-color: var(--color-border);
+}

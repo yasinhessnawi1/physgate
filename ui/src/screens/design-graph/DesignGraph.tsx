@@ -28,7 +28,7 @@ import { DiffView } from "./DiffView";
 import { missingTargets } from "./edges";
 import { NodeInspector } from "./NodeInspector";
 import { NodesTable } from "./NodesTable";
-import { nodeVerdicts } from "./verdicts";
+import { nodeVerdicts, verdictWords } from "./verdicts";
 
 const AREA = "orchestration";
 const SLUG = "design-graph";
@@ -172,7 +172,7 @@ function Explorer({
   const drawn = edges.filter((e) => shown.some((n) => n.id === e.to));
   const missing = missingTargets(graph.nodes);
   const canvasNodes = shown.map((n) => {
-    const verdict = config.gateMode === "off" ? undefined : verdicts.get(n.id);
+    const found = config.gateMode === "off" ? undefined : verdicts.get(n.id);
     return {
       id: n.id,
       label: nodeLabel(n.id, n.domain),
@@ -183,24 +183,26 @@ function Explorer({
         value: q.value,
         unit: q.unit,
       })),
-      ...(verdict === undefined ? {} : { verdict }),
+      ...(found === undefined
+        ? {}
+        : { verdict: found.verdict, partUnchecked: found.partUnchecked }),
     };
   });
   // The command palette lists the graph's nodes while this screen is shown.
   const entries = useMemo<PaletteEntry[]>(
     () =>
       graph.nodes.map((n) => {
-        const verdict = verdicts.get(n.id);
+        const found = config.gateMode === "off" ? undefined : verdicts.get(n.id);
         return {
           id: `node-${n.id}`,
           section: "Nodes in this run's graph",
-          label: `${nodeLabel(n.id, n.domain)} · ${n.id}${verdict === undefined ? "" : ` · ${verdict}`}`,
+          label: `${nodeLabel(n.id, n.domain)} · ${n.id}${found === undefined ? "" : ` · ${verdictWords(found, config.gateMode)}`}`,
           run: () => {
             go(withQuery(query, { node: n.id, view: null }));
           },
         };
       }),
-    [graph.nodes, verdicts, query],
+    [graph.nodes, verdicts, query, config.gateMode],
   );
   usePaletteEntries(entries);
   return (
@@ -311,7 +313,7 @@ function Explorer({
               edges={drawn}
               selected={selected?.id ?? null}
               onSelect={select}
-              gateMode={config.gateMode === "observe" ? "observe" : "on"}
+              gateMode={config.gateMode}
             />
           )}
           {missing.length > 0 && (

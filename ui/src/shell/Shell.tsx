@@ -164,6 +164,8 @@ export function Shell({
   const route = useRoute();
   useShortcuts(route.query);
   const display = useDisplay();
+  /** The content region, which the skip link focuses. */
+  const contentRef = useRef<HTMLElement>(null);
   const registry = usePaletteRegistry();
   const [navCollapsed, setNavCollapsed] = useState(false);
   const [dockOpen, setDockOpen] = useState(false);
@@ -291,6 +293,19 @@ export function Shell({
           data-dock={dockOpen ? "open" : "rail"}
           data-inspector={inspectorOpen ? "open" : "closed"}
         >
+          {/* The first tab stop: a keyboard user skips the areas and goes to the content. It
+              focuses the content itself rather than following a fragment, since the address's
+              fragment is the route. */}
+          <a
+            className="pg-skip-link"
+            href="#pg-content"
+            onClick={(event) => {
+              event.preventDefault();
+              contentRef.current?.focus();
+            }}
+          >
+            Skip to content
+          </a>
           <nav className="pg-nav" aria-label="Areas">
             <div className="pg-brand">
               <span className="pg-brand-mark" aria-hidden="true">
@@ -356,7 +371,9 @@ export function Shell({
                     {(group ?? (page === null ? undefined : HOME_GROUP))?.name ?? "physgate"}
                   </li>
                   <li aria-current="page">
-                    <h1 className="pg-page-title">{title}</h1>
+                    <h1 className="pg-page-title" id="pg-page-title">
+                      {title}
+                    </h1>
                   </li>
                 </ol>
               </nav>
@@ -450,7 +467,13 @@ export function Shell({
             <div className="pg-body">
               {/* The content scrolls on its own, so it is a tab stop: a screen with nothing to
                   focus, such as the glossary, can still be scrolled from the keyboard. */}
-              <main className="pg-content" tabIndex={0}>
+              <main
+                className="pg-content"
+                id="pg-content"
+                tabIndex={0}
+                aria-labelledby="pg-page-title"
+                ref={contentRef}
+              >
                 {content}
               </main>
               {hasInspector && (

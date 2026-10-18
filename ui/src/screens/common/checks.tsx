@@ -6,7 +6,7 @@
 import type { GateCheck } from "../../api/run";
 import { Quantity } from "../../design/components/data/Quantity";
 import { checkWords } from "../../words/checks";
-import { nodeLabel } from "../../words/humanise";
+import { nodeLabel, quantityLabel } from "../../words/humanise";
 
 /** The gate's message as a sentence: its first letter raised, its words as recorded. */
 export function sentenceOf(message: string): string {
@@ -50,9 +50,16 @@ export function Measured({ check }: { readonly check: GateCheck }) {
   }
   if (check.value !== null) return <Quantity {...check.value} />;
   if (check.outcome === "unchecked" && check.details.quantities.length > 0)
+    // Each quantity in words, whole on its line: a name never breaks in the middle of a word.
     return (
-      <span className="pg-muted">
-        left unchecked: {check.details.quantities.map((q) => q).join(", ")}
+      <span className="pg-muted pg-unchecked-list">
+        left unchecked:{" "}
+        {check.details.quantities.map((q, i) => (
+          <span key={q} className="pg-unchecked-name">
+            {quantityLabel(q)}
+            {i < check.details.quantities.length - 1 ? ", " : ""}
+          </span>
+        ))}
       </span>
     );
   return <span className="pg-muted">nothing measured</span>;

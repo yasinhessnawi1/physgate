@@ -529,3 +529,21 @@
   font-weight: 600;
   white-space: nowrap;
 }
+
+/* The skip link is the first tab stop; it is drawn only while it has the keyboard's focus. */
+.pg-skip-link {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  z-index: 40;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-badge);
+  background: var(--color-surface);
+  color: var(--color-text);
+  transform: translateY(-200%);
+}
+
+.pg-skip-link:focus-visible {
+  transform: none;
+}

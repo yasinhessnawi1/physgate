@@ -196,6 +196,11 @@ describe("actors come from the record, and an unmapped writer is shown as writte
     ).toEqual({ kind: "deterministic", name: "Gate" });
   });
 
+  it("a line of a kind the table does not list gets no actor, never a default one", () => {
+    const line = { seq: 1, ts: "t" };
+    expect(eventActor({ ...line, kind: "other", recorded: "tokens_spent" }, {}, models)).toBeNull();
+  });
+
   it("names a reviewer by the model its review recorded, and a session by its subtask's role", () => {
     const line = { seq: 1, ts: "t" };
     expect(

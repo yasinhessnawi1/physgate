@@ -8,14 +8,7 @@ import { useEffect, useState } from "react";
 
 import { actToken, getJson, pageOperator, postAction, type Result } from "../../api/client";
 import { runEvent } from "../../api/events";
-import {
-  decisionRequest,
-  type ItemView,
-  itemView,
-  queueListing,
-  resolved,
-  type Verb,
-} from "../../api/queue";
+import { decisionRequest, type ItemView, queueListing, resolved, type Verb } from "../../api/queue";
 import { Segmented } from "../../design/components/actions/Segmented";
 import { Id } from "../../design/components/data/Id";
 import { EmptyState, ErrorState, LoadingState } from "../../design/components/status/States";
@@ -23,6 +16,7 @@ import { StatusTag } from "../../design/components/status/StatusTag";
 import type { ViewProps } from "../../shell/header";
 import { hrefFor } from "../../shell/route";
 import { SOURCE_WORDS } from "../../words/queue";
+import { allItems } from "../common/queueItems";
 import { useLines } from "../common/read";
 import { subtaskNames } from "../common/rows";
 import { RunSwitcher } from "../common/RunSwitcher";
@@ -34,18 +28,6 @@ import { QueueItem } from "./QueueItem";
 
 const AREA = "collaboration";
 const SLUG = "approval-queue";
-
-async function allItems(base: string, count: number): Promise<Result<readonly ItemView[]>> {
-  const read = await Promise.all(
-    Array.from({ length: count }, (_, i) => getJson(`${base}/queue/items/${String(i)}`, itemView)),
-  );
-  const views: ItemView[] = [];
-  for (const one of read) {
-    if (!one.ok) return one;
-    views.push(one.value);
-  }
-  return { ok: true, value: views };
-}
 
 function ItemList({
   views,

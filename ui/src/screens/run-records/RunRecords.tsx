@@ -36,6 +36,7 @@ import { checkWords } from "../../words/checks";
 import { nodeLabel } from "../../words/humanise";
 import type { RunLabel } from "../../words/runs";
 import { CostCaveat } from "../common/cost";
+import { EngineWords } from "../common/engine";
 import { useJson, useLines } from "../common/read";
 import { subtaskNames } from "../common/rows";
 import { RunSwitcher } from "../common/RunSwitcher";
@@ -167,9 +168,9 @@ function Records({
               <Id value={config.harnessCommit} />
             )}
           </dd>
-          <dt>Engine</dt>
+          <dt>Engine · auth</dt>
           <dd>
-            Claude Code · <span className="mono">{config.auth}</span>
+            <EngineWords auth={config.auth} />
           </dd>
           <dt>Builder models</dt>
           <dd className="mono">

@@ -6,9 +6,10 @@ import { ActorBadge, type ActorBadgeProps } from "../actor/ActorBadge";
 export type TimelineActor = ActorBadgeProps | { readonly kind: "unmapped"; readonly name: string };
 
 /**
- * One recorded event in a run's timeline. The actor is always shown; an action the collaborator
- * took quotes the request that caused it (its badge requires the quote). Depth 0 is the run,
- * 1 a subtask, 2 an attempt.
+ * One recorded event in a run's timeline. The actor is shown whenever the record maps to one; a
+ * line that maps to none shows none, never a default. An action the collaborator took quotes the
+ * request that caused it (its badge requires the quote). Depth 0 is the run, 1 a subtask, 2 an
+ * attempt.
  */
 export function TimelineRow({
   time,
@@ -23,7 +24,8 @@ export function TimelineRow({
 }: {
   /** "14:06" or "+00:04:12", as recorded. */
   readonly time: string;
-  readonly actor: TimelineActor;
+  /** Who did it, when the record says; a line the record maps to no one carries no actor. */
+  readonly actor?: TimelineActor;
   readonly what: ReactNode;
   readonly meta?: ReactNode;
   /** A trailing verdict, cost or source. */
@@ -37,13 +39,15 @@ export function TimelineRow({
 }) {
   const className = [
     "pg-trow",
-    actor.kind === "collaborator" ? "pg-trow-collaborator" : null,
+    actor?.kind === "collaborator" ? "pg-trow-collaborator" : null,
     depth > 0 ? `pg-trow-depth-${String(depth)}` : null,
   ]
     .filter((c) => c !== null)
     .join(" ");
   const who =
-    actor.kind === "unmapped" ? (
+    actor === undefined ? (
+      <span className="pg-trow-no-actor" aria-hidden="true" />
+    ) : actor.kind === "unmapped" ? (
       <span className="pg-actor pg-actor-unmapped pg-actor-sm" data-actor="unmapped">
         <span className="pg-actor-name">{actor.name}</span>
       </span>

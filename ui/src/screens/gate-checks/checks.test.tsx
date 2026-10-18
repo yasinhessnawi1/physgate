@@ -82,7 +82,10 @@ describe("unchecked is its own category", () => {
     const html = table([check("unchecked", "on")]);
     expect(html).not.toContain("verdict-pass");
     expect(html).toContain("Mass, power_draw of electrical.drive have no sourced range");
-    expect(html).toContain("left unchecked: mass, power_draw");
+    // The names the gate left unchecked are in words, each kept whole on its line.
+    expect(html.replace(/<[^>]+>/g, "")).toContain("left unchecked: Mass, Power draw");
+    expect(html).not.toContain("power_draw</span>");
+    expect(html).toMatch(/<span class="pg-unchecked-name">Power draw<\/span>/);
     expect(html).not.toMatch(/evaluated/);
   });
 

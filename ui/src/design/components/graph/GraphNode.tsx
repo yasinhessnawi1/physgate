@@ -40,8 +40,13 @@ interface Common {
 /** A recorded node may carry a verdict; a node that exists only in a what-if draft cannot. */
 export type GraphNodeProps = Common &
   (
-    | { readonly verdict?: Verdict; readonly whatIf?: false }
-    | { readonly whatIf: true; readonly verdict?: never }
+    | {
+        readonly verdict?: Verdict;
+        /** The verdict covers part of the node: some of its records were left unchecked. */
+        readonly partUnchecked?: boolean;
+        readonly whatIf?: false;
+      }
+    | { readonly whatIf: true; readonly verdict?: never; readonly partUnchecked?: never }
   );
 
 export class GraphLabelError extends Error {
@@ -114,11 +119,16 @@ export function GraphNode(props: GraphNodeProps) {
           {whatIf ? (
             <WhatIfMarker />
           ) : verdict !== undefined ? (
-            gateMode === undefined ? (
-              <VerdictBadge verdict={verdict} />
-            ) : (
-              <GateOutcome mode={gateMode} outcome={verdict} />
-            )
+            <span className="pg-node-verdict">
+              {gateMode === undefined ? (
+                <VerdictBadge verdict={verdict} />
+              ) : (
+                <GateOutcome mode={gateMode} outcome={verdict} />
+              )}
+              {props.partUnchecked === true && (
+                <span className="pg-node-part">· part unchecked</span>
+              )}
+            </span>
           ) : (
             <span />
           )}

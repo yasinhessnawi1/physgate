@@ -15,6 +15,8 @@ import { setAsideWith } from "../../words/queue";
 
 export type RowEnd =
   | { readonly kind: "gate"; readonly mode: GateMode; readonly outcome: Verdict }
+  /** A gate line whose recorded mode the interface does not know: shown as written, never as on. */
+  | { readonly kind: "gate-unknown-mode"; readonly mode: string; readonly outcome: Verdict }
   | { readonly kind: "gate-off" }
   | { readonly kind: "no-verdict" }
   | { readonly kind: "review"; readonly verdict: string };
@@ -25,7 +27,8 @@ export interface Row {
   readonly ts: string;
   /** 0 the run, 1 a subtask, 2 an attempt. */
   readonly depth: 0 | 1 | 2;
-  readonly actor: Actor;
+  /** Who wrote the line, or none when the record maps to no actor. */
+  readonly actor: Actor | null;
   readonly sentence: string;
   /** A recorded value the sentence names, drawn as a quantity after it. */
   readonly value: Quantity | null;
@@ -72,8 +75,11 @@ function verdictOf(text: string): Verdict | null {
     : null;
 }
 
-function gateMode(text: string): GateMode {
-  return text === "observe" ? "observe" : text === "off" ? "off" : "on";
+/** A gate line's end in the mode it records; a mode not known is shown as written, never as on. */
+function gateEnd(mode: string, outcome: Verdict): RowEnd {
+  return mode === "on" || mode === "observe" || mode === "off"
+    ? { kind: "gate", mode, outcome }
+    : { kind: "gate-unknown-mode", mode, outcome };
 }
 
 /** One line as a row, or ``null`` for a line no person reads as an event. */
@@ -139,7 +145,6 @@ export function rowOf(
       };
     }
     case "gate_ran": {
-      const mode = gateMode(event.mode);
       const outcome = verdictOf(event.verdict);
       const failed = event.verdict === "fail";
       const sentence = failed
@@ -153,7 +158,7 @@ export function rowOf(
         sentence,
         value: failed ? event.value : null,
         meta: `${failed && event.failingCheck !== null ? `${checkWords(event.failingCheck).name.toLowerCase()} · ` : ""}${subtaskName(event.subtask)} · attempt ${String(event.attempt)}`,
-        end: outcome === null ? null : { kind: "gate", mode, outcome },
+        end: outcome === null ? null : gateEnd(event.mode, outcome),
         subtask: event.subtask,
         attempt: event.attempt,
       };
@@ -187,7 +192,7 @@ export function rowOf(
       return {
         ...base,
         depth: 2,
-        sentence: `Attempt ${String(event.attempt)} sent back for repair: ${event.finding}`,
+        sentence: `Attempt ${String(event.attempt)} rejected: ${event.finding}`,
         meta: `finding from the ${event.findingSource} · ${subtaskName(event.subtask)}`,
         subtask: event.subtask,
         attempt: event.attempt,
@@ -222,7 +227,7 @@ export function rowOf(
         depth: 0,
         sentence: "The gate checked the whole design",
         meta: left === 0 ? "integration" : `integration · ${String(left)} left unchecked`,
-        end: outcome === null ? null : { kind: "gate", mode: gateMode(event.mode), outcome },
+        end: outcome === null ? null : gateEnd(event.mode, outcome),
       };
     }
     case "integration_gate_skipped":

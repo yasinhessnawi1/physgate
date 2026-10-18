@@ -13,7 +13,6 @@ import { SourceChip } from "../../design/components/data/SourceChip";
 import { type Source, sourceAttribute } from "../../design/components/data/source";
 import { Term } from "../../design/components/help/Term";
 import { StatusTag } from "../../design/components/status/StatusTag";
-import { ORCHESTRATOR } from "../../words/actors";
 import { nodeLabel, quantityLabel } from "../../words/humanise";
 import { SOURCE_WORDS } from "../../words/queue";
 import { clockTime, utc } from "../../words/runs";
@@ -41,10 +40,10 @@ export function QueueItem({
       aria-labelledby="pg-queue-decision"
       data-source={sourceAttribute(source)}
     >
+      {/* No actor is named here: the queue's record of an item says when it was raised and from
+          which source, not by whom, and the interface shows only what a record says. */}
       <div className="pg-queue-over">
         <span className="pg-panel-over">{words.kind}</span>
-        <span className="pg-panel-note">raised by</span>
-        <ActorTag actor={ORCHESTRATOR} size="sm" />
         <span className="pg-panel-note" title={utc(item.ts)}>
           {clockTime(item.ts)}
         </span>

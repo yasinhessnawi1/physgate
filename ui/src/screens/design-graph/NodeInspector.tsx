@@ -88,7 +88,7 @@ export function NodeInspector({
   readonly nodeHref: (id: string) => string;
 }) {
   const edges = edgesOf(node.id, nodes);
-  const verdict = config.gateMode === "off" ? undefined : nodeVerdicts(checks).get(node.id);
+  const found = config.gateMode === "off" ? undefined : nodeVerdicts(checks).get(node.id);
   const latest = latestChecksOf(node.id, checks);
   const judged = latest.filter((c) => c.outcome !== "unchecked");
   const unchecked = latest.filter((c) => c.outcome === "unchecked");
@@ -100,7 +100,12 @@ export function NodeInspector({
       badges={
         <>
           <DomainChip domain={node.domain} />
-          {verdict !== undefined && <GateOutcome mode={config.gateMode} outcome={verdict} />}
+          {found !== undefined && (
+            <span className="pg-node-verdict">
+              <GateOutcome mode={config.gateMode} outcome={found.verdict} />
+              {found.partUnchecked && <span className="pg-node-part">· part unchecked</span>}
+            </span>
+          )}
           <Id value={node.id} />
         </>
       }

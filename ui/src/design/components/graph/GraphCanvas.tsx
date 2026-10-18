@@ -18,6 +18,8 @@ export interface CanvasNode {
   readonly summary?: string;
   /** The latest verdict the gate recorded on the node, if any. */
   readonly verdict?: Verdict;
+  /** The verdict covers part of the node: some of its records were left unchecked. */
+  readonly partUnchecked?: boolean;
   /** Up to a few quantities to show on the card, as recorded. */
   readonly quantities?: readonly {
     readonly name: string;
@@ -372,7 +374,9 @@ export function GraphCanvas({
                 domain={node.domain}
                 summary={node.summary === undefined ? node.kind : `${node.kind} · ${node.summary}`}
                 {...(node.quantities === undefined ? {} : { quantities: node.quantities })}
-                {...(node.verdict === undefined ? {} : { verdict: node.verdict })}
+                {...(node.verdict === undefined
+                  ? {}
+                  : { verdict: node.verdict, partUnchecked: node.partUnchecked === true })}
                 {...(gateMode === undefined ? {} : { gateMode })}
                 selected={node.id === selected}
                 buttonRef={(el: HTMLButtonElement | null) => {

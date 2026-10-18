@@ -9,6 +9,14 @@ import type { Row, RowEnd } from "./rows";
 function End({ end }: { readonly end: RowEnd | null }) {
   if (end === null) return null;
   if (end.kind === "gate") return <GateOutcome mode={end.mode} outcome={end.outcome} />;
+  // A mode the interface does not know is shown as written, with no verdict colour: whether the
+  // outcome was enforced is not known, so it is neither a filled verdict nor a would-be one.
+  if (end.kind === "gate-unknown-mode")
+    return (
+      <span className="pg-badge pg-gate-unknown">
+        {end.outcome} · gate mode <span className="mono">{end.mode}</span>
+      </span>
+    );
   if (end.kind === "gate-off") return <GateModeBadge mode="off" />;
   if (end.kind === "no-verdict")
     return <span className="pg-badge pg-no-verdict">No verdict recorded</span>;
@@ -29,7 +37,7 @@ export function RowView({
   return (
     <TimelineRow
       time={clockTime(row.ts)}
-      actor={row.actor}
+      {...(row.actor === null ? {} : { actor: row.actor })}
       depth={row.depth}
       kind={row.end?.kind ?? "event"}
       what={

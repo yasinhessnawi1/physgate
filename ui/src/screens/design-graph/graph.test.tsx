@@ -5,13 +5,14 @@ import { describe, expect, it } from "vitest";
 import type { GraphDiff, NodeRecord } from "../../api/graph";
 import type { RunConfig } from "../../api/records";
 import type { GateCheck } from "../../api/run";
+import { GraphNode } from "../../design/components/graph/GraphNode";
 import type { Quantity } from "../../design/quantity";
 import { quantityRows, recordedPairDiffers } from "./compare";
 import { DiffView } from "./DiffView";
 import { edgesOf, missingTargets } from "./edges";
 import { NodeInspector } from "./NodeInspector";
 import { NodesTable } from "./NodesTable";
-import { latestChecksOf, nodeVerdicts } from "./verdicts";
+import { latestChecksOf, nodeVerdicts, verdictWords } from "./verdicts";
 
 const SOURCE = { id: "run r-1", commit: "0123456789abcdef" };
 
@@ -105,10 +106,49 @@ describe("a node's verdict is the gate's latest record of it, and none is never 
       check(30, null, "pass"),
     ];
     const verdicts = nodeVerdicts(checks);
-    expect(verdicts.get("electrical.drive")).toBe("fail");
-    expect(verdicts.get("electrical.battery")).toBe("unchecked");
+    expect(verdicts.get("electrical.drive")).toEqual({ verdict: "fail", partUnchecked: true });
+    expect(verdicts.get("electrical.battery")).toEqual({
+      verdict: "unchecked",
+      partUnchecked: false,
+    });
     expect(verdicts.has("electrical.motor")).toBe(false);
     expect(latestChecksOf("electrical.drive", checks).map((c) => c.seq)).toEqual([20, 20]);
+  });
+
+  it("a pass over records of which some were left unchecked is a pass over part of the node", () => {
+    const verdicts = nodeVerdicts([
+      check(5, "electrical.drive", "pass"),
+      check(5, "electrical.drive", "unchecked"),
+      check(5, "electrical.battery", "pass"),
+    ]);
+    expect(verdicts.get("electrical.drive")).toEqual({ verdict: "pass", partUnchecked: true });
+    expect(verdicts.get("electrical.battery")).toEqual({ verdict: "pass", partUnchecked: false });
+    const drive = verdicts.get("electrical.drive");
+    const battery = verdicts.get("electrical.battery");
+    if (drive === undefined || battery === undefined) throw new Error("verdicts missing");
+    // The card says so beside its badge; a whole pass says nothing more.
+    const html = renderToStaticMarkup(
+      <GraphNode
+        id="electrical.drive"
+        label="Drive"
+        domain="electrical"
+        verdict="pass"
+        partUnchecked
+      />,
+    );
+    expect(html).toContain("part unchecked");
+    expect(
+      renderToStaticMarkup(
+        <GraphNode id="electrical.battery" label="Battery" domain="electrical" verdict="pass" />,
+      ),
+    ).not.toContain("part unchecked");
+    // The command palette says what the gate would have done under observe, never a plain pass.
+    expect(verdictWords(drive, "on")).toBe("pass · part unchecked");
+    expect(verdictWords(drive, "observe")).toBe("would pass · part unchecked");
+    expect(verdictWords(battery, "observe")).toBe("would pass");
+    expect(verdictWords({ verdict: "unchecked", partUnchecked: false }, "observe")).toBe(
+      "unchecked",
+    );
   });
 });
 

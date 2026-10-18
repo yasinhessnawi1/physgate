@@ -8,13 +8,13 @@ import { useEffect, useMemo, useState } from "react";
 
 import { type QueueItem } from "../../api/queue";
 import { ledgerLine, type RunListing } from "../../api/records";
-import { costRecord, priceDates } from "../../api/records";
+import { type CostRecord, costRecord, priceDates } from "../../api/records";
 import { gateCheck } from "../../api/run";
 import { Button } from "../../design/components/actions/Button";
 import { Figure } from "../../design/components/data/Figure";
 import { Id } from "../../design/components/data/Id";
 import { SourceChip } from "../../design/components/data/SourceChip";
-import { sourceAttribute } from "../../design/components/data/source";
+import { type Source, sourceAttribute } from "../../design/components/data/source";
 import { Term } from "../../design/components/help/Term";
 import { InProgressBadge } from "../../design/components/status/InProgressBadge";
 import { EmptyState, ErrorState, LoadingState } from "../../design/components/status/States";
@@ -27,16 +27,73 @@ import type { ViewProps } from "../../shell/header";
 import { hrefFor } from "../../shell/route";
 import { SOURCE_WORDS } from "../../words/queue";
 import type { RunLabel } from "../../words/runs";
+import { CostCaveat } from "../common/cost";
+import { EngineWords } from "../common/engine";
 import { useJson, useLines } from "../common/read";
 import { RowView } from "../common/RowView";
 import { type Row, rowsOf } from "../common/rows";
 import { inProgress, runBase, runKey, runSource, useLabels, useRunList } from "../common/runs";
 import { NoRunsYet } from "./NoRunsYet";
 import { activeRun, readTargets, type RunRead, startOfRead, useRunReads } from "./data";
-import { STRIP_STATES, STRIP_WORDS, strip, stripCounts } from "./strip";
+import {
+  STRIP_STATES,
+  STRIP_WORDS,
+  type StripCell,
+  type StripState,
+  strip,
+  stripCounts,
+} from "./strip";
 
 /** How many recent events Home lists, across the runs read. */
 const RECENT = 8;
+
+/**
+ * The strip's legend: each state with its count as "k of n", a view over the ledger. Never a
+ * percentage: the counts are small, and a share of five subtasks would say more than they do.
+ */
+export function StripLegend({
+  cells,
+  counts,
+}: {
+  readonly cells: readonly StripCell[];
+  readonly counts: Readonly<Record<StripState, number>>;
+}) {
+  return (
+    <ul className="pg-strip-legend" aria-label="View: subtasks by state, counted from the ledger">
+      {STRIP_STATES.filter((s) => s !== "tried" || counts.tried > 0).map((s) => (
+        <li key={s}>
+          <span className={`pg-strip-key pg-strip-${s}`} aria-hidden="true" />
+          {STRIP_WORDS[s]}{" "}
+          <span className="pg-count">
+            {counts[s]} of {cells.length}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * The run's cost so far at the newest price sheet: the figure, which sheet, and, where the server
+ * could not price every call, that the figure is a lower bound and by how many calls.
+ */
+export function CostSoFar({
+  cost,
+  source,
+}: {
+  readonly cost: CostRecord;
+  readonly source: Source;
+}) {
+  return (
+    <span className="pg-figure-line">
+      <Figure {...cost.usd} source={source} partial />
+      <span className="pg-panel-note">
+        price sheet of {cost.pricesDate}
+        <CostCaveat cost={cost} />
+      </span>
+    </span>
+  );
+}
 
 function runHref(slug: string, run: RunListing, area: "orchestration" | "home" = "orchestration") {
   return hrefFor(area, slug, new URLSearchParams({ run: runKey(run) }));
@@ -234,20 +291,7 @@ function ActiveRun({
                   </li>
                 ))}
               </ol>
-              <ul
-                className="pg-strip-legend"
-                aria-label="View: subtasks by state, counted from the ledger"
-              >
-                {STRIP_STATES.filter((s) => s !== "tried" || counts.tried > 0).map((s) => (
-                  <li key={s}>
-                    <span className={`pg-strip-key pg-strip-${s}`} aria-hidden="true" />
-                    {STRIP_WORDS[s]}{" "}
-                    <span className="pg-count">
-                      {counts[s]} of {cells.length}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              <StripLegend cells={cells} counts={counts} />
             </div>
           );
         })()
@@ -291,10 +335,7 @@ function ActiveRun({
               onRetry={cost.again}
             />
           ) : (
-            <span className="pg-figure-line">
-              <Figure {...cost.result.value.usd} source={source} partial />
-              <span className="pg-panel-note">price sheet of {cost.result.value.pricesDate}</span>
-            </span>
+            <CostSoFar cost={cost.result.value} source={source} />
           )}
         </div>
         <div className="pg-active-figure">
@@ -425,7 +466,7 @@ function SystemPanel({
             <tr>
               <th scope="col">Run</th>
               <th scope="col">Gate mode</th>
-              <th scope="col">Engine</th>
+              <th scope="col">Engine · auth</th>
               <th scope="col">Builder models</th>
               <th scope="col">Reviewer models</th>
               <th scope="col">
@@ -447,7 +488,7 @@ function SystemPanel({
                     <GateModeBadge mode={read.config.value.gateMode} />
                   </td>
                   <td>
-                    Claude Code · <span className="mono">{read.config.value.auth}</span>
+                    <EngineWords auth={read.config.value.auth} />
                   </td>
                   <td className="mono">
                     {[...new Set(Object.values(read.config.value.roleModels))].join(", ") ||

@@ -53,13 +53,25 @@ export function writerActor(writtenBy: string | null, models: Models | null): Ac
   return model === undefined ? { kind: "unmapped", name: writtenBy } : agentOf(writtenBy, model);
 }
 
-/** Who wrote an event line: by its kind, and for an agent's line, by its role and model. */
+/**
+ * Who wrote an event line: by its kind, and for an agent's line, by its role and model. Every
+ * kind is listed; a kind this table does not list gets no actor, never a default one, and a kind
+ * the log gains turns this into a type error until it is placed.
+ */
 export function eventActor(
   event: RunEvent,
   roles: Readonly<Record<string, string>>,
   models: Models,
-): Actor {
+): Actor | null {
   switch (event.kind) {
+    case "run_started":
+    case "subtask_planned":
+    case "attempt_rejected":
+    case "escalated":
+    case "merged":
+    case "stage_entered":
+    case "integration_gate_skipped":
+      return ORCHESTRATOR;
     case "decomposed":
       return {
         kind: "agent",
@@ -84,7 +96,7 @@ export function eventActor(
     case "gate_skipped":
     case "integration_gate_ran":
       return GATE;
-    default:
-      return ORCHESTRATOR;
+    case "other":
+      return null;
   }
 }

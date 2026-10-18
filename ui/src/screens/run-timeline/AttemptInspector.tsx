@@ -25,9 +25,11 @@ import { tallyOfChecks } from "../../design/tally";
 import { agentOf } from "../../words/actors";
 import { ActorTag } from "../common/ActorTag";
 import { Bound, CheckName, checkId, Measured, sentenceOf } from "../common/checks";
+import { allItems } from "../common/queueItems";
 import { useResult } from "../common/useResult";
 import { runSource } from "../common/runs";
 import { gateReading, readingWords } from "./gate";
+import { escalatedItemOf, repairsUsedUp } from "./usedUp";
 
 function Seal({ base, session }: { readonly base: string; readonly session: string }) {
   const read = useResult(
@@ -88,10 +90,19 @@ export function AttemptInspector({
     ),
   );
   // Said only where the queue recorded it: the budget itself is a harness constant, not a record.
+  // Once the item is decided it leaves the open list, so its record is read from the item views.
+  const listing = queue?.ok === true ? queue.value : null;
+  const itemId = escalatedItemOf(events, subtask);
+  const decidedHere =
+    listing !== null && itemId !== null && listing.decided.some((d) => d.itemId === itemId);
+  const total = listing === null ? 0 : listing.open.length + listing.decided.length;
+  const views = useResult(
+    decidedHere ? () => allItems(base, total) : null,
+    `${base}/queue/items/${String(total)}`,
+  );
   const usedUp =
-    queue?.ok === true &&
     attempt === lastAttempt &&
-    queue.value.open.some((i) => i.subtaskId === subtask && i.source === "repair_budget_exhausted");
+    repairsUsedUp(listing, views?.ok === true ? views.value : null, itemId, subtask);
   const sessions =
     trace?.ok === true
       ? trace.value.sessions.filter((s) => s.subtask === subtask && s.attempt === attempt)
@@ -200,12 +211,8 @@ export function AttemptInspector({
         </InspectorSection>
         <InspectorSection label="Reviews">
           {reviews.length === 0 ? (
-            <p className="pg-muted">
-              Not run: no reviewer saw this attempt
-              {reading.kind === "judged" && reading.outcome === "fail" && reading.mode === "on"
-                ? ", because the gate failed it first."
-                : "."}
-            </p>
+            // Only what the log holds: no review line. Why none ran is not recorded.
+            <p className="pg-muted">Not run: no review is recorded for this attempt.</p>
           ) : (
             <ul className="pg-list">
               {reviews.map((r) => (

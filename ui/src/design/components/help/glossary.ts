@@ -47,7 +47,7 @@ export const GLOSSARY = {
   verdicts: {
     term: "Pass · Fail · Warn",
     means:
-      "The only three verdicts. Warn passes but sits close to a bound. Each is always shown as glyph, word and colour.",
+      "The only three verdicts. Warn is a check that failed where its failure does not block the attempt. Each is always shown as glyph, word and colour.",
     group: "The gate and its verdicts",
   },
   unchecked: {

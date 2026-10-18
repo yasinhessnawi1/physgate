@@ -295,6 +295,15 @@ describe("the item shows the five things, and every seal status apart", () => {
     expect(sealLine(all)).toBe("All 3 agent transcripts are intact (sealed).");
   });
 
+  it("names no one as having raised the item: the record holds no such field", () => {
+    const host = mount(
+      <QueueItem view={VIEW} decided={undefined} source={SOURCE} subtaskName="Subtask 1" />,
+    );
+    expect(host.textContent).not.toContain("raised by");
+    expect(host.querySelector(".pg-queue-over .pg-actor")).toBeNull();
+    expect(host.textContent).not.toContain("Orchestrator");
+  });
+
   it("every seal status has its own neutral tag, never a verdict", () => {
     expect(new Set(STATUSES.map((s) => SEAL_TAG[s])).size).toBe(STATUSES.length);
     const host = mount(
