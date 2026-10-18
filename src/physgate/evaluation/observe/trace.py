@@ -32,10 +32,12 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from physgate.engines.base import EngineRecord
 from physgate.evaluation.observe.manifest import manifest_id_of, read_run_events
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.common import Timestamp
 from physgate.orchestrator.events import (
+    EngineChecked,
     Event,
     LeftoverRead,
     SessionEnded,
@@ -98,6 +100,10 @@ class RunTrace(_Frozen):
     reviewer_tokens: dict[str, Usage]
     routing_tokens: Usage
     gate_checks: tuple[GateEvent, ...]
+    #: The engine every process that drove the run ran its sessions on, in the log's order:
+    #: one per run and resume, with the layers held around each profile's sessions and the
+    #: measurement behind each. None for a run recorded before engines were.
+    engines: tuple[EngineRecord, ...]
 
 
 def _at(ts: str) -> datetime:
@@ -188,4 +194,5 @@ def read_traces(run_dir: Path) -> RunTrace:
         },
         routing_tokens=kinds["routing"],
         gate_checks=tuple(gate_events(events, manifest_id)),
+        engines=tuple(e.engine for e in events if isinstance(e, EngineChecked)),
     )

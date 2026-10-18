@@ -28,6 +28,7 @@ from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.cli import Registrations
 from physgate.orchestrator.decompose import mint_id
 from physgate.orchestrator.events import (
+    EngineChecked,
     InstallChecked,
     Merged,
     OsLayerChecked,
@@ -181,6 +182,22 @@ def test_decompose_run_and_resume_through_the_command_with_routing_at_zero(
     layers = [e for e in events if isinstance(e, OsLayerChecked)]
     assert len(layers) == 2 and all(e.as_recorded is True for e in layers)
     assert recorded_layer == layers[0].state.model_dump(mode="json")
+    # The engine the sessions ran on, recorded beside it at the run and at its resume: the
+    # harness at the run's version, the scripted endpoint as a provider no register names,
+    # so no model string is given an identity, and the layers held around each profile.
+    engines = [e.engine for e in events if isinstance(e, EngineChecked)]
+    assert len(engines) == 2 and engines[0] == engines[1]
+    engine = engines[0]
+    assert (engine.harness, engine.version) == ("claude-code", recorded["claude_version"])
+    assert (engine.endpoint, engine.provider) == (url, "unregistered")
+    assert {m.request_name for m in engine.models} == {
+        recorded["models"]["decomposition"],
+        *recorded["models"]["roles"].values(),
+        *recorded["models"]["reviewers"].values(),
+    }
+    assert all(m.identity is None for m in engine.models)
+    assert (engine.role.os_layer == "absent") == (recorded_layer["state"] == "absent")
+    assert engine.reviewer.verdict_schema == "native" and engine.role.verdict_schema == "absent"
     account = TokenAccount.from_events(events)
     account.assert_no_routing()
     assert account.decomposition_invocations() == 1

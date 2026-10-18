@@ -39,6 +39,7 @@ from physgate.orchestrator.events import (
     AttemptRejected,
     Decomposed,
     DiffChecked,
+    EngineChecked,
     EnvironmentRecorded,
     Escalated,
     EscalationDecided,
@@ -229,7 +230,8 @@ class RunState:
             | TokensUsed
             | InstallChecked
             | SessionSpawned
-            | OsLayerChecked,
+            | OsLayerChecked
+            | EngineChecked,
         ):
             return  # recorded at any time, a halted run's resume included
         if isinstance(event, WorktreeRemoved):

@@ -33,6 +33,7 @@ from pydantic import (
     model_validator,
 )
 
+from physgate.engines.base import EngineRecord
 from physgate.orchestrator.budget import REPAIR_BUDGET, InfraCause
 from physgate.orchestrator.common import (
     GateMode,
@@ -553,6 +554,20 @@ class OsLayerChecked(_Event):
     network_enforced: bool | None = None
 
 
+class EngineChecked(_Event):
+    """The engine this process runs the run's sessions on, and which layers hold around them.
+
+    Recorded at every run and resume before anything is spawned, beside the OS layer's
+    state: the harness and its version, the provider and endpoint, each model string the run
+    sends with the model it is, and the layers held around a role's and a reviewer's
+    sessions, each with the measurement behind it. A number from the run names what
+    protected the sessions that produced it.
+    """
+
+    kind: Literal["engine_checked"] = "engine_checked"
+    engine: EngineRecord
+
+
 class LeftoverStopped(_Event):
     """A session a previous orchestrator left running was found and stopped.
 
@@ -654,6 +669,7 @@ Event = Annotated[
     | EnvironmentRecorded
     | InstallChecked
     | OsLayerChecked
+    | EngineChecked
     | LeftoverStopped
     | SessionSpawned
     | LeftoverRead

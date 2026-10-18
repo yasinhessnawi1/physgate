@@ -32,6 +32,7 @@ from typing import Literal
 from pydantic import ValidationError
 
 import physgate
+from physgate.engines.base import Engine
 from physgate.evaluation.inject.runner import CONFIG_NAME as INSTRUMENT_CONFIG_NAME
 from physgate.evaluation.inject.runner import CONTROLS_DIRNAME as INSTRUMENT_CONTROLS_DIRNAME
 from physgate.evaluation.inject.runner import InstrumentConfig
@@ -49,6 +50,7 @@ from physgate.orchestrator.credentials import (
 from physgate.orchestrator.decompose import binary_version, call, require_fresh, start_run
 from physgate.orchestrator.dispatch import ClaudeDispatcher, probe_interpreter
 from physgate.orchestrator.events import (
+    EngineChecked,
     Envelope,
     EnvironmentRecorded,
     Event,
@@ -380,6 +382,23 @@ def _os_layer_checked(
     )
 
 
+def _engine_checked(
+    envelope: Envelope, config: RunConfig, engine: Engine, layer: Present | Absent
+) -> EngineChecked:
+    """The run's record of the engine its sessions run on here, and the layers held around them.
+
+    Every model string the run sends is named with the model it is: the decomposition's,
+    every role's and every reviewer's.
+    """
+    models = (
+        config.models.decomposition,
+        *config.models.roles.values(),
+        *config.models.reviewers.values(),
+    )
+    record = engine.record(version=config.claude_version, models=models, os_layer=layer)
+    return EngineChecked(**envelope, engine=record)
+
+
 def _fail(message: str, **context: str) -> int:
     print(json.dumps({"error": message, **context}, sort_keys=True), file=sys.stderr)
     return 2
@@ -637,6 +656,7 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
             )
         )
         loop.record.emit(_os_layer_checked(loop.record.envelope(), config, layer))
+        loop.record.emit(_engine_checked(loop.record.envelope(), config, dispatcher.engine, layer))
         step = loop.resume() if resume else loop.run()
         account = TokenAccount.from_events(loop.log.events)
         account.assert_no_routing()
