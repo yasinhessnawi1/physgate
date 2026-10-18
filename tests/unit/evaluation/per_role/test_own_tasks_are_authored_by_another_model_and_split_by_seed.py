@@ -39,6 +39,10 @@ def test_the_author_is_told_every_name_the_scorer_reads_a_plant_and_an_answer_by
     # The answer's form and fields, which every task's brief must pass on to the designer.
     for told in ('"form": "lti_tf"', '"gain"', '"num"', '"den"', "proper", "at most 10"):
         assert told in brief
+    # The actuator's peak, bounded in the unit the task gives its actuator's limit in.
+    assert "actuator_peak, in the unit of actuator_limit" in brief
+    assert "  - actuator_limit: " in brief and "  - reference_step: " in brief
+    assert '"version": "1.1.0"' in brief
     # The scorer needs a settling-time bound to set its horizon.
     assert "Every task bounds settling_time" in brief
     for metric in CONTROL_METRIC_UNITS:

@@ -34,7 +34,13 @@ import numpy as np
 from physgate.evaluation.per_role.answer import LtiTf, read_lti_tf
 from physgate.evaluation.per_role.base import Measure
 from physgate.evaluation.per_role.exceptions import ReferenceCheckError, TaskFormatError
-from physgate.evaluation.per_role.metrics import CONTROL_METRIC_UNITS
+from physgate.evaluation.per_role.metrics import (
+    ACTUATOR_LIMIT,
+    ACTUATOR_PEAK,
+    CONTROL_METRIC_UNITS,
+    CONTROL_SCORER_VERSION,
+    REFERENCE_STEP,
+)
 from physgate.evaluation.per_role.task import LoadedTask, Spec, Task, canonical_json
 
 #: A real or complex numpy array. Spelt as ``Any``: the types are checked in the harness's
@@ -42,7 +48,7 @@ from physgate.evaluation.per_role.task import LoadedTask, Spec, Task, canonical_
 type Floats = Any
 
 #: The scorer's version: part of every score, so a changed rule is a changed version.
-SCORER_VERSION = "1.0.0"
+SCORER_VERSION = CONTROL_SCORER_VERSION
 PADE_ORDER = 10
 PADE_CHECK_ORDER = 12
 #: The time horizon, in multiples of the settling-time window's upper end, and its samples.
@@ -57,8 +63,10 @@ BORDERLINE_FRACTION = 0.005
 #: Settling times at the two Padé orders further apart than this are flagged.
 PADE_TOLERANCE = 0.005
 
-#: The metric each spec may name, and the unit its bound must be written in.
+#: The metric each spec may name, and the unit its bound must be written in; and
+#: ``actuator_peak``, bounded in the unit of the task's ``actuator_limit``.
 METRIC_UNITS = CONTROL_METRIC_UNITS
+METRICS = (*METRIC_UNITS, ACTUATOR_PEAK)
 
 
 class Plant:
@@ -265,6 +273,7 @@ def measure(
     pm, crossed = phase_margin(c, g, plant.delay)
     gm = gain_margin(c, g, plant.delay) if secondary else math.inf
     values: dict[str, float | None] = {
+        ACTUATOR_PEAK: None,
         "max_real_pole": max(max_pole, check_pole),
         "phase_margin": pm,
         "gain_margin_ratio": gm,
@@ -290,7 +299,59 @@ def measure(
                     abs(check - settling) > PADE_TOLERANCE * settling
                 )
         values["steady_state_error"] = abs(1.0 - float(ct.dcgain(t_loop)))
+        if any(spec.metric == ACTUATOR_PEAK for spec in task.specs):
+            values[ACTUATOR_PEAK] = actuator_peak(task, c, g, plant.delay, horizon, points)
     return values, flags
+
+
+def actuator_peak(task: Task, c: Any, g: Any, delay: float, horizon: float, points: int) -> float:
+    """The largest magnitude of the controller's output over the reference step's response.
+
+    The output is ``U/R = C / (1 + C·G)`` driven by a step of the task's ``reference_step``
+    (1 when it gives none), over the same horizon as the settling time. A controller with
+    direct feedthrough reaches its peak at the step itself, which the first sample holds.
+
+    A delay enters exactly, never through Padé: measured against a delay-buffer
+    simulation, Padé order 10 overstated a gain controller's peak by up to 1.1 % and order
+    12 by 26 % at a 0.02 s delay, where the true peak is the gain itself. The loop is then
+    simulated on the horizon's own sample step, the controller and the plant each held
+    between samples, and the plant's input delayed by the delay in whole samples.
+    """
+    by_name = {m.name: m for m in task.inputs}
+    step = by_name.get(REFERENCE_STEP)
+    amplitude = 1.0 if step is None else abs(float(step.value))
+    times = np.linspace(0.0, horizon, points)
+    dt = float(times[1] - times[0])
+    lag = round(delay / dt)
+    if lag == 0:
+        response = ct.step_response(ct.feedback(c, g), times)
+        return float(np.max(np.abs(np.asarray(response.outputs)))) * amplitude
+    return _delayed_effort_peak(c, g, dt, lag, points) * amplitude
+
+
+def _delayed_effort_peak(c: Any, g: Any, dt: float, lag: int, points: int) -> float:
+    """The peak of ``|u|`` for a unit step, the plant's input ``lag`` samples behind ``u``."""
+    cd, gd = ct.c2d(ct.ss(c), dt), ct.c2d(ct.ss(g), dt)
+    ca, cb, cc, cdd = (np.asarray(m, dtype=float) for m in (cd.A, cd.B, cd.C, cd.D))
+    ga, gb, gc, gdd = (np.asarray(m, dtype=float) for m in (gd.A, gd.B, gd.C, gd.D))
+    xc = np.zeros((ca.shape[0], 1))
+    xg = np.zeros((ga.shape[0], 1))
+    sent = np.zeros(lag)  # what the plant receives: u from ``lag`` samples ago
+    peak = 0.0
+    for k in range(points):
+        delayed = float(sent[k % lag])
+        y = float((gc @ xg)[0, 0] + gdd[0, 0] * delayed) if gc.size else gdd[0, 0] * delayed
+        e = 1.0 - y
+        u = float((cc @ xc)[0, 0] + cdd[0, 0] * e) if cc.size else cdd[0, 0] * e
+        if not math.isfinite(u):
+            return math.inf
+        peak = max(peak, abs(u))
+        if ca.size:
+            xc = ca @ xc + cb * e
+        if ga.size:
+            xg = ga @ xg + gb * delayed
+        sent[k % lag] = u
+    return peak
 
 
 def _holds(spec: Spec, value: float | None) -> tuple[bool, bool]:
@@ -319,6 +380,21 @@ def _library_versions() -> dict[str, str]:
     return {name: version(name) for name in ("control", "numpy", "scipy")}
 
 
+def metric_unit(task: Task, metric: str) -> str | None:
+    """The unit a bound on ``metric`` is written in for ``task``; ``None`` if it has none.
+
+    Raises:
+        TaskFormatError: the task bounds ``actuator_peak`` but gives no ``actuator_limit``.
+    """
+    if metric != ACTUATOR_PEAK:
+        return METRIC_UNITS.get(metric)
+    limit = next((m for m in task.inputs if m.name == ACTUATOR_LIMIT), None)
+    if limit is None:
+        msg = f"the task {task.id!r} bounds {ACTUATOR_PEAK} but gives no {ACTUATOR_LIMIT}"
+        raise TaskFormatError(msg, task=task.id)
+    return limit.unit
+
+
 def require_known_metrics(task: Task) -> None:
     """Refuse a task that names a metric this scorer lacks, or bounds one in another unit.
 
@@ -326,7 +402,7 @@ def require_known_metrics(task: Task) -> None:
         TaskFormatError: an unknown metric, or a bound in a unit that is not the metric's.
     """
     for spec in task.specs:
-        unit = METRIC_UNITS.get(spec.metric)
+        unit = metric_unit(task, spec.metric)
         if unit is None:
             msg = f"the task {task.id!r} names {spec.metric!r}, which the control scorer lacks"
             raise TaskFormatError(msg, task=task.id)
@@ -377,7 +453,7 @@ def score(task: Task, answer_path: Path) -> dict[str, Any]:
                 "counts": spec.counts,
                 "measured": None
                 if value is None or not math.isfinite(value)
-                else {"value": value, "unit": METRIC_UNITS[spec.metric]},
+                else {"value": value, "unit": metric_unit(task, spec.metric)},
                 "infinite": value is not None and math.isinf(value),
                 "passed": held,
                 "borderline": near,

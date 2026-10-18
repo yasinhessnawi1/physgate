@@ -34,7 +34,7 @@ def own_task(**changes: Any) -> dict[str, Any]:
                 "composes": ["recover_tilt", "respect_actuator"],
             },
         ],
-        "scorer": {"id": "control", "version": "1.0.0", "params": []},
+        "scorer": {"id": "control", "version": "1.1.0", "params": []},
     }
     task.update(copy.deepcopy(changes))
     return task

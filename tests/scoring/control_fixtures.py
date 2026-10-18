@@ -96,7 +96,7 @@ def control_task(
         "inputs": inputs,
         "answer": {"path": "answer.json", "form": "lti_tf"},
         "specs": specs,
-        "scorer": {"id": "control", "version": "1.0.0"},
+        "scorer": {"id": "control", "version": "1.1.0"},
     }
     return parse_task(json.dumps(task).encode())
 

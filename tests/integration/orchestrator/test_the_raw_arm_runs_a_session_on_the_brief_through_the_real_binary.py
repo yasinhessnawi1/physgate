@@ -60,7 +60,7 @@ def _task() -> object:
                 "composes": ["y"],
             },
         ],
-        "scorer": {"id": "control", "version": "1.0.0"},
+        "scorer": {"id": "control", "version": "1.1.0"},
     }
     return parse_task(json.dumps(task).encode())
 

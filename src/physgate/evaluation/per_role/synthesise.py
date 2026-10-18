@@ -125,7 +125,7 @@ def _measure(task: Task, answer: LtiTf, *, screen: bool = False) -> dict[str, fl
         else:
             values, _ = scorer.measure(task, answer)
     except (ValueError, ArithmeticError, np.linalg.LinAlgError):
-        return dict.fromkeys(scorer.METRIC_UNITS)
+        return dict.fromkeys(scorer.METRICS)
     return values
 
 

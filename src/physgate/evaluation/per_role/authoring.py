@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from physgate.evaluation.per_role.exceptions import PerRoleError
-from physgate.evaluation.per_role.metrics import CONTROL_METRIC_UNITS
+from physgate.evaluation.per_role.metrics import CONTROL_METRIC_UNITS, CONTROL_SCORER_VERSION
 from physgate.evaluation.per_role.task import Role, load_task, parse_task, task_bytes
 
 PER_TIER = 8
@@ -82,11 +82,16 @@ s in 1/s:
   - plant_num_0, plant_num_1, ...: the coefficients of N(s), highest power first, and
     plant_den_0, plant_den_1, ...: those of D(s), each numbered from 0 with no gap;
   - the coefficient of s^k is written in the unit "s**k" ("s" for k = 1, "1" for k = 0);
-  - plant_gain (unit "1") and plant_delay (unit "s") are optional: 1 and 0 when absent.
+  - plant_gain (unit "1") and plant_delay (unit "s") are optional: 1 and 0 when absent;
+  - actuator_limit: what the actuator can deliver, in the unit of the controller's output
+    (a torque, a voltage, a force), given whenever a task bounds actuator_peak;
+  - reference_step: the step's amplitude, in the unit of the plant's output; 1 when absent.
 
 The loop is unity negative feedback around C(s) * G(s), driven by a unit step reference.
 The metrics the scorer computes on it, each with the unit every bound on it is written in:
 {metrics}
+  - actuator_peak, in the unit of actuator_limit: the largest magnitude of the controller's
+    output while the loop answers the reference step, over the settling_time horizon;
 Every task bounds settling_time: the scorer simulates for twenty times its upper bound.
 
 The answer, a controller C(s) = K * N(s) / D(s), is the file {answer}:
@@ -137,7 +142,7 @@ def author_brief(role: Role, *, count: int = 2 * PER_TIER) -> str:
         answer="answer.json",
         form="lti_tf",
         scorer="control",
-        scorer_version="1.0.0",
+        scorer_version=CONTROL_SCORER_VERSION,
         metrics=metrics,
     )
 

@@ -29,6 +29,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from physgate.evaluation.per_role.answer import power_unit
 from physgate.evaluation.per_role.exceptions import ControlEvalError
+from physgate.evaluation.per_role.metrics import CONTROL_SCORER_VERSION
 from physgate.evaluation.per_role.task import Task, parse_task, task_bytes
 
 BENCHMARK = "controleval"
@@ -54,7 +55,7 @@ Category = Literal["second_order_unstable", "higher_order", "first_order_w_delay
 CATEGORY_SIZE = 50
 MAX_FILE_BYTES = 1024 * 1024
 FETCH_TIMEOUT_S = 60.0
-SCORER_VERSION = "1.0.0"
+SCORER_VERSION = CONTROL_SCORER_VERSION
 
 
 class _Record(BaseModel):
