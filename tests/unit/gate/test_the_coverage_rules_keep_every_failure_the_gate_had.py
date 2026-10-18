@@ -137,17 +137,17 @@ def test_the_clean_graphs_reach_every_new_rule() -> None:
 
 
 #: The failing records in the record, counted when it was made.
-FAILURES_BEFORE = 232
+FAILURES_BEFORE = 310
 #: Refusals the stall-current span made that are gone with it: the magnitude check's own
 #: tests of that span (240 A, 240000 mA, and its two edges). Each is now the motor's
 #: stall current recorded as having no range; where a driver is declared, the headroom
 #: relation judges it.
 RULED_LOST = 5
 #: The graphs that drew no failure before the rules.
-CLEAN_BEFORE = 900
+CLEAN_BEFORE = 1299
 #: Graphs a test built to hold an error the gate did not judge before, and the error.
 NAMED_ERRORS: list[tuple[str, str, str]] = [
     # The unit check's test of the headroom relation it could not judge: a 6 A stall on a
     # 1 A driver, recorded then as unchecked. The power check now refuses it.
-    ("tests:0356", "power", "electrical.driver"),
+    ("tests:0578", "power", "electrical.driver"),
 ]
