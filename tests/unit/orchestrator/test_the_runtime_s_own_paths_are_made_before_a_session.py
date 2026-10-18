@@ -2,7 +2,7 @@
 
 Inside the OS layer on macOS, 2.1.301 makes ``.claude/.cc-writes/`` in the worktree and
 ``.config/git/ignore`` in the session's home, both under roots the sentinel puts back.
-The dispatcher makes them before the session's record is taken (M-100's measurement:
+The dispatcher makes them before the session's record is taken (as measured:
 the modes and the 23 bytes below), leaves a present path as it is, and writes nothing
 through a link.
 """

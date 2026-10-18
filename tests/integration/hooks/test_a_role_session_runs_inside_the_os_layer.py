@@ -113,7 +113,7 @@ def _residual(layout: Layout) -> list[dict[str, object]]:
 
 def test_a_layout_lies_outside_every_place_the_os_layer_makes_writable(layout: Layout) -> None:
     # Inside one, its sessions would share the sandbox's placeholders with every other
-    # session there, and abort each other's commands (M-107).
+    # session there, and abort each other's commands.
     for place in (layout.root, layout.worktree):
         assert placement_refusal(place, machine_writable()) is None, place
 

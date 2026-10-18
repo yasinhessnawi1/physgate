@@ -811,7 +811,7 @@ def test_a_sandboxed_session_and_an_unsandboxed_one_end_through_the_same_steps(
 # --- what the runtime makes on its own inside the OS layer -----------------------------
 
 #: The bytes Claude Code 2.1.301 writes to the session home's git ignore inside the OS
-#: layer on macOS, as measured (M-100); spelled here, not imported, so the dispatcher's
+#: layer on macOS, as measured; spelled here, not imported, so the dispatcher's
 #: copy is checked against the measurement.
 RUNTIME_IGNORE = b"**/.claude/.cc-writes/\n"
 
