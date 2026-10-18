@@ -2,7 +2,7 @@
 
 On Linux the sandbox lays placeholders in every ancestor of the working directory that
 lies inside a writable place; two sessions under one such ancestor remove each other's,
-and bubblewrap aborts their commands before they run (M-107, measured on the Oracle VM).
+and bubblewrap aborts their commands before they run (measured on an ARM Linux VM).
 So the hook installer refuses any sandboxed session, a role's or the raw agent's, a
 worktree in the shared temporary directories, in Claude Code's own temporary directory,
 or in the session's own writable places; a worktree anywhere else is installed as before.
