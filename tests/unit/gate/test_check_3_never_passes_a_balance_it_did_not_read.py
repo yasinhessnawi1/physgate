@@ -471,3 +471,39 @@ def test_a_member_carrying_another_weighted_part_leaves_the_structure_unchecked(
 def test_a_pass_on_forces_alone_is_counted_apart_in_the_record(tmp_path: Path) -> None:
     ran = run(tmp_path, body(0.30), massless("left", 1.47), massless("right", 1.47), *UNPLACED)
     assert ran.observations == () and "1 passed on forces alone" in ran.tool
+
+
+def test_a_load_with_a_mass_and_a_load_force_never_passes_a_structure_without_positions(
+    tmp_path: Path,
+) -> None:
+    # The weights balance; read with the pack's 3 N force, they do not. Forces alone
+    # pass a structure only if every reading of a doubled load balances.
+    pack = part("cell_pack", 0.15, extra_n=3.0)
+    ran = run(
+        tmp_path, body(0.30), massless("left", 1.47), massless("right", 1.47), pack, *UNPLACED[1:]
+    )
+    (record,) = [o for o in ran.observations if o.node == BODY]
+    assert record.outcome == "unchecked"
+
+
+def test_module_scope_brings_in_a_mount_through_a_member_it_cannot_place(tmp_path: Path) -> None:
+    # The attempt writes a sensor onto a tray; the tray weighs on the body with no
+    # position. The body's balance is touched through the tray, so it is in scope.
+    root = tmp_path / "g"
+    tray = node(
+        "mechanical.tray",
+        domain="mechanical",
+        kind="module",
+        quantities={"mass": (0.10, "kg")},
+        constrains=[BODY],
+    )
+    head = graph(root, *placed(None, 1.47), tray)
+    graph(
+        root,
+        node(
+            "electrical.sensor", quantities={"mass": (0.01, "kg")}, constrains=["mechanical.tray"]
+        ),
+    )
+    view = GraphView.read(root, base_revision=head)
+    ran = check_equilibrium.run(CheckContext(view=view, scope="module", bounds=load_bounds()))
+    assert [o.outcome for o in ran.observations if o.node == BODY] == ["unchecked"]
