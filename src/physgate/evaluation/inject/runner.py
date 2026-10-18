@@ -66,13 +66,13 @@ import functools
 import hashlib
 import json
 import os
-import queue
 import shutil
 import sys
 import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -115,6 +115,7 @@ from physgate.orchestrator.protocols import (
     ChangeSet,
     CheckName,
     GateResult,
+    PassDetails,
     RecordedUnavailableCause,
     Reviewer,
     ReviewResult,
@@ -139,6 +140,10 @@ CONTROLS_DIRNAME = "controls"
 COPIES_DIRNAME = "copies"
 #: Where, in the run directory, each finished review is written on its own.
 REVIEWS_DIRNAME = "reviews"
+#: Each artefact's lane, drawn before the run; its twin's is the same.
+LANES_NAME = "lanes.json"
+#: One line for each lane-wide pause.
+PAUSES_NAME = "pauses.jsonl"
 ReviewId = Annotated[str, StringConstraints(pattern=r"^r[0-9a-f]{12}$")]
 Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 
@@ -157,6 +162,13 @@ class InstrumentParams(_Frozen):
     effort: Effort
     max_output_tokens: Annotated[int, Field(gt=0)]
     token_ceiling: Annotated[int, Field(gt=0)]
+    #: How many reviews run at once, and the lane-wide pause: after
+    #: ``pause_after_failures`` infrastructure failures in a row, no lane starts a session
+    #: for ``pause_s``. ``None`` only in parameters written before lanes existed; a run
+    #: with real reviewers refuses a file without them.
+    lanes: Annotated[int, Field(ge=1)] | None = None
+    pause_after_failures: Annotated[int, Field(ge=0)] | None = None
+    pause_s: Annotated[float, Field(ge=0)] | None = None
 
 
 class Reviewing(_Frozen):
@@ -193,6 +205,13 @@ class InstrumentConfig(_Frozen):
     lanes: Annotated[int, Field(ge=1)] = 1
     #: The delay waited before each infrastructure retry; its length is the retries.
     retry_delays_s: tuple[Annotated[float, Field(ge=0)], ...] = (0.0,)
+    #: The lane-wide pause: after this many infrastructure failures in a row, across
+    #: every lane, no lane starts a session for ``pause_s``; 0 is no pause.
+    pause_after_failures: Annotated[int, Field(ge=0)] = 0
+    pause_s: Annotated[float, Field(ge=0)] = 0.0
+    #: ``paired``: each role's own rubric (ARCH-060); ``generalist``: each role's rubric
+    #: less its domain sections, the same for every role's artefacts (ARCH-063's baseline).
+    reviewer_kind: Literal["paired", "generalist"] = "paired"
 
 
 #: What one artefact's review came to, as its row records it.
@@ -234,6 +253,11 @@ class ResultRow(_Frozen):
     #: The gate on the clean patch, the control.
     control_verdict: Verdict
     control_blocking: tuple[CheckName, ...]
+    #: For every check that passed, at every scope it ran at, how many things it judged:
+    #: a pass that judged nothing is not a pass that judged something. Empty in rows
+    #: written before this field existed.
+    gate_evaluated: dict[str, dict[str, int]] = Field(default_factory=dict)
+    control_evaluated: dict[str, dict[str, int]] = Field(default_factory=dict)
 
 
 def review_id(seed: int, artefact_id: str) -> str:
@@ -320,6 +344,15 @@ def check_base(base: Base, into: Path, gate: PhysicsGate | None = None) -> GateR
     return _gate(gate or PhysicsGate(), materialise(base, None, into), "base")
 
 
+def evaluated(result: GateResult) -> dict[str, dict[str, int]]:
+    """For each check that passed, how many things it judged, at each scope it ran at."""
+    found: dict[str, dict[str, int]] = {}
+    for record in result.checks:
+        if record.outcome == "pass" and isinstance(record.details, PassDetails):
+            found.setdefault(record.name, {})[record.scope] = record.details.evaluated
+    return found
+
+
 def blocking(result: GateResult) -> tuple[CheckName, ...]:
     """The checks whose failure blocked, each once, in the order the records give."""
     names = [r.name for r in result.checks if r.outcome == "fail" and r.blocking]
@@ -396,6 +429,9 @@ class _Try:
     cause: str | None
     #: How long the run waited before this try, in seconds; 0 for the first.
     delay_before_s: float
+    #: When the try's session was started and when it ended, UTC, ISO 8601.
+    started_at: str = ""
+    ended_at: str = ""
 
 
 @dataclass(frozen=True)
@@ -434,7 +470,15 @@ class _Reviewed:
             "cause": self.cause,
             "seq": self.line.seq,
             "tokens": self.tokens,
-            "tries": [{"cause": t.cause, "delay_before_s": t.delay_before_s} for t in self.tries],
+            "tries": [
+                {
+                    "cause": t.cause,
+                    "delay_before_s": t.delay_before_s,
+                    "started_at": t.started_at,
+                    "ended_at": t.ended_at,
+                }
+                for t in self.tries
+            ],
         }
 
 
@@ -448,6 +492,62 @@ class _Shared:
     unavailable: int = 0
 
 
+def _utc() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+class _Pacer:
+    """The lane-wide pause, after ``after`` infrastructure failures in a row.
+
+    Across every lane: once that many tries in a row ended for infrastructure, no lane
+    starts a session for ``pause_s`` seconds. It reads infrastructure outcomes only,
+    never a verdict. A session not started is no failure and spends no retry. Each
+    pause is appended to ``record``. ``after`` of 0 turns the pause off.
+    """
+
+    def __init__(
+        self,
+        *,
+        after: int,
+        pause_s: float,
+        clock: Callable[[], float],
+        sleep: Callable[[float], None],
+        record: Path | None,
+    ) -> None:
+        self._after, self._pause_s = after, pause_s
+        self._clock, self._sleep, self._record = clock, sleep, record
+        self._lock = threading.Lock()
+        self._streak = 0
+        self._until = float("-inf")
+
+    def wait(self) -> None:
+        """Return once no pause holds."""
+        while True:
+            with self._lock:
+                remaining = self._until - self._clock()
+            if remaining <= 0:
+                return
+            self._sleep(remaining)
+
+    def ended(self, cause: str | None) -> None:
+        """Count one try's end: an infrastructure failure, or anything else."""
+        if self._after <= 0:
+            return
+        with self._lock:
+            if cause != "infrastructure":
+                self._streak = 0
+                return
+            self._streak += 1
+            if self._streak < self._after:
+                return
+            self._streak = 0
+            self._until = self._clock() + self._pause_s
+            if self._record is not None:
+                line = {"paused_at": _utc(), "pause_s": self._pause_s, "after": self._after}
+                with self._record.open("a") as out:
+                    out.write(json.dumps(line, sort_keys=True) + "\n")
+
+
 def _reviewed(
     log: EventLog,
     review: Callable[[], ReviewResult],
@@ -456,22 +556,30 @@ def _reviewed(
     delays: tuple[float, ...] = (0.0,),
     sleep: Callable[[float], None] = time.sleep,
     lock: threading.Lock | None = None,
+    pacer: _Pacer | None = None,
 ) -> _Reviewed:
     """Review one artefact and record the outcome; a review that gives no verdict is recorded too.
 
     An infrastructure failure is retried once for each of ``delays``, after waiting
     that long, as in the loop: an outage that outlasts the first wait still finds the
-    later ones. Any other review that is not a verdict, or an infrastructure failure
-    after the last retry, is recorded as such and the run goes on: every artefact gets
-    its row, and a review that gave no verdict is never counted as a pass or a fail.
+    later ones. No try starts while the lane-wide pause holds. Any other review that is
+    not a verdict, or an infrastructure failure after the last retry, is recorded as
+    such and the run goes on: every artefact gets its row, and a review that gave no
+    verdict is never counted as a pass or a fail.
     """
     guard = lock or threading.Lock()
     tries: list[_Try] = []
     retries_done, tokens, waited = 0, 0, 0.0
     while True:
+        if pacer is not None:
+            pacer.wait()
+        started = _utc()
         try:
             result = review()
         except ReviewUnavailableError as exc:
+            ended = _utc()
+            if pacer is not None:
+                pacer.ended(exc.cause)
             tokens += sum(m.usage.total() for m in exc.usage)
             retry = exc.cause == "infrastructure" and retries_done < len(delays)
             with guard:
@@ -488,19 +596,22 @@ def _reviewed(
                         spec_defects=exc.spec_defects,
                     )
                 )
-            tries.append(_Try(exc.cause, waited))
+            tries.append(_Try(exc.cause, waited, started, ended))
             if not retry:
                 return _Reviewed(line=line, tokens=tokens, tries=tuple(tries))
             waited = delays[retries_done]
             retries_done += 1
             sleep(waited)
             continue
+        ended = _utc()
+        if pacer is not None:
+            pacer.ended(None)
         tokens += sum(m.usage.total() for m in result.usage)
         with guard:
             ran = log.append(
                 ReviewRan(**log.envelope(), subtask_id=subtask, attempt=1, result=result)
             )
-        tries.append(_Try(None, waited))
+        tries.append(_Try(None, waited, started, ended))
         return _Reviewed(line=ran, tokens=tokens, tries=tuple(tries))
 
 
@@ -520,9 +631,33 @@ def _progress_line(shared: _Shared) -> str:
     )
 
 
+def assign_lanes(seed: int, artefacts: Sequence[CorpusArtefact], lanes: int) -> dict[str, int]:
+    """Each artefact's lane, drawn by the seed before the run: its clean twin runs there too.
+
+    The classes are dealt round the lanes in turn, each class in the order of its
+    artefacts' seeded ids, continuing where the last class stopped, from a lane the seed
+    picks. So the lanes hold the classes evenly, and a lane's machine, build or hour
+    falls on an artefact and its twin alike.
+    """
+    if lanes < 1:
+        msg = "a run reviews in at least one lane"
+        raise RunDirectoryError(msg, lanes=str(lanes))
+    start = int(hashlib.sha256(f"{seed}:lanes".encode()).hexdigest(), 16) % lanes
+    by_class: dict[str, list[CorpusArtefact]] = {}
+    for artefact in artefacts:
+        by_class.setdefault(artefact.error_class, []).append(artefact)
+    lane_of: dict[str, int] = {}
+    k = start
+    for error_class in sorted(by_class):
+        for artefact in sorted(by_class[error_class], key=lambda a: review_id(seed, a.id)):
+            lane_of[artefact.id] = k
+            k = (k + 1) % lanes
+    return lane_of
+
+
 @dataclass(frozen=True)
 class _Lanes:
-    """What every lane reviews with: its reviewers and root, and the run's retry schedule."""
+    """What every lane reviews with: its reviewers, root and items, and the run's pacing."""
 
     reviewers: list[Mapping[str, Reviewer]]
     roots: list[Path]
@@ -530,35 +665,31 @@ class _Lanes:
     corpus: Corpus
     delays: tuple[float, ...]
     sleep: Callable[[float], None]
+    pacer: _Pacer
 
 
 _Item = tuple[str, CorpusArtefact, Patch, EventLog]
 
 
 def _review_all(
-    items: list[_Item],
+    work: list[list[_Item]],
     lanes: _Lanes,
     reviews: dict[str, _Reviewed],
     run_dir: Path,
     say: Callable[[str], None],
 ) -> None:
-    """Review every item, in as many lanes as there are roots, each taking the next in order.
+    """Review every lane's items, each lane its own in order, the lanes at once.
 
     A lane that raises stops every lane from taking another item; the first error is
     raised once all have stopped, as a single lane's would be.
     """
-    work: queue.Queue[_Item] = queue.Queue()
-    for item in items:
-        work.put(item)
-    shared = _Shared(total=len(items))
+    shared = _Shared(total=sum(len(items) for items in work))
     stop = threading.Event()
     errors: list[BaseException] = []
 
     def lane(k: int) -> None:
-        while not stop.is_set():
-            try:
-                subtask, artefact, patch, into = work.get_nowait()
-            except queue.Empty:
+        for subtask, artefact, patch, into in work[k]:
+            if stop.is_set():
                 return
             review = functools.partial(
                 _review,
@@ -573,7 +704,13 @@ def _review_all(
             )
             try:
                 done = _reviewed(
-                    into, review, subtask, delays=lanes.delays, sleep=lanes.sleep, lock=shared.lock
+                    into,
+                    review,
+                    subtask,
+                    delays=lanes.delays,
+                    sleep=lanes.sleep,
+                    lock=shared.lock,
+                    pacer=lanes.pacer,
                 )
             except BaseException as exc:
                 stop.set()
@@ -589,12 +726,12 @@ def _review_all(
                 line = _progress_line(shared)
             say(line)
 
-    if len(lanes.roots) == 1:
+    if len(work) == 1:
         lane(0)
     else:
         threads = [
             threading.Thread(target=lane, args=(k,), name=f"review-lane-{k}")
-            for k in range(len(lanes.roots))
+            for k in range(len(work))
         ]
         for thread in threads:
             thread.start()
@@ -619,7 +756,11 @@ def run_instrument(
     lanes: int = 1,
     lane_reviewers: Sequence[Mapping[str, Reviewer]] | None = None,
     retry_delays_s: tuple[float, ...] = (0.0,),
+    pause_after_failures: int = 0,
+    pause_s: float = 0.0,
+    reviewer_kind: Literal["paired", "generalist"] = "paired",
     sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
     progress: Callable[[str], None] | None = None,
 ) -> tuple[ResultRow, ...]:
     """Review every artefact of ``corpus`` blind, then gate each, and write the results.
@@ -639,8 +780,11 @@ def run_instrument(
     root ``scratch/lane-<k>`` with its own reviewers (``lane_reviewers[k]``, built for
     that root; the same ``reviewers`` for every lane when none are given). Each
     infrastructure failure is retried once per delay of ``retry_delays_s``, waited out
-    with ``sleep`` first. ``per_class`` is the corpus size the caller held it to, and
-    is recorded. ``progress`` is given a count-only line after each review; standard
+    with ``sleep`` first. After ``pause_after_failures`` infrastructure failures in a
+    row across every lane, no lane starts a session for ``pause_s`` seconds (0 turns the
+    pause off). Each artefact and its twin run on the lane :func:`assign_lanes` draws,
+    written in ``lanes.json``. ``per_class`` is the corpus size the caller held it to,
+    and is recorded. ``progress`` is given a count-only line after each review; standard
     error when none is given.
 
     Raises:
@@ -678,6 +822,9 @@ def run_instrument(
         per_class=per_class,
         lanes=lanes,
         retry_delays_s=retry_delays_s,
+        pause_after_failures=pause_after_failures,
+        pause_s=pause_s,
+        reviewer_kind=reviewer_kind,
     )
     run_dir.mkdir(parents=True, exist_ok=True)
     config_path = run_dir / CONFIG_NAME
@@ -700,9 +847,21 @@ def run_instrument(
         if review_clean_twins:
             queue_ += [(cid, a, a.clean, controls) for cid, a in twins]
         roots = [scratch] if lanes == 1 else [scratch / f"lane-{k}" for k in range(lanes)]
+        lane_of = assign_lanes(seed, corpus.artefacts, lanes)
+        (run_dir / LANES_NAME).write_text(json.dumps(lane_of, indent=1, sort_keys=True) + "\n")
+        work: list[list[_Item]] = [[] for _ in range(lanes)]
+        for item in sorted(queue_, key=lambda q: q[0]):
+            work[lane_of[item[1].id]].append(item)
+        pacer = _Pacer(
+            after=pause_after_failures,
+            pause_s=pause_s,
+            clock=clock,
+            sleep=sleep,
+            record=run_dir / PAUSES_NAME,
+        )
         _review_all(
-            sorted(queue_, key=lambda q: q[0]),
-            _Lanes(sets, roots, author, corpus, retry_delays_s, sleep),
+            work,
+            _Lanes(sets, roots, author, corpus, retry_delays_s, sleep, pacer),
             reviews,
             run_dir,
             progress or (lambda line: print(line, file=sys.stderr, flush=True)),
@@ -748,6 +907,8 @@ def run_instrument(
             ),
             control_verdict=controlled[twin_of[artefact.id]].verdict,
             control_blocking=blocking(controlled[twin_of[artefact.id]]),
+            gate_evaluated=evaluated(gated[rid].result),
+            control_evaluated=evaluated(controlled[twin_of[artefact.id]]),
         )
         for rid, artefact in sorted(order, key=lambda p: p[1].id)
     )

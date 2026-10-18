@@ -29,7 +29,7 @@ def _run(tmp_path: Path, script: list[str | None], delays: tuple[float, ...]) ->
     waited: list[float] = []
     run_instrument(
         load_corpus(write_corpus(tmp_path / "corpus")),
-        {"electrical": ScriptedReviewer(script)},  # type: ignore[dict-item]
+        {"electrical": ScriptedReviewer(script)},
         run_dir=tmp_path / "run",
         scratch=tmp_path / "scratch",
         run_id="retry-1",
@@ -57,7 +57,7 @@ def test_each_retry_waits_its_own_delay_and_a_verdict_after_the_third_counts(
     record = json.loads(
         (tmp_path / "run" / REVIEWS_DIRNAME / f"{first['review_id']}.json").read_text()
     )
-    assert record["tries"] == [
+    assert [{k: t[k] for k in ("cause", "delay_before_s")} for t in record["tries"]] == [
         {"cause": "infrastructure", "delay_before_s": 0.0},
         {"cause": "infrastructure", "delay_before_s": 60.0},
         {"cause": "infrastructure", "delay_before_s": 900.0},
