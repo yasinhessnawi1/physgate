@@ -101,8 +101,8 @@ impl Shell {
             use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
             let set = app
                 .dialog()
-                .message(READ_ONLY_NOTICE)
-                .title("The operator UI is read-only")
+                .message(crate::commands::plain(READ_ONLY_NOTICE))
+                .title(crate::commands::plain("The operator UI is read-only"))
                 .kind(MessageDialogKind::Info)
                 .buttons(MessageDialogButtons::OkCancelCustom(
                     "Set a Name…".into(),

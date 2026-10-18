@@ -5,6 +5,7 @@
  */
 import { expect, type Page } from "@playwright/test";
 
+import { namesACommand } from "../src/rules/commands";
 import { PORT } from "./port";
 
 export const LOCAL = new RegExp(`^http://127\\.0\\.0\\.1:${String(PORT)}/`);
@@ -145,4 +146,15 @@ export async function hitAreasShort(page: Page, selector: string): Promise<strin
 
 export async function cspViolations(page: Page): Promise<string[]> {
   return page.evaluate(() => (window as unknown as { cspViolations: string[] }).cspViolations);
+}
+
+/**
+ * The page's text holds no terminal command: what is drawn, and what is in the page but not
+ * drawn (a closed disclosure, a hidden panel).
+ */
+export async function namesNoCommand(page: Page, where: string) {
+  const drawn = await page.locator("body").innerText();
+  expect(namesACommand(drawn), `${where}: ${drawn}`).toBe(false);
+  const whole = await page.evaluate(() => document.body.textContent);
+  expect(namesACommand(whole), `${where}: ${whole}`).toBe(false);
 }

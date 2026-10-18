@@ -1,5 +1,5 @@
 {
-  "$comment": "What a terminal command looks like, for the rule that no screen of the app or of the desktop shell shows one. The operator UI's rule test and the desktop shell's both read this file. A command is any of: physgate followed by one of the subcommands (a Python test holds this list equal to the command's own), export NAME= (a shell variable set for a session), or any of the phrases.",
+  "$comment": "What a terminal command looks like, for the rule that no screen of the app or of the desktop shell shows one. The operator UI's rule test and the desktop shell's both read this file. A command is any of: physgate followed by one of the subcommands (a Python test holds this list equal to the command's own), export NAME= (a shell variable set for a session), or any of the phrases. A phrase that starts with a letter or digit starts a word, and one that ends with one ends a word, so uv run is not found in uv runs.",
   "subcommands": [
     "catches",
     "compare",
@@ -27,6 +27,12 @@
     "uv run",
     "uv sync",
     "scripts/build-",
-    "pnpm install"
+    "pnpm install",
+    "| bash",
+    "| sh",
+    "curl -",
+    "setup-token",
+    "git ",
+    "pnpm run"
   ]
 }

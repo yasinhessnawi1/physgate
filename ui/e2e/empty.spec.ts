@@ -1,13 +1,12 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { expect, type Page, test } from "@playwright/test";
 
-import { namesACommand } from "../src/rules/commands";
-import { cspViolations, THEMES, watch } from "./support";
+import { cspViolations, namesNoCommand, THEMES, watch } from "./support";
 
 /**
  * The app on a machine with no run yet: the real server over an empty run folder, as the desktop
@@ -23,22 +22,19 @@ interface Started {
   readonly operator_url: string;
 }
 
-let server: ChildProcessWithoutNullStreams | undefined;
-let folder = "";
-let started: Started = { url: "", operator_url: "" };
+interface Serving {
+  readonly child: ChildProcessWithoutNullStreams;
+  readonly started: Started;
+}
 
-test.beforeAll(async () => {
-  test.setTimeout(180_000);
-  folder = mkdtempSync(join(tmpdir(), "physgate-ui-e2e-empty-"));
-  const root = join(folder, "physgate-runs");
-  mkdirSync(root, { mode: 0o700 });
+/** The real `physgate ui` over `root`, on a free port, with the operator named. */
+async function serve(root: string): Promise<Serving> {
   const child = spawn(
     "uv",
     ["run", "physgate", "ui", "--root", root, "--port", "0", "--operator", "e2e-operator"],
     { cwd: CHECKOUT },
   );
-  server = child;
-  started = await new Promise<Started>((resolve, reject) => {
+  const started = await new Promise<Started>((resolve, reject) => {
     let out = "";
     let err = "";
     child.stdout.on("data", (chunk: Buffer) => {
@@ -56,23 +52,46 @@ test.beforeAll(async () => {
       reject(new Error(`the server stopped before it served (${String(code)}): ${err}`));
     });
   });
+  return { child, started };
+}
+
+async function stop(child: ChildProcessWithoutNullStreams | undefined) {
+  // Read afresh each time: the process ends while this waits.
+  const running = () => child !== undefined && child.exitCode === null && child.signalCode === null;
+  if (child === undefined || !running()) return;
+  const stopped = new Promise((resolve) => child.once("exit", resolve));
+  child.kill("SIGINT");
+  await Promise.race([stopped, new Promise((resolve) => setTimeout(resolve, 10_000))]);
+  if (running()) child.kill("SIGKILL");
+}
+
+let server: ChildProcessWithoutNullStreams | undefined;
+let unreadableServer: ChildProcessWithoutNullStreams | undefined;
+let folder = "";
+let started: Started = { url: "", operator_url: "" };
+let unreadable: Started = { url: "", operator_url: "" };
+
+test.beforeAll(async () => {
+  test.setTimeout(180_000);
+  folder = mkdtempSync(join(tmpdir(), "physgate-ui-e2e-empty-"));
+  const root = join(folder, "physgate-runs");
+  mkdirSync(root, { mode: 0o700 });
+  ({ child: server, started } = await serve(root));
+  // A run folder whose one run cannot be read: its record is not JSON.
+  const broken = join(folder, "unreadable-runs");
+  mkdirSync(join(broken, "broken-run"), { recursive: true, mode: 0o700 });
+  writeFileSync(join(broken, "broken-run", "run.json"), "{");
+  ({ child: unreadableServer, started: unreadable } = await serve(broken));
 });
 
 test.afterAll(async () => {
-  const child = server;
-  // Read afresh each time: the process ends while this waits.
-  const running = () => child !== undefined && child.exitCode === null && child.signalCode === null;
-  if (child !== undefined && running()) {
-    const stopped = new Promise((resolve) => child.once("exit", resolve));
-    child.kill("SIGINT");
-    await Promise.race([stopped, new Promise((resolve) => setTimeout(resolve, 10_000))]);
-    if (running()) child.kill("SIGKILL");
-  }
+  await stop(server);
+  await stop(unreadableServer);
   if (folder !== "") rmSync(folder, { recursive: true, force: true });
 });
 
-function local(): RegExp {
-  return new RegExp(`^${started.url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`);
+function local(url: string = started.url): RegExp {
+  return new RegExp(`^${url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`);
 }
 
 async function settle(page: Page) {
@@ -80,13 +99,13 @@ async function settle(page: Page) {
 }
 
 /**
- * The page's whole visible text holds no terminal command, and no code or preformatted block
- * stands in its content. The About page is the one exception to the second: it sets the
- * licences' own texts as preformatted text, and its text is still held to the first.
+ * The page's text holds no terminal command: what is drawn, and what is in the page but not
+ * drawn (a closed disclosure, a hidden panel). No code or preformatted block stands in its
+ * content either. The About page is the one exception to that: it sets the licences' own texts
+ * as preformatted text, and its text is still held to the first rule.
  */
 async function showsNoCommand(page: Page, where: string) {
-  const text = await page.locator("body").innerText();
-  expect(namesACommand(text), `${where}: ${text}`).toBe(false);
+  await namesNoCommand(page, where);
   if (where !== "#/about") await expect(page.locator("main code, main pre")).toHaveCount(0);
 }
 
@@ -164,3 +183,21 @@ for (const theme of THEMES) {
     expect(await cspViolations(page)).toEqual([]);
   });
 }
+
+test("with runs listed and none readable, Home lists each with its reason and starts nothing", async ({
+  page,
+}) => {
+  const seen = await watch(page, local(unreadable.url));
+  await page.goto(`${unreadable.url}?theme=light${new URL(unreadable.operator_url).hash}`);
+  await expect.poll(() => page.evaluate(() => window.location.hash)).toBe("");
+  await settle(page);
+  await expect(page.locator('.pg-state-empty[aria-label="No run here can be read"]')).toBeVisible();
+  const picker = page.locator('nav[aria-label="Runs"]');
+  await expect(picker).toContainText("broken-run");
+  await expect(picker).toContainText("unreadable:");
+  // Not the first-day screen: there is a run, so nothing offers to start a project.
+  await expect(page.getByRole("button", { name: "Start a project" })).toHaveCount(0);
+  await showsNoCommand(page, "Home, none readable");
+  expect(seen.outbound).toEqual([]);
+  expect(await cspViolations(page)).toEqual([]);
+});

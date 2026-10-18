@@ -23,13 +23,23 @@ const SHAPES = JSON.parse(
 const escaped = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
+ * A phrase as a pattern. One that starts with a letter or digit starts a word, and one that
+ * ends with one ends a word, so `uv run` is not found in `uv runs` nor `git ` in `legit `.
+ */
+function phraseShape(phrase: string): RegExp {
+  const before = /^\w/.test(phrase) ? "(?<![\\w-])" : "";
+  const after = /\w$/.test(phrase) ? "(?![\\w-])" : "";
+  return new RegExp(`${before}${escaped(phrase)}${after}`);
+}
+
+/**
  * A terminal command: `physgate` followed by one of its subcommands, a shell variable exported
  * (`export NAME=`), or any phrase a command is made of.
  */
 export const COMMAND_PATTERNS: readonly RegExp[] = [
   new RegExp(`(?<![\\w-])physgate\\s+(?:${SHAPES.subcommands.map(escaped).join("|")})(?![\\w-])`),
   /(?<![\w-])export\s+[A-Za-z_]\w*=/,
-  ...SHAPES.phrases.map((phrase) => new RegExp(escaped(phrase))),
+  ...SHAPES.phrases.map(phraseShape),
 ];
 
 export function namesACommand(text: string): boolean {

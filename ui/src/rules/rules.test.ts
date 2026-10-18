@@ -149,6 +149,11 @@ describe("no screen shows a terminal command", () => {
       "cd /c && uv sync",
       "scripts/build-ui.sh",
       "(cd ui && pnpm install --frozen-lockfile)",
+      "curl -fsSL https://claude.ai/install.sh | bash",
+      "curl -LsSf https://example.org/x | sh",
+      "claude setup-token",
+      "git worktree list",
+      "pnpm run build",
     ])
       expect(namesACommand(planted), planted).toBe(true);
   });
@@ -163,6 +168,11 @@ describe("no screen shows a terminal command", () => {
       "export as CSV",
       "the physgateui",
       "nophysgate run",
+      "a legit result",
+      "uv runs",
+      "a | shared value",
+      "curling",
+      "the setup-tokens",
     ])
       expect(namesACommand(prose), prose).toBe(false);
   });

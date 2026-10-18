@@ -32,8 +32,8 @@ the internet, so macOS opens it without a warning.
    - **Claude Code**, signed in with your Claude subscription.
      - **If Claude Code is missing,** the app opens Terminal with Anthropic's official
        installer when you click. Terminal prints the installer's command
-       (`curl -fsSL https://claude.ai/install.sh | bash`) before it runs it. The app
-       downloads nothing itself. Then **Check Again**.
+       (`curl -fsSL https://claude.ai/install.sh | bash`) and runs it only once you press
+       Return there. The app downloads nothing itself. Then **Check Again**.
      - **Sign In** runs `claude setup-token` inside the app and opens your browser. The
        token it prints goes straight into the macOS Keychain and is never shown. If that
        doesn't work, **Sign in in Terminal instead** runs it in Terminal, and you paste the

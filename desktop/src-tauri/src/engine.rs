@@ -20,9 +20,6 @@ use crate::keychain::{self, Secret};
 /// The engines the step offers, as data: two available, the rest not yet.
 pub const CATALOGUE: &str = include_str!("../../onboarding/engines.json");
 
-/// Claude Code's official installer, as its documentation gives it.
-pub const INSTALL_COMMAND: &str = "curl -fsSL https://claude.ai/install.sh | bash";
-
 pub fn catalogue() -> serde_json::Value {
     serde_json::from_str(CATALOGUE).expect("the bundled catalogue is valid JSON")
 }
@@ -168,37 +165,6 @@ pub fn open_in_terminal(folder: &Path, name: &str, script: &str) -> Result<(), S
         .map_err(|e| format!("Terminal could not be opened: {e}"))
 }
 
-pub fn install_script() -> String {
-    format!(
-        "#!/bin/zsh\n\
-         echo 'Installing Claude Code with its official installer:'\n\
-         echo '  {INSTALL_COMMAND}'\n\
-         echo\n\
-         {INSTALL_COMMAND}\n\
-         echo\n\
-         echo 'When it says it is done, go back to the physgate app and choose Check Again.'\n"
-    )
-}
-
-pub fn sign_in_script(claude: &str) -> String {
-    format!(
-        "#!/bin/zsh\n\
-         echo 'Signing Claude Code in for physgate runs.'\n\
-         echo 'Your browser opens; sign in there. Then copy the token printed here,'\n\
-         echo 'paste it into the physgate app, and close this window.'\n\
-         echo\n\
-         '{}' setup-token\n\
-         echo\n\
-         echo 'When the app says the token is kept, press Return here.'\n\
-         echo 'That empties the clipboard and clears this window, so the token is left in neither.'\n\
-         read -r _\n\
-         printf '' | pbcopy\n\
-         clear && printf '\\033[3J'\n\
-         echo 'Clipboard emptied and window cleared. You can close this window.'\n",
-        claude.replace('\'', r"'\''")
-    )
-}
-
 // ---------------------------------------------------------------------------------------
 // Signing in for runs: `claude setup-token` in a pseudo-terminal
 
@@ -229,11 +195,16 @@ fn locked(state: &Mutex<SignInState>) -> MutexGuard<'_, SignInState> {
 }
 
 impl SignIn {
+    /// What the page shows of the sign-in. A line of its output that names a command is left
+    /// out, as it is from every screen of the app.
     pub fn view(&self) -> SignInView {
         let mut view = locked(&self.0).view.clone();
         if view.phase.is_empty() {
             view.phase = "idle";
         }
+        view.lines
+            .retain(|line| !crate::commands::names_a_command(line));
+        view.message = view.message.map(|m| crate::commands::plain(&m));
         view
     }
 
@@ -250,7 +221,7 @@ impl SignIn {
             open_pty().map_err(|e| format!("no terminal for the sign-in: {e}"))?;
         let mut command = Command::new(claude);
         command
-            .arg("setup-token")
+            .arg(crate::terminal::SIGN_IN)
             .env("TERM", "xterm-256color")
             .stdin(Stdio::from(slave.try_clone().map_err(|e| e.to_string())?))
             .stdout(Stdio::from(slave.try_clone().map_err(|e| e.to_string())?))
@@ -718,18 +689,6 @@ mod tests {
     }
 
     #[test]
-    fn the_scripts_run_only_what_they_show() {
-        let install = install_script();
-        assert!(install.contains(INSTALL_COMMAND));
-        assert!(install.starts_with("#!/bin/zsh\n"));
-        let sign_in = sign_in_script("/Users/me/it's/claude");
-        assert!(sign_in.contains(r"'/Users/me/it'\''s/claude' setup-token"));
-        // The token is pasted through the clipboard and printed here: both are emptied after.
-        assert!(sign_in.contains("printf '' | pbcopy"));
-        assert!(sign_in.contains("clear && printf"));
-    }
-
-    #[test]
     fn a_sign_in_with_a_stand_in_keeps_the_token_and_shows_none_of_it() {
         let dir = crate::testdir::TestDir::new("sign-in");
         // The Keychain service under test is the test process's own (see keychain::service).
@@ -740,7 +699,8 @@ mod tests {
             format!(
                 "#!/bin/sh\n[ -t 0 ] || {{ echo 'not a terminal'; exit 3; }}\n\
                  printf '\\033[1mOpening your browser\\033[0m\\r\\n'\n\
-                 printf 'Your token:\\r\\n{token}\\r\\nDone.\\r\\n'\n"
+                 printf 'Your token:\\r\\n{token}\\r\\nDone.\\r\\n'\n\
+                 printf 'To make another, run claude setup-token again.\\r\\n'\n"
             ),
         )
         .unwrap();
@@ -759,6 +719,10 @@ mod tests {
         assert!(
             shown.contains("Opening your browser"),
             "it ran in a terminal: {shown}"
+        );
+        assert!(
+            !crate::commands::names_a_command(&shown),
+            "a line naming a command is left out: {shown}"
         );
         assert_eq!(keychain::read(Secret::SubscriptionToken).unwrap(), token);
         keychain::forget(Secret::SubscriptionToken);

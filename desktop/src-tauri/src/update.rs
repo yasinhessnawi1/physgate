@@ -91,11 +91,11 @@ async fn run(app: &AppHandle) -> Result<Option<String>, String> {
     let install = scripted
         || app
             .dialog()
-            .message(format!(
+            .message(crate::commands::plain(&format!(
                 "Version {} of the physgate app is ready (this one is {}).\n\n\
              Installing takes a few seconds and reopens the app. Your view is kept.",
                 update.version, update.current_version
-            ))
+            )))
             .title("Update the physgate app?")
             .kind(MessageDialogKind::Info)
             .buttons(MessageDialogButtons::OkCancelCustom(
@@ -120,8 +120,8 @@ async fn run(app: &AppHandle) -> Result<Option<String>, String> {
 
 fn tell(app: &AppHandle, title: &str, message: &str) {
     app.dialog()
-        .message(message)
-        .title(title)
+        .message(crate::commands::plain(message))
+        .title(crate::commands::plain(title))
         .kind(MessageDialogKind::Info)
         .buttons(MessageDialogButtons::Ok)
         .blocking_show();
