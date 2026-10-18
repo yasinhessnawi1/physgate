@@ -128,3 +128,21 @@ def test_the_command_fails_a_whole_tier_whose_brief_gives_its_answer_away(
     leaking = "Try 1.02 s^2 + 2.04 s + 4 over 0.01 s^2 + s."
     _write(tmp_path, "control.b", leaking, GOOD_PID, unstable)
     assert _command(["--tier", str(tmp_path), "--tasks", "2"]) == 1
+
+
+def test_refusals_are_told_by_category_and_metric_only(tmp_path: Path) -> None:
+    from physgate.evaluation.per_role.validate import refusal_reasons
+
+    unstable = controller([1.0], [1.0], gain=0.1)
+    _write(tmp_path, "control.sound", "Hold the plant.", GOOD_PID, unstable)
+    _write(tmp_path, "control.wrong_good", "Hold the plant.", unstable, unstable)
+    leaking = "Try 1.02 s^2 + 2.04 s + 4 over 0.01 s^2 + s."
+    _write(tmp_path, "control.leaks", leaking, GOOD_PID, unstable)
+    _write(tmp_path, "control.bad_passes", "Hold the plant.", GOOD_PID, GOOD_PID)
+    (tmp_path / "control.empty").mkdir()
+    reasons = refusal_reasons(tmp_path)
+    assert reasons["not_a_task"] == 1
+    assert reasons["brief_leak"] == 1
+    assert reasons["good_fails:max_real_pole"] == 1
+    assert reasons["bad_passes:max_real_pole"] == 1
+    assert not any("control." in key for key in reasons)

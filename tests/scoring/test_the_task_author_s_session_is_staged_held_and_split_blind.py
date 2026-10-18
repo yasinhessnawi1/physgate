@@ -168,6 +168,8 @@ def test_with_fewer_sound_tasks_than_two_tiers_nothing_is_kept_but_the_counts(
 ) -> None:
     plan, _, out = _run(tmp_path, monkeypatch, _tasks(16, broken=1))
     assert out["status"] == "too_few_held" and out["held"] == 15 and out["written"] == 16
+    assert out["refused_because"]["good_fails:max_real_pole"] == 1
+    assert "control.t" not in json.dumps(out["refused_because"])
     assert not plan.visible.exists()
     assert not (plan.held_out_root / "control").exists()
     assert not plan.work.exists()
@@ -593,6 +595,26 @@ def test_a_task_holding_a_fifo_is_refused_without_waiting_on_it(
 
     _, _, out = _run(tmp_path, monkeypatch, write, count=17)
     assert out["refused_as_files"] == 1 and out["held"] == 16
+
+
+@pytest.mark.parametrize("command", ["author", "blind-check"])
+def test_the_commands_take_a_session_s_bounds_with_a_role_session_s_defaults(
+    command: str,
+) -> None:
+    import argparse
+
+    from physgate.evaluation.per_role import cli
+
+    parser = argparse.ArgumentParser()
+    cli.add_parser(parser.add_subparsers())
+    common = ["--role", "control", "--held-out-root", "/r", "--work", "/w", "--cap", "1"]
+    if command == "author":
+        common += ["--role-python", "/p", "--visible", "/v", "--seed", "1"]
+    given = parser.parse_args(["per-role", command, *common])
+    assert (given.session_wall_clock_s, given.session_max_turns) == (1800.0, 150)
+    longer = ["--session-wall-clock-s", "3600", "--session-max-turns", "300"]
+    given = parser.parse_args(["per-role", command, *common, *longer])
+    assert (given.session_wall_clock_s, given.session_max_turns) == (3600.0, 300)
 
 
 def test_work_inside_a_place_withheld_from_the_author_is_refused_before_any_session(

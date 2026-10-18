@@ -51,7 +51,7 @@ from physgate.evaluation.per_role.authoring import (
 )
 from physgate.evaluation.per_role.firmware.sandbox import open_directory
 from physgate.evaluation.per_role.task import Role, load_task
-from physgate.evaluation.per_role.validate import id_digest, sound, validate
+from physgate.evaluation.per_role.validate import id_digest, refusal_reasons, sound, validate
 
 _READ = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
 _NEW = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
@@ -322,6 +322,7 @@ def author(plan: AuthoringPlan, setup: RawSetup) -> dict[str, Any]:
             "written": staged + refused,
             "refused_as_files": refused,
             "held": len(held),
+            "refused_because": refusal_reasons(staging),
             "session": _spent(record),
         }
         if len(held) < 2 * PER_TIER:

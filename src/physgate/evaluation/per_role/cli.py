@@ -75,6 +75,11 @@ def add_parser(subparsers: Any) -> None:
         sub.add_argument("--endpoint")
         sub.add_argument("--claude-version", default="2.1.301")
         sub.add_argument("--cap", type=int, required=True)
+        # A role session's bounds; the session gets them times the harness's repair
+        # budget, as the raw arm does. An author writing a tier's worth of tasks with
+        # their references outlasts a role session's defaults.
+        sub.add_argument("--session-wall-clock-s", type=float, default=1800.0)
+        sub.add_argument("--session-max-turns", type=int, default=150)
         if name == "author":
             # The interpreter the arms' sessions get, with the scorer's libraries: the
             # author computes with them, though the scorer itself is never given.
@@ -190,8 +195,8 @@ def _session_setup(args: argparse.Namespace, install: Path) -> Any:
         thinking_display="summarized",
         bounds=RunBounds(
             binary_max_retries=0,
-            session_wall_clock_s=1800.0,
-            session_max_turns=150,
+            session_wall_clock_s=args.session_wall_clock_s,
+            session_max_turns=args.session_max_turns,
             infra_retry_delays_s=(),
         ),
         credential=credential_for(args.auth, os.environ),

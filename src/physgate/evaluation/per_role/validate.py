@@ -15,13 +15,14 @@ from __future__ import annotations
 import hashlib
 import math
 import re
+from collections import Counter
 from pathlib import Path
 from typing import Any, NamedTuple
 
 from physgate.evaluation.per_role.answer import read_lti_tf
 from physgate.evaluation.per_role.authoring import sha256sums
 from physgate.evaluation.per_role.exceptions import PerRoleError
-from physgate.evaluation.per_role.scorers.control import check_references
+from physgate.evaluation.per_role.scorers.control import check_references, score
 from physgate.evaluation.per_role.task import LoadedTask, load_task
 
 _NUMBER = re.compile(r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")
@@ -109,3 +110,45 @@ def validate(tier: Path, *, show_ids: bool = False) -> dict[str, Any]:
         "ids_shown": show_ids and visible,
         "sha256": hashlib.sha256(sha256sums(tier).encode()).hexdigest(),
     }
+
+
+def refusal_reasons(tier: Path) -> dict[str, int]:
+    """Why the tasks of ``tier`` that a split may not take are refused, as counts only.
+
+    Each reason is a category with, where it applies, a metric's name (a fixed vocabulary
+    that says nothing of the task): ``not_a_task``, ``scorer_refuses_task``,
+    ``good_fails:<metric>``, ``bad_passes:<metric>``, ``brief_leak`` and
+    ``id_not_directory``. A task counts once under each reason it has.
+    """
+    reasons: Counter[str] = Counter()
+    for entry in sorted(p for p in tier.iterdir() if p.is_dir()):
+        try:
+            loaded = load_task(entry)
+        except (PerRoleError, OSError):
+            reasons["not_a_task"] += 1
+            continue
+        task = loaded.task
+        metric = {spec.name: spec.metric for spec in task.specs}
+        found: set[str] = set()
+        try:
+            for ref in loaded.references:
+                record = score(task, Path(ref.answer_path))
+                failed = {
+                    row["name"]
+                    for row in record["specs"]
+                    if row["counts"] == "headline" and not row["passed"]
+                }
+                if ref.fails is None and not record["passed"]:
+                    found |= {f"good_fails:{metric[name]}" for name in failed} or {
+                        "good_fails:unreadable_answer"
+                    }
+                if ref.fails is not None and ref.fails not in failed:
+                    found.add(f"bad_passes:{metric[ref.fails]}")
+        except PerRoleError:
+            found.add("scorer_refuses_task")
+        if brief_leaks(loaded):
+            found.add("brief_leak")
+        if task.id != entry.name:
+            found.add("id_not_directory")
+        reasons.update(found)
+    return dict(sorted(reasons.items()))
