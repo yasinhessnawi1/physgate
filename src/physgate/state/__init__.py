@@ -49,7 +49,9 @@ from physgate.state.store import (
     journal_diff,
     journal_records_after,
     node_file_body,
+    node_file_path,
     node_history,
+    write_node_file,
 )
 from physgate.state.task_ledger import TaskLedger, TaskLine, read_ledger
 
@@ -86,9 +88,11 @@ __all__ = [
     "journal_diff",
     "journal_records_after",
     "node_file_body",
+    "node_file_path",
     "node_history",
     "quantities_are_valid",
     "read_ledger",
     "validate_node",
     "validate_node_id",
+    "write_node_file",
 ]

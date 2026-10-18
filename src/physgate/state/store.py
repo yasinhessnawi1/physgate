@@ -31,6 +31,7 @@ inert against the frozen workload:
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -178,6 +179,83 @@ def node_file_body(rev: int, version: int, payload: Payload) -> str:
         sort_keys=True,
         separators=(",", ":"),
     )
+
+
+def node_file_path(nodes_dir: Path, node_id: str) -> Path:
+    """The file holding ``node_id`` under ``nodes_dir``; the only place a node path is built.
+
+    The containment check is a **string test on the file name**, and the
+    spelling is measured rather than chosen. Resolving the path and comparing
+    it to the resolved directory — the obvious version, and the one written
+    first — touches the filesystem once per path component, and a traversal
+    builds a path once per hop. Collapsing the path as text instead was cheaper
+    and still cost nine microseconds a call to re-prove what the identifier
+    pattern already guarantees, since that pattern admits no separator and no
+    parent reference. What is left is the part the pattern does not cover: a
+    name holding a separator, or beginning with a parent reference, cannot
+    stay in this directory whatever a future pattern allows. Fifteen
+    microseconds a call became one and a half.
+
+    Raises:
+        MalformedNodeIdError: the id is illegal, or the name it produces
+            would not stay in the graph directory.
+    """
+    validate_node_id(node_id)
+    name = f"{node_id}.json"
+    if os.sep in name or (os.altsep and os.altsep in name) or name.startswith(".."):
+        msg = "the node path would fall outside the graph directory"
+        raise MalformedNodeIdError(msg, node_id=node_id, file_name=name)
+    return nodes_dir / name
+
+
+def write_node_file(
+    nodes_dir: Path, node_id: str, rev: int, version: int, payload: Payload
+) -> None:
+    """Replace a node file with what the journal says it holds: temp, sync, rename.
+
+    The one implementation of the write. The store materialises through it, and
+    so does the hook layer when it puts back a node file a session changed: a
+    hook may not open a store, because opening runs recovery, and a second copy
+    of this write would be a second opinion about what the file should be.
+
+    **It follows no link.** The directory is opened refusing a link in its
+    place, and every name below is resolved against that descriptor. The
+    temporary file is created fresh under a name of its own, never opened if it
+    exists, so a link planted at a temporary name is not written through, and
+    two writers of one node never share one. The rename replaces whatever is at
+    the node's name, a link included, and does not follow it. The temporary
+    name does not end in ``.json``, so nothing that lists node files sees it.
+
+    Raises:
+        MalformedNodeIdError: the id is illegal.
+        OSError: the directory is a link, or the write failed; the node file is
+            then as it was.
+    """
+    name = node_file_path(nodes_dir, node_id).name
+    body = node_file_body(rev, version, payload).encode()
+    directory = os.open(nodes_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    tmp = f"{name}.{os.getpid()}.{os.urandom(6).hex()}.tmp"
+    try:
+        fd = os.open(
+            tmp,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o666,
+            dir_fd=directory,
+        )
+        try:
+            view = memoryview(body)
+            while view:
+                view = view[os.write(fd, view) :]
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.replace(tmp, name, src_dir_fd=directory, dst_dir_fd=directory)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp, dir_fd=directory)
+        raise
+    finally:
+        os.close(directory)
 
 
 def journal_records_after(root: Path, revision: Revision) -> list[JournalLine]:
@@ -877,36 +955,17 @@ class Store:
     # ----- internals ----------------------------------------------------------
 
     def _node_path(self, node_id: str) -> Path:
-        """The file holding ``node_id``, and the only place a node path is built.
+        """The file holding ``node_id``: :func:`node_file_path` under this store's directory.
 
         Every read, write and repair goes through here, so this is where the
         identifier rule is made unconditional rather than being remembered at
-        each call site. The name it produces is then checked as well: the pattern
-        is the rule, and the containment check is what catches a future change to
-        the pattern that the pattern's own tests would still pass.
-
-        The containment check is a **string test on the file name**, and the
-        spelling is measured rather than chosen. Resolving the path and comparing
-        it to the resolved directory — the obvious version, and the one written
-        first — touches the filesystem once per path component, and a traversal
-        calls this once per hop. Collapsing the path as text instead was cheaper
-        and still cost nine microseconds a call to re-prove what the identifier
-        pattern already guarantees, since that pattern admits no separator and no
-        parent reference. What is left is the part the pattern does not cover: a
-        name holding a separator, or beginning with a parent reference, cannot
-        stay in this directory whatever a future pattern allows. Fifteen
-        microseconds a call became one and a half.
+        each call site.
 
         Raises:
             MalformedNodeIdError: the id is illegal, or the name it produces
                 would not stay in the graph directory.
         """
-        validate_node_id(node_id)
-        name = f"{node_id}.json"
-        if os.sep in name or (os.altsep and os.altsep in name) or name.startswith(".."):
-            msg = "the node path would fall outside the graph directory"
-            raise MalformedNodeIdError(msg, node_id=node_id, file_name=name)
-        return self.nodes_dir / name
+        return node_file_path(self.nodes_dir, node_id)
 
     def _read_node(self, node_id: str) -> Payload:
         """Read a node's payload from its file, without the staleness check."""
@@ -965,11 +1024,4 @@ class Store:
 
     def _materialise(self, node_id: str, rev: int, version: int, payload: Payload) -> None:
         """Replace the node file atomically. Derived from the journal, never authoritative."""
-        path = self._node_path(node_id)
-        tmp = path.with_suffix(".json.tmp")
-        body = node_file_body(rev, version, payload)
-        with tmp.open("w") as handle:
-            handle.write(body)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp, path)
+        write_node_file(self.nodes_dir, node_id, rev, version, payload)

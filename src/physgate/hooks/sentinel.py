@@ -23,7 +23,10 @@ says:
   own guard, which refuses on the orchestrator's next call when the journal
   moved under its handle. That is sound only if the orchestrator treats that
   refusal as an incident and never reopens and continues, because a reopen
-  would replay an agent's line as genuine.
+  would replay an agent's line as genuine. The node files beside it are
+  derived from the journal: one that no longer holds what the journal says is
+  rebuilt from the journal's newest line for it, with the store's own write,
+  and every call after it is refused.
 - ``halt``: the code the hooks run from. It cannot be put back by the code it
   runs, and a hook running on changed code cannot be trusted to say so, so this
   is detection at best: when it is seen, every later call is refused. What
@@ -68,9 +71,9 @@ HALTED = (
     "decide can be trusted, and every call is refused."
 )
 NODE_MISMATCH = (
-    "A graph node file does not hold what the journal says it holds ({paths}). The store "
-    "serves node files as they are, so every call is refused until the orchestrator reopens "
-    "the store, which rebuilds the file from the journal."
+    "A graph node file does not hold what the journal says it holds ({paths}). Node files are "
+    "written by the orchestrator alone: a file the journal names is rebuilt from the journal, "
+    "and every call is refused."
 )
 UNRESTORABLE = (
     "A protected path changed and could not be put back ({paths}); every call is refused."
@@ -523,6 +526,55 @@ def _check_nodes(base: dict[str, Any]) -> list[str]:
     return findings
 
 
+#: How often a rebuild is retried when the orchestrator writes the same node meanwhile.
+_REBUILD_ATTEMPTS = 3
+
+
+def _restore_nodes(base: dict[str, Any], mismatched: list[str]) -> list[str]:
+    """Rebuild each mismatched node file from the journal. Returns the files rebuilt.
+
+    The journal is the authority, so the file is written as the journal's newest
+    line for its node says, with the store's own write: atomic, and following no
+    link. A file the journal never named has nothing to be rebuilt from and is
+    left for the store, whose next open refuses it or moves it aside.
+
+    The orchestrator may write the same node meanwhile: its journal line, then
+    its file. If its file lands before this one, this one would be older, so the
+    journal is read again after the write, and a node whose newest line moved is
+    written again from the newer line.
+    """
+    # Imported here: the state package loads the validation library, and this
+    # runs only when a node file has changed.
+    from pathlib import Path
+
+    from physgate.state import DesignStateError
+    from physgate.state import store as graph
+
+    restored: list[str] = []
+    roots: set[str] = set()
+    for path in mismatched:
+        nodes = os.path.dirname(path)
+        root = os.path.dirname(nodes)
+        node_id = os.path.basename(path)[: -len(".json")]
+        roots.add(root)
+        for _ in range(_REBUILD_ATTEMPTS):
+            head = heads(root).get(node_id)
+            if head is None:
+                break
+            try:
+                graph.write_node_file(Path(nodes), node_id, *head)
+            except (OSError, DesignStateError):
+                break
+            now = heads(root).get(node_id)
+            if now is not None and now[0] == head[0]:
+                restored.append(path)
+                break
+    for root in roots:
+        # The rebuilt files are the record now, so the next check starts from them.
+        base["nodes"][root] = _nodes_record(root, heads(root))
+    return restored
+
+
 def _check_logged(base: dict[str, Any], config: ConfigView) -> list[str]:
     roots = _roots(config, "log")
     now = {p: list(s) for p, s in take_signatures(roots).items()}
@@ -587,6 +639,7 @@ def check(hook_input: InputView, config: ConfigView) -> Decision:
         journals_put_back, appended = _check_journals(base, state)
         put_back += journals_put_back
         mismatched = _check_nodes(base)
+        restored = _restore_nodes(base, mismatched) if mismatched else []
         logged = _check_logged(base, config)
         # The withheld-file tripwire runs after everything above has been put back, so
         # finding something there never costs a put-back; it adds a halt of its own.
@@ -614,7 +667,7 @@ def check(hook_input: InputView, config: ConfigView) -> Decision:
         _event(config, hook_input, "unrestorable", failed)
         return refuse(UNRESTORABLE.format(paths=", ".join(failed)))
     if mismatched:
-        _event(config, hook_input, "node mismatch", mismatched)
+        _event(config, hook_input, "node mismatch", mismatched, {"restored": restored})
         return refuse(NODE_MISMATCH.format(paths=", ".join(mismatched)))
     if put_back:
         _event(config, hook_input, "put back", put_back)

@@ -418,3 +418,43 @@ def test_the_store_and_the_hook_layer_derive_the_same_node_file_bytes(tmp_path: 
     head = heads(str(root))["electrical.motor_left"]
     assert node_file_body(*head).encode() == on_disk
     assert sentinel._expected_body(head) == on_disk
+
+
+# --- the write itself follows no link -----------------------------------------
+
+
+def test_a_link_planted_at_the_temporary_name_is_not_written_through(
+    two_revisions: Path, tmp_path: Path
+) -> None:
+    """The atomic write makes its temporary file fresh; it never opens one it finds.
+
+    Opening a found name for writing follows a link planted there, and the node
+    body then lands wherever the link points.
+    """
+    target = tmp_path / "target.txt"
+    target.write_text("not the store's\n")
+    (two_revisions / "nodes" / "mechanical.gearbox.json.tmp").symlink_to(target)
+    store = Store(two_revisions)
+    try:
+        assert store.write_node(
+            node("mechanical.gearbox", owner_role="mechanical", updated="t2"), "mechanical"
+        ).accepted
+    finally:
+        store.close()
+    assert target.read_text() == "not the store's\n"
+    assert json.loads(node_file(two_revisions, "mechanical.gearbox").read_text())["rev"] == 3
+    assert not node_file(two_revisions, "mechanical.gearbox").is_symlink()
+
+
+def test_a_link_in_place_of_a_node_file_is_replaced_not_written_through(
+    two_revisions: Path, tmp_path: Path
+) -> None:
+    target = tmp_path / "target.txt"
+    target.write_text("not the store's\n")
+    path = node_file(two_revisions, "mechanical.gearbox")
+    path.unlink()
+    path.symlink_to(target)
+    Store(two_revisions).close()
+    assert target.read_text() == "not the store's\n"
+    assert not path.is_symlink()
+    assert json.loads(path.read_text())["rev"] == 2

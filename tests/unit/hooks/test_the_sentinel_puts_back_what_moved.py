@@ -254,18 +254,89 @@ def test_user_settings_are_logged_not_reverted(root: Path) -> None:
 NODE = "store/nodes/electrical.motor.json"
 
 
-def test_a_node_file_that_differs_from_the_journal_halts_and_nothing_is_written(
+def test_a_node_file_that_differs_from_the_journal_is_rebuilt_from_it_and_halts(
     root: Path,
 ) -> None:
     _started(root)
-    tampered = (root / NODE).read_bytes().replace(b"2.4", b"9.9")
+    journal = (root / "store" / "journal.jsonl").read_bytes()
+    want = (root / NODE).read_bytes()
+    tampered = want.replace(b"2.4", b"9.9")
     (root / NODE).write_bytes(tampered)
     told = _check(root)
     assert "does not hold what the journal says" in told
-    assert (root / NODE).read_bytes() == tampered, "the sentinel must write nothing to the store"
+    assert (root / NODE).read_bytes() == want, "the node file is the journal's again"
+    assert (root / "store" / "journal.jsonl").read_bytes() == journal, "the journal is untouched"
+    assert sorted(p.name for p in (root / "store" / "nodes").iterdir()) == [
+        "electrical.motor.json"
+    ], "no temporary file is left behind"
     assert "does not hold what the journal says" in _check(root, name="PreToolUse")
     (logged,) = [e for e in _log(root) if e["decision"] == "node mismatch"]
     assert logged["paths"] == [str(root / NODE)]
+    assert logged["restored"] == [str(root / NODE)]
+
+
+def test_the_rebuild_is_the_store_s_own_write(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # One implementation of the atomic write: the sentinel calls the store's,
+    # with the journal's newest line for the node.
+    from physgate.state import store as store_module
+
+    calls: list[tuple[object, ...]] = []
+    real = store_module.write_node_file
+
+    def spy(*args: object) -> None:
+        calls.append(args)
+        real(*args)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(store_module, "write_node_file", spy)
+    _started(root)
+    (root / NODE).write_bytes((root / NODE).read_bytes().replace(b"2.4", b"9.9"))
+    _check(root)
+    ((nodes_dir, node_id, rev, _version, _payload),) = calls
+    assert (Path(str(nodes_dir)), node_id, rev) == (root / "store" / "nodes", "electrical.motor", 1)
+
+
+def test_a_node_file_replaced_by_a_link_is_rebuilt_without_following_it(root: Path) -> None:
+    # The restore replaces the name; it never writes through it. A link planted
+    # where the node file was, or where the restore makes its temporary file,
+    # must leave its target as it was.
+    _started(root)
+    want = (root / NODE).read_bytes()
+    target = root / "outside" / "target.json"
+    target.write_text("not the store's\n")
+    (root / NODE).unlink()
+    (root / NODE).symlink_to(target)
+    told = _check(root)
+    assert "does not hold what the journal says" in told
+    assert not (root / NODE).is_symlink()
+    assert (root / NODE).read_bytes() == want
+    assert target.read_text() == "not the store's\n"
+
+
+def test_a_planted_temporary_link_is_not_written_through(root: Path) -> None:
+    # The store's own write and the sentinel's restore are one function; a link
+    # planted at the name it would once have used for its temporary file is
+    # neither followed nor left to stand in for the node.
+    _started(root)
+    want = (root / NODE).read_bytes()
+    target = root / "outside" / "target.json"
+    target.write_text("not the store's\n")
+    (root / "store" / "nodes" / "electrical.motor.json.tmp").symlink_to(target)
+    (root / NODE).write_bytes(want.replace(b"2.4", b"9.9"))
+    assert "does not hold what the journal says" in _check(root)
+    assert (root / NODE).read_bytes() == want
+    assert target.read_text() == "not the store's\n"
+
+
+def test_a_node_file_the_journal_never_named_is_left_for_the_store(root: Path) -> None:
+    # The journal holds nothing to rebuild it from. The store's next open
+    # refuses it, or moves it aside, as it does every orphan.
+    _started(root)
+    planted = root / "store" / "nodes" / "electrical.planted.json"
+    planted.write_text("{}\n")
+    _check(root)
+    assert planted.read_text() == "{}\n"
+    (logged,) = [e for e in _log(root) if e["decision"] == "node mismatch"]
+    assert logged["restored"] == []
 
 
 def test_a_node_file_the_journal_never_named_halts(root: Path) -> None:
