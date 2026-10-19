@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# The two configurations' pins are read by name through picked(), which shellcheck cannot see.
+# shellcheck disable=SC2034
 #
 # R-PG-02: the pre-flight refusals, then the three runs together. Every check below holds the
 # checkout to CRITERIA.md §3; any mismatch stops the script before a review runs, and nothing
@@ -15,12 +17,13 @@
 #
 # Stages, in order:
 #   1. the machine, and every place this attempt writes is new (a run is never resumed);
-#   2. the run's commit: HEAD is on origin/master, is the last commit that changed this
-#      directory (the commit that froze CRITERIA.md), descends from the tuning-freeze commit,
-#      and the tree is clean;
-#   3. the pinned hashes: gate, both bounds tables, spelling, catalogue, reviewers, rubrics and
-#      their four digests, instrument, the account's paragraphs, both sets' manifests, the
-#      binary and its version, the parameters files and the lane split;
+#   2. the pick (K or F, CRITERIA.md §3) selects that configuration's pins; the run's commit:
+#      HEAD is on origin/master, is the last commit that changed this directory (the last of
+#      the pick and the manifest fills), descends from the picked configuration's commit (the
+#      tuning-freeze commit), and the tree is clean;
+#   3. the pinned hashes: gate, both bounds tables, spelling, catalogue, reviewers, the picked
+#      configuration's rubrics tree and four digests, instrument tree and account paragraphs,
+#      both sets' manifests, the binary and its version, the parameters files and the lane split;
 #   4. each run's lane plan, as counts and a digest;
 #   5. R3: the reachability scan over the three sets, the practice copies and runs and the
 #      three review roots, and the reviewer's read allowance on the pinned binary;
@@ -30,7 +33,8 @@
 #
 # --preflight-only stops after stage 5; --through-r4 stops after stage 7. Neither reads the token.
 # Only with one of them, R_PG_02_UNFROZEN=1 skips stage 2's commit checks, so the script can be
-# tried before the freeze; the log says so, and the run itself never skips them. There is no
+# tried before the freeze, and R_PG_02_PICK=K|F may then name the configuration to try; the log
+# says so, and the run itself never skips them. There is no
 # way to start one run alone. A void attempt is never resumed: set R_PG_02_ATTEMPT to a new
 # number and start again.
 
@@ -45,7 +49,9 @@ case "${1:-}" in
 esac
 
 # ---- what CRITERIA.md §3 and R4 pin ----
-TOOLING_COMMIT="[FILL AT FREEZE]"
+# The pick between the two reviewer configurations (CRITERIA.md §3), filled by the pick commit:
+# K or F, read from the last practice round's tally by the stop rule, never chosen.
+PICK="[FILL AT PICK]"
 GATE_TREE=1e169aac5679d743d4b0585090a45bcd06ea1a63
 BOUNDS_ELECTRICAL_BLOB=3bbdc33b7e4ab1df2b2a32d48003fbffa876ebc0
 BOUNDS_ELECTRICAL_SHA256=a5c3be61b6898b1a2408b8957c71fa3008c374f3de1c8fa56423c559c9019663
@@ -54,13 +60,24 @@ BOUNDS_CROSS_SHA256=ddb96fc7582241392eb5db407f336c8d8a37c313272c400522ec11b4218f
 SPELLING_BLOB=eaa4ce697092d27545a19c87c6d92fc6f1e966fc
 CATALOGUE_SHA256=9bf73a7dfd74f49fc0b094a45df9564fdff5de129e170d06ce8d54851a841c88
 REVIEWERS_TREE=e072e6a908535b5c42e78a30aa1ff0b95cb9ef3a
-INJECT_TREE=93e5c3275997eea4633e5c141fbf80a6f271a029
-ACCOUNT_SHA256=8580efd05af6fd2d304810950f00bb2c3d462302dddfd00b1d12373e340ab838
-RUBRICS_TREE="[FILL AT FREEZE]"
-RUBRIC_CONTROL="[FILL AT FREEZE]"
-RUBRIC_ELECTRICAL="[FILL AT FREEZE]"
-RUBRIC_FIRMWARE="[FILL AT FREEZE]"
-RUBRIC_MECHANICAL="[FILL AT FREEZE]"
+# K, kept: the last practice round's rubrics promoted, with the account's fixed paragraphs.
+K_COMMIT="[K DIGESTS AT PROMOTION]"
+K_INJECT_TREE=93e5c3275997eea4633e5c141fbf80a6f271a029
+K_ACCOUNT_SHA256=8580efd05af6fd2d304810950f00bb2c3d462302dddfd00b1d12373e340ab838
+K_RUBRICS_TREE="[K DIGESTS AT PROMOTION]"
+K_RUBRIC_CONTROL="[K DIGESTS AT PROMOTION]"
+K_RUBRIC_ELECTRICAL="[K DIGESTS AT PROMOTION]"
+K_RUBRIC_FIRMWARE="[K DIGESTS AT PROMOTION]"
+K_RUBRIC_MECHANICAL="[K DIGESTS AT PROMOTION]"
+# F, fallback: the first practice run's rubrics and template, unchanged; no account paragraphs.
+F_COMMIT=82cbf3b6b77de5de5d6b4d1a5a3117b7656b1480
+F_INJECT_TREE=375e9e882bc452b75f7395e71a13c8614fee1ba2
+F_ACCOUNT_SHA256=none
+F_RUBRICS_TREE=dd203340de8cee2f42878bb09ee72e64dfe1465b
+F_RUBRIC_CONTROL=18be8569a3743d6f9f5ff554ac6fd7e7c86b082ffaad4c08d0a40a00bac111f5
+F_RUBRIC_ELECTRICAL=a1b78302cf116ce471bf24a484de24a1e98e8679256e41d5f36b3dd4f48219b3
+F_RUBRIC_FIRMWARE=e265ef4733443d1af8a8152a8831fa97f999c3fcae0acc8f12f48fe1faed5f8a
+F_RUBRIC_MECHANICAL=3ca83fe1099481ff4c32681b7e63a594e907dd01bcd6a56a8160ed0a8e0783fa
 OLD_TREE=77782679f15eae4301e86516541b4a3c5c6613b0
 OLD_MANIFEST_SHA256=41553301d5b036f84df289ee6d8c87ecce4504d5a09969e05291e23c9ebc026a
 FRESH_MANIFEST_SHA256="[FILL AT FREEZE]"
@@ -117,7 +134,29 @@ source "$CHECKOUT/scripts/experiment/scan.sh"
 say "== R-PG-02 launch, attempt $N, $(date -u +%Y-%m-%dT%H:%M:%SZ), stop after: $STOP_AFTER"
 cd "$CHECKOUT"
 
-# ---- 2. the run's commit ----
+# ---- 2. the pick, and the run's commit ----
+# Only a trial before the freeze may name the configuration to try; the run reads the pick.
+if [ "${R_PG_02_UNFROZEN:-}" = 1 ] && [ "$STOP_AFTER" != run ] && [ -n "${R_PG_02_PICK:-}" ]; then
+  PICK="$R_PG_02_PICK"
+  say "TRIAL: configuration $PICK named by R_PG_02_PICK, not by the pick commit"
+fi
+case "$PICK" in
+  K | F) ;;
+  *) refuse "the pick is not filled (CRITERIA.md §3): K or F, read from the round's tally" ;;
+esac
+picked() { local name="${PICK}_$1"; echo "${!name}"; }
+TOOLING_COMMIT="$(picked COMMIT)"
+INJECT_TREE="$(picked INJECT_TREE)"
+ACCOUNT_SHA256="$(picked ACCOUNT_SHA256)"
+RUBRICS_TREE="$(picked RUBRICS_TREE)"
+RUBRIC_CONTROL="$(picked RUBRIC_CONTROL)"
+RUBRIC_ELECTRICAL="$(picked RUBRIC_ELECTRICAL)"
+RUBRIC_FIRMWARE="$(picked RUBRIC_FIRMWARE)"
+RUBRIC_MECHANICAL="$(picked RUBRIC_MECHANICAL)"
+for v in "$TOOLING_COMMIT" "$RUBRICS_TREE"; do
+  [[ "$v" =~ ^[0-9a-f]{40}$ ]] || refuse "configuration $PICK is not filled in (CRITERIA.md §3)"
+done
+say "ok  configuration $PICK, tuning-freeze commit $TOOLING_COMMIT"
 git fetch -q origin
 HEAD_SHA="$(git rev-parse HEAD)"
 if [ "${R_PG_02_UNFROZEN:-}" = 1 ] && [ "$STOP_AFTER" != run ]; then
@@ -155,7 +194,7 @@ equal "catalogue digest" \
   "$(py -c 'from physgate.gate.catalogue import catalogue_digest; print(catalogue_digest())')" \
   "$CATALOGUE_SHA256"
 equal "account paragraphs sha256" \
-  "$(py -c 'from physgate.evaluation.inject.materialise import ACCOUNT_SHA256; print(ACCOUNT_SHA256)')" \
+  "$(py -c 'import physgate.evaluation.inject.materialise as m; print(getattr(m, "ACCOUNT_SHA256", "none"))')" \
   "$ACCOUNT_SHA256"
 [ -x "$BIN" ] || refuse "no binary at $BIN"
 equal "binary sha256" "$(sha "$BIN")" "$BINARY_SHA256"

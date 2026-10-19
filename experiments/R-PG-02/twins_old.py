@@ -9,7 +9,7 @@ Never materialises or gates an injected patch, and prints counts and digests onl
 artefact id, a check name or a message. The full records go to ``<dir>/twins.records`` (one
 JSON document per twin, in corpus order), to be compared byte for byte and never read.
 
-- With no expectation (the one measurement at the tuning freeze), it prints the count of
+- With no expectation (the one measurement at the criteria's freeze), it prints the count of
   twins with no failing record, of 40, and the records' sha256, and exits 0.
 - With ``<count> <records-sha256>`` (the launch script, at the run's commit), it exits 0 only
   if both are reproduced exactly.

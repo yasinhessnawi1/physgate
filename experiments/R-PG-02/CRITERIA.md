@@ -2,12 +2,16 @@
 
 > Git-tracked and public. `ARCH-nnn` and experiment IDs only.
 
-**Status:** to be frozen after the tuning freeze and before any tuned component judges an
-item of either test set. The fresh test set is authored after this file is frozen; its
-manifest digest is filled in, dated, before its first review, as R-PG-01 filled its facts.
-Every `[FILL AT FREEZE]` below is a fact read or measured at the freeze. None is a choice, and
-none is adjusted to a result.
-**Written:** 18.10.2026 (draft); 19.10.2026 (prepared for the freeze).
+**Status:** to be frozen before the last practice round's result exists, naming both reviewer
+configurations that round can lead to (§3), and before any tuned component judges an item of
+either test set. The fresh test set is authored after this file is frozen, while that round
+runs (§2). Two facts are filled in later, each in its own dated commit and before the first
+review: **the pick** between the two configurations, read mechanically from the round's
+practice tally by the rule in §3, and the fresh set's manifest digest, as R-PG-01 filled its
+facts. Every `[FILL AT FREEZE]` and `[FILL AT PICK]` below is a fact read or measured, never a
+choice, and none is adjusted to a result.
+**Written:** 18.10.2026 (draft); 19.10.2026 (prepared for the freeze; the order changed so
+that the fresh set is authored during the last practice round, §2).
 **The numbers the owner sets:** approved by the owner on 18.10.2026, every value as suggested
 (§12).
 **Cites:** R-PG-01 (`experiments/R-PG-01/`). Nothing in R-PG-01 is changed, re-scored or
@@ -47,7 +51,7 @@ experiment measures discrimination directly.
 
 | Set | Role in this experiment | Injected | Clean twins | Per class | Authored |
 |---|---|---|---|---|---|
-| **Fresh test** | **primary** | **40** | **40** | 10 | after the tuning freeze, by one author pair, never seen by anyone before the run |
+| **Fresh test** | **primary** | **40** | **40** | 10 | after this file's freeze, during the last practice round, by one author pair, never seen by anyone before the run |
 | **Old test** (R-PG-01's corpus) | secondary | 40 | 40 | 10 | 29.09.2026; sealed; only its published counts are known to the tuners |
 | **Practice** | reported, **never a result** | 20 | 20 | 5 | before tuning; read freely by the tuners |
 
@@ -65,6 +69,23 @@ experiment measures discrimination directly.
 - **The practice set: 20 + 20, at most 2 calibration rounds per track.** At this size a rate
   near one half carries a 95 % interval of about ±20 points, so the practice set detects only
   large effects.
+- **The order was changed, and the change is disclosed here.** The order first planned was:
+  the tuning freeze, then this file's freeze, then the fresh set's authoring. To fit the 240
+  reviews in before the demonstration, the fresh set is instead authored **while the reviewer
+  track's last practice round runs**, after this file is frozen and before that round's result
+  exists. What keeps the two apart:
+  - tuning reads practice outputs only (the practice set, its reviews and its tally). Nobody
+    involved in tuning opens a file of the fresh set, and the fresh set stays outside the
+    repository, read before the run only by scripts that print counts, digests and bare
+    check facts (R4);
+  - the fresh set's authors are new sessions given the frozen briefs alone (R2): they see no
+    practice output, no review and no tuning record;
+  - both reviewer configurations the round can lead to are named in §3 before its result
+    exists, and the stop rule picks one mechanically from the round's practice tally, so
+    neither the round's result nor the fresh set can steer which one judges the test sets;
+  - the gate is the same in both configurations, and the authoring step's checks (the
+    loader, the gate and the source check) run at this file's freeze commit, so the fresh set
+    is held to the same checks whichever configuration is picked.
 - **All three sets share one input.** Each is built from the same sourced parts sheet (Pololu
   Balboa 32U4), a labelled stand-in, never the reference design. The fresh set and the practice
   set come from one author brief, frozen before the practice set was written; its differences
@@ -76,10 +97,38 @@ experiment measures discrimination directly.
 
 ## 3. What is under test, and the arms
 
-Every hash below was read at the tuning-freeze commit, **[FILL AT FREEZE: the tuning-freeze
-commit]**. The run's commit is the commit that freezes this file; it descends from the
-tuning-freeze commit, and the launch script (§11) holds it to every hash below and refuses a
-mismatch.
+Every hash below was read at the commit it names. **The tuning-freeze commit is the picked
+configuration's commit (K or F below), filled by the pick commit: [FILL AT PICK].** The run's
+commit is the last commit that changes this directory (the manifest's dated fill); it descends
+from the tuning-freeze commit, and the launch script (§11) holds it to every hash below, those
+of the picked configuration included, and refuses a mismatch.
+
+**The two reviewer configurations, both named before the last practice round's result:**
+
+| | K, kept | F, fallback |
+|---|---|---|
+| What | the last practice round's rubric text promoted, with the account's fixed paragraphs | the first practice run's rubrics and template, unchanged |
+| Commit | **[K DIGESTS AT PROMOTION]** | **`82cbf3b6b77de5de5d6b4d1a5a3117b7656b1480`** |
+| Rubrics tree (`knowledge/reviewers/`) | **[K DIGESTS AT PROMOTION]** | **`dd203340de8cee2f42878bb09ee72e64dfe1465b`** |
+| Control rubric sha256 | **[K DIGESTS AT PROMOTION]** | **`18be8569a3743d6f9f5ff554ac6fd7e7c86b082ffaad4c08d0a40a00bac111f5`** |
+| Electrical rubric sha256 | **[K DIGESTS AT PROMOTION]** | **`a1b78302cf116ce471bf24a484de24a1e98e8679256e41d5f36b3dd4f48219b3`** |
+| Firmware rubric sha256 | **[K DIGESTS AT PROMOTION]** | **`e265ef4733443d1af8a8152a8831fa97f999c3fcae0acc8f12f48fe1faed5f8a`** |
+| Mechanical rubric sha256 | **[K DIGESTS AT PROMOTION]** | **`3ca83fe1099481ff4c32681b7e63a594e907dd01bcd6a56a8160ed0a8e0783fa`** |
+| Instrument tree (`src/physgate/evaluation/inject/`) | **`93e5c3275997eea4633e5c141fbf80a6f271a029`** | **`375e9e882bc452b75f7395e71a13c8614fee1ba2`** (the first practice run's, byte for byte) |
+| The account's fixed paragraphs | sha256 **`8580efd05af6fd2d304810950f00bb2c3d462302dddfd00b1d12373e340ab838`** | none (`account_sha256` is `null` in `instrument.json`) |
+| The practice result for P5 (§6) | the last practice round's run | the first practice run |
+
+- **Identical in both:** the gate and everything it reads, the reviewers' code (with the
+  verdict check below), the parameters, the runtime and the sets. The launch script holds both
+  configurations to the same gate, bounds, spelling, catalogue and reviewer hashes.
+- **The pick, by the stop rule fixed before the round ran:** the round is scored on the practice
+  set with the same scripts and item map as the first practice run. **K is picked if the paired
+  reviewers' A on the practice twins is at least 6 of 20 and their R on the practice injected
+  items is at least 11 of 20; otherwise F.** Nothing else is weighed. The pick is filled in a
+  dated commit, "Pick filled: <date> (K or F, with the round's two counts)", with the
+  tuning-freeze commit and the launch script's `PICK`; that commit merges the picked
+  configuration and changes no other value.
+- **The pick: [FILL AT PICK: K or F; the round's A and R on the practice set].**
 
 - **The gate:** `src/physgate/gate/`, git tree **`1e169aac5679d743d4b0585090a45bcd06ea1a63`**.
   - Its magnitude check reads two bounds tables from outside that tree:
@@ -95,33 +144,36 @@ mismatch.
     of a load to balance, and a disagreement between readings is `unchecked`, never `pass`.
 - **The reviewers:** `src/physgate/reviewers/`, git tree
   **`e072e6a908535b5c42e78a30aa1ff0b95cb9ef3a`**, every role on `claude-sonnet-5`.
-  - The rubrics under `knowledge/reviewers/` (tree **[FILL AT FREEZE]**), the sha256 of each
-    promoted rubric: control **[FILL AT FREEZE]**, electrical **[FILL AT FREEZE]**, firmware
-    **[FILL AT FREEZE]**, mechanical **[FILL AT FREEZE]**. Each digest is that of the file's bytes,
+  - The rubrics under `knowledge/reviewers/` are the picked configuration's (the table above):
+    its tree and the sha256 of each promoted rubric. Each digest is that of the file's bytes,
     which the rubric loader holds to the file's last promotion; each review line records the
     digest it judged with.
-  - **The calibration round's outcome: [FILL AT FREEZE: round 1 kept or reverted, by the stop
-    rule fixed before it ran; the practice run whose figures stand as the practice result
-    (§6, P5)].** No item of any rubric was added, removed or reworded by the calibration; the
-    item ids of §4.1's table are those of the rubrics at either outcome.
+  - **The calibration rounds' outcome.** The first calibration round (the "Unwritten records"
+    text, R7.9, with the account's fixed paragraphs) was **not kept** under the stop rule fixed
+    before it ran. The second and last round adds one more rubric rule to it (R7.9) and is
+    measured against the first practice run with the same rule; its outcome is the pick above.
+    No item of any rubric was added, removed or reworded by either round; the item ids of
+    §4.1's table are those of the rubrics in K and in F.
   - The generalist rubric of each role is its paired rubric with the two domain sections
     (Section 2, domain standard violations; Section 3, skill-file antipatterns) left out by code,
     every other byte the paired rubric's. Its sha256 is recorded on each generalist review line.
   - **The verdict contract is ARCH-060's as built:** a rejecting item names a rubric item, with
     no structured defect (node, quantity, requirement, observed, required), and there is no
     non-rejecting "unverified" item result. §4.1's item rule therefore applies.
-- **The instrument:** `physgate inject`, `src/physgate/evaluation/inject/` git tree
-  **`93e5c3275997eea4633e5c141fbf80a6f271a029`**. It includes:
+- **The instrument:** `physgate inject`, `src/physgate/evaluation/inject/` at the picked
+  configuration's tree (the table above). It includes:
   - the delayed retry, the parallel lanes and the lane-wide pause (§5, R8);
   - **the verdict-repair resume, adopted:** once per review, a session whose structured verdict
     was refused is resumed once, with the check's own reason in plain words; it is the same
     review, not a re-draw, and each use is counted;
   - the verdict check that refuses an empty or one-word finding or evidence as no verdict, which
     the repair resume answers;
-  - the account every reviewer is given: the same three fixed paragraphs before every item's
-    nodes (the revision's form; the quantities the parts sheet does not give; the precision
-    convention), sha256 **`8580efd05af6fd2d304810950f00bb2c3d462302dddfd00b1d12373e340ab838`**,
-    recorded in each run's `instrument.json` as `account_sha256`;
+  - **in K only,** the account every reviewer is given carries the same three fixed paragraphs
+    before every item's nodes (the revision's form; the quantities the parts sheet does not
+    give; the precision convention), sha256
+    **`8580efd05af6fd2d304810950f00bb2c3d462302dddfd00b1d12373e340ab838`**, recorded in each
+    run's `instrument.json` as `account_sha256`. In F the account is the first practice run's,
+    without them;
   - the generalist mode (`--generalist`);
   - the source-consistency check (`physgate inject-sources`, §5, R4).
 - **The runtime:** Claude Code **`2.1.301`**, the Linux arm64 build, sha256
@@ -304,8 +356,10 @@ Read before the run, and not adjusted after it:
 ## 5. Rules of fair play
 
 - **R1 First honest version.**
-  - The tuning-freeze commit precedes the fresh set's authoring and this file's freeze. Neither
-    the gate, the reviewers, the rubrics, the verdict contract nor the instrument changes after it.
+  - This file's freeze precedes the fresh set's authoring, and both reviewer configurations
+    it names (§3) are fixed commits before the last practice round's result exists. The gate
+    does not change after this file's freeze; the reviewers, the rubrics, the verdict contract
+    and the instrument are the picked configuration's, and none of them changes after the pick.
   - A defect in the instrument (not in a layer) found after a number is seen is a deviation; the
     whole affected set is re-run at the corrected commit, and both runs are reported.
 - **R2 Blindness.**
@@ -337,7 +391,8 @@ Read before the run, and not adjusted after it:
     - **Its consequence, stated now:** the gate's acceptance of the fresh twins is 40 of 40 **by
       construction**, and is **not a result.** `RESULT.md` reports instead how many twins the gate
       returned to the author, and on which check, and how many the source check returned.
-  - **Old set, once:** R-PG-01's 40 twins were gated **once**, at the tuning freeze, count only:
+  - **Old set, once:** R-PG-01's 40 twins were gated **once**, at this file's freeze (the gate
+    is the same in K and F), count only:
     **[FILL AT FREEZE: the twins with no failing record, of 40, and the records' sha256]**. A twin
     that failed there was not tuned against; it is reported as found, and it is the gate's A on
     the old set. The launch script gates them again and must reproduce that count and sha256
@@ -387,16 +442,25 @@ Read before the run, and not adjusted after it:
   8. **The neutral trajectory's bias, stated before the run.** A reviewer given no trajectory has
      less evidence. If it answers "cannot verify" with a rejection, A_rev falls and the raw reject
      rate rises without raising R_rev, so **J_rev is plausibly biased downward**, the direction
-     unfavourable to the reviewers. The account's fixed paragraphs (the revision's form, the
-     quantities the sheet does not give) are meant to reduce this.
+     unfavourable to the reviewers. In K, the account's fixed paragraphs (the revision's form,
+     the quantities the sheet does not give) are meant to reduce this; F has no such paragraphs.
   9. **The models that built and reviewed the fixes.** From the evening of 18.10.2026,
      development and review agents ran on `claude-fable-5-1` (the weekly limit on
-     `claude-opus-5-5`). The calibration round's rubric change, one policy bullet in each of the
-     four rubrics ("Unwritten records": for a proposed revision, a required record the revision
-     did not write is `noted`, not `unmet`), was drafted blind by a development agent on
+     `claude-opus-5-5`). The first calibration round's rubric change, one policy bullet in each
+     of the four rubrics ("Unwritten records": for a proposed revision, a required record the
+     revision did not write is `noted`, not `unmet`), was drafted blind by a development agent on
      `claude-fable-5-1` that read only the four rubrics, the author briefs and the rule it was to
-     state, and was approved and promoted by the owner. No evaluation session (author, reviewer or
-     role) ran on `claude-fable-5-1`.
+     state, and was approved and promoted by the owner. The second round's rubric rule (a
+     sub-check whose input the account lists as absent from the parts sheet by construction is
+     recorded as not checkable, `noted` and naming the missing input, never `blocked` or `unmet`;
+     an input not so listed, and a value the revision itself writes, are judged as before) was
+     drafted blind in the same way, from the four rubrics, the account's text, the author briefs
+     and the rule, and approved and promoted by the owner. No evaluation session (author, reviewer
+     or role) ran on `claude-fable-5-1`.
+  10. **The order change** (§2): the fresh set is authored while the last practice round runs,
+     and the configuration that judges it is picked afterwards, mechanically, from that round's
+     practice tally. Who ran the authoring, and that no person or agent involved in tuning opened
+     a file of the fresh set, is stated in `RESULT.md`.
 - **R8 Retries, lanes and order.** These rules read only infrastructure outcomes, never a verdict.
   - **Retry only on an infrastructure failure,** after a delay, each delay recorded on the review's
     line: `infra_retry_delays_s` = **[60, 900, 2700]**, three retries, the last about an hour after
@@ -424,8 +488,8 @@ Read before the run, and not adjusted after it:
   - **The verdict-repair resume** (§3): once per review, when the binary's cap on refused
     structured verdicts ends the session or the verdict check refuses a verdict after it.
 - **R9 The tuning record is published.** Every practice iteration, with its commit, its arms, both
-  directions and its cost, so the number of attempts is visible. At most 2 calibration rounds per
-  track.
+  directions and its cost, so the number of attempts is visible, the round that was not kept
+  included. At most 2 calibration rounds per track.
 
 ## 6. Primary results and the criteria
 
@@ -452,8 +516,8 @@ J.
 | P4 | Pairing adds value | J_paired − J_generalist's 95 % interval lies wholly above 0 | A decision rule, not a magnitude. At 40 pairs the smallest difference this resolves is about 30 points; a smaller one is reported as unresolved, never as absent. |
 | P5 | The fixes were not tailored | For each tuned layer (paired reviewers, gate): **tailoring** is declared if the practice-to-fresh drop in J has a 95 % interval wholly above 0; **possible tailoring** if the point drop exceeds **0.15** and the interval includes 0 | At 20 + 20 practice items a fixed point threshold alone would fire on noise. 0.15 is a judgement, and is labelled as one. |
 
-- **P5's practice figures:** the paired reviewers' from the practice run named in §3 as the
-  calibration round's outcome; the gate's from the practice set gated at the run's commit by the
+- **P5's practice figures:** the paired reviewers' from the practice run the pick names in §3
+  (the last round's run for K, the first practice run for F); the gate's from the practice set gated at the run's commit by the
   tally, so both figures come from the gate that runs on the test sets.
 - **No per-class floor** is added to P2. Per class n is 10, so only large effects show, and they
   are reported (§8).
@@ -590,7 +654,7 @@ the instrument's own test corpus, never on a set of this experiment. They run ex
 
 | Script | What it does |
 |---|---|
-| `launch.sh` | The pre-flight refusals of R-PG-01's script (the run's commit, a clean tree, every tree, blob and digest of §3, the binary's sha256 and version, the parameters files against the instrument's schema), the lane split (`lanes.py`), R3 over all three sets and the practice copies with the reviewer's read allowance on the pinned binary, the reviewer requests' defaults by the dry run, the fresh twins' precondition and the old twins' check (R4), and only then the three runs together. Its scans count with the shared helper `scripts/experiment/scan.sh`, so a scan that finds nothing does not end it under `pipefail`. |
+| `launch.sh` | The pre-flight refusals of R-PG-01's script (the run's commit, a clean tree, every tree, blob and digest of §3, the picked configuration's among both that §3 names, and a refusal while the pick is unfilled, the binary's sha256 and version, the parameters files against the instrument's schema), the lane split (`lanes.py`), R3 over all three sets and the practice copies with the reviewer's read allowance on the pinned binary, the reviewer requests' defaults by the dry run, the fresh twins' precondition and the old twins' check (R4), and only then the three runs together. Its scans count with the shared helper `scripts/experiment/scan.sh`, so a scan that finds nothing does not end it under `pipefail`. |
 | `params_fresh.json`, `params_old.json` | §3's parameters; they differ in `lanes` alone. |
 | `lanes.py` | R8: the lane split of the budget across the three runs, held to the parameters files; each run's seeded lane plan (a pair on one lane; classes balanced), printed as counts and a digest before the run, and held to the run's `lanes.json` and review records after it. |
 | `r3_scan.py` | R3 over all three sets, the practice copies and runs, and the three review roots. |
