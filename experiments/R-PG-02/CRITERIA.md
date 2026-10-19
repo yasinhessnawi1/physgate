@@ -98,7 +98,7 @@ experiment measures discrimination directly.
 ## 3. What is under test, and the arms
 
 Every hash below was read at the commit it names. **The tuning-freeze commit is the picked
-configuration's commit (K or F below), filled by the pick commit: [FILL AT PICK].** The run's
+configuration's commit (K or F below), filled by the pick commit: K, `48929eb2f1ba0d770b02914e4a2b29a62a27e486`.** The run's
 commit is the last commit that changes this directory (the manifest's dated fill); it descends
 from the tuning-freeze commit, and the launch script (§11) holds it to every hash below, those
 of the picked configuration included, and refuses a mismatch.
@@ -128,7 +128,9 @@ of the picked configuration included, and refuses a mismatch.
   dated commit, "Pick filled: <date> (K or F, with the round's two counts)", with the
   tuning-freeze commit and the launch script's `PICK`; that commit merges the picked
   configuration and changes no other value.
-- **The pick: [FILL AT PICK: K or F; the round's A and R on the practice set].**
+- **The pick: K; the round's A 7/20 and R 13/20 on the practice set.** Pick filled: 19.10.2026
+  (K, with the round's two counts); the tuning-freeze commit is K's,
+  `48929eb2f1ba0d770b02914e4a2b29a62a27e486`.
 
 - **The gate:** `src/physgate/gate/`, git tree **`1e169aac5679d743d4b0585090a45bcd06ea1a63`**.
   - Its magnitude check reads two bounds tables from outside that tree:
@@ -186,8 +188,10 @@ of the picked configuration included, and refuses a mismatch.
     manifest sha256 `41553301d5b036f84df289ee6d8c87ecce4504d5a09969e05291e23c9ebc026a`
     (R-PG-01's, unchanged);
   - the fresh set, kept outside the repository until `RESULT.md` commits it, manifest sha256
-    **[FILL AT FREEZE: filled, dated, once the set is assembled and its precondition holds
-    (R4), before its first review]**;
+    **`e76a4904e7b42326a85a9a9267973518e6f79b510c8f2b8b3391e8b23d37620c`** (set `fresh-v1`; facts filled: 19.10.2026, the fresh set's manifest
+    digest, once the set was assembled and its precondition held (R4): 40 of 40 fresh twins with
+    no failing record and no source-check mismatch, records sha256
+    `f78681918bb45fc5326e7735fa1b7d0a16f42433eb37ff42c19d255cd0002621`; before its first review);
   - the practice set, outside the repository until `RESULT.md` commits it, manifest sha256
     `ddc255ab538f134c2983edfb71d29cbeba3c0dc3dd23cc01df9415120d9ddfb0`.
 - **Pinned run parameters,** recorded in each run's `instrument.json` and committed as

@@ -66,7 +66,8 @@ by reading, like every other item (Section 2, "Records, magnitudes and follow-up
   source a check requires of it, whatever else that check uses. A check that uses any written
   value (a value the work chose, or a departure from the specification) is judged normally, and
   its failure is a finding. In form 2 a check that fails or lacks a source using only given values
-  is not a blocking defect; see "Given values" below.
+  is not a blocking defect; see "Given values" below. In form 2 an input the account lists as
+  absent never blocks; see "Stand-in absences" below.
 - **Missing evidence: `unmet` or `not evaluable`.** When the evidence a Section 1 line or a
   Section 2 or 3 sub-check needs is absent, ask whether the inputs it needs exist:
   1. **An input is missing**: the issued specification and the design state it gives lack it (form
@@ -77,7 +78,9 @@ by reading, like every other item (Section 2, "Records, magnitudes and follow-up
      to common cases and are not a complete list. It blocks only what needs the missing input;
      judge everything else. The work saying the input is missing and not inventing one is not a
      finding; a value the work chose in place of the missing input is the work's value and is
-     judged as such. In this rubric every missing-input defect is blocking.
+     judged as such. In this rubric every missing-input defect is blocking, except, in form 2,
+     for an input the account lists as absent: the sub-check that needs it is `noted`, never
+     blocking and never `unmet` or `fail`, as "Stand-in absences" below says.
 
      A duty of the work is never a missing input. A value an item requires the work itself to
      find, measure, compute or source (for example a datasheet rating of a part the work chose or
@@ -164,8 +167,9 @@ by reading, like every other item (Section 2, "Records, magnitudes and follow-up
   revision wrote is judged normally, so a missed follow-up (a written value inconsistent with an
   unwritten one) is a finding against the revision; a given value's own source requirement is the
   exception ("Given and written values"). An input the design graph lacks altogether
-  (absent and not derivable by reading), other than a duty of the revision, still records a
-  blocking specification defect ("Missing evidence" above).
+  (absent and not derivable by reading), other than a duty of the revision or an input the
+  account lists as absent ("Stand-in absences" below), still records a blocking specification
+  defect ("Missing evidence" above).
 - **Unwritten records.** A proposed revision is a set of written values with their units and
   sources, not a finished piece of work with its calculations, reports, measurements, margins and
   budgets. A record this rubric requires the work to make (a value stated or sourced, a
@@ -186,6 +190,27 @@ by reading, like every other item (Section 2, "Records, magnitudes and follow-up
     not reach a node it constrains (ES-34) are findings as usual. The follow-up ES-34 owes, and
     a `no_change_justified` reason, are not unwritten records under this rule: their absence is
     the change not reaching what it constrains.
+- **Stand-in absences.** Where the design is a stand-in built from a parts sheet, the account
+  lists the quantities the sheet gives for no part; each is absent from the design by
+  construction. A sub-check that cannot be decided because it needs an input the account lists as
+  absent is recorded as `noted`: a non-blocking specification defect naming the sub-check and the
+  missing input. It is never `unmet`, never a `fail` and never makes the review `blocked`, whether
+  or not a missing input to that sub-check would otherwise block, and whether the input would
+  otherwise be a missing input or a duty of the work ("Missing evidence"). This holds wherever
+  this rubric (an item, a policy rule or the preamble) would otherwise make that sub-check
+  blocking, `unmet` or a finding. Only that sub-check is `noted`: the rest of its item, and every
+  other item, is judged normally.
+  - It reaches only the inputs the account lists. An input the account does not list keeps
+    "Missing evidence" and "Given values" above: absent from the design graph and not derivable,
+    it is a missing input and blocks where this rubric says it does. A sub-check that also needs
+    such an unlisted missing input keeps that handling for it.
+  - What the revision writes is judged. Every check of a written value that does not need the
+    absent input is judged normally, and a value the revision writes for a listed quantity is a
+    written value like any other, held to its unit, its source and its arithmetic.
+  - The items that read the values present are not touched by this rule: a unit error (ES-31), a
+    magnitude out of physical sense or unsupported by its source (ES-32), a balance that does not
+    close (ES-7, ES-33), and a changed quantity that did not reach a node it constrains (ES-34)
+    are judged on the values present and are findings as usual.
 - **Allowances.** There are none.
 - **`n/a`** evidence may come from the design graph.
 
@@ -195,8 +220,10 @@ by reading, like every other item (Section 2, "Records, magnitudes and follow-up
    `not evaluable`, with evidence; in form 2, the single line of EA-9, `met` or `unmet`.
 2. Section 2 and Section 3: one line per item, `pass`, `fail` or `n/a`, with evidence; a `fail` is a
    finding. In form 2, a check that fails using only given values, or only for want of a record
-   the revision did not write, is not a `fail`: the line is judged on what the revision wrote, and
-   the condition is recorded as `noted` (Given values and Unwritten records above).
+   the revision did not write, or that cannot be decided only for want of an input the account
+   lists as absent, is not a `fail`: the line is judged on what the revision wrote, and the
+   condition is recorded as `noted` (Given values, Unwritten records and Stand-in absences
+   above).
 3. Section 4: one line per indicator, `confirmed`, `noted` or `not observed`, with evidence for the
    first two.
 4. Findings, each as the verdict policy requires.
@@ -220,7 +247,8 @@ by reading, like every other item (Section 2, "Records, magnitudes and follow-up
   item is still judged. The markers point to common cases and are not a complete list: any
   sub-check whose input is missing follows "Missing evidence" in the verdict policy. In form 2, a
   given value that is present but fails a check or lacks a source is not a missing input: it is
-  recorded under "Given values", not blocked.
+  recorded under "Given values", not blocked; and an input the account lists as absent is
+  recorded under "Stand-in absences", not blocked.
 - "The given design" in an item means the design the item is judged against: in form 1, the
   design state the issued specification gives, as the work leaves it; in form 2, the design graph
   with the revision applied. Which of its values are given and which are written follows "Given
@@ -263,9 +291,9 @@ The issued specification's acceptance criteria are inserted with each review. Ju
   redo (the arithmetic is cat. 1).
 - **EA-9. No issued specification.** In form 2 only, Section 1 is this one line, `met` or `unmet`
   (never `not evaluable`): whether the revision is consistent with the design it changes and with
-  this rubric. The line judges what the revision wrote; a condition recorded under "Given values"
-  or "Unwritten records" does not make it `unmet`. The missing specification is not a
-  specification defect and makes nothing `not evaluable` or `blocked` by itself.
+  this rubric. The line judges what the revision wrote; a condition recorded under "Given values",
+  "Unwritten records" or "Stand-in absences" does not make it `unmet`. The missing specification
+  is not a specification defect and makes nothing `not evaluable` or `blocked` by itself.
 
 ## 2. Domain standard violations
 
@@ -601,4 +629,4 @@ reference to its source, is the work's, even when its number equals a given valu
   made to escape or satisfy a check and the design fails the corresponding rule when judged by
   reading; without that reasoning, at most `noted`.
 
-<!-- 870d169150b8867330188bc1f116de13 -->
+<!-- b12b7c04b3e0c97445c253534be79081 -->

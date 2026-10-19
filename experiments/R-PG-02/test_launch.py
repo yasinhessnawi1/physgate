@@ -21,8 +21,8 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 LAUNCH = HERE / "launch.sh"
 FILL = "[FILL AT FREEZE]"
-#: The only values left to the freeze (and the fresh set's dated fill).
-FILLED_AT_FREEZE = {"FRESH_MANIFEST_SHA256"}
+#: The values left to the freeze (and the fresh set's dated fill): none, all filled.
+FILLED_AT_FREEZE: set[str] = set()
 #: The pick between the two configurations, filled by its own dated commit.
 PICK_SLOT = "[FILL AT PICK]"
 #: The kept configuration's values, filled when its rubrics are promoted, before the freeze.

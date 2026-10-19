@@ -21,7 +21,8 @@ a computation that the trajectory does not show, the evidence is missing. The it
 every input the computation needs is present or derivable by reading; policy rule 7 says what holds
 when an input is missing (**Missing evidence**) and when the check uses only given values (**Given
 and written values**), and policy rule 10 what holds in a proposed revision for a record the
-revision did not write (**Unwritten records**).
+revision did not write (**Unwritten records**) and for an input the account lists as absent
+from the design (**Stand-in absences**).
 
 Automated design-quantity checks exist in the harness. They cover: the quantity record format and
 unit consistency; magnitudes against sourced ranges, for the quantity names they know; supply
@@ -100,8 +101,9 @@ without doing the work.
    - **Non-blocking:** an unsourced specific allowance (rule 5); a `not evaluable` criterion
      outside A6's safety-critical list; a Section 2 or 3 sub-check with no **[B]** marker that
      cannot be decided for want of an input (**Missing evidence** below; a waived stating line
-     excepted); and, in a proposed revision, a check on given values only or a record the
-     revision did not write (rule 10). All are reported and do not change the verdict.
+     excepted); and, in a proposed revision, a check on given values only, a record the
+     revision did not write, or a sub-check whose input the account lists as absent (rule
+     10). All are reported and do not change the verdict.
    - **When an input counts as missing.** An input is missing only if all three hold:
      - it is absent from the issued specification;
      - it is absent from the design state the issued specification gives (for example upstream
@@ -121,7 +123,10 @@ without doing the work.
         sub-checks that can lack one, but they are the complete list of those whose missing input
         blocks. It blocks only what needs the missing input; everything else is still judged. The
         work saying the input is missing and not inventing one is not a finding; a value the work
-        chose in place of the missing input is the work's value and is judged as such.
+        chose in place of the missing input is the work's value and is judged as such. In a
+        proposed revision, an input the account lists as absent from the design is the
+        exception: the sub-check that needs it is `noted`, never blocking and never `unmet`, as
+        rule 10's **Stand-in absences** says.
 
         A duty of the work is never a missing input. A value an item requires the work itself to
         find, measure, compute or source (for example a bandwidth "with sources" in D30, a noise
@@ -159,6 +164,8 @@ without doing the work.
      **[B]**; a missing input to any other sub-check is a non-blocking defect. It blocks only that
      sub-check; every other sub-check of the same item is still judged and can still reject. A
      limit that is only partly given blocks only the sub-check that needs the missing part.
+     In a proposed revision, an input the account lists as absent never blocks (rule 10's
+     **Stand-in absences**).
    - **Given and written values.** A *value* is one quantity record (its value, unit and recorded
      source) or one other field of a node (for example a list of operating ranges, a relation, a
      part name). A value is **written** by the work when the work added it or changed any part of
@@ -239,7 +246,8 @@ without doing the work.
         to the design graph: it is missing only if it is absent from the design graph and cannot be
         derived from it. Whether that gives a blocking defect follows rule 7's **Blocking:
         missing input** (a sub-check blocks when it is marked **[B]**); Section 1 here is A7's
-        single line, so A6's list decides nothing.
+        single line, so A6's list decides nothing. An input the account lists as absent is
+        handled under **Stand-in absences** below instead.
       - A line "owed regardless of [B]" follows rule 7's **Missing evidence** (point 1, "A duty of
         the work is never a missing input"): it is owed for every check that involves a value the
         revision wrote; one the revision did not write is recorded under **Unwritten records**
@@ -275,6 +283,28 @@ without doing the work.
         node it constrains (the preamble; D25 to D28) are findings as usual. The follow-up D28
         owes, and a `no_change_justified` reason, are not unwritten records under this rule:
         their absence is the change not reaching what it constrains.
+    - **Stand-in absences.** Where the design is a stand-in built from a parts sheet, the account
+      lists the quantities the sheet gives for no part; each is absent from the design by
+      construction. A sub-check that cannot be decided because it needs an input the account
+      lists as absent is recorded as `noted`: a non-blocking specification defect naming the
+      sub-check and the missing input. It is never `unmet`, never a finding and never makes the
+      review `blocked`, whether or not a missing input to that sub-check would otherwise block,
+      and whether the input would otherwise be a missing input or a duty of the work (rule 7's
+      **Missing evidence**). This holds wherever this rubric (an item, a policy rule or the
+      preamble) would otherwise make that sub-check blocking, `unmet` or a finding. Only that
+      sub-check is `noted`: the rest of its item, and every other item, is judged normally.
+      - It reaches only the inputs the account lists. An input the account does not list keeps
+        rule 7's handling and **Given values** above: absent from the design graph and not
+        derivable, it is a missing input and blocks where this rubric says it does. A sub-check
+        that also needs such an unlisted missing input keeps that handling for it.
+      - What the revision writes is judged. Every check of a written value that does not need
+        the absent input is judged normally, and a value the revision writes for a listed
+        quantity is a written value like any other, held to its unit, its source and its
+        arithmetic.
+      - The items that read the values present are not touched by this rule: a unit error, a
+        magnitude out of physical sense or unsupported by its source, a balance that does not
+        close, and a changed quantity that did not reach a node it constrains (the preamble; D25
+        to D28) are judged on the values present and are findings as usual.
     - **Allowances.** With no issued specification there are no allowances (rule 5).
 
 ## Verdict format
@@ -351,10 +381,11 @@ The issued specification's acceptance criteria are inserted with each review. Ju
   design on its own), Section 1 has exactly one line, in place of A1's list: whether the revision
   is consistent with the design it changes and with this rubric. Mark it `met` or `unmet`, never
   `not evaluable`, with the node files that show it. The line judges what the revision wrote; a
-  condition recorded under Given values or Unwritten records (policy rule 10) does not make it
-  `unmet`. The missing specification is not a specification defect, and does not by itself make
-  the line, or anything else, `not evaluable` or `blocked`. Evidence, missing inputs and given
-  values (policy rule 7's **Given and written values**) are handled as policy rule 10 says.
+  condition recorded under Given values, Unwritten records or Stand-in absences (policy rule 10)
+  does not make it `unmet`. The missing specification is not a specification defect, and does
+  not by itself make the line, or anything else, `not evaluable` or `blocked`. Evidence, missing
+  inputs and given values (policy rule 7's **Given and written values**) are handled as policy rule
+  10 says.
 
 ## 2. Domain standard violations
 
@@ -757,4 +788,4 @@ in a proposed revision, it is recorded as policy rule 10's **Given values** says
   - *Do:* `noted` when the history reads precede a matching number; confirmed when the trajectory
     shows no derivation of it.
 
-<!-- 0134502b475ba30d6aa4a985d1765119 -->
+<!-- e8045288917d0cb70a60a9c712f9a083 -->
