@@ -21,7 +21,8 @@ order, so a refused proposal is refused for the reason the store would give:
    is refused here, with the schema's own message;
 5. no quantity's name shadows one a relation reads: a name the catalogue lacks
    that ends in the last word of a relation's quantity (``motor_current`` for
-   ``stall_current``, ``pack_mass`` for ``mass``) is the way a writer steps out
+   ``stall_current``, ``pack_mass`` for ``mass``), or is spelled within two edits
+   of it (``stall_currnt``, ``currentlimit``), is the way a writer steps out
    of the headroom relation, or the mass sum, without saying so. Every other
    uncatalogued name is written, and the gate records it as unchecked. This rule
    is the hook's and the orchestrator's, not the store's: a corpus written

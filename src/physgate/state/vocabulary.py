@@ -83,12 +83,29 @@ RELATION_QUANTITY_NAMES: tuple[str, ...] = (
 )
 
 
-def shadowing_quantity_names(names: object) -> tuple[tuple[str, str], ...]:
-    """The unlisted names among names that end in the last word of a relation's quantity.
+#: How far a misspelling may be from a relation's quantity and still shadow it.
+SHADOW_EDITS = 2
 
-    Each pair is the name and the relation quantity it shadows (the one sharing most words
-    with it, then the shortest), sorted by name; the catalogue's shadowing_names gives the
-    same pairs.
+
+def edit_distance(a: str, b: str) -> int:
+    """The Levenshtein distance between a and b: insertions, deletions, substitutions."""
+    previous = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        current = [i]
+        for j, cb in enumerate(b, 1):
+            current.append(min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (ca != cb)))
+        previous = current
+    return previous[-1]
+
+
+def shadowing_quantity_names(names: object) -> tuple[tuple[str, str], ...]:
+    """The unlisted names among names that shadow a relation's quantity, each once.
+
+    A name shadows a relation's quantity when it ends in that quantity's last word, or when
+    its spelling, underscores aside, is within SHADOW_EDITS edits of the quantity's. Each
+    pair is the name and the quantity it shadows (by last word, the one sharing most words
+    with it, then the shortest; else the nearest spelling), sorted by name; the catalogue's
+    shadowing_names gives the same pairs.
     """
     if not isinstance(names, dict | list | tuple | set):
         return ()
@@ -101,6 +118,16 @@ def shadowing_quantity_names(names: object) -> tuple[tuple[str, str], ...]:
             (r for r in RELATION_QUANTITY_NAMES if r.rsplit("_", 1)[-1] == words[-1]),
             key=lambda r: (-len(set(r.split("_")) & set(words)), len(r), r),
         )
+        if not shadowed:
+            flat = name.replace("_", "")
+            shadowed = sorted(
+                (
+                    r
+                    for r in RELATION_QUANTITY_NAMES
+                    if edit_distance(flat, r.replace("_", "")) <= SHADOW_EDITS
+                ),
+                key=lambda r: (edit_distance(flat, r.replace("_", "")), len(r), r),
+            )
         if shadowed:
             found[name] = shadowed[0]
     return tuple(found.items())

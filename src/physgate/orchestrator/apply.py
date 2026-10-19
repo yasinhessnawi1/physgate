@@ -15,8 +15,9 @@ the file as it is written. Here the orchestrator:
   let a node step out of a relation it failed;
 - refuses a quantity name that shadows one a relation reads, as the hook did when
   the file was written: a name the catalogue lacks that ends in a relation
-  quantity's last word is a renamed quantity stepping out of the relation without
-  saying so. Every other uncatalogued name is written, and the gate records it as
+  quantity's last word, or is spelled within two edits of it, is a renamed quantity
+  stepping out of the relation without saying so. Every other uncatalogued name is
+  written, and the gate records it as
   unchecked. The store does not refuse such names, so a corpus written straight
   into one is unaffected;
 - pre-checks **all** of an attempt's proposals against the store's own guards on

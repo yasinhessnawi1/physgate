@@ -398,3 +398,24 @@ def test_a_lone_carrier_gets_no_pass_record_from_the_gate_only_its_unchecked_one
         equilibrium = [c for c in result.checks if c.name == "equilibrium"]
         assert [c.outcome for c in equilibrium] == ["unchecked"], scopes
         assert result.verdict == "pass"
+
+
+# --- the loosenings are bounded to their rulings --------------------------------------------
+
+
+@pytest.mark.parametrize(("b1_kg", "b2_kg"), [(1.5, 0.2), (0.5, 0.5), (3, 1), (0, 0.1)])
+def test_sibling_shares_summing_to_the_wrong_total_are_refused(
+    tmp_path: Path, b1_kg: float, b2_kg: float
+) -> None:
+    # Only the individual shares go unchecked: the sum of the siblings' supported masses is
+    # still judged against the whole of what names them, and fails when it misses.
+    pack = node(
+        "electrical.pack", quantities={"mass": (2, "kg")}, constrains=[f"{M}.b1", f"{M}.b2"]
+    )
+    b1 = node(f"{M}.b1", domain=M, quantities={"supported_mass": (b1_kg, "kg")})
+    b2 = node(f"{M}.b2", domain=M, quantities={"supported_mass": (b2_kg, "kg")})
+    ran = run(tmp_path, pack, b1, b2)
+    failing = [o for o in ran.observations if o.outcome == "fail"]
+    assert [o.node for o in failing] == [f"{M}.b1"] and ran.evaluated == 1
+    assert "summing to" in failing[0].message and "2 kg" in failing[0].message
+    assert [o.outcome for o in records(ran, f"{M}.b2")] == ["unchecked"]

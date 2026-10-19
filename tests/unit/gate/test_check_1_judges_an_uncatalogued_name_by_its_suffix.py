@@ -211,10 +211,16 @@ def test_the_whole_gate_passes_an_invented_voltage_in_watts_with_the_mismatch_on
     assert any("battery_voltage" in c.message and "suffix" in c.message for c in unchecked)
 
 
-def test_a_catalogued_name_in_the_wrong_unit_is_still_refused(tmp_path: Path) -> None:
-    # The reading by suffix refuses nothing; the catalogue's own kinds still do.
-    ran = run(tmp_path, node(NODE, quantities={"supply_voltage": (2.4, "W")}))
-    assert outcomes(ran) == ["fail"]
+@pytest.mark.parametrize(
+    ("name", "value", "unit"),
+    [("supply_voltage", 2.4, "W"), ("mass", -0.2, "kg"), ("torque_peak", 2, "N"), ("mass", 2, "N")],
+)
+def test_a_catalogued_name_s_unit_or_sign_mismatch_is_still_refused(
+    tmp_path: Path, name: str, value: float, unit: str
+) -> None:
+    # Only a mismatch under an inferred kind goes unchecked; the catalogue's own kinds refuse.
+    ran = run(tmp_path, node(NODE, quantities={name: (value, unit)}))
+    assert outcomes(ran) == ["fail"] and name in ran.observations[0].message
 
 
 def test_an_inferred_name_forms_no_relation(tmp_path: Path) -> None:

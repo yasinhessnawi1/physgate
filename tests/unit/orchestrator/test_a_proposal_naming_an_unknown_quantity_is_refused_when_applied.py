@@ -98,6 +98,19 @@ def test_a_proposal_naming_an_uncatalogued_quantity_that_shadows_none_is_read(
     assert "logic_voltage" in found["quantities"]
 
 
+@pytest.mark.parametrize(
+    ("name", "shadowed"), [("currentlimit", "current_limit"), ("stall_currnt", "stall_current")]
+)
+def test_a_proposal_naming_a_near_spelling_of_a_relation_s_quantity_is_refused(
+    repo: tuple[Path, str], tmp_path: Path, name: str, shadowed: str
+) -> None:
+    root, base = repo
+    path = ".physgate/proposals/electrical.driver.json"
+    commit = _commit(root, {path: json.dumps(_node(name))}, "proposal")
+    with pytest.raises(ProposalRefusedError, match=f"{name} shadows {shadowed}"):
+        read_proposals(root, base, commit, tmp_path / "graph")
+
+
 def test_a_proposal_naming_a_quantity_that_shadows_a_relation_s_is_refused_naming_both(
     repo: tuple[Path, str], tmp_path: Path
 ) -> None:

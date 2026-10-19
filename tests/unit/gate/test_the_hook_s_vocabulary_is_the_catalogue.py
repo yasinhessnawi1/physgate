@@ -58,14 +58,21 @@ def test_both_spellings_find_the_same_shadowing_names() -> None:
         "logic_voltage": 5,
         "discharge_power": 6,
         "mass_without_battery": 7,
+        "stall_currnt": 8,
+        "currentlimit": 9,
+        "supportedmass": 10,
+        "logic_votage": 11,
     }
     assert (
         shadowing_quantity_names(names)
         == shadowing_names(names)
         == (
+            ("currentlimit", "current_limit"),
             ("discharge_power", "max_discharge_power"),
             ("motor_current", "stall_current"),
             ("pack_mass", "mass"),
+            ("stall_currnt", "stall_current"),
+            ("supportedmass", "supported_mass"),
         )
     )
     assert shadowing_quantity_names({}) == shadowing_names({}) == ()

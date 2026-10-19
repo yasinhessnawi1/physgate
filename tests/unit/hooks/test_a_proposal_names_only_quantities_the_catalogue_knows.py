@@ -77,6 +77,9 @@ def test_a_catalogued_name_is_allowed(config: SessionConfig) -> None:
         ("mount_moment", "reaction_moment"),
         ("spring_force", "load_force"),
         ("charge_capacity", "energy_capacity"),
+        ("stall_currnt", "stall_current"),
+        ("currentlimit", "current_limit"),
+        ("supported_mas", "supported_mass"),
     ],
 )
 def test_a_name_that_shadows_a_relation_s_quantity_is_refused_naming_both(
