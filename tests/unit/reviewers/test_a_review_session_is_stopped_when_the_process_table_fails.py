@@ -236,7 +236,7 @@ def test_a_failed_stop_after_the_session_was_reaped_signals_nothing_by_its_old_p
 
     monkeypatch.setattr(processes, "subprocess", FailingPs(reaped))
     sent: list[tuple[int, bool]] = []
-    monkeypatch.setattr(processes.os, "killpg", lambda pgid, sig: sent.append((pgid, reaped())))
+    monkeypatch.setattr(os, "killpg", lambda pgid, sig: sent.append((pgid, reaped())))
     installed = Installed(settings="s", config="c", spawn_args=(), spawn_env={})
     packet = cast(Packet, SimpleNamespace(read_root=str(read)))
     try:
