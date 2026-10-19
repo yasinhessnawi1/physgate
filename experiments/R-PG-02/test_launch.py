@@ -22,11 +22,7 @@ REPO = HERE.parent.parent
 LAUNCH = HERE / "launch.sh"
 FILL = "[FILL AT FREEZE]"
 #: The only values left to the freeze (and the fresh set's dated fill).
-FILLED_AT_FREEZE = {
-    "FRESH_MANIFEST_SHA256",
-    "OLD_TWINS_COUNT",
-    "OLD_TWINS_RECORDS_SHA256",
-}
+FILLED_AT_FREEZE = {"FRESH_MANIFEST_SHA256"}
 #: The pick between the two configurations, filled by its own dated commit.
 PICK_SLOT = "[FILL AT PICK]"
 #: The kept configuration's values, filled when its rubrics are promoted, before the freeze.
@@ -188,7 +184,7 @@ def test_both_configurations_share_the_gate_and_the_reviewers_code(name: str, pa
 
 def test_each_configuration_s_pins_are_its_commit_s() -> None:
     """The instrument tree, rubrics tree and four rubric digests are read from the commit named."""
-    assert "F" in filled_configurations()
+    assert filled_configurations() == ["K", "F"]
     for config in filled_configurations():
         pinned = {n: pins()[f"{config}_{n}"] for n in CONFIG_PINS}
         commit = pinned["COMMIT"]

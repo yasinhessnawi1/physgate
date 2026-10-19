@@ -108,12 +108,12 @@ of the picked configuration included, and refuses a mismatch.
 | | K, kept | F, fallback |
 |---|---|---|
 | What | the last practice round's rubric text promoted, with the account's fixed paragraphs | the first practice run's rubrics and template, unchanged |
-| Commit | **[K DIGESTS AT PROMOTION]** | **`82cbf3b6b77de5de5d6b4d1a5a3117b7656b1480`** |
-| Rubrics tree (`knowledge/reviewers/`) | **[K DIGESTS AT PROMOTION]** | **`dd203340de8cee2f42878bb09ee72e64dfe1465b`** |
-| Control rubric sha256 | **[K DIGESTS AT PROMOTION]** | **`18be8569a3743d6f9f5ff554ac6fd7e7c86b082ffaad4c08d0a40a00bac111f5`** |
-| Electrical rubric sha256 | **[K DIGESTS AT PROMOTION]** | **`a1b78302cf116ce471bf24a484de24a1e98e8679256e41d5f36b3dd4f48219b3`** |
-| Firmware rubric sha256 | **[K DIGESTS AT PROMOTION]** | **`e265ef4733443d1af8a8152a8831fa97f999c3fcae0acc8f12f48fe1faed5f8a`** |
-| Mechanical rubric sha256 | **[K DIGESTS AT PROMOTION]** | **`3ca83fe1099481ff4c32681b7e63a594e907dd01bcd6a56a8160ed0a8e0783fa`** |
+| Commit | **`48929eb2f1ba0d770b02914e4a2b29a62a27e486`** | **`82cbf3b6b77de5de5d6b4d1a5a3117b7656b1480`** |
+| Rubrics tree (`knowledge/reviewers/`) | **`b5d5a31e8073ec99d356f41b4086885607c2a4aa`** | **`dd203340de8cee2f42878bb09ee72e64dfe1465b`** |
+| Control rubric sha256 | **`08a5cfbc1b6729843bd5f6d8cad5c3596faaeecc596fb472230905815a2677d6`** | **`18be8569a3743d6f9f5ff554ac6fd7e7c86b082ffaad4c08d0a40a00bac111f5`** |
+| Electrical rubric sha256 | **`5ca8c13584ac896abda9825d52a0a3b8177866024e68249ad75375c59086b445`** | **`a1b78302cf116ce471bf24a484de24a1e98e8679256e41d5f36b3dd4f48219b3`** |
+| Firmware rubric sha256 | **`614ad78c9ebceba6903fba31267801e970162d80fbf10df0713064c99377c25e`** | **`e265ef4733443d1af8a8152a8831fa97f999c3fcae0acc8f12f48fe1faed5f8a`** |
+| Mechanical rubric sha256 | **`ee68896b4adce53b1e66330d1c8072e5afbac66a547d077abd4d0325ef8dadf8`** | **`3ca83fe1099481ff4c32681b7e63a594e907dd01bcd6a56a8160ed0a8e0783fa`** |
 | Instrument tree (`src/physgate/evaluation/inject/`) | **`93e5c3275997eea4633e5c141fbf80a6f271a029`** | **`375e9e882bc452b75f7395e71a13c8614fee1ba2`** (the first practice run's, byte for byte) |
 | The account's fixed paragraphs | sha256 **`8580efd05af6fd2d304810950f00bb2c3d462302dddfd00b1d12373e340ab838`** | none (`account_sha256` is `null` in `instrument.json`) |
 | The practice result for P5 (§6) | the last practice round's run | the first practice run |
@@ -393,8 +393,9 @@ Read before the run, and not adjusted after it:
       returned to the author, and on which check, and how many the source check returned.
   - **Old set, once:** R-PG-01's 40 twins were gated **once**, at this file's freeze (the gate
     is the same in K and F), count only:
-    **[FILL AT FREEZE: the twins with no failing record, of 40, and the records' sha256]**. A twin
-    that failed there was not tuned against; it is reported as found, and it is the gate's A on
+    **40 of 40 twins with no failing record, records sha256
+    `4a23d22dd255d41afa9934aba77caeb1ee8a819def1428741a5e41f1f8598d11`** (measured 19.10.2026).
+    A twin that failed there was not tuned against; it is reported as found, and it is the gate's A on
     the old set. The launch script gates them again and must reproduce that count and sha256
     exactly.
   - **During tuning,** the zero-failure guard ran on the practice twins and on every clean real
