@@ -657,25 +657,30 @@ def _writable_over(base: Base, artefact: CorpusArtefact) -> None:
                 raise CorpusError(msg, artefact=artefact.id, node=str(payload["id"]))
 
 
-def require_complete(corpus: Corpus) -> None:
-    """Refuse a corpus that is not the measurement's: ten per class, ten distinct edges.
+def require_complete(corpus: Corpus, per_class: int = PER_CLASS) -> None:
+    """Refuse a corpus that is not the measurement's: ``per_class`` per class, as many edges.
 
-    The propagation check is the cross-domain one (ARCH-080, row 7), so each
-    propagation artefact's edge joins two nodes of different domains.
+    Risk row 1's corpus has ten of each class; a smaller one, such as a practice set,
+    names its size, and the run records it. The propagation check is the cross-domain
+    one (ARCH-080, row 7), so each propagation artefact's edge joins two nodes of
+    different domains.
 
     Raises:
-        CorpusError: a class has other than ten artefacts; two propagation
-            artefacts name the same edge, so ten errors would be fewer than ten;
-            or an edge stays within one domain.
+        CorpusError: ``per_class`` is not positive; a class has another count; two
+            propagation artefacts name the same edge, so the errors would be fewer
+            than they read; or an edge stays within one domain.
     """
+    if per_class < 1:
+        msg = "a complete corpus has at least one artefact of each class"
+        raise CorpusError(msg, per_class=str(per_class))
     counts = {c: sum(a.error_class == c for a in corpus.artefacts) for c in ERROR_CLASSES}
-    if any(n != PER_CLASS for n in counts.values()):
-        msg = f"a complete corpus has {PER_CLASS} artefacts of each class"
+    if any(n != per_class for n in counts.values()):
+        msg = f"a complete corpus has {per_class} artefacts of each class"
         raise CorpusError(msg, **{c: str(n) for c, n in counts.items()})
     edges = {(a.edge.source, a.edge.target) for a in corpus.artefacts if a.edge is not None}
-    if len(edges) != PER_CLASS:
+    if len(edges) != per_class:
         msg = (
-            f"a complete corpus's {PER_CLASS} propagation artefacts name {PER_CLASS} distinct edges"
+            f"a complete corpus's {per_class} propagation artefacts name {per_class} distinct edges"
         )
         raise CorpusError(msg, distinct=str(len(edges)))
     for artefact in corpus.artefacts:

@@ -192,7 +192,7 @@ def test_the_command_says_how_many_came_to_each_and_exits_1_if_any_came_to_neith
     from physgate.cli import main
     from physgate.orchestrator.cli import Registrations
 
-    monkeypatch.setattr(inject_cli, "require_complete", lambda corpus: None)
+    monkeypatch.setattr(inject_cli, "require_complete", lambda corpus, per_class: None)
     corpus = write_corpus(tmp_path / "corpus")
     argv = [
         "inject",

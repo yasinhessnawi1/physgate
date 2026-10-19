@@ -58,6 +58,14 @@ ADDED_FIELDS: dict[str, dict[str, Any]] = {
     "proposals_checked": {"series_checks": []},
 }
 
+#: Fields added inside a record a line carries, after the golden file was written, per
+#: event kind and record, each with the value that means "as before".
+ADDED_WITHIN: dict[str, dict[str, dict[str, Any]]] = {
+    # A review's result counts the session's repair resumes: ``None`` where repair resumes
+    # are off, as they were in every run the golden file recorded.
+    "review_ran": {"result": {"repair_resumes": None}},
+}
+
 #: Fields added after the golden file was written that carry new information, not a
 #: default, so they are set aside whatever their value; their content is held by tests of
 #: their own. ``proposed`` on the change check names the nodes an attempt proposed, which
@@ -164,8 +172,16 @@ def _golden() -> dict[str, dict[str, list[Any]]]:
 
 def _without_added(kind: str, line: dict[str, Any]) -> dict[str, Any]:
     added = ADDED_FIELDS.get(kind, {})
+    within = ADDED_WITHIN.get(kind, {})
     aside = SET_ASIDE.get(kind, frozenset())
-    return {k: v for k, v in line.items() if not (k in added and added[k] == v) and k not in aside}
+    out: dict[str, Any] = {}
+    for k, v in line.items():
+        if k in aside or (k in added and added[k] == v):
+            continue
+        if k in within and isinstance(v, dict):
+            v = {f: w for f, w in v.items() if not (f in within[k] and within[k][f] == w)}
+        out[k] = v
+    return out
 
 
 def comparable(run: dict[str, list[Any]]) -> dict[str, list[Any]]:

@@ -41,20 +41,23 @@ from physgate.evaluation.inject.runner import (
     require_reviewers,
     run_instrument,
 )
+from physgate.evaluation.inject.source_check import check_sources
 from physgate.gate.exceptions import GateError
+from physgate.knowledge.promote import KNOWLEDGE_ROOT
 from physgate.orchestrator import cli as orchestrator_cli
 from physgate.orchestrator.cli import Registrations, ReviewerFactory, default_registrations
 from physgate.orchestrator.common import first_problem
-from physgate.orchestrator.credentials import credential_for
+from physgate.orchestrator.credentials import Credential, credential_for
 from physgate.orchestrator.decompose import binary_version
 from physgate.orchestrator.exceptions import OrchestratorError, ReviewerNotRegisteredError
 from physgate.orchestrator.install import prepare_install, require_current
 from physgate.orchestrator.invocation import claude_binary
 from physgate.orchestrator.protocols import Reviewer
 from physgate.orchestrator.run_config import endpoint_of
-from physgate.reviewers.claude import ReviewerSetup
+from physgate.reviewers.claude import ClaudeReviewer, ReviewerSetup
 from physgate.reviewers.exceptions import ReviewError
 from physgate.reviewers.places import require_review_root
+from physgate.reviewers.rubric import generalist_of, load_rubric
 
 
 def add_parser(
@@ -87,7 +90,36 @@ def add_parser(
         action="store_true",
         help="also review each clean twin, blind, in the same phase (recorded in the run)",
     )
+    p.add_argument(
+        "--per-class",
+        type=int,
+        default=10,
+        help="the corpus's size per class, held and recorded (risk row 1's is 10)",
+    )
+    p.add_argument(
+        "--lanes",
+        type=int,
+        help="reviews at once, each lane under its own review root; with real reviewers "
+        "it must equal the parameters file's",
+    )
+    p.add_argument(
+        "--generalist",
+        action="store_true",
+        help="review every artefact with its role's rubric less the domain sections "
+        "(ARCH-063's baseline), not the paired rubric",
+    )
     p.set_defaults(func=lambda args: _inject(args, registrations))
+    q = subparsers.add_parser(
+        "inject-sources",
+        help="hold a corpus's base and clean patches to its parts sheet, number by number",
+        description=(
+            "Check every number of a corpus's base and clean patches against the parts-sheet "
+            "rows its source names: copied rows equal, derived numbers their arithmetic. The "
+            "injected patches are never read. Prints the facts found; exits 1 on a mismatch."
+        ),
+    )
+    q.add_argument("--corpus", required=True, type=Path)
+    q.set_defaults(func=_sources)
 
 
 def _inject(args: argparse.Namespace, registrations: Registrations | None) -> int:
@@ -97,13 +129,20 @@ def _inject(args: argparse.Namespace, registrations: Registrations | None) -> in
         corpus = load_corpus(args.corpus.resolve())
         reviewers: Mapping[str, Reviewer] = registrations.reviewers
         reviewing = None
+        lanes, lane_sets = args.lanes or 1, None
+        delays: tuple[float, ...] = (0.0,)
+        pause_after, pause_s = 0, 0.0
         if not reviewers and registrations.reviewer_factory is not None:
             params = _params(args)
-            require_complete(corpus)
-            reviewers, reviewing = _real_reviewers(args, params, registrations.reviewer_factory)
+            require_complete(corpus, args.per_class)
+            lanes, pause_after, pause_s = _lane_rules(args, params)
+            factory = generalist_reviewers if args.generalist else registrations.reviewer_factory
+            lane_sets, reviewing = _real_reviewers(args, params, factory, lanes)
+            reviewers = lane_sets[0]
+            delays = params.bounds.infra_retry_delays_s
         # The reviewers first: without them nothing else is worth checking.
         require_reviewers(corpus, reviewers)
-        require_complete(corpus)
+        require_complete(corpus, args.per_class)
         rows = run_instrument(
             corpus,
             reviewers,
@@ -113,6 +152,13 @@ def _inject(args: argparse.Namespace, registrations: Registrations | None) -> in
             seed=args.seed,
             review_clean_twins=args.review_clean_twins,
             reviewing=reviewing,
+            per_class=args.per_class,
+            lanes=lanes,
+            lane_reviewers=lane_sets,
+            retry_delays_s=delays,
+            pause_after_failures=pause_after,
+            pause_s=pause_s,
+            reviewer_kind="generalist" if args.generalist else "paired",
         )
     except (InstrumentError, OrchestratorError, GateError, ReviewError) as exc:
         print(json.dumps({"error": str(exc), **exc.context}, sort_keys=True), file=sys.stderr)
@@ -126,6 +172,17 @@ def _inject(args: argparse.Namespace, registrations: Registrations | None) -> in
     print(json.dumps({"results": results, "reviews": counts}, sort_keys=True))
     # Every artefact has its row either way; a review without a pass or a fail says so.
     return 0 if counts["blocked"] + counts["review_unavailable"] == 0 else 1
+
+
+def _sources(args: argparse.Namespace) -> int:
+    try:
+        found = check_sources(load_corpus(args.corpus.resolve()))
+    except InstrumentError as exc:
+        print(json.dumps({"error": str(exc), **exc.context}, sort_keys=True), file=sys.stderr)
+        return 2
+    counts = {k: sum(f.kind == k for f in found) for k in ("mismatch", "unresolved", "subtracted")}
+    print(json.dumps({"counts": counts, "facts": [f.fact() for f in found]}, indent=1))
+    return 1 if counts["mismatch"] else 0
 
 
 def _params(args: argparse.Namespace) -> InstrumentParams:
@@ -146,10 +203,53 @@ def _params(args: argparse.Namespace) -> InstrumentParams:
         raise InstrumentParamsError(msg, reason=reason) from None
 
 
+def _lane_rules(args: argparse.Namespace, params: InstrumentParams) -> tuple[int, int, float]:
+    """The lanes and the lane-wide pause, from the parameters file, which must state them.
+
+    Raises:
+        InstrumentParamsError: the file states no lanes or pause, or ``--lanes`` says
+            another number of lanes than the file.
+    """
+    if params.lanes is None or params.pause_after_failures is None or params.pause_s is None:
+        msg = "the parameters file states the lanes and the lane-wide pause"
+        raise InstrumentParamsError(msg, needs="lanes, pause_after_failures, pause_s")
+    if params.repair_resumes is None:
+        msg = "the parameters file states how many repair resumes a review gets"
+        raise InstrumentParamsError(msg, needs="repair_resumes")
+    if args.lanes is not None and args.lanes != params.lanes:
+        msg = "the lanes given are not the parameters file's"
+        raise InstrumentParamsError(msg, given=str(args.lanes), file=str(params.lanes))
+    return params.lanes, params.pause_after_failures, params.pause_s
+
+
+def generalist_reviewers(setup: ReviewerSetup) -> dict[str, Reviewer]:
+    """A generalist reviewer for every role ``setup`` pins: its rubric less the domain sections.
+
+    The same model and setup as the paired reviewers; only the rubric differs, so the
+    two arms differ in pairing alone (ARCH-063).
+
+    Raises:
+        ReviewerNotRegisteredError: a role's rubric does not load.
+    """
+    found: dict[str, Reviewer] = {}
+    for role in sorted(setup.models):
+        try:
+            rubric = load_rubric(setup.library / KNOWLEDGE_ROOT, role)
+        except ReviewError as exc:
+            msg = f"a generalist review starts from the role's rubric, which does not load: {exc}"
+            raise ReviewerNotRegisteredError(msg, **{**exc.context, "role": role}) from None
+        found[role] = ClaudeReviewer(role=role, setup=setup, rubric=generalist_of(rubric))
+    return found
+
+
 def _real_reviewers(
-    args: argparse.Namespace, params: InstrumentParams, factory: ReviewerFactory
-) -> tuple[Mapping[str, Reviewer], Reviewing]:
-    """The real reviewers, built from ``params``, and the record of how they run."""
+    args: argparse.Namespace, params: InstrumentParams, factory: ReviewerFactory, lanes: int
+) -> tuple[list[Mapping[str, Reviewer]], Reviewing]:
+    """The real reviewers of every lane, built from ``params``, and how they run.
+
+    Each lane's reviewers are built for its own review root, ``scratch/lane-<k>``, or
+    the scratch directory itself with one lane.
+    """
     credential = credential_for(params.auth, os.environ)
     binary = claude_binary()
     version = binary_version(binary)
@@ -164,7 +264,32 @@ def _real_reviewers(
         msg = "the reviewers' rubrics are read from a source checkout, and there is none"
         raise ReviewerNotRegisteredError(msg)
     base_url = os.environ.get("ANTHROPIC_BASE_URL")
-    setup = ReviewerSetup(
+    roots = [args.scratch] if lanes == 1 else [args.scratch / f"lane-{k}" for k in range(lanes)]
+    sets = [
+        factory(_setup(args, params, version, binary, base_url, credential, library, root))
+        for root in roots
+    ]
+    reviewing = Reviewing(
+        params=params,
+        claude_version=version,
+        endpoint=endpoint_of(base_url),
+        install=str(install),
+    )
+    return sets, reviewing
+
+
+def _setup(
+    args: argparse.Namespace,
+    params: InstrumentParams,
+    version: str,
+    binary: str,
+    base_url: str | None,
+    credential: Credential,
+    library: Path,
+    root: Path,
+) -> ReviewerSetup:
+    install = args.install.resolve()
+    return ReviewerSetup(
         run_id=args.run_id,
         models=dict(params.reviewers),
         claude_version=version,
@@ -172,18 +297,12 @@ def _real_reviewers(
         effort=params.effort,
         max_output_tokens=params.max_output_tokens,
         token_ceiling=params.token_ceiling,
-        review_root=require_review_root(args.scratch),
+        review_root=require_review_root(root),
         repo=None,
         install_bin=install / "bin" / "physgate",
         binary=binary,
         base_url=base_url,
         credential=credential,
         library=library,
+        repair_resumes=params.repair_resumes or 0,
     )
-    reviewing = Reviewing(
-        params=params,
-        claude_version=version,
-        endpoint=endpoint_of(base_url),
-        install=str(install),
-    )
-    return factory(setup), reviewing

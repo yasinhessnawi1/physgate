@@ -34,7 +34,9 @@ would refuse it (a review before a gate), and it is never resumed: a killed run
 is started again into new directories.
 
 A review that is not a verdict never stops the run and is never a pass or a fail.
-An infrastructure failure is retried once; after that, the review is recorded in
+An infrastructure failure is retried after each delay of the run's schedule
+(``infra_retry_delays_s``, one retry per delay, each waited out first, so one outage
+does not use up every retry at once); after the last, the review is recorded in
 the log as unavailable and in its row as ``review_unavailable`` with its cause. A
 review that blocked, on a blocking defect of the issued specification, is a verdict:
 it is in the log as a review and in its row as ``blocked``. Every artefact gets its
@@ -44,6 +46,18 @@ Artefacts run under an id derived from the seed and the corpus id, in the
 order those ids sort, so the log shows no corpus id and no class order. The
 results file has one row per artefact, in corpus id order, and **no total**:
 what the rows add up to is the experiment's to state.
+
+**Review lanes.** The reviews may run in parallel lanes, each a reviewer session
+at a time under a review root of its own (``scratch/lane-<k>``), taking the next
+item in id order as it frees. A lane's copies and sessions are never under another
+lane's root, and a reviewer reads only beneath its own packet in any case. The log
+then holds the review lines in the order they ended, not in id order; every one is
+still written before the gate runs on anything. Each finished review is also written
+on its own, in ``reviews/<id>.json``: its outcome, tokens, lane and every try with
+the delay waited before it. A progress line after each, on standard error, gives
+counts only (how many are done, how many came to no verdict), so a running
+measurement shows nothing a reader could steer by. One lane is the run as it always
+was: one root, the same paths, the log in id order.
 """
 
 from __future__ import annotations
@@ -51,9 +65,14 @@ from __future__ import annotations
 import functools
 import hashlib
 import json
+import os
 import shutil
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+import sys
+import threading
+import time
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -73,6 +92,7 @@ from physgate.evaluation.inject.exceptions import (
     RunDirectoryError,
 )
 from physgate.evaluation.inject.materialise import (
+    ACCOUNT_SHA256,
     DESIGN_DIRNAME,
     Materialised,
     materialise,
@@ -96,6 +116,7 @@ from physgate.orchestrator.protocols import (
     ChangeSet,
     CheckName,
     GateResult,
+    PassDetails,
     RecordedUnavailableCause,
     Reviewer,
     ReviewResult,
@@ -118,6 +139,12 @@ CONFIG_NAME = "instrument.json"
 CONTROLS_DIRNAME = "controls"
 #: Where, in the run directory, the gate's fresh copies are made: outside the review root.
 COPIES_DIRNAME = "copies"
+#: Where, in the run directory, each finished review is written on its own.
+REVIEWS_DIRNAME = "reviews"
+#: Each artefact's lane, drawn before the run; its twin's is the same.
+LANES_NAME = "lanes.json"
+#: One line for each lane-wide pause.
+PAUSES_NAME = "pauses.jsonl"
 ReviewId = Annotated[str, StringConstraints(pattern=r"^r[0-9a-f]{12}$")]
 Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 
@@ -136,6 +163,16 @@ class InstrumentParams(_Frozen):
     effort: Effort
     max_output_tokens: Annotated[int, Field(gt=0)]
     token_ceiling: Annotated[int, Field(gt=0)]
+    #: How many reviews run at once, and the lane-wide pause: after
+    #: ``pause_after_failures`` infrastructure failures in a row, no lane starts a session
+    #: for ``pause_s``. ``None`` only in parameters written before lanes existed; a run
+    #: with real reviewers refuses a file without them.
+    lanes: Annotated[int, Field(ge=1)] | None = None
+    pause_after_failures: Annotated[int, Field(ge=0)] | None = None
+    pause_s: Annotated[float, Field(ge=0)] | None = None
+    #: How many times a review whose verdict was refused is resumed with the check's
+    #: reason (0 or 1); ``None`` only in parameters written before it existed.
+    repair_resumes: Annotated[int, Field(ge=0, le=1)] | None = None
 
 
 class Reviewing(_Frozen):
@@ -165,6 +202,23 @@ class InstrumentConfig(_Frozen):
     #: How the real reviewers ran: their parameters, the auth mode, the binary's
     #: version and the endpoint. ``None`` for reviewers given built, as in tests.
     reviewing: Reviewing | None = None
+    #: The corpus's size per class, as the run held it to. Defaults read records
+    #: written before these fields existed: ten per class, one lane, one retry at once.
+    per_class: Annotated[int, Field(ge=1)] = 10
+    #: How many reviews ran at once, each lane under its own review root.
+    lanes: Annotated[int, Field(ge=1)] = 1
+    #: The delay waited before each infrastructure retry; its length is the retries.
+    retry_delays_s: tuple[Annotated[float, Field(ge=0)], ...] = (0.0,)
+    #: The lane-wide pause: after this many infrastructure failures in a row, across
+    #: every lane, no lane starts a session for ``pause_s``; 0 is no pause.
+    pause_after_failures: Annotated[int, Field(ge=0)] = 0
+    pause_s: Annotated[float, Field(ge=0)] = 0.0
+    #: ``paired``: each role's own rubric (ARCH-060); ``generalist``: each role's rubric
+    #: less its domain sections, the same for every role's artefacts (ARCH-063's baseline).
+    reviewer_kind: Literal["paired", "generalist"] = "paired"
+    #: The digest of the fixed paragraphs every account carries (the revision's form, the
+    #: sheet's absences, the precision convention). ``None`` on records written before.
+    account_sha256: Sha256 | None = None
 
 
 #: What one artefact's review came to, as its row records it.
@@ -206,6 +260,11 @@ class ResultRow(_Frozen):
     #: The gate on the clean patch, the control.
     control_verdict: Verdict
     control_blocking: tuple[CheckName, ...]
+    #: For every check that passed, at every scope it ran at, how many things it judged:
+    #: a pass that judged nothing is not a pass that judged something. Empty in rows
+    #: written before this field existed.
+    gate_evaluated: dict[str, dict[str, int]] = Field(default_factory=dict)
+    control_evaluated: dict[str, dict[str, int]] = Field(default_factory=dict)
 
 
 def review_id(seed: int, artefact_id: str) -> str:
@@ -292,6 +351,15 @@ def check_base(base: Base, into: Path, gate: PhysicsGate | None = None) -> GateR
     return _gate(gate or PhysicsGate(), materialise(base, None, into), "base")
 
 
+def evaluated(result: GateResult) -> dict[str, dict[str, int]]:
+    """For each check that passed, how many things it judged, at each scope it ran at."""
+    found: dict[str, dict[str, int]] = {}
+    for record in result.checks:
+        if record.outcome == "pass" and isinstance(record.details, PassDetails):
+            found.setdefault(record.name, {})[record.scope] = record.details.evaluated
+    return found
+
+
 def blocking(result: GateResult) -> tuple[CheckName, ...]:
     """The checks whose failure blocked, each once, in the order the records give."""
     names = [r.name for r in result.checks if r.outcome == "fail" and r.blocking]
@@ -362,11 +430,25 @@ def _review(
 
 
 @dataclass(frozen=True)
+class _Try:
+    """One try at a review: why it gave no verdict (``None`` if it gave one), and the wait."""
+
+    cause: str | None
+    #: How long the run waited before this try, in seconds; 0 for the first.
+    delay_before_s: float
+    #: When the try's session was started and when it ended, UTC, ISO 8601.
+    started_at: str = ""
+    ended_at: str = ""
+
+
+@dataclass(frozen=True)
 class _Reviewed:
     """One artefact's review as its log records it, and every token its tries spent."""
 
     line: ReviewRan | ReviewUnavailable
     tokens: int
+    tries: tuple[_Try, ...] = ()
+    lane: int = 0
 
     @property
     def outcome(self) -> ReviewOutcome:
@@ -386,42 +468,284 @@ class _Reviewed:
             return self.line.result.reviewer_model
         return self.line.reviewer_model
 
+    def record(self, subtask: str) -> dict[str, object]:
+        """What ``reviews/<id>.json`` holds for this review."""
+        return {
+            "review_id": subtask,
+            "lane": self.lane,
+            "outcome": self.outcome,
+            "cause": self.cause,
+            "seq": self.line.seq,
+            "tokens": self.tokens,
+            "tries": [
+                {
+                    "cause": t.cause,
+                    "delay_before_s": t.delay_before_s,
+                    "started_at": t.started_at,
+                    "ended_at": t.ended_at,
+                }
+                for t in self.tries
+            ],
+        }
 
-def _reviewed(log: EventLog, review: Callable[[], ReviewResult], subtask: str) -> _Reviewed:
+
+@dataclass
+class _Shared:
+    """What the lanes share: the lock on both logs, and the counts the progress line gives."""
+
+    total: int
+    lock: threading.Lock = field(default_factory=threading.Lock)
+    done: int = 0
+    unavailable: int = 0
+
+
+def _utc() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+class _Pacer:
+    """The lane-wide pause, after ``after`` infrastructure failures in a row.
+
+    Across every lane: once that many tries in a row ended for infrastructure, no lane
+    starts a session for ``pause_s`` seconds. It reads infrastructure outcomes only,
+    never a verdict. A session not started is no failure and spends no retry. Each
+    pause is appended to ``record``. ``after`` of 0 turns the pause off.
+    """
+
+    def __init__(
+        self,
+        *,
+        after: int,
+        pause_s: float,
+        clock: Callable[[], float],
+        sleep: Callable[[float], None],
+        record: Path | None,
+    ) -> None:
+        self._after, self._pause_s = after, pause_s
+        self._clock, self._sleep, self._record = clock, sleep, record
+        self._lock = threading.Lock()
+        self._streak = 0
+        self._until = float("-inf")
+
+    def wait(self) -> None:
+        """Return once no pause holds."""
+        while True:
+            with self._lock:
+                remaining = self._until - self._clock()
+            if remaining <= 0:
+                return
+            self._sleep(remaining)
+
+    def ended(self, cause: str | None) -> None:
+        """Count one try's end: an infrastructure failure, or anything else."""
+        if self._after <= 0:
+            return
+        with self._lock:
+            if cause != "infrastructure":
+                self._streak = 0
+                return
+            self._streak += 1
+            if self._streak < self._after:
+                return
+            self._streak = 0
+            self._until = self._clock() + self._pause_s
+            if self._record is not None:
+                line = {"paused_at": _utc(), "pause_s": self._pause_s, "after": self._after}
+                with self._record.open("a") as out:
+                    out.write(json.dumps(line, sort_keys=True) + "\n")
+
+
+def _reviewed(
+    log: EventLog,
+    review: Callable[[], ReviewResult],
+    subtask: str,
+    *,
+    delays: tuple[float, ...] = (0.0,),
+    sleep: Callable[[float], None] = time.sleep,
+    lock: threading.Lock | None = None,
+    pacer: _Pacer | None = None,
+) -> _Reviewed:
     """Review one artefact and record the outcome; a review that gives no verdict is recorded too.
 
-    An infrastructure failure is retried once, as in the loop. Any other review
-    that is not a verdict, or a second failure, is recorded as such and the run
-    goes on: every artefact gets its row, and a review that gave no verdict is
-    never counted as a pass or a fail.
+    An infrastructure failure is retried once for each of ``delays``, after waiting
+    that long, as in the loop: an outage that outlasts the first wait still finds the
+    later ones. No try starts while the lane-wide pause holds. Any other review that is
+    not a verdict, or an infrastructure failure after the last retry, is recorded as
+    such and the run goes on: every artefact gets its row, and a review that gave no
+    verdict is never counted as a pass or a fail.
     """
-    retried, tokens = False, 0
+    guard = lock or threading.Lock()
+    tries: list[_Try] = []
+    retries_done, tokens, waited = 0, 0, 0.0
     while True:
+        if pacer is not None:
+            pacer.wait()
+        started = _utc()
         try:
             result = review()
         except ReviewUnavailableError as exc:
+            ended = _utc()
+            if pacer is not None:
+                pacer.ended(exc.cause)
             tokens += sum(m.usage.total() for m in exc.usage)
-            retry = exc.cause == "infrastructure" and not retried
-            line = log.append(
-                ReviewUnavailable(
-                    **log.envelope(),
-                    subtask_id=subtask,
-                    attempt=1,
-                    cause=exc.cause,
-                    detail=str(exc) or exc.cause,
-                    retry=retry,
-                    session_id=exc.session_id,
-                    reviewer_model=exc.reviewer_model,
-                    spec_defects=exc.spec_defects,
+            retry = exc.cause == "infrastructure" and retries_done < len(delays)
+            with guard:
+                line = log.append(
+                    ReviewUnavailable(
+                        **log.envelope(),
+                        subtask_id=subtask,
+                        attempt=1,
+                        cause=exc.cause,
+                        detail=str(exc) or exc.cause,
+                        retry=retry,
+                        session_id=exc.session_id,
+                        reviewer_model=exc.reviewer_model,
+                        spec_defects=exc.spec_defects,
+                    )
                 )
-            )
+            tries.append(_Try(exc.cause, waited, started, ended))
             if not retry:
-                return _Reviewed(line=line, tokens=tokens)
-            retried = True
+                return _Reviewed(line=line, tokens=tokens, tries=tuple(tries))
+            waited = delays[retries_done]
+            retries_done += 1
+            sleep(waited)
             continue
+        ended = _utc()
+        if pacer is not None:
+            pacer.ended(None)
         tokens += sum(m.usage.total() for m in result.usage)
-        ran = log.append(ReviewRan(**log.envelope(), subtask_id=subtask, attempt=1, result=result))
-        return _Reviewed(line=ran, tokens=tokens)
+        with guard:
+            ran = log.append(
+                ReviewRan(**log.envelope(), subtask_id=subtask, attempt=1, result=result)
+            )
+        tries.append(_Try(None, waited, started, ended))
+        return _Reviewed(line=ran, tokens=tokens, tries=tuple(tries))
+
+
+def _write_state(path: Path, record: dict[str, object]) -> None:
+    """Write one review's record whole: to a new name first, then renamed over."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(record, sort_keys=True) + "\n")
+    os.replace(temporary, path)
+
+
+def _progress_line(shared: _Shared) -> str:
+    """Counts only: how many reviews are done, and how many came to no verdict."""
+    return (
+        f"progress: {shared.done}/{shared.total} reviews done, "
+        f"{shared.unavailable} without a verdict"
+    )
+
+
+def assign_lanes(seed: int, artefacts: Sequence[CorpusArtefact], lanes: int) -> dict[str, int]:
+    """Each artefact's lane, drawn by the seed before the run: its clean twin runs there too.
+
+    The classes are dealt round the lanes in turn, each class in the order of its
+    artefacts' seeded ids, continuing where the last class stopped, from a lane the seed
+    picks. So the lanes hold the classes evenly, and a lane's machine, build or hour
+    falls on an artefact and its twin alike.
+    """
+    if lanes < 1:
+        msg = "a run reviews in at least one lane"
+        raise RunDirectoryError(msg, lanes=str(lanes))
+    start = int(hashlib.sha256(f"{seed}:lanes".encode()).hexdigest(), 16) % lanes
+    by_class: dict[str, list[CorpusArtefact]] = {}
+    for artefact in artefacts:
+        by_class.setdefault(artefact.error_class, []).append(artefact)
+    lane_of: dict[str, int] = {}
+    k = start
+    for error_class in sorted(by_class):
+        for artefact in sorted(by_class[error_class], key=lambda a: review_id(seed, a.id)):
+            lane_of[artefact.id] = k
+            k = (k + 1) % lanes
+    return lane_of
+
+
+@dataclass(frozen=True)
+class _Lanes:
+    """What every lane reviews with: its reviewers, root and items, and the run's pacing."""
+
+    reviewers: list[Mapping[str, Reviewer]]
+    roots: list[Path]
+    author: str
+    corpus: Corpus
+    delays: tuple[float, ...]
+    sleep: Callable[[float], None]
+    pacer: _Pacer
+
+
+_Item = tuple[str, CorpusArtefact, Patch, EventLog]
+
+
+def _review_all(
+    work: list[list[_Item]],
+    lanes: _Lanes,
+    reviews: dict[str, _Reviewed],
+    run_dir: Path,
+    say: Callable[[str], None],
+) -> None:
+    """Review every lane's items, each lane its own in order, the lanes at once.
+
+    A lane that raises stops every lane from taking another item; the first error is
+    raised once all have stopped, as a single lane's would be.
+    """
+    shared = _Shared(total=sum(len(items) for items in work))
+    stop = threading.Event()
+    errors: list[BaseException] = []
+
+    def lane(k: int) -> None:
+        for subtask, artefact, patch, into in work[k]:
+            if stop.is_set():
+                return
+            review = functools.partial(
+                _review,
+                lanes.reviewers[k][artefact.assigned_role],
+                lanes.author,
+                lanes.corpus.base,
+                patch,
+                lanes.roots[k] / "review" / subtask,
+                subtask,
+                artefact,
+                lanes.corpus.parts_sheet,
+            )
+            try:
+                done = _reviewed(
+                    into,
+                    review,
+                    subtask,
+                    delays=lanes.delays,
+                    sleep=lanes.sleep,
+                    lock=shared.lock,
+                    pacer=lanes.pacer,
+                )
+            except BaseException as exc:
+                stop.set()
+                with shared.lock:
+                    errors.append(exc)
+                return
+            done = _Reviewed(line=done.line, tokens=done.tokens, tries=done.tries, lane=k)
+            _write_state(run_dir / REVIEWS_DIRNAME / f"{subtask}.json", done.record(subtask))
+            with shared.lock:
+                reviews[subtask] = done
+                shared.done += 1
+                shared.unavailable += done.outcome == "review_unavailable"
+                line = _progress_line(shared)
+            say(line)
+
+    if len(work) == 1:
+        lane(0)
+    else:
+        threads = [
+            threading.Thread(target=lane, args=(k,), name=f"review-lane-{k}")
+            for k in range(len(work))
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+    if errors:
+        raise errors[0]
 
 
 def run_instrument(
@@ -435,6 +759,16 @@ def run_instrument(
     review_clean_twins: bool = False,
     gate: PhysicsGate | None = None,
     reviewing: Reviewing | None = None,
+    per_class: int = 10,
+    lanes: int = 1,
+    lane_reviewers: Sequence[Mapping[str, Reviewer]] | None = None,
+    retry_delays_s: tuple[float, ...] = (0.0,),
+    pause_after_failures: int = 0,
+    pause_s: float = 0.0,
+    reviewer_kind: Literal["paired", "generalist"] = "paired",
+    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+    progress: Callable[[str], None] | None = None,
 ) -> tuple[ResultRow, ...]:
     """Review every artefact of ``corpus`` blind, then gate each, and write the results.
 
@@ -449,6 +783,17 @@ def run_instrument(
     its review goes into the controls log before the control's gate line. Off unless
     asked for, and recorded in ``instrument.json`` either way.
 
+    With ``lanes`` above one, that many reviews run at once, lane ``k`` under the review
+    root ``scratch/lane-<k>`` with its own reviewers (``lane_reviewers[k]``, built for
+    that root; the same ``reviewers`` for every lane when none are given). Each
+    infrastructure failure is retried once per delay of ``retry_delays_s``, waited out
+    with ``sleep`` first. After ``pause_after_failures`` infrastructure failures in a
+    row across every lane, no lane starts a session for ``pause_s`` seconds (0 turns the
+    pause off). Each artefact and its twin run on the lane :func:`assign_lanes` draws,
+    written in ``lanes.json``. ``per_class`` is the corpus size the caller held it to,
+    and is recorded. ``progress`` is given a count-only line after each review; standard
+    error when none is given.
+
     Raises:
         ReviewerRefusedError, ModelSeparationError: as :func:`require_reviewers`,
             and a review whose own model string is the author's.
@@ -456,7 +801,15 @@ def run_instrument(
         BlindnessError: what a reviewer would be shown states an answer.
         CorpusError: the store refuses a node of the corpus.
     """
-    require_reviewers(corpus, reviewers)
+    if lanes < 1:
+        msg = "a run reviews in at least one lane"
+        raise RunDirectoryError(msg, lanes=str(lanes))
+    sets = list(lane_reviewers) if lane_reviewers is not None else [reviewers] * lanes
+    if len(sets) != lanes:
+        msg = "every lane has its own set of reviewers, built for its own review root"
+        raise ReviewerRefusedError(msg, lanes=str(lanes), sets=str(len(sets)))
+    for reviewer_set in (reviewers, *sets):
+        require_reviewers(corpus, reviewer_set)
     require_places(corpus.root, run_dir, scratch)
     gate = gate or PhysicsGate()
     author = corpus.manifest.author_model
@@ -473,6 +826,13 @@ def run_instrument(
         scopes=SCOPES,
         catalogue_sha256=catalogue_digest(),
         reviewing=reviewing,
+        per_class=per_class,
+        lanes=lanes,
+        retry_delays_s=retry_delays_s,
+        pause_after_failures=pause_after_failures,
+        pause_s=pause_s,
+        reviewer_kind=reviewer_kind,
+        account_sha256=ACCOUNT_SHA256,
     )
     run_dir.mkdir(parents=True, exist_ok=True)
     config_path = run_dir / CONFIG_NAME
@@ -491,22 +851,29 @@ def run_instrument(
     reviews: dict[str, _Reviewed] = {}
     try:
         # Every review first, each on its own copy, before the gate has run on anything.
-        queue = [(rid, a, a.injected, log) for rid, a in order]
+        queue_ = [(rid, a, a.injected, log) for rid, a in order]
         if review_clean_twins:
-            queue += [(cid, a, a.clean, controls) for cid, a in twins]
-        for subtask, artefact, patch, into in sorted(queue, key=lambda q: q[0]):
-            review = functools.partial(
-                _review,
-                reviewers[artefact.assigned_role],
-                author,
-                corpus.base,
-                patch,
-                scratch / "review" / subtask,
-                subtask,
-                artefact,
-                corpus.parts_sheet,
-            )
-            reviews[subtask] = _reviewed(into, review, subtask)
+            queue_ += [(cid, a, a.clean, controls) for cid, a in twins]
+        roots = [scratch] if lanes == 1 else [scratch / f"lane-{k}" for k in range(lanes)]
+        lane_of = assign_lanes(seed, corpus.artefacts, lanes)
+        (run_dir / LANES_NAME).write_text(json.dumps(lane_of, indent=1, sort_keys=True) + "\n")
+        work: list[list[_Item]] = [[] for _ in range(lanes)]
+        for item in sorted(queue_, key=lambda q: q[0]):
+            work[lane_of[item[1].id]].append(item)
+        pacer = _Pacer(
+            after=pause_after_failures,
+            pause_s=pause_s,
+            clock=clock,
+            sleep=sleep,
+            record=run_dir / PAUSES_NAME,
+        )
+        _review_all(
+            work,
+            _Lanes(sets, roots, author, corpus, retry_delays_s, sleep, pacer),
+            reviews,
+            run_dir,
+            progress or (lambda line: print(line, file=sys.stderr, flush=True)),
+        )
         # The gate's copies are made in the run directory, never under the review root: a
         # reviewer session works under that root, and one still running, or anything a
         # reviewer wrote there, must find nothing the gate will read.
@@ -548,6 +915,8 @@ def run_instrument(
             ),
             control_verdict=controlled[twin_of[artefact.id]].verdict,
             control_blocking=blocking(controlled[twin_of[artefact.id]]),
+            gate_evaluated=evaluated(gated[rid].result),
+            control_evaluated=evaluated(controlled[twin_of[artefact.id]]),
         )
         for rid, artefact in sorted(order, key=lambda p: p[1].id)
     )

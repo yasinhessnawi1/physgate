@@ -34,8 +34,9 @@ Where a check needs a computation, such as a solver run, a finite-element result
 mass, look for evidence that it was done and what it returned. If that evidence is missing and
 every input it needs is present or derivable, the item fails for a value the work wrote; a missing
 input follows "Missing evidence", and a check on given values only follows "Given and written
-values" (both Verdict policy; in form 2, a given value is recorded under "Given values"). Where to
-look in each form is set out in Notation.
+values" (both Verdict policy; in form 2, a given value is recorded under "Given values", and a
+record the revision did not write under "Unwritten records"). Where to look in each form is set
+out in Notation.
 
 The mechanical standards are cited as "std §N", the skill file as "skill", and the cross-domain
 standards as "cross §N".
@@ -110,7 +111,9 @@ group).
        category 2).
   2. **Every input is there** (present, or derivable by reading). The absence of the evidence is
      the work's: the Section 1 line is `unmet`, and the Section 2 or 3 item is a finding. This
-     includes a record this rubric requires the work to make whose inputs are all available.
+     includes a record this rubric requires the work to make whose inputs are all available. For
+     a revision on its own, such a record that the revision did not write is the exception: it is
+     `noted`, not `unmet`, as "Unwritten records" under clause B says.
 
   So `not evaluable` means the issued specification and the design state it gives (for a revision
   on its own, the design graph) give no way to judge, for want of an input. It never means that
@@ -235,6 +238,28 @@ group).
     - An input the design graph lacks altogether (absent and not derivable), such as a missing
       interface input (MA-9, MH-1), still follows "Missing evidence" and the blocking-defect rule,
       unless it is a duty of the revision ("Missing evidence", point 1).
+  - **Unwritten records.** A proposed revision is a set of written values with their units and
+    sources, not a finished piece of work with its calculations, drawings, measurements, margins
+    and load lists. A record this rubric requires the work to make (a value stated or sourced, a
+    calculation shown, a drawing, a measurement or test, a listing) that the revision did not
+    write is not `unmet` and not a finding.
+    - Record it as `noted`: a non-blocking specification defect naming the item and the record,
+      as "Given values" does for a given-value condition. It never rejects and never makes the
+      review `blocked`. This holds wherever this rubric (an item, a policy rule or the preamble)
+      would otherwise make the absence of such a record `unmet` or a finding; that its inputs
+      are present does not change it ("Missing evidence", point 2). A Section 4 indicator whose
+      only evidence is such an absence is `noted`, not `confirmed`.
+    - What rejects is what is written. `unmet`, and a finding, need one of: a value the revision
+      wrote that is inconsistent with another written value, with its unit, with the source it
+      cites or with its own arithmetic; or a check that involves a written value, that the
+      values on the page decide by reading, and that fails (judged normally, as "Given values"
+      says).
+    - The items that read the values present and need no record of the work's own are not
+      touched by this rule: a unit error (MS-1, MS-2), a magnitude out of physical sense or
+      unsupported by its source (MS-3), reactions that do not balance (MS-4), and a changed
+      quantity that did not reach a node it constrains (MS-5) are findings as usual. The
+      follow-up MS-5 owes, and a `no_change_justified` reason, are not unwritten records under
+      this rule: their absence is the change not reaching what it constrains.
   - **No allowances.** There are none.
   - **`n/a`** evidence may come from the design graph.
   - **Section 4.** An indicator whose only observable is in the trajectory is `not observed`,
@@ -242,9 +267,9 @@ group).
     value with no producing computation or source is not confirmed. It is recorded under "Given
     values" above.
 - **Rejecting finding.** Every finding rejects, except three: a Section 4 indicator reported as
-  `noted`, a `noted` given-value finding in a revision on its own, and a non-blocking
-  specification defect. An unmet acceptance criterion, and a dropped prose requirement of the
-  issued specification, are rejecting findings.
+  `noted`, a `noted` given-value or unwritten-record finding in a revision on its own, and a
+  non-blocking specification defect. An unmet acceptance criterion, and a dropped prose
+  requirement of the issued specification, are rejecting findings.
 - **Verdict values.**
   - **`accept`:** no rejecting finding and no blocking defect. Non-blocking defects are allowed.
   - **`reject`:** at least one rejecting finding. Blocking defects may come with it.
@@ -273,10 +298,11 @@ group).
    line of MA-10 instead.
 2. **Section 2:** one line per MS item: `pass`, `finding`, or `n/a` with the evidence that its
    trigger is absent. Name any sub-check that is blocked, with its missing input. In a revision on
-   its own, a sub-check failing only on given values is `noted`, with its non-blocking
-   specification defect.
+   its own, a sub-check failing only on given values, or only for want of a record the revision
+   did not write, is `noted`, with its non-blocking specification defect.
 3. **Section 3:** one line per MP item: `pass`, `finding`, or `n/a` with the evidence that its
-   trigger is absent. In a revision on its own, a given-value case is `noted`, as in Section 2.
+   trigger is absent. In a revision on its own, a given-value or unwritten-record case is
+   `noted`, as in Section 2.
 4. **Section 4:** one line per MH item: `confirmed`, `noted` or `not observed`. A `confirmed` or
    `noted` line carries its evidence.
 5. **Findings.**
@@ -378,8 +404,8 @@ following method.
   has exactly one line: whether the revision is consistent with the design it changes and with
   this rubric.
   - That line is `met` or `unmet`, never `not evaluable`.
-  - The line judges what the revision wrote. A condition recorded under "Given values" does not
-    make it `unmet`.
+  - The line judges what the revision wrote. A condition recorded under "Given values" or
+    "Unwritten records" does not make it `unmet`.
   - The missing specification is not a specification defect. It does not by itself make anything
     `not evaluable` or `blocked`.
   - Sections 2 to 4 are judged as usual, against the design graph and the standards, under the
@@ -860,4 +886,4 @@ Report every indicator. `confirmed` means reject; `noted` means suggestive only.
   - *Confirmed when* that choice is in the delivered work and the trajectory shows its reason.
     Otherwise `noted`.
 
-<!-- 25603ea4533d5b046e7efffff7f9e0b6 -->
+<!-- 8ef288ddff5a92ec6270000d266a1803 -->
