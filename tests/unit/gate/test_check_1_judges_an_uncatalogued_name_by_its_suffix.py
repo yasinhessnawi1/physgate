@@ -83,6 +83,29 @@ def test_the_suffix_alone_is_not_a_name_and_the_word_must_end_the_name() -> None
     assert kind_of("current") is None
     assert kind_of("current_limit_margin") is None  # the word is inside, not at the end
     assert kind_of("voltage_divider_ratio") is None
+    # The underscored word inside the name, with an ambiguous word ending it: still nothing.
+    assert kind_of("stall_current_limit") is None
+    assert kind_of("pack_mass_fraction") is None
+    assert kind_of("rated_voltage_ratio") is None
+
+
+def test_a_suffix_word_inside_the_name_holds_it_to_nothing(tmp_path: Path) -> None:
+    # A mass fraction is dimensionless and a voltage ratio is a ratio: a rule that matched
+    # ``_mass`` or ``_voltage`` anywhere in the name would refuse both as a wrong unit.
+    ran = run(
+        tmp_path,
+        node(
+            NODE,
+            quantities={
+                "pack_mass_fraction": (0.3, "dimensionless"),
+                "rated_voltage_ratio": (1.5, "dimensionless"),
+            },
+        ),
+    )
+    (unknown,) = ran.observations
+    assert unknown.outcome == "unchecked" and "does not know" in unknown.message
+    assert isinstance(unknown.details, UncheckedDetails)
+    assert unknown.details.quantities == ("pack_mass_fraction", "rated_voltage_ratio")
 
 
 def test_the_suffixes_are_part_of_the_catalogue_digest(monkeypatch: pytest.MonkeyPatch) -> None:

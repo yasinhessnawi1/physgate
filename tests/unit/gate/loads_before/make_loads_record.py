@@ -1,10 +1,11 @@
 """Record what the equilibrium check said before the load readings, over the hand-made shapes.
 
 Run inside a checkout of the commit before the readings (``b614325``, master after the
-equilibrium fix), with that checkout's environment, after copying this directory into it;
-with ``D`` the absolute path of this directory in that checkout:
+equilibrium fix), with that checkout's environment, after copying this directory and
+``tests/unit/gate/loads_shapes.py`` (the shapes) into it; with ``D`` the absolute path of
+this directory in that checkout and ``G`` that of ``tests/unit/gate``:
 
-    PYTHONPATH="$D" uv run python "$D/make.py" /abs/record.json
+    PYTHONPATH="$G" uv run python "$D/make_loads_record.py" /abs/record.json
 
 Each shape is a whole graph written as one revision and judged at system scope. Only what the
 comparison reads is kept: every failing record's node, outcome, message and value, and every
@@ -19,7 +20,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-import shapes
+import loads_shapes as shapes
 
 from physgate.gate import check_equilibrium
 from physgate.gate.bounds_table import load_bounds
@@ -46,7 +47,7 @@ def judge(payloads: list[dict[str, Any]], tmp: Path) -> list[dict[str, Any]]:
 def main() -> None:
     """Judge every shape and write the record."""
     out = Path(sys.argv[1])
-    rows = []
+    rows: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory() as tmp:
         for k, (name, payloads, _) in enumerate(shapes.SHAPES):
             before = judge(payloads, Path(tmp) / str(k))

@@ -20,7 +20,7 @@ from physgate.gate.check_equilibrium_loads import carriers, judge_loads, torque_
 from physgate.gate.context import CheckContext
 from physgate.gate.graph import GraphView
 from physgate.gate.runner import PhysicsGate
-from physgate.orchestrator.protocols import EquilibriumDetails, UncheckedDetails
+from physgate.orchestrator.protocols import EquilibriumDetails, Scope, UncheckedDetails
 
 M = "mechanical"
 
@@ -218,7 +218,7 @@ def test_the_whole_gate_blocks_a_stale_reaction_moment_at_system_scope(tmp_path:
 
 @pytest.mark.parametrize("scope", ["module", "system"])
 def test_an_attempt_that_rewrites_the_robot_s_mass_brings_its_carriers_into_scope(
-    tmp_path: Path, scope: str
+    tmp_path: Path, scope: Scope
 ) -> None:
     root = tmp_path / "g"
     base = graph(root, robot(), drivetrain(), wheel("left"), wheel("right"))
@@ -259,7 +259,8 @@ def test_a_lone_carrier_gets_no_pass_record_from_the_gate_only_its_unchecked_one
     # A check that judged nothing and left something unchecked writes no pass: the runner's
     # "found nothing wrong (0 evaluated)" never stands beside an unchecked record.
     graph(tmp_path / "g", node(f"{M}.axle", domain=M, quantities={"supported_mass": (1, "kg")}))
-    for scopes in (["system"], ["subtask", "module"]):
+    runs: tuple[list[Scope], ...] = (["system"], ["subtask", "module"])
+    for scopes in runs:
         result = PhysicsGate().run(GraphView.read(tmp_path / "g", 0), scopes, "on")
         equilibrium = [c for c in result.checks if c.name == "equilibrium"]
         assert [c.outcome for c in equilibrium] == ["unchecked"], scopes

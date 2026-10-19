@@ -1,9 +1,9 @@
 """The torque-unit and carrier readings fail no clean shape, and lose no refusal the check made.
 
 ``loads_before/record.json`` holds what the equilibrium check said, at master's commit before
-the readings, over the hand-made torque units and carriers of ``loads_before/shapes.py``:
-clean shapes and the kinds of error a writer makes. ``loads_before/make.py`` says how it was
-made. Two directions are held, as the other records hold them:
+the readings, over the hand-made torque units and carriers of ``loads_shapes.py``:
+clean shapes and the kinds of error a writer makes. ``loads_before/make_loads_record.py`` says
+how it was made. Two directions are held, as the other records hold them:
 
 - **No refusal is lost.** Every failing record before comes back on the same node with the
   same value and words. Before the readings the check refused none of these shapes (it read
@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from loads_before.shapes import SHAPES, digest, errors
+from loads_shapes import SHAPES, digest, errors
 
 from physgate.gate import check_equilibrium
 from physgate.gate.bounds_table import load_bounds

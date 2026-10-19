@@ -221,6 +221,7 @@ def test_a_failing_structure_without_positions_reports_its_force_residual_and_no
     (finding,) = [o for o in ran.observations if o.node == BODY]
     assert isinstance(finding.details, EquilibriumDetails)
     assert finding.details.residual_moment is None
+    assert finding.details.residual_force is not None
     assert finding.details.residual_force.value == pytest.approx(3.87 - 2.941995)
     assert "only the forces are judged" in finding.message
 
