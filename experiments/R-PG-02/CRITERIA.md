@@ -98,7 +98,7 @@ experiment measures discrimination directly.
 ## 3. What is under test, and the arms
 
 Every hash below was read at the commit it names. **The tuning-freeze commit is the picked
-configuration's commit (K or F below), filled by the pick commit: [FILL AT PICK].** The run's
+configuration's commit (K or F below), filled by the pick commit: K, `48929eb2f1ba0d770b02914e4a2b29a62a27e486`.** The run's
 commit is the last commit that changes this directory (the manifest's dated fill); it descends
 from the tuning-freeze commit, and the launch script (§11) holds it to every hash below, those
 of the picked configuration included, and refuses a mismatch.
@@ -128,7 +128,9 @@ of the picked configuration included, and refuses a mismatch.
   dated commit, "Pick filled: <date> (K or F, with the round's two counts)", with the
   tuning-freeze commit and the launch script's `PICK`; that commit merges the picked
   configuration and changes no other value.
-- **The pick: [FILL AT PICK: K or F; the round's A and R on the practice set].**
+- **The pick: K; the round's A 7/20 and R 13/20 on the practice set.** Pick filled: 19.10.2026
+  (K, with the round's two counts); the tuning-freeze commit is K's,
+  `48929eb2f1ba0d770b02914e4a2b29a62a27e486`.
 
 - **The gate:** `src/physgate/gate/`, git tree **`1e169aac5679d743d4b0585090a45bcd06ea1a63`**.
   - Its magnitude check reads two bounds tables from outside that tree:

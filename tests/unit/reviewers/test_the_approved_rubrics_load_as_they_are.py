@@ -48,6 +48,9 @@ APPROVED = {
             # A record the work owes that a proposed revision did not write is noted, never
             # unmet: what rejects is what is written (the calibration round's text).
             ("final_v6", "d415614e0256ba66836fd44ec210d543b62ebe17cdf730d093e62c6032a6ff58", 56),
+            # A sub-check whose input the account lists as absent from a stand-in design is
+            # noted, never blocked and never unmet; everything else is judged as before.
+            ("final_v7", "239abc99afc21f133d27377d3daae6f3f62914f76c0fa2d7d9ee2ddf723bf506", 56),
         ),
         ("A", "D", "S", "R"),
     ),
@@ -62,6 +65,8 @@ APPROVED = {
             ("final_v4", "a741381dfd3703f6a49eded46e20b402fbb8949f2ad8ad7e6d07ac52999c8989", 54),
             # The same unwritten-records rule as control's sixth version.
             ("final_v5", "23f3695b69e3bd73b38caba4bdf1239c46231e47f7e2381027de7c6974543698", 54),
+            # The same stand-in-absences rule as control's seventh version.
+            ("final_v6", "6e34b7524282e98923983e075f81b9f603d398f3ec79d1c92f0fada1562603fe", 54),
         ),
         ("AC", "DS", "AP", "RH"),
     ),
@@ -74,6 +79,8 @@ APPROVED = {
             ("final_v3", "a1858e681ca2aee87e4b1c669c4619f006c9d5d05634c20f8a477c77f941e2e9", 66),
             # The same unwritten-records rule as control's sixth version.
             ("final_v4", "3eeb546ec900cbcb615b8dcb5fd2ece89f43514de128aab4916448e976efb712", 66),
+            # The same stand-in-absences rule as control's seventh version.
+            ("final_v5", "02f4afd8f51f7fc2e87f10d47190fc966674ecfe3b8d0e4631407366f318e793", 66),
         ),
         ("EA", "ES", "EP", "EH"),
     ),
@@ -87,6 +94,8 @@ APPROVED = {
             ("final_v3", "33e39c6c0fc1980751cc9d7bdc8772896497e8192343831a0ad25a12c8a5d7e1", 61),
             # The same unwritten-records rule as control's sixth version.
             ("final_v4", "d07b7f4722f64da7d0d08bf5c68ae99801d22397c4401ad95f1e9b37cf508653", 61),
+            # The same stand-in-absences rule as control's seventh version.
+            ("final_v5", "d63d5daf943790c9c726907794483d6185d8bfdaf841cadc66d504762abb58d0", 61),
         ),
         ("MA", "MS", "MP", "MH"),
     ),

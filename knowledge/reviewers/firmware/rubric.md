@@ -78,9 +78,11 @@ claim.
   command timeout, the sensor-fault definition, the hardware off-state at reset), DS-12 (trip
   limits) and DS-16 (bus timeouts). For a missing input, these are the safety-critical checks: a
   missing input blocks only for a *not evaluable* criterion and for a sub-check of DS-4, DS-10,
-  DS-12 or DS-16; any other missing-input defect is non-blocking (*Missing evidence* below). When
-  the issued specification (or the design state it gives) gives the input and the work departs
-  from it, or the work omits a measurement or code path it owes, that is a finding, not a defect.
+  DS-12 or DS-16; any other missing-input defect is non-blocking (*Missing evidence* below). For a
+  proposed revision, an input the account lists as absent blocks nothing, in DS-4 or anywhere
+  else (*Stand-in absences* under *No issued specification*). When the issued specification (or
+  the design state it gives) gives the input and the work departs from it, or the work omits a
+  measurement or code path it owes, that is a finding, not a defect.
 - **Missing evidence: *unmet* or *not evaluable*.** When the evidence a section 1 line or a
   section 2 or 3 sub-check needs is absent, ask whether the inputs it needs exist:
   1. **An input is missing**: the issued specification and the design state it gives lack it (for
@@ -94,7 +96,9 @@ claim.
      that can lack one, but the list of blocking cases is closed. It blocks only what needs the
      missing input; everything else is still judged. The work saying the input is missing and not
      inventing one is not a finding; a value the work chose in place of the missing input is the
-     work's value and is judged as such.
+     work's value and is judged as such. For a proposed revision, an input the account lists as
+     absent is the exception: the sub-check that needs it is `noted`, never blocking and never
+     *unmet*, as *Stand-in absences* under *No issued specification* says.
 
      A duty of the work is never a missing input. A value an item requires the work itself to
      find, measure, compute or source (for example the loop's measured delay in DS-5, a `Ci` in
@@ -146,7 +150,8 @@ claim.
     input the design graph lacks is handled by the *Missing evidence* rule above, applied to the
     design graph: it counts as missing only if it is absent from the design graph and cannot be
     derived from it by reading, and any defect it gives concerns only the sub-check that needs it
-    (blocking or not as *Missing evidence* says). A check that fails, or lacks a source it
+    (blocking or not as *Missing evidence* says); an input the account lists as absent follows
+    *Stand-in absences* below instead. A check that fails, or lacks a source it
     requires, using only given values is not charged to the revision, and the blocking rule for a
     value the specification fixes does not apply to it (including
     DS-4's fixed-rate and filter sub-checks): record it as a non-blocking specification defect
@@ -175,6 +180,27 @@ claim.
       changed quantity that did not reach a node it constrains (DS-30) are findings as usual. The
       follow-up DS-30 owes, and a stated reason for none, are not unwritten records under this
       rule: their absence is the change not reaching what it constrains.
+  - *Stand-in absences.* Where the design is a stand-in built from a parts sheet, the account
+    lists the quantities the sheet gives for no part; each is absent from the design by
+    construction. A sub-check that cannot be decided because it needs an input the account lists
+    as absent is recorded as `noted`: a non-blocking specification defect naming the sub-check and
+    the missing input. It is never *unmet*, never a finding and never makes the review
+    **`blocked`**, whether or not a missing input to that sub-check would otherwise block, and
+    whether the input would otherwise be a missing input or a duty of the work (*Missing
+    evidence*). This holds wherever this rubric (an item, a policy rule or the preamble) would
+    otherwise make that sub-check blocking, *unmet* or a finding. Only that sub-check is `noted`:
+    the rest of its item, and every other item, is judged normally.
+    - It reaches only the inputs the account lists. An input the account does not list keeps
+      *Missing evidence* and *Given values* above: absent from the design graph and not
+      derivable, it is a missing input and blocks where this rubric says it does. A sub-check
+      that also needs such an unlisted missing input keeps that handling for it.
+    - What the revision writes is judged. Every check of a written value that does not need the
+      absent input is judged normally, and a value the revision writes for a listed quantity is a
+      written value like any other, held to its unit, its source and its arithmetic.
+    - The items that read the values present are not touched by this rule: a unit error (DS-27),
+      a magnitude out of physical sense or unsupported by its source, a balance that does not
+      close (the section 2 preamble), and a changed quantity that did not reach a node it
+      constrains (DS-30) are judged on the values present and are findings as usual.
   - *Allowances.* With no issued specification there are no allowances.
 - **Sections 2 and 3:** an evidenced violation of a domain standard or a skill-file antipattern
   means **reject**, unless a specific allowance in the issued specification covers it (except
@@ -274,11 +300,11 @@ method. When no specification is issued, AC-9 replaces AC-1's line per criterion
   design on its own), section 1 has exactly one line, in place of AC-1's line per criterion:
   whether the revision is consistent with the design it changes and with this rubric, recorded
   *met* or *unmet*, never *not evaluable*, with a pointer to the node files that show it. The line
-  judges what the revision wrote; a condition recorded under *Given values* or *Unwritten
-  records* (see the verdict policy) does not make it *unmet*. The missing specification is not a
-  specification defect, and does not by itself make the line, or anything else, *not evaluable*
-  or **`blocked`**. Evidence, missing inputs and given values are handled as the verdict policy's
-  *No issued specification* rule says.
+  judges what the revision wrote; a condition recorded under *Given values*, *Unwritten records*
+  or *Stand-in absences* (see the verdict policy) does not make it *unmet*. The missing
+  specification is not a specification defect, and does not by itself make the line, or anything
+  else, *not evaluable* or **`blocked`**. Evidence, missing inputs and given values are handled as
+  the verdict policy's *No issued specification* rule says.
 
 ---
 
@@ -697,4 +723,4 @@ policy).
   rather than the specification. *Confirmed when* that choice is in the delivered work; otherwise
   `noted`.
 
-<!-- 07bc79b414735dd5a4c86cb61da0c410 -->
+<!-- 92c9ec8a2357224b8b860a9ee2a4c38e -->

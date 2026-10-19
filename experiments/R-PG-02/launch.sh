@@ -51,7 +51,7 @@ esac
 # ---- what CRITERIA.md §3 and R4 pin ----
 # The pick between the two reviewer configurations (CRITERIA.md §3), filled by the pick commit:
 # K or F, read from the last practice round's tally by the stop rule, never chosen.
-PICK="[FILL AT PICK]"
+PICK=K
 GATE_TREE=1e169aac5679d743d4b0585090a45bcd06ea1a63
 BOUNDS_ELECTRICAL_BLOB=3bbdc33b7e4ab1df2b2a32d48003fbffa876ebc0
 BOUNDS_ELECTRICAL_SHA256=a5c3be61b6898b1a2408b8957c71fa3008c374f3de1c8fa56423c559c9019663
