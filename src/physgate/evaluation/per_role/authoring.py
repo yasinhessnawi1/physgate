@@ -1,14 +1,14 @@
 """Own tasks: authored blind by a model that is not the implementers', then split, then sealed.
 
-One authoring session writes sixteen tasks for a role into a staging directory of its
-own. It is told the task format, the scorer's metrics and their units, the role's domain
-and the rule that every task composes at least two requirements, and nothing of the
-harness: no role prompt, no knowledge, no rubric, no visible task. Its model must differ
-from the model the run's implementers use (ARCH-141); a request naming the same model is
-refused before anything runs.
+Authoring sessions write tasks for a role, one task at a time, into a directory of their
+own; what holds is pooled until sixteen are there. Each is told the task format, the
+scorer's metrics and their units, the role's domain and the rule that every task composes
+at least two requirements, and nothing of the harness: no role prompt, no knowledge, no
+rubric, no visible task. Its model must differ from the model the run's implementers use
+(ARCH-141); a request naming the same model is refused before anything runs.
 
 A seeded split then sends eight tasks to the visible tier and eight to the held-out tier,
-so both tiers come from one author, one session and one distribution, and the gap between
+so both tiers come from one author, one brief and one distribution, and the gap between
 them measures overfitting to what was seen, not a difference in difficulty. Each held-out
 task gets a canary. The held-out tier is written under its protected root, outside the
 repository, and only its digest leaves it; the staging directory is removed.
@@ -59,8 +59,12 @@ def require_author_model(author: str, implementer: str) -> None:
 AUTHOR_BRIEF = """\
 You are writing evaluation tasks for one engineering design role: {role}.
 
-Write exactly {count} tasks. Each is a directory under the directory you work in, named by
-the task's id, holding:
+Write up to {count} tasks, one at a time. Your session has a fixed token budget and is
+stopped when it is spent, or when too long passes without a new complete task; every
+task directory that is complete at that moment is kept, and nothing else is. So write
+each task completely (task.json and its references) before you begin the next, and
+begin with a task, not with tools. Each task is a directory under the directory you work
+in, named by the task's id, holding:
   - task.json: the task, in the format below;
   - references/good/{answer}: an answer that meets every headline specification;
   - references/bad_<what it gets wrong>/{answer} and expect.json, at least one per task:
@@ -68,7 +72,7 @@ the task's id, holding:
     expect.json = {{"fails": "<that spec's name>"}}.
 
 task.json fields:
-  id (lower case, dots allowed), role "{role}", tier "visible", source {{"kind": "own"}},
+  id (lower case, dots allowed{id_rule}), role "{role}", tier "visible", source {{"kind": "own"}},
   brief (what the designer reads: the problem, every given value with its unit, every
   requirement the answer is held to, and where to write the answer),
   inputs (every given value as {{"name", "value", "unit"}}; a bare number is an error),
@@ -101,10 +105,10 @@ of its power as above. It is proper (N no higher in degree than D) and of order 
 Every task's brief tells the designer this format and the file to write it to.
 
 Tools: in the directory you work in, python3 has python-control 0.10.1, numpy and scipy,
-and nothing else can be installed (there is no network). Write each task to its directory
-as soon as it is complete, before you begin the next: begin with the first task's own
-plant and reference, not with a tool for every task, since a session that ends before it
-has written a task has written nothing.
+and nothing else can be installed (there is no network). A few short python3 calls per
+task, to check a reference against the metrics above, are enough; a tool for every task
+is not worth building. If a tool call is refused, do not repeat it: write the task's
+files with what you know and move on.
 
 Rules:
   - every task composes at least two requirements: the "composes" lists of its headline
@@ -133,8 +137,12 @@ CONTROL_METRIC_MEANINGS: dict[str, str] = {
 }
 
 
-def author_brief(role: Role, *, count: int = 2 * PER_TIER) -> str:
-    """What the authoring session is told: the format, the metrics, the rules. Nothing else."""
+def author_brief(role: Role, *, count: int = 2 * PER_TIER, id_prefix: str = "") -> str:
+    """What the authoring session is told: the format, the metrics, the rules. Nothing else.
+
+    ``id_prefix`` is what every id must begin with, so that sessions pooled together do
+    not write the same id; the author is told it and nothing about other sessions.
+    """
     if role != "control":
         msg = f"no scorer exists yet for the {role} role's own tasks"
         raise AuthoringError(msg, role=role)
@@ -145,6 +153,7 @@ def author_brief(role: Role, *, count: int = 2 * PER_TIER) -> str:
     return AUTHOR_BRIEF.format(
         role=role,
         count=count,
+        id_rule=f', beginning with "{id_prefix}"' if id_prefix else "",
         answer="answer.json",
         form="lti_tf",
         scorer="control",

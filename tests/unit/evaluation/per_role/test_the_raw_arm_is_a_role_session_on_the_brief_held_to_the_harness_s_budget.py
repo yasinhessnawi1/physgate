@@ -82,6 +82,32 @@ def test_the_watch_stops_a_session_once_its_stream_passes_the_cap(tmp_path: Path
     assert watch.exhausted_at == 600
 
 
+def test_the_watch_stops_a_session_for_the_reason_its_checkpoint_gives(tmp_path: Path) -> None:
+    from physgate.orchestrator.processes import started_at
+
+    stream = tmp_path / "stdout.jsonl"
+    stream.write_text("")
+    asked: list[int] = []
+
+    def check(total: int) -> str | None:
+        asked.append(total)
+        return "no_task_held" if total > 100 else None
+
+    process = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True
+    )
+    started = started_at(process.pid)
+    assert started is not None
+    watch = BudgetWatch(stream, cap=10**6, process=process, started=started, check=check)
+    watch.start()
+    time.sleep(1.0)
+    assert process.poll() is None and asked and asked[-1] == 0
+    _write(stream, _message(1, {"input_tokens": 100, "output_tokens": 1}, 50))
+    process.wait(timeout=10)
+    watch.stop()
+    assert watch.stopped_for == ("no_task_held", 150) and watch.exhausted_at is None
+
+
 def _setup(tmp_path: Path, **changes: Any) -> RawSetup:
     fields: dict[str, Any] = {
         "binary": "claude",

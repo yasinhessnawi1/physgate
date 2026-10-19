@@ -28,7 +28,7 @@ import subprocess
 import threading
 import time
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -111,14 +111,33 @@ def stream_total(stream: Path) -> int:
     return sum(m.usage.total() for m in usages)
 
 
-class BudgetWatch:
-    """A thread that stops the session once its stream's token count passes the cap."""
+#: A checkpoint the watch asks at each reading, given the tokens spent so far: a reason to
+#: stop the session now, or ``None`` to let it run on. The raw arm has none: its only
+#: bound is the cap. A task author has one, on how its tasks keep pace with its spending.
+Checkpoint = Callable[[int], str | None]
 
-    def __init__(self, stream: Path, cap: int, process: subprocess.Popen[bytes], started: str):
+
+class BudgetWatch:
+    """A thread that stops the session once its stream's token count passes the cap.
+
+    Given a ``check``, the thread also asks it at each reading, and stops the session for
+    the reason it returns; ``stopped_for`` then holds that reason and the count then.
+    """
+
+    def __init__(
+        self,
+        stream: Path,
+        cap: int,
+        process: subprocess.Popen[bytes],
+        started: str,
+        check: Checkpoint | None = None,
+    ):
         """Watch ``stream``; stop ``process`` (started at ``started``) past ``cap`` tokens."""
         self.stream, self.cap = stream, cap
         self._process, self._started = process, started
+        self._check = check
         self.exhausted_at: int | None = None
+        self.stopped_for: tuple[str, int] | None = None
         self._done = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
 
@@ -138,6 +157,11 @@ class BudgetWatch:
             total = stream_total(self.stream)
             if total > self.cap:
                 self.exhausted_at = total
+                stop_tree(self._process.pid, self._started)
+                return
+            reason = self._check(total) if self._check is not None else None
+            if reason is not None:
+                self.stopped_for = (reason, total)
                 stop_tree(self._process.pid, self._started)
                 return
 
@@ -221,13 +245,16 @@ def run_session(
     *,
     cap: int,
     files: Mapping[str, bytes] | None = None,
+    check: Checkpoint | None = None,
 ) -> dict[str, Any]:
     """One session on ``prompt``, as the raw arm runs one, in the new directory ``work``.
 
     The session works in ``work/worktree``; what it leaves there is the caller's to take.
     ``files`` are written into the worktree, by plain name, before the session starts: a
     session given material to read finds it there, never in its prompt, which any process
-    of the same user can list.
+    of the same user can list. ``check`` is asked at each reading of the stream, with the
+    tokens spent so far, and the session is stopped for any reason it returns; that
+    reason is then the record's ``end``.
     Returns the session's record: how it ended, what it spent, and whether a held-out
     canary showed in its stream.
 
@@ -255,7 +282,7 @@ def run_session(
         temp = Path(f"/tmp/pg-{uuid.uuid4().hex[:12]}")
         temp.mkdir(mode=0o700)
     try:
-        return _run(prompt, setup, work, worktree, sdir, session_id, temp, cap)
+        return _run(prompt, setup, work, worktree, sdir, session_id, temp, cap, check)
     finally:
         if temp is not None:
             shutil.rmtree(temp, ignore_errors=True)
@@ -289,22 +316,24 @@ def _run(
     session_id: str,
     temp: Path | None,
     cap: int,
+    check: Checkpoint | None = None,
 ) -> dict[str, Any]:
     stdout, stderr = sdir / "stdout.jsonl", sdir / "stderr.txt"
     # One boundary from the first write of the credential to its removal: whatever ends
     # the session (an error, a refusal, the clock, the cap, a kill), the cleanup runs.
     try:
         ended, watch, seconds, after = _session(
-            prompt, setup, worktree, sdir, session_id, temp, cap
+            prompt, setup, worktree, sdir, session_id, temp, cap, check
         )
     finally:
         _clean(work, sdir, setup.credential.secret, (stdout, stderr))
     captured = read_captured(stdout)
-    end = (
-        "budget_exhausted"
-        if watch.exhausted_at is not None
-        else ("wall_clock" if ended.timed_out else "ended")
-    )
+    if watch.exhausted_at is not None:
+        end = "budget_exhausted"
+    elif watch.stopped_for is not None:
+        end = watch.stopped_for[0]
+    else:
+        end = "wall_clock" if ended.timed_out else "ended"
     return {
         "session_id": session_id,
         "end": end,
@@ -328,6 +357,7 @@ def _session(
     session_id: str,
     temp: Path | None,
     cap: int,
+    checkpoint: Checkpoint | None = None,
 ) -> tuple[SessionEnd, BudgetWatch, float, dict[str, Any]]:
     """Install, spawn, watch and end the raw session; the credential's removal is the caller's."""
     # As a role session's: what the runtime makes is made first, so it is in the record.
@@ -377,7 +407,7 @@ def _session(
             on_spawn=None,
             while_held=while_held,
         )
-        watch = BudgetWatch(stdout, cap, process, started)
+        watch = BudgetWatch(stdout, cap, process, started, checkpoint)
         watch.start()
         try:
             ended = await_session(process, started, wall_clock)

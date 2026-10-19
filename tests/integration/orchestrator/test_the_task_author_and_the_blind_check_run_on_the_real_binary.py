@@ -144,37 +144,67 @@ def _setup(install_bin: Path, url: str, root: Path) -> RawSetup:
 def test_an_authoring_session_is_refused_the_protected_root_and_its_tasks_are_split(
     tmp_path: Path, install_bin: Path
 ) -> None:
+    """Two sessions on one root: the first pools eight tasks, the second completes the tiers.
+
+    The second session is the regression for the 80 M-token run: the first session's
+    evidence (its stream, its home, its interpreter link) now lies under the protected
+    root, and the second session must still be allowed every tool call.
+    """
     root = tmp_path / "private" / "v1"
     (root / "firmware").mkdir(parents=True)
     (root / "firmware" / "item.json").write_text(json.dumps({"item": OTHER_TIER}))
     prepared = _prepared(tmp_path / "prepared")
-    plan = AuthoringPlan(
-        role="control",
-        implementer_model="claude-opus-5-5",
-        work=tmp_path / "scratch" / "author",
-        visible=tmp_path / "repo" / "visible",
-        held_out_root=root,
-        seed=3,
-        cap=10**9,
-    )
+    halves = [sorted(prepared.iterdir())[:8], sorted(prepared.iterdir())[8:]]
     (tmp_path / "scratch").mkdir()
-    worktree = plan.work / "worktree"
-    steps = [
-        tool("Bash", command=f"cat {root}/firmware/item.json", description="x"),
-        tool("Read", file_path=str(root / "firmware" / "item.json")),
-        tool("Bash", command=f"cp -R {prepared}/. {worktree}/", description="x"),
-        text("done"),
+    outs = []
+    for n, half in enumerate(halves):
+        plan = AuthoringPlan(
+            role="control",
+            implementer_model="claude-opus-5-5",
+            work=tmp_path / "scratch" / f"author{n}",
+            visible=tmp_path / "repo" / "visible",
+            held_out_root=root,
+            seed=3,
+            cap=8_000_000,
+            id_prefix=f"b{n + 1}.",
+        )
+        worktree = plan.work / "worktree"
+        copies = " && ".join(f"cp -R {d} {worktree}/" for d in half)
+        steps = [
+            tool("Bash", command=f"cat {root}/firmware/item.json", description="x"),
+            tool("Read", file_path=str(root / "firmware" / "item.json")),
+            tool("Bash", command=copies, description="x"),
+            text("done"),
+        ]
+        with serving(Script(main=steps)) as (api, url):
+            out = author(plan, _setup(install_bin, url, root))
+            told = " ".join(r.last_user for r in api.requests)
+        assert OTHER_TIER not in told
+        assert f'beginning with "b{n + 1}."' in api.requests[0].last_user
+        # The scripted session copies its tasks and ends within seconds, so the checkpoint
+        # sees some of them before the end; a real author takes minutes over each.
+        assert out["held"] == 8 and out["pooled"] == 8 and 0 <= out["held_while_running"] <= 8
+        assert out["session"]["end"] == "ended" and out["session"]["tokens"] > 0
+        assert not plan.work.exists()
+        outs.append(out)
+    assert outs[0]["status"] == "pooled" and outs[0]["pool"] == 8
+    assert outs[1]["status"] == "split" and outs[1]["pool"] == 0
+    assert outs[1]["held_out_count"] == 8 and outs[1]["held_out_check"]["references_held"] == 8
+    streams = sorted(
+        (root / "control.author").glob("*/stdout.jsonl"), key=lambda p: p.stat().st_mtime
+    )
+    assert len(streams) == 2
+    for stream in streams:
+        text_ = stream.read_text()
+        assert OTHER_TIER not in text_
+        # The reads of the tier were refused as such; the tripwire, which refuses every
+        # call once anything under the root has a second name, never spoke.
+        assert "hook error" in text_
+        assert "has a second name, changed, or cannot be checked" not in text_
+    linked = [
+        p for p in root.rglob("*") if p.is_symlink() or p.is_file() and p.stat().st_nlink != 1
     ]
-    with serving(Script(main=steps)) as (api, url):
-        out = author(plan, _setup(install_bin, url, root))
-        told = " ".join(r.last_user for r in api.requests)
-    assert OTHER_TIER not in told
-    assert out["status"] == "split" and out["held"] == 16 and out["held_out_count"] == 8
-    assert out["held_out_check"]["references_held"] == 8
-    assert out["session"]["end"] == "ended" and out["session"]["tokens"] > 0
-    streams = list((root / "control.author").glob("*/stdout.jsonl"))
-    assert len(streams) == 1 and OTHER_TIER not in streams[0].read_text()
-    assert not plan.work.exists()
+    assert not linked
 
 
 def test_a_blind_check_answers_in_booleans_on_its_tasks_file(

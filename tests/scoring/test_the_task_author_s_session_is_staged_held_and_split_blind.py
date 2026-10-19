@@ -21,6 +21,7 @@ from physgate.evaluation.per_role.arms.raw import RawSetup
 from physgate.evaluation.per_role.author_session import (
     QUESTIONS,
     AuthoringPlan,
+    AuthorProgress,
     author,
     blind_check,
 )
@@ -75,12 +76,20 @@ def _write_task(directory: Path, n: int, *, good: dict[str, Any] = GOOD_PID) -> 
 class FakeSession:
     """Stands in for ``run_session``: writes what the scripted session would, records calls."""
 
-    def __init__(self, write: Any) -> None:
+    def __init__(self, write: Any, *, session_id: str = "s-1", checking: bool = True) -> None:
         self.write = write
+        self.session_id, self.checking = session_id, checking
         self.calls: list[dict[str, Any]] = []
 
     def __call__(
-        self, prompt: str, setup: RawSetup, work: Path, *, cap: int, files: Any = None
+        self,
+        prompt: str,
+        setup: RawSetup,
+        work: Path,
+        *,
+        cap: int,
+        files: Any = None,
+        check: Any = None,
     ) -> dict[str, Any]:
         self.calls.append({"prompt": prompt, "model": setup.model, "files": files, "cap": cap})
         worktree = work / "worktree"
@@ -90,10 +99,15 @@ class FakeSession:
         for name, data in (files or {}).items():
             (worktree / name).write_bytes(data)
         (work / "session" / "stdout.jsonl").write_text("the stream\n")
+        # As the real session directory: the interpreter's link beside the stream.
+        (work / "session" / "bin").mkdir()
+        os.symlink("/usr/bin/python3", work / "session" / "bin" / "python3")
         self.write(worktree)
+        # The watch asks the checkpoint at each reading; here once, after the writing.
+        self.stopped_for = check(1234) if check is not None and self.checking else None
         return {
-            "session_id": "s-1",
-            "end": "ended",
+            "session_id": self.session_id,
+            "end": self.stopped_for or "ended",
             "tokens": 1234,
             "cap": cap,
             "wall_clock_s": 1.5,
@@ -125,8 +139,15 @@ def _plan(tmp_path: Path, **changes: Any) -> AuthoringPlan:
     return AuthoringPlan(**base)
 
 
-def _run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, write: Any, **changes: Any) -> Any:
-    fake = FakeSession(write)
+def _run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    write: Any,
+    session_id: str = "s-1",
+    checking: bool = True,
+    **changes: Any,
+) -> Any:
+    fake = FakeSession(write, session_id=session_id, checking=checking)
     monkeypatch.setattr(author_session, "run_session", fake)
     plan = _plan(tmp_path, **changes)
     (tmp_path / "scratch").mkdir(exist_ok=True)
@@ -149,7 +170,10 @@ def test_sixteen_sound_tasks_are_split_and_only_counts_and_visible_ids_leave(
     assert out["visible_check"]["ids"] == visible
     # The author was told the brief and nothing else, on its own model.
     assert fake.calls[0]["model"] == "claude-sonnet-5" and fake.calls[0]["files"] is None
-    assert "exactly 16 tasks" in fake.calls[0]["prompt"]
+    assert "up to 16 tasks" in fake.calls[0]["prompt"]
+    # Every task held while the session ran, and the checkpoint let it run on.
+    assert out["held_while_running"] == 16 and fake.stopped_for is None
+    assert out["session"]["per_task_cap"] == 500_000
 
 
 def test_the_session_s_stream_is_kept_inside_the_protected_root_and_its_work_removed(
@@ -163,16 +187,116 @@ def test_the_session_s_stream_is_kept_inside_the_protected_root_and_its_work_rem
     assert (plan.held_out_root / "control.canaries.json").is_file()
 
 
-def test_with_fewer_sound_tasks_than_two_tiers_nothing_is_kept_but_the_counts(
+def test_with_fewer_sound_tasks_than_two_tiers_they_are_pooled_inside_the_protected_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     plan, _, out = _run(tmp_path, monkeypatch, _tasks(16, broken=1))
-    assert out["status"] == "too_few_held" and out["held"] == 15 and out["written"] == 16
+    assert out["status"] == "pooled" and out["held"] == 15 and out["written"] == 16
+    assert out["pooled"] == 15 and out["pool"] == 15
     assert out["refused_because"]["good_fails:max_real_pole"] == 1
-    assert "control.t" not in json.dumps(out["refused_because"])
+    assert "control.t" not in json.dumps(out)
     assert not plan.visible.exists()
     assert not (plan.held_out_root / "control").exists()
     assert not plan.work.exists()
+    pool = plan.held_out_root / "control.pool"
+    assert sorted(p.name for p in pool.iterdir()) == [f"control.t{n:02d}" for n in range(1, 16)]
+    assert all(
+        p.is_dir() or (not p.is_symlink() and p.stat().st_nlink == 1) for p in pool.rglob("*")
+    )
+
+
+def test_a_further_session_adds_to_the_pool_and_the_tiers_are_cut_from_it_by_the_seed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plan, _, first = _run(tmp_path, monkeypatch, _tasks(10, broken=1))
+    assert first["status"] == "pooled" and first["pool"] == 9
+
+    def write(worktree: Path) -> None:
+        for n in range(10, 18):
+            _write_task(worktree / f"control.t{n:02d}", n)
+        _write_task(worktree / "control.t05", 5)  # an id the pool already holds
+
+    plan, fake, out = _run(
+        tmp_path,
+        monkeypatch,
+        write,
+        session_id="s-2",
+        work=tmp_path / "scratch" / "work2",
+        id_prefix="b2.",
+    )
+    assert 'beginning with "b2."' in fake.calls[0]["prompt"]
+    assert out["status"] == "split" and out["held"] == 9 and out["pooled"] == 8
+    assert out["refused_because"] == {"id_already_pooled": 1}
+    assert out["pool"] == 1 and out["held_out_count"] == 8
+    pool = plan.held_out_root / "control.pool"
+    left = {p.name for p in pool.iterdir()}
+    placed = {p.name for p in plan.visible.iterdir()}
+    placed |= {p.name for p in (plan.held_out_root / "control").iterdir() if p.is_dir()}
+    everything = sorted(f"control.t{n:02d}" for n in range(1, 18))
+    assert len(placed) == 16 and placed | left == set(everything) and not placed & left
+    random.Random(5).shuffle(everything)
+    assert placed == set(everything[:16])
+    assert not (plan.held_out_root / "control.draw").exists()
+    assert out["held_out_check"]["references_held"] == 8
+
+
+def test_the_session_s_links_never_reach_the_protected_root_and_a_root_with_one_refuses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plan, _, out = _run(tmp_path, monkeypatch, _tasks(10))
+    assert out["status"] == "pooled"
+    root = plan.held_out_root
+    assert not [
+        p for p in root.rglob("*") if p.is_symlink() or p.is_file() and p.stat().st_nlink != 1
+    ]
+    kept = root / "control.author" / "s-1"
+    assert (kept / "stdout.jsonl").read_text() == "the stream\n"
+    dropped = json.loads((kept / "record.json").read_text())["evidence_dropped"]
+    assert len(dropped) == 1 and dropped[0].endswith("/bin/python3")
+    # Had the link been kept, the next session would be refused every tool call: the
+    # runner surveys the root as that session's tripwire will, and refuses first.
+    os.symlink("/usr/bin/python3", kept / "python3")
+
+    def more(worktree: Path) -> None:
+        for n in range(10, 16):
+            _write_task(worktree / f"control.t{n:02d}", n)
+
+    fake = FakeSession(more, session_id="s-2")
+    monkeypatch.setattr(author_session, "run_session", fake)
+    second = _plan(tmp_path, work=tmp_path / "scratch" / "work2")
+    with pytest.raises(AuthoringError, match="refused every tool call") as caught:
+        author(second, _setup(tmp_path / "private"))
+    assert "python3" in str(caught.value) and fake.calls == []
+    # With the link gone, the same session runs and completes the tiers from the pool.
+    (kept / "python3").unlink()
+    assert author(second, _setup(tmp_path / "private"))["status"] == "split"
+
+
+def test_the_checkpoint_holds_each_task_as_it_is_written_and_stops_a_session_off_pace(
+    tmp_path: Path,
+) -> None:
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    progress = AuthorProgress(worktree, tmp_path / "checks", cap=8_000_000, per_task=1_000_000)
+    assert progress.check(100) is None
+    assert progress.check(2_000_000) is None  # a quarter of the cap: not yet past it
+    assert progress.check(2_000_001) == "no_task_held"
+    _write_task(worktree / "control.t00", 0)
+    assert progress.check(2_100_000) is None and progress.held == {"control.t00"}
+    assert progress.check(3_100_000) is None  # the per-task cap, not yet past it
+    assert progress.check(3_100_001) == "task_cap"
+    # A task whose reference fails does not hold, and does not reset the pace.
+    _write_task(worktree / "control.t01", 1, good=UNSTABLE)
+    assert progress.check(3_100_001) == "task_cap" and progress.held == {"control.t00"}
+    # A task broken after it held is no longer held; an unchanged one is not checked again.
+    checked = progress.checked
+    (worktree / "control.t00" / "task.json").write_text("{")
+    assert progress.check(3_000_000) is None and progress.held == set()
+    assert progress.checked == checked + 1
+    assert progress.check(3_000_000) is None and progress.checked == checked + 1
+    # The scorer ran on copies, each removed; the worktree is as the author left it.
+    assert not any((tmp_path / "checks").iterdir())
+    assert (worktree / "control.t00" / "task.json").read_text() == "{"
 
 
 def test_from_more_sound_tasks_the_tiers_are_drawn_by_the_seed(
@@ -240,7 +364,10 @@ def test_an_author_on_the_implementers_model_is_refused_before_any_session(
         ({"work": "private/v1/work"}, "inside a held-out root"),
         ({"visible": "private/visible"}, "inside a held-out root"),
         ({"held_out_root": "elsewhere/v1"}, "does not withhold the protected root"),
-        ({"count": 12}, "at least 16"),
+        ({"count": 0}, "at least one task"),
+        ({"cap": 8_000_001}, "at most 8000000 tokens"),
+        ({"per_task_cap": 4_000_001}, "no more than the session's cap"),
+        ({"per_task_cap": 0}, "no more than the session's cap"),
     ],
 )
 def test_a_plan_that_would_expose_or_short_a_tier_is_refused_before_any_session(
@@ -548,7 +675,8 @@ def test_a_link_planted_where_a_staged_file_is_written_is_never_written_through(
         return real(name, dir_fd)
 
     monkeypatch.setattr(author_session, "_new_file", plant)
-    _, _, out = _run(tmp_path, monkeypatch, _tasks(17), count=17)
+    # Without the checkpoint's own staging, the first file staged is the runner's.
+    _, _, out = _run(tmp_path, monkeypatch, _tasks(17), checking=False, count=17)
     assert planted and out["refused_as_files"] == 1 and out["held"] == 16
     assert secret.read_text() == '{"secret": "never staged"}'
 

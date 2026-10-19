@@ -26,9 +26,14 @@ def test_the_author_is_told_the_format_and_the_metrics_and_nothing_of_the_harnes
     brief = author_brief("control")
     for told in ("phase_margin, in deg", "settling_time, in s", "composes", "expect.json"):
         assert told in brief
-    assert "exactly 16 tasks" in brief
+    assert "up to 16 tasks, one at a time" in brief
     for withheld in ("knowledge", "rubric", "reviewer", "gate", "physgate", "harness"):
         assert withheld not in brief.lower()
+    # Sessions pooled together are told what their ids begin with, and nothing more.
+    assert "beginning with" not in brief
+    told_prefix = author_brief("control", count=8, id_prefix="b2.")
+    assert 'dots allowed, beginning with "b2."' in told_prefix and "up to 8 tasks" in told_prefix
+    assert "session" not in told_prefix.replace("Your session", "")
 
 
 def test_the_author_is_told_every_name_the_scorer_reads_a_plant_and_an_answer_by() -> None:
@@ -57,7 +62,13 @@ def test_the_author_is_told_its_numerical_tools_and_to_write_each_task_as_it_goe
     brief = author_brief("control")
     assert "python-control 0.10.1, numpy and scipy" in brief
     assert "no network" in brief
-    assert "as soon as it is complete, before you begin the next" in brief
+    # The budget, and what it means: one complete task at a time, no tool for every task,
+    # and never a refused call repeated (the loop that spent 80 M tokens on nothing).
+    assert "fixed token budget" in brief and "stopped when it is spent" in brief
+    flat = " ".join(brief.split())
+    assert "write each task completely" in flat and "before you begin the next" in flat
+    assert "a tool for every task\nis not worth building" in brief
+    assert "If a tool call is refused, do not repeat it" in brief
 
 
 def _stage(root: Path, count: int = 16) -> Path:

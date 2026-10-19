@@ -91,6 +91,15 @@ def add_parser(subparsers: Any) -> None:
             sub.add_argument("--visible", type=Path, required=True)
             sub.add_argument("--seed", type=int, required=True)
             sub.add_argument("--count", type=int, default=16)
+            # The session is stopped once this many tokens pass without a new task
+            # holding (an eighth of the cap when not given), and when no task holds after
+            # a quarter of the cap. Tasks that hold are pooled inside the protected root
+            # across sessions; the tiers are cut once sixteen are pooled.
+            sub.add_argument("--per-task-cap", type=int)
+            # What every id this session writes begins with, so sessions pooled together
+            # never write the same id. When not given: "b<n>." with n the number of
+            # authoring sessions already recorded under the protected root, plus one.
+            sub.add_argument("--id-prefix")
         sub.set_defaults(func=func)
     rep = commands.add_parser("report", help="the per-role table of a run's trial records")
     rep.add_argument("--design", type=Path, required=True)
@@ -244,7 +253,11 @@ def _with_install(args: argparse.Namespace, run: Any) -> int:
         if install.exists():
             shutil.rmtree(install, onexc=writable_again)
     print(json.dumps(result, sort_keys=True))
-    return 0 if result.get("status", "split") == "split" and result.get("answered", True) else 1
+    status = result.get("status", "split")
+    if status == "split" and result.get("answered", True):
+        return 0
+    # Tasks were pooled and the tiers are not cut yet: a further session is wanted.
+    return 2 if status == "pooled" else 1
 
 
 def _author(args: argparse.Namespace) -> int:
@@ -252,15 +265,23 @@ def _author(args: argparse.Namespace) -> int:
 
     # The paths given are resolved once, before anything runs, so a system link such as
     # macOS's /var is followed here and never met by the split's refusal of links.
+    root = args.held_out_root.resolve()
+    prefix = args.id_prefix
+    if prefix is None:
+        evidence = root / f"{args.role}.author"
+        recorded = sum(1 for p in evidence.iterdir() if p.is_dir()) if evidence.is_dir() else 0
+        prefix = f"b{recorded + 1}."
     plan = AuthoringPlan(
         role=args.role,
         implementer_model=args.implementer_model,
         work=args.work.resolve(),
         visible=args.visible.resolve(),
-        held_out_root=args.held_out_root.resolve(),
+        held_out_root=root,
         seed=args.seed,
         cap=args.cap,
         count=args.count,
+        per_task_cap=args.per_task_cap,
+        id_prefix=prefix,
     )
     return _with_install(args, lambda setup: author(plan, setup))
 
