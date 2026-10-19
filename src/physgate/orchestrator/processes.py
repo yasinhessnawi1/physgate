@@ -164,12 +164,18 @@ def kill_own(process: subprocess.Popen[bytes]) -> None:
     its group id can be reused, so the group is killed by its id without a process table.
     What left the group (the Bash tool runs each command in a group of its own) is not
     reached here; the resume finds it, and refuses while it runs.
+
+    A session already reaped (its wait returned before the stop failed) is not signalled by
+    its id: once reaped, its pid, and the group id that is its pid, may be another's. What
+    is left of its group waits for the resume too.
     """
     # A group id is its leader's pid, and a pid in use as a group id is not handed out
     # again, so this names the session's group or none: a session that led no group
-    # leaves no group of that id, and the call fails harmlessly.
-    with contextlib.suppress(OSError):
-        os.killpg(process.pid, signal.SIGKILL)
+    # leaves no group of that id, and the call fails harmlessly. ``returncode`` is set only
+    # by the reap, so ``None`` means the pid is still held by the session.
+    if process.returncode is None:
+        with contextlib.suppress(OSError):
+            os.killpg(process.pid, signal.SIGKILL)
     with contextlib.suppress(OSError):
         process.kill()
         process.wait()
