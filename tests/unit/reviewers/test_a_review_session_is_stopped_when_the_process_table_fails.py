@@ -207,3 +207,46 @@ def _text(path: Path) -> str:
         return path.read_text()
     except OSError:
         return ""
+
+
+def test_a_failed_stop_after_the_session_was_reaped_signals_nothing_by_its_old_pid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The session exits and is reaped; then the sweep of its group cannot read the table.
+
+    Once reaped, the session's pid, and the group id that is its pid, can be handed to
+    another process: a kill of that group by its id could reach a stranger's. The stop
+    raises with nothing signalled by that id; what is left waits for the resume. The
+    group kill is recorded, never sent.
+    """
+    binary = tmp_path / "bin" / "claude"
+    binary.parent.mkdir()
+    binary.write_text(f"#!{sys.executable}\nraise SystemExit(0)\n")
+    binary.chmod(binary.stat().st_mode | stat.S_IXUSR)
+    read = tmp_path / "rs" / "review" / "read"
+    (read / WORKTREE_NAME).mkdir(parents=True)
+    sdir = tmp_path / "rs" / "review" / "session"
+    sdir.mkdir()
+    reviewer = _reviewer(tmp_path, binary, wall_clock_s=30.0)
+    spawned = Spawned()
+    monkeypatch.setattr(dispatch, "subprocess", spawned)
+
+    def reaped() -> bool:
+        return bool(spawned.processes) and spawned.processes[0].returncode is not None
+
+    monkeypatch.setattr(processes, "subprocess", FailingPs(reaped))
+    sent: list[tuple[int, bool]] = []
+    monkeypatch.setattr(processes.os, "killpg", lambda pgid, sig: sent.append((pgid, reaped())))
+    installed = Installed(settings="s", config="c", spawn_args=(), spawn_env={})
+    packet = cast(Packet, SimpleNamespace(read_root=str(read)))
+    try:
+        with pytest.raises(processes.ProcessTableError):
+            reviewer._spawn(packet, sdir, installed, "sid", prompt="p", schema={})
+        (process,) = spawned.processes
+        assert process.returncode == 0
+        assert [pgid for pgid, after_reap in sent if after_reap] == []
+    finally:
+        for process in spawned.processes:
+            if process.poll() is None:
+                process.kill()
+                process.wait()

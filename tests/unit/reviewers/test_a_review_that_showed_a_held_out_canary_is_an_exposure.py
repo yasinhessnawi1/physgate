@@ -3,7 +3,8 @@
 A reviewer reads its packet and nothing else, but a review session is a session like any
 other: a read the hooks could not judge would show a held-out canary in its own stream.
 Its stream is scanned before anything else is concluded from it, so an exposure is never
-hidden behind an unavailable review, a tampered stream or a broken account.
+hidden behind an unavailable review, a tampered stream or a broken account. A stream that is
+not there to scan is no stream that showed nothing: the review stops the run, unretried.
 """
 
 from __future__ import annotations
@@ -18,7 +19,12 @@ import pytest
 import physgate.reviewers.claude as claude
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.dispatch import Installed
-from physgate.orchestrator.exceptions import AccountingError, HeldOutExposedError
+from physgate.orchestrator.exceptions import (
+    AccountingError,
+    HeldOutExposedError,
+    InvocationError,
+    ReviewUnavailableError,
+)
 from physgate.orchestrator.run_config import RunBounds
 from physgate.reviewers.claude import ClaudeReviewer, ReviewerSetup
 from physgate.reviewers.rubric import Rubric
@@ -60,6 +66,7 @@ def _review(
     canaries: tuple[str, ...] = (CANARY,),
     tampered: str | None = None,
     totals_hold: bool = True,
+    gone: bool = False,
 ) -> object:
     read = tmp_path / "rs" / "review" / "read"
     read.mkdir(parents=True)
@@ -69,7 +76,8 @@ def _review(
         "type": "user",
         "message": {"content": [{"type": "tool_result", "content": shown}]},
     }
-    stdout.write_text(json.dumps(tool_output) + "\n")
+    if not gone:
+        stdout.write_text(json.dumps(tool_output) + "\n")
     captured = SimpleNamespace(result=None, usage=(), answered={MODEL}, tampered=tampered)
 
     def totals(*_a: Any) -> None:  # noqa: ANN401
@@ -124,6 +132,28 @@ def test_a_canary_shown_in_another_form_is_an_exposure_too(
 ) -> None:
     with pytest.raises(HeldOutExposedError):
         _review(tmp_path, monkeypatch, CANARY.encode().hex())
+
+
+def test_a_review_whose_stream_is_gone_halts_and_is_never_scanned_as_clean(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The stream was opened by this process before the session ran, so a stream that is
+    # not there was removed: nothing can be concluded from it, an exposure least of all,
+    # and the review is not an infrastructure failure the loop would retry.
+    with pytest.raises(InvocationError) as raised:
+        _review(tmp_path, monkeypatch, f"read: <!-- {CANARY} -->", gone=True)
+    assert not isinstance(raised.value, ReviewUnavailableError)
+    assert CANARY[:8] not in str(raised.value)
+
+
+def test_an_empty_stream_is_read_as_the_session_ending_with_no_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stdout = tmp_path / "stdout.jsonl"
+    stdout.write_text("")
+    with pytest.raises(ReviewUnavailableError) as raised:
+        _review(tmp_path, monkeypatch, "", gone=True)
+    assert raised.value.cause == "infrastructure"
 
 
 def test_a_review_of_a_run_with_no_held_out_canary_is_not_scanned(
