@@ -466,6 +466,10 @@ Read before the run, and not adjusted after it:
      and the configuration that judges it is picked afterwards, mechanically, from that round's
      practice tally. Who ran the authoring, and that no person or agent involved in tuning opened
      a file of the fresh set, is stated in `RESULT.md`.
+  11. **An instrument fix before the run.** 19.10.2026, before any review: attempt 0's dry run found the
+      instrument pilot's stand-in for the completeness check still taking one argument; fixed in the
+      pilot script only (no pinned tree changes). This is an instrument fix before the run, not a
+      deviation.
 - **R8 Retries, lanes and order.** These rules read only infrastructure outcomes, never a verdict.
   - **Retry only on an infrastructure failure,** after a delay, each delay recorded on the review's
     line: `infra_retry_delays_s` = **[60, 900, 2700]**, three retries, the last about an hour after

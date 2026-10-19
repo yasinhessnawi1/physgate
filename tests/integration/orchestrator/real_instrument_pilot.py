@@ -186,7 +186,7 @@ def promoted_rubrics() -> dict[str, str]:
 @contextlib.contextmanager
 def completeness_lifted() -> Iterator[None]:
     """The command's refusal of an incomplete corpus set aside, for this process only."""
-    with mock.patch.object(inject_cli, "require_complete", lambda corpus: None):
+    with mock.patch.object(inject_cli, "require_complete", lambda corpus, per_class: None):
         yield
 
 
