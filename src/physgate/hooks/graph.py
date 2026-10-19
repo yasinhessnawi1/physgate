@@ -20,10 +20,12 @@ order, so a refused proposal is refused for the reason the store would give:
 4. every quantity is a value with a unit, a source and a writer — a bare number
    is refused here, with the schema's own message;
 5. no quantity's name shadows one a relation reads: a name the catalogue lacks
-   that ends in the last word of a relation's quantity (``motor_current`` for
-   ``stall_current``, ``pack_mass`` for ``mass``), or is spelled within two edits
-   of it (``stall_currnt``, ``currentlimit``), is the way a writer steps out
-   of the headroom relation, or the mass sum, without saying so. Every other
+   that is a misspelling of a relation's quantity (``stall_currnt``,
+   ``currentlimit``, ``supported_mas``: within one insertion or deletion for a
+   name of five characters or fewer, two for a longer one, underscores ignored)
+   is the way a writer steps out of the headroom relation, or the mass sum,
+   without saying so. A different name (``idle_current``, ``motor_current_draw``)
+   is not refused. Every other
    uncatalogued name is written, and the gate records it as unchecked. This rule
    is the hook's and the orchestrator's, not the store's: a corpus written
    straight into a store is unaffected;

@@ -1,15 +1,16 @@
-"""A role session's proposal may not name a quantity under a name that shadows a relation's.
+"""A role session's proposal may not name a quantity under a misspelling of a relation's.
 
 A name the catalogue lacks gets a unit parse and, at best, a reading from its suffix: no
-relation, no range. A writer who renames ``stall_current`` to ``motor_current`` has stepped
-out of the headroom relation without saying so. So a proposal is refused at write time, in the
-hook and again when the orchestrator applies it, when a quantity's name ends in the last word
-of a quantity a relation reads; the refusal names the quantity, the relation's quantity it
-shadows and the nearest catalogued names. **Every other uncatalogued name is written**
-(``logic_voltage``, ``wheel_diameter``, ``mass_without_battery``, ``zeta``), and the gate
-records it as unchecked; a ``spring_force`` or a ``charge_capacity`` ends in a relation
-quantity's word (``load_force``, ``energy_capacity``) and is refused like ``motor_current``.
-The store itself does not refuse such names: a corpus written
+relation, no range. A writer who spells ``stall_current`` as ``stall_currnt``, or
+``current_limit`` as ``currentlimit``, has stepped out of the headroom relation without
+saying so. So a proposal is refused at write time, in the hook and again when the
+orchestrator applies it, when a quantity's name is within one insertion or deletion of a
+relation's quantity for a name of five characters or fewer, two for a longer one, underscores
+ignored; the refusal names the quantity, the relation's quantity it shadows and the nearest
+catalogued names. **Every other uncatalogued name is written** (``no_load_current``,
+``idle_current``, ``motor_voltage_limit``, ``motor_current_draw``, ``max``, ``mask``), and
+the gate records it as unchecked: a different name is not a misspelling, and a session or a
+demo run is not blocked on it. The store itself does not refuse such names: a corpus written
 straight into a store, outside the hooks, is unaffected.
 
 The rule runs after the store's own (owner, interface, a bare number), so where a proposal
@@ -71,18 +72,13 @@ def test_a_catalogued_name_is_allowed(config: SessionConfig) -> None:
 @pytest.mark.parametrize(
     ("name", "shadowed"),
     [
-        ("motor_current", "stall_current"),
-        ("pack_mass", "mass"),
-        ("discharge_power", "max_discharge_power"),
-        ("mount_moment", "reaction_moment"),
-        ("spring_force", "load_force"),
-        ("charge_capacity", "energy_capacity"),
         ("stall_currnt", "stall_current"),
         ("currentlimit", "current_limit"),
         ("supported_mas", "supported_mass"),
+        ("mas", "mass"),
     ],
 )
-def test_a_name_that_shadows_a_relation_s_quantity_is_refused_naming_both(
+def test_a_misspelling_of_a_relation_s_quantity_is_refused_naming_both(
     config: SessionConfig, name: str, shadowed: str
 ) -> None:
     told = _write(config, "electrical.driver.json", _named(node("electrical.driver"), name))
@@ -93,12 +89,17 @@ def test_a_name_that_shadows_a_relation_s_quantity_is_refused_naming_both(
 @pytest.mark.parametrize(
     ("name", "value", "unit"),
     [
+        ("no_load_current", 0.07, "A"),
+        ("idle_current", 0.02, "A"),
+        ("motor_voltage_limit", 6, "V"),
+        ("motor_current_draw", 0.5, "A"),
+        ("max", 1, "A"),
+        ("mask", 1, "A"),
+        ("motor_current", 2.4, "A"),
+        ("pack_mass", 0.2, "kg"),
         ("logic_voltage", 3.3, "V"),
-        ("wheel_diameter", 70, "mm"),
-        ("zeta", 1, "A"),
         ("mass_without_battery", 0.165, "kg"),
-        ("motor_voltage_maximum", 6, "V"),
-        ("counts_per_wheel_revolution", 1320, "dimensionless"),
+        ("zeta", 1, "A"),
     ],
 )
 def test_every_other_uncatalogued_name_is_written(
@@ -117,25 +118,27 @@ def test_every_shadowing_name_is_listed_once(config: SessionConfig) -> None:
     payload = node("electrical.driver")
     payload["quantities"] = {
         "current_limit": {"value": 1, "unit": "A", "source": "d", "written_by": "electrical"},
-        "pack_mass": {"value": 1, "unit": "kg", "source": "d", "written_by": "electrical"},
-        "motor_current": {"value": 1, "unit": "A", "source": "d", "written_by": "electrical"},
+        "supported_mas": {"value": 1, "unit": "kg", "source": "d", "written_by": "electrical"},
+        "stall_currnt": {"value": 1, "unit": "A", "source": "d", "written_by": "electrical"},
         "zeta": {"value": 1, "unit": "A", "source": "d", "written_by": "electrical"},
     }
     told = _write(config, "electrical.driver.json", payload)
-    assert told.index("motor_current shadows stall_current") < told.index("pack_mass shadows mass")
-    assert "zeta" not in told and told.count("motor_current") == 1
+    assert told.index("stall_currnt shadows stall_current") < told.index(
+        "supported_mas shadows supported_mass"
+    )
+    assert "zeta" not in told and told.count("stall_currnt") == 1
 
 
 def test_cross_role_is_reported_before_a_shadowing_name(config: SessionConfig) -> None:
     told = _write(
-        config, "control.loop.json", _named(node("control.loop", "control"), "motor_current")
+        config, "control.loop.json", _named(node("control.loop", "control"), "stall_currnt")
     )
     assert REJECT_CROSS_ROLE in told and graph.SHADOWED_QUANTITY not in told
 
 
 def test_a_bare_number_is_reported_before_a_shadowing_name(config: SessionConfig) -> None:
     payload = node("electrical.driver")
-    payload["quantities"] = {"motor_current": 2.4}
+    payload["quantities"] = {"stall_currnt": 2.4}
     told = _write(config, "electrical.driver.json", payload)
     assert REJECT_MISSING_UNIT in told and graph.SHADOWED_QUANTITY not in told
 
@@ -143,7 +146,7 @@ def test_a_bare_number_is_reported_before_a_shadowing_name(config: SessionConfig
 def test_a_shadowing_name_is_reported_before_a_whole_node_fault(config: SessionConfig) -> None:
     # The name check sits with the quantity checks, before the whole-node validation, so a
     # proposal with both faults is told about its quantities first.
-    payload = _named(node("electrical.driver"), "motor_current")
+    payload = _named(node("electrical.driver"), "stall_currnt")
     payload["requirements"] = "not a list"
     told = _write(config, "electrical.driver.json", payload)
     assert graph.SHADOWED_QUANTITY in told

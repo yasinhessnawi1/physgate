@@ -1,4 +1,4 @@
-"""The orchestrator's second line: a quantity named so as to shadow a relation's is refused.
+"""The orchestrator's second line: a quantity named by a misspelling of a relation's is refused.
 
 The hook refuses it as the session writes it; the orchestrator refuses it again when it reads
 the attempt's proposals from the commit, with a role the session could not choose, so a file
@@ -111,13 +111,24 @@ def test_a_proposal_naming_a_near_spelling_of_a_relation_s_quantity_is_refused(
         read_proposals(root, base, commit, tmp_path / "graph")
 
 
-def test_a_proposal_naming_a_quantity_that_shadows_a_relation_s_is_refused_naming_both(
+def test_a_proposal_naming_a_misspelt_relation_quantity_is_refused_naming_both(
     repo: tuple[Path, str], tmp_path: Path
 ) -> None:
     root, base = repo
     path = ".physgate/proposals/electrical.driver.json"
-    commit = _commit(root, {path: json.dumps(_node("motor_current"))}, "proposal")
-    with pytest.raises(ProposalRefusedError, match="motor_current") as caught:
+    commit = _commit(root, {path: json.dumps(_node("supported_mas"))}, "proposal")
+    with pytest.raises(ProposalRefusedError, match="supported_mas") as caught:
         read_proposals(root, base, commit, tmp_path / "graph")
-    assert "shadows stall_current" in str(caught.value)  # the relation's quantity, named
+    assert "shadows supported_mass" in str(caught.value)  # the relation's quantity, named
     assert caught.value.subject == "electrical.driver"
+
+
+@pytest.mark.parametrize("name", ["motor_current", "no_load_current", "idle_current", "max"])
+def test_a_different_name_is_read_and_written(
+    repo: tuple[Path, str], tmp_path: Path, name: str
+) -> None:
+    root, base = repo
+    path = ".physgate/proposals/electrical.driver.json"
+    commit = _commit(root, {path: json.dumps(_node(name))}, "proposal")
+    (found,) = read_proposals(root, base, commit, tmp_path / "graph")
+    assert name in found["quantities"]

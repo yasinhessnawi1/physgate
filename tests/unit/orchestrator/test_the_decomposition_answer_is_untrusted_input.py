@@ -295,13 +295,17 @@ def _naming(name: str, unit: str) -> dict[str, Any]:
 
 def test_an_interface_node_naming_a_quantity_that_shadows_a_relation_s_is_a_problem() -> None:
     # The plan is written straight into the store, past the hook, so the same rule the hook
-    # and the apply step hold a session's proposal to is held here: a name the catalogue
-    # lacks that ends in a relation quantity's last word is refused, and named.
+    # and the apply step hold a session's proposal to is held here: a misspelling of a
+    # relation's quantity is refused, and named.
     modules = [module("power", "modules/power")]
-    found = plan_problems(plan(modules, [_naming("motor_current", "A")]), ["electrical"])
-    assert any("'motor_current'" in p and "shadows 'stall_current'" in p for p in found), found
-    for name, shadowed in (("stall_currnt", "stall_current"), ("currentlimit", "current_limit")):
+    for name, shadowed in (
+        ("stall_currnt", "stall_current"),
+        ("currentlimit", "current_limit"),
+        ("supported_mas", "supported_mass"),
+        ("mas", "mass"),
+    ):
         found = plan_problems(plan(modules, [_naming(name, "A")]), ["electrical"])
         assert any(f"'{name}'" in p and f"shadows '{shadowed}'" in p for p in found), found
     # Every other uncatalogued name is written, and the gate records it as unchecked.
-    assert plan_problems(plan(modules, [_naming("logic_voltage", "V")]), ["electrical"]) == []
+    for name in ("motor_current", "no_load_current", "idle_current", "max", "mask", "zeta"):
+        assert plan_problems(plan(modules, [_naming(name, "A")]), ["electrical"]) == [], name

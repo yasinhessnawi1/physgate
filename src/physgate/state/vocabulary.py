@@ -1,7 +1,7 @@
 """The quantity names the gate reads, spelled where a hook can read them.
 
 A role session's proposal is refused at write time when a quantity's name shadows one a
-relation reads (``motor_current`` for ``stall_current``): the way a writer steps out of a
+relation reads (``stall_currnt``, ``currentlimit``): a misspelling that steps out of a
 relation without saying so. Every other name the catalogue lacks is written, and the gate
 records it as unchecked. The names are the gate's catalogue
 (physgate.gate.catalogue.QUANTITIES and RELATION_NAMES); they are listed again here because
@@ -83,29 +83,28 @@ RELATION_QUANTITY_NAMES: tuple[str, ...] = (
 )
 
 
-#: How far a misspelling may be from a relation's quantity and still shadow it.
-_SHADOW_EDITS = 2
-
-
-def _edit_distance(a: str, b: str) -> int:
-    """The Levenshtein distance between a and b: insertions, deletions, substitutions."""
-    previous = list(range(len(b) + 1))
+def _edits(a: str, b: str) -> int:
+    """The insertions and deletions that turn a into b (a substitution counts two)."""
+    rows = [[0] * (len(b) + 1) for _ in range(len(a) + 1)]
     for i, ca in enumerate(a, 1):
-        current = [i]
         for j, cb in enumerate(b, 1):
-            current.append(min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (ca != cb)))
-        previous = current
-    return previous[-1]
+            rows[i][j] = rows[i - 1][j - 1] + 1 if ca == cb else max(rows[i - 1][j], rows[i][j - 1])
+    return len(a) + len(b) - 2 * rows[-1][-1]
+
+
+def _shadow_bound(flat: str) -> int:
+    """One edit for a name of five characters or fewer, two for a longer one (no underscores)."""
+    return 1 if len(flat) <= 5 else 2
 
 
 def shadowing_quantity_names(names: object) -> tuple[tuple[str, str], ...]:
     """The unlisted names among names that shadow a relation's quantity, each once.
 
-    A name shadows a relation's quantity when it ends in that quantity's last word, or when
-    its spelling, underscores aside, is within two edits of the quantity's. Each
-    pair is the name and the quantity it shadows (by last word, the one sharing most words
-    with it, then the shortest; else the nearest spelling), sorted by name; the catalogue's
-    shadowing_names gives the same pairs.
+    A name shadows a relation's quantity when its spelling, underscores aside, is within the
+    bound's insertions or deletions of the quantity's (stall_currnt, currentlimit, mas); a
+    different name (idle_current, max, mask) is written. Each pair is the name and the nearest
+    quantity it shadows, then the shortest, sorted by name; the catalogue's shadowing_names
+    gives the same pairs.
     """
     if not isinstance(names, dict | list | tuple | set):
         return ()
@@ -113,23 +112,17 @@ def shadowing_quantity_names(names: object) -> tuple[tuple[str, str], ...]:
     for name in sorted({str(n) for n in names}):
         if name in QUANTITY_NAMES:
             continue
-        words = name.split("_")
-        shadowed = sorted(
-            (r for r in RELATION_QUANTITY_NAMES if r.rsplit("_", 1)[-1] == words[-1]),
-            key=lambda r: (-len(set(r.split("_")) & set(words)), len(r), r),
+        flat = name.replace("_", "")
+        near = sorted(
+            (
+                r
+                for r in RELATION_QUANTITY_NAMES
+                if _edits(flat, r.replace("_", "")) <= _shadow_bound(flat)
+            ),
+            key=lambda r: (_edits(flat, r.replace("_", "")), len(r), r),
         )
-        if not shadowed:
-            flat = name.replace("_", "")
-            shadowed = sorted(
-                (
-                    r
-                    for r in RELATION_QUANTITY_NAMES
-                    if _edit_distance(flat, r.replace("_", "")) <= _SHADOW_EDITS
-                ),
-                key=lambda r: (_edit_distance(flat, r.replace("_", "")), len(r), r),
-            )
-        if shadowed:
-            found[name] = shadowed[0]
+        if near:
+            found[name] = near[0]
     return tuple(found.items())
 
 

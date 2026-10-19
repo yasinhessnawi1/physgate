@@ -68,12 +68,18 @@ def test_both_spellings_find_the_same_shadowing_names() -> None:
         == shadowing_names(names)
         == (
             ("currentlimit", "current_limit"),
-            ("discharge_power", "max_discharge_power"),
-            ("motor_current", "stall_current"),
-            ("pack_mass", "mass"),
             ("stall_currnt", "stall_current"),
             ("supportedmass", "supported_mass"),
         )
+    )
+    # The bound is scaled by length: one edit at five characters or fewer, two above, and an
+    # edit is an insertion or a deletion (a substitution is two), so mass catches mas and
+    # masss, and not max, mask or maas.
+    short = {"mas": 1, "max": 2, "mask": 3, "maas": 4, "masss": 5}
+    assert (
+        shadowing_quantity_names(short)
+        == shadowing_names(short)
+        == (("mas", "mass"), ("masss", "mass"))
     )
     assert shadowing_quantity_names({}) == shadowing_names({}) == ()
     assert shadowing_quantity_names("not a mapping") == ()
