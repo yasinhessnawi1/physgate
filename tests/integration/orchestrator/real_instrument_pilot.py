@@ -152,6 +152,10 @@ PARAMS: dict[str, Any] = {
     "effort": "high",
     "max_output_tokens": 64000,
     "token_ceiling": 400000,
+    "lanes": 1,
+    "pause_after_failures": 3,
+    "pause_s": 900.0,
+    "repair_resumes": 1,
 }
 #: The outcomes a review can come to, as the instrument's rows name them.
 OUTCOMES = ("pass", "fail", "blocked", "review_unavailable")
@@ -186,7 +190,7 @@ def promoted_rubrics() -> dict[str, str]:
 @contextlib.contextmanager
 def completeness_lifted() -> Iterator[None]:
     """The command's refusal of an incomplete corpus set aside, for this process only."""
-    with mock.patch.object(inject_cli, "require_complete", lambda corpus: None):
+    with mock.patch.object(inject_cli, "require_complete", lambda corpus, per_class: None):
         yield
 
 

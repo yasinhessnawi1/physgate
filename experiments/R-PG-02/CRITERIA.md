@@ -466,6 +466,13 @@ Read before the run, and not adjusted after it:
      and the configuration that judges it is picked afterwards, mechanically, from that round's
      practice tally. Who ran the authoring, and that no person or agent involved in tuning opened
      a file of the fresh set, is stated in `RESULT.md`.
+  11. **An instrument fix before the run.** 19.10.2026, before any review: attempt 0's dry run found
+      the instrument pilot's stand-in for the completeness check still taking one argument, and its
+      parameters lacking fields the command now requires (the lanes, the lane-wide pause and the
+      repair resumes); both fixed in the pilot script only (no pinned tree changes). This is an instrument fix before the run, not
+      a deviation. The dry run's prefix scans (`sk-ant-`, `oat01`) self-match on repository text that the
+      sentinel's snapshots carry, so the dry run is held to the dummy token and, when it is in the
+      environment, the real token's value; the two prefix counts are logged, not refused.
 - **R8 Retries, lanes and order.** These rules read only infrastructure outcomes, never a verdict.
   - **Retry only on an infrastructure failure,** after a delay, each delay recorded on the review's
     line: `infra_retry_delays_s` = **[60, 900, 2700]**, three retries, the last about an hour after

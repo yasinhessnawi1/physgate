@@ -250,7 +250,9 @@ if r.get("kind") != "dry-run": problems.append("not a dry run")
 if r.get("exit") not in (0, 1): problems.append(f"the command exited {r.get('exit')}")
 if r.get("commit") != head or r.get("dirty") is not False: problems.append("not the run's commit, clean")
 if r.get("binary_version") != version or r.get("binary_sha256") != binary: problems.append("not the pinned binary")
-if any(r.get("scan", {}).get(k) != 0 for k in ("token", "sk-ant-", "oat01")): problems.append(f"scan {r.get('scan')}")
+# The dummy token must appear nowhere. The two prefix counts are logged, not refused: the
+# sentinel's snapshots carry the repository's own text, which names those patterns.
+if r.get("scan", {}).get("token") != 0: problems.append(f"scan {r.get('scan')}")
 defaults = r.get("request_defaults") or {}
 if not defaults.get("requests"): problems.append("no request was recorded")
 Path(into).write_text(json.dumps(defaults, indent=1, sort_keys=True))
@@ -259,6 +261,13 @@ print(json.dumps({"dry_run": "ok" if not problems else "refused", "problems": pr
 sys.exit(1 if problems else 0)
 EOF
 say "ok  request defaults recorded in $LOGS/request_defaults.json"
+# The real token's value, when it is already in this environment, must not be in the dry run's
+# output either: counts only, never a match.
+if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+  real_hits="$(count_files_with "$CLAUDE_CODE_OAUTH_TOKEN" "$DRY")"
+  say "dry run scan real token: $real_hits files"
+  [ "$real_hits" = 0 ] || refuse "the real token's value is in the dry run's output"
+fi
 
 # ---- 7. R4: the fresh twins' precondition, and the old twins once more ----
 py "$HERE/twins_fresh.py" "$FRESH" "$ATTEMPT/twins-fresh" | tee -a "$LOG" \
