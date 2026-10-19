@@ -23,7 +23,6 @@ import { Term } from "../design/components/help/Term";
 import { GLOSSARY, type TermKey } from "../design/components/help/glossary";
 import { DataTable } from "../design/components/layout/DataTable";
 import { Inspector, InspectorSection } from "../design/components/layout/Inspector";
-import { ScrollTable } from "../design/components/layout/ScrollTable";
 import { partColumns, PartRow } from "../design/components/parts/PartRow";
 import { ProvenanceTag } from "../design/components/parts/ProvenanceTag";
 import { Plot, PlotTable } from "../design/components/plot/Plot";
@@ -316,24 +315,6 @@ export default function Gallery() {
           ]}
           empty={<EmptyState title="No quantity matches the filter" />}
         />
-        <ScrollTable label="A wide fixture table">
-          <table className="pg-table">
-            <thead>
-              <tr>
-                <th scope="col">Column</th>
-                <th scope="col">Value</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>Gear ratio</td>
-                <td className="pg-num">
-                  <Quantity value={6} unit="1" />
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </ScrollTable>
       </Group>
 
       <Group id="parts" title="Parts">

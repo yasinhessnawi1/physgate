@@ -1,15 +1,23 @@
-"""The bounds table: sourced ranges for magnitudes, per domain, read from protected files.
+"""The bounds table: sourced ranges and envelopes for magnitudes, read from protected files.
 
 Each domain has its own directory under the tracked ``knowledge/`` tree, and
-its bounds table is the one file in it named ``bounds.toml``. No agent session
+its bounds table is the one file in it named ``bounds.toml``. A table holds
+**ranges**, each for one named quantity in that domain, and may hold
+**envelopes**, each for a whole kind of quantity (every mass, every voltage) in
+every domain and under any name that kind is written under: the span outside
+which no value of that kind occurs on the class of machine the gate judges. A
+range in the writer's own domain is applied before any envelope and never
+replaced by one. One kind gets one envelope, in one table. No envelope is loaded
+today: each drafted one is a product-class assumption, not physics, and is withheld in
+the cross-domain table's comments until a ruling loads it. No agent session
 can widen a range to make its own number pass: the physics gate always builds
 in the orchestrator's own live process, from whatever checkout is driving the
 run, never through the read-only installation copy a role session's hooks run
 from, and a role or reviewer session's own hooks protect every curated domain
 directory under ``knowledge/`` the same way they protect the gate itself. Each
 range names the quantity, the bounds and their unit, the class of component it
-is for, its source, the date the source was read, and a note on what the range
-is and is not.
+is for, its source, the date the source was read, the date its figures were
+confirmed in the maker's own document, and a note on what the range is and is not.
 
 **A range without a source does not load, and a table that does not load stops
 the gate from being built.** A bound nobody can trace is a number invented to
@@ -36,7 +44,7 @@ from pydantic import (
     model_validator,
 )
 
-from physgate.gate.catalogue import kind_of
+from physgate.gate.catalogue import KINDS, kind_of
 from physgate.gate.exceptions import GateError
 from physgate.gate.units import PINT_ERRORS, UnitRefusedError, measure
 from physgate.state.schema import DomainKind
@@ -76,6 +84,10 @@ class Range(_Frozen):
     component_class: _Text = Field(alias="class")
     source: _Text
     retrieved: date
+    #: The date the figures were fetched and read in the document ``source`` names, with
+    #: its revision. A range without it does not load, so no unconfirmed figure refuses a
+    #: design.
+    confirmed: date
     note: _Text
 
     @model_validator(mode="after")
@@ -95,21 +107,68 @@ class Range(_Frozen):
         return self
 
 
+class Envelope(_Frozen):
+    """One sourced span for a whole kind of quantity, applied to the size of a value."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    kind: _Text
+    low: float | int
+    high: float | int
+    unit: _Text
+    component_class: _Text = Field(alias="class")
+    source: _Text
+    retrieved: date
+    #: The date the figures were confirmed in the document ``source`` names; required, as
+    #: for a range, so no unconfirmed figure refuses a design.
+    confirmed: date
+    note: _Text
+
+    @model_validator(mode="after")
+    def _sound(self) -> Envelope:
+        kind = KINDS.get(self.kind)
+        if kind is None:
+            msg = f"the catalogue has no kind {self.kind!r}"
+            raise ValueError(msg)
+        if self.low > self.high:
+            msg = f"the envelope for a {self.kind} runs from {self.low} down to {self.high}"
+            raise ValueError(msg)
+        if self.low < 0:
+            msg = f"the envelope for a {self.kind} bounds the size of a value, so it starts at 0"
+            raise ValueError(msg)
+        try:
+            measure(kind, self.high, self.unit)
+        except (UnitRefusedError, *PINT_ERRORS) as exc:
+            msg = f"the unit {self.unit!r} is not one a {kind.name} is written in: {exc}"
+            raise ValueError(msg) from None
+        return self
+
+
+#: What the magnitude check compares a value with: a range, by name, or an envelope, by kind.
+Bound = Range | Envelope
+
+
 class _Meta(_Frozen):
     domain: DomainKind
     curated_by: _Text
 
 
 class _File(_Frozen):
+    #: A table may hold no live entry: the cross-domain table keeps its envelopes drafted
+    #: in its comments, each with its source, until a ruling loads one. Such a table loads
+    #: with nothing in it, and the magnitude check records every quantity it would have
+    #: judged as unchecked.
     meta: _Meta
-    range: Annotated[list[Range], Field(min_length=1)]
+    range: list[Range] = Field(default_factory=list)
+    envelope: list[Envelope] = Field(default_factory=list)
 
 
 class BoundsTable(_Frozen):
-    """One domain's ranges, and the digest of the file they came from."""
+    """One domain's ranges and envelopes, and the digest of the file they came from."""
 
     domain: DomainKind
     ranges: Mapping[str, Range]
+    envelopes: Mapping[str, Envelope] = MappingProxyType({})
     sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
     path: _Text
 
@@ -118,15 +177,39 @@ class Bounds:
     """Every domain's table, as the magnitude check reads them."""
 
     def __init__(self, tables: Mapping[str, BoundsTable]) -> None:
-        """Hold ``tables``, keyed by domain."""
-        self.tables: Mapping[str, BoundsTable] = MappingProxyType(dict(tables))
+        """Hold ``tables``, keyed by domain, and every envelope, keyed by kind.
 
-    def lookup(self, domain: str, quantity: str) -> tuple[Range, BoundsTable] | None:
-        """The range for ``quantity`` in ``domain``, with its table, or ``None``."""
+        Raises:
+            BoundsTableError: two tables give one kind an envelope.
+        """
+        self.tables: Mapping[str, BoundsTable] = MappingProxyType(dict(tables))
+        envelopes: dict[str, Envelope] = {}
+        homes: dict[str, str] = {}
+        for table in sorted(tables.values(), key=lambda t: t.domain):
+            for kind, envelope in table.envelopes.items():
+                if kind in envelopes:
+                    msg = "two bounds tables give one kind an envelope"
+                    raise BoundsTableError(msg, kind=kind, tables=f"{homes[kind]}, {table.path}")
+                envelopes[kind] = envelope
+                homes[kind] = table.path
+        self.envelopes: Mapping[str, Envelope] = MappingProxyType(envelopes)
+        self._homes: Mapping[str, str] = MappingProxyType(homes)
+
+    def lookup(
+        self, domain: str, quantity: str, kind: str | None = None
+    ) -> tuple[Bound, BoundsTable] | None:
+        """What ``quantity`` in ``domain`` is compared with, and its table, or ``None``.
+
+        The range for the name in the writer's own domain, if there is one; else the
+        envelope for ``kind``, if there is one. An own-domain range is never replaced.
+        """
         table = self.tables.get(domain)
-        if table is None or quantity not in table.ranges:
-            return None
-        return table.ranges[quantity], table
+        if table is not None and quantity in table.ranges:
+            return table.ranges[quantity], table
+        if kind is not None and kind in self.envelopes:
+            home = self._homes[kind]
+            return self.envelopes[kind], next(t for t in self.tables.values() if t.path == home)
+        return None
 
 
 def load_table(path: Path) -> BoundsTable:
@@ -155,9 +238,14 @@ def load_table(path: Path) -> BoundsTable:
     if len(set(names)) != len(names):
         msg = "a bounds table gives one quantity two ranges"
         raise BoundsTableError(msg, path=str(path))
+    kinds = [e.kind for e in parsed.envelope]
+    if len(set(kinds)) != len(kinds):
+        msg = "a bounds table gives one kind two envelopes"
+        raise BoundsTableError(msg, path=str(path))
     return BoundsTable(
         domain=parsed.meta.domain,
         ranges=MappingProxyType({r.quantity: r for r in parsed.range}),
+        envelopes=MappingProxyType({e.kind: e for e in parsed.envelope}),
         sha256=hashlib.sha256(raw).hexdigest(),
         path=str(path),
     )

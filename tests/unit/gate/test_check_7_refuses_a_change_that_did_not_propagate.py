@@ -328,8 +328,9 @@ def test_with_no_history_nothing_is_passed_and_the_unjudged_quantities_are_named
     (record,) = unchecked(records)
     assert isinstance(record.details, UncheckedDetails)
     assert record.details.quantities == ("stall_current",)
-    assert [r.outcome for r in records] == ["pass", "unchecked"]
-    assert evaluated(records) == 0
+    # Nothing was judged and something was left unchecked, so the gate writes no pass
+    # record at all: "found nothing wrong (0 evaluated)" never stands beside unchecked.
+    assert [r.outcome for r in records] == ["unchecked"]
 
 
 def test_with_no_history_and_no_edges_there_is_nothing_to_judge(tmp_path: Path) -> None:

@@ -46,6 +46,9 @@ describe("the graph layout", () => {
     expect(guessHeight(short)).toBe(NODE_MIN_HEIGHT);
     expect(guessHeight(long)).toBeGreaterThan(NODE_MIN_HEIGHT);
     expect(NODE_WIDTH).toBe(216);
+    // A verdict over part of the node says so under its badge, which is one more line to guess.
+    const judged = { ...long, verdict: "pass" as const };
+    expect(guessHeight({ ...judged, partUnchecked: true })).toBeGreaterThan(guessHeight(judged));
   });
 
   it("lays out with the heights the browser measured, keeping the cards apart", () => {

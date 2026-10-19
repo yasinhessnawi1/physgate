@@ -3,6 +3,8 @@ import { type KeyboardEvent, useLayoutEffect, useMemo, useRef, useState } from "
 
 import { Button } from "../actions/Button";
 import type { Domain } from "../data/DomainChip";
+import type { GateMode } from "../verdict/GateMode";
+import type { Verdict } from "../verdict/verdict";
 import { GraphNode } from "./GraphNode";
 
 /** A node of the design graph as the canvas draws it. */
@@ -14,6 +16,16 @@ export interface CanvasNode {
   readonly domain: Domain;
   /** One line under the key, from the record (for example "7 quantities"). */
   readonly summary?: string;
+  /** The latest verdict the gate recorded on the node, if any. */
+  readonly verdict?: Verdict;
+  /** The verdict covers part of the node: some of its records were left unchecked. */
+  readonly partUnchecked?: boolean;
+  /** Up to a few quantities to show on the card, as recorded. */
+  readonly quantities?: readonly {
+    readonly name: string;
+    readonly value: number | string;
+    readonly unit: string;
+  }[];
 }
 
 /** A `constrains` edge: ``from`` constrains ``to``. */
@@ -29,7 +41,11 @@ export interface Placed {
   readonly height: number;
 }
 
+/** Layers left to right, or, where the room is too narrow for that, top to bottom. */
+export type Direction = "LR" | "TB";
+
 export interface Layout {
+  readonly direction: Direction;
   readonly nodes: readonly Placed[];
   readonly edges: readonly {
     readonly edge: CanvasEdge;
@@ -66,7 +82,13 @@ export function guessHeight(node: CanvasNode): number {
   const lines = (text: string, per: number) => Math.max(1, Math.ceil(text.length / per));
   return Math.max(
     NODE_MIN_HEIGHT,
-    lines(node.label, LABEL_CHARS) * LABEL_LINE + lines(node.id, KEY_CHARS) * KEY_LINE + CARD_REST,
+    lines(node.label, LABEL_CHARS) * LABEL_LINE +
+      lines(node.id, KEY_CHARS) * KEY_LINE +
+      (node.quantities?.length ?? 0) * KEY_LINE +
+      (node.verdict === undefined ? 0 : LABEL_LINE + 6) +
+      // "· part unchecked" beside the badge, which wraps under it on a card this wide.
+      (node.partUnchecked === true ? KEY_LINE : 0) +
+      CARD_REST,
   );
 }
 
@@ -79,9 +101,10 @@ export function layoutGraph(
   nodes: readonly CanvasNode[],
   edges: readonly CanvasEdge[],
   heights: ReadonlyMap<string, number> = new Map(),
+  direction: Direction = "LR",
 ): Layout {
   const graph = new dagre.graphlib.Graph<GraphLabel, NodeLabel, EdgeLabel>();
-  graph.setGraph({ rankdir: "LR", nodesep: 24, ranksep: 56, marginx: 16, marginy: 16 });
+  graph.setGraph({ rankdir: direction, nodesep: 24, ranksep: 56, marginx: 16, marginy: 16 });
   graph.setDefaultEdgeLabel(() => ({}));
   const sorted = [...nodes].sort((a, b) => a.id.localeCompare(b.id));
   const known = new Set(sorted.map((n) => n.id));
@@ -95,6 +118,7 @@ export function layoutGraph(
   dagre.layout(graph);
   const label = graph.graph();
   return {
+    direction,
     nodes: sorted.map((node) => {
       const at = graph.node(node.id);
       return { node, x: at.x ?? 0, y: at.y ?? 0, height: heightOf(node) };
@@ -105,10 +129,23 @@ export function layoutGraph(
   };
 }
 
-/** The nodes in reading order: layer by layer, left to right, then top to bottom. */
+/** Where a placed node's layer is: its x when layers run left to right, its y when top down. */
+function layerOf(layout: Layout, p: Placed): number {
+  return Math.round(layout.direction === "LR" ? p.x : p.y);
+}
+
+/** Where a node sits within its layer. */
+function acrossOf(layout: Layout, p: Placed): number {
+  return layout.direction === "LR" ? p.y : p.x;
+}
+
+/** The nodes in reading order: layer by layer, then along each layer. */
 export function readingOrder(layout: Layout): readonly Placed[] {
   return [...layout.nodes].sort(
-    (a, b) => Math.round(a.x) - Math.round(b.x) || a.y - b.y || a.node.id.localeCompare(b.node.id),
+    (a, b) =>
+      layerOf(layout, a) - layerOf(layout, b) ||
+      acrossOf(layout, a) - acrossOf(layout, b) ||
+      a.node.id.localeCompare(b.node.id),
   );
 }
 
@@ -145,7 +182,7 @@ export function moveFrom(layout: Layout, from: string, key: string, via: Move["v
       const here = layout.nodes.find((p) => p.node.id === from);
       siblings = byReading(
         layout.nodes
-          .filter((p) => here !== undefined && Math.round(p.x) === Math.round(here.x))
+          .filter((p) => here !== undefined && layerOf(layout, p) === layerOf(layout, here))
           .map((p) => p.node.id),
       );
     }
@@ -176,14 +213,25 @@ export function GraphCanvas({
   edges,
   selected = null,
   onSelect,
+  gateMode,
 }: {
   readonly nodes: readonly CanvasNode[];
   readonly edges: readonly CanvasEdge[];
   readonly selected?: string | null;
   readonly onSelect?: (id: string) => void;
+  /** The mode the nodes' verdicts were recorded under. */
+  readonly gateMode?: GateMode;
 }) {
   const [heights, setHeights] = useState<ReadonlyMap<string, number>>(new Map());
-  const layout = useMemo(() => layoutGraph(nodes, edges, heights), [nodes, edges, heights]);
+  // The room the frame gives. Layers run left to right; where that cannot open with every node
+  // whole at a readable size and top to bottom can, they run top to bottom instead.
+  const [room, setRoom] = useState(0);
+  const layout = useMemo(() => {
+    const across = layoutGraph(nodes, edges, heights, "LR");
+    if (room <= 0 || across.width * READABLE_ZOOM <= room) return across;
+    const down = layoutGraph(nodes, edges, heights, "TB");
+    return down.width < across.width ? down : across;
+  }, [nodes, edges, heights, room]);
   const ordered = useMemo(() => readingOrder(layout), [layout]);
   const [zoom, setZoom] = useState(1);
   const via = useRef<Move["via"]>(null);
@@ -225,9 +273,10 @@ export function GraphCanvas({
     const node = frame.current;
     if (node === null) return;
     const fit = () => {
-      const room = node.clientWidth;
-      const ratio = room / width;
-      setZoom(room > 0 && ratio < 1 && ratio >= READABLE_ZOOM ? ratio : 1);
+      const wide = node.clientWidth;
+      setRoom(wide);
+      const ratio = wide / width;
+      setZoom(wide > 0 && ratio < 1 && ratio >= READABLE_ZOOM ? ratio : 1);
       node.scrollLeft = 0;
     };
     if (typeof ResizeObserver === "undefined") {
@@ -243,6 +292,9 @@ export function GraphCanvas({
 
   const touches = (e: CanvasEdge) =>
     selected !== null && (e.from === selected || e.to === selected);
+  // An edge between two domains is drawn dashed: the design's cross-domain constraint.
+  const domainOf = new Map(nodes.map((n) => [n.id, n.domain]));
+  const crosses = (e: CanvasEdge) => domainOf.get(e.from) !== domainOf.get(e.to);
   return (
     <div className="pg-graph">
       <div className="pg-graph-tools">
@@ -303,7 +355,14 @@ export function GraphCanvas({
               {layout.edges.map(({ edge, points }) => (
                 <polyline
                   key={`${edge.from}>${edge.to}`}
-                  className={touches(edge) ? "pg-edge pg-edge-on" : "pg-edge"}
+                  className={[
+                    "pg-edge",
+                    crosses(edge) ? "pg-edge-cross" : null,
+                    touches(edge) ? "pg-edge-on" : null,
+                  ]
+                    .filter((c) => c !== null)
+                    .join(" ")}
+                  data-cross={crosses(edge) ? "true" : "false"}
                   points={points.map((p) => `${String(p.x)},${String(p.y)}`).join(" ")}
                   markerEnd={touches(edge) ? "url(#pg-arrow-on)" : "url(#pg-arrow)"}
                 />
@@ -316,6 +375,11 @@ export function GraphCanvas({
                 label={node.label}
                 domain={node.domain}
                 summary={node.summary === undefined ? node.kind : `${node.kind} · ${node.summary}`}
+                {...(node.quantities === undefined ? {} : { quantities: node.quantities })}
+                {...(node.verdict === undefined
+                  ? {}
+                  : { verdict: node.verdict, partUnchecked: node.partUnchecked === true })}
+                {...(gateMode === undefined ? {} : { gateMode })}
                 selected={node.id === selected}
                 buttonRef={(el: HTMLButtonElement | null) => {
                   if (el === null) refs.current.delete(node.id);

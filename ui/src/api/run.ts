@@ -192,6 +192,18 @@ export function tokens(value: unknown): Tokens {
   };
 }
 
+/** The physics gate's seven checks, by the names its records use; a test holds this to the schema. */
+export const CHECK_NAMES = [
+  "units",
+  "magnitude",
+  "equilibrium",
+  "power",
+  "conservation",
+  "thermal",
+  "propagation",
+] as const;
+export type CheckName = (typeof CHECK_NAMES)[number];
+
 export interface CheckDetails {
   readonly form: string;
   readonly evaluated: number | null;
@@ -204,7 +216,10 @@ export interface GateCheck {
   readonly seq: number;
   readonly subtask: string;
   readonly attempt: number | null;
-  readonly name: string;
+  readonly name: CheckName;
+  /** The check's number in the architecture's list, 1 to 7, as recorded. */
+  readonly check: number | null;
+  readonly ts: string | null;
   readonly scope: string;
   readonly mode: GateMode;
   readonly outcome: Verdict;
@@ -228,7 +243,9 @@ export function gateCheck(value: unknown): GateCheck {
     seq: count(e.seq, "a sequence number"),
     subtask: text(e.subtask_id, "a subtask id"),
     attempt: optionalCount(e.attempt, "an attempt"),
-    name: text(e.name, "a check name"),
+    name: oneOf(e.name, CHECK_NAMES, "a check name"),
+    check: optionalCount(e.check, "a check number"),
+    ts: optionalText(e.ts, "a timestamp"),
     scope: text(e.scope, "a scope"),
     mode: oneOf(e.gate_mode, ["on", "observe"] as const, "a gate mode"),
     outcome: oneOf(e.outcome, ["pass", "fail", "warn", "unchecked"] as const, "a check outcome"),

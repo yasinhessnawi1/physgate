@@ -195,6 +195,8 @@ kbd,
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
+  max-width: 100%;
+  min-width: 0;
 }
 
 .pg-id {
@@ -204,6 +206,8 @@ kbd,
 }
 
 .pg-id-copy {
+  flex: none;
+  white-space: nowrap;
   padding: 0 var(--space-1);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-badge);
@@ -1099,8 +1103,7 @@ kbd,
   min-width: 0;
 }
 
-.pg-table-wrap,
-.pg-scroll-table {
+.pg-table-wrap {
   overflow: auto;
   min-width: 0;
 }
@@ -1746,4 +1749,44 @@ kbd,
 .pg-term:focus-within .pg-term-tip,
 .pg-term-open .pg-term-tip {
   display: block;
+}
+
+/* A timeline row that opens an attempt: the sentence is the button, the row keeps its grid. */
+.pg-trow-open {
+  display: block;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pg-trow-on {
+  background: var(--color-accent-bg);
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
+/* A writer the record names that maps to no actor kind: shown as written, in no actor colour. */
+.pg-actor-unmapped {
+  --a: var(--color-text-2);
+  --abg: transparent;
+}
+
+.pg-state-retry {
+  align-self: flex-start;
+}
+
+/* A stage with no recorded result: dashed and unfilled, like unchecked, and never a pass. */
+.pg-no-verdict {
+  border: 1px dashed var(--color-unchecked-border);
+  background: transparent;
+  color: var(--color-unchecked);
+}
+
+/* An edge between two domains: dashed, as the design draws a cross-domain constraint. */
+.pg-edge-cross {
+  stroke-dasharray: 5 4;
 }

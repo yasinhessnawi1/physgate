@@ -43,6 +43,8 @@ export function ErrorState({
   error,
   status,
   context = {},
+  route,
+  onRetry,
 }: {
   /** The sentence that leads: what could not be shown, in plain words. */
   readonly title: string;
@@ -50,6 +52,10 @@ export function ErrorState({
   readonly error: string;
   readonly status?: number;
   readonly context?: Readonly<Record<string, string>>;
+  /** The route that was refused, shown under Details. */
+  readonly route?: string | null;
+  /** Read the record again; with it, the error offers "Read again". */
+  readonly onRetry?: () => void;
 }) {
   return (
     <section className="pg-state pg-state-error" role="alert" aria-label={title}>
@@ -69,6 +75,12 @@ export function ErrorState({
               <dd>{status}</dd>
             </>
           )}
+          {route !== undefined && route !== null && (
+            <>
+              <dt>route</dt>
+              <dd>{route}</dd>
+            </>
+          )}
           {Object.entries(context).map(([key, value]) => (
             <div key={key} className="pg-state-context-row">
               <dt>{key}</dt>
@@ -77,6 +89,11 @@ export function ErrorState({
           ))}
         </dl>
       </details>
+      {onRetry !== undefined && (
+        <button type="button" className="pg-btn pg-btn-browse pg-state-retry" onClick={onRetry}>
+          Read again
+        </button>
+      )}
     </section>
   );
 }

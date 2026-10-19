@@ -27,7 +27,9 @@ verdict that :func:`verdict.judge` accepts. Everything else raises
   error, no result, an unexpected exit).
 
 A session answered by any model but the pinned one is not a review at all: the
-run halts, as it does for a role session answered by another model.
+run halts, as it does for a role session answered by another model. So does a
+review whose captured stream is gone when it is read: nothing can be concluded
+from it, that no held-out canary showed least of all.
 
 The session's own files (its settings, hook state, configuration, scratch home and
 captured stream) live in the review's ``session/`` directory, beside ``read/`` and
@@ -42,6 +44,7 @@ stopped before its end is recorded (``ending.await_session``).
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import time
 import uuid
@@ -53,6 +56,7 @@ from typing import Any
 from physgate.knowledge.promote import KNOWLEDGE_ROOT
 from physgate.orchestrator.accounting import require_matching_totals
 from physgate.orchestrator.budget import classify_session_end
+from physgate.orchestrator.canaries import canary_seen
 from physgate.orchestrator.credentials import (
     Credential,
     remove_secrets,
@@ -66,8 +70,8 @@ from physgate.orchestrator.dispatch import (
     harness_protection,
     read_captured,
     read_in_full,
+    read_session_file,
     redact,
-    review_material_seen,
     spawn_held,
     write_record,
 )
@@ -535,12 +539,19 @@ class ClaudeReviewer:
         """
         remove_secrets(sdir / "state", sdir / "config")
         redact(stdout, self._setup.credential.secret)
+        # One read of the stream, without following a link, for the scan and for its end.
+        # This process opened it before the session ran, so a stream that is not there was
+        # removed: it is never read as one that showed nothing, nor retried as a failure.
+        data = read_session_file(stdout)
+        if not data and not os.path.lexists(stdout):
+            msg = f"the stream of review session {session_id} is gone; nothing is read from it"
+            raise InvocationError(msg, session_id=session_id)
         captured = read_captured(stdout)
         result = captured.result
         usage = (*prior, *captured.usage)
         # Before anything else is concluded from the review: an exposure is recorded
         # whatever else its end shows. The canary itself is never named.
-        if review_material_seen(stdout, frozenset(self._setup.held_out_canaries)):
+        if canary_seen(data, frozenset(self._setup.held_out_canaries)):
             msg = f"held-out material in the stream of review session {session_id}"
             raise HeldOutExposedError(
                 msg, session_id=session_id, reviewer_model=self._model, usage=usage
@@ -550,7 +561,7 @@ class ClaudeReviewer:
         if answered and answered != [self._model]:
             msg = "the review was answered by a model other than the pinned one"
             raise InvocationError(msg, asked=self._model, answered=",".join(answered))
-        text = stdout.read_bytes().decode(errors="replace") if stdout.exists() else ""
+        text = data.decode(errors="replace")
         refusals = prior_refusals + schema_refusals(text)
 
         def ended(
@@ -759,9 +770,10 @@ class ClaudeReviewer:
 
 
 def _stop_own(process: subprocess.Popen[bytes]) -> None:
-    """Stop a review session this process spawned and has not reaped, with its whole group.
+    """Stop a review session this process spawned, with its whole group while it is unreaped.
 
-    Its pid and its group are still its own while it is unreaped (``processes.kill_own``).
+    Its pid and its group are still its own while it is unreaped; once its wait has reaped
+    it, nothing is signalled by that id (``processes.kill_own``).
     """
     kill_own(process)
 

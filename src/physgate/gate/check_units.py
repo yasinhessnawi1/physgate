@@ -12,8 +12,7 @@ node, the ones the decomposition wrote included:
    :mod:`physgate.gate.units`), its sign included: a negative mass or power is
    refused here.
 
-A relation no check judges (its ``judged_by`` is ``None``) has only its units
-checked here, and a record says so: whether it holds is counted as unchecked.
+Whether a relation holds is the business of the check its ``judged_by`` names.
 
 Returns the offending expression and both unit sides (ARCH-080).
 """
@@ -22,10 +21,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from physgate.gate.catalogue import kind_of
+from physgate.gate.catalogue import inferred_by, kind_of
 from physgate.gate.context import CheckContext
 from physgate.gate.graph import GraphView
-from physgate.gate.relations import Factor, Instance, Product, instances, touching
+from physgate.gate.relations import Factor, Instance, Product, Scaled, instances, touching
 from physgate.gate.result import CheckRun, Observation
 from physgate.gate.units import (
     PINT,
@@ -66,12 +65,16 @@ def _declared(view: GraphView, node: str, name: str) -> Any:
 def _sum(view: GraphView, factors: tuple[Factor, ...]) -> Any:
     total: Any = None
     for factor in factors:
-        value = (
-            _declared(view, factor.left.node, factor.left.name)
-            * _declared(view, factor.right.node, factor.right.name)
-            if isinstance(factor, Product)
-            else _declared(view, factor.node, factor.name)
-        )
+        if isinstance(factor, Scaled):
+            value = _declared(view, factor.ref.node, factor.ref.name) * UREG.Quantity(
+                factor.factor, factor.unit
+            )
+        elif isinstance(factor, Product):
+            value = _declared(view, factor.left.node, factor.left.name) * _declared(
+                view, factor.right.node, factor.right.name
+            )
+        else:
+            value = _declared(view, factor.node, factor.name)
         if total is None:
             total = value
             continue
@@ -134,23 +137,6 @@ def _relation_finding(view: GraphView, instance: Instance) -> Observation | None
     return None
 
 
-def _unjudged(view: GraphView, instance: Instance) -> Observation:
-    """The record for a relation whose units agree and whose comparison no check makes."""
-    return Observation(
-        outcome="unchecked",
-        node=instance.subject,
-        module=view.module_of(instance.subject),
-        value=None,
-        expected=None,
-        message=(
-            f"{instance.expression()}: its units were checked and agree, but whether it holds "
-            f"('{instance.relation.statement}') is not one of the gate's checks, so it is "
-            "counted as unchecked, never as passed"
-        ),
-        details=UncheckedDetails(quantities=tuple(sorted({r.name for r in instance.refs()}))),
-    )
-
-
 def run(ctx: CheckContext) -> CheckRun:
     """Check the units of the attempt's own nodes and of every relation they are in."""
     view = ctx.view
@@ -160,11 +146,14 @@ def run(ctx: CheckContext) -> CheckRun:
     refused: set[tuple[str, str]] = set()
     evaluated = 0
     for node_id in own:
-        unknown = []
+        unknown: list[str] = []
+        inferred: list[str] = []
         for name, q in view.nodes[node_id].quantities.items():
             evaluated += 1
             if kind_of(name) is None:
                 unknown.append(name)
+            elif inferred_by(name) is not None:
+                inferred.append(name)
             try:
                 parse(q.value, q.unit)
             except UnitRefusedError as exc:
@@ -186,6 +175,29 @@ def run(ctx: CheckContext) -> CheckRun:
                         "magnitudes looked up, and no relation or kind was checked"
                     ),
                     details=UncheckedDetails(quantities=tuple(sorted(unknown))),
+                )
+            )
+        if inferred:
+            rules = ", ".join(
+                f"{name} by {suffix.suffix}"
+                for name in sorted(inferred)
+                if (suffix := inferred_by(name)) is not None
+            )
+            observations.append(
+                Observation(
+                    outcome="unchecked",
+                    node=node_id,
+                    module=view.module_of(node_id),
+                    value=None,
+                    expected=None,
+                    message=(
+                        f"{node_id} carries quantities the gate's catalogue does not know, "
+                        f"whose kind their suffix suggests ({rules}): their unit's dimension "
+                        "and their sign were read against that kind, and a mismatch is "
+                        "recorded as unchecked, never refused; no relation forms from them "
+                        "and no range applies to them by name"
+                    ),
+                    details=UncheckedDetails(quantities=tuple(sorted(inferred))),
                 )
             )
     for instance in touching(instances(view), own):
@@ -217,28 +229,51 @@ def run(ctx: CheckContext) -> CheckRun:
         if finding is not None:
             observations.append(finding)
             refused.update((r.node, r.name) for r in instance.refs())
-        elif instance.relation.judged_by is None:
-            observations.append(_unjudged(view, instance))
     for node_id in own:
         for name, q in view.nodes[node_id].quantities.items():
             kind = kind_of(name)
             if kind is None or (node_id, name) in refused:
                 continue
+            suffix = inferred_by(name)
             try:
                 measure(kind, q.value, q.unit)
             except PINT_ERRORS as exc:
-                observations.append(
-                    _quantity_finding(view, node_id, name, pint_message(exc), kind.canonical)
-                )
+                reason, wanted = pint_message(exc), None
             except SignRefusedError as exc:
-                observations.append(
-                    _quantity_finding(view, node_id, name, str(exc), kind.canonical, exc.wanted)
-                )
+                reason, wanted = str(exc), exc.wanted
             except UnitRefusedError as exc:
+                reason, wanted = str(exc), None
+            else:
+                continue
+            if suffix is not None:
+                # The kind is the suffix's reading of the name, not the catalogue's: a
+                # mismatch is recorded, naming the suffix, and refuses nothing.
+                observations.append(_inferred_mismatch(view, node_id, name, suffix.suffix, reason))
+            else:
                 observations.append(
-                    _quantity_finding(view, node_id, name, str(exc), kind.canonical)
+                    _quantity_finding(view, node_id, name, reason, kind.canonical, wanted)
                 )
     return CheckRun(tool=TOOL, evaluated=evaluated, observations=tuple(observations))
+
+
+def _inferred_mismatch(
+    view: GraphView, node_id: str, name: str, suffix: str, reason: str
+) -> Observation:
+    """The unchecked record for an uncatalogued name whose unit or sign is not its suffix's."""
+    q = view.nodes[node_id].quantities[name]
+    return Observation(
+        outcome="unchecked",
+        node=node_id,
+        module=view.module_of(node_id),
+        value=None,
+        expected=None,
+        message=(
+            f"{name} of {node_id} is {q.value} {q.unit}, which is not what its suffix {suffix} "
+            f"suggests: {reason}; the suffix is a reading of a name the catalogue does not "
+            "know, so this is recorded as unchecked and refuses nothing"
+        ),
+        details=UncheckedDetails(quantities=(name,)),
+    )
 
 
 def _quantity_finding(

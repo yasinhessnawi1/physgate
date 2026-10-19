@@ -7,8 +7,8 @@ export interface ConfirmDialogProps {
   /** Whether the confirmation is showing. */
   readonly open: boolean;
   readonly title: string;
-  /** One plain sentence, first: what is recorded, by whom. */
-  readonly summary?: string;
+  /** One plain sentence, first: what is recorded, by whom. A function receives the typed note. */
+  readonly summary?: string | ((reason: string) => string);
   /**
    * Required. Exactly what gets written: the record, not the request. A function receives the
    * typed reason, so the line can echo it.
@@ -34,6 +34,8 @@ export interface ConfirmDialogProps {
    * the server judges whitespace (Python's `str.isspace`).
    */
   readonly needsReason?: boolean;
+  /** A note that may be left blank: shown, echoed in the line, never required. */
+  readonly takesNote?: boolean;
   readonly reasonLabel?: string;
   /** Further detail of what is written, shown after the line. */
   readonly children?: ReactNode;
@@ -72,7 +74,8 @@ export function ConfirmDialog({
   confirmLabel,
   reject = false,
   needsReason = false,
-  reasonLabel = "Reason · required",
+  takesNote = false,
+  reasonLabel = needsReason ? "Reason · required" : "Note · optional",
   children,
   onCancel,
   onConfirm,
@@ -113,6 +116,7 @@ export function ConfirmDialog({
   // Held at run time as well as in the type: a caller casting through `unknown` cannot drop them.
   if (!stated(writes) || !stated(recordedAs)) throw new ConfirmationError();
   const line = typeof writes === "function" ? writes(reason) : writes;
+  const said = typeof summary === "function" ? summary(reason) : summary;
   return (
     <dialog
       ref={dialog}
@@ -129,7 +133,7 @@ export function ConfirmDialog({
         <h2 className="pg-dialog-title" id={titleId}>
           {title}
         </h2>
-        {summary !== undefined && <p className="pg-dialog-summary">{summary}</p>}
+        {said !== undefined && <p className="pg-dialog-summary">{said}</p>}
       </div>
       <div className="pg-dialog-body">
         <div className="pg-writes">
@@ -143,7 +147,7 @@ export function ConfirmDialog({
             <span className="pg-writes-aside">{check}</span>
           </div>
         )}
-        {needsReason && (
+        {(needsReason || takesNote) && (
           <div className="pg-writes">
             <label className="pg-writes-label" htmlFor={reasonId}>
               {reasonLabel}

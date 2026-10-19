@@ -18,9 +18,16 @@ from dataclasses import dataclass
 from fractions import Fraction
 from typing import Literal
 
-from physgate.gate.catalogue import RELATIONS, SOURCES, Relation, kind_of
+from physgate.gate.catalogue import (
+    KINDS,
+    MAX_DISCHARGE_PER_HOUR,
+    RELATIONS,
+    SOURCES,
+    Relation,
+    kind_of,
+)
 from physgate.gate.graph import GraphView
-from physgate.gate.units import Measured, add, measure, multiply
+from physgate.gate.units import UREG, Measured, add, measure, multiply
 from physgate.orchestrator.protocols import NumericOutput, Term
 
 
@@ -52,7 +59,30 @@ class Product:
         return (self.left, self.right)
 
 
-Factor = TermRef | Product
+@dataclass(frozen=True)
+class Scaled:
+    """A quantity times a constant the catalogue sources: a discharge rate times a stored energy.
+
+    ``unit`` is the constant's unit as pint reads it, so the unit check sees the product's
+    dimension exactly as the judging check computes it.
+    """
+
+    ref: TermRef
+    factor: Fraction
+    unit: str
+    #: The kind of the product, which the catalogue states with the constant.
+    kind: str
+
+    def spelled(self) -> str:
+        """The scaled term as an expression writes it."""
+        return f"{self.factor} {self.unit} * {self.ref.spelled()}"
+
+    def refs(self) -> tuple[TermRef]:
+        """The one quantity the term reads."""
+        return (self.ref,)
+
+
+Factor = TermRef | Product | Scaled
 
 
 @dataclass(frozen=True)
@@ -78,7 +108,7 @@ class Instance:
         """Every quantity the instance reads."""
         found: list[TermRef] = []
         for term in (*self.left, *self.right):
-            found.extend(term.refs() if isinstance(term, Product) else (term,))
+            found.extend(term.refs() if isinstance(term, Product | Scaled) else (term,))
         return tuple(found)
 
     def nodes(self) -> frozenset[str]:
@@ -136,6 +166,25 @@ def instances(view: GraphView) -> list[Instance]:
                     op="<=",
                     right=(TermRef(node_id, "power_draw"),) if "power_draw" in q else (),
                     missing=() if "power_draw" in q else ("power_draw",),
+                )
+            )
+        if "max_discharge_power" in q and "energy_capacity" in q:
+            # A store's rating is bounded by what it stores: no store class the catalogue
+            # sources discharges continuously faster than its highest rate.
+            found.append(
+                Instance(
+                    relation=RELATIONS["discharge_rate"],
+                    subject=node_id,
+                    left=(TermRef(node_id, "max_discharge_power"),),
+                    op="<=",
+                    right=(
+                        Scaled(
+                            TermRef(node_id, "energy_capacity"),
+                            MAX_DISCHARGE_PER_HOUR,
+                            "1/h",
+                            "power",
+                        ),
+                    ),
                 )
             )
         if "current_limit" in q:
@@ -236,6 +285,17 @@ def measured(view: GraphView, ref: TermRef) -> Measured:
     return measure(kind, quantity.value, quantity.unit)
 
 
+def scaled(view: GraphView, term: Scaled) -> Measured:
+    """A scaled term measured as the kind the catalogue gives its product.
+
+    Raises:
+        UnitRefusedError, pint errors: the term is refused, or the product is not that kind.
+    """
+    kind = KINDS[term.kind]
+    product = measured(view, term.ref).quantity * UREG.Quantity(term.factor, term.unit)
+    return Measured(kind=kind, quantity=product.to(kind.canonical))
+
+
 def side(view: GraphView, factors: tuple[Factor, ...]) -> Measured | None:
     """The sum of one side's factors, under the kind algebra; ``None`` for an empty side.
 
@@ -244,11 +304,12 @@ def side(view: GraphView, factors: tuple[Factor, ...]) -> Measured | None:
     """
     total: Measured | None = None
     for factor in factors:
-        value = (
-            multiply(measured(view, factor.left), measured(view, factor.right))
-            if isinstance(factor, Product)
-            else measured(view, factor)
-        )
+        if isinstance(factor, Scaled):
+            value = scaled(view, factor)
+        elif isinstance(factor, Product):
+            value = multiply(measured(view, factor.left), measured(view, factor.right))
+        else:
+            value = measured(view, factor)
         total = value if total is None else add(total, value)
     return total
 

@@ -281,7 +281,9 @@ class EquilibriumDetails(_Frozen):
     form: Literal["equilibrium"] = "equilibrium"
     solved: tuple[ReactionValue, ...]
     declared: tuple[ReactionValue, ...]
-    residual_force: NumericOutput
+    #: Each residual is absent where that balance was not read: the moment of a structure
+    #: with no positions, the force of a torque unit's mount, the moment of a carrier's load.
+    residual_force: NumericOutput | None
     #: ``None`` when the structure declares no positions: its force sum was judged,
     #: and no moment was computed, because a moment needs the arms nobody wrote.
     residual_moment: NumericOutput | None
@@ -289,7 +291,7 @@ class EquilibriumDetails(_Frozen):
 
 
 class PowerDetails(_Frozen):
-    """Check 4: the deficit in watts and the nodes that contribute to it."""
+    """Check 4: the shortfall (watts, or amperes for a current headroom) and the nodes in it."""
 
     form: Literal["power"] = "power"
     deficit: NumericOutput

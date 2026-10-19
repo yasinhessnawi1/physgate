@@ -5,7 +5,7 @@
  */
 import type { Quantity } from "../design/quantity";
 import { requireQuantity } from "../design/quantity";
-import { count, list, object, oneOf, text } from "./check";
+import { count, list, object, oneOf, optionalText, text } from "./check";
 
 export const DOMAINS = ["mechanical", "electrical", "control", "firmware", "cross"] as const;
 export type Domain = (typeof DOMAINS)[number];
@@ -19,12 +19,36 @@ export interface NodeRecord {
   readonly revision: number;
   readonly constrains: readonly string[];
   readonly quantities: readonly (readonly [string, Quantity])[];
+  /** Each quantity's recorded source and writer, by name; ``null`` where the record has none. */
+  readonly provenance: Readonly<Record<string, Provenance>>;
+}
+
+/** Where a quantity's value came from, and who wrote it, as the node records them. */
+export interface Provenance {
+  readonly source: string | null;
+  readonly writtenBy: string | null;
+}
+
+function provenanceOf(quantities: Record<string, unknown>): Readonly<Record<string, Provenance>> {
+  return Object.fromEntries(
+    Object.entries(quantities).map(([name, raw]) => {
+      const q = object(raw, "a quantity");
+      return [
+        name,
+        {
+          source: optionalText(q.source, "a quantity's source"),
+          writtenBy: optionalText(q.written_by, "a quantity's writer"),
+        },
+      ];
+    }),
+  );
 }
 
 /** A node as the server sends it beside its revision: ``{revision, node}``. */
 export function nodeAt(value: unknown): NodeRecord {
   const entry = object(value, "a node at a revision");
   const node = object(entry.node, "a node");
+  const quantities = object(node.quantities, "a node's quantities");
   return {
     id: text(node.id, "a node id"),
     kind: text(node.kind, "a node kind"),
@@ -32,9 +56,11 @@ export function nodeAt(value: unknown): NodeRecord {
     owner: text(node.owner_role, "a node's owner"),
     revision: count(entry.revision, "a revision"),
     constrains: list(node.constrains, "a node's edges").map((t) => text(t, "an edge target")),
-    quantities: Object.entries(object(node.quantities, "a node's quantities")).map(
-      ([name, q]): readonly [string, Quantity] => [name, requireQuantity(q)],
-    ),
+    quantities: Object.entries(quantities).map(([name, q]): readonly [string, Quantity] => [
+      name,
+      requireQuantity(q),
+    ]),
+    provenance: provenanceOf(quantities),
   };
 }
 

@@ -143,14 +143,14 @@ def test_a_node_the_decomposition_wrote_gets_checks_1_and_2_at_integration(
     tmp_path: Path,
 ) -> None:
     # Written before any attempt, so below every base revision: no attempt's
-    # subtask scope holds it. A 240 A stall current, and a mass in volts.
+    # subtask scope holds it. An IMU sampled at 50 kHz, and a mass in volts.
     interface = node(
-        "electrical.motor",
-        quantities={"stall_current": (240, "A")},
+        "electrical.imu",
+        quantities={"sample_rate": (50_000, "Hz")},
     )
     wrong_unit = node(f"{M}.bracket", domain=M, quantities={"mass": (2, "V")})
     view = attempt(tmp_path, [interface, wrong_unit], [node("electrical.unrelated")])
     assert gated(view).verdict == "pass"
     system = PhysicsGate().run(view, ("system",), "on")
     refused = {(r.name, r.node) for r in system.checks if r.outcome == "fail"}
-    assert refused == {("magnitude", "electrical.motor"), ("units", f"{M}.bracket")}
+    assert refused == {("magnitude", "electrical.imu"), ("units", f"{M}.bracket")}

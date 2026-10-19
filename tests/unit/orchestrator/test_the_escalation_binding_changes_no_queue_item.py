@@ -12,8 +12,10 @@ queue and its decisions, the graph journal and the trees of every commit, normal
 as an exact rerun comparison normalises them. Two things are set aside, and only
 these: the sequence number of an event line, since a line the interface adds moves
 every later one; and the lines and fields named below, each added on purpose after
-the golden file was written. Anything else that differs is a change in what the loop
-did.
+the golden file was written. The real gate's own records are compared as the gate now
+writes them: where the gate's coverage changed after the golden file was written, the
+recorded result is rewritten by the one rule that change states (``_as_the_gate_now_judges``),
+and nothing else in it. Anything else that differs is a change in what the loop did.
 """
 
 from __future__ import annotations
@@ -32,7 +34,9 @@ from escalation_paths import (
     records,
     scenario_names,
 )
+from stand_in_drive_plan import DRIVE_MODULE, POWER_BUS
 
+from physgate.gate.catalogue import catalogue_digest
 from physgate.orchestrator import decompose
 
 #: Event kinds the escalation interface writes, absent from the golden file by
@@ -84,6 +88,81 @@ def _runs_as_the_golden_file_was_recorded(monkeypatch: pytest.MonkeyPatch) -> No
     about the runs is changed, and they are compared exactly as before.
     """
     monkeypatch.setattr(decompose, "series_library", dict)
+
+
+#: The stand-in plan's nodes, by id, as the real gate reads them.
+PLAN = {n["id"]: n for n in (POWER_BUS, *DRIVE_MODULE)}
+
+
+def _without_a_bound(node_id: str) -> list[str]:
+    """The plan node's quantities with a kind that the gate now has no range or envelope for."""
+    from physgate.gate.bounds_table import load_bounds
+    from physgate.gate.catalogue import kind_of
+
+    bounds = load_bounds()
+    found = []
+    for name in PLAN[node_id]["quantities"]:
+        kind = kind_of(name)
+        if kind is not None and bounds.lookup(PLAN[node_id]["domain"], name, kind.name) is None:
+            found.append(name)
+    return sorted(found)
+
+
+def _as_the_gate_now_judges(event: dict[str, Any]) -> dict[str, Any]:
+    """A recorded gate result as the gate's later coverage rules write it, and nothing else.
+
+    What changed after the golden file was written, all in the gate: its catalogue (so its
+    digest); the stall-current headroom, which the unit check recorded as a relation no check
+    judged and the power check now judges (the plan's motors fit their driver, so it writes
+    nothing); and which quantities the magnitude check has a bound for. The stall current's
+    range is gone, so it joins the quantities with no range; the temperature envelope holds
+    the driver's two temperatures, so they leave that list. A quantity that leaves the list
+    joins the count of those evaluated, and one that joins it leaves that count; the unchecked
+    record itself is dropped when its list is empty. Which quantities have a bound is read
+    from the gate's own tables, so the rule is the one sentence above, not a list of names.
+    """
+    if event.get("kind") not in ("gate_ran", "integration_gate_ran"):
+        return event
+    result = {**event["result"], "catalogue_sha256": catalogue_digest()}
+    checks: list[dict[str, Any]] = []
+    moved: dict[str, int] = {}
+    for record in result["checks"]:
+        if record["name"] == "units" and "is not one of the gate's checks" in record["message"]:
+            continue
+        unranged = record["name"] == "magnitude" and record["outcome"] == "unchecked"
+        if unranged and record["node"] in PLAN and "no sourced range" in record["message"]:
+            names = _without_a_bound(record["node"])
+            was = list(record["details"]["quantities"])
+            moved[record["scope"]] = moved.get(record["scope"], 0) + len(was) - len(names)
+            if not names:
+                continue
+            record = {
+                **record,
+                "details": {**record["details"], "quantities": names},
+                "message": f"{', '.join(names)} of {record['node']} have no sourced range "
+                "for their domain and no envelope for their kind",
+            }
+        checks.append(record)
+    for k, record in enumerate(checks):
+        if record["name"] == "magnitude" and record["outcome"] == "pass":
+            count = record["details"]["evaluated"] + moved.get(record["scope"], 0)
+            checks[k] = {
+                **record,
+                "details": {**record["details"], "evaluated": count},
+                "message": f"the magnitude check found nothing wrong ({count} evaluated)",
+            }
+    # A check that judged nothing and left a record unchecked no longer writes a pass.
+    unchecked = {(r["name"], r["scope"]) for r in checks if r["outcome"] == "unchecked"}
+    checks = [
+        r
+        for r in checks
+        if not (
+            r["outcome"] == "pass"
+            and r["details"].get("evaluated") == 0
+            and (r["name"], r["scope"]) in unchecked
+        )
+    ]
+    return {**event, "result": {**result, "checks": checks}}
 
 
 def _golden() -> dict[str, dict[str, list[Any]]]:
@@ -164,7 +243,11 @@ def test_the_real_gate_s_three_modes_reach_the_queue_exactly_as_before(tmp_path:
     assert len(built) == len(MODES)
     for run_dir in built:
         name = f"real_gate_three_modes/{run_dir.name.removeprefix('drive-')}"
-        assert differences(comparable(golden[name]), comparable(records(run_dir))) == [], name
+        recorded = {
+            **golden[name],
+            "events": [_as_the_gate_now_judges(e) for e in golden[name]["events"]],
+        }
+        assert differences(comparable(recorded), comparable(records(run_dir))) == [], name
 
 
 def test_the_comparison_sees_one_changed_queue_item_and_one_extra_event() -> None:

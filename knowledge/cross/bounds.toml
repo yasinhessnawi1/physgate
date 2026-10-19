@@ -1,0 +1,50 @@
+# The cross-domain bounds table: envelopes for whole kinds of quantity.
+#
+# A range (in a domain's own table) is for one named quantity in one domain. An envelope
+# is for every quantity of one kind, in every domain and under any name the catalogue or
+# its suffix rules give that kind: the span outside which no value of that kind occurs on
+# the class of machine this gate judges. It bounds the size of a value; the sign is the
+# unit check's. A range in the writer's own domain is applied before any envelope and is
+# never replaced by one. Each envelope names its source, the date it was read, the date its
+# figures were confirmed in the document named, and what it does and does not claim.
+#
+# No envelope is loaded. Every one drafted below is a product-class assumption, not
+# physics: what a hobby-class machine happens to run at, not what a design cannot be. Each
+# refuses a correct design outside that class (a 72 V e-bike supply, a 400 V traction bus,
+# a 3-D printer's 300 C hotend, a soldering iron, a standoff at 10 m in the equilibrium
+# suite's fixtures), and the gate must fail no correct design. They stay here as drafts,
+# each with its source, until a ruling loads one; the magnitude check holds no class
+# envelope, and a quantity with no range for its name in its domain is unchecked.
+#
+# Withheld (19.10.2026), drafted and sourced, not loaded:
+#
+# - voltage, 0 to 60 V, "an extra-low-voltage machine: a battery-powered robot kit and every
+#   part of it". The ES1 and SELV direct-voltage limit, 60 V DC: IEC 62368-1 subclause
+#   5.2.1.1 (ES1, at most 60 V DC above 2 mA) and IEC 61140 subclause 5.2.6 (SELV, touch
+#   voltage at most 60 V DC in a dry location), as summarised in IEEE 802.3 PDCC ad hoc,
+#   "ES1, LPS and SELV voltage and source requirements summary", D. Law, version 1.5,
+#   18.08.2021, and in UL Japan's IEC 62368-1 technical brief "Electrical Energy Source (ES)
+#   vs. SELV and LCC" (2014); the standards themselves were not opened. Retrieved and
+#   confirmed 2026-10-19. Withheld: a 63 V capacitor rating, a 72 V pack, a 100 V MOSFET and
+#   a 230 V mains input are correct figures above it.
+#
+# - temperature, 200 K to 550 K, "any temperature a hobby-class electronic or mechanical
+#   part sees or is rated for". IPC/JEDEC J-STD-020F (December 2022), Table 2: a peak reflow
+#   temperature of 260 C (533 K) for packages under 1.6 mm thick, 245 to 250 C for thicker
+#   ones; AEC-Q100 grade 0 operating ambient -40 C to 150 C and the industrial range -40 C
+#   to 85 C (Renesas, "Temperature ranges", and the MPS webinar "Fundamentals of AEC-Q100",
+#   06.11.2018; the AEC document itself was not reachable). Retrieved and confirmed
+#   2026-10-19. Withheld: a 300 C hotend and a 350 C soldering tip are correct figures
+#   above it, and a colour temperature is not a temperature of this kind.
+#
+# - mass, 0 to 13.6 kg (SPARC Robot Construction Specifications v1.6, 21 September 2025,
+#   section 4: the 30 lb / 13.61 kg class, the heaviest below 60 lb; confirmed 2026-10-19).
+#   Withheld: 42 of the record's clean graphs declare ballast far above it on purpose.
+#
+# - length, 0 to 1 m (twice the 18 in sizing cube of the 2026-2027 FIRST Tech Challenge
+#   Competition Manual, rule R102, and of the VEX V5 Robotics Competition 2026-2027 manual,
+#   rule R3; confirmed 2026-10-19). Withheld: the same fixtures place standoffs at 10 m.
+
+[meta]
+domain = "cross"
+curated_by = "the physics gate's own build, drafted from the sources named and confirmed in them on 19.10.2026; every envelope withheld pending a ruling; not yet reviewed through the knowledge layer's promotion step"

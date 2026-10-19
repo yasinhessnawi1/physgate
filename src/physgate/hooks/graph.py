@@ -19,7 +19,18 @@ order, so a refused proposal is refused for the reason the store would give:
 3. an existing interface node is not written at all;
 4. every quantity is a value with a unit, a source and a writer — a bare number
    is refused here, with the schema's own message;
-5. the node as a whole is valid.
+5. no quantity's name shadows one a relation reads: a name the catalogue lacks
+   that is a misspelling of a relation's quantity (``stall_currnt``,
+   ``currentlimit``, ``supported_mas``: within two insertions or deletions of a
+   quantity longer than five characters, underscores ignored; ``mess``, ``moss``,
+   ``mask``: within one edit of a short one, ``mass``) is the way a writer steps
+   out of the headroom relation, or the mass sum, without saying so. A different
+   name (``idle_current``, ``motor_current_draw``, ``max``, ``dry_mass``) is not
+   refused. Every other
+   uncatalogued name is written, and the gate records it as unchecked. This rule
+   is the hook's and the orchestrator's, not the store's: a corpus written
+   straight into a store is unaffected;
+6. the node as a whole is valid.
 
 The current owner and kind come from the journal, read without opening the
 store. The ownership rules are a list, so a rule the architecture adds later is
@@ -77,6 +88,8 @@ UNCHECKABLE = (
 OWNER_CHANGE = "owner_change"
 #: Not one of the store's reasons either (see ``_kind_does_not_change``).
 KIND_CHANGE = "kind_change"
+#: Not one of the store's reasons: a quantity name that shadows one a relation reads.
+SHADOWED_QUANTITY = "shadowed_quantity"
 
 
 def _owner_is_the_session(
@@ -188,11 +201,36 @@ def _check(proposal: object, file_stem: str, config: ConfigView) -> tuple[str, s
             node_id=node_id,
         )
         return REJECT_MISSING_UNIT, str(refusal)
+    shadowed = _shadowing_quantities(proposal)
+    if shadowed:
+        return SHADOWED_QUANTITY, shadowed
     try:
         validate_node(proposal)
     except (DesignStateError, ValidationError) as exc:
         return "invalid", _first_problem(exc)
     return None
+
+
+def _shadowing_quantities(proposal: dict[str, Any]) -> str | None:
+    """Why a proposal naming a quantity that shadows a relation's is refused, or None.
+
+    The names are read from :mod:`physgate.state.vocabulary`, the catalogue's names spelled
+    where a hook may load them: a hook never loads the gate.
+    """
+    from physgate.state.vocabulary import nearest_quantity_names, shadowing_quantity_names
+
+    shadowed = shadowing_quantity_names(proposal.get("quantities") or {})
+    if not shadowed:
+        return None
+    told = "; ".join(
+        f"{name} shadows {relation} (nearest {', '.join(nearest_quantity_names(name))})"
+        for name, relation in shadowed
+    )
+    return (
+        f"{proposal.get('id')} names a quantity the gate's catalogue does not know under a "
+        f"name a relation reads ({told}); a quantity a relation reads is written under the "
+        "catalogue's name, so that the relation applies to it"
+    )
 
 
 def _quantity_problems(proposal: dict[str, Any]) -> str:

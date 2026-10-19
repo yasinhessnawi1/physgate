@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { OsLayer } from "../design/components/system/OsLayerBadge";
-import { VIEWS, type ViewDef } from "../views/registry";
+import { VIEWS, type ViewDef } from "../screens/registry";
 import { AREA_IDS } from "./areas";
 import { GROUPS } from "./groups";
 import type { Header, ViewProps } from "./header";
@@ -84,10 +84,13 @@ describe("the view registry", () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it("puts the run records (today's home screen) under Home and Queue", () => {
+  it("opens Home at the home address, and keeps the run records' old address under This run", () => {
+    const home = VIEWS.filter((v) => v.area === "home")[0];
+    expect(home?.title).toBe("Home");
+    expect(home?.group).toBe("home");
     const records = VIEWS.find((v) => v.slug === "run-records");
     expect(records?.area).toBe("home");
-    expect(records?.group).toBe("home");
+    expect(records?.group).toBe("run");
   });
 });
 
@@ -113,6 +116,23 @@ describe("the shell", () => {
       GROUPS.filter((g) => VIEWS.some((v) => v.group === g.id)).map((g) => g.name),
     );
     expect(shown).not.toContain("Analyse");
+  });
+
+  it("a skip link is the first tab stop; it focuses the content and leaves the route alone", () => {
+    window.location.hash = "#/home/run-records";
+    const host = mount(VIEWS);
+    const first = host.querySelector("a, button, [tabindex]");
+    expect(first?.classList.contains("pg-skip-link")).toBe(true);
+    expect(first?.textContent).toBe("Skip to content");
+    const main = host.querySelector("main");
+    expect(main?.id).toBe("pg-content");
+    expect(main?.getAttribute("aria-labelledby")).toBe("pg-page-title");
+    expect(host.querySelector("#pg-page-title")?.textContent).toBe("Run records");
+    act(() => {
+      (first as HTMLAnchorElement).click();
+    });
+    expect(document.activeElement).toBe(main);
+    expect(window.location.hash).toBe("#/home/run-records");
   });
 
   it("shows an address with nothing registered as an empty state, not a blank page", () => {
