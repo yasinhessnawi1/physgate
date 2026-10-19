@@ -72,14 +72,31 @@ def test_both_spellings_find_the_same_shadowing_names() -> None:
             ("supportedmass", "supported_mass"),
         )
     )
-    # The bound is scaled by length: one edit at five characters or fewer, two above, and an
-    # edit is an insertion or a deletion (a substitution is two), so mass catches mas and
-    # masss, and not max, mask or maas.
-    short = {"mas": 1, "max": 2, "mask": 3, "maas": 4, "masss": 5}
+    # A short relation quantity (mass) is one substitution from another word, so there a
+    # substitution counts one and the bound is one edit: mass catches mas, mess, moss, mask,
+    # maas and masss, and not max (two edits) or dry_mass. A long quantity is reached by
+    # insertions and deletions only, within two: stall_currnt, not idle_current.
+    short = {
+        "mas": 1,
+        "max": 2,
+        "mask": 3,
+        "maas": 4,
+        "masss": 5,
+        "mess": 6,
+        "moss": 7,
+        "dry_mass": 8,
+    }
     assert (
         shadowing_quantity_names(short)
         == shadowing_names(short)
-        == (("mas", "mass"), ("masss", "mass"))
+        == (
+            ("maas", "mass"),
+            ("mas", "mass"),
+            ("mask", "mass"),
+            ("masss", "mass"),
+            ("mess", "mass"),
+            ("moss", "mass"),
+        )
     )
     assert shadowing_quantity_names({}) == shadowing_names({}) == ()
     assert shadowing_quantity_names("not a mapping") == ()

@@ -1,17 +1,18 @@
 """A role session's proposal may not name a quantity under a misspelling of a relation's.
 
 A name the catalogue lacks gets a unit parse and, at best, a reading from its suffix: no
-relation, no range. A writer who spells ``stall_current`` as ``stall_currnt``, or
-``current_limit`` as ``currentlimit``, has stepped out of the headroom relation without
-saying so. So a proposal is refused at write time, in the hook and again when the
-orchestrator applies it, when a quantity's name is within one insertion or deletion of a
-relation's quantity for a name of five characters or fewer, two for a longer one, underscores
-ignored; the refusal names the quantity, the relation's quantity it shadows and the nearest
-catalogued names. **Every other uncatalogued name is written** (``no_load_current``,
-``idle_current``, ``motor_voltage_limit``, ``motor_current_draw``, ``max``, ``mask``), and
-the gate records it as unchecked: a different name is not a misspelling, and a session or a
-demo run is not blocked on it. The store itself does not refuse such names: a corpus written
-straight into a store, outside the hooks, is unaffected.
+relation, no range. A writer who spells ``stall_current`` as ``stall_currnt``, ``current_limit``
+as ``currentlimit`` or ``mass`` as ``mess`` has stepped out of the headroom relation, or the
+mass sum, without saying so. So a proposal is refused at write time, in the hook and again
+when the orchestrator applies it, when a quantity's name is within two insertions or
+deletions of a relation's quantity longer than five characters, underscores ignored, or one
+edit of a short one (``mess``, ``moss`` and ``mask`` for ``mass``); the refusal names the
+quantity, the relation's quantity it shadows and the nearest catalogued names. **Every other
+uncatalogued name is written** (``no_load_current``, ``idle_current``, ``motor_voltage_limit``,
+``motor_current_draw``, ``max``, ``dry_mass``), and the gate records it as unchecked: a
+different name is not a misspelling, and a session or a demo run is not blocked on it. The
+store itself does not refuse such names: a corpus written straight into a store, outside the
+hooks, is unaffected.
 
 The rule runs after the store's own (owner, interface, a bare number), so where a proposal
 breaks two the reason given is the store's.
@@ -76,6 +77,9 @@ def test_a_catalogued_name_is_allowed(config: SessionConfig) -> None:
         ("currentlimit", "current_limit"),
         ("supported_mas", "supported_mass"),
         ("mas", "mass"),
+        ("mess", "mass"),
+        ("moss", "mass"),
+        ("mask", "mass"),
     ],
 )
 def test_a_misspelling_of_a_relation_s_quantity_is_refused_naming_both(
@@ -94,7 +98,7 @@ def test_a_misspelling_of_a_relation_s_quantity_is_refused_naming_both(
         ("motor_voltage_limit", 6, "V"),
         ("motor_current_draw", 0.5, "A"),
         ("max", 1, "A"),
-        ("mask", 1, "A"),
+        ("dry_mass", 0.2, "kg"),
         ("motor_current", 2.4, "A"),
         ("pack_mass", 0.2, "kg"),
         ("logic_voltage", 3.3, "V"),
@@ -150,3 +154,22 @@ def test_a_shadowing_name_is_reported_before_a_whole_node_fault(config: SessionC
     payload["requirements"] = "not a list"
     told = _write(config, "electrical.driver.json", payload)
     assert graph.SHADOWED_QUANTITY in told
+
+
+def test_the_reviewer_s_conservation_probe_is_refused_at_write_time(tmp_path: Path) -> None:
+    # A module of 1 kg with members a (mass 1 kg) and b (mess 2 kg): the conservation check
+    # reads ``mass`` by name, so b's ``mess`` would leave the sum silently and the module's
+    # 1 kg would balance a's 1 kg. The misspelling is refused as it is written.
+    make_store(
+        tmp_path / "store",
+        node("electrical.module", "electrical", kind="module"),
+        node("electrical.a", "electrical"),
+    )
+    _, _, cfg = write_config(tmp_path, role="electrical")
+    payload = node("electrical.b")
+    payload["constrains"] = ["electrical.module"]
+    payload["quantities"] = {
+        "mess": {"value": 2, "unit": "kg", "source": "datasheet", "written_by": "electrical"}
+    }
+    told = _write(cfg, "electrical.b.json", payload)
+    assert graph.SHADOWED_QUANTITY in told and "mess shadows mass" in told

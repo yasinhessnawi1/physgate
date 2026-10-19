@@ -575,24 +575,47 @@ def _edits(a: str, b: str) -> int:
     return len(a) + len(b) - 2 * rows[-1][-1]
 
 
-def _shadow_bound(flat: str) -> int:
-    """How many edits a name may be from a relation's quantity and still shadow it.
+def _levenshtein(a: str, b: str) -> int:
+    """The insertions, deletions and substitutions that turn ``a`` into ``b``."""
+    previous = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        current = [i]
+        for j, cb in enumerate(b, 1):
+            current.append(min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (ca != cb)))
+        previous = current
+    return previous[-1]
 
-    One for a name of five characters or fewer, two for a longer one, underscores ignored, so
-    a short word like ``mass`` catches ``mas`` and not ``max`` or ``mask``.
+
+#: A relation quantity of this many characters or fewer, underscores aside, is a short word.
+SHORT_WORD = 5
+
+
+def _distance(flat: str, quantity: str) -> int:
+    """How far ``flat`` is from a relation quantity's flat spelling, by the quantity's length.
+
+    A short word (``mass``) is one substitution away from another word (``mess``, ``moss``,
+    ``mask``), so a substitution counts one there and the bound is one edit; a longer quantity
+    is reached by insertions and deletions only, a substitution counting two, within two.
     """
-    return 1 if len(flat) <= 5 else 2
+    if len(quantity) <= SHORT_WORD:
+        return _levenshtein(flat, quantity)
+    return _edits(flat, quantity)
+
+
+def _bound(quantity: str) -> int:
+    return 1 if len(quantity) <= SHORT_WORD else 2
 
 
 def shadowing_names(names: Iterable[str]) -> tuple[tuple[str, str], ...]:
     """The uncatalogued names among ``names`` that shadow a relation's quantity, each once.
 
     A name shadows a quantity a relation reads when its spelling, underscores aside, is
-    within ``_shadow_bound`` insertions or deletions of the quantity's (``stall_currnt``,
-    ``currentlimit``, ``supported_mas``, ``mas``): a misspelling that steps out of the
-    headroom relation, or the mass sum, without saying so. A different name (``idle_current``,
-    ``motor_current_draw``, ``max``, ``mask``) is written, and the gate records it as unchecked.
-    Each pair is the name and the nearest relation quantity it shadows, then the shortest.
+    within ``_bound`` edits of the quantity's by ``_distance`` (``stall_currnt``,
+    ``currentlimit``, ``supported_mas``; ``mas``, ``mess``, ``moss``, ``mask``): a misspelling
+    that steps out of the headroom relation, or the mass sum, without saying so. A different
+    name (``idle_current``, ``motor_current_draw``, ``max``, ``dry_mass``) is written, and the
+    gate records it as unchecked. Each pair is the name and the nearest relation quantity it
+    shadows, then the shortest.
     """
     found: dict[str, str] = {}
     for name in sorted(set(names)):
@@ -600,8 +623,12 @@ def shadowing_names(names: Iterable[str]) -> tuple[tuple[str, str], ...]:
             continue
         flat = name.replace("_", "")
         near = sorted(
-            (r for r in RELATION_NAMES if _edits(flat, r.replace("_", "")) <= _shadow_bound(flat)),
-            key=lambda r: (_edits(flat, r.replace("_", "")), len(r), r),
+            (
+                r
+                for r in RELATION_NAMES
+                if _distance(flat, r.replace("_", "")) <= _bound(r.replace("_", ""))
+            ),
+            key=lambda r: (_distance(flat, r.replace("_", "")), len(r), r),
         )
         if near:
             found[name] = near[0]

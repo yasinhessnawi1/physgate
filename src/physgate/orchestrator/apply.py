@@ -15,8 +15,8 @@ the file as it is written. Here the orchestrator:
   let a node step out of a relation it failed;
 - refuses a quantity name that shadows one a relation reads, as the hook did when
   the file was written: a name the catalogue lacks that is a misspelling of a
-  relation's quantity (within one insertion or deletion for a short name, two for a
-  longer one) is that quantity stepping out of the relation without saying so.
+  relation's quantity (within two insertions or deletions of a long quantity, one
+  edit of a short one) is that quantity stepping out of the relation without saying so.
   Every other uncatalogued name is written, and the gate records it as
   unchecked. The store does not refuse such names, so a corpus written straight
   into one is unaffected;
