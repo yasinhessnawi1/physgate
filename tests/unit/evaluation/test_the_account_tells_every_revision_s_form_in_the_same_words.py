@@ -16,9 +16,16 @@ import json
 from pathlib import Path
 
 import pytest
-from instrument_corpus import BASE_NODES, LABEL, MAGNITUDE_ARTEFACT, PROPAGATION_ARTEFACT
+from instrument_corpus import (
+    BASE_NODES,
+    LABEL,
+    MAGNITUDE_ARTEFACT,
+    PROPAGATION_ARTEFACT,
+    SeededFakeReviewer,
+    write_corpus,
+)
 
-from physgate.evaluation.inject.corpus import Base, Patch, telltales
+from physgate.evaluation.inject.corpus import Base, Patch, load_corpus, telltales
 from physgate.evaluation.inject.materialise import (
     ACCOUNT_ABSENCES,
     ACCOUNT_FORM,
@@ -28,6 +35,7 @@ from physgate.evaluation.inject.materialise import (
     neutral_trajectory,
     require_blind,
 )
+from physgate.evaluation.inject.runner import CONFIG_NAME, run_instrument
 
 BASE = Base.model_validate_json(json.dumps({"label": LABEL, "nodes": list(BASE_NODES)}))
 #: The digest of the three paragraphs as approved for the calibration round. A change to
@@ -90,3 +98,19 @@ def test_with_a_parts_sheet_the_account_states_its_absences_and_its_precision() 
 )
 def test_the_account_says_what_the_round_needs_it_to_say(said: str) -> None:
     assert said in ACCOUNT_FORM + ACCOUNT_ABSENCES + ACCOUNT_PRECISION
+
+
+def test_every_run_records_the_account_s_digest(tmp_path: Path) -> None:
+    # A later reader holds the run's reviews to the account they were told: the digest is
+    # on the run's own configuration, never only in the code that wrote it.
+    corpus = load_corpus(write_corpus(tmp_path / "corpus"))
+    run_instrument(
+        corpus,
+        {"electrical": SeededFakeReviewer()},
+        run_dir=tmp_path / "run",
+        scratch=tmp_path / "scratch",
+        run_id="dry-1",
+        seed=11,
+    )
+    config = json.loads((tmp_path / "run" / CONFIG_NAME).read_text())
+    assert config["account_sha256"] == ACCOUNT_SHA256 == PINNED
