@@ -7,38 +7,50 @@ naming the readings that balanced. Nothing here turns a balance that fails under
 reading into a pass.
 
 **A torque unit.** A node that declares both ``torque_peak`` and ``reaction_moment`` is a
-unit that delivers a torque and is held by a mount, which reacts it. The readings:
+unit that delivers a torque and is held by a mount, which reacts it. The reading:
 
 - *the unit as a whole* (a motor and its gearbox mounted as one): the mount reacts the whole
   peak torque, ``reaction_moment == torque_peak``;
-- *the gearbox alone*, where the node declares a gear ratio (``gear_ratio``,
-  ``external_gear_ratio``) and its input torque may enter through a motor mounted elsewhere:
-  the housing reacts the output torque less the input, ``torque_peak * (1 - 1 / ratio)``.
 
-Both are read as sizes: a reaction moment written with the opposite sign is the same
-balance. A named limit: a unit whose reaction differs from its torque by less than the
-rounding allowance of the readings it fails is not refused.
+and, where the node declares a gear ratio ``r`` (``gear_ratio``, ``external_gear_ratio``;
+output over input, above 1), three more, because ``torque_peak`` may be the output torque or
+the motor's own:
 
-**A carrier.** A node that declares ``supported_mass`` carries the weighted parts that name
-it (their ``constrains`` edges point at it, as a pack names the bracket that carries it).
-The readings, for the parts a carrier is named by:
+- *the gearbox alone, torque_peak the output*: the input torque enters through a motor
+  mounted elsewhere, so the housing reacts the output less the input, ``torque_peak (1 - 1/r)``;
+- *the mount reacting the output, torque_peak the motor's*: ``torque_peak r``;
+- *the housing alone, torque_peak the motor's*: ``torque_peak (r - 1)``.
 
-- *the whole*: the carrier takes all of each part's mass;
-- *the share*: each part's mass is split equally among the sibling carriers that part names
-  at the carrier's level, where a sibling that is a module is read as one with the siblings
-  that are its members (a drivetrain and the two wheels that belong to it are one carrier
-  at the whole level, and two at the wheels' level);
+Every reading is a size: a reaction moment written with the opposite sign is the same
+balance. **Named limits**, each refused because the reaction matches no reading: a
+cantilevered unit whose reaction adds the moment of its own weight; a reaction written as the
+mount's rated capacity rather than what it reacts; two motors on one node whose reaction is
+their sum. And a reaction that differs from a reading by less than the rounding allowance of
+the readings it fails is not refused.
 
-each with the carrier's own mass counted in or left out, as a support's own weight is in
-the force readings. A carrier nobody names is unchecked. A named limit: an unequal split is
-unchecked, never refused, so a carrier whose supported mass matches neither the whole nor an
-equal share of what it carries is refused only when it also matches neither with its own
-mass added.
+**A carrier.** A node that declares ``supported_mass`` carries the weighted parts whose
+``constrains`` edges name it (a pack names the bracket that carries it). Where every such part
+names only this carrier at its level, the readings are the whole of their masses, with the
+carrier's own mass counted in or left out, as a support's own weight is in the force
+readings. Where a part names several carriers at one level (a pack on two brackets; a
+drivetrain's two wheels, where a sibling that is a module is read as one with its members),
+the split between them is nothing the graph states: each carrier's own share is
+**unchecked**, and the **sum** of the sibling carriers' supported masses is judged against the
+whole of what names any of them, with their own masses counted in or left out, recorded once
+on the first of them in scope. A carrier nobody names is unchecked.
+
+**Named limits** of the carrier readings: a ``constrains`` edge is not "is carried by", so
+a carrier whose supported mass is the whole of a **subset** of the parts naming it (a wheel
+that names the chassis for clearance, beside the electronics the chassis carries) is
+**unchecked**, never refused, up to sixteen parts (beyond that the subsets are not read, and
+the carrier is unchecked); and a supported mass written as the carrier's rated capacity
+rather than what it carries matches no reading and is refused.
 """
 
 from __future__ import annotations
 
 from fractions import Fraction
+from itertools import combinations
 
 from physgate.gate.equilibrium import STANDARD_GRAVITY
 from physgate.gate.graph import GraphView
@@ -50,6 +62,8 @@ from physgate.orchestrator.protocols import EquilibriumDetails, UncheckedDetails
 
 #: The ratio names a torque unit may declare, each dimensionless, output over input.
 RATIOS: tuple[str, ...] = ("gear_ratio", "external_gear_ratio")
+#: The most parts naming one carrier whose subsets are read; more leaves the carrier unchecked.
+SUBSET_PARTS = 16
 
 
 def _si(view: GraphView, node: str, name: str) -> Fraction:
@@ -82,19 +96,30 @@ def _unchecked(view: GraphView, node_id: str, why: str, names: tuple[str, ...]) 
     )
 
 
+def _shown(readings: dict[str, Fraction], unit: str) -> str:
+    return ", ".join(f"{label} ({output(e, unit).value} {unit})" for label, e in readings.items())
+
+
 def _verdict(
     view: GraphView,
     node_id: str,
     declared: tuple[str, Fraction, str],
     readings: dict[str, Fraction],
     what: str,
+    escapes: dict[str, Fraction] | None = None,
+    declares: str | None = None,
 ) -> Observation | None:
     """Pass (None), fail or unchecked for ``declared`` against every reading.
 
-    A failure's details carry the one residual the reading made: a moment for a torque
-    unit's mount, a force (the mass miss at standard gravity) for a carrier's load.
+    ``readings`` are the plausible readings: a pass needs every one to balance, a failure
+    needs every one to miss. ``escapes`` are readings that can only leave the result
+    unchecked (a subset of what names a carrier): one that balances stops a refusal and
+    never makes a pass. ``declares`` says what the node declares, after its id. A failure's
+    details carry the one residual the nearest reading made: a moment for a torque unit's
+    mount, a force (the mass miss at standard gravity) for a carrier's load.
     """
     name, value, unit = declared
+    declares = declares or f"declares {name}"
     balanced = {
         label: expected
         for label, expected in readings.items()
@@ -102,20 +127,20 @@ def _verdict(
     }
     if len(balanced) == len(readings):
         return None
-    if balanced:
-        names = ", ".join(
-            f"{label} ({output(e, unit).value} {unit})" for label, e in balanced.items()
-        )
-        others = ", ".join(
-            f"{label} ({output(e, unit).value} {unit})"
-            for label, e in readings.items()
-            if label not in balanced
-        )
+    escaped = {
+        label: expected
+        for label, expected in (escapes or {}).items()
+        if holds_within_rounding(value - expected, [value, expected])
+    }
+    if balanced or escaped:
+        others = {label: e for label, e in readings.items() if label not in balanced}
+        under = _shown({**balanced, **escaped}, unit)
         return _unchecked(
             view,
             node_id,
-            f"declares {name} of {output(value, unit).value} {unit}, which balances under "
-            f"{names} and not under {others}; the readings disagree, so the {what} is unchecked",
+            f"{declares} of {output(value, unit).value} {unit}, which balances under {under} "
+            f"and not under {_shown(others, unit)}; the readings disagree, so the {what} is "
+            "unchecked",
             (name,),
         )
     nearest = min(readings.items(), key=lambda kv: abs(value - kv[1]))
@@ -136,8 +161,8 @@ def _verdict(
         value=miss,
         expected=expected,
         message=(
-            f"{node_id} declares {name} of {output(value, unit).value} {unit}, and no reading of "
-            f"the {what} gives that: {expected}; the nearest, {nearest[0]}, misses by {miss.value} "
+            f"{node_id} {declares} of {output(value, unit).value} {unit}, and no reading of the "
+            f"{what} gives that: {expected}; the nearest, {nearest[0]}, misses by {miss.value} "
             f"{unit}, more than the declared rounding allows"
         ),
         details=details,
@@ -162,9 +187,14 @@ def judge_torque_unit(view: GraphView, node_id: str) -> Observation | None:
     readings = {"the unit as a whole, its mount reacting the peak torque": torque}
     for name, ratio in ratios.items():
         if ratio > 1:
-            shown = output(ratio, "dimensionless").value
-            label = f"the gearbox alone, its input torque entering elsewhere ({name} {shown})"
-            readings[label] = torque * (1 - 1 / ratio)
+            shown = f"{name} {output(ratio, 'dimensionless').value}"
+            readings[f"the gearbox alone, torque_peak its output ({shown})"] = torque * (
+                1 - 1 / ratio
+            )
+            readings[f"the mount reacting the output, torque_peak the motor's ({shown})"] = (
+                torque * ratio
+            )
+            readings[f"the housing alone, torque_peak the motor's ({shown})"] = torque * (ratio - 1)
     return _verdict(view, node_id, ("reaction_moment", reaction, "N*m"), readings, "unit's mount")
 
 
@@ -200,41 +230,110 @@ def _siblings(view: GraphView, part: str, carrier: str) -> list[str]:
     return sorted(c for c in named if c not in members)
 
 
-def judge_carrier(view: GraphView, carrier: str) -> Observation | None:
-    """The finding for a carrier whose supported mass is not what the parts naming it weigh."""
-    parts = _named_by(view, carrier)
-    q = view.nodes[carrier].quantities
+def group_of(view: GraphView, carrier: str) -> tuple[str, ...]:
+    """The carriers that share a part with ``carrier`` at its level, ``carrier`` among them.
+
+    Sibling carriers are judged on the sum of their supported masses, so the group is
+    closed: a bracket that shares a pack with a second bracket, which shares a sensor with a
+    third, is one group of three.
+    """
+    group = {carrier}
+    pending = [carrier]
+    while pending:
+        current = pending.pop()
+        for part in _named_by(view, current):
+            for sibling in _siblings(view, part, carrier):
+                if sibling not in group:
+                    group.add(sibling)
+                    pending.append(sibling)
+    return tuple(sorted(group))
+
+
+def _share_unchecked(view: GraphView, carrier: str, group: tuple[str, ...], on: str) -> Observation:
+    parts = ", ".join(_named_by(view, carrier))
+    return _unchecked(
+        view,
+        carrier,
+        f"declares supported_mass, and {parts} name it among {len(group)} carriers at its level "
+        f"({', '.join(group)}); its own share of what they carry is nothing the graph states, "
+        f"so it is unchecked, and the sum of their supported masses is judged on {on}",
+        ("supported_mass",),
+    )
+
+
+def judge_group(
+    view: GraphView, group: tuple[str, ...], on: str | None = None
+) -> Observation | None:
+    """The finding for a carrier, or a group of sibling carriers, on what names them.
+
+    One carrier is a group of one. The finding is recorded on ``on``, the first of the
+    group in scope, else on the first of the group.
+    """
+    node_id = on or group[0]
+    parts = sorted({p for c in group for p in _named_by(view, c)})
+    one = len(group) == 1
     if not parts:
         return _unchecked(
             view,
-            carrier,
+            node_id,
             "declares supported_mass, and no weighted part names it as what carries it, so "
             "there is nothing to hold the mass to",
             ("supported_mass",),
         )
     try:
-        supported = _si(view, carrier, "supported_mass")
-        whole = sum((_si(view, p, "mass") for p in parts), Fraction(0))
-        share = sum(
-            (_si(view, p, "mass") / len(_siblings(view, p, carrier)) for p in parts), Fraction(0)
+        supported = sum((_si(view, c, "supported_mass") for c in group), Fraction(0))
+        masses = {p: _si(view, p, "mass") for p in parts}
+        own = sum(
+            (_si(view, c, "mass") for c in group if "mass" in view.nodes[c].quantities),
+            Fraction(0),
         )
-        own = _si(view, carrier, "mass") if "mass" in q else None
     except (UnitRefusedError, *PINT_ERRORS):
         return _unchecked(
             view,
-            carrier,
+            node_id,
             "has a supported mass, or a mass it carries, in a unit the unit check refuses",
             ("supported_mass", "mass"),
         )
-    readings = {"the whole of what names it": whole, "an equal share of what names it": share}
-    if own is not None and own != 0:
-        readings.update(
-            {
-                "the whole with its own mass": whole + own,
-                "an equal share with its own mass": share + own,
-            }
+    if len(parts) > SUBSET_PARTS:
+        return _unchecked(
+            view,
+            node_id,
+            f"is named by {len(parts)} weighted parts, more than the {SUBSET_PARTS} whose "
+            "subsets the carrier readings read, so it is unchecked",
+            ("supported_mass",),
         )
-    return _verdict(view, carrier, ("supported_mass", supported, "kg"), readings, "carrier")
+    them = "it" if one else "them"
+    owns = "its own mass" if one else "their own masses"
+    whole = sum(masses.values(), Fraction(0))
+    readings = {f"the whole of what names {them}": whole}
+    if own != 0:
+        readings[f"the whole with {owns}"] = whole + own
+    escapes: dict[str, Fraction] = {}
+    for size in range(1, len(parts)):
+        for subset in combinations(parts, size):
+            total = sum((masses[p] for p in subset), Fraction(0))
+            label = f"the whole of a subset of what names {them} ({', '.join(subset)})"
+            escapes[label] = total
+            if own != 0:
+                escapes[f"{label} with {owns}"] = total + own
+    others = ", ".join(c for c in group if c != node_id)
+    declares = (
+        None if one else f"and its sibling carriers {others} declare supported_mass summing to"
+    )
+    return _verdict(
+        view,
+        node_id,
+        ("supported_mass", supported, "kg"),
+        readings,
+        "carrier" if one else "sibling carriers",
+        escapes,
+        declares,
+    )
+
+
+def judge_carrier(view: GraphView, carrier: str) -> Observation | None:
+    """The finding for a carrier that shares no part with a sibling, on what names it."""
+    return judge_group(view, (carrier,))
 
 
 def judge_loads(
@@ -244,29 +343,38 @@ def judge_loads(
 
     ``in_scope`` limits the nodes judged; ``None`` is every node. A node is judged (and
     counted) when its reading gave a pass or a failure; one left unchecked is recorded, not
-    counted. The (node, quantity) pairs read are returned, so the check records every other
-    statics quantity of those nodes as read by no structure, as before: a torque unit's
-    reading reads its reaction moment and nothing else.
+    counted. A group of sibling carriers is judged once, on its first member in scope. The
+    (node, quantity) pairs read are returned, so the check records every other statics
+    quantity of those nodes as read by no structure, as before: a torque unit's reading reads
+    its reaction moment and nothing else.
     """
     found: list[Observation] = []
     judged = 0
     read: set[tuple[str, str]] = set()
+
+    def take(finding: Observation | None) -> None:
+        nonlocal judged
+        if finding is None or finding.outcome == "fail":
+            judged += 1
+        if finding is not None:
+            found.append(finding)
+
     for node_id in torque_units(view):
         if in_scope is not None and node_id not in in_scope:
             continue
         read.add((node_id, "reaction_moment"))
-        finding = judge_torque_unit(view, node_id)
-        if finding is None or finding.outcome == "fail":
-            judged += 1
-        if finding is not None:
-            found.append(finding)
+        take(judge_torque_unit(view, node_id))
+    judged_on: dict[tuple[str, ...], str] = {}
     for node_id in carriers(view):
         if in_scope is not None and node_id not in in_scope:
             continue
         read.add((node_id, "supported_mass"))
-        finding = judge_carrier(view, node_id)
-        if finding is None or finding.outcome == "fail":
-            judged += 1
-        if finding is not None:
-            found.append(finding)
+        group = group_of(view, node_id)
+        if len(group) == 1:
+            take(judge_group(view, group))
+            continue
+        first = judged_on.setdefault(group, node_id)
+        found.append(_share_unchecked(view, node_id, group, first))
+        if first == node_id:
+            take(judge_group(view, group, node_id))
     return found, judged, read

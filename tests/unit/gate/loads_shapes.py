@@ -119,9 +119,10 @@ SHAPES: list[tuple[str, list[dict[str, Any]], tuple[str, ...] | None]] = [
         (f"{M}.drivetrain",),
     ),
     (
+        # Sibling carriers are refused once, on the sum of their shares, on the first of them.
         "drive: the wheels' shares stale after the robot grew",
         drive(400, 400, 165),
-        (f"{M}.wheel_left", f"{M}.wheel_right"),
+        (f"{M}.wheel_left",),
     ),
     ("bracket: the whole", bracket(200, 200, None), None),
     ("bracket: the whole with its own mass, readings disagree", bracket(200, 250, 50), None),

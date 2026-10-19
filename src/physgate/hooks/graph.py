@@ -19,12 +19,13 @@ order, so a refused proposal is refused for the reason the store would give:
 3. an existing interface node is not written at all;
 4. every quantity is a value with a unit, a source and a writer — a bare number
    is refused here, with the schema's own message;
-5. every quantity's name is one the gate's catalogue knows. A name the catalogue
-   lacks gets a unit parse and at best a dimension from its suffix, never a
-   relation or a range, so a writer who renames ``stall_current`` has stepped out
-   of the headroom relation. This rule is the hook's and the orchestrator's, not
-   the store's: a corpus written straight into a store is unaffected, and the gate
-   keeps recording names it does not know as unchecked;
+5. no quantity's name shadows one a relation reads: a name the catalogue lacks
+   that ends in the last word of a relation's quantity (``motor_current`` for
+   ``stall_current``, ``pack_mass`` for ``mass``) is the way a writer steps out
+   of the headroom relation, or the mass sum, without saying so. Every other
+   uncatalogued name is written, and the gate records it as unchecked. This rule
+   is the hook's and the orchestrator's, not the store's: a corpus written
+   straight into a store is unaffected;
 6. the node as a whole is valid.
 
 The current owner and kind come from the journal, read without opening the
@@ -83,8 +84,8 @@ UNCHECKABLE = (
 OWNER_CHANGE = "owner_change"
 #: Not one of the store's reasons either (see ``_kind_does_not_change``).
 KIND_CHANGE = "kind_change"
-#: Not one of the store's reasons: a quantity name the gate's catalogue lacks.
-UNKNOWN_QUANTITY = "unknown_quantity"
+#: Not one of the store's reasons: a quantity name that shadows one a relation reads.
+SHADOWED_QUANTITY = "shadowed_quantity"
 
 
 def _owner_is_the_session(
@@ -196,9 +197,9 @@ def _check(proposal: object, file_stem: str, config: ConfigView) -> tuple[str, s
             node_id=node_id,
         )
         return REJECT_MISSING_UNIT, str(refusal)
-    unknown = _unknown_quantities(proposal)
-    if unknown:
-        return UNKNOWN_QUANTITY, unknown
+    shadowed = _shadowing_quantities(proposal)
+    if shadowed:
+        return SHADOWED_QUANTITY, shadowed
     try:
         validate_node(proposal)
     except (DesignStateError, ValidationError) as exc:
@@ -206,24 +207,25 @@ def _check(proposal: object, file_stem: str, config: ConfigView) -> tuple[str, s
     return None
 
 
-def _unknown_quantities(proposal: dict[str, Any]) -> str | None:
-    """Why a proposal naming quantities the catalogue lacks is refused, or None.
+def _shadowing_quantities(proposal: dict[str, Any]) -> str | None:
+    """Why a proposal naming a quantity that shadows a relation's is refused, or None.
 
     The names are read from :mod:`physgate.state.vocabulary`, the catalogue's names spelled
     where a hook may load them: a hook never loads the gate.
     """
-    from physgate.state.vocabulary import nearest_quantity_names, unknown_quantity_names
+    from physgate.state.vocabulary import nearest_quantity_names, shadowing_quantity_names
 
-    unknown = unknown_quantity_names(proposal.get("quantities") or {})
-    if not unknown:
+    shadowed = shadowing_quantity_names(proposal.get("quantities") or {})
+    if not shadowed:
         return None
-    hints = "; ".join(
-        f"{name}: nearest {', '.join(nearest_quantity_names(name)) or 'none'}" for name in unknown
+    told = "; ".join(
+        f"{name} shadows {relation} (nearest {', '.join(nearest_quantity_names(name))})"
+        for name, relation in shadowed
     )
     return (
-        f"{proposal.get('id')} names quantities the gate's catalogue does not know "
-        f"({', '.join(unknown)}); a node is written with the catalogue's names, so that every "
-        f"relation and range that reads them applies ({hints})"
+        f"{proposal.get('id')} names a quantity the gate's catalogue does not know under a "
+        f"name a relation reads ({told}); a quantity a relation reads is written under the "
+        "catalogue's name, so that the relation applies to it"
     )
 
 

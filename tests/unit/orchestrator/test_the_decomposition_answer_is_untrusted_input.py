@@ -282,3 +282,23 @@ def test_a_schema_refusal_is_its_own_cause_not_the_turn_limit() -> None:
     )
     assert without[0] == "turn_limit"
     assert schema_refusal('{"type": "user", "message": {"content": "plain"}}\nnot json') is None
+
+
+def _naming(name: str, unit: str) -> dict[str, Any]:
+    return {
+        **NODE,
+        "quantities": {
+            name: {"value": 1, "unit": unit, "source": "brief", "written_by": "electrical"}
+        },
+    }
+
+
+def test_an_interface_node_naming_a_quantity_that_shadows_a_relation_s_is_a_problem() -> None:
+    # The plan is written straight into the store, past the hook, so the same rule the hook
+    # and the apply step hold a session's proposal to is held here: a name the catalogue
+    # lacks that ends in a relation quantity's last word is refused, and named.
+    modules = [module("power", "modules/power")]
+    found = plan_problems(plan(modules, [_naming("motor_current", "A")]), ["electrical"])
+    assert any("'motor_current'" in p and "shadows 'stall_current'" in p for p in found), found
+    # Every other uncatalogued name is written, and the gate records it as unchecked.
+    assert plan_problems(plan(modules, [_naming("logic_voltage", "V")]), ["electrical"]) == []

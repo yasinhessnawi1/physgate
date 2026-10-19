@@ -1,11 +1,13 @@
-"""The quantity names a proposal may use: the gate's catalogue, spelled where a hook can read it.
+"""The quantity names the gate reads, spelled where a hook can read them.
 
-A role session's proposal is refused at write time when a quantity's name is not here, so
-that every relation and range the gate reads by name applies to what the session wrote. The
-names are the gate's catalogue (physgate.gate.catalogue.QUANTITIES); they are listed
-again here because a hook may not load the gate (pint, sympy and the gate's own modules are
-not code a hook is allowed to pull in), and the sentinel's record of what a hook may load
-covers this package. A test holds this list equal to the catalogue, so the two cannot drift.
+A role session's proposal is refused at write time when a quantity's name shadows one a
+relation reads (``motor_current`` for ``stall_current``): the way a writer steps out of a
+relation without saying so. Every other name the catalogue lacks is written, and the gate
+records it as unchecked. The names are the gate's catalogue
+(physgate.gate.catalogue.QUANTITIES and RELATION_NAMES); they are listed again here because
+a hook may not load the gate (pint, sympy and the gate's own modules are not code a hook is
+allowed to pull in), and the sentinel's record of what a hook may load covers this package.
+A test holds both lists equal to the catalogue, so they cannot drift.
 """
 
 from __future__ import annotations
@@ -50,6 +52,58 @@ QUANTITY_NAMES: tuple[str, ...] = (
     "thermal_resistance",
     "torque_peak",
 )
+
+
+#: The names a relation, or one of the equilibrium check's readings, reads by name. Held
+#: equal to the catalogue's RELATION_NAMES by a test.
+RELATION_QUANTITY_NAMES: tuple[str, ...] = (
+    "ambient_temperature",
+    "current_limit",
+    "energy_capacity",
+    "external_gear_ratio",
+    "gear_ratio",
+    "heat_dissipation",
+    "heat_rejection_capacity",
+    "input_power",
+    "load_force",
+    "mass",
+    "max_discharge_power",
+    "max_temperature",
+    "mount_position",
+    "output_power",
+    "power_draw",
+    "power_supply",
+    "reaction_force",
+    "reaction_moment",
+    "stall_current",
+    "support_position",
+    "supported_mass",
+    "thermal_resistance",
+    "torque_peak",
+)
+
+
+def shadowing_quantity_names(names: object) -> tuple[tuple[str, str], ...]:
+    """The unlisted names among names that end in the last word of a relation's quantity.
+
+    Each pair is the name and the relation quantity it shadows (the one sharing most words
+    with it, then the shortest), sorted by name; the catalogue's shadowing_names gives the
+    same pairs.
+    """
+    if not isinstance(names, dict | list | tuple | set):
+        return ()
+    found: dict[str, str] = {}
+    for name in sorted({str(n) for n in names}):
+        if name in QUANTITY_NAMES:
+            continue
+        words = name.split("_")
+        shadowed = sorted(
+            (r for r in RELATION_QUANTITY_NAMES if r.rsplit("_", 1)[-1] == words[-1]),
+            key=lambda r: (-len(set(r.split("_")) & set(words)), len(r), r),
+        )
+        if shadowed:
+            found[name] = shadowed[0]
+    return tuple(found.items())
 
 
 def unknown_quantity_names(names: object) -> tuple[str, ...]:

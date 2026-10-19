@@ -56,13 +56,17 @@ from physgate.state.store import (
 from physgate.state.task_ledger import TaskLedger, TaskLine, read_ledger
 from physgate.state.vocabulary import (
     QUANTITY_NAMES,
+    RELATION_QUANTITY_NAMES,
     nearest_quantity_names,
+    shadowing_quantity_names,
     unknown_quantity_names,
 )
 
 __all__ = [
     "QUANTITY_NAMES",
+    "RELATION_QUANTITY_NAMES",
     "nearest_quantity_names",
+    "shadowing_quantity_names",
     "unknown_quantity_names",
     "REJECT_CROSS_ROLE",
     "REJECT_DUPLICATE_NODE",

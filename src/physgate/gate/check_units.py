@@ -192,8 +192,9 @@ def run(ctx: CheckContext) -> CheckRun:
                     expected=None,
                     message=(
                         f"{node_id} carries quantities the gate's catalogue does not know, "
-                        f"whose kind their suffix gives ({rules}): their unit's dimension and "
-                        "their sign were checked by that kind, and no relation forms from them "
+                        f"whose kind their suffix suggests ({rules}): their unit's dimension "
+                        "and their sign were read against that kind, and a mismatch is "
+                        "recorded as unchecked, never refused; no relation forms from them "
                         "and no range applies to them by name"
                     ),
                     details=UncheckedDetails(quantities=tuple(sorted(inferred))),
@@ -234,24 +235,45 @@ def run(ctx: CheckContext) -> CheckRun:
             if kind is None or (node_id, name) in refused:
                 continue
             suffix = inferred_by(name)
-            by = f" (the kind the suffix {suffix.suffix} gives the name)" if suffix else ""
             try:
                 measure(kind, q.value, q.unit)
             except PINT_ERRORS as exc:
-                observations.append(
-                    _quantity_finding(view, node_id, name, pint_message(exc) + by, kind.canonical)
-                )
+                reason, wanted = pint_message(exc), None
             except SignRefusedError as exc:
-                observations.append(
-                    _quantity_finding(
-                        view, node_id, name, str(exc) + by, kind.canonical, exc.wanted
-                    )
-                )
+                reason, wanted = str(exc), exc.wanted
             except UnitRefusedError as exc:
+                reason, wanted = str(exc), None
+            else:
+                continue
+            if suffix is not None:
+                # The kind is the suffix's reading of the name, not the catalogue's: a
+                # mismatch is recorded, naming the suffix, and refuses nothing.
+                observations.append(_inferred_mismatch(view, node_id, name, suffix.suffix, reason))
+            else:
                 observations.append(
-                    _quantity_finding(view, node_id, name, str(exc) + by, kind.canonical)
+                    _quantity_finding(view, node_id, name, reason, kind.canonical, wanted)
                 )
     return CheckRun(tool=TOOL, evaluated=evaluated, observations=tuple(observations))
+
+
+def _inferred_mismatch(
+    view: GraphView, node_id: str, name: str, suffix: str, reason: str
+) -> Observation:
+    """The unchecked record for an uncatalogued name whose unit or sign is not its suffix's."""
+    q = view.nodes[node_id].quantities[name]
+    return Observation(
+        outcome="unchecked",
+        node=node_id,
+        module=view.module_of(node_id),
+        value=None,
+        expected=None,
+        message=(
+            f"{name} of {node_id} is {q.value} {q.unit}, which is not what its suffix {suffix} "
+            f"suggests: {reason}; the suffix is a reading of a name the catalogue does not "
+            "know, so this is recorded as unchecked and refuses nothing"
+        ),
+        details=UncheckedDetails(quantities=(name,)),
+    )
 
 
 def _quantity_finding(

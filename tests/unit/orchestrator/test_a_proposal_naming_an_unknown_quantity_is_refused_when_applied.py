@@ -1,8 +1,9 @@
-"""The orchestrator's second line: a proposal naming a quantity the catalogue lacks is refused.
+"""The orchestrator's second line: a quantity named so as to shadow a relation's is refused.
 
 The hook refuses it as the session writes it; the orchestrator refuses it again when it reads
 the attempt's proposals from the commit, with a role the session could not choose, so a file
-that reached the commit by any other route is refused all the same. The store itself does not
+that reached the commit by any other route is refused all the same. Every other uncatalogued
+name is read and written, and the gate records it as unchecked. The store itself does not
 refuse such names: a corpus written straight into a store is unaffected.
 """
 
@@ -87,7 +88,17 @@ def test_a_proposal_with_a_catalogued_name_is_read(repo: tuple[Path, str], tmp_p
     assert found["id"] == "electrical.driver"
 
 
-def test_a_proposal_naming_a_quantity_the_catalogue_lacks_is_refused_naming_it(
+def test_a_proposal_naming_an_uncatalogued_quantity_that_shadows_none_is_read(
+    repo: tuple[Path, str], tmp_path: Path
+) -> None:
+    root, base = repo
+    path = ".physgate/proposals/electrical.driver.json"
+    commit = _commit(root, {path: json.dumps(_node("logic_voltage"))}, "proposal")
+    (found,) = read_proposals(root, base, commit, tmp_path / "graph")
+    assert "logic_voltage" in found["quantities"]
+
+
+def test_a_proposal_naming_a_quantity_that_shadows_a_relation_s_is_refused_naming_both(
     repo: tuple[Path, str], tmp_path: Path
 ) -> None:
     root, base = repo
@@ -95,5 +106,5 @@ def test_a_proposal_naming_a_quantity_the_catalogue_lacks_is_refused_naming_it(
     commit = _commit(root, {path: json.dumps(_node("motor_current"))}, "proposal")
     with pytest.raises(ProposalRefusedError, match="motor_current") as caught:
         read_proposals(root, base, commit, tmp_path / "graph")
-    assert "stall_current" in str(caught.value)  # the nearest catalogued name is offered
+    assert "shadows stall_current" in str(caught.value)  # the relation's quantity, named
     assert caught.value.subject == "electrical.driver"

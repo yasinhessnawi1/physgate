@@ -11,10 +11,11 @@ cannot weaken one from inside a session. The catalogue says
   constrain it, a module's mass against its members, a component's temperature
   against its limit.
 
-A quantity whose name is not here is checked for a unit that parses and, where its
-name ends in a word with one SI meaning (``SUFFIXES``), for that word's dimension
-and sign; nothing else, and every gate run records it as unchecked. Coverage is a
-number, not an assumption.
+A quantity whose name is not here is checked for a unit that parses and nothing
+else, and every gate run records it as unchecked. Where its name ends in a word with
+one meaning in mechatronics (``SUFFIXES``), the record also says whether its unit and
+sign are that word's: a mismatch is recorded, never refused, because the suffix is a
+reading of the name and not the catalogue's. Coverage is a number, not an assumption.
 
 Every kind, every name and every relation names its source. An entry without one
 fails when this module is imported, so a gate with an unsourced entry cannot be
@@ -478,11 +479,13 @@ class Suffix(_Frozen):
 
 
 SUFFIX_RULE = (
-    "a closed list, 18.10.2026: a name the catalogue lacks whose last word has one SI "
-    "dimension (the dimension of the word's quantity in the SI brochure, 9th edition, "
-    "2019, section 2.3) is held to that dimension and sign and to nothing else; a word "
-    "with more than one meaning (_rate, _speed, _power, _ratio, _capacity, _resistance, "
-    "_limit, _draw) is not here"
+    "a closed list, 19.10.2026: a name the catalogue lacks whose last word has one meaning "
+    "in mechatronics (the dimension of the word's quantity in the SI brochure, 9th edition, "
+    "2019, section 2.3) is read against that dimension and sign, and a mismatch is recorded "
+    "as unchecked, never refused; a word with more than one meaning there (_current, which "
+    "is also a loss in watts; _position, _length, _width and _height, which are also counts, "
+    "pulses and ratios; _temperature, which is also a colour or a difference; _energy, "
+    "_power, _rate, _ratio, _capacity, _resistance, _limit, _draw) is not here"
 )
 
 
@@ -495,26 +498,16 @@ def _suffixes(*suffixes: Suffix) -> tuple[Suffix, ...]:
 
 
 #: Each suffix is written with its leading underscore: the word must end the name and
-#: be a whole word of it. Longer suffixes are matched first (``_current_draw`` before
-#: ``_current``). The suffix alone is not a name.
+#: be a whole word of it. Longer suffixes are matched first. The suffix alone is not a name.
 SUFFIXES: tuple[Suffix, ...] = _suffixes(
-    Suffix(suffix="_current", kind="current", source=SUFFIX_RULE),
-    Suffix(suffix="_current_draw", kind="current", source=SUFFIX_RULE),
     Suffix(suffix="_voltage", kind="voltage", source=SUFFIX_RULE),
     Suffix(suffix="_mass", kind="mass", source=SUFFIX_RULE),
     Suffix(suffix="_force", kind="force", source=SUFFIX_RULE),
     Suffix(suffix="_torque", kind="torque", source=SUFFIX_RULE),
-    Suffix(suffix="_energy", kind="energy", source=SUFFIX_RULE),
     Suffix(suffix="_frequency", kind="frequency", source=SUFFIX_RULE),
-    Suffix(suffix="_temperature", kind="temperature", source=SUFFIX_RULE),
-    Suffix(suffix="_position", kind="length", source=SUFFIX_RULE),
-    Suffix(suffix="_length", kind="length", source=SUFFIX_RULE),
     Suffix(suffix="_diameter", kind="length", source=SUFFIX_RULE),
     Suffix(suffix="_radius", kind="length", source=SUFFIX_RULE),
-    Suffix(suffix="_height", kind="length", source=SUFFIX_RULE),
-    Suffix(suffix="_width", kind="length", source=SUFFIX_RULE),
     Suffix(suffix="_thickness", kind="length", source=SUFFIX_RULE),
-    Suffix(suffix="_power_draw", kind="power", source=SUFFIX_RULE),
 )
 
 
@@ -539,6 +532,62 @@ def unknown_names(names: Iterable[str]) -> tuple[str, ...]:
     gate's reading of a corpus written outside the hooks, not a licence for a writer.
     """
     return tuple(sorted({n for n in names if n not in QUANTITIES}))
+
+
+#: The quantity names a relation, or one of check 3's readings, reads by name: the names a
+#: writer steps out of by renaming. Every one is catalogued. The relations' names are read
+#: off :mod:`physgate.gate.relations`; the statics names off :mod:`physgate.gate.check_equilibrium`
+#: and its load readings. Spelled again for the hooks in :mod:`physgate.state.vocabulary`,
+#: held equal by a test.
+RELATION_NAMES: tuple[str, ...] = (
+    "ambient_temperature",
+    "current_limit",
+    "energy_capacity",
+    "external_gear_ratio",
+    "gear_ratio",
+    "heat_dissipation",
+    "heat_rejection_capacity",
+    "input_power",
+    "load_force",
+    "mass",
+    "max_discharge_power",
+    "max_temperature",
+    "mount_position",
+    "output_power",
+    "power_draw",
+    "power_supply",
+    "reaction_force",
+    "reaction_moment",
+    "stall_current",
+    "support_position",
+    "supported_mass",
+    "thermal_resistance",
+    "torque_peak",
+)
+
+
+def shadowing_names(names: Iterable[str]) -> tuple[tuple[str, str], ...]:
+    """The uncatalogued names among ``names`` that shadow a relation's quantity, each once.
+
+    A name shadows a quantity a relation reads when it ends in that quantity's last word
+    (``motor_current`` for ``stall_current``, ``pack_mass`` for ``mass``): the way a writer
+    steps out of the headroom relation, or the mass sum, without saying so. Every other
+    uncatalogued name is written, and the gate records it as unchecked. Each pair is the
+    name and the relation quantity it shadows: the one sharing most words with it, then
+    the shortest.
+    """
+    found: dict[str, str] = {}
+    for name in sorted(set(names)):
+        if name in QUANTITIES:
+            continue
+        words = name.split("_")
+        shadowed = sorted(
+            (r for r in RELATION_NAMES if r.rsplit("_", 1)[-1] == words[-1]),
+            key=lambda r: (-len(set(r.split("_")) & set(words)), len(r), r),
+        )
+        if shadowed:
+            found[name] = shadowed[0]
+    return tuple(found.items())
 
 
 def kind_of(name: str) -> Kind | None:

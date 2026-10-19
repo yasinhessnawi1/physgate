@@ -7,10 +7,12 @@ or refuse one it does; this test is what makes the second spelling safe.
 
 from __future__ import annotations
 
-from physgate.gate.catalogue import QUANTITIES, unknown_names
+from physgate.gate.catalogue import QUANTITIES, RELATION_NAMES, shadowing_names, unknown_names
 from physgate.state.vocabulary import (
     QUANTITY_NAMES,
+    RELATION_QUANTITY_NAMES,
     nearest_quantity_names,
+    shadowing_quantity_names,
     unknown_quantity_names,
 )
 
@@ -36,3 +38,35 @@ def test_the_hook_s_nearest_names_are_catalogued_and_share_a_word() -> None:
     assert near and all(n in QUANTITIES for n in near)
     assert near[0].endswith("_current")
     assert nearest_quantity_names("zeta") == () and nearest_quantity_names("") == ()
+
+
+def test_the_relation_names_are_the_catalogue_s_and_every_one_is_catalogued() -> None:
+    assert RELATION_QUANTITY_NAMES == RELATION_NAMES == tuple(sorted(RELATION_NAMES))
+    assert set(RELATION_NAMES) <= set(QUANTITIES)
+    # The names the relations and the statics readings read, pinned.
+    assert {"stall_current", "current_limit", "mass", "supported_mass", "torque_peak"} <= set(
+        RELATION_NAMES
+    )
+
+
+def test_both_spellings_find_the_same_shadowing_names() -> None:
+    names = {
+        "stall_current": 1,
+        "motor_current": 2,
+        "pack_mass": 3,
+        "zeta": 4,
+        "logic_voltage": 5,
+        "discharge_power": 6,
+        "mass_without_battery": 7,
+    }
+    assert (
+        shadowing_quantity_names(names)
+        == shadowing_names(names)
+        == (
+            ("discharge_power", "max_discharge_power"),
+            ("motor_current", "stall_current"),
+            ("pack_mass", "mass"),
+        )
+    )
+    assert shadowing_quantity_names({}) == shadowing_names({}) == ()
+    assert shadowing_quantity_names("not a mapping") == ()
