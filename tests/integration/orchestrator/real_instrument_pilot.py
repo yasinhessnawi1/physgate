@@ -155,6 +155,7 @@ PARAMS: dict[str, Any] = {
     "lanes": 1,
     "pause_after_failures": 3,
     "pause_s": 900.0,
+    "repair_resumes": 1,
 }
 #: The outcomes a review can come to, as the instrument's rows name them.
 OUTCOMES = ("pass", "fail", "blocked", "review_unavailable")
