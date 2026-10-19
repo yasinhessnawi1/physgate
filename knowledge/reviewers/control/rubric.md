@@ -20,8 +20,7 @@ arithmetic on the page, a formula in the code, a value in a configuration file. 
 a computation that the trajectory does not show, the evidence is missing. The item then fails when
 every input the computation needs is present or derivable by reading; policy rule 7 says what holds
 when an input is missing (**Missing evidence**) and when the check uses only given values (**Given
-and written values**), and policy rule 10 what holds in a proposed revision for a record the
-revision did not write (**Unwritten records**).
+and written values**).
 
 Automated design-quantity checks exist in the harness. They cover: the quantity record format and
 unit consistency; magnitudes against sourced ranges, for the quantity names they know; supply
@@ -100,8 +99,8 @@ without doing the work.
    - **Non-blocking:** an unsourced specific allowance (rule 5); a `not evaluable` criterion
      outside A6's safety-critical list; a Section 2 or 3 sub-check with no **[B]** marker that
      cannot be decided for want of an input (**Missing evidence** below; a waived stating line
-     excepted); and, in a proposed revision, a check on given values only or a record the
-     revision did not write (rule 10). All are reported and do not change the verdict.
+     excepted); and, in a proposed revision, a check on given values only (rule 10). All are
+     reported and do not change the verdict.
    - **When an input counts as missing.** An input is missing only if all three hold:
      - it is absent from the issued specification;
      - it is absent from the design state the issued specification gives (for example upstream
@@ -142,8 +141,6 @@ without doing the work.
      2. **Every input is there** (present, or derivable by reading). The absence of the evidence is
         the work's: the Section 1 criterion is `unmet`, the Section 2 or 3 item is a finding. This
         includes a record this rubric requires the work to make whose inputs are all available.
-        In a proposed revision, such a record that the revision did not write is the exception:
-        it is `noted`, not `unmet`, as rule 10's **Unwritten records** says.
 
      So `not evaluable` means the issued specification and the design state it gives (in a
      proposed revision, the design graph) give no way to judge, for want of an input; it never
@@ -242,8 +239,7 @@ without doing the work.
         single line, so A6's list decides nothing.
       - A line "owed regardless of [B]" follows rule 7's **Missing evidence** (point 1, "A duty of
         the work is never a missing input"): it is owed for every check that involves a value the
-        revision wrote; one the revision did not write is recorded under **Unwritten records**
-        below.
+        revision wrote.
       - A check that fails, or lacks a source it requires, using only given values is not charged
         to the revision, and rule 7's blocking rule for a value the
         specification fixes does not apply to it. Record it as a non-blocking specification defect
@@ -253,28 +249,6 @@ without doing the work.
         follow-up (a written value inconsistent with an unwritten one) is a finding against the
         revision. A given value's own source requirement is the exception (rule 7's **Given and
         written values**).
-    - **Unwritten records.** A proposed revision is a set of written values with their units and
-      sources, not a finished piece of work with its runs, simulations, measurements, margins and
-      budgets. A record this rubric requires the work to make (a value stated or sourced, a
-      computation shown, a run, a measurement, a report, a listing) that the revision did not
-      write is not `unmet` and not a finding. Record it as `noted`: a non-blocking specification
-      defect naming the item and the record, as **Given values** does for a given-value
-      condition. It never rejects and never makes the review `blocked`. This holds wherever this
-      rubric (an item, a policy rule or the preamble) would otherwise make the absence of such a
-      record `unmet`, a finding or a violation; that its inputs are present does not change it
-      (rule 7's **Missing evidence**, point 2). A Section 4 indicator whose only evidence is such
-      an absence is `noted`, not `confirmed`.
-      - What rejects is what is written. `unmet`, and a finding, need one of: a value the
-        revision wrote that is inconsistent with another written value, with its unit, with the
-        source it cites or with its own arithmetic; or a check that involves a written value,
-        that the values on the page decide by reading, and that fails (judged normally, as
-        **Given values** says).
-      - The items that read the values present and need no record of the work's own are not
-        touched by this rule: a unit error, a magnitude out of physical sense or unsupported by
-        its source, a balance that does not close, and a changed quantity that did not reach a
-        node it constrains (the preamble; D25 to D28) are findings as usual. The follow-up D28
-        owes, and a `no_change_justified` reason, are not unwritten records under this rule:
-        their absence is the change not reaching what it constrains.
     - **Allowances.** With no issued specification there are no allowances (rule 5).
 
 ## Verdict format
@@ -351,10 +325,10 @@ The issued specification's acceptance criteria are inserted with each review. Ju
   design on its own), Section 1 has exactly one line, in place of A1's list: whether the revision
   is consistent with the design it changes and with this rubric. Mark it `met` or `unmet`, never
   `not evaluable`, with the node files that show it. The line judges what the revision wrote; a
-  condition recorded under Given values or Unwritten records (policy rule 10) does not make it
-  `unmet`. The missing specification is not a specification defect, and does not by itself make
-  the line, or anything else, `not evaluable` or `blocked`. Evidence, missing inputs and given
-  values (policy rule 7's **Given and written values**) are handled as policy rule 10 says.
+  condition recorded under Given values (policy rule 10) does not make it `unmet`. The missing
+  specification is not a specification defect, and does not by itself make the line, or anything
+  else, `not evaluable` or `blocked`. Evidence, missing inputs and given values (policy rule 7's
+  **Given and written values**) are handled as policy rule 10 says.
 
 ## 2. Domain standard violations
 
@@ -757,4 +731,4 @@ in a proposed revision, it is recorded as policy rule 10's **Given values** says
   - *Do:* `noted` when the history reads precede a matching number; confirmed when the trajectory
     shows no derivation of it.
 
-<!-- 0134502b475ba30d6aa4a985d1765119 -->
+<!-- 955df52fda4d31c90ccb0d8e2efce636 -->

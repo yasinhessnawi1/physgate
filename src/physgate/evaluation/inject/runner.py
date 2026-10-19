@@ -92,7 +92,6 @@ from physgate.evaluation.inject.exceptions import (
     RunDirectoryError,
 )
 from physgate.evaluation.inject.materialise import (
-    ACCOUNT_SHA256,
     DESIGN_DIRNAME,
     Materialised,
     materialise,
@@ -216,9 +215,6 @@ class InstrumentConfig(_Frozen):
     #: ``paired``: each role's own rubric (ARCH-060); ``generalist``: each role's rubric
     #: less its domain sections, the same for every role's artefacts (ARCH-063's baseline).
     reviewer_kind: Literal["paired", "generalist"] = "paired"
-    #: The digest of the fixed paragraphs every account carries (the revision's form, the
-    #: sheet's absences, the precision convention). ``None`` on records written before.
-    account_sha256: Sha256 | None = None
 
 
 #: What one artefact's review came to, as its row records it.
@@ -832,7 +828,6 @@ def run_instrument(
         pause_after_failures=pause_after_failures,
         pause_s=pause_s,
         reviewer_kind=reviewer_kind,
-        account_sha256=ACCOUNT_SHA256,
     )
     run_dir.mkdir(parents=True, exist_ok=True)
     config_path = run_dir / CONFIG_NAME

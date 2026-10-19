@@ -45,9 +45,6 @@ APPROVED = {
             # A duty of the work is decided per check, by whether it involves a written value,
             # never by which node the revision wrote.
             ("final_v5", "1388fe4a74c08aee4f736e2c1498549bd871f8dafe70cea773ac6ac5dd78e053", 56),
-            # A record the work owes that a proposed revision did not write is noted, never
-            # unmet: what rejects is what is written (the calibration round's text).
-            ("final_v6", "d415614e0256ba66836fd44ec210d543b62ebe17cdf730d093e62c6032a6ff58", 56),
         ),
         ("A", "D", "S", "R"),
     ),
@@ -60,8 +57,6 @@ APPROVED = {
             ("final_v3", "44461085e65aeec5bdada9d7f404e4a649c499ac1f324f5ede5364f3e7362200", 54),
             # The same per-check duty as control's fifth version.
             ("final_v4", "a741381dfd3703f6a49eded46e20b402fbb8949f2ad8ad7e6d07ac52999c8989", 54),
-            # The same unwritten-records rule as control's sixth version.
-            ("final_v5", "23f3695b69e3bd73b38caba4bdf1239c46231e47f7e2381027de7c6974543698", 54),
         ),
         ("AC", "DS", "AP", "RH"),
     ),
@@ -72,8 +67,6 @@ APPROVED = {
             ("final_v2", "e2d0bb8e2f50014f2d40e2545fdf5224fdea85ae4c9a3d1989239612e9312f24", 66),
             # The same per-check duty as control's fifth version.
             ("final_v3", "a1858e681ca2aee87e4b1c669c4619f006c9d5d05634c20f8a477c77f941e2e9", 66),
-            # The same unwritten-records rule as control's sixth version.
-            ("final_v4", "3eeb546ec900cbcb615b8dcb5fd2ece89f43514de128aab4916448e976efb712", 66),
         ),
         ("EA", "ES", "EP", "EH"),
     ),
@@ -85,8 +78,6 @@ APPROVED = {
             # The same per-check duty as control's fifth version; no label points at a document
             # the reviewer is not given.
             ("final_v3", "33e39c6c0fc1980751cc9d7bdc8772896497e8192343831a0ad25a12c8a5d7e1", 61),
-            # The same unwritten-records rule as control's sixth version.
-            ("final_v4", "d07b7f4722f64da7d0d08bf5c68ae99801d22397c4401ad95f1e9b37cf508653", 61),
         ),
         ("MA", "MS", "MP", "MH"),
     ),

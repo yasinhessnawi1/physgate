@@ -98,9 +98,7 @@ by reading, like every other item (Section 2, "Records, magnitudes and follow-up
      place", last point).
   2. **Every input is there** (present, or derivable by reading): the absence of the evidence is
      the work's. The Section 1 line is `unmet`; the Section 2 or 3 item is a finding (`fail`). This
-     includes a record this rubric requires the work to make whose inputs are all available. In
-     form 2, such a record that the revision did not write is the exception: it is `noted`, not
-     `unmet` or `fail`, as "Unwritten records" below says.
+     includes a record this rubric requires the work to make whose inputs are all available.
 
   So `not evaluable` means the issued specification and the design state it gives (form 2: the
   design graph) give no way to judge, for want of an input; it never means that the work failed to
@@ -130,7 +128,7 @@ by reading, like every other item (Section 2, "Records, magnitudes and follow-up
   - If the issued specification waives a stating or sourcing requirement and the work follows it, a
     check that then cannot be decided records a blocking defect.
 - **Rejecting finding:** any finding except a Section 4 indicator reported as `noted`, a form-2
-  given-value or unwritten-record finding recorded as `noted`, and a non-blocking specification defect. An unmet acceptance criterion and a dropped prose requirement of
+  given-value finding recorded as `noted`, and a non-blocking specification defect. An unmet acceptance criterion and a dropped prose requirement of
   the issued specification are rejecting findings.
 - **Verdict:** `accept` (no rejecting finding, no blocking defect); `reject` (at least one rejecting
   finding); `blocked` (no rejecting finding, at least one blocking defect).
@@ -166,26 +164,6 @@ by reading, like every other item (Section 2, "Records, magnitudes and follow-up
   exception ("Given and written values"). An input the design graph lacks altogether
   (absent and not derivable by reading), other than a duty of the revision, still records a
   blocking specification defect ("Missing evidence" above).
-- **Unwritten records.** A proposed revision is a set of written values with their units and
-  sources, not a finished piece of work with its calculations, reports, measurements, margins and
-  budgets. A record this rubric requires the work to make (a value stated or sourced, a
-  calculation shown, a report, a measurement, a listing) that the revision did not write is not
-  `unmet` and not a `fail`. Record it as `noted`: a non-blocking specification defect naming the
-  item and the record, as "Given values" does for a given-value condition. It never rejects and
-  never makes the review `blocked`. This holds wherever this rubric (an item, a policy rule or the
-  preamble) would otherwise make the absence of such a record `unmet` or a finding; that its
-  inputs are present does not change it ("Missing evidence", point 2). A Section 4 indicator
-  whose only evidence is such an absence is `noted`, not `confirmed`.
-  - What rejects is what is written. `unmet`, and a `fail`, need one of: a value the revision
-    wrote that is inconsistent with another written value, with its unit, with the source it
-    cites or with its own arithmetic; or a check that involves a written value, that the values
-    on the page decide by reading, and that fails (judged normally, as "Given values" says).
-  - The items that read the values present and need no record of the work's own are not touched
-    by this rule: a unit error (ES-31), a magnitude out of physical sense or unsupported by its
-    source (ES-32), a balance that does not close (ES-7, ES-33), and a changed quantity that did
-    not reach a node it constrains (ES-34) are findings as usual. The follow-up ES-34 owes, and
-    a `no_change_justified` reason, are not unwritten records under this rule: their absence is
-    the change not reaching what it constrains.
 - **Allowances.** There are none.
 - **`n/a`** evidence may come from the design graph.
 
@@ -194,9 +172,8 @@ by reading, like every other item (Section 2, "Records, magnitudes and follow-up
 1. Section 1: one line per acceptance criterion of the issued specification, `met`, `unmet` or
    `not evaluable`, with evidence; in form 2, the single line of EA-9, `met` or `unmet`.
 2. Section 2 and Section 3: one line per item, `pass`, `fail` or `n/a`, with evidence; a `fail` is a
-   finding. In form 2, a check that fails using only given values, or only for want of a record
-   the revision did not write, is not a `fail`: the line is judged on what the revision wrote, and
-   the condition is recorded as `noted` (Given values and Unwritten records above).
+   finding. In form 2, a check that fails using only given values is not a `fail`: the line is
+   judged on what the revision wrote, and the condition is recorded as `noted` (Given values above).
 3. Section 4: one line per indicator, `confirmed`, `noted` or `not observed`, with evidence for the
    first two.
 4. Findings, each as the verdict policy requires.
@@ -264,8 +241,8 @@ The issued specification's acceptance criteria are inserted with each review. Ju
 - **EA-9. No issued specification.** In form 2 only, Section 1 is this one line, `met` or `unmet`
   (never `not evaluable`): whether the revision is consistent with the design it changes and with
   this rubric. The line judges what the revision wrote; a condition recorded under "Given values"
-  or "Unwritten records" does not make it `unmet`. The missing specification is not a
-  specification defect and makes nothing `not evaluable` or `blocked` by itself.
+  does not make it `unmet`. The missing specification is not a specification defect and makes
+  nothing `not evaluable` or `blocked` by itself.
 
 ## 2. Domain standard violations
 
@@ -601,4 +578,4 @@ reference to its source, is the work's, even when its number equals a given valu
   made to escape or satisfy a check and the design fails the corresponding rule when judged by
   reading; without that reasoning, at most `noted`.
 
-<!-- 870d169150b8867330188bc1f116de13 -->
+<!-- f83273111ae52cba3968f2a39e4b5c30 -->

@@ -114,9 +114,7 @@ claim.
      sub-check (*Overridability*).
   2. **Every input is there** (present, or derivable by reading): the absence of the evidence is
      the work's. The section 1 line is *unmet*; the section 2 or 3 item is a finding. This includes
-     a record this rubric requires the work to make whose inputs are all available. For a proposed
-     revision, such a record that the revision did not write is the exception: it is `noted`, not
-     *unmet*, as *Unwritten records* under *No issued specification* says.
+     a record this rubric requires the work to make whose inputs are all available.
 
   So *not evaluable* means the issued specification and the design state it gives (for a
   proposed revision, the design graph) give no way to judge, for want of an input; it never means
@@ -155,26 +153,6 @@ claim.
     the revision wrote is judged normally, so a missed follow-up (a written value inconsistent with
     an unwritten one) is a finding against the revision; a given value's own source requirement is
     the exception (*Given and written values*).
-  - *Unwritten records.* A proposed revision is a set of written values with their units and
-    sources, not a finished piece of work with its builds, runs, measurements, budgets and
-    figures. A record this rubric requires the work to make (a value stated or sourced, a
-    computation shown, a build or run, a measurement, a listing) that the revision did not write
-    is not *unmet* and not a finding. Record it as `noted`: a non-blocking specification defect
-    naming the item and the record, as *Given values* does for a given-value condition. It never
-    rejects and never makes the review **`blocked`**. This holds wherever this rubric (an item, a
-    policy rule or the preamble) would otherwise make the absence of such a record *unmet* or a
-    finding; that its inputs are present does not change it (*Missing evidence*, point 2). A
-    section 4 indicator whose only evidence is such an absence is `noted`, not confirmed.
-    - What rejects is what is written. *Unmet*, and a finding, need one of: a value the revision
-      wrote that is inconsistent with another written value, with its unit, with the source it
-      cites or with its own arithmetic; or a check that involves a written value, that the values
-      on the page decide by reading, and that fails (judged normally, as *Given values* says).
-    - The items that read the values present and need no record of the work's own are not
-      touched by this rule: a unit error (DS-27), a magnitude out of physical sense or
-      unsupported by its source, a balance that does not close (the section 2 preamble), and a
-      changed quantity that did not reach a node it constrains (DS-30) are findings as usual. The
-      follow-up DS-30 owes, and a stated reason for none, are not unwritten records under this
-      rule: their absence is the change not reaching what it constrains.
   - *Allowances.* With no issued specification there are no allowances.
 - **Sections 2 and 3:** an evidenced violation of a domain standard or a skill-file antipattern
   means **reject**, unless a specific allowance in the issued specification covers it (except
@@ -274,11 +252,11 @@ method. When no specification is issued, AC-9 replaces AC-1's line per criterion
   design on its own), section 1 has exactly one line, in place of AC-1's line per criterion:
   whether the revision is consistent with the design it changes and with this rubric, recorded
   *met* or *unmet*, never *not evaluable*, with a pointer to the node files that show it. The line
-  judges what the revision wrote; a condition recorded under *Given values* or *Unwritten
-  records* (see the verdict policy) does not make it *unmet*. The missing specification is not a
-  specification defect, and does not by itself make the line, or anything else, *not evaluable*
-  or **`blocked`**. Evidence, missing inputs and given values are handled as the verdict policy's
-  *No issued specification* rule says.
+  judges what the revision wrote; a condition recorded under *Given values* (see the verdict
+  policy) does not make it *unmet*. The missing specification is not a specification defect, and
+  does not by itself make the line, or anything else, *not evaluable* or **`blocked`**. Evidence,
+  missing inputs and given values are handled as the verdict policy's *No issued specification*
+  rule says.
 
 ---
 
@@ -697,4 +675,4 @@ policy).
   rather than the specification. *Confirmed when* that choice is in the delivered work; otherwise
   `noted`.
 
-<!-- 07bc79b414735dd5a4c86cb61da0c410 -->
+<!-- a1546769f203e7f227894807c5420dd0 -->
