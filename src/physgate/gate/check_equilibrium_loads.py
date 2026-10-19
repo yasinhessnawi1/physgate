@@ -50,7 +50,6 @@ rather than what it carries matches no reading and is refused.
 from __future__ import annotations
 
 from fractions import Fraction
-from itertools import combinations
 
 from physgate.gate.equilibrium import STANDARD_GRAVITY
 from physgate.gate.graph import GraphView
@@ -309,13 +308,14 @@ def judge_group(
     if own != 0:
         readings[f"the whole with {owns}"] = whole + own
     escapes: dict[str, Fraction] = {}
-    for size in range(1, len(parts)):
-        for subset in combinations(parts, size):
-            total = sum((masses[p] for p in subset), Fraction(0))
-            label = f"the whole of a subset of what names {them} ({', '.join(subset)})"
-            escapes[label] = total
-            if own != 0:
-                escapes[f"{label} with {owns}"] = total + own
+    # Every proper, non-empty subset of the parts, by bitmask (the gate imports no itertools).
+    for mask in range(1, (1 << len(parts)) - 1):
+        subset = [p for k, p in enumerate(parts) if mask >> k & 1]
+        total = sum((masses[p] for p in subset), Fraction(0))
+        label = f"the whole of a subset of what names {them} ({', '.join(subset)})"
+        escapes[label] = total
+        if own != 0:
+            escapes[f"{label} with {owns}"] = total + own
     others = ", ".join(c for c in group if c != node_id)
     declares = (
         None if one else f"and its sibling carriers {others} declare supported_mass summing to"

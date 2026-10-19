@@ -567,10 +567,10 @@ RELATION_NAMES: tuple[str, ...] = (
 
 
 #: How far a misspelling may be from a relation's quantity and still shadow it.
-SHADOW_EDITS = 2
+_SHADOW_EDITS = 2
 
 
-def edit_distance(a: str, b: str) -> int:
+def _edit_distance(a: str, b: str) -> int:
     """The Levenshtein distance between ``a`` and ``b``: insertions, deletions, substitutions."""
     previous = list(range(len(b) + 1))
     for i, ca in enumerate(a, 1):
@@ -586,7 +586,7 @@ def shadowing_names(names: Iterable[str]) -> tuple[tuple[str, str], ...]:
 
     A name shadows a quantity a relation reads when it ends in that quantity's last word
     (``motor_current`` for ``stall_current``, ``pack_mass`` for ``mass``), or when its
-    spelling, underscores aside, is within ``SHADOW_EDITS`` edits of the quantity's
+    spelling, underscores aside, is within two edits of the quantity's
     (``stall_currnt``, ``currentlimit``): the ways a writer steps out of the headroom
     relation, or the mass sum, without saying so. Every other uncatalogued name is written,
     and the gate records it as unchecked. Each pair is the name and the relation quantity
@@ -608,9 +608,9 @@ def shadowing_names(names: Iterable[str]) -> tuple[tuple[str, str], ...]:
                 (
                     r
                     for r in RELATION_NAMES
-                    if edit_distance(flat, r.replace("_", "")) <= SHADOW_EDITS
+                    if _edit_distance(flat, r.replace("_", "")) <= _SHADOW_EDITS
                 ),
-                key=lambda r: (edit_distance(flat, r.replace("_", "")), len(r), r),
+                key=lambda r: (_edit_distance(flat, r.replace("_", "")), len(r), r),
             )
             shadowed = near
         if shadowed:
