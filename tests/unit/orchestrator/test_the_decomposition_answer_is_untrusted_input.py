@@ -282,3 +282,30 @@ def test_a_schema_refusal_is_its_own_cause_not_the_turn_limit() -> None:
     )
     assert without[0] == "turn_limit"
     assert schema_refusal('{"type": "user", "message": {"content": "plain"}}\nnot json') is None
+
+
+def _naming(name: str, unit: str) -> dict[str, Any]:
+    return {
+        **NODE,
+        "quantities": {
+            name: {"value": 1, "unit": unit, "source": "brief", "written_by": "electrical"}
+        },
+    }
+
+
+def test_an_interface_node_naming_a_quantity_that_shadows_a_relation_s_is_a_problem() -> None:
+    # The plan is written straight into the store, past the hook, so the same rule the hook
+    # and the apply step hold a session's proposal to is held here: a misspelling of a
+    # relation's quantity is refused, and named.
+    modules = [module("power", "modules/power")]
+    for name, shadowed in (
+        ("stall_currnt", "stall_current"),
+        ("currentlimit", "current_limit"),
+        ("supported_mas", "supported_mass"),
+        ("mas", "mass"),
+    ):
+        found = plan_problems(plan(modules, [_naming(name, "A")]), ["electrical"])
+        assert any(f"'{name}'" in p and f"shadows '{shadowed}'" in p for p in found), found
+    # Every other uncatalogued name is written, and the gate records it as unchecked.
+    for name in ("motor_current", "no_load_current", "idle_current", "max", "mask", "zeta"):
+        assert plan_problems(plan(modules, [_naming(name, "A")]), ["electrical"]) == [], name

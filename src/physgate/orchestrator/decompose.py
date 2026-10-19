@@ -27,6 +27,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 
+from physgate.gate.catalogue import shadowing_names
 from physgate.knowledge.library import LibraryError, put_into, read_library
 from physgate.orchestrator.accounting import require_matching_totals
 from physgate.orchestrator.budget import classify_session_end
@@ -174,6 +175,14 @@ def plan_problems(plan: Plan, roles: Sequence[str]) -> list[str]:
             found.append(f"node {node.id!r} is not an interface node")
         if node.owner_role not in owners:
             found.append(f"interface node {node.id!r} is owned by a role no module has")
+        # The same rule the hook and the apply step hold a session's proposal to: a name
+        # that shadows a relation's quantity steps out of the relation without saying so.
+        # The plan is written straight into the store, so the check is made here.
+        for name, relation in shadowing_names(node.quantities):
+            found.append(
+                f"interface node {node.id!r} names {name!r}, which shadows {relation!r}, a "
+                "quantity a relation reads; it is written under the catalogue's name"
+            )
     return found
 
 

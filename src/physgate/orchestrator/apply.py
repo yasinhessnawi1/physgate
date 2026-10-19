@@ -13,6 +13,13 @@ the file as it is written. Here the orchestrator:
   created, and the relations the physics gate holds a node to follow from it (a
   module's declared mass is the sum of its parts), so rewriting the kind would
   let a node step out of a relation it failed;
+- refuses a quantity name that shadows one a relation reads, as the hook did when
+  the file was written: a name the catalogue lacks that is a misspelling of a
+  relation's quantity (within one insertion or deletion for a short name, two for a
+  longer one) is that quantity stepping out of the relation without saying so.
+  Every other uncatalogued name is written, and the gate records it as
+  unchecked. The store does not refuse such names, so a corpus written straight
+  into one is unaffected;
 - pre-checks **all** of an attempt's proposals against the store's own guards on
   a scratch copy of the graph built from the canonical journal, so an attempt is
   applied whole or not at all, and a refusal is a rejected attempt carrying the
@@ -31,6 +38,7 @@ import shutil
 from collections.abc import Iterable
 from pathlib import Path
 
+from physgate.gate.catalogue import shadowing_names
 from physgate.orchestrator.events import SessionEnded, read_events
 from physgate.orchestrator.exceptions import StoreRefusalError
 from physgate.orchestrator.git import (
@@ -60,6 +68,7 @@ from physgate.state.store import (
     Store,
     journal_records_after,
 )
+from physgate.state.vocabulary import nearest_quantity_names
 
 _PROPOSAL = re.compile(r"^\.physgate/proposals/(?P<id>[a-z][a-z0-9_]*(\.[a-z0-9_]+)+)\.json$")
 
@@ -117,6 +126,18 @@ def read_proposals(
             raise ProposalRefusedError(
                 f"{change.path} is not a valid node: {exc}", change.path
             ) from None
+        shadowed = shadowing_names(payload.get("quantities") or {})
+        if shadowed:
+            told = "; ".join(
+                f"{name} shadows {relation} (nearest {', '.join(nearest_quantity_names(name))})"
+                for name, relation in shadowed
+            )
+            raise ProposalRefusedError(
+                f"{change.path} names a quantity the gate's catalogue does not know under a "
+                f"name a relation reads ({told}); a quantity a relation reads is written under "
+                "the catalogue's name, so that the relation applies to it",
+                named["id"],
+            )
         owner, kind = fixed.get(named["id"], (None, None))
         if owner is not None and payload["owner_role"] != owner:
             raise ProposalRefusedError(

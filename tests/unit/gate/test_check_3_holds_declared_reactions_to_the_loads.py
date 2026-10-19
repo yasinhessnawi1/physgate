@@ -82,6 +82,7 @@ def test_a_cantilever_declaring_no_moment_reaction_is_refused_with_reactions_and
     assert isinstance(details, EquilibriumDetails)
     assert details.residual_moment is not None
     assert details.residual_moment.value == pytest.approx(-0.980665)
+    assert details.residual_force is not None
     assert details.residual_force.value == 0
     (solved,) = details.solved
     assert solved.force.value == pytest.approx(9.80665)
@@ -151,6 +152,7 @@ def test_a_four_standoff_plate_whose_totals_do_not_balance_is_refused(tmp_path: 
     assert finding.outcome == "fail"
     assert isinstance(finding.details, EquilibriumDetails)
     assert finding.details.solved == ()
+    assert finding.details.residual_force is not None
     assert finding.details.residual_force.value == pytest.approx(20 - 4 * 9.80665)
     assert "needs FEA" in finding.details.solver
 
@@ -299,6 +301,7 @@ def test_a_mount_whose_forces_miss_while_its_moments_balance_is_refused(tmp_path
     )
     (finding,) = ran.observations
     assert isinstance(finding.details, EquilibriumDetails)
+    assert finding.details.residual_force is not None
     assert finding.details.residual_force.value == pytest.approx(6 - 9.80665)
     # Refused by the sums, not only by the split the closed form finds. About the
     # centroid the moments balance; about each support the missing force has an arm.
@@ -319,6 +322,7 @@ def test_an_indeterminate_mount_whose_moments_balance_but_forces_do_not_is_refus
     (finding,) = ran.observations
     assert finding.outcome == "fail"
     assert isinstance(finding.details, EquilibriumDetails)
+    assert finding.details.residual_force is not None
     assert finding.details.residual_force.value == pytest.approx(20 - 4 * 9.80665)
 
 
@@ -472,6 +476,7 @@ def test_a_mount_whose_moments_hold_about_its_one_support_but_forces_miss_is_ref
     assert isinstance(finding.details, EquilibriumDetails)
     assert finding.details.residual_moment is not None
     assert finding.details.residual_moment.value == 0
+    assert finding.details.residual_force is not None
     assert finding.details.residual_force.value == pytest.approx(5 - 9.80665)
 
 

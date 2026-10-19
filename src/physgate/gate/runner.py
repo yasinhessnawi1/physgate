@@ -178,7 +178,13 @@ def _stamp(
         )
         for o in _ordered(ran.observations)
     ]
-    if not any(o.outcome == "fail" for o in ran.observations):
+    # A check that judged nothing and left something unchecked writes no pass: "found
+    # nothing wrong (0 evaluated)" beside an unchecked record would read as a pass of what
+    # was not read. A check with nothing in its scope at all still records its empty pass.
+    judged_nothing_unchecked = ran.evaluated == 0 and any(
+        o.outcome == "unchecked" for o in ran.observations
+    )
+    if not any(o.outcome == "fail" for o in ran.observations) and not judged_nothing_unchecked:
         records.insert(
             0,
             CheckRecord(

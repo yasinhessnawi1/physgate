@@ -7,33 +7,38 @@
 
 [meta]
 domain = "electrical"
-curated_by = "the physics gate's own build; not yet reviewed through the knowledge layer's promotion step"
+curated_by = "the physics gate's own build, its ranges reviewed against makers' data sheets on 18.10.2026; not yet reviewed through the knowledge layer's promotion step"
 
-[[range]]
-quantity = "stall_current"
-low = 0.36
-high = 6.5
-unit = "A"
-class = "brushed DC metal gearmotor, 6 to 24 V, hobby class"
-source = """Pololu product pages: Micro Metal Gearmotors (pololu.com/category/60; 0.36 A \
-for the low-power 6 V version up to 1.6 A for the high-power 6 V version); 37D Metal \
-Gearmotors (pololu.com/category/116; 3 A at 24 V, 5.5 A at 12 V); product 2273, 34:1 \
-Metal Gearmotor 25Dx64L mm HP 6 V (6.5 A)"""
-retrieved = 2026-09-26
-note = """The span of three product families of one maker, from the smallest stall \
-current to the largest. It is not a physical limit of the class, and a motor outside \
-it may be legitimate; widening or narrowing it is a curation decision, recorded."""
+# A stall current has no range here. The span of one maker's hobby gearmotors, which stood
+# here before, refused motors outside it that are legitimate (a coreless micro motor stalls
+# at about 0.1 A, a robot-competition motor at over 100 A), and no span over every motor is
+# narrow enough to tell anything. A stall current is judged instead by the relation that
+# holds it to its supply's current limit.
 
 [[range]]
 quantity = "sample_rate"
-low = 3.90625
-high = 8000
+low = 0.78
+high = 32000
 unit = "Hz"
-class = "MEMS inertial measurement unit, MPU-6000/6050"
-source = """InvenSense, MPU-6000 and MPU-6050 Register Map and Descriptions, \
-RM-MPU-6000A-00 revision 4.0 (03/09/2012), register 25: Sample Rate = Gyroscope Output \
-Rate / (1 + SMPLRT_DIV), the gyroscope output rate being 8 kHz with the low-pass filter \
-off and 1 kHz with it on, and SMPLRT_DIV being 8 bits"""
-retrieved = 2026-09-26
-note = """From 1 kHz / 256 to 8 kHz: every rate the register can set. The \
-accelerometer's own output rate is 1 kHz whatever the sample rate."""
+class = "MEMS inertial measurement unit: a gyroscope's or accelerometer's output data rate"
+source = """The lowest and highest output data rates of six MEMS IMU makers' data sheets, each \
+fetched and read on 19.10.2026: Bosch BMI270 (BST-BMI270-DS000-08, revision 1.6, March 2026): \
+accelerometer 0.78 Hz in low-power mode, the lowest; TDK InvenSense ICM-42688-P (DS-000347; \
+TDK lists version 1.8, 27.07.2023, as current; tables 1 and 2 read in revision 1.6, 20.06.2021): \
+gyroscope 12.5 Hz to 32 kHz and accelerometer 1.5625 Hz to 32 kHz, the highest. Inside them: \
+InvenSense MPU-6000/6050 (register map RM-MPU-6000A-00 revision 4.0, 09.03.2012, register 25, \
+and product specification PS-MPU-6000A-00 revision 3.4, 19.08.2013, section 6.6): 3.9 Hz to \
+8 kHz; ST LSM6DS33 (DocID027423 rev 4, October 2015): accelerometer 13 Hz to 6.66 kHz, \
+gyroscope 13 Hz to 1.666 kHz; ST LSM6DSO (DS12140 rev 3, June 2024): 1.6 Hz to 6.66 kHz; \
+Bosch BMI088 (BST-BMI088-DS000-19, revision 1.9, January 2024): accelerometer 12.5 Hz to \
+1.6 kHz, gyroscope 100 Hz to 2 kHz"""
+retrieved = 2026-10-18
+confirmed = 2026-10-19
+note = """Every rate any of these parts can be set to, across makers, not one part's register: \
+outside it no MEMS IMU of these makers samples. It is a range for an inertial sensor's \
+rate, the one sampled device the stand-in class's electrical nodes declare; it is not a \
+range for a control or firmware loop's rate, and it does not hold an electrical converter \
+sampling faster (an analogue-to-digital converter, an audio codec), whose rate is not this \
+class's: such a node is refused by it, a named limit. It replaces the single-part \
+MPU-6000/6050 span (3.90625 Hz to 8 kHz), which refused other makers' legitimate rates, a \
+ruled loosening."""

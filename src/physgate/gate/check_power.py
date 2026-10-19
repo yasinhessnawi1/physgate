@@ -21,9 +21,21 @@ affected. Without that, two modules each supplying their
 members in full while drawing almost nothing from the battery balance at every
 supply, and the battery never sees what their members really draw.
 
+Two more relations bound what a supply can be asked for. A consumer's stall current
+is at most its supply's current limit, the supply's peak rating: at stall a motor has no
+back-EMF and draws its whole stall current, so a driver rated below it is overrun at every
+start. A store's maximum continuous discharge is at most its stored energy times the
+fastest rate any store class the catalogue confirms can give (the catalogue's
+``STORE_CLASSES``; for a capacitor, the most power a cell can deliver into any load, from
+the smallest confirmed time constant), so an invented rating cannot make a token store a
+source. Named limit: a capacitor cell with a smaller time constant than any the catalogue
+confirms would be refused above that bound; the bound is the catalogue's, not a law. Each
+is refused with its excess, in amperes or watts.
+
 At module scope the supplies checked are the modules of the nodes the attempt
 affected (see :meth:`physgate.gate.graph.GraphView.affected`), a module a
-consumer left included; at system scope, every supply in the graph, which is where modules that each
+consumer left included, and every current headroom either side of which the attempt
+affected; at system scope, every supply in the graph, which is where modules that each
 balance but together exceed their battery are refused.
 """
 
@@ -31,10 +43,18 @@ from __future__ import annotations
 
 from fractions import Fraction
 
-from physgate.gate.catalogue import SOURCES
+from physgate.gate.catalogue import FASTEST, SOURCES
 from physgate.gate.context import CheckContext
 from physgate.gate.graph import GraphView
-from physgate.gate.relations import Instance, TermRef, instances, measured, output
+from physgate.gate.relations import (
+    Instance,
+    Scaled,
+    TermRef,
+    instances,
+    measured,
+    output,
+    scaled,
+)
 from physgate.gate.result import CheckRun, Observation
 from physgate.gate.symbolic import SYMPY, residual
 from physgate.gate.units import PINT_ERRORS, UnitRefusedError
@@ -43,7 +63,7 @@ from physgate.orchestrator.protocols import PowerDetails, QuantityRef, Unchecked
 TOOL = f"{SYMPY}, over the graph's constrains edges"
 
 
-def _watts(view: GraphView, ref: TermRef) -> Fraction:
+def _magnitude(view: GraphView, ref: TermRef) -> Fraction:
     return measured(view, ref).magnitude
 
 
@@ -81,8 +101,8 @@ def _judge(view: GraphView, instance: Instance) -> Observation | None:
         raise TypeError(msg)
     try:
         consumers = [t for t in instance.left if isinstance(t, TermRef)]
-        supplied = _watts(view, supply)
-        drawn = [(c.spelled(), _watts(view, c)) for c in consumers]
+        supplied = _magnitude(view, supply)
+        drawn = [(c.spelled(), _magnitude(view, c)) for c in consumers]
     except (UnitRefusedError, *PINT_ERRORS):
         names = tuple(sorted({r.name for r in instance.refs()}))
         return _unchecked(view, instance, "is in a unit the unit check refuses", names)
@@ -133,8 +153,10 @@ def _judge_rating(view: GraphView, instance: Instance) -> Observation | None:
         msg = "a source's supply is a single quantity"
         raise TypeError(msg)
     try:
-        supplied = _watts(view, supply)
-        allowed = [(t.spelled(), _watts(view, t)) for t in instance.right if isinstance(t, TermRef)]
+        supplied = _magnitude(view, supply)
+        allowed = [
+            (t.spelled(), _magnitude(view, t)) for t in instance.right if isinstance(t, TermRef)
+        ]
     except (UnitRefusedError, *PINT_ERRORS):
         names = tuple(sorted({r.name for r in instance.refs()}))
         return _unchecked(view, instance, "is in a unit the unit check refuses", names)
@@ -206,7 +228,7 @@ def _judge_covered(view: GraphView, instance: Instance) -> Observation | None:
         msg = "a covered supply compares two single quantities"
         raise TypeError(msg)
     try:
-        supplied, drawn = _watts(view, supply), _watts(view, draw)
+        supplied, drawn = _magnitude(view, supply), _magnitude(view, draw)
     except (UnitRefusedError, *PINT_ERRORS):
         names = tuple(sorted({r.name for r in instance.refs()}))
         return _unchecked(view, instance, "is in a unit the unit check refuses", names)
@@ -231,14 +253,130 @@ def _judge_covered(view: GraphView, instance: Instance) -> Observation | None:
     )
 
 
+def _amperes(view: GraphView, instance: Instance) -> tuple[TermRef, TermRef]:
+    (consumer,), (limit,) = instance.left, instance.right
+    if not isinstance(consumer, TermRef) or not isinstance(limit, TermRef):
+        msg = "a current headroom compares two single quantities"
+        raise TypeError(msg)
+    return consumer, limit
+
+
+def _judge_headroom(view: GraphView, instance: Instance) -> Observation | None:
+    """The finding for a consumer whose stall current its supply's current limit cannot carry.
+
+    At stall a brushed motor has no back-EMF, so it draws its stall current, limited only by
+    its winding resistance; a supply whose maximum output current is below that cannot start
+    or reverse the motor without tripping or exceeding its rating. The limit is the supply's
+    peak rating (the catalogue's meaning of ``current_limit``), so a motor run behind current
+    limiting below its stall current is not refused by a continuous rating.
+
+    Named limits:
+
+    - **Paralleled drivers.** A motor naming two drivers is held to each driver's limit alone;
+      two 1 A drivers sharing a 1.5 A stall are each refused, though together they carry it.
+      The relation does not sum the limits of the supplies one consumer names.
+    - **A continuous rating written as ``current_limit``** is read as the peak rating the
+      name means, so a stall above it is refused; the evaluation scores that as the stated
+      limit, by the author's cited row.
+    - **A supply in between.** Only the supply the motor's own edge names is read; a limit
+      two hops away, past a regulator that declares none, is not.
+    """
+    consumer, limit = _amperes(view, instance)
+    try:
+        stall, most = _magnitude(view, consumer), _magnitude(view, limit)
+    except (UnitRefusedError, *PINT_ERRORS):
+        names = tuple(sorted({r.name for r in instance.refs()}))
+        return _unchecked(view, instance, "is in a unit the unit check refuses", names)
+    if stall < 0 or most < 0:
+        # A current written with a sign is a direction, not a rating: comparing it would
+        # let a negative stall current pass under any limit.
+        return Observation(
+            outcome="unchecked",
+            node=instance.subject,
+            module=view.module_of(instance.subject),
+            value=None,
+            expected=None,
+            message=(
+                f"{instance.expression()} cannot be judged: a negative stall current or "
+                "current limit is not a magnitude, so the headroom is not compared"
+            ),
+            details=UncheckedDetails(quantities=tuple(sorted({r.name for r in instance.refs()}))),
+        )
+    margin = residual([(limit.spelled(), most)], [(consumer.spelled(), stall)])
+    if margin >= 0:
+        return None
+    over = output(-margin, "A")
+    shown_stall, shown_limit = output(stall, "A").value, output(most, "A").value
+    return Observation(
+        outcome="fail",
+        node=instance.subject,
+        module=view.module_of(instance.subject),
+        value=over,
+        expected=f"a stall current of at most the {shown_limit} A current limit",
+        message=(
+            f"{consumer.node} stalls at {shown_stall} A, more than the {shown_limit} A current "
+            f"limit of {instance.subject} by {over.value} A: at stall a motor has no back-EMF "
+            "and draws its stall current, which its supply is not rated to deliver"
+        ),
+        details=PowerDetails(deficit=over, contributing=(instance.subject, consumer.node)),
+        quantities=(_ref(view, limit), _ref(view, consumer)),
+    )
+
+
+def _judge_discharge(view: GraphView, instance: Instance) -> Observation | None:
+    """The finding for a store rated to discharge faster than any store class can."""
+    (rating,), (stored,) = instance.left, instance.right
+    if not isinstance(rating, TermRef) or not isinstance(stored, Scaled):
+        msg = "a discharge rate compares a rating with a scaled stored energy"
+        raise TypeError(msg)
+    try:
+        watts = _magnitude(view, rating)
+        joules = measured(view, stored.ref).magnitude
+        bound = scaled(view, stored).magnitude
+    except (UnitRefusedError, *PINT_ERRORS):
+        names = tuple(sorted({r.name for r in instance.refs()}))
+        return _unchecked(view, instance, "is in a unit the unit check refuses", names)
+    margin = residual([(stored.spelled(), bound)], [(rating.spelled(), watts)])
+    if margin >= 0:
+        return None
+    over = output(-margin, "W")
+    shown_wh = output(joules / SECONDS_PER_HOUR, "W*h").value
+    rate = output(watts * SECONDS_PER_HOUR / joules, "1/h").value
+    return Observation(
+        outcome="fail",
+        node=instance.subject,
+        module=view.module_of(instance.subject),
+        value=over,
+        expected=(
+            f"a maximum continuous discharge of at most {output(bound, 'W').value} W "
+            f"({stored.factor} per hour times {shown_wh} W*h)"
+        ),
+        message=(
+            f"{instance.subject} stores {shown_wh} W*h and declares a maximum continuous "
+            f"discharge of {output(watts, 'W').value} W, a rate of {rate} per hour; no class of "
+            f"energy store the catalogue confirms can give more than {stored.factor} per hour "
+            f"of what it stores ({FASTEST.name}), so the rating exceeds what it stores allows "
+            f"by {over.value} W"
+        ),
+        details=PowerDetails(deficit=over, contributing=(instance.subject,)),
+        quantities=tuple(_ref(view, r) for r in instance.refs()),
+    )
+
+
 JUDGES = {
     "power_budget": _judge,
     "supply_covered": _judge_covered,
     "source_rating": _judge_rating,
+    "current_limit": _judge_headroom,
+    "discharge_rate": _judge_discharge,
 }
 #: Relations about one node's own numbers: at module scope they are judged for
 #: every node the attempt affected, not only for modules.
-OWN = {"supply_covered", "source_rating"}
+OWN = {"supply_covered", "source_rating", "discharge_rate"}
+#: Relations between two components: at module scope they are judged wherever the
+#: attempt affected either side.
+BETWEEN = {"current_limit"}
+SECONDS_PER_HOUR = Fraction(3600)
 
 
 def run(ctx: CheckContext) -> CheckRun:
@@ -248,7 +386,17 @@ def run(ctx: CheckContext) -> CheckRun:
     if ctx.scope == "module":
         touched = set(view.modules_touched())
         near = touched | set(view.affected())
-        budgets = [i for i in budgets if i.subject in (near if i.relation.name in OWN else touched)]
-    observations = [o for o in (JUDGES[i.relation.name](view, i) for i in budgets) if o is not None]
-    evaluated = sum(1 for i in budgets if not i.missing)
+        budgets = [
+            i
+            for i in budgets
+            if (i.nodes() & near if i.relation.name in BETWEEN else set())
+            or i.subject in (near if i.relation.name in OWN else touched)
+        ]
+    judged = [(i, JUDGES[i.relation.name](view, i)) for i in budgets]
+    observations = [o for _, o in judged if o is not None]
+    # Evaluated means judged: a relation with a term missing, or one left unchecked because
+    # a side is in a refused unit, was recorded and not compared, so it is not counted.
+    evaluated = sum(
+        1 for i, o in judged if not i.missing and (o is None or o.outcome != "unchecked")
+    )
     return CheckRun(tool=TOOL, evaluated=evaluated, observations=tuple(observations))
