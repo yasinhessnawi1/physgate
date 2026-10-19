@@ -188,8 +188,10 @@ of the picked configuration included, and refuses a mismatch.
     manifest sha256 `41553301d5b036f84df289ee6d8c87ecce4504d5a09969e05291e23c9ebc026a`
     (R-PG-01's, unchanged);
   - the fresh set, kept outside the repository until `RESULT.md` commits it, manifest sha256
-    **[FILL AT FREEZE: filled, dated, once the set is assembled and its precondition holds
-    (R4), before its first review]**;
+    **`e76a4904e7b42326a85a9a9267973518e6f79b510c8f2b8b3391e8b23d37620c`** (set `fresh-v1`; facts filled: 19.10.2026, the fresh set's manifest
+    digest, once the set was assembled and its precondition held (R4): 40 of 40 fresh twins with
+    no failing record and no source-check mismatch, records sha256
+    `f78681918bb45fc5326e7735fa1b7d0a16f42433eb37ff42c19d255cd0002621`; before its first review);
   - the practice set, outside the repository until `RESULT.md` commits it, manifest sha256
     `ddc255ab538f134c2983edfb71d29cbeba3c0dc3dd23cc01df9415120d9ddfb0`.
 - **Pinned run parameters,** recorded in each run's `instrument.json` and committed as
