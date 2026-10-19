@@ -92,19 +92,48 @@ def _edits(a: str, b: str) -> int:
     return len(a) + len(b) - 2 * rows[-1][-1]
 
 
-def _shadow_bound(flat: str) -> int:
-    """One edit for a name of five characters or fewer, two for a longer one (no underscores)."""
-    return 1 if len(flat) <= 5 else 2
+def _levenshtein(a: str, b: str) -> int:
+    """The insertions, deletions and substitutions that turn a into b."""
+    previous = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        current = [i]
+        for j, cb in enumerate(b, 1):
+            current.append(min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (ca != cb)))
+        previous = current
+    return previous[-1]
+
+
+#: A relation quantity of this many characters or fewer, underscores aside, is a short word.
+SHORT_WORD = 5
+
+
+def _shadows(flat: str, quantity: str) -> int | None:
+    """How far flat is from a relation quantity's flat spelling, if it shadows it.
+
+    Two clauses, and a name shadows the quantity under either: within one insertion or
+    deletion for a name of five characters or fewer, two for a longer one (a substitution
+    counting two), the rule as it stood; or, for a short quantity only (mass), within one
+    edit by Levenshtein, a substitution counting one. The second clause only adds to what
+    the first refuses, so nothing once refused is written.
+    """
+    if abs(len(flat) - len(quantity)) > 2:
+        return None
+    edits = _edits(flat, quantity)
+    if edits <= (1 if len(flat) <= SHORT_WORD else 2):
+        return edits
+    if len(quantity) <= SHORT_WORD and _levenshtein(flat, quantity) <= 1:
+        return 1
+    return None
 
 
 def shadowing_quantity_names(names: object) -> tuple[tuple[str, str], ...]:
     """The unlisted names among names that shadow a relation's quantity, each once.
 
-    A name shadows a relation's quantity when its spelling, underscores aside, is within the
-    bound's insertions or deletions of the quantity's (stall_currnt, currentlimit, mas); a
-    different name (idle_current, max, mask) is written. Each pair is the name and the nearest
-    quantity it shadows, then the shortest, sorted by name; the catalogue's shadowing_names
-    gives the same pairs.
+    A name shadows a relation's quantity when its spelling, underscores aside, is a
+    misspelling of the quantity's by _shadows (stall_currnt, currentlimit, mas, mess, moss,
+    mask); a different name (idle_current, max, dry_mass) is written. Each pair is the name
+    and the nearest quantity it shadows, then the shortest, sorted by name; the catalogue's
+    shadowing_names gives the same pairs.
     """
     if not isinstance(names, dict | list | tuple | set):
         return ()
@@ -113,16 +142,13 @@ def shadowing_quantity_names(names: object) -> tuple[tuple[str, str], ...]:
         if name in QUANTITY_NAMES:
             continue
         flat = name.replace("_", "")
-        near = sorted(
-            (
-                r
-                for r in RELATION_QUANTITY_NAMES
-                if _edits(flat, r.replace("_", "")) <= _shadow_bound(flat)
-            ),
-            key=lambda r: (_edits(flat, r.replace("_", "")), len(r), r),
-        )
+        near = [
+            (distance, len(r), r)
+            for r in RELATION_QUANTITY_NAMES
+            if (distance := _shadows(flat, r.replace("_", ""))) is not None
+        ]
         if near:
-            found[name] = near[0]
+            found[name] = min(near)[2]
     return tuple(found.items())
 
 

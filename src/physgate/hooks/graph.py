@@ -21,11 +21,12 @@ order, so a refused proposal is refused for the reason the store would give:
    is refused here, with the schema's own message;
 5. no quantity's name shadows one a relation reads: a name the catalogue lacks
    that is a misspelling of a relation's quantity (``stall_currnt``,
-   ``currentlimit``, ``supported_mas``: within one insertion or deletion for a
-   name of five characters or fewer, two for a longer one, underscores ignored)
-   is the way a writer steps out of the headroom relation, or the mass sum,
-   without saying so. A different name (``idle_current``, ``motor_current_draw``)
-   is not refused. Every other
+   ``currentlimit``, ``supported_mas``: within two insertions or deletions of a
+   quantity longer than five characters, underscores ignored; ``mess``, ``moss``,
+   ``mask``: within one edit of a short one, ``mass``) is the way a writer steps
+   out of the headroom relation, or the mass sum, without saying so. A different
+   name (``idle_current``, ``motor_current_draw``, ``max``, ``dry_mass``) is not
+   refused. Every other
    uncatalogued name is written, and the gate records it as unchecked. This rule
    is the hook's and the orchestrator's, not the store's: a corpus written
    straight into a store is unaffected;
