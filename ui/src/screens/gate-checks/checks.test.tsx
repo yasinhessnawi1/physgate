@@ -139,6 +139,7 @@ describe("a run is read against another only of the same brief and seed", () => 
       decompositionModel: null,
       reviewerModels: {},
       osLayer: null,
+      repairBudget: null,
     };
   }
   const chosen = config("on", "on");

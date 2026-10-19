@@ -20,6 +20,8 @@ from pathlib import Path
 import pytest
 from ui_rig import context_over, fake_ui, real_runs, sealed_session, serving
 
+from physgate.orchestrator.budget import REPAIR_BUDGET
+
 PHYSGATE = Path(sys.executable).parent / "physgate"
 RUNS = ("run-on", "run-observe", "run-clean")
 
@@ -244,6 +246,11 @@ def test_the_config_names_the_manifest_id_every_gate_event_carries(
     _, events = _api(world["root"], world["ui"], "/api/runs/0/run-observe/gate-events")
     manifest_id = json.loads(config)["manifest_id"]
     assert {json.loads(line)["manifest_id"] for line in events.splitlines()} == {manifest_id}
+
+
+def test_the_config_sends_the_loop_s_own_attempts_per_subtask(world: dict[str, Path]) -> None:
+    _, config = _api(world["root"], world["ui"], "/api/runs/0/run-clean/config")
+    assert json.loads(config)["repair_budget"] == REPAIR_BUDGET
 
 
 def test_the_events_route_serves_every_line_of_the_log(world: dict[str, Path]) -> None:

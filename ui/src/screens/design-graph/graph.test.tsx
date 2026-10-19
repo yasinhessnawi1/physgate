@@ -49,6 +49,7 @@ const CONFIG: RunConfig = {
   decompositionModel: "claude-sonnet-5",
   reviewerModels: {},
   osLayer: null,
+  repairBudget: null,
 };
 
 function check(seq: number, node: string | null, outcome: GateCheck["outcome"]): GateCheck {

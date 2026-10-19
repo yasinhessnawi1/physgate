@@ -51,6 +51,13 @@ export type RunEvent = Line &
         readonly reviewerModel: string | null;
         readonly sessionId: string | null;
       }
+    /** A review that reached no verdict on the attempt: never a pass or a fail. */
+    | {
+        readonly kind: "review_unavailable";
+        readonly subtask: string;
+        readonly attempt: number;
+        readonly cause: string;
+      }
     | {
         readonly kind: "attempt_rejected";
         readonly subtask: string;
@@ -148,6 +155,14 @@ export function runEvent(value: unknown): RunEvent {
         sessionId: optionalText(r.session_id, "a session id"),
       };
     }
+    case "review_unavailable":
+      return {
+        ...line,
+        kind: "review_unavailable",
+        subtask: subtask(),
+        attempt: attempt(),
+        cause: text(e.cause, "a cause"),
+      };
     case "attempt_rejected": {
       const f = object(e.finding, "a finding");
       return {

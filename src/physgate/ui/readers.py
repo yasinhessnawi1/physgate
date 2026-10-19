@@ -3,7 +3,8 @@
 No record format is parsed here. Every file a handler reads is first made real and held to
 the allowlist, then handed to the package's own reader for that format:
 
-- the run configuration: ``load_run_config``, with its digest as the manifest id;
+- the run configuration: ``load_run_config``, with its digest as the manifest id, and the
+  harness's attempts per subtask (``REPAIR_BUDGET``), a constant of the code, not of the record;
 - the event log: ``read_events``;
 - the task ledger: ``recorded_ledger``, read without writing and held to the log's projection,
   exactly what ``physgate ledger`` prints;
@@ -51,6 +52,7 @@ from physgate.evaluation.observe.sequence import decisions as decision_sequence
 from physgate.evaluation.observe.trace import read_traces
 from physgate.gate.graph import GraphView
 from physgate.orchestrator.accounting import TokenAccount
+from physgate.orchestrator.budget import REPAIR_BUDGET
 from physgate.orchestrator.change_sets import change_history
 from physgate.orchestrator.common import render_jsonl
 from physgate.orchestrator.events import SessionEnded, read_events
@@ -106,11 +108,19 @@ def _lines(body: str) -> Response:
 
 
 def config(context: Context, params: Mapping[str, str]) -> Response:
-    """The run's recorded configuration and its manifest id."""
+    """The run's recorded configuration and its manifest id, with the attempts a subtask gets.
+
+    The attempts are the harness's own constant, sent beside the record rather than inside it,
+    so a screen that says "attempt 2 of 3" reads the 3 from the loop's code, not from a copy.
+    """
     run_dir = run_dir_of(context, params)
     recorded = load_run_config(_file(context, run_dir, RUN_CONFIG))
     return json_response(
-        {"manifest_id": recorded.sha256(), "config": recorded.model_dump(mode="json")}
+        {
+            "manifest_id": recorded.sha256(),
+            "config": recorded.model_dump(mode="json"),
+            "repair_budget": REPAIR_BUDGET,
+        }
     )
 
 

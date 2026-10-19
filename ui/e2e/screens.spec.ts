@@ -546,6 +546,45 @@ for (const theme of THEMES) {
     });
   }
 
+  test(`run records: the task ledger is one row per subtask, its history one click away (${theme})`, async ({
+    page,
+  }) => {
+    const seen = await watch(page);
+    await open(page, theme, "/home/run-records?run=0/run-esc-view", 1280);
+    const served = await page.request.get("/api/runs/0/run-esc-view/ledger");
+    const written = (await served.text())
+      .split("\n")
+      .filter((raw) => raw.trim() !== "")
+      .map((raw) => (JSON.parse(raw) as { id: string }).id);
+    const ledger = page.locator('table[aria-label="Task ledger"]');
+    const rows = ledger.locator("tbody > tr[data-subtask]");
+    const shown = await rows.evaluateAll((all) => all.map((r) => r.getAttribute("data-subtask")));
+    // One row per subtask, though the ledger wrote many lines for each.
+    expect(written.length).toBeGreaterThan(new Set(written).size);
+    expect(shown).toEqual([...new Set(written)]);
+    expect(
+      await idsLeading(page, "table[aria-label='Task ledger'] > tbody > tr > td:first-child"),
+    ).toEqual([]);
+
+    // The escalated subtask: every attempt used, waiting for a person, linked to its item.
+    const escalated = rows.first();
+    await expect(escalated).toContainText("Escalated: waiting for a person's decision");
+    await expect(escalated.locator("td").nth(2)).toHaveText("3 of 3");
+    await expect(escalated.locator("td").nth(3)).not.toContainText("not run");
+
+    // Its history: every line the ledger wrote for it, as written.
+    const id = shown[0] ?? "";
+    await escalated.getByRole("button", { name: /^History/ }).click();
+    await expect(ledger.locator("table.pg-ledger-history tbody tr")).toHaveCount(
+      written.filter((w) => w === id).length,
+    );
+    await common(page, seen, `run-records-ledger-${theme}`);
+
+    await escalated.getByRole("link", { name: "Open the queue item" }).click();
+    await expect(page).toHaveURL(/#\/collaboration\/approval-queue\?run=0%2Frun-esc-view&item=/);
+    await expect(page.locator(".pg-queue-entry-on")).toHaveCount(1);
+  });
+
   test(`run records: configuration, cost at a price sheet, tokens, ledger and seals (${theme})`, async ({
     page,
   }) => {

@@ -85,6 +85,9 @@ ALLOWED_MODULES = {
     "physgate.orchestrator.accounting",
     "physgate.orchestrator.change_sets",
     "physgate.state.schema",
+    # The attempts a subtask gets, sent beside the run's configuration: a constant, which the
+    # event log's own model already imports.
+    "physgate.orchestrator.budget",
 }
 #: Names that load or evaluate code however they are reached.
 FORBIDDEN_NAMES = {"eval", "exec", "compile", "__import__", "import_module", "breakpoint"}
