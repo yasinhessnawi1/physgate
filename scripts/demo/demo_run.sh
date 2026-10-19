@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 # One example design run of the harness on the example brief (scripts/demo/brief.py), with the
-# pinned binary, the parameters in scripts/demo/params.json and a hard spend cap held by
-# scripts/demo/spend_watch.py. An example run, never an experiment result.
+# pinned binary, the parameters in scripts/demo/params.json and a stop held by
+# scripts/demo/spend_watch.py on the run's estimated list price. An example run, never an
+# experiment result.
 #
-#   demo_run.sh <label> --real    [--seed N]   the real API, on ANTHROPIC_API_KEY from the env file
-#   demo_run.sh <label> --dry-run [--seed N]   the scripted endpoint: no model, nothing spent
+#   demo_run.sh <label> --real    [--seed N]   the vendor's default endpoint on the subscription
+#                                              (auth subscription, CLAUDE_CODE_OAUTH_TOKEN from
+#                                              the env file; ANTHROPIC_API_KEY is unset)
+#   demo_run.sh <label> --dry-run [--seed N]   the scripted endpoint on its dummy key (auth
+#                                              api_key in the recorded params): nothing spent
 #
-# The label is the run id and the run directory's name (letters, digits, - and _).
+# The label is the run id and the run directory's name (letters, digits, - and _). A label
+# is used once: a label whose directory exists is refused, whatever happened to that run.
 #
 # Layout under $PHYSGATE_DEMO_HOME (default ~/runs/demo):
 #   tooling/                 the harness checkout the run is driven from; clean, or the run is refused.
@@ -23,11 +28,12 @@
 # Environment: PHYSGATE_DEMO_HOME, PHYSGATE_CLAUDE_BIN (default ~/pinned/claude-2.1.301),
 # PHYSGATE_RUN_ENV (default ~/.config/physgate-run.env; read with --real only, never printed),
 # PHYSGATE_ROLE_PYTHON (the interpreter role sessions find as python3; default from params.json),
-# PHYSGATE_CAP_USD (default 45) and PHYSGATE_KILL_AT_USD (default 42: one request can finish
-# after the watcher's last reading, so the stop fires a little below the cap).
+# PHYSGATE_CAP_USD (default 43) and PHYSGATE_KILL_AT_USD (default 40: one request can finish
+# after the watcher's last reading, so the stop fires a little below the cap). On the
+# subscription nothing is billed per token: both are list-price estimates of the run's tokens.
 set -euo pipefail
 
-usage() { sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+usage() { sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1; }
 [ $# -ge 2 ] || usage
 LABEL="$1"; shift
@@ -48,8 +54,8 @@ H="${PHYSGATE_DEMO_HOME:-$HOME/runs/demo}"
 TOOLING="$H/tooling"
 BIN="${PHYSGATE_CLAUDE_BIN:-$HOME/pinned/claude-2.1.301}"
 ENV_FILE="${PHYSGATE_RUN_ENV:-$HOME/.config/physgate-run.env}"
-CAP_USD="${PHYSGATE_CAP_USD:-45}"
-KILL_AT_USD="${PHYSGATE_KILL_AT_USD:-42}"
+CAP_USD="${PHYSGATE_CAP_USD:-43}"
+KILL_AT_USD="${PHYSGATE_KILL_AT_USD:-40}"
 # The per-call cache sheet for a real run; the scripted endpoint reports no cache split, so
 # a dry run is priced on the flat sheet.
 if [ "$MODE" = dry ]; then PRICES="2026-09-27"; else PRICES="2026-10-16"; fi
@@ -79,7 +85,7 @@ ENDPOINT_PID=""; WATCH_PID=""
 cleanup() {
   [ -n "$WATCH_PID" ] && kill "$WATCH_PID" 2>/dev/null || true
   [ -n "$ENDPOINT_PID" ] && kill "$ENDPOINT_PID" 2>/dev/null || true
-  unset ANTHROPIC_API_KEY KEY
+  unset ANTHROPIC_API_KEY CLAUDE_CODE_OAUTH_TOKEN KEY
 }
 trap cleanup EXIT
 
@@ -97,18 +103,19 @@ git -C "$TARGET" init -q -b master
 git -C "$TARGET" -c user.name=example -c user.email=example@localhost add -A
 git -C "$TARGET" -c user.name=example -c user.email=example@localhost commit -q -m "the target repository of an example design run"
 
-# The brief and the parameters, recorded beside the run.
+# The brief and the parameters, recorded beside the run. A dry run presents the scripted
+# endpoint's dummy key, so its recorded params say auth api_key; a real run keeps the file's.
 "$PY" "$DEMO/brief.py" > "$OUT/brief.md"
-if [ -n "${PHYSGATE_ROLE_PYTHON:-}" ]; then
-  "$PY" - "$DEMO/params.json" "$OUT/params.json" "$PHYSGATE_ROLE_PYTHON" <<'EOF'
+"$PY" - "$DEMO/params.json" "$OUT/params.json" "$MODE" "${PHYSGATE_ROLE_PYTHON:-}" <<'EOF'
 import json, sys
 params = json.load(open(sys.argv[1]))
-params["role_python"] = sys.argv[3]
+if sys.argv[3] == "dry":
+    params["auth"] = "api_key"
+if sys.argv[4]:
+    params["role_python"] = sys.argv[4]
 json.dump(params, open(sys.argv[2], "w"), indent=1)
 EOF
-else
-  cp "$DEMO/params.json" "$OUT/params.json"
-fi
+AUTH="$("$PY" -c 'import json,sys; print(json.load(open(sys.argv[1]))["auth"])' "$OUT/params.json")"
 
 {
   echo "== example run $LABEL ($MODE) $(date -u +%FT%TZ)"
@@ -116,7 +123,7 @@ fi
   echo "binary $(sha "$BIN") $("$BIN" --version)"
   echo "brief sha256 $(sha "$OUT/brief.md")"
   echo "params sha256 $(sha "$OUT/params.json")"
-  echo "seed $SEED; cap USD $CAP_USD, the stop fires at USD $KILL_AT_USD; prices $PRICES"
+  echo "auth $AUTH; seed $SEED; cap USD $CAP_USD, the stop fires at USD $KILL_AT_USD (list-price estimates); prices $PRICES"
 } | tee "$LOG"
 
 if [ "$MODE" = dry ]; then
@@ -129,16 +136,20 @@ if [ "$MODE" = dry ]; then
   # script is snapshotted by every session's sentinel, so a literal here would show in the scan.
   ANTHROPIC_API_KEY="$("$PY" -c 'import json,sys; print(json.loads(open(sys.argv[1]).readline())["key"])' "$OUT/endpoint.out")"
   export ANTHROPIC_BASE_URL ANTHROPIC_API_KEY
+  [ "$AUTH" = api_key ] || { echo "a dry run is on the dummy key; its params must say auth api_key" >&2; exit 1; }
   echo "endpoint $ANTHROPIC_BASE_URL (scripted; nothing is spent)" | tee -a "$LOG"
+  KEY="$ANTHROPIC_API_KEY"
 else
+  [ "$AUTH" = subscription ] || { echo "a real run is on the subscription; params.json must say auth subscription" >&2; exit 1; }
   [ -r "$ENV_FILE" ] || { echo "no env file at $ENV_FILE" >&2; exit 1; }
   set -a; . "$ENV_FILE"; set +a
-  # Only the key: the subscription's token is not offered to a key-paid run.
-  unset CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL
-  [ -n "${ANTHROPIC_API_KEY:-}" ] || { echo "ANTHROPIC_API_KEY is not in the env file" >&2; exit 1; }
-  echo "endpoint default (the real API, auth api_key)" | tee -a "$LOG"
+  # Only the subscription's token: no key, no other token, the vendor's default endpoint.
+  unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL
+  [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || { echo "CLAUDE_CODE_OAUTH_TOKEN is not in the env file" >&2; exit 1; }
+  export CLAUDE_CODE_OAUTH_TOKEN
+  echo "endpoint default (the vendor's endpoint, auth subscription)" | tee -a "$LOG"
+  KEY="$CLAUDE_CODE_OAUTH_TOKEN"
 fi
-KEY="$ANTHROPIC_API_KEY"
 
 echo "== decompose $(date -u +%FT%TZ)" | tee -a "$LOG"
 set +e
@@ -193,19 +204,19 @@ except Exception as exc:
     print(f"no harness cost line ({exc}; cost exit {code}): the run did not finish, or see cost.err")
 try:
     last = json.loads(open(spend).read().splitlines()[-1])
-    print(f"watcher: spent USD {last['spent_usd']} ({last['calls']} calls; binary figure of ended calls "
+    print(f"watcher: counted USD {last['spent_usd']} ({last['calls']} calls; binary figure of ended calls "
           f"USD {last['binary_usd_ended_calls']}; list price of all calls USD {last['list_price_usd_all_calls']}); "
           f"cap USD {last['cap_usd']}, stop at USD {last['kill_at_usd']}; {last.get('outcome')}")
 except Exception as exc:
     print(f"no watcher readout ({exc})")
 EOF
 
-# The scan: counts only, nothing rewritten. The key's value is never printed. The two credential
+# The scan: counts only, nothing rewritten. The credential's value is never printed. The two credential
 # shapes are assembled here, because this script is snapshotted by every session's sentinel and
 # a literal would count itself.
 count() { grep -rlF -- "$1" "$OUT" 2>/dev/null | wc -l | tr -d ' '; }
 SHAPE_KEY="sk-ant"; SHAPE_KEY="$SHAPE_KEY-"; SHAPE_TOKEN="oat"; SHAPE_TOKEN="${SHAPE_TOKEN}01"
-echo "scan key: $(count "$KEY") files; $SHAPE_KEY: $(count "$SHAPE_KEY") files; $SHAPE_TOKEN: $(count "$SHAPE_TOKEN") files" | tee -a "$LOG"
-unset ANTHROPIC_API_KEY KEY
+echo "scan credential ($AUTH): $(count "$KEY") files; $SHAPE_KEY: $(count "$SHAPE_KEY") files; $SHAPE_TOKEN: $(count "$SHAPE_TOKEN") files" | tee -a "$LOG"
+unset ANTHROPIC_API_KEY CLAUDE_CODE_OAUTH_TOKEN KEY
 echo "== ended $(date -u +%FT%TZ), exit $CODE. Run directory for the app: $RUN" | tee -a "$LOG"
 exit "$CODE"

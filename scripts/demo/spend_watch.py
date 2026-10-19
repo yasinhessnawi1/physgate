@@ -1,19 +1,21 @@
-r"""Hold a run to a spend cap, from its own streams, and stop it when the cap is reached.
+r"""Watch a run's tokens at list price, from its own streams, and stop it at a set figure.
 
 No part of the harness enforces a USD cap: a run's bounds are turns, wall clock and output
 tokens per session, and the repair budget. This watcher reads the stream of every model call
 the run writes (its decomposition, its role sessions, and its reviews under the review root),
-sums what they spent, and stops the run's process tree when the sum reaches ``--kill-at-usd``.
-A finished call counts at the binary's own figure (``total_cost_usd`` on its result line); a
-call still running counts at the list price of the usage its assistant messages have reported
-so far, so a session is never invisible until it ends. The stop is set below the cap by a
-reserve, because one request can complete between two readings.
+sums their tokens at list price, and stops the run's process tree when the sum reaches
+``--kill-at-usd``. A finished call counts at the binary's own figure (``total_cost_usd`` on its
+result line); a call still running counts at the list price of the usage its assistant
+messages have reported so far, so a session is never invisible until it ends. On the
+subscription nothing is billed per token, and the binary's figure is itself a list-price
+estimate: the sum is what the tokens would cost, not what was paid. The stop is set below the
+cap by a reserve, because one request can complete between two readings.
 
 Every reading is appended to ``--log`` as a JSON line; the last line is the readout. Exit 0
 when the run's process ends on its own, 3 when the watcher stopped it.
 
     python scripts/demo/spend_watch.py --pid <physgate run> --run-dir <run> \\
-        --review-root <root> --cap-usd 45 --kill-at-usd 42 --log spend.jsonl
+        --review-root <root> --cap-usd 43 --kill-at-usd 40 --log spend.jsonl
 """
 
 from __future__ import annotations

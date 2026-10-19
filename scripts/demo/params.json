@@ -1,5 +1,5 @@
 {
- "auth": "api_key",
+ "auth": "subscription",
  "gate_mode": "on",
  "models": {
   "decomposition": "claude-opus-5-5",
