@@ -1245,9 +1245,10 @@ class ClaudeDispatcher:
                 )
             except OSError as exc:
                 unconfirmed: str | None = f"the stop could not be completed: {exc!r}"
-                # The session itself is this process's own child, unreaped, so its pid and
-                # its group are still its own: the whole group is killed here; what left the
-                # group waits for the resume, which refuses while it runs.
+                # While the session is this process's own child, unreaped, its pid and its
+                # group are still its own: the whole group is killed here. Once reaped, no
+                # id of it is signalled; what left the group, or outlived a reaped session,
+                # waits for the resume, which refuses while it runs.
                 kill_own(process)
             stop_done = time.time()
         if ended is not None:
