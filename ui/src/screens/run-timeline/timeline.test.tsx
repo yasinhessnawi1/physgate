@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { RunEvent } from "../../api/events";
 import { RowView } from "../common/RowView";
 import { type Row, rowsOf } from "../common/rows";
+import { Reviews } from "./AttemptInspector";
 import { gateReading, readingWords } from "./gate";
 import { parseAttempt } from "./RunTimeline";
 
@@ -265,5 +266,36 @@ describe("the address names an attempt", () => {
     expect(parseAttempt("drive-c18c5d:3")).toEqual({ subtask: "drive-c18c5d", attempt: 3 });
     expect(parseAttempt("nonsense")).toBeNull();
     expect(parseAttempt(null)).toBeNull();
+  });
+});
+
+describe("the attempt inspector's reviews are the log's review lines", () => {
+  it("with none, says only that none is recorded: why none ran is not in the log", () => {
+    const html = renderToStaticMarkup(<Reviews reviews={[]} />);
+    expect(html).toContain("Not run: no review is recorded for this attempt.");
+    expect(html).not.toMatch(/because|gate failed|reviewer saw/i);
+  });
+
+  it("lists each recorded review by its finding, its model and its verdict", () => {
+    const html = renderToStaticMarkup(
+      <Reviews
+        reviews={[
+          {
+            ...at(9),
+            kind: "review_ran",
+            subtask: "s1",
+            attempt: 1,
+            verdict: "fail",
+            finding: "x",
+            reviewerModel: "claude-sonnet-5",
+            sessionId: null,
+          },
+        ]}
+      />,
+    );
+    expect(html).toContain("x");
+    expect(html).toContain("claude-sonnet-5");
+    expect(html).toContain("pg-verdict-fail");
+    expect(html).not.toContain("Not run");
   });
 });

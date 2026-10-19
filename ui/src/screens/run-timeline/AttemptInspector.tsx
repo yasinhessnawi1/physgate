@@ -46,6 +46,37 @@ function Seal({ base, session }: { readonly base: string; readonly session: stri
   );
 }
 
+type ReviewLine = Extract<RunEvent, { readonly kind: "review_ran" }>;
+
+/**
+ * The reviews the log recorded of an attempt, each by its finding, model and verdict. With none,
+ * it says only that none is recorded: why none ran is not in the log, so the interface does not
+ * guess (a gate failure in the same attempt is not a reason it can give).
+ */
+export function Reviews({ reviews }: { readonly reviews: readonly ReviewLine[] }) {
+  if (reviews.length === 0)
+    return <p className="pg-muted">Not run: no review is recorded for this attempt.</p>;
+  return (
+    <ul className="pg-list">
+      {reviews.map((r) => (
+        <li key={r.seq} className="pg-list-row">
+          <span className="pg-list-row-main">
+            <span>{r.finding ?? "No finding recorded"}</span>
+            {r.reviewerModel !== null && (
+              <span className="pg-panel-note mono">{r.reviewerModel}</span>
+            )}
+          </span>
+          {r.verdict === "pass" || r.verdict === "fail" ? (
+            <VerdictBadge verdict={r.verdict} />
+          ) : (
+            <span className="pg-status">Review: {r.verdict}</span>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function AttemptInspector({
   base,
   config,
@@ -210,28 +241,7 @@ export function AttemptInspector({
           )}
         </InspectorSection>
         <InspectorSection label="Reviews">
-          {reviews.length === 0 ? (
-            // Only what the log holds: no review line. Why none ran is not recorded.
-            <p className="pg-muted">Not run: no review is recorded for this attempt.</p>
-          ) : (
-            <ul className="pg-list">
-              {reviews.map((r) => (
-                <li key={r.seq} className="pg-list-row">
-                  <span className="pg-list-row-main">
-                    <span>{r.finding ?? "No finding recorded"}</span>
-                    {r.reviewerModel !== null && (
-                      <span className="pg-panel-note mono">{r.reviewerModel}</span>
-                    )}
-                  </span>
-                  {r.verdict === "pass" || r.verdict === "fail" ? (
-                    <VerdictBadge verdict={r.verdict} />
-                  ) : (
-                    <span className="pg-status">Review: {r.verdict}</span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
+          <Reviews reviews={reviews} />
         </InspectorSection>
         {failed.length > 0 && (
           <InspectorSection
