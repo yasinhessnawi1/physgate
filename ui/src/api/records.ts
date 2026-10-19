@@ -103,6 +103,11 @@ export interface RunConfig {
   readonly reviewerModels: Readonly<Record<string, string>>;
   /** Whether the run's role sessions ran inside the OS layer; ``null`` if not recorded. */
   readonly osLayer: OsLayer | null;
+  /**
+   * The attempts a subtask gets before it goes to a person: the harness's own constant, sent
+   * beside the record by the server, not part of it. ``null`` when the server sent none.
+   */
+  readonly repairBudget: number | null;
 }
 
 export function runConfig(value: unknown): RunConfig {
@@ -135,6 +140,10 @@ export function runConfig(value: unknown): RunConfig {
             ]),
           ),
     osLayer: osLayer(config.os_layer),
+    repairBudget:
+      answer.repair_budget === undefined || answer.repair_budget === null
+        ? null
+        : count(answer.repair_budget, "the attempts a subtask gets"),
   };
 }
 

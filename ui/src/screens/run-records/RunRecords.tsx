@@ -8,15 +8,19 @@ import { useEffect, useState } from "react";
 
 import { getLines } from "../../api/client";
 import { runEvent } from "../../api/events";
+import { queueListing } from "../../api/queue";
 import {
   costRecord,
   gateEventLine,
   ledgerLine,
-  type LedgerLine,
   priceDates,
   type RunConfig,
 } from "../../api/records";
-import { decisions as decisionSequence, tokens as tokenAccount } from "../../api/run";
+import {
+  decisions as decisionSequence,
+  type RunStatus,
+  tokens as tokenAccount,
+} from "../../api/run";
 import { Button } from "../../design/components/actions/Button";
 import { Figure } from "../../design/components/data/Figure";
 import { Id } from "../../design/components/data/Id";
@@ -29,7 +33,6 @@ import { StatusTag } from "../../design/components/status/StatusTag";
 import { OsLayerBadge } from "../../design/components/system/OsLayerBadge";
 import { GateModeBadge, GateOutcome } from "../../design/components/verdict/GateMode";
 import { Tally } from "../../design/components/verdict/Tally";
-import { VerdictBadge } from "../../design/components/verdict/VerdictBadge";
 import { tallyOf } from "../../design/tally";
 import type { ViewProps } from "../../shell/header";
 import { checkWords } from "../../words/checks";
@@ -40,27 +43,16 @@ import { EngineWords } from "../common/engine";
 import { useJson, useLines } from "../common/read";
 import { subtaskNames } from "../common/rows";
 import { RunSwitcher } from "../common/RunSwitcher";
-import { inProgress, runSource, useChosenRun } from "../common/runs";
+import { inProgress, runKey, runSource, useChosenRun } from "../common/runs";
 import { useResult } from "../common/useResult";
-import { latestLines } from "../home/strip";
 import { TokensCard } from "./Cards";
+import { LedgerTable } from "./Ledger";
+import { foldLedger } from "./ledgerRows";
 
 const AREA = "home";
 const SLUG = "run-records";
 /** How many transcripts are read and checked against their seal without being asked. */
 const FIRST_SEALS = 5;
-
-function ledgerGate(mode: RunConfig["gateMode"], result: LedgerLine["gate"]) {
-  if (result === null) return <span className="pg-muted">not run</span>;
-  if (result === "skipped") return <span className="pg-muted">skipped · gate off</span>;
-  return <GateOutcome mode={mode} outcome={result} />;
-}
-
-function ledgerReview(result: LedgerLine["review"]) {
-  if (result === null) return <span className="pg-muted">not run</span>;
-  if (result === "skipped") return <span className="pg-muted">skipped</span>;
-  return <VerdictBadge verdict={result} />;
-}
 
 function Seal({
   base,
@@ -109,18 +101,23 @@ function Records({
   label,
   going,
   query,
+  status,
+  run,
 }: {
   readonly base: string;
   readonly config: RunConfig;
   readonly label: RunLabel | undefined;
   readonly going: boolean;
   readonly query: URLSearchParams;
+  readonly status: RunStatus | null;
+  readonly run: string;
 }) {
   const source = runSource(config);
   const ledger = useLines(`${base}/ledger`, ledgerLine);
   const gates = useLines(`${base}/gate-events`, gateEventLine);
   const events = useLines(`${base}/events`, runEvent);
   const tokens = useJson(`${base}/tokens`, tokenAccount);
+  const queue = useJson(`${base}/queue`, queueListing);
   const sequence = useJson(`${base}/decisions`, decisionSequence);
   const prices = useJson("/api/prices", priceDates);
   const dates = prices.result?.ok === true ? prices.result.value : [];
@@ -132,11 +129,6 @@ function Records({
   );
   const names =
     events.result?.ok === true ? subtaskNames(events.result.value) : new Map<string, string>();
-  const escalated = new Set(
-    events.result?.ok === true
-      ? events.result.value.flatMap((e) => (e.kind === "escalated" ? [e.subtask] : []))
-      : [],
-  );
   const sealed =
     events.result?.ok === true
       ? events.result.value.flatMap((e) => (e.kind === "session_ended" && e.sealed ? [e] : []))
@@ -284,7 +276,7 @@ function Records({
 
       <section className="pg-card pg-panel" aria-label="Task ledger">
         <h2 className="pg-panel-title">Task ledger</h2>
-        {ledger.result === null ? (
+        {ledger.result === null || events.result === null || queue.result === null ? (
           <LoadingState reading="the task ledger" />
         ) : !ledger.result.ok ? (
           <ErrorState
@@ -297,52 +289,29 @@ function Records({
           <EmptyState title="No ledger lines yet">The run has dispatched nothing.</EmptyState>
         ) : (
           <>
-            <p className="pg-panel-note">
-              View: each subtask's latest line of {ledger.result.value.length} ledger lines.
-            </p>
-            <div
-              className="pg-table-wrap"
-              role="region"
-              aria-label="Task ledger table"
-              tabIndex={0}
-            >
-              <table className="pg-table" aria-label="Task ledger">
-                <thead>
-                  <tr>
-                    <th scope="col">Subtask</th>
-                    <th scope="col">Role</th>
-                    <th scope="col">Attempts</th>
-                    <th scope="col">Gate</th>
-                    <th scope="col">Review</th>
-                    <th scope="col">Where it stands</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {latestLines(ledger.result.value).map((line) => (
-                    <tr key={line.id}>
-                      <td>
-                        {names.get(line.id) ?? "Subtask"} <Id value={line.id} copy={false} />
-                      </td>
-                      <td>{line.role}</td>
-                      <td className="pg-count">{line.attempts}</td>
-                      <td>{ledgerGate(config.gateMode, line.gate)}</td>
-                      <td>{ledgerReview(line.review)}</td>
-                      <td>
-                        {line.mergeCommit !== null ? (
-                          <>
-                            merged <Id value={line.mergeCommit.slice(0, 7)} copy={false} />
-                          </>
-                        ) : escalated.has(line.id) ? (
-                          "set aside for a person to decide"
-                        ) : (
-                          <span className="pg-muted">not merged</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            {!events.result.ok && (
+              <p className="pg-panel-note">
+                The event log could not be read, so the plan's order, rejections, reviews with no
+                verdict and escalations are not shown here.
+              </p>
+            )}
+            {!queue.result.ok && (
+              <p className="pg-panel-note">
+                The approval queue could not be read, so an escalated subtask does not say whether a
+                person has decided it.
+              </p>
+            )}
+            <LedgerTable
+              rows={foldLedger(ledger.result.value, {
+                events: events.result.ok ? events.result.value : [],
+                status,
+                queue: queue.result.ok ? queue.result.value : null,
+                budget: config.repairBudget,
+              })}
+              lines={ledger.result.value.length}
+              mode={config.gateMode}
+              run={run}
+            />
           </>
         )}
         <SourceChip {...source} />
@@ -552,6 +521,8 @@ export default function RunRecords({ setHeader, query }: ViewProps) {
           label={label}
           going={going}
           query={query}
+          status={status?.ok === true ? status.value : null}
+          run={runKey(chosen.chosen)}
         />
       )}
     </div>

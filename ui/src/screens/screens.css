@@ -743,6 +743,24 @@
   }
 }
 
+/* The task ledger: a subtask's name first, its plan place, role and id after it, smaller. */
+.pg-ledger-name,
+.pg-ledger-state {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.pg-ledger-sub {
+  color: var(--color-text-2);
+  font-size: var(--type-label-size);
+}
+
+.pg-ledger-history-row > td {
+  padding-left: var(--space-5);
+  background: var(--color-surface-2);
+}
+
 .pg-subtotal th,
 .pg-total th {
   text-align: left;

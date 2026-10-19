@@ -96,6 +96,7 @@ export function eventActor(
     case "gate_skipped":
     case "integration_gate_ran":
       return GATE;
+    case "review_unavailable":
     case "other":
       return null;
   }
