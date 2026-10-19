@@ -21,7 +21,7 @@ import { EmptyState, LoadingState } from "../design/components/status/States";
 import { OsLayerBadge } from "../design/components/system/OsLayerBadge";
 import { GateModeBadge } from "../design/components/verdict/GateMode";
 import markUrl from "../design/brand/mark.svg?url";
-import type { ViewDef } from "../views/registry";
+import type { ViewDef } from "../screens/registry";
 import { GROUPS, groupById } from "./groups";
 import type { Header } from "./header";
 import { InspectorContext } from "./inspector";
@@ -164,6 +164,8 @@ export function Shell({
   const route = useRoute();
   useShortcuts(route.query);
   const display = useDisplay();
+  /** The content region, which the skip link focuses. */
+  const contentRef = useRef<HTMLElement>(null);
   const registry = usePaletteRegistry();
   const [navCollapsed, setNavCollapsed] = useState(false);
   const [dockOpen, setDockOpen] = useState(false);
@@ -257,8 +259,8 @@ export function Shell({
       : page === "about"
         ? "About physgate"
         : (header?.title ?? "Nothing here");
-  // Only the gallery opens the inspector region for now; today's views keep their own inspectors.
-  const hasInspector = page === "gallery";
+  // The gallery and the views that say they have one open the inspector region.
+  const hasInspector = page === "gallery" || view?.inspector === true;
   const inspectorOpen = hasInspector && inspectorShown && !inspectorClosed;
   const Page = page === null ? undefined : pages?.[page];
 
@@ -291,6 +293,19 @@ export function Shell({
           data-dock={dockOpen ? "open" : "rail"}
           data-inspector={inspectorOpen ? "open" : "closed"}
         >
+          {/* The first tab stop: a keyboard user skips the areas and goes to the content. It
+              focuses the content itself rather than following a fragment, since the address's
+              fragment is the route. */}
+          <a
+            className="pg-skip-link"
+            href="#pg-content"
+            onClick={(event) => {
+              event.preventDefault();
+              contentRef.current?.focus();
+            }}
+          >
+            Skip to content
+          </a>
           <nav className="pg-nav" aria-label="Areas">
             <div className="pg-brand">
               <span className="pg-brand-mark" aria-hidden="true">
@@ -356,7 +371,9 @@ export function Shell({
                     {(group ?? (page === null ? undefined : HOME_GROUP))?.name ?? "physgate"}
                   </li>
                   <li aria-current="page">
-                    <h1 className="pg-page-title">{title}</h1>
+                    <h1 className="pg-page-title" id="pg-page-title">
+                      {title}
+                    </h1>
                   </li>
                 </ol>
               </nav>
@@ -364,8 +381,25 @@ export function Shell({
                 (header.source !== undefined ||
                   header.gateMode !== undefined ||
                   header.osLayer !== undefined ||
-                  header.inProgress === true) && (
+                  header.inProgress === true ||
+                  header.run !== undefined ||
+                  header.runState !== undefined) && (
                   <div className="pg-run-chip" role="group" aria-label="The run shown">
+                    {header.runState !== undefined ? (
+                      <span className="pg-run-label">
+                        {header.runState === "none" ? "No run yet" : "Run not read"}
+                      </span>
+                    ) : (
+                      header.run !== undefined && (
+                        <span
+                          className="pg-run-label"
+                          title={header.run.detail}
+                          aria-label={`${header.run.label}, ${header.run.detail}`}
+                        >
+                          {header.run.label}
+                        </span>
+                      )
+                    )}
                     {header.source !== undefined && (
                       <SourceChip id={header.source.id} commit={header.source.commit} compact />
                     )}
@@ -431,7 +465,17 @@ export function Shell({
               </div>
             </header>
             <div className="pg-body">
-              <main className="pg-content">{content}</main>
+              {/* The content scrolls on its own, so it is a tab stop: a screen with nothing to
+                  focus, such as the glossary, can still be scrolled from the keyboard. */}
+              <main
+                className="pg-content"
+                id="pg-content"
+                tabIndex={0}
+                aria-labelledby="pg-page-title"
+                ref={contentRef}
+              >
+                {content}
+              </main>
               {hasInspector && (
                 <aside
                   className="pg-inspector-region"

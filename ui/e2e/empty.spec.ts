@@ -133,7 +133,8 @@ for (const theme of THEMES) {
     // The shell: navigation, the top bar, the palette and the collaborator's placeholder.
     await expect(page.locator('nav[aria-label="Areas"]')).toBeVisible();
     await expect(page.locator(".pg-topbar")).toBeVisible();
-    await expect(page.locator(".pg-page-title")).toHaveText("Run records");
+    await expect(page.locator(".pg-page-title")).toHaveText("Home");
+    await expect(page.locator('[aria-label="The run shown"]')).toHaveText("No run yet");
     await page.keyboard.press("Control+k");
     const palette = page.locator("dialog.pg-palette[open]");
     await expect(palette).toBeVisible();
@@ -172,7 +173,8 @@ for (const theme of THEMES) {
         window.location.hash = hash;
       }, href);
       await settle(page);
-      if (href !== "#/about") {
+      // About and the Glossary are reference text: they read no run, so they have no empty state.
+      if (href !== "#/about" && href !== "#/reference/glossary") {
         await expect(page.locator(".pg-state-empty").first(), href).toBeVisible();
         await expect(page.locator('main [role="alert"]'), href).toHaveCount(0);
       }
@@ -192,9 +194,9 @@ test("with runs listed and none readable, Home lists each with its reason and st
   await expect.poll(() => page.evaluate(() => window.location.hash)).toBe("");
   await settle(page);
   await expect(page.locator('.pg-state-empty[aria-label="No run here can be read"]')).toBeVisible();
-  const picker = page.locator('nav[aria-label="Runs"]');
-  await expect(picker).toContainText("broken-run");
-  await expect(picker).toContainText("unreadable:");
+  const listed = page.locator('section[aria-label="Runs"]');
+  await expect(listed).toContainText("broken-run");
+  await expect(listed).toContainText("Run broken-run could not be read:");
   // Not the first-day screen: there is a run, so nothing offers to start a project.
   await expect(page.getByRole("button", { name: "Start a project" })).toHaveCount(0);
   await showsNoCommand(page, "Home, none readable");

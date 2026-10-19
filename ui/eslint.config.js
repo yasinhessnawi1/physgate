@@ -42,7 +42,10 @@ export default tseslint.config(
         {
           patterns: [
             THESIS,
-            { group: ["../views/*/**"], message: "The shell reads views from the registry only." },
+            {
+              group: ["../screens/*/**", "../views/*/**"],
+              message: "The shell reads screens from the registry only.",
+            },
           ],
         },
       ],

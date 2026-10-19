@@ -13,7 +13,15 @@ import { cspViolations, THEMES, watch } from "./support";
  * in. Nothing leaves the origin and no content-security rule breaks.
  */
 
-const VIEWS = ["Run records", "Approval queue", "Design graph", "Run timeline", "Gate checks"];
+const VIEWS = [
+  "Home",
+  "Queue",
+  "Run timeline",
+  "Design graph",
+  "Gate checks",
+  "Run records",
+  "Glossary",
+];
 
 function operatorHash(): string {
   const started = JSON.parse(readFileSync(join(RUNS, "started.json"), "utf8")) as {
@@ -69,7 +77,7 @@ test("a writing entry opens its confirmation, and Escape closes the dialog, then
 }) => {
   const seen = await watch(page);
   await asOperator(page, "/collaboration/approval-queue?run=0/run-esc-view");
-  await expect(page.locator(".queue-detail")).toBeVisible();
+  await expect(page.locator(".pg-queue-item")).toBeVisible();
   const notices = page.locator('section[aria-label="Notifications"]');
   const palette = page.locator("dialog.pg-palette[open]");
   const confirm = page.locator("dialog.pg-dialog[open]");
@@ -90,22 +98,23 @@ test("a writing entry opens its confirmation, and Escape closes the dialog, then
   await expect(entry).toHaveAttribute("aria-disabled", "false");
   await page.keyboard.press("Enter");
   await expect(confirm).toBeVisible();
-  await expect(confirm).toContainText("This writes: one line appended to queue_decisions.jsonl");
-  await expect(confirm.locator("button", { hasText: "Cancel" })).toBeFocused();
+  await expect(confirm).toContainText("One line appended to queue_decisions.jsonl");
+  // Focus moves into the confirmation, to its first field: the optional note.
+  await expect(confirm.getByLabel("Note · optional")).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(confirm).toHaveCount(0);
   await expect(notices).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(notices).toHaveCount(0);
 
-  // A rejection needs its note, from the palette as from the button.
+  // A rejection needs its reason, from the palette as from the button: its confirmation waits.
   await page.keyboard.press("Control+k");
   await page.keyboard.type("Reject");
-  await expect(palette.locator('[role="option"]', { hasText: "Reject…" })).toHaveAttribute(
-    "aria-disabled",
-    "true",
-  );
+  await page.keyboard.press("Enter");
+  await expect(confirm).toBeVisible();
+  await expect(confirm.getByRole("button", { name: "Reject", exact: true })).toBeDisabled();
   await page.keyboard.press("Escape");
+  await expect(confirm).toHaveCount(0);
   expect(seen.outbound).toEqual([]);
   expect(await cspViolations(page)).toEqual([]);
 });
