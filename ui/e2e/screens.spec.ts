@@ -68,24 +68,29 @@ async function common(page: Page, seen: Watch, shot: string) {
   }
 }
 
-/** Every graph node is whole inside the frame: none cut at an edge. */
+/**
+ * Every graph node is whole inside the frame: none cut at an edge. The canvas measures each card
+ * once drawn and fits the graph again when the frame changes width, so the settled layout is what
+ * is held, not a frame mid-fit: the check is taken again until it holds or the time is up.
+ */
 async function nodesWhole(page: Page) {
-  const cut = await page.locator(".pg-graph-frame").evaluate((frame) => {
-    const box = frame.getBoundingClientRect();
-    return [...frame.querySelectorAll<HTMLElement>("button.pg-node")]
-      .filter((node) => {
-        const r = node.getBoundingClientRect();
-        return (
-          r.left < box.left - 1 ||
-          r.right > box.right + 1 ||
-          r.top < box.top - 1 ||
-          r.bottom > box.bottom + 1
-        );
-      })
-      .map((node) => node.querySelector(".pg-node-id")?.textContent ?? "");
-  });
+  const cutNodes = () =>
+    page.locator(".pg-graph-frame").evaluate((frame) => {
+      const box = frame.getBoundingClientRect();
+      return [...frame.querySelectorAll<HTMLElement>("button.pg-node")]
+        .filter((node) => {
+          const r = node.getBoundingClientRect();
+          return (
+            r.left < box.left - 1 ||
+            r.right > box.right + 1 ||
+            r.top < box.top - 1 ||
+            r.bottom > box.bottom + 1
+          );
+        })
+        .map((node) => node.querySelector(".pg-node-id")?.textContent ?? "");
+    });
   expect(await page.locator("button.pg-node").count()).toBeGreaterThan(0);
-  expect(cut).toEqual([]);
+  await expect.poll(cutNodes).toEqual([]);
 }
 
 /** Every node label and key is whole: wrapped, never cut, never clamped. */

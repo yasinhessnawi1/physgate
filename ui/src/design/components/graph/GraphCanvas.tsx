@@ -86,6 +86,8 @@ export function guessHeight(node: CanvasNode): number {
       lines(node.id, KEY_CHARS) * KEY_LINE +
       (node.quantities?.length ?? 0) * KEY_LINE +
       (node.verdict === undefined ? 0 : LABEL_LINE + 6) +
+      // "· part unchecked" beside the badge, which wraps under it on a card this wide.
+      (node.partUnchecked === true ? KEY_LINE : 0) +
       CARD_REST,
   );
 }
