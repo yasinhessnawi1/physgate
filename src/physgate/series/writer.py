@@ -101,7 +101,7 @@ def worktree() -> str:
 
 
 def _name(value: object, what: str) -> str:
-    if not isinstance(value, str) or not _NAME.match(value):
+    if not isinstance(value, str) or not _NAME.fullmatch(value):
         msg = f"{what} {value!r} is not a lower-case name of letters, digits and underscores"
         raise SeriesWriterError(msg)
     return value

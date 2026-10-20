@@ -352,6 +352,23 @@ class Captured:
     answered: frozenset[str]
 
 
+def read_stream_file(stream: Path) -> bytes:
+    """A session's captured stream, read once without following a link; a gone stream halts.
+
+    The orchestrator opened the stream before the session ran, so a stream with no bytes and
+    no file was removed: it is never read as one that showed no canary. An empty stream that
+    is present is still read, as the session ending with no result.
+
+    Raises:
+        InvocationError: the stream is gone, or is a link or not a regular file.
+    """
+    data = read_session_file(stream)
+    if not data and not os.path.lexists(stream):
+        msg = "a session's stream is gone; nothing is read from it"
+        raise InvocationError(msg, path=str(stream))
+    return data
+
+
 def read_captured(stream: Path) -> Captured:
     """Read a session's stream once: seal it, find a forged tail, parse what the runtime wrote.
 
@@ -359,7 +376,7 @@ def read_captured(stream: Path) -> Captured:
     and the leftover a resume finds. A stream with a tail after the runtime's
     result is parsed only up to that result; the tail is reported, never read.
     """
-    data = read_session_file(stream)
+    data = read_stream_file(stream)
     text = data.decode(errors="replace")
     tampered = forged_tail(text)
     if tampered is not None:
@@ -382,7 +399,7 @@ def review_material_seen(stream: Path, live: frozenset[str]) -> str | None:
     """
     if not live:
         return None
-    return canary_seen(read_session_file(stream), live)
+    return canary_seen(read_stream_file(stream), live)
 
 
 def role_prompt(request: SessionRequest) -> str:
@@ -1315,7 +1332,7 @@ class ClaudeDispatcher:
         captured = read_captured(stdout)
         # A command bubblewrap aborted never ran: recorded as such, never as a denial.
         aborted = (
-            aborted_tool_uses(read_session_file(stdout).decode(errors="replace"))
+            aborted_tool_uses(read_stream_file(stdout).decode(errors="replace"))
             if temp is not None
             else ()
         )

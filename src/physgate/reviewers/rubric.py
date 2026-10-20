@@ -191,7 +191,7 @@ def parse_rubric(text: str, kind: RubricKind = "paired") -> tuple[RubricItem, ..
                 msg = "no other second-level section follows the required ones"
                 raise RubricError(msg, section=title)
             continue
-        found = _ITEM.match(line)
+        found = _ITEM.fullmatch(line)
         if found and current is not None:
             title = _title(found["rest"], lines, index)
             items.append(RubricItem(id=found["id"], section=current, title=title))

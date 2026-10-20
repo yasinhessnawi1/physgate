@@ -259,7 +259,7 @@ def source_problem(name: str, source: str) -> str | None:
             derivation(rest)
         except ValueError as exc:
             return str(exc)
-    if head not in ("derived", "design") and not _URL.match(source):
+    if head not in ("derived", "design") and not _URL.fullmatch(source):
         return f"a source is a URL, 'derived: ...' or 'design: ...', not {source!r}"
     return None
 

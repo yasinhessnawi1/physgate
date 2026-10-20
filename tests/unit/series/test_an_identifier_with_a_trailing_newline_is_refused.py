@@ -1,7 +1,7 @@
 """An identifier or a path that ends in a newline is not the one the run could have written.
 
-``re.match`` with a pattern ending in ``$`` accepts ``"abc\\n"``, because ``$`` also matches
-before a final newline. Every validator uses ``fullmatch``, and a scan of the source holds that:
+``re.match`` with a pattern ending in ``$`` accepts a final newline, because ``$`` also matches
+before one. Every validator uses ``fullmatch``, and a scan of the source holds that:
 no compiled pattern ending in ``$`` is read with ``.match``.
 """
 

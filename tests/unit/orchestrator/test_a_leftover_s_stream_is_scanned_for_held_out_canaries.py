@@ -14,14 +14,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from left_session import INSTALL_BIN, sentinel_installed, spawn_logged
 from loop_fakes import FakeDispatcher, Rig, plan
 
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.dispatch import ClaudeDispatcher
-from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.events import Halted, Incident, LeftoverRead, read_events
+from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.merge import RunGit
 from physgate.orchestrator.ports import Leftover
 from physgate.orchestrator.trajectory import seal

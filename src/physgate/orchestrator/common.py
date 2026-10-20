@@ -32,7 +32,7 @@ _FULL_MODEL = re.compile(r"^[a-z][a-z0-9._/-]*-[0-9][a-z0-9._-]*$")
 
 
 def _full_model_string(value: str) -> str:
-    if not _FULL_MODEL.match(value):
+    if not _FULL_MODEL.fullmatch(value):
         msg = f"{value!r} is not a full model string (an alias moves with the binary)"
         raise ValueError(msg)
     return value
