@@ -1248,6 +1248,32 @@ kbd,
   padding-left: calc(var(--space-5) + 40px);
 }
 
+/* A long finding's rest, folded under its row and lined up with the row's sentence. */
+.pg-trow-more {
+  padding: 0 var(--space-5) var(--space-3) calc(64px + var(--space-5) + 200px + var(--space-4) * 2);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--type-body-size, inherit);
+}
+
+.pg-trow-more-1 {
+  padding-left: calc(64px + var(--space-5) + 200px + var(--space-4) * 2 + 20px);
+}
+
+.pg-trow-more-2 {
+  padding-left: calc(64px + var(--space-5) + 200px + var(--space-4) * 2 + 40px);
+}
+
+.pg-trow-more > summary {
+  cursor: pointer;
+  color: var(--color-text-2);
+}
+
+.pg-trow-more-text {
+  margin: var(--space-2) 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* -- graph ----------------------------------------------------------------------------------- */
 .pg-graph {
   display: flex;

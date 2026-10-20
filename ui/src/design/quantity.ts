@@ -44,3 +44,12 @@ export function unitLabel(unit: string): string {
 export function valueLabel(value: number | string): string {
   return typeof value === "number" ? String(value) : value;
 }
+
+/**
+ * The value to ``decimals`` places, for a figure a person reads in money. The caller keeps the
+ * exact value for the hover. ``null`` when the value is not a finite number.
+ */
+export function roundedLabel(value: number | string, decimals: number): string | null {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n.toFixed(decimals) : null;
+}

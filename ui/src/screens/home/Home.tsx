@@ -34,6 +34,7 @@ import { RowView } from "../common/RowView";
 import { type Row, rowsOf } from "../common/rows";
 import { inProgress, runBase, runKey, runSource, useLabels, useRunList } from "../common/runs";
 import { NoRunsYet } from "./NoRunsYet";
+import { runEnd, runEndWords } from "./runEnd";
 import { activeRun, readTargets, type RunRead, startOfRead, useRunReads } from "./data";
 import {
   STRIP_STATES,
@@ -86,7 +87,7 @@ export function CostSoFar({
 }) {
   return (
     <span className="pg-figure-line">
-      <Figure {...cost.usd} source={source} partial />
+      <Figure {...cost.usd} decimals={2} source={source} partial />
       <span className="pg-panel-note">
         price sheet of {cost.pricesDate}
         <CostCaveat cost={cost} />
@@ -119,7 +120,11 @@ function statusWords(read: RunRead | undefined) {
   if (inProgress(read.status.value)) return <InProgressBadge />;
   if (read.status.value.halted !== null)
     return <span className="pg-status">Halted · {read.status.value.halted.reason}</span>;
-  return <StatusTag status="complete" />;
+  // A log that could not be read cannot show a run complete: it is not claimed.
+  if (!read.events.ok) return <span className="pg-status">Ended · its log was not read</span>;
+  const end = runEnd(read.events.value, read.queue.ok ? read.queue.value.open.length : null);
+  if (end.kind === "complete") return <StatusTag status="complete" />;
+  return <span className="pg-status">{runEndWords(end)}</span>;
 }
 
 function Runs({

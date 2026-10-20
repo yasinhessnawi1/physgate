@@ -7,6 +7,7 @@ import { costRecord, type LedgerLine } from "../../api/records";
 import { namesACommand } from "../../rules/commands";
 import { EngineWords } from "../common/engine";
 import { CostSoFar, StripLegend } from "./Home";
+import { runEnd, runEndWords } from "./runEnd";
 import { NoRunsYet } from "./NoRunsYet";
 import { STRIP_STATES, STRIP_WORDS, strip, stripCounts } from "./strip";
 
@@ -111,5 +112,75 @@ describe("the engine a run ran on", () => {
     expect(html).toContain("not recorded by this run");
     expect(html).toContain("api_key");
     expect(html).not.toMatch(/claude|code/i);
+  });
+});
+
+describe("a run that ended is Complete only when every subtask merged and the whole design was gated", () => {
+  const planned = (seq: number, subtask: string): RunEvent => ({
+    seq,
+    ts: "t",
+    kind: "subtask_planned",
+    subtask,
+    role: "control",
+  });
+  const merged = (seq: number, subtask: string): RunEvent => ({
+    seq,
+    ts: "t",
+    kind: "merged",
+    subtask,
+    attempt: 1,
+    mergeCommit: null,
+  });
+  const gated: RunEvent = {
+    seq: 20,
+    ts: "t",
+    kind: "integration_gate_ran",
+    verdict: "pass",
+    mode: "on",
+  };
+  const skipped: RunEvent = {
+    seq: 20,
+    ts: "t",
+    kind: "integration_gate_skipped",
+    reason: "not_all_merged",
+  };
+  const escalated: RunEvent = { seq: 15, ts: "t", kind: "escalated", subtask: "c", itemId: "q" };
+
+  it("every subtask merged and the integration gate ran: Complete", () => {
+    const end = runEnd(
+      [planned(1, "c"), planned(2, "f"), merged(3, "c"), merged(4, "f"), gated],
+      0,
+    );
+    expect(end).toEqual({ kind: "complete" });
+    expect(runEndWords(end)).toBe("Complete");
+  });
+
+  it("one subtask escalated and the design not gated: Ended, with what waits for the person", () => {
+    const end = runEnd([planned(1, "c"), planned(2, "f"), escalated, merged(4, "f"), skipped], 1);
+    expect(end).toEqual({ kind: "ended", waiting: 1, merged: 1, planned: 2, gated: false });
+    expect(runEndWords(end)).toBe("Ended · 1 waiting for you");
+    expect(runEndWords(end)).not.toContain("Complete");
+  });
+
+  it("everything merged but the whole design never gated is not Complete either", () => {
+    const end = runEnd([planned(1, "c"), merged(2, "c"), skipped], 0);
+    expect(runEndWords(end)).toBe("Ended · the whole design was not gated");
+  });
+
+  it("subtasks not merged with nothing in the queue says how many merged", () => {
+    const end = runEnd([planned(1, "c"), planned(2, "f"), merged(3, "f"), skipped], 0);
+    expect(runEndWords(end)).toBe("Ended · 1 of 2 subtasks merged");
+  });
+
+  it("a queue that could not be read counts the subtasks the log set aside", () => {
+    const end = runEnd(
+      [planned(1, "c"), planned(2, "f"), escalated, merged(4, "f"), skipped],
+      null,
+    );
+    expect(runEndWords(end)).toBe("Ended · 1 set aside for a person");
+  });
+
+  it("a log with nothing planned is never Complete", () => {
+    expect(runEndWords(runEnd([], 0))).toBe("Ended · nothing was planned");
   });
 });

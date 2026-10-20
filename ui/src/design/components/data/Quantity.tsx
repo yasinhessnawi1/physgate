@@ -1,4 +1,4 @@
-import { requireQuantity, unitLabel, valueLabel } from "../../quantity";
+import { requireQuantity, roundedLabel, unitLabel, valueLabel } from "../../quantity";
 
 export interface QuantityProps {
   /** As recorded; never rounded by the view. */
@@ -8,6 +8,11 @@ export interface QuantityProps {
   readonly size?: "md" | "lg";
   /** Drawn in the what-if hue. Pair it with a what-if marker. */
   readonly whatIf?: boolean;
+  /**
+   * Show a recorded decimal to this many places, for a cost a person reads to the sen. The exact
+   * figure stays one hover away. Without it, a quantity is never rounded.
+   */
+  readonly decimals?: number;
   /** A running total of a run still in progress: "so far" follows as text. */
   readonly partial?: boolean;
 }
@@ -22,6 +27,7 @@ export function Quantity({
   size = "md",
   whatIf = false,
   partial = false,
+  decimals,
 }: QuantityProps) {
   const checked = requireQuantity({ value, unit });
   const className = [
@@ -31,9 +37,15 @@ export function Quantity({
   ]
     .filter((c) => c !== null)
     .join(" ");
+  const rounded = decimals === undefined ? null : roundedLabel(checked.value, decimals);
   return (
-    <span className={className}>
-      <span className="pg-quantity-value">{valueLabel(checked.value)}</span>
+    <span
+      className={className}
+      {...(rounded === null
+        ? {}
+        : { title: `${valueLabel(checked.value)} ${unitLabel(checked.unit)} as recorded` })}
+    >
+      <span className="pg-quantity-value">{rounded ?? valueLabel(checked.value)}</span>
       <span className="pg-quantity-unit">{unitLabel(checked.unit)}</span>
       {partial && <span className="pg-so-far">so far</span>}
     </span>

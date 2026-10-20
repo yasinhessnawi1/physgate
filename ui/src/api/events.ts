@@ -57,6 +57,8 @@ export type RunEvent = Line &
         readonly subtask: string;
         readonly attempt: number;
         readonly cause: string;
+        readonly detail: string | null;
+        readonly reviewerModel: string | null;
       }
     | {
         readonly kind: "attempt_rejected";
@@ -162,6 +164,8 @@ export function runEvent(value: unknown): RunEvent {
         subtask: subtask(),
         attempt: attempt(),
         cause: text(e.cause, "a cause"),
+        detail: optionalText(e.detail, "a detail"),
+        reviewerModel: optionalText(e.reviewer_model, "a model"),
       };
     case "attempt_rejected": {
       const f = object(e.finding, "a finding");

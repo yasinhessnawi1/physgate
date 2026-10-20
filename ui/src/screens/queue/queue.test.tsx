@@ -21,7 +21,7 @@ import {
   type Resolved,
   STATUSES,
 } from "../../api/queue";
-import { DECISION_COPY, bannedIn } from "../../words/queue";
+import { DECISION_COPY, bannedIn, queueHeadline } from "../../words/queue";
 import { Decide } from "./Decide";
 import { chosenItem, lineToWrite, SEAL_TAG, sealLine, whyNot } from "./model";
 import { QueueItem } from "./QueueItem";
@@ -473,5 +473,60 @@ describe("deciding goes through a confirmation naming the line it writes", () =>
     expect(buttons(host, "Approve")[0]?.disabled).toBe(true);
     expect(buttons(host, "Reject")[0]?.disabled).toBe(true);
     expect(whyNot(null)).toContain("without naming an operator");
+  });
+});
+
+describe("the headline is plain words from the source and cause, the raw error one fold down", () => {
+  const RAW =
+    "The review of subtask s1, attempt 2, reached no verdict (invalid_verdict: the binary's cap on refused verdicts ended it: " +
+    "Failed to provide valid structured output after 5 attempts \u2014 last StructuredOutput error: Output does not match required schema: /review: must be object). " +
+    "Decide whether to review it again, review it yourself, or set the attempt aside. No repair attempt was spent.";
+  const unavailable = itemView(
+    rawView({
+      item: {
+        ...(rawView().item as Record<string, unknown>),
+        source: "review_unavailable",
+        decision_required: RAW,
+      },
+    }),
+  );
+
+  it("is derived by code from the source and the cause, with the attempt and the tries", () => {
+    expect(queueHeadline(unavailable.item)).toBe(
+      "The review of attempt 2 reached no verdict: the reviewer's answer did not fit the required form (5 tries)",
+    );
+  });
+
+  it("falls back to the source's own sentence when no cause can be read", () => {
+    expect(queueHeadline({ source: "review_unavailable", decisionRequired: "odd" })).toBe(
+      "The review reached no verdict",
+    );
+    expect(queueHeadline(VIEW.item)).toBe("A subtask used up its repairs");
+  });
+
+  it("the heading is the plain headline and the raw string sits in a collapsed details section", () => {
+    const host = mount(
+      <QueueItem view={unavailable} decided={undefined} source={SOURCE} subtaskName="Subtask 1" />,
+    );
+    const heading = host.querySelector("h2")?.textContent ?? "";
+    expect(heading).toContain("reached no verdict");
+    expect(heading).not.toContain("StructuredOutput");
+    expect(heading).not.toContain("must be object");
+    const raw = [...host.querySelectorAll<HTMLDetailsElement>("details")].find((d) =>
+      d.textContent.includes("must be object"),
+    );
+    expect(raw).toBeDefined();
+    expect(raw?.open).toBe(false);
+    expect(raw?.querySelector("summary")?.textContent).toBe("Details");
+    expect(raw?.textContent).toContain(RAW);
+  });
+
+  it("keeps the item's finding, diff and quantities as they are", () => {
+    const host = mount(
+      <QueueItem view={unavailable} decided={undefined} source={SOURCE} subtaskName="Subtask 1" />,
+    );
+    expect(host.textContent).toContain("the stall current is too high");
+    expect(host.querySelector(".pg-queue-diff")?.textContent).toBe("--- a/x\n+++ b/x\n");
+    expect(host.querySelector(".pg-quantity")?.textContent).toBe("3.4A");
   });
 });

@@ -85,7 +85,8 @@ export function eventActor(
         ? { kind: "unmapped", name: "a session" }
         : agentOf(role, models.roleModels[role]);
     }
-    case "review_ran": {
+    case "review_ran":
+    case "review_unavailable": {
       const role = roles[event.subtask];
       const name = role === undefined ? "Reviewer" : `${capital(role)} reviewer`;
       return event.reviewerModel === null
@@ -96,7 +97,6 @@ export function eventActor(
     case "gate_skipped":
     case "integration_gate_ran":
       return GATE;
-    case "review_unavailable":
     case "other":
       return null;
   }

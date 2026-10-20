@@ -841,3 +841,8 @@
   color: var(--color-text-2);
   border-color: var(--color-border);
 }
+
+.pg-queue-raw .pg-pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

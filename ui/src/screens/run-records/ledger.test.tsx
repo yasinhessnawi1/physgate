@@ -68,6 +68,8 @@ const EVENTS: readonly RunEvent[] = [
     subtask: "control-1",
     attempt: 2,
     cause: "invalid_verdict",
+    detail: null,
+    reviewerModel: null,
   } as const),
   at({ kind: "escalated", subtask: "control-1", itemId: ITEM } as const),
   at({ kind: "merged", subtask: "firmware-2", attempt: 1, mergeCommit: MERGE } as const),
