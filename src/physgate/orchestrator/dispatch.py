@@ -1464,6 +1464,9 @@ class ClaudeDispatcher:
             else:
                 killed, stopped, leads = 0, False, False
                 written = {"not_running_at_resume": True}
+            # A stream that is gone halts here, with the session left unended: the next
+            # resume finds it again and halts again, never skipping it as ended.
+            read_stream_file(sdir / "stdout.jsonl")
             if kind == "session":
                 # Before any git call on the attempt, as at a session's end under its
                 # orchestrator; a refusal leaves the session unended for the next resume.
