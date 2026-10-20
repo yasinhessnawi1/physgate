@@ -204,6 +204,98 @@ def test_a_halt_on_a_gone_stream_leaves_the_session_unended_and_the_next_resume_
         assert not (sdir / "ended.json").exists()
 
 
+def test_one_gone_stream_ends_no_session_and_every_gone_stream_is_named(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    _left(run_dir, "fine", "nothing held out here")
+    _left(run_dir, "gone-b", "x")
+    _left(run_dir, "gone-c", "x")
+    for name in ("gone-b", "gone-c"):
+        (run_dir / "sessions" / name / "stdout.jsonl").unlink()
+    for _ in range(2):
+        with pytest.raises(InvocationError) as raised:
+            _dispatcher(run_dir, held_out_canaries=(CANARY,)).stop_leftovers()
+        message = f"{raised.value} {raised.value.context}"
+        assert "gone-b" in message and "gone-c" in message and "fine" not in message
+        assert "quarantine.json" in message
+        # Nothing is ended, so the next resume reports the fine session too.
+        assert not list((run_dir / "sessions").glob("*/ended.json"))
+    (run_dir / "sessions" / "gone-b" / "quarantine.json").write_text(
+        json.dumps({"by": "yasin", "why": "the stream was removed by a cleanup job"})
+    )
+    with pytest.raises(InvocationError, match="gone-c"):
+        _dispatcher(run_dir, held_out_canaries=(CANARY,)).stop_leftovers()
+    assert not list((run_dir / "sessions").glob("*/ended.json"))
+
+
+def test_a_quarantined_gone_stream_is_recorded_as_unscanned_never_as_clean(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "run"
+    _left(run_dir, "fine", "nothing held out here")
+    _left(run_dir, "gone", "x")
+    sdir = run_dir / "sessions" / "gone"
+    (sdir / "stdout.jsonl").unlink()
+    (sdir / "quarantine.json").write_text(
+        json.dumps({"by": "yasin", "why": "the stream was removed by a cleanup job"})
+    )
+    found = {
+        left.session_id: left
+        for left in _dispatcher(run_dir, held_out_canaries=(CANARY,)).stop_leftovers()
+    }
+    assert set(found) == {"fine", "gone"}
+    assert found["fine"].quarantine is None
+    gone = found["gone"]
+    assert gone.quarantine == "yasin: the stream was removed by a cleanup job"
+    assert gone.scan == "unscanned (stream gone)" and found["fine"].scan == "scanned"
+    assert gone.seal is None and gone.usage == () and not gone.complete
+    assert all((run_dir / "sessions" / n / "ended.json").exists() for n in found)
+
+
+def test_a_marker_that_names_nobody_or_nothing_is_no_quarantine(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    _left(run_dir, "gone", "x")
+    sdir = run_dir / "sessions" / "gone"
+    (sdir / "stdout.jsonl").unlink()
+    (sdir / "quarantine.json").write_text(json.dumps({"by": "", "why": "x"}))
+    with pytest.raises(InvocationError, match="gone"):
+        _dispatcher(run_dir).stop_leftovers()
+    # A marker beside a stream that is there does not stop that stream being scanned.
+    _left(run_dir, "present", f"the task reads: <!-- {CANARY} -->")
+    (run_dir / "sessions" / "present" / "quarantine.json").write_text(
+        json.dumps({"by": "yasin", "why": "none"})
+    )
+    (sdir / "quarantine.json").write_text(json.dumps({"by": "yasin", "why": "gone"}))
+    found = {
+        left.session_id: left
+        for left in _dispatcher(run_dir, held_out_canaries=(CANARY,)).stop_leftovers()
+    }
+    assert found["present"].held_out_seen == CANARY and found["present"].quarantine is None
+
+
+def test_a_quarantine_is_recorded_in_the_event_log(tmp_path: Path) -> None:
+    class _Quarantined(FakeDispatcher):
+        def stop_leftovers(self) -> list[Leftover]:
+            return [
+                Leftover(
+                    session_id="sess-old",
+                    pid=4242,
+                    killed=0,
+                    stopped=False,
+                    quarantine="yasin: the stream was removed by a cleanup job",
+                    scan="unscanned (stream gone)",
+                )
+            ]
+
+    rig = Rig(tmp_path, dispatcher=_Quarantined())
+    loop = rig.open()
+    loop.start(plan("s1"))
+    loop.run()
+    loop.close()
+    (read,) = [e for e in read_events(tmp_path / "events.jsonl") if isinstance(e, LeftoverRead)]
+    assert read.scan == "unscanned (stream gone)"
+    assert read.quarantine == "yasin: the stream was removed by a cleanup job"
+
+
 def test_a_leftover_whose_stream_is_present_and_empty_is_still_read(tmp_path: Path) -> None:
     run_dir = tmp_path / "run"
     _left(run_dir, "empty", "")
