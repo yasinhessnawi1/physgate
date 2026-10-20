@@ -106,7 +106,7 @@ const HEADLINES: Readonly<Record<QueueSource, string>> = {
   review_unavailable: "The review reached no verdict",
   review_blocked: "A review could not decide a safety-critical check",
   arbitration: "The builder and the reviewer disagree",
-  escalation_decision: "A subtask was sent to a person early",
+  escalation_decision: "A subtask was sent to a person",
 };
 
 /**

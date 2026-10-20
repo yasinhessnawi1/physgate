@@ -502,6 +502,9 @@ describe("the headline is plain words from the source and cause, the raw error o
       "The review reached no verdict",
     );
     expect(queueHeadline(VIEW.item)).toBe("A subtask used up its repairs");
+    expect(queueHeadline({ source: "escalation_decision", decisionRequired: "x" })).toBe(
+      "A subtask was sent to a person",
+    );
   });
 
   it("the heading is the plain headline and the raw string sits in a collapsed details section", () => {
