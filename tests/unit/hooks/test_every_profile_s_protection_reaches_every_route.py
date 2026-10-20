@@ -17,7 +17,6 @@ agent's row differs from the role's only where the harness's design discipline i
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +26,7 @@ from hook_helpers import event
 from physgate.hooks import paths, shell_paths, tools
 from physgate.hooks.config import HookInput, SessionConfig
 from physgate.hooks.settings import InstallRequest, build_config, current_installation
-from physgate.oslayer.policy import READS_DENIED_BESIDE_WRITES, sandbox_policy
+from physgate.oslayer.policy import EVERY_ENTRY, sandbox_policy
 
 #: Each kind of root, as a file beneath it, relative to the request's base directory.
 FILES = {
@@ -52,8 +51,6 @@ FILES = {
     "ordinary": "run/wt/modules/control/loop.py",
 }
 
-_OUTBOX_READ_DENIED = "T" if sys.platform in READS_DENIED_BESIDE_WRITES else "F"
-
 #: ``tool read, tool write, tool edit, shell read, shell write, OS denies read,
 #: OS denies write, sentinel watch``.
 ROLE = {
@@ -69,9 +66,9 @@ ROLE = {
     "series_writer": "A R R A R F T revert",
     # Only a script's own write reaches the outbox (the OS layer allows it); the hooks
     # refuse every tool and shell write to it, and nothing of the session reads it back:
-    # the hooks refuse a read by a tool or a named command, and where the sandbox can deny
-    # a read and keep a write (macOS) the OS layer denies one by a path built at run time.
-    "series_outbox": f"R R R R R {_OUTBOX_READ_DENIED} F none",
+    # the hooks refuse a read by a tool or a named command, and the OS layer denies one by a
+    # path built at run time (on Linux the outbox's entries, as each command starts).
+    "series_outbox": "R R R R R T F none",
     "settings_dir": "A R R A R F T revert",
     "env_file": "A R R A R F T revert",
     "experiment_criteria": "A R R A R F T -",
@@ -163,7 +160,15 @@ def _decide(hook: object, config: SessionConfig, wt: Path, **call: Any) -> str: 
 
 
 def _under(path: str, roots: list[str]) -> str:
-    return "T" if any(Path(path).is_relative_to(Path(r)) for r in roots) else "F"
+    """``T`` if a named root holds ``path``; a root ending ``/*`` holds each entry beneath it."""
+
+    def holds(root: str, target: Path) -> bool:
+        if root.endswith(f"/{EVERY_ENTRY}"):
+            directory = Path(root).parent
+            return target.is_relative_to(directory) and target != directory
+        return target.is_relative_to(Path(root))
+
+    return "T" if any(holds(r, Path(path)) for r in roots) else "F"
 
 
 def _watch(config: SessionConfig, path: str) -> str:

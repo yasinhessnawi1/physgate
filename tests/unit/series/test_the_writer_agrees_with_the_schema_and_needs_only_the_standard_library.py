@@ -214,6 +214,7 @@ def test_the_writer_s_constants_are_the_schema_s() -> None:
 ALLOWED_IMPORTS = {
     "__future__",
     "contextlib",
+    "errno",
     "hashlib",
     "json",
     "math",

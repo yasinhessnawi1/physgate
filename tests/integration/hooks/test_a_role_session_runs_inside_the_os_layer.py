@@ -30,7 +30,6 @@ from os_layer_rig import MARKER, Layout, layer_here, make_layout, python, run_se
 
 from physgate.orchestrator.budget import classify_session_end
 from physgate.oslayer.placement import machine_writable, placement_refusal
-from physgate.oslayer.policy import READS_DENIED_BESIDE_WRITES
 from physgate.oslayer.probe import shared_temp_dirs
 from physgate.series.collect import writer_source
 
@@ -432,14 +431,6 @@ def test_with_the_layer_the_writer_still_writes_and_rewrites_a_record(layout: La
 
 
 @pytest.mark.usefixtures("layer")
-@pytest.mark.xfail(
-    sys.platform not in READS_DENIED_BESIDE_WRITES,
-    reason=(
-        "bubblewrap cannot deny a read of the outbox and keep its writes, so on Linux the hooks "
-        "alone refuse a read of it, and a path built at run time is the stated residual"
-    ),
-    strict=True,
-)
 def test_a_later_command_reads_no_record_from_the_outbox_by_a_path_built_at_run_time(
     layout: Layout,
 ) -> None:
@@ -451,12 +442,34 @@ def test_a_later_command_reads_no_record_from_the_outbox_by_a_path_built_at_run_
     simulated, read_back, moved = (str(said) for said in told)
     assert "recorded" in simulated, simulated
     assert MARKER not in read_back and "denied:" in read_back, read_back
-    assert "listed" not in read_back, read_back
+    if sys.platform == "darwin":
+        # Seatbelt denies the directory whole, its listing included; on Linux a command
+        # lists the names of the records earlier commands wrote, and reads none of them.
+        assert "listed" not in read_back, read_back
     # Nor by moving the outbox, or a directory above it, out from under its name first.
     assert MARKER not in moved and "denied:" in moved, moved
     assert not (layout.worktree / "modules" / "control" / "moved").exists()
     record = layout.worktree / ".physgate" / "series" / "step_nominal.json"
     assert f"{MARKER} again" in record.read_text()
+
+
+@pytest.mark.usefixtures("layer")
+def test_a_record_an_earlier_command_wrote_is_rewritten_or_refused_never_read(
+    layout: Layout,
+) -> None:
+    # Run again in a later command: macOS rewrites the record in place; on Linux what an
+    # earlier command wrote is out of reach, so the writer refuses and says why.
+    first = _series_steps(layout)[0]
+    run = run_session(layout, [first, first], layer=True)
+    told = run["told"]
+    assert isinstance(told, list)
+    assert "recorded" in str(told[0]), told[0]
+    record = layout.worktree / ".physgate" / "series" / "step_nominal.json"
+    if sys.platform == "darwin":
+        assert "recorded" in str(told[1]), told[1]
+    else:
+        assert "written by an earlier command" in str(told[1]), told[1]
+    assert json.loads(record.read_text())["title"] == f"{MARKER} again"
 
 
 def test_without_the_layer_the_outbox_reads_back_which_shows_the_probe_works(

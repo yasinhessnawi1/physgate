@@ -34,7 +34,7 @@ from physgate.hooks.config import (
     SessionConfig,
 )
 from physgate.hooks.settings import InstallRequest, build_config, current_installation
-from physgate.oslayer.policy import FIELD_RULES, OsPolicy, sandbox_policy
+from physgate.oslayer.policy import EVERY_ENTRY, FIELD_RULES, OsPolicy, sandbox_policy
 
 
 def _layout(tmp_path: Path) -> dict[str, Path]:
@@ -342,24 +342,34 @@ def test_on_macos_the_outbox_is_read_denied_whole_and_left_writable(tmp_path: Pa
     assert not any(outbox.is_relative_to(d) for d in fs["denyWrite"])
 
 
-def test_on_linux_the_outbox_is_not_read_denied_since_its_records_would_be_lost(
+def test_on_linux_the_outbox_s_entries_are_read_denied_and_the_directory_is_not(
     tmp_path: Path,
 ) -> None:
-    # bubblewrap lays an empty layer over a read-denied directory, and a record written into
-    # that layer is gone when the command ends: there the hooks alone refuse its reads.
+    # bubblewrap lays an empty layer over a read-denied directory, and the writer's rename into
+    # it fails as a move across devices: the entries are denied instead, as they stand when
+    # each command starts.
     fs, outbox = _outbox_policy(tmp_path, "linux")
-    assert not any(outbox.is_relative_to(d) for d in fs["denyRead"])
+    assert str(outbox / EVERY_ENTRY) in fs["denyRead"]
+    assert not any(outbox.is_relative_to(d) for d in fs["denyRead"] if not d.endswith("*"))
     assert not any(outbox.is_relative_to(d) for d in fs["denyWrite"])
 
 
-def test_only_the_root_scripts_write_is_left_readable_on_linux(tmp_path: Path) -> None:
-    # Every other read-denied root is denied on both platforms alike.
-    linux, outbox = _outbox_policy(tmp_path / "l", "linux")
-    darwin, outbox_d = _outbox_policy(tmp_path / "d", "darwin")
-    relocated = {d.replace(str(tmp_path / "d"), str(tmp_path / "l")) for d in darwin["denyRead"]}
-    shown = {str(outbox_d).replace(str(tmp_path / "d"), str(tmp_path / "l"))}
-    assert relocated - set(linux["denyRead"]) <= shown | {os.path.realpath(p) for p in shown}
-    assert str(outbox) not in linux["denyRead"]
+def test_only_the_root_scripts_write_is_read_denied_by_its_entries(tmp_path: Path) -> None:
+    fs, outbox = _outbox_policy(tmp_path, "linux")
+    by_entries = [d for d in fs["denyRead"] if d.endswith(f"/{EVERY_ENTRY}")]
+    assert by_entries and {str(Path(d).parent) for d in by_entries} <= {
+        str(outbox),
+        os.path.realpath(outbox),
+    }
+
+
+@pytest.mark.parametrize("platform", ["win32", "cygwin", "freebsd14", ""])
+def test_a_platform_with_no_mechanism_for_the_outbox_gets_no_policy(
+    tmp_path: Path, platform: str
+) -> None:
+    # Fails closed: no settings that would leave the outbox readable to the shell.
+    with pytest.raises(ValueError, match="series outbox"):
+        _outbox_policy(tmp_path, platform)
 
 
 @pytest.mark.parametrize(

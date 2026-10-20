@@ -26,33 +26,35 @@ writable place three rules apply:
   child made later is the hooks' and the sentinel's alone;
 - a root the registry leaves to scripts (``shell_writes: allowed``: the series
   outbox, whose records the collector judges) is not named for writes, and is read-denied
-  where the mechanism allows (below);
+  (below);
 - a root above a writable place (the run's ``sessions/`` above the session's
   home) is not named at all: the OS already denies everything in it but the home.
 
 **Reads.** Denied for what no session reads (the held-out tier, answer keys,
-review material, the harness checkout, the series outbox where the mechanism allows)
+review material, the harness checkout, the series outbox)
 and for what the session's runtime keeps from its shell commands (its credentials, the
 hooks' records, other sessions' files). A read-denied root above the session's home has
 the home opened again.
 
-**The series outbox is written blind, where the mechanism allows it.** A record reaches it
-by a script's own write, so a shell command may write there and should not read there: a
-command that joins the outbox's path at run time, which the hooks' text rule cannot see,
-should find nothing to read. Only Seatbelt can deny that and keep the writes:
+**The series outbox is written blind.** A record reaches it by a script's own write, so a
+shell command may write there and may not read there: a command that joins the outbox's path
+at run time, which the hooks' text rule cannot see, must find nothing to read. The two
+mechanisms deny that differently, each measured on Claude Code 2.1.301:
 
-- on macOS the outbox is read-denied whole, listing and contents. Measured on 2.1.301, a
-  command can still create a file there and rename one in from beside it, and cannot read,
-  list, link, copy, rename or remove anything there, nor rename the outbox or a directory
-  above it away; so the writer writes beside it and renames in (see the series writer);
-- on Linux bubblewrap lays an empty layer over a read-denied directory, and a record written
-  into that layer is gone when the command ends (as the OS-layer tests measure for a
-  read-denied corpus in the worktree). Denying the records one by one instead would mask
-  each, as each command starts, with a read-only stand-in (read from the sandbox's code,
-  not measured), over which a later command could not write that record again. Neither
-  keeps the outbox working, so on Linux it is not read-denied, and the hooks alone refuse a
-  read of it: a tool's, and a command's that names it. A path built at run time is the
-  residual.
+- on macOS Seatbelt denies the outbox whole. A command cannot list it, read, link, copy,
+  rename or remove anything in it, nor rename it or a directory above it away; it can still
+  create a file there, rewrite one in place, and rename one in from beside it under a new
+  name, which is how the series writer writes;
+- on Linux bubblewrap lays an empty layer over a read-denied directory, and the writer's
+  rename into it then fails as a move across devices, so no record could be written. The
+  outbox's entries are denied instead (``<outbox>/*``), expanded as each command starts:
+  every record an earlier command wrote is unreadable and cannot be written over, renamed or
+  moved away with the outbox; a command reads back only what it wrote itself, and lists the
+  names. A record written again under an id an earlier command used is therefore refused
+  there, and the writer says so; the script records the run under a new id.
+
+A platform with neither mechanism gets no policy at all: building one refuses, rather than
+leaving the outbox readable.
 
 **The file tools are left to the hooks.** No ``Read`` permission rule is written:
 Claude Code applies such a rule before any hook runs, so a refused tool call would
@@ -80,7 +82,7 @@ FIELD_RULES: dict[str, str] = {
     "state_dir": "write- and read-denied to shell commands: the hooks' records",
     "protected_roots": (
         "write-denied unless `shell_writes` leaves it to scripts; read-denied as `reads` says "
-        "(a root scripts write: on macOS only, where a read can be denied and a write kept)"
+        "(a root scripts write: whole on macOS, by its entries on Linux)"
     ),
     "experiments": "frozen files write-denied, named as the hooks freeze them",
     "held_out": "write- and read-denied (the file tools are the hooks')",
@@ -156,11 +158,12 @@ def sandbox_policy(
     write there by name (``/tmp``, and on macOS the per-user directory plain ``mktemp``
     uses); ``claude_temp`` names Claude Code's own temporary directories inside them, which
     hold every session of the user's records and are denied both ways. ``platform`` says
-    which mechanism enforces the settings, which decides whether the series outbox is read-denied.
+    which mechanism enforces the settings, which decides how the series outbox is read-denied.
 
     Raises:
         ValueError: the worktree, the home or the temporary directory sits inside a
-            read-denied path, where the session could not work.
+            read-denied path, where the session could not work; or ``platform`` has no
+            mechanism that keeps the series outbox unreadable.
     """
     writable = (config.worktree, temp_dir, home, *shared_temp)
     read_denied = _read_denied(config, platform)
@@ -205,24 +208,39 @@ def _spelled(*paths: str) -> list[str]:
     return sorted({spelling for path in paths for spelling in (path, os.path.realpath(path))})
 
 
-#: Platforms whose sandbox denies a read without discarding a write: only there is a root
-#: that scripts write (the series outbox) read-denied too.
-READS_DENIED_BESIDE_WRITES = ("darwin",)
+#: What names every entry of a directory to the Linux sandbox, which expands it against the
+#: directory as it stands when each command starts.
+EVERY_ENTRY = "*"
+
+
+def outbox_read_denial(path: str, platform: str) -> str:
+    """How the sandbox on ``platform`` is told no command reads the outbox at ``path``.
+
+    Raises:
+        ValueError: ``platform`` has no mechanism that denies the reads and keeps the writes.
+    """
+    if platform == "darwin":
+        return path
+    if platform.startswith("linux"):
+        return os.path.join(path, EVERY_ENTRY)
+    msg = f"no OS-layer rule keeps the series outbox unreadable on {platform}"
+    raise ValueError(msg)
 
 
 def _read_denied(config: SessionConfig, platform: str) -> set[str]:
     """Every path a shell command of this session may not read.
 
-    A read-denied root that scripts write (the series outbox) is named only where the
-    sandbox can deny its reads and keep its writes (:data:`READS_DENIED_BESIDE_WRITES`).
+    A read-denied root that scripts write (the series outbox) is named as the platform's
+    mechanism can deny its reads and keep its writes (:func:`outbox_read_denial`).
     """
     denied = {*config.held_out, *config.answer_keys, *config.review_material, config.state_dir}
     for root in config.protected_roots:
         if root.reads == "open":
             continue
-        if root.shell_writes == "allowed" and platform not in READS_DENIED_BESIDE_WRITES:
-            continue
-        denied.add(root.path)
+        if root.shell_writes == "allowed":
+            denied.add(outbox_read_denial(root.path, platform))
+        else:
+            denied.add(root.path)
     return denied
 
 

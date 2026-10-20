@@ -198,6 +198,36 @@ def test_the_writer_writes_the_outbox_without_reading_it(tmp_path: Path) -> None
     assert sorted(p.name for p in (base / ".physgate").iterdir()) == ["lib", "series"]
 
 
+#: Run inside a script before it records: the outbox behaves as bubblewrap makes it behave
+#: with its entries read-denied (measured on Linux with Claude Code 2.1.301): a record an
+#: earlier command wrote is a mount point, and a rename over it fails as busy.
+_MASKED = """
+import errno
+_real_replace = os.replace
+def _busy(src, dst, *args, **kwargs):
+    if os.path.basename(dst) == "step_nominal.json" and os.path.lexists(dst):
+        raise OSError(errno.EBUSY, "Device or resource busy", dst)
+    return _real_replace(src, dst, *args, **kwargs)
+os.replace = _busy
+"""
+
+
+def test_a_record_an_earlier_command_wrote_and_cannot_be_replaced_is_refused_by_name(
+    tmp_path: Path,
+) -> None:
+    base = worktree(tmp_path)
+    first = run(write_script(base))
+    assert first.returncode == 0, first.stderr
+    outbox = base / ".physgate" / "series"
+    before = (outbox / "step_nominal.json").read_bytes()
+    again = run(write_script(base, name="again.py", extra=_MASKED))
+    assert again.returncode != 0
+    assert "written by an earlier command" in again.stderr
+    assert "under a new id" in again.stderr
+    assert (outbox / "step_nominal.json").read_bytes() == before
+    assert sorted(p.name for p in (base / ".physgate").iterdir()) == ["lib", "series"]
+
+
 def test_a_writer_that_reads_the_outbox_fails_where_it_is_unreadable(tmp_path: Path) -> None:
     # The stand-in for the OS layer bites: a script that lists the outbox is refused by it.
     base = worktree(tmp_path)

@@ -39,9 +39,11 @@ Use, from a script under the module directory::
         group="step",
     )
 
-The record lands in ``.physgate/series/<id>.json``. A new record arrives whole or not at all;
-a record written again under its id is rewritten in place where the outbox cannot be replaced
-in, and a rewrite cut short is refused when the session ends.
+The record lands in ``.physgate/series/<id>.json``. A new record arrives whole or not at all.
+Written again under its id from the same command, it is replaced; from a later command it is
+rewritten in place on macOS (a rewrite cut short is refused when the session ends) and
+refused on Linux, where what an earlier command wrote is out of reach: record the run under
+a new id there.
 
 **The extractors.** A quantity read off a record is checked against the record by the
 functions at the end of this file, the very ones the orchestrator runs, so a role computes the
@@ -56,6 +58,7 @@ figures, and is then refused.
 from __future__ import annotations
 
 import contextlib
+import errno
 import hashlib
 import json
 import math
@@ -367,7 +370,8 @@ def record(
     them is set aside there.
 
     Raises:
-        SeriesWriterError: the record is not one the format admits.
+        SeriesWriterError: the record is not one the format admits, or an earlier command
+            wrote its id where the sandbox keeps that record out of reach.
     """
     base = worktree()
     data = build(
@@ -393,10 +397,21 @@ def record(
             os.replace(temporary, final)
         except PermissionError:
             # The record is there already, and the outbox may be added to but not replaced
-            # in: it is rewritten in place. Not whole-or-nothing, as a rename is; a rewrite
-            # cut short leaves a record the collector refuses, and the script is run again.
+            # in (macOS): it is rewritten in place. Not whole-or-nothing, as a rename is; a
+            # rewrite cut short leaves a record the collector refuses, and the script is run
+            # again.
             _write_all(os.open(final, _REWRITE), data)
             os.unlink(temporary)
+        except OSError as exc:
+            if exc.errno != errno.EBUSY:
+                raise
+            # An earlier command wrote this id, and the sandbox holds what an earlier command
+            # wrote out of every later command's reach (Linux).
+            msg = (
+                f"the record {record_id!r} was written by an earlier command, and this session "
+                "cannot write over it: record this run under a new id"
+            )
+            raise SeriesWriterError(msg) from None
     except BaseException:
         with contextlib.suppress(OSError):
             os.unlink(temporary)
