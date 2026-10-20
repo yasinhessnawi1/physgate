@@ -268,3 +268,60 @@ def test_a_rewrite_that_fails_part_way_leaves_the_earlier_record_whole(tmp_path:
     assert "the disk went away" in done.stderr
     assert sorted(p.name for p in outbox.iterdir()) == ["step_nominal.json"]
     assert (outbox / "step_nominal.json").read_bytes() == before
+
+
+#: Run inside a script before it records: the interpreter's standard library is taken to be
+#: ``stdlib``, and a ``sitecustomize`` module is taken to have been loaded from ``hook``, as a
+#: distribution's interpreter loads its own site hook in every process.
+_SITE_HOOK = """
+import sysconfig, types
+_real_paths = sysconfig.get_paths
+def _paths(*args, **kwargs):
+    paths = dict(_real_paths(*args, **kwargs))
+    paths["stdlib"] = {stdlib!r}
+    return paths
+sysconfig.get_paths = _paths
+_hook = types.ModuleType("sitecustomize")
+_hook.__file__ = {hook!r}
+sys.modules["sitecustomize"] = _hook
+"""
+
+
+def _site_hook_record(tmp_path: Path, hook_dir: Path) -> set[str]:
+    """What a record names when ``sitecustomize`` was loaded from ``hook_dir``.
+
+    The hook's file there links to one under a stand-in ``/etc``, outside every place the
+    interpreter is installed, as Debian and Ubuntu link ``<stdlib>/sitecustomize.py`` to
+    ``/etc/python3.X/sitecustomize.py``.
+    """
+    base = worktree(tmp_path)
+    root = Path(os.path.realpath(tmp_path))
+    target = root / "etc" / "python3.12" / "sitecustomize.py"
+    target.parent.mkdir(parents=True)
+    target.write_text("# a distribution's own site hook\n")
+    hook_dir.mkdir(parents=True, exist_ok=True)
+    (hook_dir / "sitecustomize.py").symlink_to(target)
+    stdlib = root / "installation" / "lib" / "python3.12"
+    stdlib.mkdir(parents=True, exist_ok=True)
+    extra = _SITE_HOOK.format(stdlib=str(stdlib), hook=str(hook_dir / "sitecustomize.py"))
+    done = run(write_script(base, extra=extra))
+    assert done.returncode == 0, done.stderr
+    return {f.path for f in parse_record(Path(done.stdout.strip()).read_bytes()).producer.loaded}
+
+
+def test_the_interpreter_s_own_site_hook_is_not_named_as_loaded_code(tmp_path: Path) -> None:
+    # Ubuntu's interpreter runs /etc/python3.12/sitecustomize.py in every process, by a link
+    # in its standard library. Named, it read to a role as code from outside the module, and
+    # the role worked round it by turning the site machinery off.
+    root = Path(os.path.realpath(tmp_path))
+    paths = _site_hook_record(tmp_path, root / "installation" / "lib" / "python3.12")
+    assert not any(p.endswith("sitecustomize.py") for p in paths), paths
+    assert paths == {".physgate/lib/series_writer.py", "modules/control/helper.py"}
+
+
+def test_a_site_hook_from_anywhere_but_the_standard_library_is_named(tmp_path: Path) -> None:
+    # The same hook found elsewhere on the path (a home the session writes, a scratch
+    # directory) is code the session could have planted, and the collector judges it.
+    root = Path(os.path.realpath(tmp_path))
+    paths = _site_hook_record(tmp_path, root / "home" / "site-packages")
+    assert str(root / "etc" / "python3.12" / "sitecustomize.py") in paths

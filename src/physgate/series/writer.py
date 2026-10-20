@@ -13,10 +13,12 @@ gate's registry knows is the schema's question alone.
 
 **What it records about the code.** The record names the script that ran (the program's
 ``__main__``) and every file of code the process had loaded from outside the interpreter's
-own installation, each with the digest of its bytes now. Paths inside the worktree are
-written relative to it; anything else is written as it is, absolute, and the orchestrator
-refuses a record whose code ran from outside the module. Write the record after the
-simulation, from the script that ran it.
+own installation, each with the digest of its bytes now. The interpreter's own site hook
+(``sitecustomize`` loaded from its standard library, which Ubuntu links to ``/etc``) is part
+of that installation and is not named. Paths inside the worktree are written relative to it;
+anything else is written as it is, absolute, and the orchestrator refuses a record whose
+code ran from anywhere but the module and the interpreter's own installation. Write the
+record after the simulation, from the script that ran it.
 
 Use, from a script under the module directory::
 
@@ -251,6 +253,24 @@ def _interpreter_roots() -> list[str]:
     return sorted({os.path.realpath(root) for root in roots if root})
 
 
+def _standard_library() -> set[str]:
+    """The interpreter's standard-library directories, as its paths spell them and as they are."""
+    paths = sysconfig.get_paths()
+    found = {paths[key] for key in ("stdlib", "platstdlib") if paths.get(key)}
+    return {spelling for d in found for spelling in (os.path.abspath(d), os.path.realpath(d))}
+
+
+def _own_site_hook(name: str, found: str, standard_library: set[str]) -> bool:
+    """Whether ``found`` is the interpreter's own site hook, loaded from its standard library.
+
+    A distribution may keep that file outside the installation and link it in: Debian and
+    Ubuntu link ``<stdlib>/sitecustomize.py`` to ``/etc/python3.X/sitecustomize.py``, which
+    then runs in every process. It is judged by the place it was loaded from, not by where
+    the link leads; the same module found anywhere else is named like any other code.
+    """
+    return name == "sitecustomize" and os.path.dirname(os.path.abspath(found)) in standard_library
+
+
 def _under(path: str, root: str) -> bool:
     return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
 
@@ -275,10 +295,11 @@ def producer(base: str) -> dict[str, object]:
         raise SeriesWriterError(msg)
     script = os.path.realpath(main)
     roots = _interpreter_roots()
+    standard_library = _standard_library()
     loaded = set()
-    for module in list(sys.modules.values()):
+    for name, module in list(sys.modules.items()):
         found = getattr(module, "__file__", None)
-        if not isinstance(found, str):
+        if not isinstance(found, str) or _own_site_hook(name, found, standard_library):
             continue
         path = os.path.realpath(found)
         if path == script or any(_under(path, root) for root in roots):
