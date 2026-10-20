@@ -34,7 +34,13 @@ from physgate.hooks.config import (
     SessionConfig,
 )
 from physgate.hooks.settings import InstallRequest, build_config, current_installation
-from physgate.oslayer.policy import EVERY_ENTRY, FIELD_RULES, OsPolicy, sandbox_policy
+from physgate.oslayer.policy import (
+    EVERY_ENTRY,
+    FIELD_RULES,
+    OsPolicy,
+    outbox_read_denial,
+    sandbox_policy,
+)
 
 
 def _layout(tmp_path: Path) -> dict[str, Path]:
@@ -224,12 +230,34 @@ def test_no_permission_rule_is_written_so_the_hooks_see_every_file_tool_call(
     assert set(policy.settings) == {"sandbox"}
 
 
-def test_no_path_is_a_pattern(tmp_path: Path) -> None:
-    policy, _ = _policy(tmp_path)
+@pytest.mark.parametrize("platform", ["darwin", "linux"])
+def test_no_path_is_a_pattern_but_the_outbox_s_entries_on_linux(
+    tmp_path: Path, platform: str
+) -> None:
+    paths = _layout(tmp_path)
+    (paths["worktree"] / ".git").write_text("gitdir: x\n")
+    policy = sandbox_policy(
+        _config(paths),
+        home=str(paths["sdir"] / "home"),
+        temp_dir=str(paths["temp"]),
+        platform=platform,
+    )
     fs = _fs(policy)
+    outbox = paths["worktree"] / ".physgate" / "series"
+    entries = {str(outbox / EVERY_ENTRY), os.path.join(os.path.realpath(outbox), EVERY_ENTRY)}
+    patterns = []
     for name in ("allowWrite", "denyWrite", "denyRead", "allowRead"):
         for path in fs[name]:
-            assert path.startswith("/") and not set(path) & set("*?[")
+            literal = path.removesuffix(f"/{EVERY_ENTRY}") if path in entries else path
+            assert literal.startswith("/") and not set(literal) & set("*?["), path
+            patterns += [path] if literal != path else []
+    assert set(patterns) <= entries and bool(patterns) == (platform == "linux")
+
+
+def test_an_outbox_whose_path_reads_as_a_pattern_gets_no_policy() -> None:
+    # Its entries could not be named without the pattern meaning more than the outbox.
+    with pytest.raises(ValueError, match="pattern"):
+        outbox_read_denial("/runs/w[1]/.physgate/series", "linux")
 
 
 def test_a_temporary_directory_inside_a_read_denied_root_is_refused(tmp_path: Path) -> None:

@@ -217,11 +217,15 @@ def outbox_read_denial(path: str, platform: str) -> str:
     """How the sandbox on ``platform`` is told no command reads the outbox at ``path``.
 
     Raises:
-        ValueError: ``platform`` has no mechanism that denies the reads and keeps the writes.
+        ValueError: ``platform`` has no mechanism that denies the reads and keeps the writes,
+            or the outbox's own path would read as a pattern.
     """
     if platform == "darwin":
         return path
     if platform.startswith("linux"):
+        if set(path) & set("*?["):
+            msg = f"the series outbox's path {path} reads as a pattern; its entries cannot be named"
+            raise ValueError(msg)
         return os.path.join(path, EVERY_ENTRY)
     msg = f"no OS-layer rule keeps the series outbox unreadable on {platform}"
     raise ValueError(msg)
