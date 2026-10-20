@@ -37,7 +37,9 @@ Use, from a script under the module directory::
         group="step",
     )
 
-The record lands in ``.physgate/series/<id>.json``, written whole or not at all.
+The record lands in ``.physgate/series/<id>.json``. A new record arrives whole or not at all;
+a record written again under its id is rewritten in place where the outbox cannot be replaced
+in, and a rewrite cut short is refused when the session ends.
 
 **The extractors.** A quantity read off a record is checked against the record by the
 functions at the end of this file, the very ones the orchestrator runs, so a role computes the
@@ -51,6 +53,7 @@ figures, and is then refused.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import math
@@ -291,6 +294,39 @@ def producer(base: str) -> dict[str, object]:
     }
 
 
+#: How a record's temporary file is opened, and how a record already there is rewritten:
+#: never through a link.
+_CREATE = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+_REWRITE = os.O_WRONLY | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+#: The temporary file's name, beside the outbox; the collector clears one a killed writer left.
+TEMPORARY_PATTERN = r"^\.[a-z][a-z0-9_]{0,63}\.json\.[0-9]{1,10}\.tmp$"
+
+
+def temporary_name(record_id: str, pid: int) -> str:
+    """The name of a record's temporary file, written beside the outbox before it moves in."""
+    return f".{record_id}.json.{pid}.tmp"
+
+
+def _write_all(fd: int, data: bytes) -> None:
+    """Write ``data`` to ``fd`` and sync it, then close it."""
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(data)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def _make_outbox(outbox: str) -> None:
+    """Make the outbox if it is missing, without reading it.
+
+    ``os.makedirs`` with ``exist_ok`` looks at a directory that already exists, and the
+    outbox may not be looked at: an existing one is taken as found, and the write into it
+    says whether it is a directory.
+    """
+    os.makedirs(os.path.dirname(outbox), exist_ok=True)
+    with contextlib.suppress(FileExistsError):
+        os.mkdir(outbox)
+
+
 def record(
     record_id: str,
     *,
@@ -301,10 +337,16 @@ def record(
     inputs: object = None,
     group: object = None,
 ) -> str:
-    """Write one record into the worktree's outbox, whole or not at all; return its path.
+    """Write one record into the worktree's outbox; return its path.
+
+    A new record arrives whole or not at all. The outbox is written blind: nothing in it is
+    listed, looked at or read back, because a role session's shell may not read it. The
+    session's bounds on the count and the bytes of its records (:data:`MAX_RECORDS_PER_SESSION`,
+    :data:`MAX_SESSION_BYTES`) are therefore the collector's alone to hold, and a record beyond
+    them is set aside there.
 
     Raises:
-        SeriesWriterError: the record is not one the format admits, or the outbox is full.
+        SeriesWriterError: the record is not one the format admits.
     """
     base = worktree()
     data = build(
@@ -318,30 +360,24 @@ def record(
         producer=producer(base),
     )
     outbox = os.path.join(base, OUTBOX)
-    os.makedirs(outbox, exist_ok=True)
+    _make_outbox(outbox)
     final = os.path.join(outbox, record_id + ".json")
-    others = [
-        os.path.join(outbox, name)
-        for name in os.listdir(outbox)
-        if name.endswith(".json") and not name.startswith(".") and name != record_id + ".json"
-    ]
-    if len(others) + 1 > MAX_RECORDS_PER_SESSION:
-        msg = f"a session leaves at most {MAX_RECORDS_PER_SESSION} records"
-        raise SeriesWriterError(msg)
-    if sum(os.path.getsize(path) for path in others) + len(data) > MAX_SESSION_BYTES:
-        msg = f"a session's records hold at most {MAX_SESSION_BYTES} bytes together"
-        raise SeriesWriterError(msg)
-    temporary = os.path.join(outbox, f".{record_id}.json.{os.getpid()}.tmp")
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
-    fd = os.open(temporary, flags, 0o644)
+    # Written beside the outbox and renamed into it: a file in a read-denied outbox can be
+    # created but not renamed or removed there (macOS), and a temporary file must be both.
+    temporary = os.path.join(os.path.dirname(outbox), temporary_name(record_id, os.getpid()))
+    fd = os.open(temporary, _CREATE, 0o644)
     try:
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(data)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, final)
+        _write_all(fd, data)
+        try:
+            os.replace(temporary, final)
+        except PermissionError:
+            # The record is there already, and the outbox may be added to but not replaced
+            # in: it is rewritten in place. Not whole-or-nothing, as a rename is; a rewrite
+            # cut short leaves a record the collector refuses, and the script is run again.
+            _write_all(os.open(final, _REWRITE), data)
+            os.unlink(temporary)
     except BaseException:
-        if os.path.lexists(temporary):
+        with contextlib.suppress(OSError):
             os.unlink(temporary)
         raise
     return final

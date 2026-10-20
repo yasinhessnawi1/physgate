@@ -127,17 +127,85 @@ def test_a_refused_record_leaves_no_file_behind(tmp_path: Path) -> None:
     assert not outbox.exists() or list(outbox.iterdir()) == []
 
 
-def test_a_session_s_outbox_is_bounded(tmp_path: Path) -> None:
+def test_the_writer_leaves_the_session_s_bounds_to_the_collector(tmp_path: Path) -> None:
+    # Counting the records already there would read the outbox, which a session may not; the
+    # collector holds the bounds and sets aside a record beyond them.
     base = worktree(tmp_path)
+    first = run(write_script(base, name="first.py", record_id="first"))
+    assert first.returncode == 0, first.stderr
     script = write_script(
         base, record_id="second", extra="series_writer.MAX_RECORDS_PER_SESSION = 1"
     )
-    first = run(write_script(base, name="first.py", record_id="first"))
-    assert first.returncode == 0, first.stderr
     done = run(script)
+    assert done.returncode == 0, done.stderr
+    names = sorted(p.name for p in (base / ".physgate" / "series").iterdir())
+    assert names == ["first.json", "second.json"]
+
+
+#: Run inside a script before it records: the outbox behaves as Seatbelt makes a read-denied
+#: one behave (measured on macOS with Claude Code 2.1.301). Listing it, asking about an entry
+#: and opening one to read fail; renaming or removing anything in it, and renaming a file in
+#: over one already there, fail too; creating a file there, rewriting one in place, and
+#: renaming one in from beside it under a new name still work.
+_BLIND = """
+import builtins, errno
+_outbox = os.path.realpath(os.path.join(here, ".physgate", "series"))
+_real_lstat = os.lstat
+def _there(path):
+    try:
+        _real_lstat(path)
+    except FileNotFoundError:
+        return False
+    return True
+def _inside(path):
+    path = "" if isinstance(path, int) else os.path.abspath(os.fspath(path))
+    return path == _outbox or path.startswith(_outbox + os.sep)
+def _refuse(path):
+    raise PermissionError(errno.EPERM, "Operation not permitted", os.fspath(path))
+def _deny(real, refused):
+    def guarded(path, *args, **kwargs):
+        if refused(path, *args, **kwargs):
+            _refuse(path)
+        return real(path, *args, **kwargs)
+    return guarded
+_entry = lambda path, *a, **k: _inside(path) and os.path.abspath(os.fspath(path)) != _outbox
+for _name in ("listdir", "scandir"):
+    setattr(os, _name, _deny(getattr(os, _name), lambda path, *a, **k: _inside(path)))
+for _name in ("stat", "lstat", "unlink", "remove"):
+    setattr(os, _name, _deny(getattr(os, _name), _entry))
+_moves = lambda src, dst, *a, **k: _inside(src) or (_inside(dst) and _there(dst))
+os.replace = _deny(os.replace, _moves)
+os.rename = _deny(os.rename, _moves)
+os.open = _deny(os.open, lambda p, flags, *a, **k: _inside(p) and not flags & os.O_WRONLY)
+builtins.open = _deny(builtins.open, lambda p, mode="r", *a, **k: _inside(p) and "r" in mode)
+"""
+
+
+def test_the_writer_writes_the_outbox_without_reading_it(tmp_path: Path) -> None:
+    base = worktree(tmp_path)
+    (base / ".physgate" / "series").mkdir()
+    first = run(write_script(base, extra=_BLIND))
+    assert first.returncode == 0, first.stderr
+    # Written again under its id: the rename in over the earlier record is refused, so the
+    # record is rewritten in place, whole.
+    again = run(write_script(base, name="again.py", extra=_BLIND))
+    assert again.returncode == 0, again.stderr
+    outbox = base / ".physgate" / "series"
+    assert sorted(p.name for p in outbox.iterdir()) == ["step_nominal.json"]
+    record = parse_record((outbox / "step_nominal.json").read_bytes())
+    assert record.producer.script.path == "modules/control/again.py"
+    # Nothing is left beside the outbox either.
+    assert sorted(p.name for p in (base / ".physgate").iterdir()) == ["lib", "series"]
+
+
+def test_a_writer_that_reads_the_outbox_fails_where_it_is_unreadable(tmp_path: Path) -> None:
+    # The stand-in for the OS layer bites: a script that lists the outbox is refused by it.
+    base = worktree(tmp_path)
+    (base / ".physgate" / "series").mkdir()
+    looks = _BLIND + "os.listdir(os.path.join(here, '.physgate', 'series'))\n"
+    done = run(write_script(base, extra=looks))
     assert done.returncode != 0
-    assert "at most 1 records" in done.stderr
-    assert sorted(p.name for p in (base / ".physgate" / "series").iterdir()) == ["first.json"]
+    assert "Operation not permitted" in done.stderr
 
 
 SYSTEM_PYTHON = "/usr/bin/python3"

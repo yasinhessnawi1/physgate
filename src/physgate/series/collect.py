@@ -317,6 +317,35 @@ def _clear_writer_cache(base: Path, listing: _Listing) -> None:
             os.close(parent)
 
 
+#: A writer's temporary file, written beside the outbox before it is renamed into it.
+_WRITER_TEMPORARY = re.compile(writer.TEMPORARY_PATTERN)
+
+
+def _clear_writer_temporaries(base: Path, into: _Place, listing: _Listing) -> None:
+    """Move aside the temporary files a killed writer left beside the outbox, before the commit.
+
+    Only regular files named as a writer's temporary file, directly in the directory that
+    holds the outbox, reached without a link. Anything else there stays, and the change
+    check judges it.
+    """
+    try:
+        fd = _open_chain(base, OUTBOX.parent.parts)
+    except OSError:
+        return
+    try:
+        for name in sorted(os.listdir(fd)):
+            if not _WRITER_TEMPORARY.fullmatch(name):
+                continue
+            found = os.stat(name, dir_fd=fd, follow_symlinks=False)
+            if stat.S_ISREG(found.st_mode):
+                _move_aside(fd, name, into)
+                listing.add(
+                    f"{OUTBOX.parent}/{name}", "a writer's temporary file, never renamed into place"
+                )
+    finally:
+        os.close(fd)
+
+
 def blob_id(data: bytes, object_format: str) -> str:
     """The id git gives ``data`` as a file's content, in the repository's object format."""
     header = f"blob {len(data)}\0".encode()
@@ -662,6 +691,7 @@ def collect(
     for earlier in discarded_before:
         discarded.add(earlier.name, earlier.reason)
     _clear_writer_cache(base, discarded)
+    _clear_writer_temporaries(base, discarded_at, discarded)
     try:
         fd = _open_outbox(worktree)
     except _RefusedError as exc:
