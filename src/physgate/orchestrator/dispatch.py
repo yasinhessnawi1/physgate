@@ -977,12 +977,16 @@ class ClaudeDispatcher:
         base_url: str | None,
         credential: Credential,
         review_root: Path,
+        quarantine: tuple[str, str, str] | None = None,
     ) -> None:
         """Dispatch attempts of ``run`` with the hooks from ``install_bin``'s installation.
 
         ``review_root`` is where reviews are prepared, every packet with its copy of a
         rubric; no role session may read or write anything beneath it.
         """
+        #: (session id, who, why): the operator's command-line request to set one leftover's
+        #: gone stream aside at this resume. Never read from a file a session can write.
+        self._quarantine = quarantine
         self._config = config
         self._run = run
         self._store_root = store_root
@@ -1491,11 +1495,22 @@ class ClaudeDispatcher:
             names = ", ".join(sorted(who for who, _ in failures))
             msg = (
                 f"the stream of leftover session(s) {names} cannot be read, and nothing is ended; "
-                "to set a gone stream aside, a person writes sessions/<session id>/quarantine.json "
-                '({"by": ..., "why": ...}); the resume then records the session as unscanned'
+                "to set one gone stream aside, the operator resumes with "
+                "--quarantine <session id> --quarantine-why <why>; it is then recorded as "
+                "unscanned and the run halts as an incident"
             )
             reasons = "; ".join(f"{who}: {why}" for who, why in sorted(failures))
             raise InvocationError(msg, sessions=names, reasons=reasons)
+        # A quarantine names a leftover whose stream is gone: any other is refused.
+        if self._quarantine is not None:
+            target = self._quarantine[0]
+            held = {leftover.session_id: leftover for leftover in leftovers}
+            if target not in held or held[target].quarantine is None:
+                msg = (
+                    f"{target} is not a leftover session with a gone stream; "
+                    "a stream that is there is read, never set aside"
+                )
+                raise InvocationError(msg, session_id=target)
         # Phase 4: only now, with every stream read, is any session ended.
         for sdir, _sid, _pid, _killed, _stopped, _kind, written in found:
             write_record(sdir.parent, sdir.name, written, "ended.json")
@@ -1516,7 +1531,7 @@ class ClaudeDispatcher:
         except InvocationError:
             if os.path.lexists(stream):
                 raise
-            quarantine = self._quarantine_of(sdir)
+            quarantine = self._quarantine_of(session_id)
             if quarantine is None:
                 raise
             return Leftover(
@@ -1556,19 +1571,12 @@ class ClaudeDispatcher:
             ),
         )
 
-    @staticmethod
-    def _quarantine_of(sdir: Path) -> str | None:
-        """Who set a gone stream aside and why, from the session's marker; ``None`` if none."""
-        try:
-            marker = json.loads(read_session_file(sdir / "quarantine.json"))
-        except (OSError, ValueError, InvocationError):
+    def _quarantine_of(self, session_id: str) -> str | None:
+        """Who set this session's gone stream aside and why, if the operator asked; else None."""
+        if self._quarantine is None or self._quarantine[0] != session_id:
             return None
-        if not isinstance(marker, dict):
-            return None
-        by, why = marker.get("by"), marker.get("why")
-        if not (isinstance(by, str) and isinstance(why, str) and by.strip() and why.strip()):
-            return None
-        return f"{by.strip()}: {why.strip()}"
+        _target, by, why = self._quarantine
+        return f"{by}: {why}" if by.strip() and why.strip() else None
 
     def _honoured(self, records: list[tuple[Path, dict[str, Any]]]) -> None:
         """Refuse the resume unless every session's process record is the one spawned.

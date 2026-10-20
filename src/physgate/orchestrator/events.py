@@ -87,6 +87,7 @@ IncidentCause = Literal[
     "withheld_file_unsure",
     "os_layer_misplaced",
     "os_layer_aborted",
+    "stream_quarantined",
 ]
 
 #: Why a run stopped short of the end of its plan.
