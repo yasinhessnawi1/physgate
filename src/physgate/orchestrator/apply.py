@@ -104,7 +104,7 @@ def read_proposals(
     fixed = _fixed(store_root)
     found: list[Payload] = []
     for change in changes_between(repo, base, commit, git_dir=git_dir):
-        named = _PROPOSAL.match(change.path)
+        named = _PROPOSAL.fullmatch(change.path)
         if named is None or change.status == "D":
             continue
         if change.new_mode != "100644":

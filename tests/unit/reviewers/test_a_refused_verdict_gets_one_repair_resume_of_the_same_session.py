@@ -65,7 +65,7 @@ def _review(
         streams[path] = len(spawns) - 1
         return path, 0, False
 
-    def captured(path: Path) -> object:
+    def captured(path: Path, data: bytes | None = None) -> object:
         answer, _ = sessions[streams[path]]
         result = {"type": "result", "structured_output": {WRAPPER: answer}}
         return SimpleNamespace(result=result, usage=(), answered={MODEL}, tampered=None)

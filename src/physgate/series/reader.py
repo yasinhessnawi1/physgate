@@ -63,7 +63,7 @@ def record_path(
         (session_id, _SESSION, "session id"),
         (record_id, _RECORD, "record id"),
     ):
-        if not pattern.match(value):
+        if not pattern.fullmatch(value):
             msg = f"the {what} is not a plain identifier"
             raise RecordRefusedError(msg, value=value[:64])
     if isinstance(attempt, bool) or not 1 <= attempt <= REPAIR_BUDGET:

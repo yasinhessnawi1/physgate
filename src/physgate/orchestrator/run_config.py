@@ -102,7 +102,7 @@ def endpoint_of(base_url: str | None) -> str:
     """
     if not base_url:
         return "default"
-    found = _URL.match(base_url)
+    found = _URL.fullmatch(base_url)
     if not found:
         msg = "ANTHROPIC_BASE_URL is not an http(s) URL with a host"
         raise RunConfigError(msg)

@@ -679,7 +679,7 @@ def collect(
                 discarded.add(name, "a writer's temporary file, never renamed into place")
                 continue
             try:
-                if not _RECORD_FILE.match(name):
+                if not _RECORD_FILE.fullmatch(name):
                     msg = "not a record's name (<id>.json, the id in lower case)"
                     raise _RefusedError(msg)
                 data = _read_entry(fd, name)

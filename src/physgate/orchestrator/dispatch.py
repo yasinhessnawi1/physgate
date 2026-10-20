@@ -352,14 +352,35 @@ class Captured:
     answered: frozenset[str]
 
 
-def read_captured(stream: Path) -> Captured:
-    """Read a session's stream once: seal it, find a forged tail, parse what the runtime wrote.
+def read_stream_file(stream: Path) -> bytes:
+    """A session's captured stream, read once without following a link; a gone stream halts.
 
-    One read path for every reader, the session that ended under its orchestrator
-    and the leftover a resume finds. A stream with a tail after the runtime's
-    result is parsed only up to that result; the tail is reported, never read.
+    The orchestrator opened the stream before the session ran, so a stream with no bytes and
+    no file was removed: it is never read as one that showed no canary. An empty stream that
+    is present is still read, as the session ending with no result.
+
+    Raises:
+        InvocationError: the stream is gone, or is a link or not a regular file.
     """
     data = read_session_file(stream)
+    if not data and not os.path.lexists(stream):
+        msg = "a session's stream is gone; nothing is read from it"
+        raise InvocationError(msg, path=str(stream))
+    return data
+
+
+def read_captured(stream: Path, data: bytes | None = None) -> Captured:
+    """Parse a session's stream (:func:`captured_from`), from ``data`` if its read is in hand."""
+    return captured_from(read_stream_file(stream) if data is None else data)
+
+
+def captured_from(data: bytes) -> Captured:
+    """Seal a session's stream bytes, find a forged tail, parse what the runtime wrote.
+
+    One path for every reader, the session that ended under its orchestrator and the
+    leftover a resume finds, from the bytes one read returned. A stream with a tail after
+    the runtime's result is parsed only up to that result; the tail is reported, never read.
+    """
     text = data.decode(errors="replace")
     tampered = forged_tail(text)
     if tampered is not None:
@@ -382,7 +403,7 @@ def review_material_seen(stream: Path, live: frozenset[str]) -> str | None:
     """
     if not live:
         return None
-    return canary_seen(read_session_file(stream), live)
+    return canary_seen(read_stream_file(stream), live)
 
 
 def role_prompt(request: SessionRequest) -> str:
@@ -956,12 +977,16 @@ class ClaudeDispatcher:
         base_url: str | None,
         credential: Credential,
         review_root: Path,
+        quarantine: tuple[str, str, str] | None = None,
     ) -> None:
         """Dispatch attempts of ``run`` with the hooks from ``install_bin``'s installation.
 
         ``review_root`` is where reviews are prepared, every packet with its copy of a
         rubric; no role session may read or write anything beneath it.
         """
+        #: (session id, who, why): the operator's command-line request to set one leftover's
+        #: gone stream aside at this resume. Never read from a file a session can write.
+        self._quarantine = quarantine
         self._config = config
         self._run = run
         self._store_root = store_root
@@ -1315,7 +1340,7 @@ class ClaudeDispatcher:
         captured = read_captured(stdout)
         # A command bubblewrap aborted never ran: recorded as such, never as a denial.
         aborted = (
-            aborted_tool_uses(read_session_file(stdout).decode(errors="replace"))
+            aborted_tool_uses(read_stream_file(stdout).decode(errors="replace"))
             if temp is not None
             else ()
         )
@@ -1418,7 +1443,6 @@ class ClaudeDispatcher:
         that, and nothing else will. Every session's credential files are then
         removed and its stream redacted, before the stream is read.
         """
-        found: list[tuple[Path, str, int, int, bool, SessionKind]] = []
         session_dirs = self._session_dirs()
         records: list[tuple[Path, dict[str, Any]]] = []
         for sdir in session_dirs:
@@ -1434,8 +1458,9 @@ class ClaudeDispatcher:
             records.append((sdir, record))
         # Every session's record is held to the event log before anything is signalled.
         self._honoured(records)
+        # Phase 1: stop every session. Nothing is ended yet.
+        found: list[tuple[Path, str, int, int, bool, SessionKind, dict[str, Any]]] = []
         for sdir, record in records:
-            ended = sdir / "ended.json"
             pid, started = int(record["pid"]), record.get("started")
             kind: SessionKind = "reviewer" if record.get("kind") == "reviewer" else "session"
             session_id = str(record["session_id"])
@@ -1451,46 +1476,107 @@ class ClaudeDispatcher:
                 # Before any git call on the attempt, as at a session's end under its
                 # orchestrator; a refusal leaves the session unended for the next resume.
                 written |= self._settle_at_resume(sdir, session_id, pid, started, stopped, leads)
-            write_record(sdir.parent, sdir.name, written, "ended.json")
-            found.append((sdir, session_id, pid, killed, stopped, kind))
-        # Nothing of this run is running now, so no session still needs its credential.
-        # A killed orchestrator never removed it; its stream was never redacted either.
+            found.append((sdir, session_id, pid, killed, stopped, kind, written))
+        # Phase 2: nothing of this run is running now, so no session still needs its
+        # credential. A killed orchestrator never removed it; its stream was never redacted.
         for sdir in session_dirs:
             remove_secrets(sdir / "state", sdir / "config")
             redact(sdir / "stdout.jsonl", self._credential.secret)
-        leftovers = []
-        for sdir, session_id, pid, killed, stopped, kind in found:
-            # The same read as a session that ended under its orchestrator: sealed as
-            # read, a tail after the runtime's result not taken, and a stream with a
-            # result held to the runtime's own totals.
-            captured = read_captured(sdir / "stdout.jsonl")
-            tampered = captured.tampered
-            if tampered is None:
-                try:
-                    require_matching_totals(captured.result, captured.usage)
-                except AccountingError as exc:
-                    tampered = f"{exc}: {exc.context}"
-            leftovers.append(
-                Leftover(
-                    session_id=session_id,
-                    pid=pid,
-                    killed=killed,
-                    stopped=stopped,
-                    usage=captured.usage,
-                    complete=captured.result is not None,
-                    seal=captured.seal,
-                    tampered=tampered,
-                    kind=kind,
-                    # Scanned as a session that ended under its orchestrator is.
-                    held_out_seen=self.held_out_seen(sdir / "stdout.jsonl"),
-                    review_material_seen=(
-                        review_material_seen(sdir / "stdout.jsonl", self._canaries)
-                        if kind == "session"
-                        else None
-                    ),
-                )
+        # Phase 3: read and scan every stream, from one read each. Every failure is collected,
+        # none stops at the first: a stream that is gone is no stream that showed nothing.
+        leftovers: list[Leftover] = []
+        failures: list[tuple[str, str]] = []
+        for sdir, session_id, pid, killed, stopped, kind, _written in found:
+            try:
+                leftovers.append(self._read_leftover(sdir, session_id, pid, killed, stopped, kind))
+            except InvocationError as exc:
+                failures.append((session_id, str(exc)))
+        if failures:
+            names = ", ".join(sorted(who for who, _ in failures))
+            msg = (
+                f"the stream of leftover session(s) {names} cannot be read, and nothing is ended; "
+                "to set one gone stream aside, the operator resumes with "
+                "--quarantine <session id> --quarantine-why <why>; it is then recorded as "
+                "unscanned and the run halts as an incident"
             )
+            reasons = "; ".join(f"{who}: {why}" for who, why in sorted(failures))
+            raise InvocationError(msg, sessions=names, reasons=reasons)
+        # A quarantine names a leftover whose stream is gone: any other is refused.
+        if self._quarantine is not None:
+            target = self._quarantine[0]
+            held = {leftover.session_id: leftover for leftover in leftovers}
+            if target not in held or held[target].quarantine is None:
+                msg = (
+                    f"{target} is not a leftover session with a gone stream; "
+                    "a stream that is there is read, never set aside"
+                )
+                raise InvocationError(msg, session_id=target)
+        # Phase 4: only now, with every stream read, is any session ended.
+        for sdir, _sid, _pid, _killed, _stopped, _kind, written in found:
+            write_record(sdir.parent, sdir.name, written, "ended.json")
         return leftovers
+
+    def _read_leftover(
+        self, sdir: Path, session_id: str, pid: int, killed: int, stopped: bool, kind: SessionKind
+    ) -> Leftover:
+        """One leftover's stream, read once: sealed, scanned, or set aside by a person's marker.
+
+        Raises:
+            InvocationError: the stream is gone with no valid quarantine marker, or is a link
+                or not a regular file.
+        """
+        stream = sdir / "stdout.jsonl"
+        try:
+            data = read_stream_file(stream)
+        except InvocationError:
+            if os.path.lexists(stream):
+                raise
+            quarantine = self._quarantine_of(session_id)
+            if quarantine is None:
+                raise
+            return Leftover(
+                session_id=session_id,
+                pid=pid,
+                killed=killed,
+                stopped=stopped,
+                kind=kind,
+                quarantine=quarantine,
+                scan="unscanned (stream gone)",
+            )
+        # The same read as a session that ended under its orchestrator: sealed as read, a
+        # tail after the runtime's result not taken, and a stream with a result held to the
+        # runtime's own totals.
+        captured = captured_from(data)
+        tampered = captured.tampered
+        if tampered is None:
+            try:
+                require_matching_totals(captured.result, captured.usage)
+            except AccountingError as exc:
+                tampered = f"{exc}: {exc.context}"
+        held_out = frozenset(self._config.held_out_canaries)
+        return Leftover(
+            session_id=session_id,
+            pid=pid,
+            killed=killed,
+            stopped=stopped,
+            usage=captured.usage,
+            complete=captured.result is not None,
+            seal=captured.seal,
+            tampered=tampered,
+            kind=kind,
+            # Scanned as a session that ended under its orchestrator is.
+            held_out_seen=canary_seen(data, held_out) if held_out else None,
+            review_material_seen=(
+                canary_seen(data, self._canaries) if kind == "session" and self._canaries else None
+            ),
+        )
+
+    def _quarantine_of(self, session_id: str) -> str | None:
+        """Who set this session's gone stream aside and why, if the operator asked; else None."""
+        if self._quarantine is None or self._quarantine[0] != session_id:
+            return None
+        _target, by, why = self._quarantine
+        return f"{by}: {why}" if by.strip() and why.strip() else None
 
     def _honoured(self, records: list[tuple[Path, dict[str, Any]]]) -> None:
         """Refuse the resume unless every session's process record is the one spawned.

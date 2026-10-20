@@ -71,7 +71,7 @@ def issued_criteria(spec: str | None) -> tuple[str, ...] | None:
     refs: list[str] = []
     inside = False
     for line in spec.splitlines():
-        heading = _HEADING.match(line)
+        heading = _HEADING.fullmatch(line)
         if heading:
             inside = "acceptance criteria" in heading["title"].casefold()
             continue

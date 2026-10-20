@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import functools
+import getpass
 import hashlib
 import json
 import os
@@ -178,6 +179,18 @@ def add_parsers(
                 "checkout, and named so that no path in it says what is measured"
             ),
         )
+        if resume:
+            command.add_argument(
+                "--quarantine",
+                metavar="SESSION_ID",
+                help=(
+                    "set aside the gone stream of one leftover session, recorded as unscanned "
+                    "and halting the run as an incident; refused if its stream is there"
+                ),
+            )
+            command.add_argument(
+                "--quarantine-why", help="why the stream is gone (required with --quarantine)"
+            )
         command.set_defaults(
             func=functools.partial(_drive, resume=resume, registrations=registrations)
         )
@@ -550,6 +563,18 @@ def _recorded_manifest(run_dir: Path, install: Path) -> str | None:
     return None
 
 
+def _quarantine_request(args: argparse.Namespace) -> tuple[str, str, str] | None:
+    """The operator's ``--quarantine`` as (session id, who, why); who is the OS user."""
+    session = getattr(args, "quarantine", None)
+    why = (getattr(args, "quarantine_why", None) or "").strip()
+    if session is None:
+        return None
+    if not why:
+        msg = "--quarantine needs --quarantine-why: who set it aside is recorded with why"
+        raise RunStateError(msg, session_id=session)
+    return session, getpass.getuser(), why
+
+
 def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registrations | None) -> int:
     if registrations is None:
         try:
@@ -612,6 +637,7 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
         store_root = run_dir / "store"
         plan = [e for e in read_events(run_dir / "events.jsonl") if isinstance(e, SubtaskPlanned)]
         keeper = StoreKeeper(run, store_root)
+        quarantine = _quarantine_request(args)
         dispatcher = ClaudeDispatcher(
             config=config,
             run=run,
@@ -621,6 +647,7 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
             base_url=os.environ.get("ANTHROPIC_BASE_URL"),
             credential=credential,
             review_root=review_root,
+            quarantine=quarantine,
         )
         loop = Loop(
             config=config,

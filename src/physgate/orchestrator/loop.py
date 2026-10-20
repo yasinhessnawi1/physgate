@@ -369,7 +369,7 @@ class Loop:
         if not self.log.events:
             return
         tampered: list[tuple[str, str]] = []
-        exposed = material = False
+        exposed = material = quarantined = False
         for left in self._dispatcher.stop_leftovers():
             if left.stopped:
                 self._emit(
@@ -385,6 +385,8 @@ class Loop:
                     complete=left.complete,
                     trajectory_seal=left.seal,
                     decisions_bytes=self._decisions_bytes(),
+                    quarantine=left.quarantine,
+                    scan=left.scan,
                 )
             )
             if left.held_out_seen is not None:
@@ -403,6 +405,21 @@ class Loop:
                 self._emit(
                     Incident(
                         **self._env(), subtask_id=None, cause="review_material_read", detail=detail
+                    )
+                )
+            if left.quarantine is not None:
+                # The operator set a gone stream aside: nothing was scanned, so the session's
+                # work is never counted as clean. The run halts as an incident, once.
+                quarantined = True
+                self._emit(
+                    Incident(
+                        **self._env(),
+                        subtask_id=None,
+                        cause="stream_quarantined",
+                        detail=(
+                            f"leftover session {left.session_id}: {left.scan}; "
+                            f"set aside by {left.quarantine}"
+                        ),
                     )
                 )
             if left.tampered is not None:
@@ -426,6 +443,8 @@ class Loop:
             self._halt_for(None, "held_out_read")
         elif material and not tampered:
             self._halt_for(None, "review_material_read")
+        elif quarantined and not tampered:
+            self._halt_for(None, "stream_quarantined")
 
     def _clean_up_worktrees(self) -> None:
         """Remove the worktrees the rules allow, recording each; never stall or fail the run.

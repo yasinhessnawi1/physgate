@@ -62,7 +62,7 @@ _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
 
 def _safe(name: str, what: str) -> str:
-    if not _SAFE_ID.match(name):
+    if not _SAFE_ID.fullmatch(name):
         msg = f"{what} is not a plain identifier"
         raise GitError(msg, value=name)
     return name
@@ -143,7 +143,7 @@ def write_scope_violations(
         path = PurePosixPath(change.path)
         if path.is_relative_to(module):
             continue
-        if _PROPOSAL.match(change.path) and change.new_mode in (_REGULAR, _ABSENT):
+        if _PROPOSAL.fullmatch(change.path) and change.new_mode in (_REGULAR, _ABSENT):
             continue
         found.append(f"{change.path} (outside {module_dir})")
     return found

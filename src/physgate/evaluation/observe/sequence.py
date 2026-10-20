@@ -120,7 +120,7 @@ class Divergence(_Frozen):
 
 def level_of(config: RunConfig) -> Level:
     """How a run is compared: exactly when no real model answered it."""
-    return "exact" if _LOOPBACK.match(config.endpoint) else "decisions"
+    return "exact" if _LOOPBACK.fullmatch(config.endpoint) else "decisions"
 
 
 def _lines(path: Path) -> list[dict[str, Any]]:

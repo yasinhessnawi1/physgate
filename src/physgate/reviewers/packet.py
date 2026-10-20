@@ -496,7 +496,7 @@ def file_listing(read: Path, own: set[str]) -> bytes:
 
 def listed_paths(listing: str) -> list[str]:
     """The paths a listing names, in its order."""
-    return [m.group(1) for line in listing.splitlines() if (m := _LISTED.match(line))]
+    return [m.group(1) for line in listing.splitlines() if (m := _LISTED.fullmatch(line))]
 
 
 def _write_parts(read: Path, parts: list[tuple[str, bytes]]) -> tuple[Part, ...]:

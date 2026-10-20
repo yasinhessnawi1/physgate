@@ -127,6 +127,12 @@ class Leftover(_Frozen):
     #: the session displayed reviewer material. Not looked for in a reviewer's own
     #: stream, which holds its rubric's canary by right. ``None`` proves nothing.
     review_material_seen: NonEmptyStr | None = None
+    #: Who set this session's gone stream aside, and why, if a person did (a quarantine marker
+    #: in its directory, "who: why"). Only ever for a stream that is gone.
+    quarantine: NonEmptyStr | None = None
+    #: Whether the stream was read and scanned. A quarantined session's never was: its
+    #: held-out and reviewer-material scans say nothing.
+    scan: Literal["scanned", "unscanned (stream gone)"] = "scanned"
 
 
 class ChangeCheck(_Frozen):

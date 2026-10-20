@@ -97,7 +97,7 @@ def _review(
     monkeypatch.setattr(claude, "review_prompt", lambda *a, **k: "p")
     monkeypatch.setattr(claude, "remove_secrets", lambda *a: None)
     monkeypatch.setattr(claude, "redact", lambda *a: None)
-    monkeypatch.setattr(claude, "read_captured", lambda path: captured)
+    monkeypatch.setattr(claude, "read_captured", lambda path, data=None: captured)
     monkeypatch.setattr(claude, "require_matching_totals", totals)
     monkeypatch.setattr(claude, "verdict_schema", lambda *a, **k: {})
     monkeypatch.setattr(claude, "contract_text", lambda *a, **k: "c")
