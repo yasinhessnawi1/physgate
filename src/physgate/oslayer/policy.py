@@ -25,14 +25,34 @@ writable place three rules apply:
   the session starts, because a denied path wins over an allowed one beneath it; a
   child made later is the hooks' and the sentinel's alone;
 - a root the registry leaves to scripts (``shell_writes: allowed``: the series
-  outbox, whose records the collector judges) is not named;
+  outbox, whose records the collector judges) is not named for writes, and is read-denied
+  where the mechanism allows (below);
 - a root above a writable place (the run's ``sessions/`` above the session's
   home) is not named at all: the OS already denies everything in it but the home.
 
 **Reads.** Denied for what no session reads (the held-out tier, answer keys,
-review material, the harness checkout) and for what the session's runtime keeps
-from its shell commands (its credentials, the hooks' records, other sessions'
-files). A read-denied root above the session's home has the home opened again.
+review material, the harness checkout, the series outbox where the mechanism allows)
+and for what the session's runtime keeps from its shell commands (its credentials, the
+hooks' records, other sessions' files). A read-denied root above the session's home has
+the home opened again.
+
+**The series outbox is written blind, where the mechanism allows it.** A record reaches it
+by a script's own write, so a shell command may write there and should not read there: a
+command that joins the outbox's path at run time, which the hooks' text rule cannot see,
+should find nothing to read. Only Seatbelt can deny that and keep the writes:
+
+- on macOS the outbox is read-denied whole, listing and contents. Measured on 2.1.301, a
+  command can still create a file there and rename one in from beside it, and cannot read,
+  list, link, copy, rename or remove anything there, nor rename the outbox or a directory
+  above it away; so the writer writes beside it and renames in (see the series writer);
+- on Linux bubblewrap lays an empty layer over a read-denied directory, and a record written
+  into that layer is gone when the command ends (as the OS-layer tests measure for a
+  read-denied corpus in the worktree). Denying the records one by one instead would mask
+  each, as each command starts, with a read-only stand-in (read from the sandbox's code,
+  not measured), over which a later command could not write that record again. Neither
+  keeps the outbox working, so on Linux it is not read-denied, and the hooks alone refuse a
+  read of it: a tool's, and a command's that names it. A path built at run time is the
+  residual.
 
 **The file tools are left to the hooks.** No ``Read`` permission rule is written:
 Claude Code applies such a rule before any hook runs, so a refused tool call would
@@ -44,6 +64,7 @@ reads, and log it; the OS layer bounds the shell, where the hooks cannot see.
 from __future__ import annotations
 
 import os
+import sys
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -58,7 +79,8 @@ FIELD_RULES: dict[str, str] = {
     "store_root": "write-denied (named whole)",
     "state_dir": "write- and read-denied to shell commands: the hooks' records",
     "protected_roots": (
-        "write-denied unless `shell_writes` leaves it to scripts; read-denied as `reads` says"
+        "write-denied unless `shell_writes` leaves it to scripts; read-denied as `reads` says "
+        "(a root scripts write: on macOS only, where a read can be denied and a write kept)"
     ),
     "experiments": "frozen files write-denied, named as the hooks freeze them",
     "held_out": "write- and read-denied (the file tools are the hooks')",
@@ -122,6 +144,7 @@ def sandbox_policy(
     network: Literal["open", "none"] = "open",
     exists: Callable[[str], bool] = os.path.lexists,
     children: Callable[[str], Iterable[str]] = os.listdir,
+    platform: str = sys.platform,
 ) -> OsPolicy:
     """The OS layer's settings for the session ``config`` describes.
 
@@ -132,14 +155,15 @@ def sandbox_policy(
     the machine's shared temporary directories, writable too, because ordinary commands
     write there by name (``/tmp``, and on macOS the per-user directory plain ``mktemp``
     uses); ``claude_temp`` names Claude Code's own temporary directories inside them, which
-    hold every session of the user's records and are denied both ways.
+    hold every session of the user's records and are denied both ways. ``platform`` says
+    which mechanism enforces the settings, which decides whether the series outbox is read-denied.
 
     Raises:
         ValueError: the worktree, the home or the temporary directory sits inside a
             read-denied path, where the session could not work.
     """
     writable = (config.worktree, temp_dir, home, *shared_temp)
-    read_denied = _read_denied(config)
+    read_denied = _read_denied(config, platform)
     for place in (config.worktree, temp_dir):
         if any(_under(place, denied) for denied in read_denied):
             what = "worktree" if place == config.worktree else "temporary directory"
@@ -181,10 +205,24 @@ def _spelled(*paths: str) -> list[str]:
     return sorted({spelling for path in paths for spelling in (path, os.path.realpath(path))})
 
 
-def _read_denied(config: SessionConfig) -> set[str]:
-    """Every path a shell command of this session may not read."""
+#: Platforms whose sandbox denies a read without discarding a write: only there is a root
+#: that scripts write (the series outbox) read-denied too.
+READS_DENIED_BESIDE_WRITES = ("darwin",)
+
+
+def _read_denied(config: SessionConfig, platform: str) -> set[str]:
+    """Every path a shell command of this session may not read.
+
+    A read-denied root that scripts write (the series outbox) is named only where the
+    sandbox can deny its reads and keep its writes (:data:`READS_DENIED_BESIDE_WRITES`).
+    """
     denied = {*config.held_out, *config.answer_keys, *config.review_material, config.state_dir}
-    denied.update(r.path for r in config.protected_roots if r.reads != "open")
+    for root in config.protected_roots:
+        if root.reads == "open":
+            continue
+        if root.shell_writes == "allowed" and platform not in READS_DENIED_BESIDE_WRITES:
+            continue
+        denied.add(root.path)
     return denied
 
 

@@ -321,6 +321,47 @@ def test_the_series_outbox_is_left_to_the_scripts_that_write_it(tmp_path: Path) 
     assert str(paths["worktree"] / ".physgate" / "lib") in _fs(policy)["denyWrite"]
 
 
+def _outbox_policy(tmp_path: Path, platform: str) -> tuple[dict[str, Any], Path]:
+    paths = _layout(tmp_path)
+    outbox = paths["worktree"] / ".physgate" / "series"
+    outbox.mkdir(parents=True)
+    policy = sandbox_policy(
+        _config(paths),
+        home=str(paths["sdir"] / "home"),
+        temp_dir=str(paths["temp"]),
+        platform=platform,
+    )
+    return _fs(policy), outbox
+
+
+def test_on_macos_the_outbox_is_read_denied_whole_and_left_writable(tmp_path: Path) -> None:
+    # Seatbelt denies the listing and every file in it, and a write is not a read there, so
+    # a script still creates and replaces its records.
+    fs, outbox = _outbox_policy(tmp_path, "darwin")
+    assert str(outbox) in fs["denyRead"]
+    assert not any(outbox.is_relative_to(d) for d in fs["denyWrite"])
+
+
+def test_on_linux_the_outbox_is_not_read_denied_since_its_records_would_be_lost(
+    tmp_path: Path,
+) -> None:
+    # bubblewrap lays an empty layer over a read-denied directory, and a record written into
+    # that layer is gone when the command ends: there the hooks alone refuse its reads.
+    fs, outbox = _outbox_policy(tmp_path, "linux")
+    assert not any(outbox.is_relative_to(d) for d in fs["denyRead"])
+    assert not any(outbox.is_relative_to(d) for d in fs["denyWrite"])
+
+
+def test_only_the_root_scripts_write_is_left_readable_on_linux(tmp_path: Path) -> None:
+    # Every other read-denied root is denied on both platforms alike.
+    linux, outbox = _outbox_policy(tmp_path / "l", "linux")
+    darwin, outbox_d = _outbox_policy(tmp_path / "d", "darwin")
+    relocated = {d.replace(str(tmp_path / "d"), str(tmp_path / "l")) for d in darwin["denyRead"]}
+    shown = {str(outbox_d).replace(str(tmp_path / "d"), str(tmp_path / "l"))}
+    assert relocated - set(linux["denyRead"]) <= shown | {os.path.realpath(p) for p in shown}
+    assert str(outbox) not in linux["denyRead"]
+
+
 @pytest.mark.parametrize(
     "spelling",
     [

@@ -28,9 +28,9 @@ SERIES_WRITER_REASON = (
 )
 SERIES_OUTBOX_REASON = (
     "it is the series outbox, which a record reaches when the script that ran the simulation "
-    "writes it there through the series writer; no file tool writes into it and no command may "
-    "name it, and the orchestrator seals a record from it only when the code it names is the "
-    "module's, unchanged and committed"
+    "writes it there through the series writer; no file tool writes or reads it, no command may "
+    "name it, and no command can read it back, and the orchestrator seals a record from it only "
+    "when the code it names is the module's, unchanged and committed"
 )
 STORE_REASON = (
     "it is the design-state graph's own store: its journal is the only authority, and a "

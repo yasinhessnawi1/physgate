@@ -17,6 +17,7 @@ agent's row differs from the role's only where the harness's design discipline i
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +27,7 @@ from hook_helpers import event
 from physgate.hooks import paths, shell_paths, tools
 from physgate.hooks.config import HookInput, SessionConfig
 from physgate.hooks.settings import InstallRequest, build_config, current_installation
-from physgate.oslayer.policy import sandbox_policy
+from physgate.oslayer.policy import READS_DENIED_BESIDE_WRITES, sandbox_policy
 
 #: Each kind of root, as a file beneath it, relative to the request's base directory.
 FILES = {
@@ -51,6 +52,8 @@ FILES = {
     "ordinary": "run/wt/modules/control/loop.py",
 }
 
+_OUTBOX_READ_DENIED = "T" if sys.platform in READS_DENIED_BESIDE_WRITES else "F"
+
 #: ``tool read, tool write, tool edit, shell read, shell write, OS denies read,
 #: OS denies write, sentinel watch``.
 ROLE = {
@@ -65,8 +68,10 @@ ROLE = {
     "knowledge": "A R R A R F T revert",
     "series_writer": "A R R A R F T revert",
     # Only a script's own write reaches the outbox (the OS layer allows it); the hooks
-    # refuse every tool and shell write to it.
-    "series_outbox": "A R R A R F F none",
+    # refuse every tool and shell write to it, and nothing of the session reads it back:
+    # the hooks refuse a read by a tool or a named command, and where the sandbox can deny
+    # a read and keep a write (macOS) the OS layer denies one by a path built at run time.
+    "series_outbox": f"R R R R R {_OUTBOX_READ_DENIED} F none",
     "settings_dir": "A R R A R F T revert",
     "env_file": "A R R A R F T revert",
     "experiment_criteria": "A R R A R F T -",
@@ -101,7 +106,7 @@ REVIEWER = {
     "hook_source": "A R R - - - - revert",
     "knowledge": "A R R - - - - revert",
     "series_writer": "A R R - - - - revert",
-    "series_outbox": "A R R - - - - none",
+    "series_outbox": "R R R - - - - none",
     "settings_dir": "A R R - - - - revert",
     "env_file": "A R R - - - - revert",
     "experiment_criteria": "A R R - - - - -",

@@ -18,6 +18,7 @@ refuses to start, and the session's end says why.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from collections.abc import Iterator
@@ -29,7 +30,9 @@ from os_layer_rig import MARKER, Layout, layer_here, make_layout, python, run_se
 
 from physgate.orchestrator.budget import classify_session_end
 from physgate.oslayer.placement import machine_writable, placement_refusal
+from physgate.oslayer.policy import READS_DENIED_BESIDE_WRITES
 from physgate.oslayer.probe import shared_temp_dirs
+from physgate.series.collect import writer_source
 
 pytestmark = pytest.mark.integration
 
@@ -340,3 +343,128 @@ def test_a_denial_bites_however_the_path_is_spelled(tmp_path: Path, given: str) 
         for said in told:
             assert MARKER not in str(said) and "reached" not in str(said), said
         assert (real / "run" / "queue_decisions.jsonl").read_text() == ""
+
+
+#: A role's simulation script under its module: it writes one record through the run's copy
+#: of the series writer, as the writer's own usage shows, with the marker in its title.
+SIMULATION = f"""\
+import os, sys
+here = os.path.dirname(os.path.abspath(__file__))
+while not os.path.isfile(os.path.join(here, ".physgate", "lib", "series_writer.py")):
+    here = os.path.dirname(here)
+sys.path.insert(0, os.path.join(here, ".physgate", "lib"))
+import series_writer
+
+series_writer.record(
+    "step_nominal",
+    title={MARKER!r},
+    axis="time",
+    x=("time", "s", [0.0, 0.1, 0.2]),
+    traces=[("position", "m", [0.0, 0.05, 0.1])],
+)
+series_writer.record(
+    "step_nominal",
+    title={MARKER!r} + " again",
+    axis="time",
+    x=("time", "s", [0.0, 0.1, 0.2]),
+    traces=[("position", "m", [0.0, 0.05, 0.1])],
+)
+print("recorded")
+"""
+
+#: The command a role session ran after a command naming the outbox was refused: it joins
+#: the outbox's path at run time from the module directory, lists it and reads every record.
+READ_BACK = """\
+import os
+p = os.path.join('..', '..', '.physgate', 'ser' + 'ies')
+try:
+    names = sorted(os.listdir(p))
+    print('listed', names)
+except OSError as e:
+    print('denied:', e.strerror)
+    names = ['step_nominal.json']
+for name in names:
+    try:
+        print('read', open(os.path.join(p, name)).read())
+    except OSError as e:
+        print('denied:', e.strerror)
+"""
+
+#: The same, after moving the outbox out from under its name.
+MOVE_AND_READ = """\
+import os
+p = os.path.join('..', '..', '.physgate', 'ser' + 'ies')
+try:
+    os.rename(p, 'moved')
+    print('moved', open(os.path.join('moved', 'step_nominal.json')).read())
+except OSError as e:
+    print('denied:', e.strerror)
+"""
+
+
+def _series_steps(layout: Layout) -> list[dict[str, object]]:
+    lib = layout.worktree / ".physgate" / "lib"
+    lib.mkdir(parents=True)
+    (lib / "series_writer.py").write_bytes(writer_source())
+    module = layout.worktree / "modules" / "control"
+    module.mkdir(parents=True)
+    (module / "sim.py").write_text(SIMULATION)
+    # By its full path each time: the shell's directory carries over from one command to the next.
+    into = f"cd {module} && "
+    return [
+        tool("Bash", command=into + "python3 sim.py", description="simulate"),
+        tool("Bash", command=into + python(READ_BACK), description="read back"),
+        tool("Bash", command=into + python(MOVE_AND_READ), description="move and read"),
+    ]
+
+
+@pytest.mark.usefixtures("layer")
+def test_with_the_layer_the_writer_still_writes_and_rewrites_a_record(layout: Layout) -> None:
+    run = run_session(layout, _series_steps(layout)[:1], layer=True)
+    told = run["told"]
+    assert isinstance(told, list) and "recorded" in str(told[0]), told
+    # Written, then written again under its id: the second is the one on the disk, whole,
+    # and nothing of the writer's is left beside the outbox.
+    outbox = layout.worktree / ".physgate" / "series"
+    assert sorted(p.name for p in outbox.iterdir()) == ["step_nominal.json"]
+    assert json.loads((outbox / "step_nominal.json").read_text())["title"] == f"{MARKER} again"
+    assert sorted(p.name for p in outbox.parent.iterdir()) == ["lib", "series"]
+
+
+@pytest.mark.usefixtures("layer")
+@pytest.mark.xfail(
+    sys.platform not in READS_DENIED_BESIDE_WRITES,
+    reason=(
+        "bubblewrap cannot deny a read of the outbox and keep its writes, so on Linux the hooks "
+        "alone refuse a read of it, and a path built at run time is the stated residual"
+    ),
+    strict=True,
+)
+def test_a_later_command_reads_no_record_from_the_outbox_by_a_path_built_at_run_time(
+    layout: Layout,
+) -> None:
+    # The first layer refuses a command naming the outbox; this one joins its path at run
+    # time, so only the OS layer can keep it from the records an earlier command wrote.
+    run = run_session(layout, _series_steps(layout), layer=True)
+    told = run["told"]
+    assert isinstance(told, list)
+    simulated, read_back, moved = (str(said) for said in told)
+    assert "recorded" in simulated, simulated
+    assert MARKER not in read_back and "denied:" in read_back, read_back
+    assert "listed" not in read_back, read_back
+    # Nor by moving the outbox, or a directory above it, out from under its name first.
+    assert MARKER not in moved and "denied:" in moved, moved
+    assert not (layout.worktree / "modules" / "control" / "moved").exists()
+    record = layout.worktree / ".physgate" / "series" / "step_nominal.json"
+    assert f"{MARKER} again" in record.read_text()
+
+
+def test_without_the_layer_the_outbox_reads_back_which_shows_the_probe_works(
+    layout: Layout,
+) -> None:
+    run = run_session(layout, _series_steps(layout)[:2], layer=False)
+    told = run["told"]
+    assert isinstance(told, list)
+    simulated, read_back = (str(said) for said in told)
+    assert "recorded" in simulated, simulated
+    assert f"{MARKER} again" in read_back, read_back

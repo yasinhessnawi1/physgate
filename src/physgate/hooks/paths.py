@@ -318,6 +318,16 @@ def _rules(absolute: str, config: ConfigView, *, writing: bool) -> str | None:
             if _reaches(absolute, material, chain):
                 return REVIEW_MATERIAL_REASON
     if not writing:
+        # A root that scripts write blind (the series outbox) is read by no tool of the
+        # session either: what a script left there is the collector's to judge, and the OS
+        # layer keeps the shell's reads from it by the same rule.
+        for root in config.protected_roots:
+            if (
+                root.shell_writes == "allowed"
+                and root.reads == "denied"
+                and _reaches(absolute, root.path, chain)
+            ):
+                return root.reason
         return None
     for root in config.protected_roots:
         if _reaches(absolute, root.path, chain) and not any(

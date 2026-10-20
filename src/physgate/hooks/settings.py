@@ -388,6 +388,10 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         request.state_dir: "shell_denied",
         request.claude_config_dir: "shell_denied",
     }
+    if outbox in protected:
+        # Written blind: a script's record goes in, and nothing of the session reads it back,
+        # by a tool or by a command, whatever spelling of the path the command builds.
+        reads[outbox] = "denied"
     #: Paths that are not protected by the root they sit under, despite the
     #: string/inode tests otherwise reaching it. Only one root needs this today.
     root_exceptions: dict[str, tuple[str, ...]] = {
