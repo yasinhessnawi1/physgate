@@ -299,3 +299,131 @@ describe("the attempt inspector's reviews are the log's review lines", () => {
     expect(html).not.toContain("Not run");
   });
 });
+
+describe("a review that reached no verdict has its own row, never a pass or a fail", () => {
+  const log: RunEvent[] = [
+    { ...at(0), kind: "run_started", runId: "r", mode: "on" },
+    { ...at(2), kind: "subtask_planned", subtask: "s1", role: "electrical" },
+    {
+      ...at(4),
+      kind: "gate_ran",
+      subtask: "s1",
+      attempt: 2,
+      verdict: "pass",
+      mode: "on",
+      finding: "ok",
+      failingCheck: null,
+      value: null,
+    },
+    {
+      ...at(5),
+      kind: "review_unavailable",
+      subtask: "s1",
+      attempt: 2,
+      cause: "invalid_verdict",
+      detail:
+        "the binary's cap on refused verdicts ended it: Failed to provide valid structured output after 5 attempts",
+      reviewerModel: "claude-sonnet-5",
+    },
+    { ...at(6), kind: "escalated", subtask: "s1", itemId: "item-1" },
+  ];
+  const rows = rowsOf(log, MODELS);
+  const row = rowAt(rows, 5);
+
+  it("sits between the gate and the set-aside row, in the log's order", () => {
+    expect(rows.map((r) => r.seq)).toEqual([0, 2, 4, 5, 6]);
+  });
+
+  it("says in plain words what happened, with the cause and the tries", () => {
+    expect(row.sentence).toBe(
+      "Review of attempt 2 reached no verdict: the reviewer's answer did not fit the required form (5 tries)",
+    );
+    expect(row.depth).toBe(2);
+    expect(row.attempt).toBe(2);
+  });
+
+  it("shows the reviewer as the actor, and ends as no verdict, not as a pass or a fail", () => {
+    expect(row.actor).toMatchObject({ kind: "agent", model: "claude-sonnet-5" });
+    const html = renderToStaticMarkup(<RowView row={row} />);
+    expect(html).toContain("no verdict");
+    expect(html).not.toMatch(/pg-verdict-(pass|fail)/);
+  });
+
+  it("says nothing about tries when the record has none, and names a cause it does not know", () => {
+    const bare = rowsOf(
+      log.map((e) =>
+        e.kind === "review_unavailable" ? { ...e, cause: "odd_new_cause", detail: null } : e,
+      ),
+      MODELS,
+    );
+    expect(rowAt(bare, 5).sentence).toBe(
+      "Review of attempt 2 reached no verdict: cause recorded as odd_new_cause",
+    );
+  });
+});
+
+describe("a finding is shown once, a short first line first and the rest expandable", () => {
+  const long =
+    "The control design is thorough and, on its technical merits, would be an accept. " +
+    "However the session wrote outside its allowance, which the hooks forbid. " +
+    "Details follow in the trajectory.";
+  const log: RunEvent[] = [
+    { ...at(0), kind: "run_started", runId: "r", mode: "on" },
+    { ...at(2), kind: "subtask_planned", subtask: "s1", role: "electrical" },
+    {
+      ...at(5),
+      kind: "review_ran",
+      subtask: "s1",
+      attempt: 1,
+      verdict: "fail",
+      finding: long,
+      reviewerModel: "claude-sonnet-5",
+      sessionId: "x",
+    },
+    {
+      ...at(6),
+      kind: "attempt_rejected",
+      subtask: "s1",
+      attempt: 1,
+      findingSource: "review",
+      finding: long,
+    },
+  ];
+  const rows = rowsOf(log, MODELS);
+
+  it("the reviewer's row holds the finding: a first sentence, the rest apart", () => {
+    const review = rowAt(rows, 5);
+    expect(review.sentence).toBe(
+      "The reviewer refused attempt 1: The control design is thorough and, on its technical merits, would be an accept.",
+    );
+    expect(review.more).toBe(
+      "However the session wrote outside its allowance, which the hooks forbid. Details follow in the trajectory.",
+    );
+  });
+
+  it("the rejection that repeats it says so and does not print it again", () => {
+    const rejected = rowAt(rows, 6);
+    expect(rejected.sentence).toBe("Attempt 1 rejected on the reviewer's finding above");
+    expect(rejected.more).toBeNull();
+    const all = rows.map((r) => `${r.sentence} ${r.more ?? ""}`).join(" ");
+    expect(all.split("would be an accept").length - 1).toBe(1);
+  });
+
+  it("the expandable rest is a collapsed details element beside the row, not inside its button", () => {
+    const html = renderToStaticMarkup(<RowView row={rowAt(rows, 5)} onSelect={() => undefined} />);
+    expect(html).toContain("<details");
+    expect(html).not.toContain("<details open");
+    expect(html).toContain("Show the rest");
+    expect(html.indexOf("</button>")).toBeLessThan(html.indexOf("<details"));
+  });
+
+  it("a short finding has nothing to expand, and a differing rejection still prints its text", () => {
+    const short = rowsOf(
+      log.map((e) => (e.kind === "review_ran" ? { ...e, finding: "Too hot." } : e)),
+      MODELS,
+    );
+    expect(rowAt(short, 5).more).toBeNull();
+    expect(rowAt(short, 5).sentence).toBe("The reviewer refused attempt 1: Too hot.");
+    expect(rowAt(short, 6).sentence).toContain("rejected: ");
+  });
+});

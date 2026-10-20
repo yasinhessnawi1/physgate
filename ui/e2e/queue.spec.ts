@@ -101,9 +101,9 @@ for (const theme of THEMES) {
     await expect(page.locator('[role="alert"]')).toHaveCount(0);
     await expect(page.locator(".pg-page-title")).toHaveText("Queue");
     const detail = page.locator(".pg-queue-item");
-    await expect(detail.locator(".pg-queue-decision")).toContainText(
-      "was rejected on all 3 attempts",
-    );
+    await expect(detail.locator(".pg-queue-decision")).toHaveText("A subtask used up its repairs");
+    // The queue's own text is kept whole, folded under Details.
+    await expect(detail.locator(".pg-queue-raw")).toContainText("was rejected on all 3 attempts");
     await expect(detail).toContainText(
       "The subtask was sent back on every attempt it was allowed, so no repair is left.",
     );

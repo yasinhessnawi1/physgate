@@ -151,3 +151,33 @@ describe("a domain is its word", () => {
     );
   });
 });
+
+describe("a cost is shown to the sen, with the exact figure one hover away", () => {
+  it("rounds a recorded decimal to two places and keeps the record in the hover", () => {
+    const html = renderToStaticMarkup(<Quantity value="166.73217145592" unit="NOK" decimals={2} />);
+    expect(html).toContain('<span class="pg-quantity-value">166.73</span>');
+    expect(html).toContain("166.73217145592 NOK as recorded");
+    expect(html).not.toContain(">166.73217145592<");
+  });
+
+  it("keeps the unit, and shows a figure that has no more places than asked as it is", () => {
+    const html = renderToStaticMarkup(<Quantity value="14.5" unit="USD" decimals={2} />);
+    expect(html).toContain('<span class="pg-quantity-value">14.50</span>');
+    expect(html).toContain("pg-quantity-unit");
+  });
+
+  it("a Figure passes the places on, and still names its source", () => {
+    const html = renderToStaticMarkup(
+      <Figure value="166.73217145592" unit="NOK" decimals={2} source={SOURCE} partial />,
+    );
+    expect(html).toContain("166.73");
+    expect(html).toContain("so far");
+    expect(html).toContain("0123456");
+  });
+
+  it("without the places a quantity is never rounded", () => {
+    expect(renderToStaticMarkup(<Quantity value="166.73217145592" unit="NOK" />)).toContain(
+      "166.73217145592",
+    );
+  });
+});

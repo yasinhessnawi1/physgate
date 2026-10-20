@@ -9,6 +9,7 @@ import { getJson, type Result } from "../api/client";
 import { type QueueItem, queueListing } from "../api/queue";
 import { type RunListing, runListing } from "../api/records";
 import { ErrorState, LoadingState } from "../design/components/status/States";
+import { queueHeadline } from "../words/queue";
 import { hrefFor } from "./route";
 
 export interface RunQueue {
@@ -78,7 +79,7 @@ export function Notifications({ onClose }: { readonly onClose: () => void }) {
                     )}
                     onClick={onClose}
                   >
-                    <span className="pg-notice-sentence">{item.decisionRequired}</span>
+                    <span className="pg-notice-sentence">{queueHeadline(item)}</span>
                     <span className="pg-notice-ids">
                       <span className="pg-id">{item.itemId}</span>
                       <span className="pg-id">{run.name}</span>

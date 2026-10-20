@@ -11,6 +11,7 @@ import type { Verdict } from "../../design/components/verdict/verdict";
 import type { Quantity } from "../../design/quantity";
 import { type Actor, eventActor, type Models } from "../../words/actors";
 import { checkWords } from "../../words/checks";
+import { causeWords, triesWords } from "../../words/review";
 import { setAsideWith } from "../../words/queue";
 
 export type RowEnd =
@@ -30,6 +31,8 @@ export interface Row {
   /** Who wrote the line, or none when the record maps to no actor. */
   readonly actor: Actor | null;
   readonly sentence: string;
+  /** The rest of a long finding the sentence opens with, shown folded; ``null`` when it fits. */
+  readonly more: string | null;
   /** A recorded value the sentence names, drawn as a quantity after it. */
   readonly value: Quantity | null;
   readonly meta: string;
@@ -69,6 +72,28 @@ const SKIPPED_REASONS: Readonly<Record<string, string>> = {
   nothing_planned: "nothing was planned",
 };
 
+/** The longest first line a finding gets on a row before the rest is folded away. */
+const FIRST_LINE = 160;
+
+/**
+ * A finding as a short first line and the rest: the first sentence (or line), cut at a word when
+ * it is still long. Nothing is dropped; the rest is every character after the first line.
+ */
+export function firstLine(text: string): { readonly head: string; readonly rest: string | null } {
+  const whole = text.trim();
+  const end = /[.!?](\s|$)|\n/.exec(whole);
+  let cut = end === null ? whole.length : end.index + (whole[end.index] === "\n" ? 0 : 1);
+  let ellipsis = false;
+  if (cut > FIRST_LINE) {
+    const space = whole.lastIndexOf(" ", FIRST_LINE);
+    cut = space > 0 ? space : FIRST_LINE;
+    ellipsis = true;
+  }
+  const rest = whole.slice(cut).trim();
+  const head = whole.slice(0, cut).trim();
+  return { head: ellipsis ? `${head}…` : head, rest: rest === "" ? null : rest };
+}
+
 function verdictOf(text: string): Verdict | null {
   return text === "pass" || text === "fail" || text === "warn" || text === "unchecked"
     ? text
@@ -97,6 +122,7 @@ export function rowOf(
     ts: event.ts,
     actor,
     value: null,
+    more: null,
     end: null,
     subtask: null,
     attempt: null,
@@ -173,7 +199,8 @@ export function rowOf(
         subtask: event.subtask,
         attempt: event.attempt,
       };
-    case "review_ran":
+    case "review_ran": {
+      const first = event.finding === null ? null : firstLine(event.finding);
       return {
         ...base,
         depth: 2,
@@ -181,10 +208,22 @@ export function rowOf(
           event.verdict === "pass"
             ? `The reviewer passed attempt ${String(event.attempt)}`
             : event.verdict === "fail"
-              ? `The reviewer refused attempt ${String(event.attempt)}${event.finding === null ? "" : `: ${event.finding}`}`
-              : `The review of attempt ${String(event.attempt)} ended ${event.verdict}${event.finding === null ? "" : `: ${event.finding}`}`,
+              ? `The reviewer refused attempt ${String(event.attempt)}${first === null ? "" : `: ${first.head}`}`
+              : `The review of attempt ${String(event.attempt)} ended ${event.verdict}${first === null ? "" : `: ${first.head}`}`,
+        more: first?.rest ?? null,
         meta: `${subtaskName(event.subtask)} · attempt ${String(event.attempt)}${event.sessionId === null ? "" : ` · session ${event.sessionId}`}`,
         end: { kind: "review", verdict: event.verdict },
+        subtask: event.subtask,
+        attempt: event.attempt,
+      };
+    }
+    case "review_unavailable":
+      return {
+        ...base,
+        depth: 2,
+        sentence: `Review of attempt ${String(event.attempt)} reached no verdict: ${causeWords(event.cause)}${triesWords(event.detail)}`,
+        meta: `${subtaskName(event.subtask)} · attempt ${String(event.attempt)} · cause ${event.cause}`,
+        end: { kind: "review", verdict: "no verdict" },
         subtask: event.subtask,
         attempt: event.attempt,
       };
@@ -267,6 +306,7 @@ function unfinishedGate(
     depth: 2,
     actor: { kind: "deterministic", name: "Gate" },
     sentence: `The gate stage of attempt ${String(event.attempt)} began; no result is recorded`,
+    more: null,
     value: null,
     meta: `${names.get(event.subtask) ?? event.subtask} · attempt ${String(event.attempt)}`,
     end: { kind: "no-verdict" },
@@ -285,6 +325,22 @@ export function rowsOf(
   const roles = subtaskRoles(events);
   return events.flatMap((event) => {
     const row = rowOf(event, names, roles, models, checks) ?? unfinishedGate(event, events, names);
-    return row === null ? [] : [row];
+    if (row === null) return [];
+    if (event.kind !== "attempt_rejected") return [row];
+    // A rejection that repeats the finding an earlier row of the same attempt already shows says
+    // so, and does not print the text a second time.
+    const earlier = events.find(
+      (e) =>
+        (e.kind === "review_ran" || e.kind === "gate_ran") &&
+        e.seq < event.seq &&
+        e.subtask === event.subtask &&
+        e.attempt === event.attempt &&
+        e.finding === event.finding,
+    );
+    if (earlier === undefined) return [row];
+    const by = earlier.kind === "review_ran" ? "reviewer's" : "gate's";
+    return [
+      { ...row, sentence: `Attempt ${String(event.attempt)} rejected on the ${by} finding above` },
+    ];
   });
 }

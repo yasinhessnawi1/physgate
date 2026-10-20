@@ -242,12 +242,14 @@ function Records({
             <div className="pg-figure-line">
               <Figure
                 {...cost.result.value.usd}
+                decimals={2}
                 source={source}
                 size="lg"
                 partial={going || cost.result.value.partial}
               />
               <Figure
                 {...cost.result.value.nok}
+                decimals={2}
                 source={source}
                 size="lg"
                 partial={going || cost.result.value.partial}

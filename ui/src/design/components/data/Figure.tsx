@@ -15,6 +15,8 @@ interface Shown {
   readonly unit: string;
   readonly size?: "md" | "lg";
   readonly partial?: boolean;
+  /** Places to show a recorded decimal to (a cost); the exact figure stays in the hover. */
+  readonly decimals?: number;
 }
 
 /**
@@ -64,6 +66,7 @@ export function Figure(props: FigureProps) {
         unit={props.unit}
         {...(props.size === undefined ? {} : { size: props.size })}
         {...(props.partial === undefined ? {} : { partial: props.partial })}
+        {...(props.decimals === undefined ? {} : { decimals: props.decimals })}
       />
       {props.verdict !== undefined && <VerdictBadge verdict={props.verdict} />}
       <SourceChip id={source?.id ?? null} commit={source?.commit ?? null} />

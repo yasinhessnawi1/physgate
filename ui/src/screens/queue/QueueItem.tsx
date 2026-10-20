@@ -14,7 +14,7 @@ import { type Source, sourceAttribute } from "../../design/components/data/sourc
 import { Term } from "../../design/components/help/Term";
 import { StatusTag } from "../../design/components/status/StatusTag";
 import { nodeLabel, quantityLabel } from "../../words/humanise";
-import { SOURCE_WORDS } from "../../words/queue";
+import { queueHeadline, SOURCE_WORDS } from "../../words/queue";
 import { clockTime, utc } from "../../words/runs";
 import { ActorTag } from "../common/ActorTag";
 import { SEAL_TAG, sealLine } from "./model";
@@ -50,8 +50,15 @@ export function QueueItem({
         <Id value={item.itemId} />
       </div>
       <h2 className="pg-queue-decision" id="pg-queue-decision">
-        {item.decisionRequired}
+        {queueHeadline(item)}
       </h2>
+      <details className="pg-details pg-queue-raw">
+        <summary>Details</summary>
+        <p className="pg-panel-note">The item's text, as the queue recorded it.</p>
+        <pre className="pg-pre" tabIndex={0} aria-label="The item's text as recorded">
+          {item.decisionRequired}
+        </pre>
+      </details>
       <section className="pg-card pg-panel" aria-label="What you are deciding on">
         <h3 className="pg-section-label">What you are deciding on</h3>
         <dl className="pg-facts">

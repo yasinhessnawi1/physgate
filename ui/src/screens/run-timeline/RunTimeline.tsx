@@ -187,7 +187,7 @@ export default function RunTimeline({ setHeader, query }: ViewProps) {
               <span className="pg-muted">Reading…</span>
             ) : cost.result.ok ? (
               <>
-                <Figure {...cost.result.value.usd} source={source} partial={going} />
+                <Figure {...cost.result.value.usd} decimals={2} source={source} partial={going} />
                 <span className="pg-panel-note">
                   price sheet of {cost.result.value.pricesDate}
                   <CostCaveat cost={cost.result.value} />

@@ -7,6 +7,7 @@ import { costRecord, type LedgerLine } from "../../api/records";
 import { namesACommand } from "../../rules/commands";
 import { EngineWords } from "../common/engine";
 import { CostSoFar, StripLegend } from "./Home";
+import { runEnd, runEndWords } from "./runEnd";
 import { NoRunsYet } from "./NoRunsYet";
 import { STRIP_STATES, STRIP_WORDS, strip, stripCounts } from "./strip";
 
@@ -111,5 +112,123 @@ describe("the engine a run ran on", () => {
     expect(html).toContain("not recorded by this run");
     expect(html).toContain("api_key");
     expect(html).not.toMatch(/claude|code/i);
+  });
+});
+
+describe("a run that ended is Complete only when everything merged, the whole design passed and nothing waits", () => {
+  const planned = (seq: number, subtask: string): RunEvent => ({
+    seq,
+    ts: "t",
+    kind: "subtask_planned",
+    subtask,
+    role: "control",
+  });
+  const merged = (seq: number, subtask: string): RunEvent => ({
+    seq,
+    ts: "t",
+    kind: "merged",
+    subtask,
+    attempt: 1,
+    mergeCommit: null,
+  });
+  const decomposed = (n: number): RunEvent => ({
+    seq: 0,
+    ts: "t",
+    kind: "decomposed",
+    model: "m",
+    subtasks: n,
+    interfaceNodes: [],
+  });
+  const gate = (verdict: string): RunEvent => ({
+    seq: 20,
+    ts: "t",
+    kind: "integration_gate_ran",
+    verdict,
+    mode: "on",
+  });
+  const skipped: RunEvent = {
+    seq: 20,
+    ts: "t",
+    kind: "integration_gate_skipped",
+    reason: "not_all_merged",
+  };
+  const escalated: RunEvent = { seq: 15, ts: "t", kind: "escalated", subtask: "c", itemId: "q" };
+  const all = [decomposed(2), planned(1, "c"), planned(2, "f"), merged(3, "c"), merged(4, "f")];
+  const words = (events: RunEvent[], open: number | null) => runEndWords(runEnd(events, open));
+
+  it("every subtask merged, the whole design passed, nothing open, queue read: Complete", () => {
+    expect(runEnd([...all, gate("pass")], 0)).toEqual({ kind: "complete" });
+    expect(words([...all, gate("pass")], 0)).toBe("Complete");
+  });
+
+  it("one subtask escalated and the design not gated: Ended, with what waits for the person", () => {
+    const events = [
+      decomposed(2),
+      planned(1, "c"),
+      planned(2, "f"),
+      escalated,
+      merged(4, "f"),
+      skipped,
+    ];
+    expect(words(events, 1)).toBe("Ended · 1 waiting for you");
+  });
+
+  it("everything merged but the whole-design gate failed, with an item open: not Complete", () => {
+    expect(words([...all, gate("fail")], 1)).toBe("Ended · 1 waiting for you");
+  });
+
+  it("a whole-design verdict that is not a pass, such as warn, is not Complete", () => {
+    expect(words([...all, gate("warn")], 0)).toBe("Ended · the whole-design gate did not pass");
+  });
+
+  it("everything merged and passed but the queue could not be read: not Complete", () => {
+    expect(words([...all, gate("pass")], null)).toBe("Ended · its queue was not read");
+  });
+
+  it("everything merged but the whole design never gated is not Complete", () => {
+    expect(words([...all, skipped], 0)).toBe("Ended · the whole design was not gated");
+  });
+
+  it("fewer subtasks planned in the log than the decomposition announced is never Complete", () => {
+    const events = [
+      decomposed(3),
+      planned(1, "c"),
+      planned(2, "f"),
+      merged(3, "c"),
+      merged(4, "f"),
+      gate("pass"),
+    ];
+    expect(words(events, 0)).toBe("Ended · log incomplete: 2 of 3 subtasks planned");
+  });
+
+  it("subtasks not merged and none open says how many merged, and how many were set aside and decided", () => {
+    const events = [
+      decomposed(2),
+      planned(1, "c"),
+      planned(2, "f"),
+      escalated,
+      merged(4, "f"),
+      skipped,
+    ];
+    expect(words(events, 0)).toBe("Ended · 1 of 2 merged · 1 set aside, decided");
+    expect(
+      words([decomposed(2), planned(1, "c"), planned(2, "f"), merged(3, "f"), skipped], 0),
+    ).toBe("Ended · 1 of 2 merged");
+  });
+
+  it("a queue that could not be read counts the subtasks the log set aside", () => {
+    const events = [
+      decomposed(2),
+      planned(1, "c"),
+      planned(2, "f"),
+      escalated,
+      merged(4, "f"),
+      skipped,
+    ];
+    expect(words(events, null)).toBe("Ended · 1 set aside for a person");
+  });
+
+  it("a log with nothing planned is never Complete", () => {
+    expect(words([], 0)).toBe("Ended · nothing was planned");
   });
 });

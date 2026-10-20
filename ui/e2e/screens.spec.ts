@@ -238,7 +238,7 @@ for (const theme of THEMES) {
     const timeline = page.locator('section[aria-label="Timeline"]');
     const fails = timeline.locator(".pg-trow .pg-verdict-fail");
     await expect(fails).toHaveCount(3);
-    await expect(timeline).toContainText("Attempt 2 rejected:");
+    await expect(timeline).toContainText("Attempt 2 rejected on the gate's finding above");
     await expect(timeline).not.toContainText("sent back for repair");
     await expect(timeline).toContainText("Set aside for a person to decide");
     await expect(timeline).toContainText("The run goes on with the other subtasks.");

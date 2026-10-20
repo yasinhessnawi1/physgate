@@ -34,7 +34,7 @@ export function RowView({
   readonly selected?: boolean;
   readonly onSelect?: () => void;
 }) {
-  return (
+  const shown = (
     <TimelineRow
       time={clockTime(row.ts)}
       {...(row.actor === null ? {} : { actor: row.actor })}
@@ -60,5 +60,17 @@ export function RowView({
       {...(selected === undefined ? {} : { selected })}
       {...(onSelect === undefined ? {} : { onSelect })}
     />
+  );
+  if (row.more === null) return shown;
+  // The rest of a long finding folds under the row, beside its button and not inside it: a
+  // control inside a button is neither valid nor reachable.
+  return (
+    <>
+      {shown}
+      <details className={`pg-trow-more pg-trow-more-${String(row.depth)}`}>
+        <summary>Show the rest</summary>
+        <p className="pg-trow-more-text">{row.more}</p>
+      </details>
+    </>
   );
 }

@@ -8,6 +8,7 @@
  * says only that. A sentence that promised more would be a claim born in the interface.
  */
 import type { QueueSource } from "../api/queue";
+import { causeWords, triesWords } from "./review";
 
 export interface SourceWords {
   /** The kind of item, short, for a list row's overline. */
@@ -96,4 +97,31 @@ export const BANNED_DECISION_WORDS: readonly RegExp[] = [
 /** The banned words found in ``text``. */
 export function bannedIn(text: string): readonly string[] {
   return BANNED_DECISION_WORDS.filter((w) => w.test(text)).map(String);
+}
+
+/** The headline of an item, by source: what happened, in a sentence, with no raw record in it. */
+const HEADLINES: Readonly<Record<QueueSource, string>> = {
+  gate_escalation: "The finished design failed the gate",
+  repair_budget_exhausted: "A subtask used up its repairs",
+  review_unavailable: "The review reached no verdict",
+  review_blocked: "A review could not decide a safety-critical check",
+  arbitration: "The builder and the reviewer disagree",
+  escalation_decision: "A subtask was sent to a person",
+};
+
+/**
+ * A queue item's headline, made by code from its source and, for a review with no verdict, the
+ * cause and attempt its text names; no model. The raw text is kept apart, under "Details". When
+ * the cause cannot be read from it the source's own sentence stands.
+ */
+export function queueHeadline(item: {
+  readonly source: QueueSource;
+  readonly decisionRequired: string;
+}): string {
+  if (item.source !== "review_unavailable") return HEADLINES[item.source];
+  const text = item.decisionRequired;
+  const cause = /\(([a-z_]+):/.exec(text)?.[1];
+  if (cause === undefined) return HEADLINES.review_unavailable;
+  const attempt = /attempt (\d{1,4})/.exec(text)?.[1];
+  return `The review${attempt === undefined ? "" : ` of attempt ${attempt}`} reached no verdict: ${causeWords(cause)}${triesWords(text)}`;
 }
