@@ -8,9 +8,10 @@ Usage (from the repository root):
 
 Each prints one JSON document and exits 0 only if the rule holds.
 
-- ``split``: the budget is 4 lanes in all. The two fresh-set arms get equal lanes, so the
-  primary contrast's arms run alike; the old set takes the rest, never fewer than either fresh
-  arm. With 4 that is 1, 1 and 2. The two parameters files must state exactly that.
+- ``split``: the budget is 8 lanes in all (4 until 20.10.2026). The two fresh-set arms get
+  equal lanes, so the primary contrast's arms run alike; the old set keeps two lanes and the
+  fresh arms share the rest. With 8 that is 3, 3 and 2 (with 4 it was 1, 1 and 2). The two
+  parameters files must state exactly that.
 - ``plan``: the instrument's own draw (``assign_lanes``) for the corpus at the seed: an
   artefact's twin runs on the artefact's lane, and each class is dealt round the lanes so no
   lane holds two more of a class than another. Prints counts per lane and per class and the
@@ -29,14 +30,14 @@ from pathlib import Path
 from typing import Any
 
 #: The approved lane budget for the whole experiment (CRITERIA.md §12, row 9).
-BUDGET = 4
+BUDGET = 8
 #: The three runs, in the order the launch script starts them.
 RUNS = ("a-fresh", "b-fresh", "a-old")
 
 
 def split(budget: int = BUDGET) -> dict[str, int]:
-    """The lanes of each run: the fresh arms equal, the old set the rest, never fewer."""
-    fresh = budget // 3
+    """The lanes of each run: the old set two, the fresh arms equal shares of the rest."""
+    fresh = (budget - 2) // 2
     if fresh < 1:
         msg = f"a budget of {budget} lanes cannot run three runs at once"
         raise ValueError(msg)

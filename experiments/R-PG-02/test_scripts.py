@@ -53,8 +53,9 @@ def made(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
 
 def test_the_split_gives_the_fresh_arms_equal_lanes_and_the_files_hold_it() -> None:
     lanes = fx_lanes()
-    assert lanes.split() == {"a-fresh": 1, "b-fresh": 1, "a-old": 2}
-    assert sum(lanes.split().values()) == lanes.BUDGET == 4
+    assert lanes.split() == {"a-fresh": 3, "b-fresh": 3, "a-old": 2}
+    assert sum(lanes.split().values()) == lanes.BUDGET == 8
+    assert lanes.split(4) == {"a-fresh": 1, "b-fresh": 1, "a-old": 2}
     with pytest.raises(ValueError):
         lanes.split(2)
     code, out = script("lanes.py", "split", HERE / "params_fresh.json", HERE / "params_old.json")
