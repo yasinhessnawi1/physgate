@@ -63,14 +63,15 @@ def _anchored_patterns(tree: ast.Module) -> set[str]:
     """Names bound to ``re.compile`` of a pattern that ends in ``$`` (or is built from one)."""
     names: set[str] = set()
     for node in ast.walk(tree):
-        if not (isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)):
+        if not isinstance(node, ast.Assign | ast.AnnAssign) or not isinstance(node.value, ast.Call):
             continue
         call = node.value
         if ast.unparse(call.func) != "re.compile" or not call.args:
             continue
         text = ast.unparse(call.args[0])
         if "$" in text or "NAME_PATTERN" in text:
-            names |= {t.id for t in node.targets if isinstance(t, ast.Name)}
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            names |= {t.id for t in targets if isinstance(t, ast.Name)}
     return names
 
 

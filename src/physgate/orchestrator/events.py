@@ -603,6 +603,10 @@ class LeftoverRead(_Event):
     complete: bool
     trajectory_seal: Seal | None
     decisions_bytes: Annotated[int, Field(ge=0)] | None = None
+    #: A stream that was gone is quarantined only by a person's marker: who and why. Its
+    #: scan is then recorded as not made, never as one that found nothing.
+    quarantine: NonEmptyStr | None = None
+    scan: Literal["scanned", "unscanned (stream gone)"] = "scanned"
 
 
 class WorktreeRemoved(_Event):

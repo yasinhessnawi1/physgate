@@ -70,7 +70,7 @@ from physgate.orchestrator.dispatch import (
     harness_protection,
     read_captured,
     read_in_full,
-    read_session_file,
+    read_stream_file,
     redact,
     spawn_held,
     write_record,
@@ -542,11 +542,15 @@ class ClaudeReviewer:
         # One read of the stream, without following a link, for the scan and for its end.
         # This process opened it before the session ran, so a stream that is not there was
         # removed: it is never read as one that showed nothing, nor retried as a failure.
-        data = read_session_file(stdout)
-        if not data and not os.path.lexists(stdout):
+        try:
+            data = read_stream_file(stdout)
+        except InvocationError as exc:
+            if os.path.lexists(stdout):
+                raise
             msg = f"the stream of review session {session_id} is gone; nothing is read from it"
-            raise InvocationError(msg, session_id=session_id)
-        captured = read_captured(stdout)
+            raise InvocationError(msg, session_id=session_id) from exc
+        # The scan and the totals are held to the same bytes.
+        captured = read_captured(stdout, data)
         result = captured.result
         usage = (*prior, *captured.usage)
         # Before anything else is concluded from the review: an exposure is recorded

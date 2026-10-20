@@ -385,6 +385,8 @@ class Loop:
                     complete=left.complete,
                     trajectory_seal=left.seal,
                     decisions_bytes=self._decisions_bytes(),
+                    quarantine=left.quarantine,
+                    scan=left.scan,
                 )
             )
             if left.held_out_seen is not None:
