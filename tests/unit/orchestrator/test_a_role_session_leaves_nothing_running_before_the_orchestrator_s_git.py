@@ -425,6 +425,28 @@ def test_a_held_out_canary_a_session_displayed_reaches_its_report(
     assert report.held_out_seen == found
 
 
+@pytest.mark.parametrize("gone_at", ["before_the_read", "after_the_read"])
+def test_a_session_whose_stream_is_gone_halts_and_is_never_scanned_as_clean(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gone_at: str
+) -> None:
+    """The stream was opened before the session ran: one that is not there was removed."""
+    session = Session(tmp_path, "plain", pause=0.0, wall_clock_s=60.0)
+    dispatcher = session.dispatcher(monkeypatch, held_out_canaries=(CANARY,))
+    original = dispatch.read_captured
+
+    def read_then_lose(stream: Path) -> Any:  # noqa: ANN401
+        if gone_at == "before_the_read":
+            stream.unlink()
+        captured = original(stream)
+        stream.unlink(missing_ok=True)
+        return captured
+
+    monkeypatch.setattr(dispatch, "read_captured", read_then_lose)
+    with pytest.raises(InvocationError, match="gone"):
+        dispatcher.run(session.request(), session.spawned)
+    assert session.at_first_git is None
+
+
 def test_a_write_between_session_end_and_the_stop_is_put_back_before_the_first_git_call(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, leftovers: list[int]
 ) -> None:

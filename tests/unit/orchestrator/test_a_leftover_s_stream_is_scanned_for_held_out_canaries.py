@@ -13,11 +13,14 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from left_session import INSTALL_BIN, sentinel_installed, spawn_logged
 from loop_fakes import FakeDispatcher, Rig, plan
 
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.dispatch import ClaudeDispatcher
+from physgate.orchestrator.exceptions import InvocationError
 from physgate.orchestrator.events import Halted, Incident, LeftoverRead, read_events
 from physgate.orchestrator.merge import RunGit
 from physgate.orchestrator.ports import Leftover
@@ -177,3 +180,22 @@ def test_a_leftover_that_read_reviewer_material_is_an_incident_and_the_run_halts
     assert RUBRIC_CANARY[:8] not in incident.detail
     (halted,) = [e for e in events if isinstance(e, Halted)]
     assert events.index(halted) > events.index(incident)
+
+
+def test_a_leftover_whose_stream_is_gone_halts_and_is_never_scanned_as_clean(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "run"
+    _left(run_dir, "gone", "nothing held out here")
+    (run_dir / "sessions" / "gone" / "stdout.jsonl").unlink()
+    with pytest.raises(InvocationError, match="gone"):
+        _dispatcher(run_dir, held_out_canaries=(CANARY,)).stop_leftovers()
+
+
+def test_a_leftover_whose_stream_is_present_and_empty_is_still_read(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    _left(run_dir, "empty", "")
+    (run_dir / "sessions" / "empty" / "stdout.jsonl").write_text("")
+    (left,) = _dispatcher(run_dir, held_out_canaries=(CANARY,)).stop_leftovers()
+    assert left.held_out_seen is None
+    assert not left.complete
