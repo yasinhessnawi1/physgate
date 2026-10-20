@@ -191,6 +191,19 @@ def test_a_leftover_whose_stream_is_gone_halts_and_is_never_scanned_as_clean(
         _dispatcher(run_dir, held_out_canaries=(CANARY,)).stop_leftovers()
 
 
+def test_a_halt_on_a_gone_stream_leaves_the_session_unended_and_the_next_resume_halts_again(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "run"
+    _left(run_dir, "gone", "nothing held out here")
+    sdir = run_dir / "sessions" / "gone"
+    (sdir / "stdout.jsonl").unlink()
+    for _ in range(2):
+        with pytest.raises(InvocationError, match="gone"):
+            _dispatcher(run_dir, held_out_canaries=(CANARY,)).stop_leftovers()
+        assert not (sdir / "ended.json").exists()
+
+
 def test_a_leftover_whose_stream_is_present_and_empty_is_still_read(tmp_path: Path) -> None:
     run_dir = tmp_path / "run"
     _left(run_dir, "empty", "")
