@@ -13,10 +13,10 @@ from pathlib import Path
 import pytest
 
 from physgate.orchestrator.common import _full_model_string
-from physgate.orchestrator.exceptions import RunStateError  # noqa: F401
-from physgate.orchestrator.git import GitError
+from physgate.orchestrator.exceptions import GitError
 from physgate.orchestrator.merge import _safe
-from physgate.series.reader import RecordRefusedError, record_path
+from physgate.series.exceptions import RecordRefusedError
+from physgate.series.reader import record_path
 from physgate.series.writer import SeriesWriterError, _name
 
 SRC = Path(__file__).resolve().parents[3] / "src" / "physgate"
