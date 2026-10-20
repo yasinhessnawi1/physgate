@@ -1,0 +1,8851 @@
+{
+ "criteria": {
+  "P1_gate_accepts_every_old_twin": {
+   "A_gate_old": [
+    40,
+    40
+   ],
+   "A_gate_old_strict": [
+    40,
+    40
+   ],
+   "met": true
+  },
+  "P2_gate_right_reason_fresh": {
+   "R_gate_fresh": [
+    20,
+    40
+   ],
+   "floor": 20,
+   "met": true
+  },
+  "P3_paired_discriminate": {
+   "J_paired": 0.45,
+   "interval": [
+    0.25,
+    0.65
+   ],
+   "met": true
+  },
+  "P4_pairing_adds_value": {
+   "J_paired_minus_J_generalist": -0.35,
+   "interval": [
+    -0.575,
+    -0.125
+   ],
+   "met": false
+  },
+  "P5_not_tailored": {
+   "gate": {
+    "J_fresh": 0.5,
+    "J_practice": 0.55,
+    "drop": 0.05,
+    "interval": [
+     -0.225,
+     0.325
+    ],
+    "possible_tailoring": false,
+    "tailoring": false
+   },
+   "paired": {
+    "J_fresh": 0.45,
+    "J_practice": 0.05,
+    "drop": -0.4,
+    "interval": [
+     -0.75,
+     -0.05
+    ],
+    "possible_tailoring": false,
+    "tailoring": false
+   }
+  }
+ },
+ "differences": {
+  "old_minus_fresh_J": {
+   "gate": -0.1,
+   "paired": -0.15
+  }
+ },
+ "fresh_set": {
+  "current_limit_values_citing_a_continuous_rating": 0
+ },
+ "old_set": {
+  "gate": {
+   "A": 40,
+   "A_gate_strict": 40,
+   "A_wilson95": [
+    0.9124,
+    1.0
+   ],
+   "J": 0.4,
+   "J_bootstrap95": [
+    0.25,
+    0.55
+   ],
+   "R": 16,
+   "R_wilson95": [
+    0.2635,
+    0.554
+   ],
+   "caught_any_record": 16,
+   "caught_elsewhere": 0,
+   "expected_check_among_caught": [
+    16,
+    16
+   ],
+   "n": 40,
+   "raw_reject": 16,
+   "twins_refused_under_the_stated_headroom_limit": []
+  },
+  "paired": {
+   "A": 25,
+   "A_wilson95": [
+    0.4703,
+    0.7578
+   ],
+   "J": 0.3,
+   "J_bootstrap95": [
+    0.075,
+    0.5
+   ],
+   "R": 27,
+   "R_wilson95": [
+    0.5202,
+    0.7992
+   ],
+   "R_with_unscored_dropped": [
+    27,
+    40
+   ],
+   "among_verdicts_only": {
+    "A": [
+     25,
+     37
+    ],
+    "J": 0.3507,
+    "R": [
+     27,
+     40
+    ]
+   },
+   "n": 40,
+   "named_without_twin_condition": 28,
+   "no_verdict": {
+    "injected": 0,
+    "twins": 3
+   },
+   "range_if_each_no_verdict_went_either_way": {
+    "A": [
+     25,
+     28
+    ],
+    "J": [
+     0.3,
+     0.375
+    ],
+    "R": [
+     27,
+     27
+    ]
+   },
+   "raw_reject": 37,
+   "sheet_flaw_rejections": 3,
+   "unscored": 0,
+   "without_sheet_flaw_rejections": {
+    "A": [
+     25,
+     37
+    ],
+    "J": 0.3507
+   }
+  },
+  "source_check_mismatched_twins": [
+   "a17",
+   "a18",
+   "a23",
+   "a24",
+   "a29",
+   "a31",
+   "a36",
+   "a40"
+  ]
+ },
+ "old_set_facts": {
+  "current_limit_values_citing_a_continuous_rating": 0
+ },
+ "practice": {
+  "gate_at_this_commit": {
+   "A": 20,
+   "A_wilson95": [
+    0.8389,
+    1.0
+   ],
+   "J": 0.55,
+   "J_bootstrap95": [
+    0.35,
+    0.75
+   ],
+   "R": 11,
+   "R_wilson95": [
+    0.3421,
+    0.7418
+   ],
+   "n": 20
+  },
+  "label": "PRACTICE, never a result",
+  "reviewers": {
+   "A": 7,
+   "A_wilson95": [
+    0.1812,
+    0.5671
+   ],
+   "J": 0.05,
+   "J_bootstrap95": [
+    -0.25,
+    0.35
+   ],
+   "R": 14,
+   "R_wilson95": [
+    0.481,
+    0.8545
+   ],
+   "R_with_unscored_dropped": [
+    14,
+    20
+   ],
+   "among_verdicts_only": {
+    "A": [
+     7,
+     18
+    ],
+    "J": 0.1667,
+    "R": [
+     14,
+     18
+    ]
+   },
+   "n": 20,
+   "named_without_twin_condition": 14,
+   "no_verdict": {
+    "injected": 2,
+    "twins": 2
+   },
+   "range_if_each_no_verdict_went_either_way": {
+    "A": [
+     7,
+     9
+    ],
+    "J": [
+     0.05,
+     0.25
+    ],
+    "R": [
+     14,
+     16
+    ]
+   },
+   "raw_reject": 18,
+   "sheet_flaw_rejections": 0,
+   "unscored": 0,
+   "without_sheet_flaw_rejections": {
+    "A": [
+     7,
+     20
+    ],
+    "J": 0.05
+   }
+  }
+ },
+ "primary_fresh": {
+  "contrast_paired_minus_generalist": {
+   "J": -0.35,
+   "interval": [
+    -0.575,
+    -0.125
+   ]
+  },
+  "cost_ratio_paired_to_generalist_per_item": {
+   "median": 2.1,
+   "of_totals": 2.3447
+  },
+  "gate": {
+   "A": 40,
+   "A_gate_strict": 40,
+   "A_wilson95": [
+    0.9124,
+    1.0
+   ],
+   "J": 0.5,
+   "J_bootstrap95": [
+    0.35,
+    0.65
+   ],
+   "R": 20,
+   "R_wilson95": [
+    0.352,
+    0.648
+   ],
+   "caught_any_record": 20,
+   "caught_elsewhere": 0,
+   "expected_check_among_caught": [
+    13,
+    20
+   ],
+   "n": 40,
+   "raw_reject": 20,
+   "twins_refused_under_the_stated_headroom_limit": []
+  },
+  "generalist": {
+   "A": 38,
+   "A_wilson95": [
+    0.835,
+    0.9862
+   ],
+   "J": 0.8,
+   "J_bootstrap95": [
+    0.625,
+    0.95
+   ],
+   "R": 34,
+   "R_wilson95": [
+    0.7093,
+    0.9294
+   ],
+   "R_with_unscored_dropped": [
+    34,
+    40
+   ],
+   "among_verdicts_only": {
+    "A": [
+     38,
+     40
+    ],
+    "J": 0.8,
+    "R": [
+     34,
+     40
+    ]
+   },
+   "n": 40,
+   "named_without_twin_condition": 36,
+   "no_verdict": {
+    "injected": 0,
+    "twins": 0
+   },
+   "range_if_each_no_verdict_went_either_way": {
+    "A": [
+     38,
+     38
+    ],
+    "J": [
+     0.8,
+     0.8
+    ],
+    "R": [
+     34,
+     34
+    ]
+   },
+   "raw_reject": 36,
+   "sheet_flaw_rejections": 0,
+   "unscored": 0,
+   "without_sheet_flaw_rejections": {
+    "A": [
+     38,
+     40
+    ],
+    "J": 0.8
+   }
+  },
+  "paired": {
+   "A": 29,
+   "A_wilson95": [
+    0.5716,
+    0.8389
+   ],
+   "J": 0.45,
+   "J_bootstrap95": [
+    0.25,
+    0.65
+   ],
+   "R": 29,
+   "R_wilson95": [
+    0.5716,
+    0.8389
+   ],
+   "R_with_unscored_dropped": [
+    29,
+    40
+   ],
+   "among_verdicts_only": {
+    "A": [
+     29,
+     35
+    ],
+    "J": 0.5722,
+    "R": [
+     29,
+     39
+    ]
+   },
+   "n": 40,
+   "named_without_twin_condition": 29,
+   "no_verdict": {
+    "injected": 1,
+    "twins": 5
+   },
+   "range_if_each_no_verdict_went_either_way": {
+    "A": [
+     29,
+     34
+    ],
+    "J": [
+     0.45,
+     0.6
+    ],
+    "R": [
+     29,
+     30
+    ]
+   },
+   "raw_reject": 37,
+   "sheet_flaw_rejections": 1,
+   "unscored": 0,
+   "without_sheet_flaw_rejections": {
+    "A": [
+     29,
+     39
+    ],
+    "J": 0.4686
+   }
+  }
+ },
+ "rules": {
+  "bootstrap": {
+   "draws": 10000,
+   "seed": 13
+  },
+  "error_items": {
+   "control": {
+    "equilibrium": [
+     "D25",
+     "D27"
+    ],
+    "magnitude": [
+     "D25",
+     "D27"
+    ],
+    "propagation": [
+     "D28"
+    ],
+    "unit": [
+     "D25",
+     "D26"
+    ]
+   },
+   "electrical": {
+    "equilibrium": [
+     "ES-7",
+     "ES-9",
+     "ES-32",
+     "ES-33"
+    ],
+    "magnitude": [
+     "ES-32"
+    ],
+    "propagation": [
+     "ES-34"
+    ],
+    "unit": [
+     "ES-31",
+     "ES-32"
+    ]
+   },
+   "firmware": {
+    "equilibrium": [
+     "DS-27"
+    ],
+    "magnitude": [
+     "DS-27"
+    ],
+    "propagation": [
+     "DS-30"
+    ],
+    "unit": [
+     "DS-27"
+    ]
+   },
+   "mechanical": {
+    "equilibrium": [
+     "MS-3",
+     "MS-4",
+     "MS-26"
+    ],
+    "magnitude": [
+     "MS-3"
+    ],
+    "propagation": [
+     "MS-5"
+    ],
+    "unit": [
+     "MS-2"
+    ]
+   }
+  },
+  "generalist_items": {
+   "control": [
+    "A7"
+   ],
+   "electrical": [
+    "EA-9"
+   ],
+   "firmware": [
+    "AC-9"
+   ],
+   "mechanical": [
+    "MA-10"
+   ]
+  }
+ },
+ "runs": {
+  "a-fresh": {
+   "account_sha256": "8580efd05af6fd2d304810950f00bb2c3d462302dddfd00b1d12373e340ab838",
+   "cost": {
+    "basis": "subscription: list-price equivalent, cache writes at the one-hour rate; a lower bound where a review ended with no verdict",
+    "price_sheet": "2026-10-16",
+    "reviews": 80,
+    "tokens_every_try": 51962576,
+    "tokens_of_verdict_lines": {
+     "cache_creation_input_tokens": 10279050,
+     "cache_read_input_tokens": 31485593,
+     "input_tokens": 774,
+     "output_tokens": 5312543
+    },
+    "tokens_per_review": 649532,
+    "usd_list_price_equivalent": 100.54
+   },
+   "gate": {
+    "A": 40,
+    "A_gate_strict": 40,
+    "A_wilson95": [
+     0.9124,
+     1.0
+    ],
+    "J": 0.5,
+    "J_bootstrap95": [
+     0.35,
+     0.65
+    ],
+    "R": 20,
+    "R_wilson95": [
+     0.352,
+     0.648
+    ],
+    "caught_any_record": 20,
+    "caught_elsewhere": 0,
+    "expected_check_among_caught": [
+     13,
+     20
+    ],
+    "n": 40,
+    "raw_reject": 20,
+    "twins_refused_under_the_stated_headroom_limit": []
+   },
+   "gate_checks": {
+    "injected": {
+     "equilibrium_mounts_passed_on_forces_alone": 0,
+     "items_with_a_forces_only_pass": 0,
+     "per_check": {
+      "conservation": {
+       "evaluated": 130,
+       "fail_records": 14,
+       "nothing_in_scope": 0,
+       "pass_records": 72,
+       "unchecked_records": 82
+      },
+      "equilibrium": {
+       "evaluated": 0,
+       "fail_records": 0,
+       "nothing_in_scope": 26,
+       "pass_records": 26,
+       "unchecked_records": 54
+      },
+      "magnitude": {
+       "evaluated": 0,
+       "fail_records": 0,
+       "nothing_in_scope": 0,
+       "pass_records": 0,
+       "unchecked_records": 1137
+      },
+      "power": {
+       "evaluated": 98,
+       "fail_records": 0,
+       "nothing_in_scope": 0,
+       "pass_records": 49,
+       "unchecked_records": 134
+      },
+      "propagation": {
+       "evaluated": 64,
+       "fail_records": 16,
+       "nothing_in_scope": 0,
+       "pass_records": 10,
+       "unchecked_records": 96
+      },
+      "thermal": {
+       "evaluated": 0,
+       "fail_records": 0,
+       "nothing_in_scope": 19,
+       "pass_records": 19,
+       "unchecked_records": 122
+      },
+      "units": {
+       "evaluated": 3571,
+       "fail_records": 6,
+       "nothing_in_scope": 0,
+       "pass_records": 74,
+       "unchecked_records": 968
+      }
+     }
+    },
+    "twins": {
+     "equilibrium_mounts_passed_on_forces_alone": 0,
+     "items_with_a_forces_only_pass": 0,
+     "per_check": {
+      "conservation": {
+       "evaluated": 146,
+       "fail_records": 0,
+       "nothing_in_scope": 0,
+       "pass_records": 80,
+       "unchecked_records": 82
+      },
+      "equilibrium": {
+       "evaluated": 0,
+       "fail_records": 0,
+       "nothing_in_scope": 26,
+       "pass_records": 26,
+       "unchecked_records": 54
+      },
+      "magnitude": {
+       "evaluated": 0,
+       "fail_records": 0,
+       "nothing_in_scope": 0,
+       "pass_records": 0,
+       "unchecked_records": 1137
+      },
+      "power": {
+       "evaluated": 98,
+       "fail_records": 0,
+       "nothing_in_scope": 0,
+       "pass_records": 49,
+       "unchecked_records": 134
+      },
+      "propagation": {
+       "evaluated": 109,
+       "fail_records": 0,
+       "nothing_in_scope": 0,
+       "pass_records": 21,
+       "unchecked_records": 109
+      },
+      "thermal": {
+       "evaluated": 0,
+       "fail_records": 0,
+       "nothing_in_scope": 19,
+       "pass_records": 19,
+       "unchecked_records": 122
+      },
+      "units": {
+       "evaluated": 3858,
+       "fail_records": 0,
+       "nothing_in_scope": 0,
+       "pass_records": 80,
+       "unchecked_records": 970
+      }
+     }
+    }
+   },
+   "gate_per_class": {
+    "equilibrium": {
+     "A": 10,
+     "A_gate_strict": 10,
+     "A_wilson95": [
+      0.7225,
+      1.0
+     ],
+     "J": 0.7,
+     "J_bootstrap95": [
+      0.4,
+      1.0
+     ],
+     "R": 7,
+     "R_wilson95": [
+      0.3968,
+      0.8922
+     ],
+     "caught_any_record": 7,
+     "caught_elsewhere": 0,
+     "expected_check_among_caught": [
+      0,
+      7
+     ],
+     "n": 10,
+     "raw_reject": 7,
+     "twins_refused_under_the_stated_headroom_limit": []
+    },
+    "magnitude": {
+     "A": 10,
+     "A_gate_strict": 10,
+     "A_wilson95": [
+      0.7225,
+      1.0
+     ],
+     "J": 0.0,
+     "J_bootstrap95": [
+      0.0,
+      0.0
+     ],
+     "R": 0,
+     "R_wilson95": [
+      0.0,
+      0.2775
+     ],
+     "caught_any_record": 0,
+     "caught_elsewhere": 0,
+     "expected_check_among_caught": [
+      0,
+      0
+     ],
+     "n": 10,
+     "raw_reject": 0,
+     "twins_refused_under_the_stated_headroom_limit": []
+    },
+    "propagation": {
+     "A": 10,
+     "A_gate_strict": 10,
+     "A_wilson95": [
+      0.7225,
+      1.0
+     ],
+     "J": 1.0,
+     "J_bootstrap95": [
+      1.0,
+      1.0
+     ],
+     "R": 10,
+     "R_wilson95": [
+      0.7225,
+      1.0
+     ],
+     "caught_any_record": 10,
+     "caught_elsewhere": 0,
+     "expected_check_among_caught": [
+      10,
+      10
+     ],
+     "n": 10,
+     "raw_reject": 10,
+     "twins_refused_under_the_stated_headroom_limit": []
+    },
+    "unit": {
+     "A": 10,
+     "A_gate_strict": 10,
+     "A_wilson95": [
+      0.7225,
+      1.0
+     ],
+     "J": 0.3,
+     "J_bootstrap95": [
+      0.0,
+      0.6
+     ],
+     "R": 3,
+     "R_wilson95": [
+      0.1078,
+      0.6032
+     ],
+     "caught_any_record": 3,
+     "caught_elsewhere": 0,
+     "expected_check_among_caught": [
+      3,
+      3
+     ],
+     "n": 10,
+     "raw_reject": 3,
+     "twins_refused_under_the_stated_headroom_limit": []
+    }
+   },
+   "gate_per_role": {
+    "control": {
+     "A": 15,
+     "A_gate_strict": 15,
+     "A_wilson95": [
+      0.7961,
+      1.0
+     ],
+     "J": 0.6,
+     "J_bootstrap95": [
+      0.3333,
+      0.8667
+     ],
+     "R": 9,
+     "R_wilson95": [
+      0.3575,
+      0.8018
+     ],
+     "caught_any_record": 9,
+     "caught_elsewhere": 0,
+     "expected_check_among_caught": [
+      6,
+      9
+     ],
+     "n": 15,
+     "raw_reject": 9,
+     "twins_refused_under_the_stated_headroom_limit": []
+    },
+    "electrical": {
+     "A": 10,
+     "A_gate_strict": 10,
+     "A_wilson95": [
+      0.7225,
+      1.0
+     ],
+     "J": 0.3,
+     "J_bootstrap95": [
+      0.0,
+      0.6
+     ],
+     "R": 3,
+     "R_wilson95": [
+      0.1078,
+      0.6032
+     ],
+     "caught_any_record": 3,
+     "caught_elsewhere": 0,
+     "expected_check_among_caught": [
+      2,
+      3
+     ],
+     "n": 10,
+     "raw_reject": 3,
+     "twins_refused_under_the_stated_headroom_limit": []
+    },
+    "firmware": {
+     "A": 6,
+     "A_gate_strict": 6,
+     "A_wilson95": [
+      0.6097,
+      1.0
+     ],
+     "J": 0.5,
+     "J_bootstrap95": [
+      0.1667,
+      0.8333
+     ],
+     "R": 3,
+     "R_wilson95": [
+      0.1876,
+      0.8124
+     ],
+     "caught_any_record": 3,
+     "caught_elsewhere": 0,
+     "expected_check_among_caught": [
+      3,
+      3
+     ],
+     "n": 6,
+     "raw_reject": 3,
+     "twins_refused_under_the_stated_headroom_limit": []
+    },
+    "mechanical": {
+     "A": 9,
+     "A_gate_strict": 9,
+     "A_wilson95": [
+      0.7008,
+      1.0
+     ],
+     "J": 0.5556,
+     "J_bootstrap95": [
+      0.2222,
+      0.8889
+     ],
+     "R": 5,
+     "R_wilson95": [
+      0.2666,
+      0.8112
+     ],
+     "caught_any_record": 5,
+     "caught_elsewhere": 0,
+     "expected_check_among_caught": [
+      2,
+      5
+     ],
+     "n": 9,
+     "raw_reject": 5,
+     "twins_refused_under_the_stated_headroom_limit": []
+    }
+   },
+   "gate_unchecked_per_class": {
+    "equilibrium": 651,
+    "magnitude": 635,
+    "propagation": 660,
+    "unit": 647
+   },
+   "instrument": {
+    "invalid_verdict_lines": 2,
+    "lane_pauses": 0,
+    "repair_resumes_used": 1,
+    "retries": 3,
+    "retry_delays_s": {
+     "60.0": 2,
+     "900.0": 1
+    },
+    "reviews_with_schema_refusals": 63,
+    "schema_refusals": 97,
+    "verdicts_after_a_repair_resume": 1,
+    "wall_clock": [
+     "2026-10-20T05:44:29+00:00",
+     "2026-10-20T11:51:05+00:00"
+    ]
+   },
+   "lanes": 3,
+   "named_against_caught": {
+    "caught_not_named": 5,
+    "named_and_caught": 15,
+    "named_not_caught": 14,
+    "neither": 6,
+    "no_error_item": 0
+   },
+   "no_verdict_by_role": {
+    "control": {
+     "injected": [
+      [
+       "a12",
+       "review_unavailable",
+       "invalid_verdict"
+      ]
+     ],
+     "twins": []
+    },
+    "electrical": {
+     "injected": [],
+     "twins": [
+      [
+       "a31",
+       "blocked",
+       "blocking_spec_defect"
+      ],
+      [
+       "a33",
+       "blocked",
+       "blocking_spec_defect"
+      ]
+     ]
+    },
+    "firmware": {
+     "injected": [],
+     "twins": [
+      [
+       "a09",
+       "blocked",
+       "blocking_spec_defect"
+      ],
+      [
+       "a19",
+       "blocked",
+       "blocking_spec_defect"
+      ],
+      [
+       "a34",
+       "review_unavailable",
+       "invalid_verdict"
+      ]
+     ]
+    },
+    "mechanical": {
+     "injected": [],
+     "twins": []
+    }
+   },
+   "per_item": [
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": false,
+     "R_rev": true,
+     "artefact": "a01",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "EA-9",
+      "ES-32"
+     ],
+     "cited_by_twin_review": [
+      "EA-9",
+      "EP-5",
+      "ES-14",
+      "ES-16"
+     ],
+     "class": "equilibrium",
+     "deciding": [
+      "ES-32"
+     ],
+     "error_items": [
+      "ES-7",
+      "ES-9",
+      "ES-32",
+      "ES-33"
+     ],
+     "expected_check": "equilibrium",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 86,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": null,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": false,
+     "tokens": 1927131,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "fail",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": false,
+     "R_rev": false,
+     "artefact": "a02",
+     "cited_at_all": false,
+     "cited_by_review": [
+      "EA-9",
+      "EH-6",
+      "EP-4",
+      "EP-5",
+      "ES-14",
+      "ES-15",
+      "ES-16",
+      "ES-21"
+     ],
+     "cited_by_twin_review": [
+      "EA-9",
+      "EH-1",
+      "EP-4",
+      "EP-5",
+      "ES-11",
+      "ES-14",
+      "ES-15"
+     ],
+     "class": "equilibrium",
+     "deciding": [],
+     "error_items": [
+      "ES-7",
+      "ES-9",
+      "ES-32",
+      "ES-33"
+     ],
+     "expected_check": "equilibrium",
+     "expected_check_caught": false,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "conservation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 86,
+     "lane": 2,
+     "named": false,
+     "r_pg_01_named": null,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": false,
+     "tokens": 1310448,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "fail",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a03",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "MA-10",
+      "MH-8",
+      "MS-3",
+      "MS-5"
+     ],
+     "cited_by_twin_review": [],
+     "class": "propagation",
+     "deciding": [
+      "MS-5"
+     ],
+     "error_items": [
+      "MS-5"
+     ],
+     "expected_check": "propagation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 69,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "mechanical",
+     "sheet_flaw_rejection": false,
+     "tokens": 590044,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a04",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "MA-10",
+      "MS-1",
+      "MS-3"
+     ],
+     "cited_by_twin_review": [],
+     "class": "magnitude",
+     "deciding": [
+      "MS-3"
+     ],
+     "error_items": [
+      "MS-3"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 70,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "mechanical",
+     "sheet_flaw_rejection": false,
+     "tokens": 1423625,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a05",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "MA-10",
+      "MS-3",
+      "MS-5"
+     ],
+     "cited_by_twin_review": [],
+     "class": "equilibrium",
+     "deciding": [
+      "MS-3"
+     ],
+     "error_items": [
+      "MS-3",
+      "MS-4",
+      "MS-26"
+     ],
+     "expected_check": "equilibrium",
+     "expected_check_caught": false,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "conservation",
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 68,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "mechanical",
+     "sheet_flaw_rejection": false,
+     "tokens": 909754,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a06",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "MA-10",
+      "MH-2",
+      "MS-1",
+      "MS-3"
+     ],
+     "cited_by_twin_review": [],
+     "class": "magnitude",
+     "deciding": [
+      "MS-3"
+     ],
+     "error_items": [
+      "MS-3"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 70,
+     "lane": 2,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "mechanical",
+     "sheet_flaw_rejection": false,
+     "tokens": 781026,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a07",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "MA-10",
+      "MH-5",
+      "MS-3",
+      "MS-5"
+     ],
+     "cited_by_twin_review": [],
+     "class": "propagation",
+     "deciding": [
+      "MS-5"
+     ],
+     "error_items": [
+      "MS-5"
+     ],
+     "expected_check": "propagation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 64,
+     "lane": 2,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "mechanical",
+     "sheet_flaw_rejection": false,
+     "tokens": 1133920,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a08",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "EA-9",
+      "EH-1",
+      "EP-4",
+      "EP-5",
+      "ES-10",
+      "ES-11",
+      "ES-14",
+      "ES-15",
+      "ES-34",
+      "ES-5",
+      "ES-7"
+     ],
+     "cited_by_twin_review": [],
+     "class": "propagation",
+     "deciding": [
+      "ES-34"
+     ],
+     "error_items": [
+      "ES-34"
+     ],
+     "expected_check": "propagation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 68,
+     "lane": 2,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": false,
+     "tokens": 4473565,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": false,
+     "R_rev": true,
+     "artefact": "a09",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "AC-9",
+      "DS-30"
+     ],
+     "cited_by_twin_review": [],
+     "class": "propagation",
+     "deciding": [
+      "DS-30"
+     ],
+     "error_items": [
+      "DS-30"
+     ],
+     "expected_check": "propagation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 61,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "firmware",
+     "sheet_flaw_rejection": false,
+     "tokens": 809530,
+     "twin_gate_failing_records": 0,
+     "twin_open": true,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "blocked",
+     "twin_review_cause": "blocking_spec_defect",
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": false,
+     "R_rev": true,
+     "artefact": "a10",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "AC-9",
+      "DS-27"
+     ],
+     "cited_by_twin_review": [
+      "AC-9",
+      "DS-30"
+     ],
+     "class": "unit",
+     "deciding": [
+      "DS-27"
+     ],
+     "error_items": [
+      "DS-27"
+     ],
+     "expected_check": "units",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "units"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 63,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "firmware",
+     "sheet_flaw_rejection": false,
+     "tokens": 1162804,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "fail",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": false,
+     "artefact": "a11",
+     "cited_at_all": false,
+     "cited_by_review": [
+      "S5"
+     ],
+     "cited_by_twin_review": [],
+     "class": "unit",
+     "deciding": [],
+     "error_items": [
+      "D25",
+      "D26"
+     ],
+     "expected_check": "units",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "units"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 63,
+     "lane": 2,
+     "named": false,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 1292533,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": false,
+     "artefact": "a12",
+     "cited_at_all": false,
+     "cited_by_review": [],
+     "cited_by_twin_review": [],
+     "class": "propagation",
+     "deciding": [],
+     "error_items": [
+      "D28"
+     ],
+     "expected_check": "propagation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 64,
+     "lane": 1,
+     "named": false,
+     "r_pg_01_named": false,
+     "raw_reject": false,
+     "rev_open": true,
+     "review": "review_unavailable",
+     "review_cause": "invalid_verdict",
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 2440154,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": false,
+     "artefact": "a13",
+     "cited_at_all": false,
+     "cited_by_review": [
+      "A7",
+      "D28",
+      "R9"
+     ],
+     "cited_by_twin_review": [],
+     "class": "equilibrium",
+     "deciding": [],
+     "error_items": [
+      "D25",
+      "D27"
+     ],
+     "expected_check": "equilibrium",
+     "expected_check_caught": false,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 55,
+     "lane": 1,
+     "named": false,
+     "r_pg_01_named": null,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 1256837,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": false,
+     "artefact": "a14",
+     "cited_at_all": false,
+     "cited_by_review": [
+      "A7",
+      "D28",
+      "R7",
+      "R9"
+     ],
+     "cited_by_twin_review": [],
+     "class": "equilibrium",
+     "deciding": [],
+     "error_items": [
+      "D25",
+      "D27"
+     ],
+     "expected_check": "equilibrium",
+     "expected_check_caught": false,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 55,
+     "lane": 2,
+     "named": false,
+     "r_pg_01_named": null,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 1027280,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": false,
+     "artefact": "a15",
+     "cited_at_all": false,
+     "cited_by_review": [],
+     "cited_by_twin_review": [],
+     "class": "magnitude",
+     "deciding": [],
+     "error_items": [
+      "D25",
+      "D27"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 56,
+     "lane": 1,
+     "named": false,
+     "r_pg_01_named": false,
+     "raw_reject": false,
+     "rev_open": false,
+     "review": "pass",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 1031186,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a16",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "A7",
+      "D25",
+      "R9"
+     ],
+     "cited_by_twin_review": [],
+     "class": "unit",
+     "deciding": [
+      "D25"
+     ],
+     "error_items": [
+      "D25",
+      "D26"
+     ],
+     "expected_check": "units",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 59,
+     "lane": 2,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 831224,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": false,
+     "artefact": "a17",
+     "cited_at_all": false,
+     "cited_by_review": [
+      "A7",
+      "D21",
+      "R9"
+     ],
+     "cited_by_twin_review": [],
+     "class": "magnitude",
+     "deciding": [],
+     "error_items": [
+      "D25",
+      "D27"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 59,
+     "lane": 1,
+     "named": false,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 1876525,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a18",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "EA-9",
+      "EH-6",
+      "EP-5",
+      "ES-14",
+      "ES-15",
+      "ES-31"
+     ],
+     "cited_by_twin_review": [],
+     "class": "unit",
+     "deciding": [
+      "ES-31"
+     ],
+     "error_items": [
+      "ES-31",
+      "ES-32"
+     ],
+     "expected_check": "units",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 86,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": false,
+     "tokens": 1302061,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": false,
+     "R_rev": true,
+     "artefact": "a19",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "AC-9",
+      "DS-27",
+      "DS-30"
+     ],
+     "cited_by_twin_review": [],
+     "class": "unit",
+     "deciding": [
+      "DS-27"
+     ],
+     "error_items": [
+      "DS-27"
+     ],
+     "expected_check": "units",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 62,
+     "lane": 2,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "firmware",
+     "sheet_flaw_rejection": false,
+     "tokens": 1119510,
+     "twin_gate_failing_records": 0,
+     "twin_open": true,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "blocked",
+     "twin_review_cause": "blocking_spec_defect",
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": false,
+     "R_rev": false,
+     "artefact": "a20",
+     "cited_at_all": false,
+     "cited_by_review": [
+      "A7",
+      "D28",
+      "R3",
+      "R9"
+     ],
+     "cited_by_twin_review": [
+      "A7",
+      "R3"
+     ],
+     "class": "magnitude",
+     "deciding": [],
+     "error_items": [
+      "D25",
+      "D27"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 56,
+     "lane": 2,
+     "named": false,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 939378,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "fail",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a21",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "A7",
+      "D28"
+     ],
+     "cited_by_twin_review": [],
+     "class": "propagation",
+     "deciding": [
+      "D28"
+     ],
+     "error_items": [
+      "D28"
+     ],
+     "expected_check": "propagation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 72,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 1088507,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": false,
+     "R_rev": true,
+     "artefact": "a22",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "AC-9",
+      "DS-30"
+     ],
+     "cited_by_twin_review": [
+      "AC-9",
+      "DS-27"
+     ],
+     "class": "propagation",
+     "deciding": [
+      "DS-30"
+     ],
+     "error_items": [
+      "DS-30"
+     ],
+     "expected_check": "propagation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 60,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "firmware",
+     "sheet_flaw_rejection": false,
+     "tokens": 705673,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "fail",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a23",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "EA-9",
+      "ES-34"
+     ],
+     "cited_by_twin_review": [],
+     "class": "propagation",
+     "deciding": [
+      "ES-34"
+     ],
+     "error_items": [
+      "ES-34"
+     ],
+     "expected_check": "propagation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 67,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": false,
+     "tokens": 702265,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a24",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "A7",
+      "D28",
+      "R9"
+     ],
+     "cited_by_twin_review": [],
+     "class": "propagation",
+     "deciding": [
+      "D28"
+     ],
+     "error_items": [
+      "D28"
+     ],
+     "expected_check": "propagation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 65,
+     "lane": 2,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 1135076,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a25",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "A7",
+      "D28"
+     ],
+     "cited_by_twin_review": [],
+     "class": "propagation",
+     "deciding": [
+      "D28"
+     ],
+     "error_items": [
+      "D28"
+     ],
+     "expected_check": "propagation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 70,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 1037775,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a26",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "AC-9",
+      "DS-27"
+     ],
+     "cited_by_twin_review": [],
+     "class": "unit",
+     "deciding": [
+      "DS-27"
+     ],
+     "error_items": [
+      "DS-27"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 62,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "firmware",
+     "sheet_flaw_rejection": false,
+     "tokens": 911251,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a27",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "MA-10",
+      "MS-26",
+      "MS-3",
+      "MS-5",
+      "consistency"
+     ],
+     "cited_by_twin_review": [],
+     "class": "equilibrium",
+     "deciding": [
+      "MS-26",
+      "MS-3"
+     ],
+     "error_items": [
+      "MS-3",
+      "MS-4",
+      "MS-26"
+     ],
+     "expected_check": "equilibrium",
+     "expected_check_caught": false,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "conservation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 59,
+     "lane": 2,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "mechanical",
+     "sheet_flaw_rejection": false,
+     "tokens": 823010,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a28",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "MA-10",
+      "MH-1",
+      "MS-3",
+      "MS-4",
+      "MS-5",
+      "MS-6"
+     ],
+     "cited_by_twin_review": [],
+     "class": "equilibrium",
+     "deciding": [
+      "MS-3",
+      "MS-4"
+     ],
+     "error_items": [
+      "MS-3",
+      "MS-4",
+      "MS-26"
+     ],
+     "expected_check": "equilibrium",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 69,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "mechanical",
+     "sheet_flaw_rejection": false,
+     "tokens": 934957,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a29",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "MA-10",
+      "MH-5",
+      "MH-8",
+      "MS-26",
+      "MS-3",
+      "MS-5"
+     ],
+     "cited_by_twin_review": [],
+     "class": "equilibrium",
+     "deciding": [
+      "MS-26",
+      "MS-3"
+     ],
+     "error_items": [
+      "MS-3",
+      "MS-4",
+      "MS-26"
+     ],
+     "expected_check": "equilibrium",
+     "expected_check_caught": false,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "conservation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 59,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "mechanical",
+     "sheet_flaw_rejection": false,
+     "tokens": 810627,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": false,
+     "R_rev": true,
+     "artefact": "a30",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "EA-9",
+      "EP-1",
+      "ES-1",
+      "ES-2",
+      "ES-32"
+     ],
+     "cited_by_twin_review": [
+      "EA-8",
+      "EA-9",
+      "EP-1",
+      "ES-1",
+      "ES-2",
+      "ES-21"
+     ],
+     "class": "magnitude",
+     "deciding": [
+      "ES-32"
+     ],
+     "error_items": [
+      "ES-32"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 63,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": true,
+     "tokens": 907990,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "fail",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": false,
+     "R_rev": true,
+     "artefact": "a31",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "EA-9",
+      "ES-31",
+      "ES-32"
+     ],
+     "cited_by_twin_review": [],
+     "class": "unit",
+     "deciding": [
+      "ES-31",
+      "ES-32"
+     ],
+     "error_items": [
+      "ES-31",
+      "ES-32"
+     ],
+     "expected_check": "units",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 67,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": false,
+     "tokens": 1281595,
+     "twin_gate_failing_records": 0,
+     "twin_open": true,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "blocked",
+     "twin_review_cause": "blocking_spec_defect",
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a32",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "EA-9",
+      "EH-2",
+      "EH-5",
+      "ES-31",
+      "ES-32",
+      "ES-33",
+      "ES-7",
+      "consistency"
+     ],
+     "cited_by_twin_review": [],
+     "class": "unit",
+     "deciding": [
+      "ES-31",
+      "ES-32"
+     ],
+     "error_items": [
+      "ES-31",
+      "ES-32"
+     ],
+     "expected_check": "units",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 62,
+     "lane": 2,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": false,
+     "tokens": 1633591,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": false,
+     "R_rev": true,
+     "artefact": "a33",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "EA-9",
+      "ES-31",
+      "ES-32",
+      "ES-33"
+     ],
+     "cited_by_twin_review": [],
+     "class": "unit",
+     "deciding": [
+      "ES-31",
+      "ES-32"
+     ],
+     "error_items": [
+      "ES-31",
+      "ES-32"
+     ],
+     "expected_check": "units",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 59,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": false,
+     "tokens": 954442,
+     "twin_gate_failing_records": 0,
+     "twin_open": true,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "blocked",
+     "twin_review_cause": "blocking_spec_defect",
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": false,
+     "R_rev": false,
+     "artefact": "a34",
+     "cited_at_all": false,
+     "cited_by_review": [
+      "AC-9",
+      "DS-4"
+     ],
+     "cited_by_twin_review": [],
+     "class": "magnitude",
+     "deciding": [],
+     "error_items": [
+      "DS-27"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 63,
+     "lane": 0,
+     "named": false,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "firmware",
+     "sheet_flaw_rejection": false,
+     "tokens": 2901795,
+     "twin_gate_failing_records": 0,
+     "twin_open": true,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "review_unavailable",
+     "twin_review_cause": "invalid_verdict",
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a35",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "A7",
+      "D26"
+     ],
+     "cited_by_twin_review": [],
+     "class": "unit",
+     "deciding": [
+      "D26"
+     ],
+     "error_items": [
+      "D25",
+      "D26"
+     ],
+     "expected_check": "units",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "units"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 64,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 1586015,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a36",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "A7",
+      "D27",
+      "D28",
+      "R7",
+      "R9"
+     ],
+     "cited_by_twin_review": [],
+     "class": "equilibrium",
+     "deciding": [
+      "D27"
+     ],
+     "error_items": [
+      "D25",
+      "D27"
+     ],
+     "expected_check": "equilibrium",
+     "expected_check_caught": false,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 55,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": null,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 1307224,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": false,
+     "artefact": "a37",
+     "cited_at_all": false,
+     "cited_by_review": [
+      "A7",
+      "R9"
+     ],
+     "cited_by_twin_review": [],
+     "class": "magnitude",
+     "deciding": [],
+     "error_items": [
+      "D25",
+      "D27"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 56,
+     "lane": 2,
+     "named": false,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 1118497,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a38",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "MA-10",
+      "MS-1",
+      "MS-3"
+     ],
+     "cited_by_twin_review": [],
+     "class": "equilibrium",
+     "deciding": [
+      "MS-3"
+     ],
+     "error_items": [
+      "MS-3",
+      "MS-4",
+      "MS-26"
+     ],
+     "expected_check": "equilibrium",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 59,
+     "lane": 2,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "mechanical",
+     "sheet_flaw_rejection": false,
+     "tokens": 747034,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": false,
+     "artefact": "a39",
+     "cited_at_all": false,
+     "cited_by_review": [],
+     "cited_by_twin_review": [],
+     "class": "magnitude",
+     "deciding": [],
+     "error_items": [
+      "D25",
+      "D27"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 56,
+     "lane": 0,
+     "named": false,
+     "r_pg_01_named": false,
+     "raw_reject": false,
+     "rev_open": false,
+     "review": "pass",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 1683357,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a40",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "EA-9",
+      "ES-32"
+     ],
+     "cited_by_twin_review": [],
+     "class": "magnitude",
+     "deciding": [
+      "ES-32"
+     ],
+     "error_items": [
+      "ES-32"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 86,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": false,
+     "tokens": 2053360,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    }
+   ],
+   "per_lane": {
+    "0": {
+     "A_rev": 8,
+     "R_rev": 11,
+     "no_verdict": 2,
+     "pairs": 13
+    },
+    "1": {
+     "A_rev": 10,
+     "R_rev": 9,
+     "no_verdict": 3,
+     "pairs": 13
+    },
+    "2": {
+     "A_rev": 11,
+     "R_rev": 9,
+     "no_verdict": 1,
+     "pairs": 14
+    }
+   },
+   "r_pg_01_sense": {
+    "approved": 2,
+    "caught_any_record": 20,
+    "named_against_caught": {
+     "caught_not_named": 5,
+     "named_and_caught": 11,
+     "named_not_caught": 12,
+     "neither": 7,
+     "no_error_item": 5
+    }
+   },
+   "reviewer_kind": "paired",
+   "reviewers": {
+    "A": 29,
+    "A_wilson95": [
+     0.5716,
+     0.8389
+    ],
+    "J": 0.45,
+    "J_bootstrap95": [
+     0.25,
+     0.65
+    ],
+    "R": 29,
+    "R_wilson95": [
+     0.5716,
+     0.8389
+    ],
+    "R_with_unscored_dropped": [
+     29,
+     40
+    ],
+    "among_verdicts_only": {
+     "A": [
+      29,
+      35
+     ],
+     "J": 0.5722,
+     "R": [
+      29,
+      39
+     ]
+    },
+    "n": 40,
+    "named_without_twin_condition": 29,
+    "no_verdict": {
+     "injected": 1,
+     "twins": 5
+    },
+    "range_if_each_no_verdict_went_either_way": {
+     "A": [
+      29,
+      34
+     ],
+     "J": [
+      0.45,
+      0.6
+     ],
+     "R": [
+      29,
+      30
+     ]
+    },
+    "raw_reject": 37,
+    "sheet_flaw_rejections": 1,
+    "unscored": 0,
+    "without_sheet_flaw_rejections": {
+     "A": [
+      29,
+      39
+     ],
+     "J": 0.4686
+    }
+   },
+   "reviewers_per_class": {
+    "equilibrium": {
+     "A": 8,
+     "A_wilson95": [
+      0.4902,
+      0.9433
+     ],
+     "J": 0.5,
+     "J_bootstrap95": [
+      0.1,
+      0.9
+     ],
+     "R": 7,
+     "R_wilson95": [
+      0.3968,
+      0.8922
+     ],
+     "R_with_unscored_dropped": [
+      7,
+      10
+     ],
+     "among_verdicts_only": {
+      "A": [
+       8,
+       10
+      ],
+      "J": 0.5,
+      "R": [
+       7,
+       10
+      ]
+     },
+     "n": 10,
+     "named_without_twin_condition": 7,
+     "no_verdict": {
+      "injected": 0,
+      "twins": 0
+     },
+     "range_if_each_no_verdict_went_either_way": {
+      "A": [
+       8,
+       8
+      ],
+      "J": [
+       0.5,
+       0.5
+      ],
+      "R": [
+       7,
+       7
+      ]
+     },
+     "raw_reject": 10,
+     "sheet_flaw_rejections": 0,
+     "unscored": 0,
+     "without_sheet_flaw_rejections": {
+      "A": [
+       8,
+       10
+      ],
+      "J": 0.5
+     }
+    },
+    "magnitude": {
+     "A": 7,
+     "A_wilson95": [
+      0.3968,
+      0.8922
+     ],
+     "J": 0.1,
+     "J_bootstrap95": [
+      -0.3,
+      0.5
+     ],
+     "R": 4,
+     "R_wilson95": [
+      0.1682,
+      0.6873
+     ],
+     "R_with_unscored_dropped": [
+      4,
+      10
+     ],
+     "among_verdicts_only": {
+      "A": [
+       7,
+       9
+      ],
+      "J": 0.1778,
+      "R": [
+       4,
+       10
+      ]
+     },
+     "n": 10,
+     "named_without_twin_condition": 4,
+     "no_verdict": {
+      "injected": 0,
+      "twins": 1
+     },
+     "range_if_each_no_verdict_went_either_way": {
+      "A": [
+       7,
+       8
+      ],
+      "J": [
+       0.1,
+       0.2
+      ],
+      "R": [
+       4,
+       4
+      ]
+     },
+     "raw_reject": 8,
+     "sheet_flaw_rejections": 1,
+     "unscored": 0,
+     "without_sheet_flaw_rejections": {
+      "A": [
+       7,
+       9
+      ],
+      "J": 0.1778
+     }
+    },
+    "propagation": {
+     "A": 8,
+     "A_wilson95": [
+      0.4902,
+      0.9433
+     ],
+     "J": 0.7,
+     "J_bootstrap95": [
+      0.4,
+      1.0
+     ],
+     "R": 9,
+     "R_wilson95": [
+      0.5958,
+      0.9821
+     ],
+     "R_with_unscored_dropped": [
+      9,
+      10
+     ],
+     "among_verdicts_only": {
+      "A": [
+       8,
+       9
+      ],
+      "J": 0.8889,
+      "R": [
+       9,
+       9
+      ]
+     },
+     "n": 10,
+     "named_without_twin_condition": 9,
+     "no_verdict": {
+      "injected": 1,
+      "twins": 1
+     },
+     "range_if_each_no_verdict_went_either_way": {
+      "A": [
+       8,
+       9
+      ],
+      "J": [
+       0.7,
+       0.9
+      ],
+      "R": [
+       9,
+       10
+      ]
+     },
+     "raw_reject": 9,
+     "sheet_flaw_rejections": 0,
+     "unscored": 0,
+     "without_sheet_flaw_rejections": {
+      "A": [
+       8,
+       10
+      ],
+      "J": 0.7
+     }
+    },
+    "unit": {
+     "A": 6,
+     "A_wilson95": [
+      0.3127,
+      0.8318
+     ],
+     "J": 0.5,
+     "J_bootstrap95": [
+      0.2,
+      0.8
+     ],
+     "R": 9,
+     "R_wilson95": [
+      0.5958,
+      0.9821
+     ],
+     "R_with_unscored_dropped": [
+      9,
+      10
+     ],
+     "among_verdicts_only": {
+      "A": [
+       6,
+       7
+      ],
+      "J": 0.7571,
+      "R": [
+       9,
+       10
+      ]
+     },
+     "n": 10,
+     "named_without_twin_condition": 9,
+     "no_verdict": {
+      "injected": 0,
+      "twins": 3
+     },
+     "range_if_each_no_verdict_went_either_way": {
+      "A": [
+       6,
+       9
+      ],
+      "J": [
+       0.5,
+       0.8
+      ],
+      "R": [
+       9,
+       9
+      ]
+     },
+     "raw_reject": 10,
+     "sheet_flaw_rejections": 0,
+     "unscored": 0,
+     "without_sheet_flaw_rejections": {
+      "A": [
+       6,
+       10
+      ],
+      "J": 0.5
+     }
+    }
+   },
+   "reviewers_per_role": {
+    "control": {
+     "A": 14,
+     "A_wilson95": [
+      0.7018,
+      0.9881
+     ],
+     "J": 0.3333,
+     "J_bootstrap95": [
+      0.0,
+      0.6
+     ],
+     "R": 6,
+     "R_wilson95": [
+      0.1982,
+      0.6425
+     ],
+     "R_with_unscored_dropped": [
+      6,
+      15
+     ],
+     "among_verdicts_only": {
+      "A": [
+       14,
+       15
+      ],
+      "J": 0.3619,
+      "R": [
+       6,
+       14
+      ]
+     },
+     "n": 15,
+     "named_without_twin_condition": 6,
+     "no_verdict": {
+      "injected": 1,
+      "twins": 0
+     },
+     "range_if_each_no_verdict_went_either_way": {
+      "A": [
+       14,
+       14
+      ],
+      "J": [
+       0.3333,
+       0.4
+      ],
+      "R": [
+       6,
+       7
+      ]
+     },
+     "raw_reject": 12,
+     "sheet_flaw_rejections": 0,
+     "unscored": 0,
+     "without_sheet_flaw_rejections": {
+      "A": [
+       14,
+       15
+      ],
+      "J": 0.3333
+     }
+    },
+    "electrical": {
+     "A": 5,
+     "A_wilson95": [
+      0.2366,
+      0.7634
+     ],
+     "J": 0.4,
+     "J_bootstrap95": [
+      0.0,
+      0.8
+     ],
+     "R": 9,
+     "R_wilson95": [
+      0.5958,
+      0.9821
+     ],
+     "R_with_unscored_dropped": [
+      9,
+      10
+     ],
+     "among_verdicts_only": {
+      "A": [
+       5,
+       8
+      ],
+      "J": 0.525,
+      "R": [
+       9,
+       10
+      ]
+     },
+     "n": 10,
+     "named_without_twin_condition": 9,
+     "no_verdict": {
+      "injected": 0,
+      "twins": 2
+     },
+     "range_if_each_no_verdict_went_either_way": {
+      "A": [
+       5,
+       7
+      ],
+      "J": [
+       0.4,
+       0.6
+      ],
+      "R": [
+       9,
+       9
+      ]
+     },
+     "raw_reject": 10,
+     "sheet_flaw_rejections": 1,
+     "unscored": 0,
+     "without_sheet_flaw_rejections": {
+      "A": [
+       5,
+       9
+      ],
+      "J": 0.4556
+     }
+    },
+    "firmware": {
+     "A": 1,
+     "A_wilson95": [
+      0.0301,
+      0.5635
+     ],
+     "J": 0.0,
+     "J_bootstrap95": [
+      -0.5,
+      0.5
+     ],
+     "R": 5,
+     "R_wilson95": [
+      0.4365,
+      0.9699
+     ],
+     "R_with_unscored_dropped": [
+      5,
+      6
+     ],
+     "among_verdicts_only": {
+      "A": [
+       1,
+       3
+      ],
+      "J": 0.1667,
+      "R": [
+       5,
+       6
+      ]
+     },
+     "n": 6,
+     "named_without_twin_condition": 5,
+     "no_verdict": {
+      "injected": 0,
+      "twins": 3
+     },
+     "range_if_each_no_verdict_went_either_way": {
+      "A": [
+       1,
+       4
+      ],
+      "J": [
+       0.0,
+       0.5
+      ],
+      "R": [
+       5,
+       5
+      ]
+     },
+     "raw_reject": 6,
+     "sheet_flaw_rejections": 0,
+     "unscored": 0,
+     "without_sheet_flaw_rejections": {
+      "A": [
+       1,
+       6
+      ],
+      "J": 0.0
+     }
+    },
+    "mechanical": {
+     "A": 9,
+     "A_wilson95": [
+      0.7008,
+      1.0
+     ],
+     "J": 1.0,
+     "J_bootstrap95": [
+      1.0,
+      1.0
+     ],
+     "R": 9,
+     "R_wilson95": [
+      0.7008,
+      1.0
+     ],
+     "R_with_unscored_dropped": [
+      9,
+      9
+     ],
+     "among_verdicts_only": {
+      "A": [
+       9,
+       9
+      ],
+      "J": 1.0,
+      "R": [
+       9,
+       9
+      ]
+     },
+     "n": 9,
+     "named_without_twin_condition": 9,
+     "no_verdict": {
+      "injected": 0,
+      "twins": 0
+     },
+     "range_if_each_no_verdict_went_either_way": {
+      "A": [
+       9,
+       9
+      ],
+      "J": [
+       1.0,
+       1.0
+      ],
+      "R": [
+       9,
+       9
+      ]
+     },
+     "raw_reject": 9,
+     "sheet_flaw_rejections": 0,
+     "unscored": 0,
+     "without_sheet_flaw_rejections": {
+      "A": [
+       9,
+       9
+      ],
+      "J": 1.0
+     }
+    }
+   },
+   "seed": 13,
+   "uncatalogued_names_unchecked": [
+    "board_lateral_clearance",
+    "board_length",
+    "board_thickness",
+    "board_width",
+    "charge_capacity",
+    "clock_frequency",
+    "continuous_current_draw",
+    "continuous_motor_current_draw",
+    "continuous_motor_power_draw",
+    "continuous_output_current",
+    "continuous_reaction_moment",
+    "counts_per_revolution",
+    "efficiency_point_current",
+    "efficiency_point_heat_dissipation",
+    "efficiency_point_input_power",
+    "efficiency_point_output_power",
+    "idle_current_draw",
+    "input_speed_limit",
+    "mass_per_cell",
+    "max_input_voltage",
+    "max_supply_voltage",
+    "motor_current_draw",
+    "motor_power_draw",
+    "motor_reaction_moment",
+    "motor_runtime",
+    "no_load_current",
+    "no_load_current_draw",
+    "output_current",
+    "overall_gear_ratio",
+    "overall_height",
+    "overall_width",
+    "plant_mass",
+    "pwm_duty_limit",
+    "sensor_power_draw",
+    "speed_limit",
+    "stall_heat_dissipation",
+    "standby_current_draw",
+    "supply_voltage_margin",
+    "torque_limit",
+    "track_width",
+    "unladen_mass",
+    "wheel_diameter",
+    "wheel_top_height",
+    "wheel_width"
+   ]
+  },
+  "a-old": {
+   "account_sha256": "8580efd05af6fd2d304810950f00bb2c3d462302dddfd00b1d12373e340ab838",
+   "cost": {
+    "basis": "subscription: list-price equivalent, cache writes at the one-hour rate; a lower bound where a review ended with no verdict",
+    "price_sheet": "2026-10-16",
+    "reviews": 80,
+    "tokens_every_try": 47352089,
+    "tokens_of_verdict_lines": {
+     "cache_creation_input_tokens": 10687359,
+     "cache_read_input_tokens": 31210620,
+     "input_tokens": 736,
+     "output_tokens": 5453374
+    },
+    "tokens_per_review": 591901,
+    "usd_list_price_equivalent": 103.53
+   },
+   "gate": {
+    "A": 40,
+    "A_gate_strict": 40,
+    "A_wilson95": [
+     0.9124,
+     1.0
+    ],
+    "J": 0.4,
+    "J_bootstrap95": [
+     0.25,
+     0.55
+    ],
+    "R": 16,
+    "R_wilson95": [
+     0.2635,
+     0.554
+    ],
+    "caught_any_record": 16,
+    "caught_elsewhere": 0,
+    "expected_check_among_caught": [
+     16,
+     16
+    ],
+    "n": 40,
+    "raw_reject": 16,
+    "twins_refused_under_the_stated_headroom_limit": []
+   },
+   "gate_checks": {
+    "injected": {
+     "equilibrium_mounts_passed_on_forces_alone": 0,
+     "items_with_a_forces_only_pass": 0,
+     "per_check": {
+      "conservation": {
+       "evaluated": 76,
+       "fail_records": 4,
+       "nothing_in_scope": 0,
+       "pass_records": 76,
+       "unchecked_records": 315
+      },
+      "equilibrium": {
+       "evaluated": 0,
+       "fail_records": 0,
+       "nothing_in_scope": 28,
+       "pass_records": 28,
+       "unchecked_records": 104
+      },
+      "magnitude": {
+       "evaluated": 46,
+       "fail_records": 0,
+       "nothing_in_scope": 0,
+       "pass_records": 46,
+       "unchecked_records": 1436
+      },
+      "power": {
+       "evaluated": 140,
+       "fail_records": 0,
+       "nothing_in_scope": 5,
+       "pass_records": 75,
+       "unchecked_records": 75
+      },
+      "propagation": {
+       "evaluated": 204,
+       "fail_records": 12,
+       "nothing_in_scope": 0,
+       "pass_records": 21,
+       "unchecked_records": 250
+      },
+      "thermal": {
+       "evaluated": 0,
+       "fail_records": 0,
+       "nothing_in_scope": 5,
+       "pass_records": 5,
+       "unchecked_records": 150
+      },
+      "units": {
+       "evaluated": 4122,
+       "fail_records": 8,
+       "nothing_in_scope": 0,
+       "pass_records": 72,
+       "unchecked_records": 1132
+      }
+     }
+    },
+    "twins": {
+     "equilibrium_mounts_passed_on_forces_alone": 0,
+     "items_with_a_forces_only_pass": 0,
+     "per_check": {
+      "conservation": {
+       "evaluated": 80,
+       "fail_records": 0,
+       "nothing_in_scope": 0,
+       "pass_records": 80,
+       "unchecked_records": 316
+      },
+      "equilibrium": {
+       "evaluated": 0,
+       "fail_records": 0,
+       "nothing_in_scope": 28,
+       "pass_records": 28,
+       "unchecked_records": 104
+      },
+      "magnitude": {
+       "evaluated": 46,
+       "fail_records": 0,
+       "nothing_in_scope": 0,
+       "pass_records": 46,
+       "unchecked_records": 1438
+      },
+      "power": {
+       "evaluated": 140,
+       "fail_records": 0,
+       "nothing_in_scope": 4,
+       "pass_records": 74,
+       "unchecked_records": 76
+      },
+      "propagation": {
+       "evaluated": 253,
+       "fail_records": 0,
+       "nothing_in_scope": 0,
+       "pass_records": 29,
+       "unchecked_records": 273
+      },
+      "thermal": {
+       "evaluated": 0,
+       "fail_records": 0,
+       "nothing_in_scope": 4,
+       "pass_records": 4,
+       "unchecked_records": 152
+      },
+      "units": {
+       "evaluated": 4520,
+       "fail_records": 0,
+       "nothing_in_scope": 0,
+       "pass_records": 80,
+       "unchecked_records": 1133
+      }
+     }
+    }
+   },
+   "gate_per_class": {
+    "equilibrium": {
+     "A": 10,
+     "A_gate_strict": 10,
+     "A_wilson95": [
+      0.7225,
+      1.0
+     ],
+     "J": 0.2,
+     "J_bootstrap95": [
+      0.0,
+      0.5
+     ],
+     "R": 2,
+     "R_wilson95": [
+      0.0567,
+      0.5098
+     ],
+     "caught_any_record": 2,
+     "caught_elsewhere": 0,
+     "expected_check_among_caught": [
+      2,
+      2
+     ],
+     "n": 10,
+     "raw_reject": 2,
+     "twins_refused_under_the_stated_headroom_limit": []
+    },
+    "magnitude": {
+     "A": 10,
+     "A_gate_strict": 10,
+     "A_wilson95": [
+      0.7225,
+      1.0
+     ],
+     "J": 0.0,
+     "J_bootstrap95": [
+      0.0,
+      0.0
+     ],
+     "R": 0,
+     "R_wilson95": [
+      0.0,
+      0.2775
+     ],
+     "caught_any_record": 0,
+     "caught_elsewhere": 0,
+     "expected_check_among_caught": [
+      0,
+      0
+     ],
+     "n": 10,
+     "raw_reject": 0,
+     "twins_refused_under_the_stated_headroom_limit": []
+    },
+    "propagation": {
+     "A": 10,
+     "A_gate_strict": 10,
+     "A_wilson95": [
+      0.7225,
+      1.0
+     ],
+     "J": 1.0,
+     "J_bootstrap95": [
+      1.0,
+      1.0
+     ],
+     "R": 10,
+     "R_wilson95": [
+      0.7225,
+      1.0
+     ],
+     "caught_any_record": 10,
+     "caught_elsewhere": 0,
+     "expected_check_among_caught": [
+      10,
+      10
+     ],
+     "n": 10,
+     "raw_reject": 10,
+     "twins_refused_under_the_stated_headroom_limit": []
+    },
+    "unit": {
+     "A": 10,
+     "A_gate_strict": 10,
+     "A_wilson95": [
+      0.7225,
+      1.0
+     ],
+     "J": 0.4,
+     "J_bootstrap95": [
+      0.1,
+      0.7
+     ],
+     "R": 4,
+     "R_wilson95": [
+      0.1682,
+      0.6873
+     ],
+     "caught_any_record": 4,
+     "caught_elsewhere": 0,
+     "expected_check_among_caught": [
+      4,
+      4
+     ],
+     "n": 10,
+     "raw_reject": 4,
+     "twins_refused_under_the_stated_headroom_limit": []
+    }
+   },
+   "gate_per_role": {
+    "control": {
+     "A": 17,
+     "A_gate_strict": 17,
+     "A_wilson95": [
+      0.8157,
+      1.0
+     ],
+     "J": 0.2353,
+     "J_bootstrap95": [
+      0.0588,
+      0.4706
+     ],
+     "R": 4,
+     "R_wilson95": [
+      0.0955,
+      0.4726
+     ],
+     "caught_any_record": 4,
+     "caught_elsewhere": 0,
+     "expected_check_among_caught": [
+      4,
+      4
+     ],
+     "n": 17,
+     "raw_reject": 4,
+     "twins_refused_under_the_stated_headroom_limit": []
+    },
+    "electrical": {
+     "A": 11,
+     "A_gate_strict": 11,
+     "A_wilson95": [
+      0.7412,
+      1.0
+     ],
+     "J": 0.6364,
+     "J_bootstrap95": [
+      0.3636,
+      0.9091
+     ],
+     "R": 7,
+     "R_wilson95": [
+      0.3538,
+      0.8483
+     ],
+     "caught_any_record": 7,
+     "caught_elsewhere": 0,
+     "expected_check_among_caught": [
+      7,
+      7
+     ],
+     "n": 11,
+     "raw_reject": 7,
+     "twins_refused_under_the_stated_headroom_limit": []
+    },
+    "firmware": {
+     "A": 3,
+     "A_gate_strict": 3,
+     "A_wilson95": [
+      0.4385,
+      1.0
+     ],
+     "J": 0.6667,
+     "J_bootstrap95": [
+      0.0,
+      1.0
+     ],
+     "R": 2,
+     "R_wilson95": [
+      0.2077,
+      0.9385
+     ],
+     "caught_any_record": 2,
+     "caught_elsewhere": 0,
+     "expected_check_among_caught": [
+      2,
+      2
+     ],
+     "n": 3,
+     "raw_reject": 2,
+     "twins_refused_under_the_stated_headroom_limit": []
+    },
+    "mechanical": {
+     "A": 9,
+     "A_gate_strict": 9,
+     "A_wilson95": [
+      0.7008,
+      1.0
+     ],
+     "J": 0.3333,
+     "J_bootstrap95": [
+      0.0,
+      0.6667
+     ],
+     "R": 3,
+     "R_wilson95": [
+      0.1206,
+      0.6458
+     ],
+     "caught_any_record": 3,
+     "caught_elsewhere": 0,
+     "expected_check_among_caught": [
+      3,
+      3
+     ],
+     "n": 9,
+     "raw_reject": 3,
+     "twins_refused_under_the_stated_headroom_limit": []
+    }
+   },
+   "gate_unchecked_per_class": {
+    "equilibrium": 1073,
+    "magnitude": 743,
+    "propagation": 850,
+    "unit": 796
+   },
+   "instrument": {
+    "invalid_verdict_lines": 0,
+    "lane_pauses": 0,
+    "repair_resumes_used": 3,
+    "retries": 0,
+    "retry_delays_s": {},
+    "reviews_with_schema_refusals": 59,
+    "schema_refusals": 97,
+    "verdicts_after_a_repair_resume": 3,
+    "wall_clock": [
+     "2026-10-20T05:44:29+00:00",
+     "2026-10-20T13:55:13+00:00"
+    ]
+   },
+   "lanes": 2,
+   "named_against_caught": {
+    "caught_not_named": 1,
+    "named_and_caught": 15,
+    "named_not_caught": 12,
+    "neither": 12,
+    "no_error_item": 0
+   },
+   "no_verdict_by_role": {
+    "control": {
+     "injected": [],
+     "twins": []
+    },
+    "electrical": {
+     "injected": [],
+     "twins": [
+      [
+       "a12",
+       "blocked",
+       "blocking_spec_defect"
+      ]
+     ]
+    },
+    "firmware": {
+     "injected": [],
+     "twins": [
+      [
+       "a18",
+       "blocked",
+       "blocking_spec_defect"
+      ],
+      [
+       "a20",
+       "blocked",
+       "blocking_spec_defect"
+      ]
+     ]
+    },
+    "mechanical": {
+     "injected": [],
+     "twins": []
+    }
+   },
+   "per_item": [
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a01",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "EA-9",
+      "EH-6",
+      "EP-4",
+      "EP-5",
+      "ES-11",
+      "ES-14",
+      "ES-15",
+      "ES-34"
+     ],
+     "cited_by_twin_review": [],
+     "class": "propagation",
+     "deciding": [
+      "ES-34"
+     ],
+     "error_items": [
+      "ES-34"
+     ],
+     "expected_check": "propagation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 109,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": false,
+     "tokens": 749187,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": false,
+     "R_rev": true,
+     "artefact": "a02",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "EA-9",
+      "EH-5",
+      "ES-34"
+     ],
+     "cited_by_twin_review": [
+      "EA-9",
+      "EH-1",
+      "EH-6",
+      "EP-4",
+      "EP-5",
+      "ES-11",
+      "ES-14",
+      "ES-15"
+     ],
+     "class": "propagation",
+     "deciding": [
+      "ES-34"
+     ],
+     "error_items": [
+      "ES-34"
+     ],
+     "expected_check": "propagation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 108,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": false,
+     "tokens": 2717116,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "fail",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a03",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "MA-10",
+      "MS-3",
+      "MS-5"
+     ],
+     "cited_by_twin_review": [],
+     "class": "propagation",
+     "deciding": [
+      "MS-5"
+     ],
+     "error_items": [
+      "MS-5"
+     ],
+     "expected_check": "propagation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 90,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "mechanical",
+     "sheet_flaw_rejection": false,
+     "tokens": 812859,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a04",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "MA-10",
+      "MS-1",
+      "MS-2",
+      "MS-3"
+     ],
+     "cited_by_twin_review": [],
+     "class": "unit",
+     "deciding": [
+      "MS-2"
+     ],
+     "error_items": [
+      "MS-2"
+     ],
+     "expected_check": "units",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 91,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "mechanical",
+     "sheet_flaw_rejection": false,
+     "tokens": 941224,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a05",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "MA-10",
+      "MP-10",
+      "MS-26",
+      "MS-3"
+     ],
+     "cited_by_twin_review": [],
+     "class": "equilibrium",
+     "deciding": [
+      "MS-26",
+      "MS-3"
+     ],
+     "error_items": [
+      "MS-3",
+      "MS-4",
+      "MS-26"
+     ],
+     "expected_check": "equilibrium",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 91,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "mechanical",
+     "sheet_flaw_rejection": false,
+     "tokens": 1202413,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": false,
+     "artefact": "a06",
+     "cited_at_all": false,
+     "cited_by_review": [
+      "MA-10",
+      "MH-2",
+      "MS-1",
+      "MS-3"
+     ],
+     "cited_by_twin_review": [],
+     "class": "unit",
+     "deciding": [],
+     "error_items": [
+      "MS-2"
+     ],
+     "expected_check": "units",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 91,
+     "lane": 1,
+     "named": false,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "mechanical",
+     "sheet_flaw_rejection": false,
+     "tokens": 1303363,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a07",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "MA-10",
+      "MH-2",
+      "MH-5",
+      "MS-1",
+      "MS-3",
+      "MS-4"
+     ],
+     "cited_by_twin_review": [],
+     "class": "equilibrium",
+     "deciding": [
+      "MS-3",
+      "MS-4"
+     ],
+     "error_items": [
+      "MS-3",
+      "MS-4",
+      "MS-26"
+     ],
+     "expected_check": "equilibrium",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 110,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "mechanical",
+     "sheet_flaw_rejection": false,
+     "tokens": 1488116,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": false,
+     "R_rev": true,
+     "artefact": "a08",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "EA-9",
+      "EH-2",
+      "EH-5",
+      "ES-32"
+     ],
+     "cited_by_twin_review": [
+      "EA-9",
+      "EP-4",
+      "EP-5",
+      "ES-14"
+     ],
+     "class": "equilibrium",
+     "deciding": [
+      "ES-32"
+     ],
+     "error_items": [
+      "ES-7",
+      "ES-9",
+      "ES-32",
+      "ES-33"
+     ],
+     "expected_check": "equilibrium",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 110,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": null,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": false,
+     "tokens": 1618778,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "fail",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a09",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "MA-10",
+      "MS-1",
+      "MS-3",
+      "MS-5"
+     ],
+     "cited_by_twin_review": [],
+     "class": "equilibrium",
+     "deciding": [
+      "MS-3"
+     ],
+     "error_items": [
+      "MS-3",
+      "MS-4",
+      "MS-26"
+     ],
+     "expected_check": "equilibrium",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 110,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "mechanical",
+     "sheet_flaw_rejection": false,
+     "tokens": 905837,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": false,
+     "R_rev": true,
+     "artefact": "a10",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "EA-9",
+      "EH-2",
+      "EH-5",
+      "EH-6",
+      "EP-4",
+      "EP-5",
+      "ES-1",
+      "ES-11",
+      "ES-14",
+      "ES-15",
+      "ES-32"
+     ],
+     "cited_by_twin_review": [
+      "EA-9",
+      "EH-1",
+      "EP-4",
+      "EP-5",
+      "ES-14"
+     ],
+     "class": "equilibrium",
+     "deciding": [
+      "ES-32"
+     ],
+     "error_items": [
+      "ES-7",
+      "ES-9",
+      "ES-32",
+      "ES-33"
+     ],
+     "expected_check": "conservation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "conservation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 106,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": false,
+     "tokens": 1056824,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "fail",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a11",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "MA-10",
+      "MH-2",
+      "MS-1",
+      "MS-3",
+      "MS-4"
+     ],
+     "cited_by_twin_review": [],
+     "class": "equilibrium",
+     "deciding": [
+      "MS-3",
+      "MS-4"
+     ],
+     "error_items": [
+      "MS-3",
+      "MS-4",
+      "MS-26"
+     ],
+     "expected_check": "equilibrium",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 110,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "mechanical",
+     "sheet_flaw_rejection": false,
+     "tokens": 917265,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": false,
+     "R_rev": false,
+     "artefact": "a12",
+     "cited_at_all": false,
+     "cited_by_review": [
+      "EA-9",
+      "EP-5",
+      "ES-5"
+     ],
+     "cited_by_twin_review": [],
+     "class": "equilibrium",
+     "deciding": [],
+     "error_items": [
+      "ES-7",
+      "ES-9",
+      "ES-32",
+      "ES-33"
+     ],
+     "expected_check": "equilibrium",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 110,
+     "lane": 0,
+     "named": false,
+     "r_pg_01_named": null,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": false,
+     "tokens": 1568137,
+     "twin_gate_failing_records": 0,
+     "twin_open": true,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "blocked",
+     "twin_review_cause": "blocking_spec_defect",
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a13",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "MA-10",
+      "MS-26",
+      "MS-3",
+      "MS-5"
+     ],
+     "cited_by_twin_review": [],
+     "class": "equilibrium",
+     "deciding": [
+      "MS-26",
+      "MS-3"
+     ],
+     "error_items": [
+      "MS-3",
+      "MS-4",
+      "MS-26"
+     ],
+     "expected_check": "conservation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "conservation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 106,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "mechanical",
+     "sheet_flaw_rejection": false,
+     "tokens": 926485,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": false,
+     "R_rev": false,
+     "artefact": "a14",
+     "cited_at_all": false,
+     "cited_by_review": [
+      "EA-9",
+      "EH-1",
+      "EH-6",
+      "EP-5",
+      "ES-14",
+      "ES-15",
+      "ES-16"
+     ],
+     "cited_by_twin_review": [
+      "EA-9",
+      "EH-5",
+      "EP-4",
+      "EP-5",
+      "ES-11",
+      "ES-14",
+      "ES-15"
+     ],
+     "class": "equilibrium",
+     "deciding": [],
+     "error_items": [
+      "ES-7",
+      "ES-9",
+      "ES-32",
+      "ES-33"
+     ],
+     "expected_check": "equilibrium",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 110,
+     "lane": 1,
+     "named": false,
+     "r_pg_01_named": null,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": true,
+     "tokens": 3592085,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "fail",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": false,
+     "R_rev": true,
+     "artefact": "a15",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "EA-9",
+      "EH-1",
+      "EH-5",
+      "EP-4",
+      "EP-5",
+      "ES-14",
+      "ES-15",
+      "ES-34",
+      "ES-7"
+     ],
+     "cited_by_twin_review": [
+      "EA-9",
+      "EH-5",
+      "EH-6",
+      "EP-4",
+      "EP-5",
+      "ES-10",
+      "ES-11",
+      "ES-14",
+      "ES-15",
+      "ES-16",
+      "ES-21",
+      "ES-6",
+      "ES-7",
+      "ES-8"
+     ],
+     "class": "propagation",
+     "deciding": [
+      "ES-34"
+     ],
+     "error_items": [
+      "ES-34"
+     ],
+     "expected_check": "propagation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 78,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": true,
+     "tokens": 1534883,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "fail",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": false,
+     "R_rev": true,
+     "artefact": "a16",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "EA-9",
+      "EH-6",
+      "EP-4",
+      "EP-5",
+      "ES-14",
+      "ES-32",
+      "ES-33",
+      "ES-34",
+      "ES-7"
+     ],
+     "cited_by_twin_review": [
+      "EA-9",
+      "EP-4",
+      "EP-5",
+      "ES-10",
+      "ES-11",
+      "ES-14",
+      "ES-15",
+      "ES-33",
+      "ES-34",
+      "ES-7"
+     ],
+     "class": "equilibrium",
+     "deciding": [
+      "ES-32"
+     ],
+     "error_items": [
+      "ES-7",
+      "ES-9",
+      "ES-32",
+      "ES-33"
+     ],
+     "expected_check": "equilibrium",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 110,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": null,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": false,
+     "tokens": 1513450,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "fail",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a17",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "EA-9",
+      "ES-34"
+     ],
+     "cited_by_twin_review": [],
+     "class": "propagation",
+     "deciding": [
+      "ES-34"
+     ],
+     "error_items": [
+      "ES-34"
+     ],
+     "expected_check": "propagation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 75,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": false,
+     "tokens": 1025891,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": false,
+     "R_rev": true,
+     "artefact": "a18",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "AC-9",
+      "DS-30"
+     ],
+     "cited_by_twin_review": [],
+     "class": "propagation",
+     "deciding": [
+      "DS-30"
+     ],
+     "error_items": [
+      "DS-30"
+     ],
+     "expected_check": "propagation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 74,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "firmware",
+     "sheet_flaw_rejection": false,
+     "tokens": 910007,
+     "twin_gate_failing_records": 0,
+     "twin_open": true,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "blocked",
+     "twin_review_cause": "blocking_spec_defect",
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a19",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "A7",
+      "D28"
+     ],
+     "cited_by_twin_review": [],
+     "class": "propagation",
+     "deciding": [
+      "D28"
+     ],
+     "error_items": [
+      "D28"
+     ],
+     "expected_check": "propagation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 65,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 793551,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": false,
+     "R_rev": false,
+     "artefact": "a20",
+     "cited_at_all": false,
+     "cited_by_review": [
+      "AC-9",
+      "DS-10"
+     ],
+     "cited_by_twin_review": [],
+     "class": "unit",
+     "deciding": [],
+     "error_items": [
+      "DS-27"
+     ],
+     "expected_check": "units",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "units"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 80,
+     "lane": 1,
+     "named": false,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "firmware",
+     "sheet_flaw_rejection": false,
+     "tokens": 780339,
+     "twin_gate_failing_records": 0,
+     "twin_open": true,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "blocked",
+     "twin_review_cause": "blocking_spec_defect",
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a21",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "A7",
+      "D25",
+      "D26"
+     ],
+     "cited_by_twin_review": [],
+     "class": "unit",
+     "deciding": [
+      "D25",
+      "D26"
+     ],
+     "error_items": [
+      "D25",
+      "D26"
+     ],
+     "expected_check": "units",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 80,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 591952,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": false,
+     "artefact": "a22",
+     "cited_at_all": false,
+     "cited_by_review": [
+      "A7",
+      "S5"
+     ],
+     "cited_by_twin_review": [],
+     "class": "magnitude",
+     "deciding": [],
+     "error_items": [
+      "D25",
+      "D27"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 80,
+     "lane": 0,
+     "named": false,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 724755,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": false,
+     "R_rev": false,
+     "artefact": "a23",
+     "cited_at_all": false,
+     "cited_by_review": [
+      "A7",
+      "D13",
+      "D17",
+      "D30",
+      "D6",
+      "R9",
+      "S5"
+     ],
+     "cited_by_twin_review": [
+      "A7",
+      "S5"
+     ],
+     "class": "unit",
+     "deciding": [],
+     "error_items": [
+      "D25",
+      "D26"
+     ],
+     "expected_check": "units",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 85,
+     "lane": 0,
+     "named": false,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 797424,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "fail",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a24",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "A7",
+      "D25",
+      "D28",
+      "R9",
+      "S5"
+     ],
+     "cited_by_twin_review": [],
+     "class": "magnitude",
+     "deciding": [
+      "D25"
+     ],
+     "error_items": [
+      "D25",
+      "D27"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 85,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 961763,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a25",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "A7",
+      "D25"
+     ],
+     "cited_by_twin_review": [],
+     "class": "unit",
+     "deciding": [
+      "D25"
+     ],
+     "error_items": [
+      "D25",
+      "D26"
+     ],
+     "expected_check": "units",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "units"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 72,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 673019,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a26",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "A7",
+      "D28"
+     ],
+     "cited_by_twin_review": [],
+     "class": "propagation",
+     "deciding": [
+      "D28"
+     ],
+     "error_items": [
+      "D28"
+     ],
+     "expected_check": "propagation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 69,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 1157056,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": false,
+     "artefact": "a27",
+     "cited_at_all": false,
+     "cited_by_review": [],
+     "cited_by_twin_review": [],
+     "class": "magnitude",
+     "deciding": [],
+     "error_items": [
+      "D25",
+      "D27"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 72,
+     "lane": 1,
+     "named": false,
+     "r_pg_01_named": false,
+     "raw_reject": false,
+     "rev_open": false,
+     "review": "pass",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 1264450,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": false,
+     "artefact": "a28",
+     "cited_at_all": false,
+     "cited_by_review": [],
+     "cited_by_twin_review": [],
+     "class": "magnitude",
+     "deciding": [],
+     "error_items": [
+      "D25",
+      "D27"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 72,
+     "lane": 0,
+     "named": false,
+     "r_pg_01_named": false,
+     "raw_reject": false,
+     "rev_open": false,
+     "review": "pass",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 904951,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": false,
+     "R_rev": true,
+     "artefact": "a29",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "EA-9",
+      "EH-3",
+      "EP-3",
+      "ES-1",
+      "ES-3",
+      "ES-31",
+      "ES-32",
+      "ES-4",
+      "ES-8"
+     ],
+     "cited_by_twin_review": [
+      "EA-9",
+      "EH-3",
+      "EP-3",
+      "ES-1",
+      "ES-3",
+      "ES-4"
+     ],
+     "class": "unit",
+     "deciding": [
+      "ES-31",
+      "ES-32"
+     ],
+     "error_items": [
+      "ES-31",
+      "ES-32"
+     ],
+     "expected_check": "units",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation",
+      "units"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 70,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": true,
+     "tokens": 1010936,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "fail",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": false,
+     "R_rev": true,
+     "artefact": "a30",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "MA-10",
+      "MS-5"
+     ],
+     "cited_by_twin_review": [
+      "MA-10",
+      "MS-3"
+     ],
+     "class": "propagation",
+     "deciding": [
+      "MS-5"
+     ],
+     "error_items": [
+      "MS-5"
+     ],
+     "expected_check": "propagation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 72,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "mechanical",
+     "sheet_flaw_rejection": false,
+     "tokens": 745104,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "fail",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": false,
+     "R_rev": false,
+     "artefact": "a31",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "AC-9",
+      "DS-27",
+      "RH-2"
+     ],
+     "cited_by_twin_review": [
+      "AC-9",
+      "DS-27",
+      "RH-2"
+     ],
+     "class": "magnitude",
+     "deciding": [],
+     "error_items": [
+      "DS-27"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 64,
+     "lane": 0,
+     "named": false,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "firmware",
+     "sheet_flaw_rejection": false,
+     "tokens": 1160007,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "fail",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": false,
+     "artefact": "a32",
+     "cited_at_all": false,
+     "cited_by_review": [
+      "A7",
+      "D28",
+      "R9"
+     ],
+     "cited_by_twin_review": [],
+     "class": "magnitude",
+     "deciding": [],
+     "error_items": [
+      "D25",
+      "D27"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 69,
+     "lane": 0,
+     "named": false,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 979425,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": false,
+     "R_rev": true,
+     "artefact": "a33",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "A7",
+      "D15",
+      "D25",
+      "D28",
+      "R9",
+      "S5"
+     ],
+     "cited_by_twin_review": [
+      "A7",
+      "S5"
+     ],
+     "class": "magnitude",
+     "deciding": [
+      "D25"
+     ],
+     "error_items": [
+      "D25",
+      "D27"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 80,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 1062216,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "fail",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": false,
+     "artefact": "a34",
+     "cited_at_all": false,
+     "cited_by_review": [
+      "A7",
+      "D28"
+     ],
+     "cited_by_twin_review": [],
+     "class": "magnitude",
+     "deciding": [],
+     "error_items": [
+      "D25",
+      "D27"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 80,
+     "lane": 1,
+     "named": false,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 823022,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": false,
+     "R_rev": true,
+     "artefact": "a35",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "EA-9",
+      "EH-5",
+      "EP-4",
+      "EP-5",
+      "ES-10",
+      "ES-11",
+      "ES-14",
+      "ES-15",
+      "ES-33",
+      "ES-34",
+      "ES-5",
+      "ES-7"
+     ],
+     "cited_by_twin_review": [
+      "EA-9",
+      "EH-1",
+      "EH-6",
+      "EP-4",
+      "EP-5",
+      "ES-10",
+      "ES-11",
+      "ES-14",
+      "ES-15",
+      "ES-33",
+      "ES-7"
+     ],
+     "class": "propagation",
+     "deciding": [
+      "ES-34"
+     ],
+     "error_items": [
+      "ES-34"
+     ],
+     "expected_check": "propagation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 110,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": false,
+     "tokens": 1699250,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "fail",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a36",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "A7",
+      "D25"
+     ],
+     "cited_by_twin_review": [],
+     "class": "unit",
+     "deciding": [
+      "D25"
+     ],
+     "error_items": [
+      "D25",
+      "D26"
+     ],
+     "expected_check": "units",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "units"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 79,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 914839,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": false,
+     "artefact": "a37",
+     "cited_at_all": false,
+     "cited_by_review": [],
+     "cited_by_twin_review": [],
+     "class": "magnitude",
+     "deciding": [],
+     "error_items": [
+      "D25",
+      "D27"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 72,
+     "lane": 0,
+     "named": false,
+     "r_pg_01_named": false,
+     "raw_reject": false,
+     "rev_open": false,
+     "review": "pass",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 836693,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a38",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "A7",
+      "D25",
+      "R9"
+     ],
+     "cited_by_twin_review": [],
+     "class": "magnitude",
+     "deciding": [
+      "D25"
+     ],
+     "error_items": [
+      "D25",
+      "D27"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 69,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 971470,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a39",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "A7",
+      "D25"
+     ],
+     "cited_by_twin_review": [],
+     "class": "unit",
+     "deciding": [
+      "D25"
+     ],
+     "error_items": [
+      "D25",
+      "D26"
+     ],
+     "expected_check": "units",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 69,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": true,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 1106917,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": false,
+     "artefact": "a40",
+     "cited_at_all": false,
+     "cited_by_review": [
+      "A7",
+      "D28",
+      "R9"
+     ],
+     "cited_by_twin_review": [],
+     "class": "unit",
+     "deciding": [],
+     "error_items": [
+      "D25",
+      "D26"
+     ],
+     "expected_check": "units",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 79,
+     "lane": 0,
+     "named": false,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 2609030,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    }
+   ],
+   "per_lane": {
+    "0": {
+     "A_rev": 11,
+     "R_rev": 12,
+     "no_verdict": 2,
+     "pairs": 20
+    },
+    "1": {
+     "A_rev": 14,
+     "R_rev": 15,
+     "no_verdict": 1,
+     "pairs": 20
+    }
+   },
+   "r_pg_01_sense": {
+    "approved": 3,
+    "caught_any_record": 16,
+    "named_against_caught": {
+     "caught_not_named": 2,
+     "named_and_caught": 14,
+     "named_not_caught": 8,
+     "neither": 12,
+     "no_error_item": 4
+    }
+   },
+   "reviewer_kind": "paired",
+   "reviewers": {
+    "A": 25,
+    "A_wilson95": [
+     0.4703,
+     0.7578
+    ],
+    "J": 0.3,
+    "J_bootstrap95": [
+     0.075,
+     0.5
+    ],
+    "R": 27,
+    "R_wilson95": [
+     0.5202,
+     0.7992
+    ],
+    "R_with_unscored_dropped": [
+     27,
+     40
+    ],
+    "among_verdicts_only": {
+     "A": [
+      25,
+      37
+     ],
+     "J": 0.3507,
+     "R": [
+      27,
+      40
+     ]
+    },
+    "n": 40,
+    "named_without_twin_condition": 28,
+    "no_verdict": {
+     "injected": 0,
+     "twins": 3
+    },
+    "range_if_each_no_verdict_went_either_way": {
+     "A": [
+      25,
+      28
+     ],
+     "J": [
+      0.3,
+      0.375
+     ],
+     "R": [
+      27,
+      27
+     ]
+    },
+    "raw_reject": 37,
+    "sheet_flaw_rejections": 3,
+    "unscored": 0,
+    "without_sheet_flaw_rejections": {
+     "A": [
+      25,
+      37
+     ],
+     "J": 0.3507
+    }
+   },
+   "reviewers_per_class": {
+    "equilibrium": {
+     "A": 5,
+     "A_wilson95": [
+      0.2366,
+      0.7634
+     ],
+     "J": 0.3,
+     "J_bootstrap95": [
+      -0.2,
+      0.8
+     ],
+     "R": 8,
+     "R_wilson95": [
+      0.4902,
+      0.9433
+     ],
+     "R_with_unscored_dropped": [
+      8,
+      10
+     ],
+     "among_verdicts_only": {
+      "A": [
+       5,
+       9
+      ],
+      "J": 0.3556,
+      "R": [
+       8,
+       10
+      ]
+     },
+     "n": 10,
+     "named_without_twin_condition": 8,
+     "no_verdict": {
+      "injected": 0,
+      "twins": 1
+     },
+     "range_if_each_no_verdict_went_either_way": {
+      "A": [
+       5,
+       6
+      ],
+      "J": [
+       0.3,
+       0.4
+      ],
+      "R": [
+       8,
+       8
+      ]
+     },
+     "raw_reject": 10,
+     "sheet_flaw_rejections": 1,
+     "unscored": 0,
+     "without_sheet_flaw_rejections": {
+      "A": [
+       5,
+       9
+      ],
+      "J": 0.3556
+     }
+    },
+    "magnitude": {
+     "A": 8,
+     "A_wilson95": [
+      0.4902,
+      0.9433
+     ],
+     "J": 0.1,
+     "J_bootstrap95": [
+      -0.2,
+      0.4
+     ],
+     "R": 3,
+     "R_wilson95": [
+      0.1078,
+      0.6032
+     ],
+     "R_with_unscored_dropped": [
+      3,
+      10
+     ],
+     "among_verdicts_only": {
+      "A": [
+       8,
+       10
+      ],
+      "J": 0.1,
+      "R": [
+       3,
+       10
+      ]
+     },
+     "n": 10,
+     "named_without_twin_condition": 4,
+     "no_verdict": {
+      "injected": 0,
+      "twins": 0
+     },
+     "range_if_each_no_verdict_went_either_way": {
+      "A": [
+       8,
+       8
+      ],
+      "J": [
+       0.1,
+       0.1
+      ],
+      "R": [
+       3,
+       3
+      ]
+     },
+     "raw_reject": 7,
+     "sheet_flaw_rejections": 0,
+     "unscored": 0,
+     "without_sheet_flaw_rejections": {
+      "A": [
+       8,
+       10
+      ],
+      "J": 0.1
+     }
+    },
+    "propagation": {
+     "A": 5,
+     "A_wilson95": [
+      0.2366,
+      0.7634
+     ],
+     "J": 0.5,
+     "J_bootstrap95": [
+      0.2,
+      0.8
+     ],
+     "R": 10,
+     "R_wilson95": [
+      0.7225,
+      1.0
+     ],
+     "R_with_unscored_dropped": [
+      10,
+      10
+     ],
+     "among_verdicts_only": {
+      "A": [
+       5,
+       9
+      ],
+      "J": 0.5556,
+      "R": [
+       10,
+       10
+      ]
+     },
+     "n": 10,
+     "named_without_twin_condition": 10,
+     "no_verdict": {
+      "injected": 0,
+      "twins": 1
+     },
+     "range_if_each_no_verdict_went_either_way": {
+      "A": [
+       5,
+       6
+      ],
+      "J": [
+       0.5,
+       0.6
+      ],
+      "R": [
+       10,
+       10
+      ]
+     },
+     "raw_reject": 10,
+     "sheet_flaw_rejections": 1,
+     "unscored": 0,
+     "without_sheet_flaw_rejections": {
+      "A": [
+       5,
+       9
+      ],
+      "J": 0.5556
+     }
+    },
+    "unit": {
+     "A": 7,
+     "A_wilson95": [
+      0.3968,
+      0.8922
+     ],
+     "J": 0.3,
+     "J_bootstrap95": [
+      -0.2,
+      0.8
+     ],
+     "R": 6,
+     "R_wilson95": [
+      0.3127,
+      0.8318
+     ],
+     "R_with_unscored_dropped": [
+      6,
+      10
+     ],
+     "among_verdicts_only": {
+      "A": [
+       7,
+       9
+      ],
+      "J": 0.3778,
+      "R": [
+       6,
+       10
+      ]
+     },
+     "n": 10,
+     "named_without_twin_condition": 6,
+     "no_verdict": {
+      "injected": 0,
+      "twins": 1
+     },
+     "range_if_each_no_verdict_went_either_way": {
+      "A": [
+       7,
+       8
+      ],
+      "J": [
+       0.3,
+       0.4
+      ],
+      "R": [
+       6,
+       6
+      ]
+     },
+     "raw_reject": 10,
+     "sheet_flaw_rejections": 1,
+     "unscored": 0,
+     "without_sheet_flaw_rejections": {
+      "A": [
+       7,
+       9
+      ],
+      "J": 0.3778
+     }
+    }
+   },
+   "reviewers_per_role": {
+    "control": {
+     "A": 15,
+     "A_wilson95": [
+      0.6566,
+      0.9671
+     ],
+     "J": 0.4118,
+     "J_bootstrap95": [
+      0.1176,
+      0.7059
+     ],
+     "R": 9,
+     "R_wilson95": [
+      0.3096,
+      0.7384
+     ],
+     "R_with_unscored_dropped": [
+      9,
+      17
+     ],
+     "among_verdicts_only": {
+      "A": [
+       15,
+       17
+      ],
+      "J": 0.4118,
+      "R": [
+       9,
+       17
+      ]
+     },
+     "n": 17,
+     "named_without_twin_condition": 9,
+     "no_verdict": {
+      "injected": 0,
+      "twins": 0
+     },
+     "range_if_each_no_verdict_went_either_way": {
+      "A": [
+       15,
+       15
+      ],
+      "J": [
+       0.4118,
+       0.4118
+      ],
+      "R": [
+       9,
+       9
+      ]
+     },
+     "raw_reject": 14,
+     "sheet_flaw_rejections": 0,
+     "unscored": 0,
+     "without_sheet_flaw_rejections": {
+      "A": [
+       15,
+       17
+      ],
+      "J": 0.4118
+     }
+    },
+    "electrical": {
+     "A": 2,
+     "A_wilson95": [
+      0.0514,
+      0.477
+     ],
+     "J": 0.0,
+     "J_bootstrap95": [
+      -0.3636,
+      0.3636
+     ],
+     "R": 9,
+     "R_wilson95": [
+      0.523,
+      0.9486
+     ],
+     "R_with_unscored_dropped": [
+      9,
+      11
+     ],
+     "among_verdicts_only": {
+      "A": [
+       2,
+       10
+      ],
+      "J": 0.0182,
+      "R": [
+       9,
+       11
+      ]
+     },
+     "n": 11,
+     "named_without_twin_condition": 9,
+     "no_verdict": {
+      "injected": 0,
+      "twins": 1
+     },
+     "range_if_each_no_verdict_went_either_way": {
+      "A": [
+       2,
+       3
+      ],
+      "J": [
+       0.0,
+       0.0909
+      ],
+      "R": [
+       9,
+       9
+      ]
+     },
+     "raw_reject": 11,
+     "sheet_flaw_rejections": 3,
+     "unscored": 0,
+     "without_sheet_flaw_rejections": {
+      "A": [
+       2,
+       8
+      ],
+      "J": 0.0682
+     }
+    },
+    "firmware": {
+     "A": 0,
+     "A_wilson95": [
+      0.0,
+      0.5615
+     ],
+     "J": -0.6667,
+     "J_bootstrap95": [
+      -1.0,
+      0.0
+     ],
+     "R": 1,
+     "R_wilson95": [
+      0.0615,
+      0.7923
+     ],
+     "R_with_unscored_dropped": [
+      1,
+      3
+     ],
+     "among_verdicts_only": {
+      "A": [
+       0,
+       1
+      ],
+      "J": -0.6667,
+      "R": [
+       1,
+       3
+      ]
+     },
+     "n": 3,
+     "named_without_twin_condition": 2,
+     "no_verdict": {
+      "injected": 0,
+      "twins": 2
+     },
+     "range_if_each_no_verdict_went_either_way": {
+      "A": [
+       0,
+       2
+      ],
+      "J": [
+       -0.6667,
+       0.0
+      ],
+      "R": [
+       1,
+       1
+      ]
+     },
+     "raw_reject": 3,
+     "sheet_flaw_rejections": 0,
+     "unscored": 0,
+     "without_sheet_flaw_rejections": {
+      "A": [
+       0,
+       3
+      ],
+      "J": -0.6667
+     }
+    },
+    "mechanical": {
+     "A": 8,
+     "A_wilson95": [
+      0.565,
+      0.9801
+     ],
+     "J": 0.7778,
+     "J_bootstrap95": [
+      0.4444,
+      1.0
+     ],
+     "R": 8,
+     "R_wilson95": [
+      0.565,
+      0.9801
+     ],
+     "R_with_unscored_dropped": [
+      8,
+      9
+     ],
+     "among_verdicts_only": {
+      "A": [
+       8,
+       9
+      ],
+      "J": 0.7778,
+      "R": [
+       8,
+       9
+      ]
+     },
+     "n": 9,
+     "named_without_twin_condition": 8,
+     "no_verdict": {
+      "injected": 0,
+      "twins": 0
+     },
+     "range_if_each_no_verdict_went_either_way": {
+      "A": [
+       8,
+       8
+      ],
+      "J": [
+       0.7778,
+       0.7778
+      ],
+      "R": [
+       8,
+       8
+      ]
+     },
+     "raw_reject": 9,
+     "sheet_flaw_rejections": 0,
+     "unscored": 0,
+     "without_sheet_flaw_rejections": {
+      "A": [
+       8,
+       9
+      ],
+      "J": 0.7778
+     }
+    }
+   },
+   "seed": 7,
+   "uncatalogued_names_unchecked": [
+    "actuator_stall_torque",
+    "carried_mass",
+    "cell_count",
+    "clock_frequency",
+    "counts_per_wheel_revolution",
+    "encoder_counts_per_revolution",
+    "max_input_voltage",
+    "max_supply_voltage",
+    "overall_gear_ratio",
+    "overall_height",
+    "plant_height",
+    "plant_mass",
+    "pwm_duty_limit",
+    "wheel_diameter",
+    "wheel_track"
+   ]
+  },
+  "b-fresh": {
+   "account_sha256": "8580efd05af6fd2d304810950f00bb2c3d462302dddfd00b1d12373e340ab838",
+   "cost": {
+    "basis": "subscription: list-price equivalent, cache writes at the one-hour rate; a lower bound where a review ended with no verdict",
+    "price_sheet": "2026-10-16",
+    "reviews": 80,
+    "tokens_every_try": 22161445,
+    "tokens_of_verdict_lines": {
+     "cache_creation_input_tokens": 6016982,
+     "cache_read_input_tokens": 14110578,
+     "input_tokens": 696,
+     "output_tokens": 2033189
+    },
+    "tokens_per_review": 277018,
+    "usd_list_price_equivalent": 47.22
+   },
+   "instrument": {
+    "invalid_verdict_lines": 0,
+    "lane_pauses": 0,
+    "repair_resumes_used": 0,
+    "retries": 0,
+    "retry_delays_s": {},
+    "reviews_with_schema_refusals": 57,
+    "schema_refusals": 66,
+    "verdicts_after_a_repair_resume": 0,
+    "wall_clock": [
+     "2026-10-20T05:44:30+00:00",
+     "2026-10-20T07:52:33+00:00"
+    ]
+   },
+   "lanes": 3,
+   "named_against_caught": {
+    "caught_not_named": 3,
+    "named_and_caught": 17,
+    "named_not_caught": 17,
+    "neither": 3,
+    "no_error_item": 0
+   },
+   "no_verdict_by_role": {
+    "control": {
+     "injected": [],
+     "twins": []
+    },
+    "electrical": {
+     "injected": [],
+     "twins": []
+    },
+    "firmware": {
+     "injected": [],
+     "twins": []
+    },
+    "mechanical": {
+     "injected": [],
+     "twins": []
+    }
+   },
+   "per_item": [
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a01",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "EA-9"
+     ],
+     "cited_by_twin_review": [],
+     "class": "equilibrium",
+     "deciding": [
+      "EA-9"
+     ],
+     "error_items": [
+      "EA-9"
+     ],
+     "expected_check": "equilibrium",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 86,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": null,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": false,
+     "tokens": 1088798,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a02",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "EA-9"
+     ],
+     "cited_by_twin_review": [],
+     "class": "equilibrium",
+     "deciding": [
+      "EA-9"
+     ],
+     "error_items": [
+      "EA-9"
+     ],
+     "expected_check": "equilibrium",
+     "expected_check_caught": false,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "conservation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 86,
+     "lane": 2,
+     "named": true,
+     "r_pg_01_named": null,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": false,
+     "tokens": 1060315,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a03",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "MA-10",
+      "MH-5"
+     ],
+     "cited_by_twin_review": [],
+     "class": "propagation",
+     "deciding": [
+      "MA-10"
+     ],
+     "error_items": [
+      "MA-10"
+     ],
+     "expected_check": "propagation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 69,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "mechanical",
+     "sheet_flaw_rejection": false,
+     "tokens": 639323,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a04",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "MA-10",
+      "MH-2"
+     ],
+     "cited_by_twin_review": [],
+     "class": "magnitude",
+     "deciding": [
+      "MA-10"
+     ],
+     "error_items": [
+      "MA-10"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 70,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "mechanical",
+     "sheet_flaw_rejection": false,
+     "tokens": 685712,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a05",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "MA-10"
+     ],
+     "cited_by_twin_review": [],
+     "class": "equilibrium",
+     "deciding": [
+      "MA-10"
+     ],
+     "error_items": [
+      "MA-10"
+     ],
+     "expected_check": "equilibrium",
+     "expected_check_caught": false,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "conservation",
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 68,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "mechanical",
+     "sheet_flaw_rejection": false,
+     "tokens": 732402,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a06",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "MA-10",
+      "MH-2"
+     ],
+     "cited_by_twin_review": [],
+     "class": "magnitude",
+     "deciding": [
+      "MA-10"
+     ],
+     "error_items": [
+      "MA-10"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 70,
+     "lane": 2,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "mechanical",
+     "sheet_flaw_rejection": false,
+     "tokens": 537722,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a07",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "MA-10"
+     ],
+     "cited_by_twin_review": [],
+     "class": "propagation",
+     "deciding": [
+      "MA-10"
+     ],
+     "error_items": [
+      "MA-10"
+     ],
+     "expected_check": "propagation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 64,
+     "lane": 2,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "mechanical",
+     "sheet_flaw_rejection": false,
+     "tokens": 539963,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a08",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "EA-9",
+      "EH-1"
+     ],
+     "cited_by_twin_review": [],
+     "class": "propagation",
+     "deciding": [
+      "EA-9"
+     ],
+     "error_items": [
+      "EA-9"
+     ],
+     "expected_check": "propagation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 68,
+     "lane": 2,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": false,
+     "tokens": 461110,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a09",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "AC-9"
+     ],
+     "cited_by_twin_review": [],
+     "class": "propagation",
+     "deciding": [
+      "AC-9"
+     ],
+     "error_items": [
+      "AC-9"
+     ],
+     "expected_check": "propagation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 61,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "firmware",
+     "sheet_flaw_rejection": false,
+     "tokens": 375522,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a10",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "AC-9"
+     ],
+     "cited_by_twin_review": [],
+     "class": "unit",
+     "deciding": [
+      "AC-9"
+     ],
+     "error_items": [
+      "AC-9"
+     ],
+     "expected_check": "units",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "units"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 63,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "firmware",
+     "sheet_flaw_rejection": false,
+     "tokens": 579784,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": false,
+     "artefact": "a11",
+     "cited_at_all": false,
+     "cited_by_review": [],
+     "cited_by_twin_review": [],
+     "class": "unit",
+     "deciding": [],
+     "error_items": [
+      "A7"
+     ],
+     "expected_check": "units",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "units"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 63,
+     "lane": 2,
+     "named": false,
+     "r_pg_01_named": false,
+     "raw_reject": false,
+     "rev_open": false,
+     "review": "pass",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 649721,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a12",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "A7",
+      "R9"
+     ],
+     "cited_by_twin_review": [],
+     "class": "propagation",
+     "deciding": [
+      "A7"
+     ],
+     "error_items": [
+      "A7"
+     ],
+     "expected_check": "propagation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 64,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 455064,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a13",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "A7",
+      "R11",
+      "R9"
+     ],
+     "cited_by_twin_review": [],
+     "class": "equilibrium",
+     "deciding": [
+      "A7"
+     ],
+     "error_items": [
+      "A7"
+     ],
+     "expected_check": "equilibrium",
+     "expected_check_caught": false,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 55,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": null,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 414502,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a14",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "A7",
+      "R7",
+      "R9"
+     ],
+     "cited_by_twin_review": [],
+     "class": "equilibrium",
+     "deciding": [
+      "A7"
+     ],
+     "error_items": [
+      "A7"
+     ],
+     "expected_check": "equilibrium",
+     "expected_check_caught": false,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 55,
+     "lane": 2,
+     "named": true,
+     "r_pg_01_named": null,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 535363,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": false,
+     "artefact": "a15",
+     "cited_at_all": false,
+     "cited_by_review": [],
+     "cited_by_twin_review": [],
+     "class": "magnitude",
+     "deciding": [],
+     "error_items": [
+      "A7"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 56,
+     "lane": 1,
+     "named": false,
+     "r_pg_01_named": false,
+     "raw_reject": false,
+     "rev_open": false,
+     "review": "pass",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 420363,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a16",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "A7"
+     ],
+     "cited_by_twin_review": [],
+     "class": "unit",
+     "deciding": [
+      "A7"
+     ],
+     "error_items": [
+      "A7"
+     ],
+     "expected_check": "units",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 59,
+     "lane": 2,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 337392,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a17",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "A7",
+      "R9"
+     ],
+     "cited_by_twin_review": [],
+     "class": "magnitude",
+     "deciding": [
+      "A7"
+     ],
+     "error_items": [
+      "A7"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 59,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 516627,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a18",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "EA-9"
+     ],
+     "cited_by_twin_review": [],
+     "class": "unit",
+     "deciding": [
+      "EA-9"
+     ],
+     "error_items": [
+      "EA-9"
+     ],
+     "expected_check": "units",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 86,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": false,
+     "tokens": 564301,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a19",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "AC-9"
+     ],
+     "cited_by_twin_review": [],
+     "class": "unit",
+     "deciding": [
+      "AC-9"
+     ],
+     "error_items": [
+      "AC-9"
+     ],
+     "expected_check": "units",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 62,
+     "lane": 2,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "firmware",
+     "sheet_flaw_rejection": false,
+     "tokens": 482654,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": false,
+     "R_rev": false,
+     "artefact": "a20",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "A7",
+      "R3",
+      "R9"
+     ],
+     "cited_by_twin_review": [
+      "A7",
+      "R3"
+     ],
+     "class": "magnitude",
+     "deciding": [],
+     "error_items": [
+      "A7"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 56,
+     "lane": 2,
+     "named": false,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 329494,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "fail",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a21",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "A7"
+     ],
+     "cited_by_twin_review": [],
+     "class": "propagation",
+     "deciding": [
+      "A7"
+     ],
+     "error_items": [
+      "A7"
+     ],
+     "expected_check": "propagation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 72,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 542822,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": false,
+     "artefact": "a22",
+     "cited_at_all": false,
+     "cited_by_review": [],
+     "cited_by_twin_review": [],
+     "class": "propagation",
+     "deciding": [],
+     "error_items": [
+      "AC-9"
+     ],
+     "expected_check": "propagation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 60,
+     "lane": 0,
+     "named": false,
+     "r_pg_01_named": false,
+     "raw_reject": false,
+     "rev_open": false,
+     "review": "pass",
+     "review_cause": null,
+     "role": "firmware",
+     "sheet_flaw_rejection": false,
+     "tokens": 662269,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a23",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "EA-9",
+      "EH-5"
+     ],
+     "cited_by_twin_review": [],
+     "class": "propagation",
+     "deciding": [
+      "EA-9"
+     ],
+     "error_items": [
+      "EA-9"
+     ],
+     "expected_check": "propagation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 67,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": false,
+     "tokens": 539301,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a24",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "A7"
+     ],
+     "cited_by_twin_review": [],
+     "class": "propagation",
+     "deciding": [
+      "A7"
+     ],
+     "error_items": [
+      "A7"
+     ],
+     "expected_check": "propagation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 65,
+     "lane": 2,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 733304,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": false,
+     "R_rev": false,
+     "artefact": "a25",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "A7"
+     ],
+     "cited_by_twin_review": [
+      "A7"
+     ],
+     "class": "propagation",
+     "deciding": [],
+     "error_items": [
+      "A7"
+     ],
+     "expected_check": "propagation",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 70,
+     "lane": 0,
+     "named": false,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 637109,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "fail",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a26",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "AC-9"
+     ],
+     "cited_by_twin_review": [],
+     "class": "unit",
+     "deciding": [
+      "AC-9"
+     ],
+     "error_items": [
+      "AC-9"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 62,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "firmware",
+     "sheet_flaw_rejection": false,
+     "tokens": 588510,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a27",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "MA-10",
+      "MH-8"
+     ],
+     "cited_by_twin_review": [],
+     "class": "equilibrium",
+     "deciding": [
+      "MA-10"
+     ],
+     "error_items": [
+      "MA-10"
+     ],
+     "expected_check": "equilibrium",
+     "expected_check_caught": false,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "conservation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 59,
+     "lane": 2,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "mechanical",
+     "sheet_flaw_rejection": false,
+     "tokens": 671768,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a28",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "MA-10"
+     ],
+     "cited_by_twin_review": [],
+     "class": "equilibrium",
+     "deciding": [
+      "MA-10"
+     ],
+     "error_items": [
+      "MA-10"
+     ],
+     "expected_check": "equilibrium",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 69,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "mechanical",
+     "sheet_flaw_rejection": false,
+     "tokens": 511024,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a29",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "MA-10",
+      "MH-8"
+     ],
+     "cited_by_twin_review": [],
+     "class": "equilibrium",
+     "deciding": [
+      "MA-10"
+     ],
+     "error_items": [
+      "MA-10"
+     ],
+     "expected_check": "equilibrium",
+     "expected_check_caught": false,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "conservation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 59,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "mechanical",
+     "sheet_flaw_rejection": false,
+     "tokens": 291275,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a30",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "EA-9",
+      "EH-5"
+     ],
+     "cited_by_twin_review": [],
+     "class": "magnitude",
+     "deciding": [
+      "EA-9"
+     ],
+     "error_items": [
+      "EA-9"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 63,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": false,
+     "tokens": 553822,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a31",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "EA-9"
+     ],
+     "cited_by_twin_review": [],
+     "class": "unit",
+     "deciding": [
+      "EA-9"
+     ],
+     "error_items": [
+      "EA-9"
+     ],
+     "expected_check": "units",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 67,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": false,
+     "tokens": 384341,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a32",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "EA-9",
+      "EH-5"
+     ],
+     "cited_by_twin_review": [],
+     "class": "unit",
+     "deciding": [
+      "EA-9"
+     ],
+     "error_items": [
+      "EA-9"
+     ],
+     "expected_check": "units",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 62,
+     "lane": 2,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": false,
+     "tokens": 478079,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a33",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "EA-9",
+      "EH-2"
+     ],
+     "cited_by_twin_review": [],
+     "class": "unit",
+     "deciding": [
+      "EA-9"
+     ],
+     "error_items": [
+      "EA-9"
+     ],
+     "expected_check": "units",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 59,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": false,
+     "tokens": 525528,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a34",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "AC-9"
+     ],
+     "cited_by_twin_review": [],
+     "class": "magnitude",
+     "deciding": [
+      "AC-9"
+     ],
+     "error_items": [
+      "AC-9"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 63,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "firmware",
+     "sheet_flaw_rejection": false,
+     "tokens": 884990,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a35",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "A7"
+     ],
+     "cited_by_twin_review": [],
+     "class": "unit",
+     "deciding": [
+      "A7"
+     ],
+     "error_items": [
+      "A7"
+     ],
+     "expected_check": "units",
+     "expected_check_caught": true,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "units"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 64,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 562654,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a36",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "A7",
+      "R11",
+      "R7",
+      "R9"
+     ],
+     "cited_by_twin_review": [],
+     "class": "equilibrium",
+     "deciding": [
+      "A7"
+     ],
+     "error_items": [
+      "A7"
+     ],
+     "expected_check": "equilibrium",
+     "expected_check_caught": false,
+     "gate_caught": true,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [
+      "propagation"
+     ],
+     "gate_right_reason": true,
+     "gate_unchecked_records": 55,
+     "lane": 1,
+     "named": true,
+     "r_pg_01_named": null,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 597851,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a37",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "A7",
+      "R9"
+     ],
+     "cited_by_twin_review": [],
+     "class": "magnitude",
+     "deciding": [
+      "A7"
+     ],
+     "error_items": [
+      "A7"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 56,
+     "lane": 2,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 267571,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a38",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "MA-10"
+     ],
+     "cited_by_twin_review": [],
+     "class": "equilibrium",
+     "deciding": [
+      "MA-10"
+     ],
+     "error_items": [
+      "MA-10"
+     ],
+     "expected_check": "equilibrium",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 59,
+     "lane": 2,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "mechanical",
+     "sheet_flaw_rejection": false,
+     "tokens": 510268,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": false,
+     "artefact": "a39",
+     "cited_at_all": false,
+     "cited_by_review": [],
+     "cited_by_twin_review": [],
+     "class": "magnitude",
+     "deciding": [],
+     "error_items": [
+      "A7"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 56,
+     "lane": 0,
+     "named": false,
+     "r_pg_01_named": false,
+     "raw_reject": false,
+     "rev_open": false,
+     "review": "pass",
+     "review_cause": null,
+     "role": "control",
+     "sheet_flaw_rejection": false,
+     "tokens": 354453,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    },
+    {
+     "A_gate": true,
+     "A_gate_strict": true,
+     "A_rev": true,
+     "R_rev": true,
+     "artefact": "a40",
+     "cited_at_all": true,
+     "cited_by_review": [
+      "EA-9",
+      "EH-2"
+     ],
+     "cited_by_twin_review": [],
+     "class": "magnitude",
+     "deciding": [
+      "EA-9"
+     ],
+     "error_items": [
+      "EA-9"
+     ],
+     "expected_check": "magnitude",
+     "expected_check_caught": false,
+     "gate_caught": false,
+     "gate_caught_elsewhere": false,
+     "gate_failing_checks": [],
+     "gate_right_reason": false,
+     "gate_unchecked_records": 86,
+     "lane": 0,
+     "named": true,
+     "r_pg_01_named": false,
+     "raw_reject": true,
+     "rev_open": false,
+     "review": "fail",
+     "review_cause": null,
+     "role": "electrical",
+     "sheet_flaw_rejection": false,
+     "tokens": 458374,
+     "twin_gate_failing_records": 0,
+     "twin_open": false,
+     "twin_refused_under_stated_limit": false,
+     "twin_review": "pass",
+     "twin_review_cause": null,
+     "unscored": false
+    }
+   ],
+   "per_lane": {
+    "0": {
+     "A_rev": 12,
+     "R_rev": 10,
+     "no_verdict": 0,
+     "pairs": 13
+    },
+    "1": {
+     "A_rev": 13,
+     "R_rev": 12,
+     "no_verdict": 0,
+     "pairs": 13
+    },
+    "2": {
+     "A_rev": 13,
+     "R_rev": 12,
+     "no_verdict": 0,
+     "pairs": 14
+    }
+   },
+   "r_pg_01_sense": {
+    "approved": 4,
+    "caught_any_record": 20,
+    "named_against_caught": {
+     "caught_not_named": 16,
+     "named_and_caught": 0,
+     "named_not_caught": 0,
+     "neither": 19,
+     "no_error_item": 5
+    }
+   },
+   "reviewer_kind": "generalist",
+   "reviewers": {
+    "A": 38,
+    "A_wilson95": [
+     0.835,
+     0.9862
+    ],
+    "J": 0.8,
+    "J_bootstrap95": [
+     0.625,
+     0.95
+    ],
+    "R": 34,
+    "R_wilson95": [
+     0.7093,
+     0.9294
+    ],
+    "R_with_unscored_dropped": [
+     34,
+     40
+    ],
+    "among_verdicts_only": {
+     "A": [
+      38,
+      40
+     ],
+     "J": 0.8,
+     "R": [
+      34,
+      40
+     ]
+    },
+    "n": 40,
+    "named_without_twin_condition": 36,
+    "no_verdict": {
+     "injected": 0,
+     "twins": 0
+    },
+    "range_if_each_no_verdict_went_either_way": {
+     "A": [
+      38,
+      38
+     ],
+     "J": [
+      0.8,
+      0.8
+     ],
+     "R": [
+      34,
+      34
+     ]
+    },
+    "raw_reject": 36,
+    "sheet_flaw_rejections": 0,
+    "unscored": 0,
+    "without_sheet_flaw_rejections": {
+     "A": [
+      38,
+      40
+     ],
+     "J": 0.8
+    }
+   },
+   "reviewers_per_class": {
+    "equilibrium": {
+     "A": 10,
+     "A_wilson95": [
+      0.7225,
+      1.0
+     ],
+     "J": 1.0,
+     "J_bootstrap95": [
+      1.0,
+      1.0
+     ],
+     "R": 10,
+     "R_wilson95": [
+      0.7225,
+      1.0
+     ],
+     "R_with_unscored_dropped": [
+      10,
+      10
+     ],
+     "among_verdicts_only": {
+      "A": [
+       10,
+       10
+      ],
+      "J": 1.0,
+      "R": [
+       10,
+       10
+      ]
+     },
+     "n": 10,
+     "named_without_twin_condition": 10,
+     "no_verdict": {
+      "injected": 0,
+      "twins": 0
+     },
+     "range_if_each_no_verdict_went_either_way": {
+      "A": [
+       10,
+       10
+      ],
+      "J": [
+       1.0,
+       1.0
+      ],
+      "R": [
+       10,
+       10
+      ]
+     },
+     "raw_reject": 10,
+     "sheet_flaw_rejections": 0,
+     "unscored": 0,
+     "without_sheet_flaw_rejections": {
+      "A": [
+       10,
+       10
+      ],
+      "J": 1.0
+     }
+    },
+    "magnitude": {
+     "A": 9,
+     "A_wilson95": [
+      0.5958,
+      0.9821
+     ],
+     "J": 0.6,
+     "J_bootstrap95": [
+      0.1,
+      1.0
+     ],
+     "R": 7,
+     "R_wilson95": [
+      0.3968,
+      0.8922
+     ],
+     "R_with_unscored_dropped": [
+      7,
+      10
+     ],
+     "among_verdicts_only": {
+      "A": [
+       9,
+       10
+      ],
+      "J": 0.6,
+      "R": [
+       7,
+       10
+      ]
+     },
+     "n": 10,
+     "named_without_twin_condition": 8,
+     "no_verdict": {
+      "injected": 0,
+      "twins": 0
+     },
+     "range_if_each_no_verdict_went_either_way": {
+      "A": [
+       9,
+       9
+      ],
+      "J": [
+       0.6,
+       0.6
+      ],
+      "R": [
+       7,
+       7
+      ]
+     },
+     "raw_reject": 8,
+     "sheet_flaw_rejections": 0,
+     "unscored": 0,
+     "without_sheet_flaw_rejections": {
+      "A": [
+       9,
+       10
+      ],
+      "J": 0.6
+     }
+    },
+    "propagation": {
+     "A": 9,
+     "A_wilson95": [
+      0.5958,
+      0.9821
+     ],
+     "J": 0.7,
+     "J_bootstrap95": [
+      0.2,
+      1.0
+     ],
+     "R": 8,
+     "R_wilson95": [
+      0.4902,
+      0.9433
+     ],
+     "R_with_unscored_dropped": [
+      8,
+      10
+     ],
+     "among_verdicts_only": {
+      "A": [
+       9,
+       10
+      ],
+      "J": 0.7,
+      "R": [
+       8,
+       10
+      ]
+     },
+     "n": 10,
+     "named_without_twin_condition": 9,
+     "no_verdict": {
+      "injected": 0,
+      "twins": 0
+     },
+     "range_if_each_no_verdict_went_either_way": {
+      "A": [
+       9,
+       9
+      ],
+      "J": [
+       0.7,
+       0.7
+      ],
+      "R": [
+       8,
+       8
+      ]
+     },
+     "raw_reject": 9,
+     "sheet_flaw_rejections": 0,
+     "unscored": 0,
+     "without_sheet_flaw_rejections": {
+      "A": [
+       9,
+       10
+      ],
+      "J": 0.7
+     }
+    },
+    "unit": {
+     "A": 10,
+     "A_wilson95": [
+      0.7225,
+      1.0
+     ],
+     "J": 0.9,
+     "J_bootstrap95": [
+      0.7,
+      1.0
+     ],
+     "R": 9,
+     "R_wilson95": [
+      0.5958,
+      0.9821
+     ],
+     "R_with_unscored_dropped": [
+      9,
+      10
+     ],
+     "among_verdicts_only": {
+      "A": [
+       10,
+       10
+      ],
+      "J": 0.9,
+      "R": [
+       9,
+       10
+      ]
+     },
+     "n": 10,
+     "named_without_twin_condition": 9,
+     "no_verdict": {
+      "injected": 0,
+      "twins": 0
+     },
+     "range_if_each_no_verdict_went_either_way": {
+      "A": [
+       10,
+       10
+      ],
+      "J": [
+       0.9,
+       0.9
+      ],
+      "R": [
+       9,
+       9
+      ]
+     },
+     "raw_reject": 9,
+     "sheet_flaw_rejections": 0,
+     "unscored": 0,
+     "without_sheet_flaw_rejections": {
+      "A": [
+       10,
+       10
+      ],
+      "J": 0.9
+     }
+    }
+   },
+   "reviewers_per_role": {
+    "control": {
+     "A": 13,
+     "A_wilson95": [
+      0.6212,
+      0.9626
+     ],
+     "J": 0.5333,
+     "J_bootstrap95": [
+      0.1333,
+      0.8667
+     ],
+     "R": 10,
+     "R_wilson95": [
+      0.4171,
+      0.8482
+     ],
+     "R_with_unscored_dropped": [
+      10,
+      15
+     ],
+     "among_verdicts_only": {
+      "A": [
+       13,
+       15
+      ],
+      "J": 0.5333,
+      "R": [
+       10,
+       15
+      ]
+     },
+     "n": 15,
+     "named_without_twin_condition": 12,
+     "no_verdict": {
+      "injected": 0,
+      "twins": 0
+     },
+     "range_if_each_no_verdict_went_either_way": {
+      "A": [
+       13,
+       13
+      ],
+      "J": [
+       0.5333,
+       0.5333
+      ],
+      "R": [
+       10,
+       10
+      ]
+     },
+     "raw_reject": 12,
+     "sheet_flaw_rejections": 0,
+     "unscored": 0,
+     "without_sheet_flaw_rejections": {
+      "A": [
+       13,
+       15
+      ],
+      "J": 0.5333
+     }
+    },
+    "electrical": {
+     "A": 10,
+     "A_wilson95": [
+      0.7225,
+      1.0
+     ],
+     "J": 1.0,
+     "J_bootstrap95": [
+      1.0,
+      1.0
+     ],
+     "R": 10,
+     "R_wilson95": [
+      0.7225,
+      1.0
+     ],
+     "R_with_unscored_dropped": [
+      10,
+      10
+     ],
+     "among_verdicts_only": {
+      "A": [
+       10,
+       10
+      ],
+      "J": 1.0,
+      "R": [
+       10,
+       10
+      ]
+     },
+     "n": 10,
+     "named_without_twin_condition": 10,
+     "no_verdict": {
+      "injected": 0,
+      "twins": 0
+     },
+     "range_if_each_no_verdict_went_either_way": {
+      "A": [
+       10,
+       10
+      ],
+      "J": [
+       1.0,
+       1.0
+      ],
+      "R": [
+       10,
+       10
+      ]
+     },
+     "raw_reject": 10,
+     "sheet_flaw_rejections": 0,
+     "unscored": 0,
+     "without_sheet_flaw_rejections": {
+      "A": [
+       10,
+       10
+      ],
+      "J": 1.0
+     }
+    },
+    "firmware": {
+     "A": 6,
+     "A_wilson95": [
+      0.6097,
+      1.0
+     ],
+     "J": 0.8333,
+     "J_bootstrap95": [
+      0.5,
+      1.0
+     ],
+     "R": 5,
+     "R_wilson95": [
+      0.4365,
+      0.9699
+     ],
+     "R_with_unscored_dropped": [
+      5,
+      6
+     ],
+     "among_verdicts_only": {
+      "A": [
+       6,
+       6
+      ],
+      "J": 0.8333,
+      "R": [
+       5,
+       6
+      ]
+     },
+     "n": 6,
+     "named_without_twin_condition": 5,
+     "no_verdict": {
+      "injected": 0,
+      "twins": 0
+     },
+     "range_if_each_no_verdict_went_either_way": {
+      "A": [
+       6,
+       6
+      ],
+      "J": [
+       0.8333,
+       0.8333
+      ],
+      "R": [
+       5,
+       5
+      ]
+     },
+     "raw_reject": 5,
+     "sheet_flaw_rejections": 0,
+     "unscored": 0,
+     "without_sheet_flaw_rejections": {
+      "A": [
+       6,
+       6
+      ],
+      "J": 0.8333
+     }
+    },
+    "mechanical": {
+     "A": 9,
+     "A_wilson95": [
+      0.7008,
+      1.0
+     ],
+     "J": 1.0,
+     "J_bootstrap95": [
+      1.0,
+      1.0
+     ],
+     "R": 9,
+     "R_wilson95": [
+      0.7008,
+      1.0
+     ],
+     "R_with_unscored_dropped": [
+      9,
+      9
+     ],
+     "among_verdicts_only": {
+      "A": [
+       9,
+       9
+      ],
+      "J": 1.0,
+      "R": [
+       9,
+       9
+      ]
+     },
+     "n": 9,
+     "named_without_twin_condition": 9,
+     "no_verdict": {
+      "injected": 0,
+      "twins": 0
+     },
+     "range_if_each_no_verdict_went_either_way": {
+      "A": [
+       9,
+       9
+      ],
+      "J": [
+       1.0,
+       1.0
+      ],
+      "R": [
+       9,
+       9
+      ]
+     },
+     "raw_reject": 9,
+     "sheet_flaw_rejections": 0,
+     "unscored": 0,
+     "without_sheet_flaw_rejections": {
+      "A": [
+       9,
+       9
+      ],
+      "J": 1.0
+     }
+    }
+   },
+   "seed": 13
+  }
+ },
+ "s7_risk_row_fresh": {
+  "A": 2,
+  "C": 0,
+  "thresholds": {
+   "A": 4,
+   "C": 10
+  },
+  "verdict": "reported only"
+ }
+}

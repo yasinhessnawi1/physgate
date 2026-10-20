@@ -1,0 +1,79 @@
+R-PG-02, attempt 2: the post-run steps, with the frozen scripts at the run commit 0936f1f (2026-10-20).
+Run on copies of the three run directories taken from the run machine after the runs ended.
+
+== lanes.py check <run> <set> <seed> <lanes>
+a-fresh: {"holds": true, "lanes_json_is_the_plan": true, "review_records_missing": 0, "reviews_off_their_lane": []} exit=0
+b-fresh: {"holds": true, "lanes_json_is_the_plan": true, "review_records_missing": 0, "reviews_off_their_lane": []} exit=0
+a-old: {"holds": true, "lanes_json_is_the_plan": true, "review_records_missing": 0, "reviews_off_their_lane": []} exit=0
+
+== tally.py (full output: tally_2026_10_20.json), exit 0
+
+== read_catches a-fresh
+injected {"artefacts_caught": 3, "blocking_failures": 6, "caught_after_reviewer_passed": 0, "check": 1, "checks_run": 80, "gate_mode": "observe", "name": "units", "no_review": 0, "reviewer_had_failed": 6, "reviewer_had_passed": 0}
+injected {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 2, "checks_run": 80, "gate_mode": "observe", "name": "magnitude", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+injected {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 3, "checks_run": 80, "gate_mode": "observe", "name": "equilibrium", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+injected {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 4, "checks_run": 80, "gate_mode": "observe", "name": "power", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+injected {"artefacts_caught": 4, "blocking_failures": 14, "caught_after_reviewer_passed": 0, "check": 5, "checks_run": 80, "gate_mode": "observe", "name": "conservation", "no_review": 0, "reviewer_had_failed": 14, "reviewer_had_passed": 0}
+injected {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 6, "checks_run": 80, "gate_mode": "observe", "name": "thermal", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+injected {"artefacts_caught": 14, "blocking_failures": 16, "caught_after_reviewer_passed": 0, "check": 7, "checks_run": 40, "gate_mode": "observe", "name": "propagation", "no_review": 1, "reviewer_had_failed": 15, "reviewer_had_passed": 0}
+injected {"artefacts_caught": 20, "blocking_failures": 36, "caught_after_reviewer_passed": 0, "check": null, "checks_run": 520, "gate_mode": "observe", "name": "all", "no_review": 1, "reviewer_had_failed": 35, "reviewer_had_passed": 0}
+controls {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 1, "checks_run": 80, "gate_mode": "observe", "name": "units", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+controls {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 2, "checks_run": 80, "gate_mode": "observe", "name": "magnitude", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+controls {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 3, "checks_run": 80, "gate_mode": "observe", "name": "equilibrium", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+controls {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 4, "checks_run": 80, "gate_mode": "observe", "name": "power", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+controls {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 5, "checks_run": 80, "gate_mode": "observe", "name": "conservation", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+controls {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 6, "checks_run": 80, "gate_mode": "observe", "name": "thermal", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+controls {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 7, "checks_run": 40, "gate_mode": "observe", "name": "propagation", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+controls {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": null, "checks_run": 520, "gate_mode": "observe", "name": "all", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+{"C_from_rows": 0, "caught_from_rows": 20, "holds": true, "twins_failed_from_rows": 0}
+exit=0
+== read_catches b-fresh
+injected {"artefacts_caught": 3, "blocking_failures": 6, "caught_after_reviewer_passed": 1, "check": 1, "checks_run": 80, "gate_mode": "observe", "name": "units", "no_review": 0, "reviewer_had_failed": 4, "reviewer_had_passed": 2}
+injected {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 2, "checks_run": 80, "gate_mode": "observe", "name": "magnitude", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+injected {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 3, "checks_run": 80, "gate_mode": "observe", "name": "equilibrium", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+injected {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 4, "checks_run": 80, "gate_mode": "observe", "name": "power", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+injected {"artefacts_caught": 4, "blocking_failures": 14, "caught_after_reviewer_passed": 0, "check": 5, "checks_run": 80, "gate_mode": "observe", "name": "conservation", "no_review": 0, "reviewer_had_failed": 14, "reviewer_had_passed": 0}
+injected {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 6, "checks_run": 80, "gate_mode": "observe", "name": "thermal", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+injected {"artefacts_caught": 14, "blocking_failures": 16, "caught_after_reviewer_passed": 1, "check": 7, "checks_run": 40, "gate_mode": "observe", "name": "propagation", "no_review": 0, "reviewer_had_failed": 15, "reviewer_had_passed": 1}
+injected {"artefacts_caught": 20, "blocking_failures": 36, "caught_after_reviewer_passed": 2, "check": null, "checks_run": 520, "gate_mode": "observe", "name": "all", "no_review": 0, "reviewer_had_failed": 33, "reviewer_had_passed": 3}
+controls {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 1, "checks_run": 80, "gate_mode": "observe", "name": "units", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+controls {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 2, "checks_run": 80, "gate_mode": "observe", "name": "magnitude", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+controls {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 3, "checks_run": 80, "gate_mode": "observe", "name": "equilibrium", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+controls {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 4, "checks_run": 80, "gate_mode": "observe", "name": "power", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+controls {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 5, "checks_run": 80, "gate_mode": "observe", "name": "conservation", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+controls {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 6, "checks_run": 80, "gate_mode": "observe", "name": "thermal", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+controls {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 7, "checks_run": 40, "gate_mode": "observe", "name": "propagation", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+controls {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": null, "checks_run": 520, "gate_mode": "observe", "name": "all", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+{"C_from_rows": 2, "caught_from_rows": 20, "holds": true, "twins_failed_from_rows": 0}
+exit=0
+== read_catches a-old
+injected {"artefacts_caught": 4, "blocking_failures": 8, "caught_after_reviewer_passed": 0, "check": 1, "checks_run": 80, "gate_mode": "observe", "name": "units", "no_review": 0, "reviewer_had_failed": 8, "reviewer_had_passed": 0}
+injected {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 2, "checks_run": 80, "gate_mode": "observe", "name": "magnitude", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+injected {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 3, "checks_run": 80, "gate_mode": "observe", "name": "equilibrium", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+injected {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 4, "checks_run": 80, "gate_mode": "observe", "name": "power", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+injected {"artefacts_caught": 2, "blocking_failures": 4, "caught_after_reviewer_passed": 0, "check": 5, "checks_run": 80, "gate_mode": "observe", "name": "conservation", "no_review": 0, "reviewer_had_failed": 4, "reviewer_had_passed": 0}
+injected {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 6, "checks_run": 80, "gate_mode": "observe", "name": "thermal", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+injected {"artefacts_caught": 11, "blocking_failures": 12, "caught_after_reviewer_passed": 0, "check": 7, "checks_run": 40, "gate_mode": "observe", "name": "propagation", "no_review": 0, "reviewer_had_failed": 12, "reviewer_had_passed": 0}
+injected {"artefacts_caught": 16, "blocking_failures": 24, "caught_after_reviewer_passed": 0, "check": null, "checks_run": 520, "gate_mode": "observe", "name": "all", "no_review": 0, "reviewer_had_failed": 24, "reviewer_had_passed": 0}
+controls {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 1, "checks_run": 80, "gate_mode": "observe", "name": "units", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+controls {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 2, "checks_run": 80, "gate_mode": "observe", "name": "magnitude", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+controls {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 3, "checks_run": 80, "gate_mode": "observe", "name": "equilibrium", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+controls {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 4, "checks_run": 80, "gate_mode": "observe", "name": "power", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+controls {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 5, "checks_run": 80, "gate_mode": "observe", "name": "conservation", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+controls {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 6, "checks_run": 80, "gate_mode": "observe", "name": "thermal", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+controls {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": 7, "checks_run": 40, "gate_mode": "observe", "name": "propagation", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+controls {"artefacts_caught": 0, "blocking_failures": 0, "caught_after_reviewer_passed": 0, "check": null, "checks_run": 520, "gate_mode": "observe", "name": "all", "no_review": 0, "reviewer_had_failed": 0, "reviewer_had_passed": 0}
+{"C_from_rows": 0, "caught_from_rows": 16, "holds": true, "twins_failed_from_rows": 0}
+exit=0
+== regate again fresh (a-fresh)
+{"compared": 80, "differ": 0, "holds": true, "missing": 0}
+exit=0
+== regate again old (a-old)
+{"compared": 80, "differ": 0, "holds": true, "missing": 0}
+exit=0
+== regate compare a-fresh b-fresh
+{"compared": 80, "differ": 0, "holds": true, "unmatched": 0}
+exit=0
+
+== uv run pytest -q experiments/R-PG-02/ at 0936f1f
+55 passed in 19.85s
