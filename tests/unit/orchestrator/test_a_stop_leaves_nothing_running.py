@@ -124,6 +124,8 @@ def test_a_resume_stops_a_recorded_session_still_running_and_only_that(tmp_path:
         (sessions / sid).mkdir(parents=True)
         (sessions / sid / "process.json").write_text(json.dumps(record))
         sentinel_installed(sessions / sid, tmp_path / "guarded")
+    # A session's stream is opened before it runs: the reused one's is there, and empty.
+    (sessions / "reused" / "stdout.jsonl").write_text("")
     # Both spawns are on the record: a pid reused since its session ended is honoured too.
     spawn_logged(
         tmp_path / "run",
