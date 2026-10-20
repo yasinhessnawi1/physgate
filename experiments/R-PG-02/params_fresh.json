@@ -5,7 +5,7 @@
  "effort": "high",
  "max_output_tokens": 64000,
  "token_ceiling": 400000,
- "lanes": 1,
+ "lanes": 3,
  "pause_after_failures": 3,
  "pause_s": 900.0,
  "repair_resumes": 1

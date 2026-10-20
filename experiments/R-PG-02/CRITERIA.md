@@ -219,9 +219,9 @@ of the picked configuration included, and refuses a mismatch.
   items at the same commit; its records must equal arm A's byte for byte, and a difference is a
   deviation (R6).
 - **Expected time and cost.** The practice baseline ran at 11.7 minutes per review on this
-  machine (4 lanes, 40 reviews in 2.2 h). The three runs share 4 lanes (R8): each fresh arm runs
-  80 reviews in one lane, about 15.6 hours, and the old set 80 in two lanes, about 7.8 hours, so
-  the experiment's wall clock is about 16 hours plus retries. The practice baseline spent
+  machine (4 lanes, 40 reviews in 2.2 h). The three runs share 8 lanes (R8; 4 until 20.10.2026,
+  R7 item 12): each fresh arm runs 80 reviews in three lanes, about 5.2 hours, and the old set 80
+  in two lanes, about 7.8 hours, so the experiment's wall clock is about 8 hours plus retries. The practice baseline spent
   0.61 million tokens per review by the binary's totals, mostly cache reads, so about 150 million
   for 240 reviews. The run has no dollar cap; it is bounded by its count and each session's
   bounds. Tokens are recorded from the binary's own totals.
@@ -473,6 +473,13 @@ Read before the run, and not adjusted after it:
       a deviation. The dry run's prefix scans (`sk-ant-`, `oat01`) self-match on repository text that the
       sentinel's snapshots carry, so the dry run is held to the dummy token and, when it is in the
       environment, the real token's value; the two prefix counts are logged, not refused.
+  12. **Wider lanes after a stopped attempt.** 20.10.2026, before any review was read: attempt 1
+      hit the subscription's weekly usage limit 23 minutes after launch (429,
+      `usage_limit_reached`) and was stopped with no review read or scored; it is reported as a
+      stopped attempt. To finish before a scheduled demonstration the lane plan was widened from
+      4 lanes (1/1/2) to 8 (3/3/2) and attempt 2 runs under another subscription account; lanes
+      change only how many reviews run at once, not what is measured. The wider plan raises the
+      risk of rate-limited reviews, which are reported as unavailable, as before.
 - **R8 Retries, lanes and order.** These rules read only infrastructure outcomes, never a verdict.
   - **Retry only on an infrastructure failure,** after a delay, each delay recorded on the review's
     line: `infra_retry_delays_s` = **[60, 900, 2700]**, three retries, the last about an hour after
@@ -483,9 +490,10 @@ Read before the run, and not adjusted after it:
     no lane of that run starts a new review for **15 minutes**. A review not started is not a
     failure and uses no retry. Each run counts its own failures; an outage reaches all three runs
     at once, so each pauses on its own count.
-  - **Lanes: 4 in all, shared by the three runs**: one lane for each fresh-set arm, and two for
+  - **Lanes: 8 in all, shared by the three runs**: three lanes for each fresh-set arm, and two for
     the old set (`lanes.py` holds the rule: the two fresh arms get equal lanes, so the primary
-    contrast's two arms run alike, and the old set takes the rest). Within a run, every item's
+    contrast's two arms run alike, and the old set takes the rest). Until 20.10.2026 the plan was
+    4 lanes, one for each fresh arm and two for the old set (R7 item 12). Within a run, every item's
     lane is drawn by the set's seed before the run and recorded (`lanes.json`). **An injected
     artefact and its twin run on the same lane**, and classes are balanced across lanes, so a
     lane's hour affects both directions alike. Figures per lane are a secondary result.
@@ -690,7 +698,7 @@ the instrument's own test corpus, never on a set of this experiment. They run ex
 | 6 | "Unscored" in the headline | counted against the layer, in both directions | §4.4 |
 | 7 | `infra_retry_delays_s` | [60, 900, 2700] | R8 |
 | 8 | Lane pause | 3 consecutive failures → 15 min | R8 |
-| 9 | Lanes | 4 | R8 |
+| 9 | Lanes | 8 (4 until 20.10.2026, R7 item 12) | R8 |
 | 10 | Bootstrap seed | 13 | §6 |
 | 11 | P1–P5's forms and values | as the table in §6 | §6 |
 | 12 | The row's A and C | reported only | §7 |
