@@ -48,8 +48,10 @@ class FakeKernel:
     #: Each listing, by number, can bring pids from ``spare`` in (a process hopping pids
     #: between rounds), as ``{listing number: [pids]}``.
     arrivals: dict[int, list[int]] = field(default_factory=dict)
-    #: Pids whose process is replaced, after its first reading, by an older one (pid reuse).
-    reused: set[int] = field(default_factory=set)
+    #: Pids whose process is replaced, after this many readings, by an older one (pid reuse).
+    reused: dict[int, int] = field(default_factory=dict)
+    #: Pids whose process ends just as this signal reaches it (a hop under way).
+    vanish_on: dict[int, int] = field(default_factory=dict)
     listings: int = 0
     reads: dict[int, int] = field(default_factory=dict)
 
@@ -65,7 +67,7 @@ class FakeKernel:
 
     def info(self, pid: int) -> Info | None:
         self.reads[pid] = self.reads.get(pid, 0) + 1
-        if pid in self.reused and self.reads[pid] > 1:
+        if pid in self.reused and self.reads[pid] > self.reused[pid]:
             self.procs[pid] = Proc(1, T0 - 5, inside=True)
         proc = self.procs.get(pid)
         if proc is None:
@@ -74,6 +76,9 @@ class FakeKernel:
 
     def kill(self, pid: int, sig: int) -> None:
         self.sent.append((pid, sig))
+        if self.vanish_on.get(pid) == sig:
+            del self.vanish_on[pid]
+            self.procs.pop(pid, None)
         proc = self.procs.get(pid)
         if proc is None:
             raise ProcessLookupError(pid)
@@ -166,9 +171,31 @@ def test_a_pid_hopper_is_looked_for_in_a_second_empty_round() -> None:
 def test_a_pid_taken_by_an_older_process_before_its_signal_is_let_alone() -> None:
     # 600 is listed as the command's, then (pid reuse) an older process holds it: the
     # start time read again just before the stop and the kill keeps both from it.
-    kernel = FakeKernel(_table(), reused={600})
+    kernel = FakeKernel(_table(), reused={600: 1})
     _reaper(kernel, armed=True).reap(deadline=float("inf"))
     assert kernel.nonzero() == []
+
+
+def test_a_pid_taken_by_an_older_process_after_its_stop_is_not_killed() -> None:
+    # Read young twice (listed, then just before its stop), older at the third reading,
+    # just before the kill: stopped, never killed.
+    kernel = FakeKernel(_table(), reused={600: 2})
+    _reaper(kernel, armed=True).reap(deadline=float("inf"))
+    assert (600, signal.SIGSTOP) in kernel.sent
+    assert (600, signal.SIGKILL) not in kernel.sent
+
+
+@pytest.mark.parametrize("when", [0, signal.SIGSTOP], ids=["at-its-probe", "at-its-stop"])
+def test_a_round_in_which_a_young_process_vanished_is_not_empty(when: int) -> None:
+    # 650 started after the reaper and ends just as its signal reaches it: a hop under
+    # way. That round is not an empty one, so two more must find nothing.
+    table = _table()
+    del table[600]  # the vanishing process alone makes its round
+    table[650] = Proc(1, T0 + 12, inside=True)
+    kernel = FakeKernel(table, vanish_on={650: when})
+    killed, clean = _reaper(kernel, armed=True).reap(deadline=float("inf"))
+    assert (killed, clean) == (0, True)
+    assert kernel.listings == 3  # the vanished 650 | empty | empty
 
 
 def test_past_its_budget_it_says_it_is_not_clean() -> None:

@@ -19,10 +19,12 @@ Claude Code cuts a long output before it reaches the hook, and the reaper's line
 (measured on 2.1.301): after a success the hook gets the first 30 000 characters and the
 path of the whole output, which Claude Code wrote into the session's configuration
 directory, where no command reads or writes; its end is read from there. After a failure it
-gets about 10 000 characters, marked ``... [N characters truncated] ...``, and no path: the
-end is lost, and a missing ``done`` is then logged as ``reaper_unverified``, not refused. A
-command can produce that much output to the same end as forging the line, so this widens no
-residual.
+gets the first and the last 5 000 characters with ``... [N characters truncated] ...``
+between them, and no path. Up to 30 000 characters of output, that last part is the
+output's real end, and the reaper's lines are judged there. Beyond it, Claude Code had
+already kept only the first 30 000, so kept and cut together come to that cap (measured
+21.10.2026 at 20 000 to 60 000 characters): the real end is lost, and a missing ``done`` is
+logged as ``reaper_unverified``, which the orchestrator records as an incident.
 
 The lines are the reaper's word, read from output the command shares: a command can print
 them. A printed refusal is the command's own; a printed ``done`` before the command kills its
@@ -65,7 +67,9 @@ REAPED = "reaped"
 #: The decision a missing ``done`` line is logged under when the output's end was cut off.
 UNVERIFIED = "reaper_unverified"
 #: Claude Code's mark where it cut the middle out of a failed command's output.
-TRUNCATED = re.compile(r"\n\.\.\. \[[0-9]+ characters truncated\] \.\.\.\n")
+TRUNCATED = re.compile(r"\n\.\.\. \[([0-9]{1,12}) characters truncated\] \.\.\.\n")
+#: The most of a command's output Claude Code keeps before it cuts the middle (2.1.301).
+KEPT_CAP = 30_000
 #: How much of the end of a persisted output is read for the reaper's lines.
 TAIL_BYTES = 16384
 
@@ -124,8 +128,16 @@ def _told(hook_input: InputView, config: ConfigView) -> tuple[str, bool]:
             cut = end is None
             parts.append(end or "")
     error = hook_input.error or ""
+    marks = list(TRUNCATED.finditer(error))
+    if marks:
+        # Only what follows the last mark can hold the reaper's last lines. It is the
+        # output's real end unless the output had reached Claude Code's cap before the cut.
+        last = marks[-1]
+        whole = last.start() + int(last.group(1)) + len(error) - last.end()
+        cut = cut or whole >= KEPT_CAP
+        error = error[last.end() :]
     parts.append(error)
-    return "\n".join(parts), cut or bool(TRUNCATED.search(error))
+    return "\n".join(parts), cut
 
 
 def _log(hook_input: InputView, config: ConfigView, decision: str, what: str) -> None:

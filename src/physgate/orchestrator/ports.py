@@ -92,6 +92,10 @@ class SessionReport(_Frozen):
     #: abort (a command can print the line itself), never a denial and never a reach, and
     #: recorded beside every other finding, never in place of one.
     os_layer_aborted: tuple[NonEmptyStr, ...] = ()
+    #: The shell commands whose survivor reaper could not be heard from: Claude Code cut the
+    #: end of the output, where its ``done`` line stands (``reaper_unverified`` in the hook
+    #: layer's log). What the command started may have lived on, so it is an incident.
+    reaper_unverified: tuple[NonEmptyStr, ...] = ()
 
 
 #: Whose session a leftover was, as its tokens are attributed: ``session`` or ``reviewer``.

@@ -87,6 +87,7 @@ IncidentCause = Literal[
     "withheld_file_unsure",
     "os_layer_misplaced",
     "os_layer_aborted",
+    "reaper_unverified",
     "stream_quarantined",
 ]
 

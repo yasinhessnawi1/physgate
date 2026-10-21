@@ -1366,6 +1366,7 @@ class ClaudeDispatcher:
                 msg = "the session was answered by a model other than the pinned one"
                 raise InvocationError(msg, asked=request.model, answered=",".join(echoed))
         halted, appends = self._hook_log(sdir / "state", session_id)
+        unverified = self._reaper_unverified(sdir / "state", session_id)
         # The session has ended: its series records leave the worktree before anything is
         # committed, sealed if they hold, so no record is ever in git or in a review's diff.
         series = collect(
@@ -1427,6 +1428,7 @@ class ClaudeDispatcher:
             placeholders_refused=placeholders_refused,
             withheld_problems=withheld_problems,
             os_layer_aborted=aborted,
+            reaper_unverified=unverified,
         )
 
     @staticmethod
@@ -1720,6 +1722,21 @@ class ClaudeDispatcher:
     @staticmethod
     def _read_in_full(config_path: Path, session_id: str) -> bool:
         return read_in_full(config_path, session_id)
+
+    @staticmethod
+    def _reaper_unverified(state: Path, session_id: str) -> tuple[str, ...]:
+        """The shell commands whose reaper's word the hook layer logged as cut off."""
+        log = state / "hooks.log.jsonl"
+        if not log.exists():
+            return ()
+        found = []
+        for line in read_session_file(log).decode(errors="replace").splitlines():
+            record = json.loads(line)
+            if record.get("session") == session_id and record.get("decision") == (
+                "reaper_unverified"
+            ):
+                found.append(json.dumps(record.get("tool_input"))[:200])
+        return tuple(found)
 
     @staticmethod
     def _hook_log(state: Path, session_id: str) -> tuple[bool, tuple[str, ...]]:

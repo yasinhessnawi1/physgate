@@ -188,6 +188,29 @@ def test_a_failure_whose_end_was_cut_off_is_logged_unverified_not_refused(tmp_pa
     assert not dispatch([survivors.HOOK], _failure("Exit code 3\n" + "y" * 9000), config).allow
 
 
+def _cut(head: int, cut: int, tail: str) -> str:
+    # As Claude Code hands a failed command's long output to the hook (measured 2.1.301).
+    return f"Exit code 3\n{'y' * head}\n\n... [{cut} characters truncated] ...\n\n{tail}"
+
+
+def test_a_long_failure_whose_real_end_reached_the_hook_is_judged_there(tmp_path: Path) -> None:
+    # 20 000 characters of output: kept and cut come to less than the cap, so what follows
+    # the mark is the output's real end, where the reaper's lines must stand.
+    config = _reaper_on(tmp_path)
+    killed = _cut(5000, 10_035, "y" * 5000)  # the command killed its reaper: no ``done``
+    decision = dispatch([survivors.HOOK], _failure(killed), config)
+    assert not decision.allow and "did not finish" in decision.reason
+    left = _cut(5000, 10_035, "y" * 4800 + f"\n{STOPPED}\n\n{DONE}\n")
+    decision = dispatch([survivors.HOOK], _failure(left), config)
+    assert not decision.allow and "left 2 process(es)" in decision.reason
+    clean = _cut(5000, 10_035, "y" * 4900 + f"\n{DONE}\n")
+    assert dispatch([survivors.HOOK], _failure(clean), config).allow
+    # A ``done`` only in the part before the mark is not the reaper's last word.
+    forged = _cut(4000, 10_035, "y" * 5000).replace("y" * 10, f"\n{DONE}\n", 1)
+    assert not dispatch([survivors.HOOK], _failure(forged), config).allow
+    assert _log(config) == [line for line in _log(config) if line["decision"] == "refuse"]
+
+
 def test_the_hook_reads_the_reaper_s_own_tag() -> None:
     assert survivors.TAG == reaper.TAG
 

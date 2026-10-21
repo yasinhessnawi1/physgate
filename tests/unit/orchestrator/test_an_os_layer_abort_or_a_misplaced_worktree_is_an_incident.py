@@ -126,3 +126,32 @@ def test_a_possible_abort_never_takes_the_place_of_another_incident(
     assert halted.detail == f"{cause} in s1"
     assert events.index(halted) > max(events.index(i) for i in incidents)
     assert not [e for e in events if isinstance(e, ReviewRan | Merged)]
+
+
+def test_a_command_whose_reaper_could_not_be_heard_from_is_an_incident(tmp_path: Path) -> None:
+    # The hook layer logged ``reaper_unverified``: Claude Code cut the output where the
+    # survivor reaper's done line stands. Recorded in the run's event log, nothing taken.
+    said = ('{"command": "pytest -x"}',)
+    rig = Rig(tmp_path, dispatcher=FakeDispatcher(unverified={1: said}))
+    loop = rig.open()
+    loop.start(plan("s1"))
+    assert loop.run().kind == "halted"
+    loop.close()
+    events = read_events(tmp_path / "events.jsonl")
+    (incident,) = [e for e in events if isinstance(e, Incident)]
+    assert (incident.cause, incident.subtask_id) == ("reaper_unverified", "s1")
+    assert "pytest -x" in incident.detail and "sess-1" in incident.detail
+    assert [e for e in events if isinstance(e, Halted)]
+    assert not [e for e in events if isinstance(e, ReviewRan | Merged)]
+
+
+def test_an_unverified_reaping_is_recorded_beside_an_abort(tmp_path: Path) -> None:
+    dispatcher = FakeDispatcher(aborted={1: ("toolu_7",)}, unverified={1: ("{}",)})
+    rig = Rig(tmp_path, dispatcher=dispatcher)
+    loop = rig.open()
+    loop.start(plan("s1"))
+    assert loop.run().kind == "halted"
+    loop.close()
+    events = read_events(tmp_path / "events.jsonl")
+    causes = [i.cause for i in events if isinstance(i, Incident)]
+    assert causes == ["os_layer_aborted", "reaper_unverified"]
