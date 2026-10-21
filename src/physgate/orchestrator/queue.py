@@ -27,6 +27,7 @@ to exactly the rules the writer holds it to, through the same parser.
 
 from __future__ import annotations
 
+import contextlib
 import errno
 import fcntl
 import hashlib
@@ -34,7 +35,7 @@ import os
 import re
 import stat
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -453,6 +454,10 @@ def decided_item(
     )
 
 
+#: What a run id or a subtask id is, when an item id is made of it.
+_ID_PART = re.compile(r"[A-Za-z0-9_-]{1,128}")
+
+
 def item_id_for(run_id: str, subtask_id: str, round_: int) -> str:
     """An item's id: the run and the subtask, and from a subtask's second item on, its round.
 
@@ -463,9 +468,15 @@ def item_id_for(run_id: str, subtask_id: str, round_: int) -> str:
     Raises:
         QueueError: the round is not a positive number.
     """
-    if round_ < 1:
+    if isinstance(round_, bool) or round_ < 1:
         msg = "an item's round counts from one"
         raise QueueError(msg, round=str(round_))
+    for name in (run_id, subtask_id):
+        # An id is a plain token, held whole, so nothing a run or a plan named can make an item
+        # id that reads as a path (a separator, a parent step, a line break after the token).
+        if _ID_PART.fullmatch(name) is None:
+            msg = "an item id is made of plain identifiers"
+            raise QueueError(msg, part=name)
     base = f"{run_id}-{subtask_id}"
     return base if round_ == 1 else f"{base}-r{round_}"
 
@@ -769,11 +780,6 @@ def queue_listing(
     view = read_queue(run_dir)
     events = _events_of_run(run_dir) or []
     windows = windows_of(events)
-    reader = read_stream or (
-        lambda session_id: _read_path(
-            Path(run_dir) / SESSIONS_NAME / session_id / STREAM_NAME, RECORD_READ_CAP
-        )
-    )
     decided = []
     for offset, decision in view.decisions:
         during = [
@@ -781,15 +787,46 @@ def queue_listing(
         ]
         flag = f"made while session {during[0]} ran; confirm" if during else None
         decided.append({**decision.model_dump(), "flag": flag})
-    listed = [
-        {
-            **item.model_dump(),
-            "item_sha256": view.digests[item.item_id],
-            "trajectory_statuses": list(trajectory_statuses(item, events, reader)),
-        }
-        for item in view.open_items()
-    ]
+    with _stream_reader(run_dir, read_stream) as reader:
+        listed = [
+            {
+                **item.model_dump(),
+                "item_sha256": view.digests[item.item_id],
+                "trajectory_statuses": list(trajectory_statuses(item, events, reader)),
+            }
+            for item in view.open_items()
+        ]
     return {"open": listed, "decided": decided}
+
+
+@contextlib.contextmanager
+def _stream_reader(
+    run_dir: Path, given: Callable[[str], bytes | None] | None
+) -> Iterator[Callable[[str], bytes | None]]:
+    """``given``, or a reader of a session's stream beneath the run directory, never via a link.
+
+    The default opens the run directory once and walks ``sessions/<id>/stdout.jsonl`` beneath
+    it without following a link at any step, holding the file to one name, as the decision
+    function reads it under its lock. A session directory or a stream that is a link (to a copy
+    of the sealed bytes, to anything outside the run) is refused, so it reads as tampered rather
+    than as whatever it points at. The id is only ever one :func:`trajectory_session` matched.
+    """
+    if given is not None:
+        yield given
+        return
+    try:
+        dir_fd = os.open(run_dir, _DIR_FLAGS)
+    except FileNotFoundError:
+        yield lambda session_id: None
+        return
+    except OSError as exc:
+        raise _unreadable(Path(run_dir), exc) from None
+    try:
+        yield lambda session_id: _read_in(
+            dir_fd, SESSIONS_NAME, session_id, STREAM_NAME, cap=RECORD_READ_CAP
+        )
+    finally:
+        os.close(dir_fd)
 
 
 def item_sha256(line: bytes) -> str:
@@ -985,13 +1022,8 @@ def statuses_now(run_dir: Path, item_id: str) -> tuple[TrajectoryStatus, ...]:
     if item is None:
         raise _not_open(item_id, Path(run_dir) / QUEUE_NAME)
     events = _events_of_run(run_dir) or []
-    return trajectory_statuses(
-        item,
-        events,
-        lambda session_id: _read_path(
-            Path(run_dir) / SESSIONS_NAME / session_id / STREAM_NAME, RECORD_READ_CAP
-        ),
-    )
+    with _stream_reader(run_dir, None) as reader:
+        return trajectory_statuses(item, events, reader)
 
 
 # -- the one decision function ------------------------------------------------------------
