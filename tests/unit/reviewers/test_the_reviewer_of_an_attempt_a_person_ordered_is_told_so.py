@@ -103,3 +103,15 @@ def test_the_instruction_cannot_close_its_own_quotation() -> None:
     fence = next(line for line in text.splitlines() if set(line) == {"<"})
     assert len(fence) > 3 and ">" * len(fence) in text
     assert ">" * len(fence) not in sly.instruction
+
+
+def test_the_packet_of_a_retry_says_a_person_rejected_the_attempt_before(tmp_path: Path) -> None:
+    retry = ORDER.model_copy(update={"kind": "retry_after_reject", "of_attempt": 2})
+    packet, read, repo, base = _build(tmp_path, retry)
+    text = (read / PERSON_ORDER_NAME).read_text()
+    assert text.startswith(
+        "This attempt is the retry a person ordered after rejecting attempt 2 "
+        "(queue item run-1-s1)."
+    )
+    assert retry.instruction in text and "single fix" not in text
+    check_parts(packet, repo=repo, base_commit=base)

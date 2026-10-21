@@ -894,8 +894,30 @@ class Loop:
             # The next attempt starts from the person's note, quoted as data, with the reviewer's
             # finding when a review rejected the attempt the person sent back.
             finding = before.finding if before is not None else None
-            return person_repair_instruction(previous.number, ordered.note, finding), None
+            text = person_repair_instruction(previous.number, ordered.note, finding)
+            return text, PersonOrder(
+                kind="retry_after_reject",
+                item_id=ordered.item_id,
+                of_attempt=previous.number,
+                instruction=text,
+            )
         return (repair_instruction(previous.number, before.finding) if before else None), None
+
+    def _screened(self, subtask_id: str, order: PersonOrder) -> str:
+        """What a person's order is held to the canaries by, before its session is spawned.
+
+        A fix's whole instruction, the quoted verdict with the note; a retry's note, the one text
+        in it no check before it saw (ARCH-133). The reviewer's finding a retry also quotes is
+        what every automated repair quotes, and is held to nothing more here than there.
+        """
+        if order.kind == "fix_after_block":
+            return order.instruction
+        attempts = self.state.subtasks[subtask_id].attempts
+        spent = next((a.person_rejected for a in attempts if a.number == order.of_attempt), None)
+        if spent is None or spent.note is None:
+            msg = "a retry a person ordered has no note on the record"
+            raise RunStateError(msg, subtask=subtask_id, item=order.item_id)
+        return spent.note
 
     def _material_clean(self, subtask_id: str, text: str) -> bool:
         """``text`` shows no material a role session may not read; otherwise the run halts.
@@ -915,7 +937,9 @@ class Loop:
         sub = self.state.subtasks[subtask_id]
         self._stage(subtask_id, attempt, "resolve")
         instruction, order = self._instruction(subtask_id, attempt)
-        if order is not None and not self._material_clean(subtask_id, order.instruction):
+        if order is not None and not self._material_clean(
+            subtask_id, self._screened(subtask_id, order)
+        ):
             return False
         # The decisions file's length now and when the session ends: the window a
         # decision written meanwhile falls in, which the queue listing marks.
