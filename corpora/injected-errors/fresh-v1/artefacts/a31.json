@@ -1,0 +1,414 @@
+{
+ "id": "a31",
+ "error_class": "unit",
+ "expected_check": "units",
+ "assigned_role": "electrical",
+ "description": "The pack's motor_runtime should be 3.14 h (15.8 W*h / 5.04 W). It is written as 3.14 s: the hours number labelled with the SI time unit. Evaluating the node's own derivation, W*h / W, gives 3.14 h = 11 300 s, so the labelled value is 3600 times too small.",
+ "edge": null,
+ "clean": {
+  "nodes": [
+   {
+    "id": "electrical.battery_pack",
+    "kind": "module",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 7.2,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "charge_capacity": {
+      "value": 2.2,
+      "unit": "A*h",
+      "source": "https://www.pololu.com/product/1003/specs",
+      "written_by": "electrical"
+     },
+     "energy_capacity": {
+      "value": 15.8,
+      "unit": "W*h",
+      "source": "derived: [R5.03] * [R5.06]",
+      "written_by": "electrical"
+     },
+     "mass": {
+      "value": 165,
+      "unit": "g",
+      "source": "derived: [R5.07] * [R5.10]",
+      "written_by": "electrical"
+     },
+     "motor_current_draw": {
+      "value": 2.5,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.04] * [R4.19] / [R5.03]",
+      "written_by": "electrical"
+     },
+     "motor_power_draw": {
+      "value": 18.0,
+      "unit": "W",
+      "source": "derived: [R1.02] * [R1.04] * [R4.19]",
+      "written_by": "electrical"
+     },
+     "motor_runtime": {
+      "value": 3.14,
+      "unit": "h",
+      "source": "derived: [R5.03] * [R5.06] / ([R1.01] * [R1.19] * [R4.19])",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.assembly",
+     "firmware.motor_output",
+     "electrical.driver_left",
+     "electrical.driver_right"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.assembly",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "unladen_mass": {
+      "value": 165,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03]",
+      "written_by": "mechanical"
+     },
+     "mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.battery_pack": "Only a runtime figure was added to the pack; the cells and pack mass are unchanged, so the unladen and total masses are unchanged."
+    }
+   },
+   {
+    "id": "firmware.motor_output",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "pwm_duty_limit": {
+      "value": 0.833,
+      "unit": "dimensionless",
+      "source": "derived: [R1.02] / [R5.03]",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.driver_left",
+     "electrical.driver_right"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.battery_pack": "The pack voltage is unchanged, so the duty limit that holds the average motor voltage at 6 V is unchanged."
+    }
+   },
+   {
+    "id": "electrical.driver_left",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "current_limit": {
+      "value": 1.8,
+      "unit": "A",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     },
+     "output_current": {
+      "value": 1.5,
+      "unit": "A",
+      "source": "https://www.pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-2.pdf",
+      "written_by": "electrical"
+     },
+     "current_draw": {
+      "value": 1.25,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.04] / [R5.03]",
+      "written_by": "electrical"
+     },
+     "thermal_resistance": {
+      "value": 60.9,
+      "unit": "K/W",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.battery_pack"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.battery_pack": "The pack voltage is unchanged, so the driver's pack-side current is unchanged."
+    }
+   },
+   {
+    "id": "electrical.driver_right",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "current_limit": {
+      "value": 1.8,
+      "unit": "A",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     },
+     "output_current": {
+      "value": 1.5,
+      "unit": "A",
+      "source": "https://www.pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-2.pdf",
+      "written_by": "electrical"
+     },
+     "current_draw": {
+      "value": 1.25,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.04] / [R5.03]",
+      "written_by": "electrical"
+     },
+     "thermal_resistance": {
+      "value": 60.9,
+      "unit": "K/W",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.battery_pack"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.battery_pack": "The pack voltage is unchanged, so the driver's pack-side current is unchanged."
+    }
+   }
+  ]
+ },
+ "injected": {
+  "nodes": [
+   {
+    "id": "electrical.battery_pack",
+    "kind": "module",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 7.2,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "charge_capacity": {
+      "value": 2.2,
+      "unit": "A*h",
+      "source": "https://www.pololu.com/product/1003/specs",
+      "written_by": "electrical"
+     },
+     "energy_capacity": {
+      "value": 15.8,
+      "unit": "W*h",
+      "source": "derived: [R5.03] * [R5.06]",
+      "written_by": "electrical"
+     },
+     "mass": {
+      "value": 165,
+      "unit": "g",
+      "source": "derived: [R5.07] * [R5.10]",
+      "written_by": "electrical"
+     },
+     "motor_current_draw": {
+      "value": 2.5,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.04] * [R4.19] / [R5.03]",
+      "written_by": "electrical"
+     },
+     "motor_power_draw": {
+      "value": 18.0,
+      "unit": "W",
+      "source": "derived: [R1.02] * [R1.04] * [R4.19]",
+      "written_by": "electrical"
+     },
+     "motor_runtime": {
+      "value": 3.14,
+      "unit": "s",
+      "source": "derived: [R5.03] * [R5.06] / ([R1.01] * [R1.19] * [R4.19])",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.assembly",
+     "firmware.motor_output",
+     "electrical.driver_left",
+     "electrical.driver_right"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.assembly",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "unladen_mass": {
+      "value": 165,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03]",
+      "written_by": "mechanical"
+     },
+     "mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.battery_pack": "Only a runtime figure was added to the pack; the cells and pack mass are unchanged, so the unladen and total masses are unchanged."
+    }
+   },
+   {
+    "id": "firmware.motor_output",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "pwm_duty_limit": {
+      "value": 0.833,
+      "unit": "dimensionless",
+      "source": "derived: [R1.02] / [R5.03]",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.driver_left",
+     "electrical.driver_right"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.battery_pack": "The pack voltage is unchanged, so the duty limit that holds the average motor voltage at 6 V is unchanged."
+    }
+   },
+   {
+    "id": "electrical.driver_left",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "current_limit": {
+      "value": 1.8,
+      "unit": "A",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     },
+     "output_current": {
+      "value": 1.5,
+      "unit": "A",
+      "source": "https://www.pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-2.pdf",
+      "written_by": "electrical"
+     },
+     "current_draw": {
+      "value": 1.25,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.04] / [R5.03]",
+      "written_by": "electrical"
+     },
+     "thermal_resistance": {
+      "value": 60.9,
+      "unit": "K/W",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.battery_pack"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.battery_pack": "The pack voltage is unchanged, so the driver's pack-side current is unchanged."
+    }
+   },
+   {
+    "id": "electrical.driver_right",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "current_limit": {
+      "value": 1.8,
+      "unit": "A",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     },
+     "output_current": {
+      "value": 1.5,
+      "unit": "A",
+      "source": "https://www.pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-2.pdf",
+      "written_by": "electrical"
+     },
+     "current_draw": {
+      "value": 1.25,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.04] / [R5.03]",
+      "written_by": "electrical"
+     },
+     "thermal_resistance": {
+      "value": 60.9,
+      "unit": "K/W",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.battery_pack"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.battery_pack": "The pack voltage is unchanged, so the driver's pack-side current is unchanged."
+    }
+   }
+  ]
+ }
+}

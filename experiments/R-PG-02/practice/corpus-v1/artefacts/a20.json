@@ -1,0 +1,302 @@
+{
+ "id": "a20",
+ "error_class": "magnitude",
+ "expected_check": "magnitude",
+ "assigned_role": "firmware",
+ "description": "firmware.imu_driver sample_rate is 2000 Hz; it should be 200 Hz, one read per 200 Hz tilt estimator update. 2000 Hz is above the LSM6DS33 gyroscope's highest output data rate of 1666 Hz (R8.10). The part cannot deliver a new gyro sample at that rate, so the value is not physically achievable for this IMU. It is also ten times the scheduler tick of 200 Hz.",
+ "edge": null,
+ "clean": {
+  "nodes": [
+   {
+    "id": "firmware.balance_task",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 200,
+      "unit": "Hz",
+      "source": "design: runs control.balance_loop at its rate",
+      "written_by": "firmware"
+     },
+     "loop_gain": {
+      "value": 2.5,
+      "unit": "dimensionless",
+      "source": "design: gain of control.balance_loop",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.main",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "control.balance_loop",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 200,
+      "unit": "Hz",
+      "source": "design: inner tilt loop rate, above control.req_sample_rate",
+      "written_by": "control"
+     },
+     "loop_gain": {
+      "value": 2.5,
+      "unit": "dimensionless",
+      "source": "design: proportional gain from normalised tilt error to normalised motor command",
+      "written_by": "control"
+     },
+     "mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "control"
+     },
+     "torque_peak": {
+      "value": 110,
+      "unit": "kgf*cm",
+      "source": "derived: [R1.07] * [R2.11]",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.balance_task"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "control.tilt_estimator",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 200,
+      "unit": "Hz",
+      "source": "design: gyro and accelerometer fusion at the balance loop rate",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.imu_driver"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.imu_driver",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 200,
+      "unit": "Hz",
+      "source": "design: IMU read rate, one sample per tilt estimator update",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.main",
+     "control.tilt_estimator"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.main",
+    "kind": "module",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "clock_frequency": {
+      "value": 16,
+      "unit": "MHz",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     },
+     "sample_rate": {
+      "value": 200,
+      "unit": "Hz",
+      "source": "design: scheduler tick at the fastest task rate",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   }
+  ]
+ },
+ "injected": {
+  "nodes": [
+   {
+    "id": "firmware.balance_task",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 200,
+      "unit": "Hz",
+      "source": "design: runs control.balance_loop at its rate",
+      "written_by": "firmware"
+     },
+     "loop_gain": {
+      "value": 2.5,
+      "unit": "dimensionless",
+      "source": "design: gain of control.balance_loop",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.main",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "control.balance_loop",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 200,
+      "unit": "Hz",
+      "source": "design: inner tilt loop rate, above control.req_sample_rate",
+      "written_by": "control"
+     },
+     "loop_gain": {
+      "value": 2.5,
+      "unit": "dimensionless",
+      "source": "design: proportional gain from normalised tilt error to normalised motor command",
+      "written_by": "control"
+     },
+     "mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "control"
+     },
+     "torque_peak": {
+      "value": 110,
+      "unit": "kgf*cm",
+      "source": "derived: [R1.07] * [R2.11]",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.balance_task"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "control.tilt_estimator",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 200,
+      "unit": "Hz",
+      "source": "design: gyro and accelerometer fusion at the balance loop rate",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.imu_driver"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.imu_driver",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 2000,
+      "unit": "Hz",
+      "source": "design: IMU read rate, one sample per tilt estimator update",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.main",
+     "control.tilt_estimator"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.main",
+    "kind": "module",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "clock_frequency": {
+      "value": 16,
+      "unit": "MHz",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     },
+     "sample_rate": {
+      "value": 200,
+      "unit": "Hz",
+      "source": "design: scheduler tick at the fastest task rate",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   }
+  ]
+ }
+}

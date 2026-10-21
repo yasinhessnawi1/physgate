@@ -1,0 +1,308 @@
+{
+ "id": "a12",
+ "error_class": "magnitude",
+ "expected_check": "magnitude",
+ "assigned_role": "electrical",
+ "description": "electrical.imu current_draw is 90 mA in normal mode. The LSM6DS33 draws 0.9 mA with gyro and accelerometer in normal mode (R8.05) and 1.25 mA in high-performance mode (R8.04), so it should be 0.9 mA. 90 is the accelerometer noise density figure of R8.14. 90 mA is 100 times the part's rating and 72 times its highest-power mode, which is not plausible for a MEMS IMU. It also disagrees with the 0.140 W the 5 V regulator node carries for this load.",
+ "edge": null,
+ "clean": {
+  "nodes": [
+   {
+    "id": "electrical.imu",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 3.3,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "current_draw": {
+      "value": 0.9,
+      "unit": "mA",
+      "source": "https://www.pololu.com/file/0J1087/LSM6DS33.pdf",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.regulator_5v",
+     "electrical.control_board",
+     "control.tilt_estimator",
+     "firmware.imu_driver"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "electrical.regulator_5v",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 5,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.power",
+     "electrical.control_board"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.imu": "The 5 V rail keeps its voltage; a 0.35 mA lower IMU current only lightens its load, and the regulator holds no load or current figure."
+    }
+   },
+   {
+    "id": "electrical.control_board",
+    "kind": "module",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "max_input_voltage": {
+      "value": 10.8,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "supply_voltage": {
+      "value": 7.2,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "logic_voltage": {
+      "value": 5,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [
+     "electrical.req_input_voltage"
+    ],
+    "constrains": [
+     "mechanical.chassis"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.imu": "The IMU stays on the same 3.3 V supply; a lower supply current changes none of the board's voltages."
+    }
+   },
+   {
+    "id": "control.tilt_estimator",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: gyro and accelerometer fusion at the balance loop rate",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.imu_driver"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.imu": "Normal mode still delivers fresh gyro and accelerometer data at 208 Hz, above the 100 Hz estimator rate, so the estimator rate stands."
+    }
+   },
+   {
+    "id": "firmware.imu_driver",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: IMU read rate, one sample per tilt estimator update",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.main",
+     "control.tilt_estimator"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.imu": "The 100 Hz read rate stays below the 208 Hz normal-mode output data rate, so every read returns a new sample and the read rate stands."
+    }
+   }
+  ]
+ },
+ "injected": {
+  "nodes": [
+   {
+    "id": "electrical.imu",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 3.3,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "current_draw": {
+      "value": 90,
+      "unit": "mA",
+      "source": "https://www.pololu.com/file/0J1087/LSM6DS33.pdf",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.regulator_5v",
+     "electrical.control_board",
+     "control.tilt_estimator",
+     "firmware.imu_driver"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "electrical.regulator_5v",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 5,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.power",
+     "electrical.control_board"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.imu": "The 5 V rail keeps its voltage; a 0.35 mA lower IMU current only lightens its load, and the regulator holds no load or current figure."
+    }
+   },
+   {
+    "id": "electrical.control_board",
+    "kind": "module",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "max_input_voltage": {
+      "value": 10.8,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "supply_voltage": {
+      "value": 7.2,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "logic_voltage": {
+      "value": 5,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [
+     "electrical.req_input_voltage"
+    ],
+    "constrains": [
+     "mechanical.chassis"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.imu": "The IMU stays on the same 3.3 V supply; a lower supply current changes none of the board's voltages."
+    }
+   },
+   {
+    "id": "control.tilt_estimator",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: gyro and accelerometer fusion at the balance loop rate",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.imu_driver"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.imu": "Normal mode still delivers fresh gyro and accelerometer data at 208 Hz, above the 100 Hz estimator rate, so the estimator rate stands."
+    }
+   },
+   {
+    "id": "firmware.imu_driver",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: IMU read rate, one sample per tilt estimator update",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.main",
+     "control.tilt_estimator"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.imu": "The 100 Hz read rate stays below the 208 Hz normal-mode output data rate, so every read returns a new sample and the read rate stands."
+    }
+   }
+  ]
+ }
+}

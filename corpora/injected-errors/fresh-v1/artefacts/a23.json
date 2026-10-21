@@ -1,0 +1,291 @@
+{
+ "id": "a23",
+ "error_class": "propagation",
+ "expected_check": "propagation",
+ "assigned_role": "electrical",
+ "description": "The control board's outline (69.1 mm wide) is recorded and the board now constrains the chassis, where it sits between the wheels' 92 mm inner faces and leaves 22.9 mm of lateral clearance. The chassis keeps its base node with no board_lateral_clearance and no reason given, so the fit of the 69.1 mm board inside the 92 mm gap is never checked on the mechanical side.",
+ "edge": {
+  "source": "electrical.control_board",
+  "target": "mechanical.chassis"
+ },
+ "clean": {
+  "nodes": [
+   {
+    "id": "electrical.control_board",
+    "kind": "module",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "sensor_power_draw": {
+      "value": 2.97,
+      "unit": "mW",
+      "source": "derived: [R8.03] * [R8.05]",
+      "written_by": "electrical"
+     },
+     "board_length": {
+      "value": 109.2,
+      "unit": "mm",
+      "source": "https://www.pololu.com/file/0J1264/balboa-32u4-control-board-dimensions.pdf",
+      "written_by": "electrical"
+     },
+     "board_width": {
+      "value": 69.1,
+      "unit": "mm",
+      "source": "https://www.pololu.com/file/0J1264/balboa-32u4-control-board-dimensions.pdf",
+      "written_by": "electrical"
+     },
+     "board_thickness": {
+      "value": 1.57,
+      "unit": "mm",
+      "source": "https://www.pololu.com/file/0J1264/balboa-32u4-control-board-dimensions.pdf",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.regulator_5v",
+     "mechanical.chassis"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "electrical.regulator_5v",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 5,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "current_limit": {
+      "value": 2,
+      "unit": "A",
+      "source": "https://www.pololu.com/product/3575",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.battery_pack"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.control_board": "Only the board's outline was recorded; its load on the 5 V rail is unchanged, so the regulator's voltage and current limit are unchanged."
+    }
+   },
+   {
+    "id": "mechanical.chassis",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "reaction_moment": {
+      "value": 0.145,
+      "unit": "N*m",
+      "source": "derived: [R1.07] * [R1.25]",
+      "written_by": "mechanical"
+     },
+     "mass": {
+      "value": 165,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03]",
+      "written_by": "mechanical"
+     },
+     "track_width": {
+      "value": 102,
+      "unit": "mm",
+      "source": "derived: [R10.08] + [R10.09]",
+      "written_by": "mechanical"
+     },
+     "board_lateral_clearance": {
+      "value": 22.9,
+      "unit": "mm",
+      "source": "derived: [R10.08] - [R7.12]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.assembly"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.assembly",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "unladen_mass": {
+      "value": 165,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03]",
+      "written_by": "mechanical"
+     },
+     "mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "mechanical.chassis": "Only a fit clearance was added to the chassis; no part was added or moved, so the unladen and total masses are unchanged."
+    }
+   }
+  ]
+ },
+ "injected": {
+  "nodes": [
+   {
+    "id": "electrical.control_board",
+    "kind": "module",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "sensor_power_draw": {
+      "value": 2.97,
+      "unit": "mW",
+      "source": "derived: [R8.03] * [R8.05]",
+      "written_by": "electrical"
+     },
+     "board_length": {
+      "value": 109.2,
+      "unit": "mm",
+      "source": "https://www.pololu.com/file/0J1264/balboa-32u4-control-board-dimensions.pdf",
+      "written_by": "electrical"
+     },
+     "board_width": {
+      "value": 69.1,
+      "unit": "mm",
+      "source": "https://www.pololu.com/file/0J1264/balboa-32u4-control-board-dimensions.pdf",
+      "written_by": "electrical"
+     },
+     "board_thickness": {
+      "value": 1.57,
+      "unit": "mm",
+      "source": "https://www.pololu.com/file/0J1264/balboa-32u4-control-board-dimensions.pdf",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.regulator_5v",
+     "mechanical.chassis"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "electrical.regulator_5v",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 5,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "current_limit": {
+      "value": 2,
+      "unit": "A",
+      "source": "https://www.pololu.com/product/3575",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.battery_pack"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.control_board": "Only the board's outline was recorded; its load on the 5 V rail is unchanged, so the regulator's voltage and current limit are unchanged."
+    }
+   },
+   {
+    "id": "mechanical.chassis",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "reaction_moment": {
+      "value": 0.145,
+      "unit": "N*m",
+      "source": "derived: [R1.07] * [R1.25]",
+      "written_by": "mechanical"
+     },
+     "mass": {
+      "value": 165,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03]",
+      "written_by": "mechanical"
+     },
+     "track_width": {
+      "value": 102,
+      "unit": "mm",
+      "source": "derived: [R10.08] + [R10.09]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.assembly"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.assembly",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "unladen_mass": {
+      "value": 165,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03]",
+      "written_by": "mechanical"
+     },
+     "mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "mechanical.chassis": "Only a fit clearance was added to the chassis; no part was added or moved, so the unladen and total masses are unchanged."
+    }
+   }
+  ]
+ }
+}

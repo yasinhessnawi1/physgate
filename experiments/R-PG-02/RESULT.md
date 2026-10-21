@@ -408,8 +408,12 @@ replaced, and no review was re-run.
     Write and Edit only); their recorded checks show no tool outside that set, no guard refusal,
     no gate or answer mention, and no secret in their output.
 
-    > **[SLOT: the owner's statement, R7 item 10]** Who ran the authoring, and that no person or
-    > agent involved in tuning opened a file of the fresh set. *Not yet supplied.*
+    The owner's statement (Yasin Hessnawi, 21.10.2026):
+
+    > The fresh set was authored on 19.10.2026 by four new Opus sessions on the Oracle server,
+    > launched by a runner agent following a fixed command sheet; the runner read only counts,
+    > exit codes and audit summaries. No person or agent involved in tuning the gate or the
+    > reviewers opened a file of the fresh set before the run.
 11. An instrument fix before the run (19.10.2026, attempt 0's dry run): the pilot's stand-in and
     parameters, in the pilot script only; no pinned tree changed. The dry run's prefix scans
     self-match on repository text, as found again here (above).
@@ -422,13 +426,29 @@ replaced, and no review was re-run.
   scripts; the two keys differ (above). P5 uses the tally's figure, as §6 says.
 - The launch log's end time for b-fresh is the time the script reached it, not the run's (above).
 
-**Still to publish under §10** (not in this commit): the fresh corpus with its authors' records
-and the two continuation messages; the practice corpus and the tuning record (R9) under
-`experiments/R-PG-02/practice/`.
+**The rubric approver's exposure statement (R2)** (Yasin Hessnawi, 21.10.2026):
 
-> **[SLOT: the rubric approver's exposure statement, R2]** Who approved each rubric, and what
-> they had seen. *Not yet supplied.* The results rows, the
-tally's full output, the `physgate catches` output and the launch logs are in `evidence/`.
+> Yasin Hessnawi approved and promoted the rubric changes for practice rounds 1 and 2 on
+> 19.10.2026. Before approving he had seen the drafters' change summaries, the practice-round
+> results (rounds 0 and 1), and R-PG-01's published result. He had not seen any file of the fresh
+> set or any R-PG-02 review.
+
+**Published under §10:**
+
+| What | Where |
+|---|---|
+| The results rows, one per item and arm | `evidence/rows_*.jsonl` |
+| The tally's full output; `physgate catches` over each run, held to the rows | `evidence/tally_2026_10_20.json`, `evidence/post_run_checks_2026_10_20.txt` |
+| The fresh corpus (manifest sha256 `e76a4904…d37620c`, checked after the copy) | `corpora/injected-errors/fresh-v1/` |
+| Its authors' records, the frozen briefs and the two continuation messages (each digest checks) | `fresh-authoring/` |
+| The practice corpus (manifest sha256 `ddc255ab…ddfb0`, checked after the copy) | `practice/corpus-v1/` |
+| The tuning record (R9): every reviewer-track iteration, the round not kept included, with its configuration, both directions and its tokens; the two rubric rules | `practice/README.md`, `practice/tuning/` |
+| Every R7 exposure, beside the headline; the rubric approver's statement | this file |
+
+Before they were committed, the added files were scanned, counts only: 133 files; the real
+token's prefixes `sk-ant-` and `oat01` appear in 2 files, the two launch logs' own scan lines,
+and no file holds a token-shaped string. The sessions' transcripts and the runtime's account
+files are not published (`fresh-authoring/README.md`).
 
 ## Limits
 

@@ -1,0 +1,41 @@
+{
+ "exit": 0,
+ "binary_sha256": "1e119036a802d359ba5f9886428e031586e8796f7a858d5a8ee179ac7b8604f0",
+ "stream_sha256": "97571adc5f4e345da77c12ce2dd7ceaf91e9760e3db8e73f93bae15e75e43d0f",
+ "session_id": "e268c6a4-9081-45ec-92dc-f7f6974de18a",
+ "num_turns": 49,
+ "is_error": false,
+ "subtype": "success",
+ "usage": {
+  "input_tokens": 24,
+  "cache_creation_input_tokens": 127384,
+  "cache_read_input_tokens": 847085,
+  "output_tokens": 37425,
+  "output_tokens_details": {
+   "thinking_tokens": 18034
+  },
+  "server_tool_use": {
+   "web_search_requests": 0,
+   "web_fetch_requests": 0
+  },
+  "service_tier": "standard",
+  "cache_creation": {
+   "ephemeral_1h_input_tokens": 127384,
+   "ephemeral_5m_input_tokens": 0
+  },
+  "inference_geo": "global",
+  "iterations": [],
+  "speed": "standard",
+  "fallback_credit": null
+ },
+ "total_cost_usd": 1.9370850000000002,
+ "models": [
+  "claude-opus-5-5"
+ ],
+ "secret_scan": {
+  "token_value": 0,
+  "sk_ant_prefix": 0,
+  "oat_prefix": 0,
+  "files_scanned": 63
+ }
+}

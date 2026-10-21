@@ -1,0 +1,312 @@
+{
+ "id": "a32",
+ "error_class": "unit",
+ "expected_check": "units",
+ "assigned_role": "electrical",
+ "description": "The left driver's no_load_current_draw should be 0.125 A (6 V x 150 mA / 7.2 V). It is written as 125 A: the no-load row R1.06 is given in mA, and its number was carried into the arithmetic as if it were amperes. Evaluating the node's own derivation gives 125 mA, a thousand times less than the labelled value, which is also 70 times the driver's 1.8 A limit.",
+ "edge": null,
+ "clean": {
+  "nodes": [
+   {
+    "id": "electrical.driver_left",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "current_limit": {
+      "value": 1.8,
+      "unit": "A",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     },
+     "output_current": {
+      "value": 1.5,
+      "unit": "A",
+      "source": "https://www.pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-2.pdf",
+      "written_by": "electrical"
+     },
+     "current_draw": {
+      "value": 1.25,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.04] / [R5.03]",
+      "written_by": "electrical"
+     },
+     "no_load_current_draw": {
+      "value": 0.125,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.06] / [R5.03]",
+      "written_by": "electrical"
+     },
+     "thermal_resistance": {
+      "value": 60.9,
+      "unit": "K/W",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.battery_pack"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "electrical.driver_right",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "current_limit": {
+      "value": 1.8,
+      "unit": "A",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     },
+     "output_current": {
+      "value": 1.5,
+      "unit": "A",
+      "source": "https://www.pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-2.pdf",
+      "written_by": "electrical"
+     },
+     "current_draw": {
+      "value": 1.25,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.04] / [R5.03]",
+      "written_by": "electrical"
+     },
+     "no_load_current_draw": {
+      "value": 0.125,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.06] / [R5.03]",
+      "written_by": "electrical"
+     },
+     "thermal_resistance": {
+      "value": 60.9,
+      "unit": "K/W",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.battery_pack"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "electrical.battery_pack",
+    "kind": "module",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 7.2,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "charge_capacity": {
+      "value": 2.2,
+      "unit": "A*h",
+      "source": "https://www.pololu.com/product/1003/specs",
+      "written_by": "electrical"
+     },
+     "energy_capacity": {
+      "value": 15.8,
+      "unit": "W*h",
+      "source": "derived: [R5.03] * [R5.06]",
+      "written_by": "electrical"
+     },
+     "mass": {
+      "value": 165,
+      "unit": "g",
+      "source": "derived: [R5.07] * [R5.10]",
+      "written_by": "electrical"
+     },
+     "motor_current_draw": {
+      "value": 2.5,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.04] * [R4.19] / [R5.03]",
+      "written_by": "electrical"
+     },
+     "motor_power_draw": {
+      "value": 18.0,
+      "unit": "W",
+      "source": "derived: [R1.02] * [R1.04] * [R4.19]",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.assembly",
+     "firmware.motor_output",
+     "electrical.driver_left",
+     "electrical.driver_right"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.driver_left": "The pack's motor draw is budgeted at stall, the worst case, which is unchanged; the no-load figure lies inside it.",
+     "electrical.driver_right": "The pack's motor draw is budgeted at stall, the worst case, which is unchanged; the no-load figure lies inside it."
+    }
+   }
+  ]
+ },
+ "injected": {
+  "nodes": [
+   {
+    "id": "electrical.driver_left",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "current_limit": {
+      "value": 1.8,
+      "unit": "A",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     },
+     "output_current": {
+      "value": 1.5,
+      "unit": "A",
+      "source": "https://www.pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-2.pdf",
+      "written_by": "electrical"
+     },
+     "current_draw": {
+      "value": 1.25,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.04] / [R5.03]",
+      "written_by": "electrical"
+     },
+     "no_load_current_draw": {
+      "value": 125,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.06] / [R5.03]",
+      "written_by": "electrical"
+     },
+     "thermal_resistance": {
+      "value": 60.9,
+      "unit": "K/W",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.battery_pack"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "electrical.driver_right",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "current_limit": {
+      "value": 1.8,
+      "unit": "A",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     },
+     "output_current": {
+      "value": 1.5,
+      "unit": "A",
+      "source": "https://www.pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-2.pdf",
+      "written_by": "electrical"
+     },
+     "current_draw": {
+      "value": 1.25,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.04] / [R5.03]",
+      "written_by": "electrical"
+     },
+     "no_load_current_draw": {
+      "value": 0.125,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.06] / [R5.03]",
+      "written_by": "electrical"
+     },
+     "thermal_resistance": {
+      "value": 60.9,
+      "unit": "K/W",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.battery_pack"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "electrical.battery_pack",
+    "kind": "module",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 7.2,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "charge_capacity": {
+      "value": 2.2,
+      "unit": "A*h",
+      "source": "https://www.pololu.com/product/1003/specs",
+      "written_by": "electrical"
+     },
+     "energy_capacity": {
+      "value": 15.8,
+      "unit": "W*h",
+      "source": "derived: [R5.03] * [R5.06]",
+      "written_by": "electrical"
+     },
+     "mass": {
+      "value": 165,
+      "unit": "g",
+      "source": "derived: [R5.07] * [R5.10]",
+      "written_by": "electrical"
+     },
+     "motor_current_draw": {
+      "value": 2.5,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.04] * [R4.19] / [R5.03]",
+      "written_by": "electrical"
+     },
+     "motor_power_draw": {
+      "value": 18.0,
+      "unit": "W",
+      "source": "derived: [R1.02] * [R1.04] * [R4.19]",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.assembly",
+     "firmware.motor_output",
+     "electrical.driver_left",
+     "electrical.driver_right"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.driver_left": "The pack's motor draw is budgeted at stall, the worst case, which is unchanged; the no-load figure lies inside it.",
+     "electrical.driver_right": "The pack's motor draw is budgeted at stall, the worst case, which is unchanged; the no-load figure lies inside it."
+    }
+   }
+  ]
+ }
+}

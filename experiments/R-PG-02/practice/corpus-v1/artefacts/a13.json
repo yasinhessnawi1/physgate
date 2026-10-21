@@ -1,0 +1,140 @@
+{
+ "id": "a13",
+ "error_class": "propagation",
+ "expected_check": "propagation",
+ "assigned_role": "firmware",
+ "description": "firmware.imu_driver raises the IMU read rate from 100 to 200 Hz, but control.tilt_estimator is left as in the base with sample_rate 100 Hz. It should be 200 Hz. The estimator is defined as one fusion step per IMU read, and its integration time step now differs by a factor of two from the rate at which samples arrive. It would either drop every second sample or integrate the gyro rate over half the actual interval. It has no no_change_justified entry for firmware.imu_driver.",
+ "edge": {
+  "source": "firmware.imu_driver",
+  "target": "control.tilt_estimator"
+ },
+ "clean": {
+  "nodes": [
+   {
+    "id": "firmware.imu_driver",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 200,
+      "unit": "Hz",
+      "source": "design: IMU read rate, one sample per tilt estimator update",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.main",
+     "control.tilt_estimator"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "control.tilt_estimator",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 200,
+      "unit": "Hz",
+      "source": "design: gyro and accelerometer fusion at every IMU read, twice the balance loop rate",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.imu_driver"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.main",
+    "kind": "module",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "clock_frequency": {
+      "value": 16,
+      "unit": "MHz",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     },
+     "sample_rate": {
+      "value": 200,
+      "unit": "Hz",
+      "source": "design: scheduler tick at the fastest task rate",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   }
+  ]
+ },
+ "injected": {
+  "nodes": [
+   {
+    "id": "firmware.imu_driver",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 200,
+      "unit": "Hz",
+      "source": "design: IMU read rate, one sample per tilt estimator update",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.main",
+     "control.tilt_estimator"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.main",
+    "kind": "module",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "clock_frequency": {
+      "value": 16,
+      "unit": "MHz",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     },
+     "sample_rate": {
+      "value": 200,
+      "unit": "Hz",
+      "source": "design: scheduler tick at the fastest task rate",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   }
+  ]
+ }
+}
