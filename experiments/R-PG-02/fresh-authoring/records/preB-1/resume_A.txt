@@ -1,0 +1,5 @@
+The design was checked. These checks failed, each with its message:
+
+- the base: the base does not load: a derived quantity cites a row that is not one number on the parts sheet
+
+Fix the files named (base.json, or the revision in clean/), and any revision in clean/ that carries the same nodes, so these hold. Change nothing else. Then update done.md and stop.

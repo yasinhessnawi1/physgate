@@ -1,0 +1,31 @@
+{
+ "author_model": "claude-opus-5-5",
+ "files": {
+  "README.md": "98906d4f61051c053c79cee1edd852a053c0a50a043e9e9dcf8139fd7f09f04d",
+  "artefacts/a01.json": "89879c060e78f5244a607dea7eed81b2a6be757c95d9ae6075f0e39e1d6c4101",
+  "artefacts/a02.json": "aa1be818cc02faa8338c7728124ba6d1f7d192308393d3d290abe91a76d3dfe4",
+  "artefacts/a03.json": "17987827ed06d7a4c6df2bc748866a386c3fcb5fb72fa8f1a70b5534b7f9b8ac",
+  "artefacts/a04.json": "c0e2e07f9b9574c52029bd6475ed8eb65eff94ecce8324e635ff5ee5ad6a6dd2",
+  "artefacts/a05.json": "2b80c6b7474bc760c304c2eb4e5c50d0b32949d290355b01bd5cafe52a0ebf77",
+  "artefacts/a06.json": "daa71a52f35b4672ae7c2f7e73d4c727dd55811d9626e87c86f344a8392c1592",
+  "artefacts/a07.json": "2e3c7fc7fb8a4be2c877dd5a649bcbf24cf724b8a5f5cb299daa4d99e743cb76",
+  "artefacts/a08.json": "edfd157330ca563983a6b4c603b70626e5be64648c14a0eb9c93cbe6232e70ee",
+  "artefacts/a09.json": "ade40f217dc7c8d8d83b0286a631b44a876fd08ee8db4a1a1f7aaba0d2c08d39",
+  "artefacts/a10.json": "b68d84539a3141f4660d93d5987947d5c1e547bb248dfa98dab7c5ed90000328",
+  "artefacts/a11.json": "9ce41048f86359c5bdf20a353b345575a5269bcec75e428bc22fd68207d6838c",
+  "artefacts/a12.json": "ff94a3da30a3a3879e840c0f1723048be549a0ed7a00352300120603bd456e6b",
+  "artefacts/a13.json": "a83d0ea42affb19d3906e9eecab4d7942d8e2d79767a3af86c7015af1069000c",
+  "artefacts/a14.json": "d0a40b34b48e08ce261bd5e9eb6b05c9279349e0fde99a7b7d2d89f4e4c28264",
+  "artefacts/a15.json": "7c822dc23f8e53e00c5b560c831ab20a903fea4b25cc4bbc55ac9ca266e24a7b",
+  "artefacts/a16.json": "3dbc3f88d342fab6724d7bf1caba615bad38bde0fead1a457b25cf332eea57fa",
+  "artefacts/a17.json": "93bc1bed1e2dbc27529e3c42586dbe52a05285125ea7778a58ef0bf338a5980f",
+  "artefacts/a18.json": "09149e2177b661bc67f077f37be36294f1aea806b21c30cd21155f9fa7b1d028",
+  "artefacts/a19.json": "ccd26e6793604b5a475a52420d0696237d7fbaac35201fe77526533355a4fc1d",
+  "artefacts/a20.json": "696e9e7247bd58393c5ceb06d4dcb0e42895e8cfb4ea222ab9f307f49cf5ec54",
+  "base.json": "4a8f1f0616f4348add4197f3a7af9c1f71c58adca7d12a79a13c1e72d03fec12",
+  "parts_sheet.md": "29f9568ce8465112ef0b0b164f05f3ba76f9702e3ccbc7a1dea96fbc3d057b3f",
+  "sources.json": "bc1e5ec15c6f1df823f5a39207b0656b6a2b388eca4d3414db007b4d7999ca91"
+ },
+ "format": 1,
+ "label": "stand-in design from a sourced parts sheet of the Pololu Balboa 32U4 balancing robot; not the reference design (the practice set of R-PG-02: twenty revisions, five per class; never a result)"
+}

@@ -1,0 +1,52 @@
+== R-PG-02 launch, attempt 1, 2026-10-19T21:20:48Z, stop after: run
+ok  configuration K, tuning-freeze commit 48929eb2f1ba0d770b02914e4a2b29a62a27e486
+ok  HEAD, the commit that last changed experiments/R-PG-02 0132d01f1007c568878d7bfb34da590c33b0977d
+ok  run commit 0132d01f1007c568878d7bfb34da590c33b0977d, clean, on origin/master, after the tuning freeze 48929eb2f1ba0d770b02914e4a2b29a62a27e486
+ok  gate tree 1e169aac5679d743d4b0585090a45bcd06ea1a63
+ok  electrical bounds blob 3bbdc33b7e4ab1df2b2a32d48003fbffa876ebc0
+ok  electrical bounds sha256 a5c3be61b6898b1a2408b8957c71fa3008c374f3de1c8fa56423c559c9019663
+ok  cross bounds blob b68fd58f31a9469124d4accc26a8a9c6f1dde7cf
+ok  cross bounds sha256 ddb96fc7582241392eb5db407f336c8d8a37c313272c400522ec11b4218fefed
+ok  spelling blob eaa4ce697092d27545a19c87c6d92fc6f1e966fc
+ok  reviewers tree e072e6a908535b5c42e78a30aa1ff0b95cb9ef3a
+ok  instrument tree 93e5c3275997eea4633e5c141fbf80a6f271a029
+ok  rubrics tree b5d5a31e8073ec99d356f41b4086885607c2a4aa
+ok  control rubric 08a5cfbc1b6729843bd5f6d8cad5c3596faaeecc596fb472230905815a2677d6
+ok  electrical rubric 5ca8c13584ac896abda9825d52a0a3b8177866024e68249ad75375c59086b445
+ok  firmware rubric 614ad78c9ebceba6903fba31267801e970162d80fbf10df0713064c99377c25e
+ok  mechanical rubric ee68896b4adce53b1e66330d1c8072e5afbac66a547d077abd4d0325ef8dadf8
+ok  old set tree 77782679f15eae4301e86516541b4a3c5c6613b0
+ok  old set manifest sha256 41553301d5b036f84df289ee6d8c87ecce4504d5a09969e05291e23c9ebc026a
+ok  fresh set manifest sha256 e76a4904e7b42326a85a9a9267973518e6f79b510c8f2b8b3391e8b23d37620c
+ok  catalogue digest 9bf73a7dfd74f49fc0b094a45df9564fdff5de129e170d06ce8d54851a841c88
+ok  account paragraphs sha256 8580efd05af6fd2d304810950f00bb2c3d462302dddfd00b1d12373e340ab838
+ok  binary sha256 1e119036a802d359ba5f9886428e031586e8796f7a858d5a8ee179ac7b8604f0
+ok  binary version 2.1.301
+ok  params_fresh.json a317a6a9e40ead4a6c540b11a6b772d591669cb4ad335d41f37cda30a07e4272
+ok  params_old.json 55cb2485d5b8f14758e28efb7c4f76848c54b895dd250f17b6891a42e4a4c49e
+{"budget": 4, "files": {"a-fresh": 1, "a-old": 2, "b-fresh": 1}, "holds": true, "rule": {"a-fresh": 1, "a-old": 2, "b-fresh": 1}}
+plan a-fresh: {"classes_per_lane": {"equilibrium": {"0": 10}, "magnitude": {"0": 10}, "propagation": {"0": 10}, "unit": {"0": 10}}, "holds": true, "items_per_lane": {"0": 80}, "lanes": 1, "lanes_json_sha256": "f5a85c842f2f92ceb267c9f21245a13ecf88d80e0d124536919a4f31f9b0a58c", "seed": 13}
+plan b-fresh: {"classes_per_lane": {"equilibrium": {"0": 10}, "magnitude": {"0": 10}, "propagation": {"0": 10}, "unit": {"0": 10}}, "holds": true, "items_per_lane": {"0": 80}, "lanes": 1, "lanes_json_sha256": "f5a85c842f2f92ceb267c9f21245a13ecf88d80e0d124536919a4f31f9b0a58c", "seed": 13}
+plan a-old: {"classes_per_lane": {"equilibrium": {"0": 5, "1": 5}, "magnitude": {"0": 5, "1": 5}, "propagation": {"0": 5, "1": 5}, "unit": {"0": 5, "1": 5}}, "holds": true, "items_per_lane": {"0": 40, "1": 40}, "lanes": 2, "lanes_json_sha256": "1552b4741ae5471f64e0118c1f7cad4344f28b9d1ddca72be9faa91907eecc6b", "seed": 7}
+{"library_files_checked": 16, "places_checked": 6, "problems": [], "review_roots": ["/home/ubuntu/review-scratch/rp2-1-1", "/home/ubuntu/review-scratch/rp2-1-2", "/home/ubuntu/review-scratch/rp2-1-3"], "sets": {"fresh": 45, "old": 45, "practice": 25}}
+ok  29 passed in 38.60s
+ok  2 passed in 0.10s
+ok  R3
+{"dry_run": "ok", "problems": [], "requests": 120, "distinct": 1}
+ok  request defaults recorded in /home/ubuntu/runs/rpg02/attempt-1/logs/request_defaults.json
+{"holds": true, "manifest_sha256": "e76a4904e7b42326a85a9a9267973518e6f79b510c8f2b8b3391e8b23d37620c", "records_sha256": "f78681918bb45fc5326e7735fa1b7d0a16f42433eb37ff42c19d255cd0002621", "source_check": {"mismatch": 0, "subtracted": 71, "unresolved": 30}, "twins": 40, "twins_with_no_failing_record": 40}
+{"expected_count": 40, "expected_records_sha256": "4a23d22dd255d41afa9934aba77caeb1ee8a819def1428741a5e41f1f8598d11", "holds": true, "manifest_sha256": "41553301d5b036f84df289ee6d8c87ecce4504d5a09969e05291e23c9ebc026a", "records_sha256": "4a23d22dd255d41afa9934aba77caeb1ee8a819def1428741a5e41f1f8598d11", "twins": 40, "twins_with_no_failing_record": 40}
+ok  R4
+ok  token found: yes
+== the three runs start 2026-10-19T21:23:40Z: /home/ubuntu/runs/rpg02/attempt-1
+started a-fresh, pid 3858737, 2026-10-19T21:23:40Z
+started b-fresh, pid 3858748, 2026-10-19T21:23:40Z
+started a-old, pid 3858759, 2026-10-19T21:23:41Z
+ok  the three runs are running
+== a-fresh ended 2026-10-20T05:27:14Z, exit 143; last line: 
+== b-fresh ended 2026-10-20T05:27:14Z, exit 143; last line: 
+== a-old ended 2026-10-20T05:27:14Z, exit 143; last line: 
+scan token: 0 files
+scan sk-ant-: 10 files
+scan oat01: 10 files
+== the experiment's runs ended 2026-10-20T05:27:14Z

@@ -1,0 +1,208 @@
+{
+ "id": "a33",
+ "error_class": "unit",
+ "expected_check": "units",
+ "assigned_role": "electrical",
+ "description": "The cell's energy_capacity should be 2.64 W*h (1.2 V x 2.2 A*h). It is written as 2.64 J: the watt-hour number labelled with the SI energy unit. Evaluating the node's own derivation gives 2.64 W*h = 9500 J, so the labelled value is 3600 times too small, and six cells at 2.64 J no longer account for the pack's 15.8 W*h.",
+ "edge": null,
+ "clean": {
+  "nodes": [
+   {
+    "id": "electrical.battery_cell",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "rated_voltage": {
+      "value": 1.2,
+      "unit": "V",
+      "source": "https://www.pololu.com/product/1003/specs",
+      "written_by": "electrical"
+     },
+     "charge_capacity": {
+      "value": 2.2,
+      "unit": "A*h",
+      "source": "https://www.pololu.com/product/1003/specs",
+      "written_by": "electrical"
+     },
+     "energy_capacity": {
+      "value": 2.64,
+      "unit": "W*h",
+      "source": "derived: [R5.05] * [R5.06]",
+      "written_by": "electrical"
+     },
+     "mass_per_cell": {
+      "value": 27.5,
+      "unit": "g",
+      "source": "https://www.pololu.com/product/1003/specs",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.battery_pack"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "electrical.battery_pack",
+    "kind": "module",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 7.2,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "charge_capacity": {
+      "value": 2.2,
+      "unit": "A*h",
+      "source": "https://www.pololu.com/product/1003/specs",
+      "written_by": "electrical"
+     },
+     "energy_capacity": {
+      "value": 15.8,
+      "unit": "W*h",
+      "source": "derived: [R5.03] * [R5.06]",
+      "written_by": "electrical"
+     },
+     "mass": {
+      "value": 165,
+      "unit": "g",
+      "source": "derived: [R5.07] * [R5.10]",
+      "written_by": "electrical"
+     },
+     "motor_current_draw": {
+      "value": 2.5,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.04] * [R4.19] / [R5.03]",
+      "written_by": "electrical"
+     },
+     "motor_power_draw": {
+      "value": 18.0,
+      "unit": "W",
+      "source": "derived: [R1.02] * [R1.04] * [R4.19]",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.assembly",
+     "firmware.motor_output",
+     "electrical.driver_left",
+     "electrical.driver_right"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.battery_cell": "Six cells of 2.64 W*h give 15.84 W*h, the pack energy already carried as 15.8 W*h; the cell's voltage, capacity and mass are unchanged."
+    }
+   }
+  ]
+ },
+ "injected": {
+  "nodes": [
+   {
+    "id": "electrical.battery_cell",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "rated_voltage": {
+      "value": 1.2,
+      "unit": "V",
+      "source": "https://www.pololu.com/product/1003/specs",
+      "written_by": "electrical"
+     },
+     "charge_capacity": {
+      "value": 2.2,
+      "unit": "A*h",
+      "source": "https://www.pololu.com/product/1003/specs",
+      "written_by": "electrical"
+     },
+     "energy_capacity": {
+      "value": 2.64,
+      "unit": "J",
+      "source": "derived: [R5.05] * [R5.06]",
+      "written_by": "electrical"
+     },
+     "mass_per_cell": {
+      "value": 27.5,
+      "unit": "g",
+      "source": "https://www.pololu.com/product/1003/specs",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.battery_pack"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "electrical.battery_pack",
+    "kind": "module",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 7.2,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "charge_capacity": {
+      "value": 2.2,
+      "unit": "A*h",
+      "source": "https://www.pololu.com/product/1003/specs",
+      "written_by": "electrical"
+     },
+     "energy_capacity": {
+      "value": 15.8,
+      "unit": "W*h",
+      "source": "derived: [R5.03] * [R5.06]",
+      "written_by": "electrical"
+     },
+     "mass": {
+      "value": 165,
+      "unit": "g",
+      "source": "derived: [R5.07] * [R5.10]",
+      "written_by": "electrical"
+     },
+     "motor_current_draw": {
+      "value": 2.5,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.04] * [R4.19] / [R5.03]",
+      "written_by": "electrical"
+     },
+     "motor_power_draw": {
+      "value": 18.0,
+      "unit": "W",
+      "source": "derived: [R1.02] * [R1.04] * [R4.19]",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.assembly",
+     "firmware.motor_output",
+     "electrical.driver_left",
+     "electrical.driver_right"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.battery_cell": "Six cells of 2.64 W*h give 15.84 W*h, the pack energy already carried as 15.8 W*h; the cell's voltage, capacity and mass are unchanged."
+    }
+   }
+  ]
+ }
+}

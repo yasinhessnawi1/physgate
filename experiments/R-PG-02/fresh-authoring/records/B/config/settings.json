@@ -1,0 +1,16 @@
+{
+ "disableAllHooks": false,
+ "hooks": {
+  "PreToolUse": [
+   {
+    "matcher": "*",
+    "hooks": [
+     {
+      "type": "command",
+      "command": "/usr/bin/python3 -I /home/ubuntu/runs/rpg02/authors/B/config/guard.py /home/ubuntu/runs/rpg02/authors/B/scratch"
+     }
+    ]
+   }
+  ]
+ }
+}

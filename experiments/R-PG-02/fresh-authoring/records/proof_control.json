@@ -1,0 +1,27 @@
+{
+ "guarded": false,
+ "binary_exit": 0,
+ "served": 10,
+ "offered_tools": [
+  "Edit",
+  "Read",
+  "Write"
+ ],
+ "marker_in_anything_sent_back": true,
+ "brief_sent_back": true,
+ "parent_memory_sent": false,
+ "requests_recorded": 10,
+ "written_outside": true,
+ "told_after_each_attempt": {
+  "read absolute": "1\tPLANTED-OUTSIDE-7f3c1a\n2\t",
+  "read ..": "Wasted call \u2014 file unchanged since your last Read. Refer to that earlier tool_result instead.",
+  "read through a symlink": "1\tPLANTED-OUTSIDE-7f3c1a\n2\t",
+  "write outside": "File created successfully at: /tmp/author-probe-nip4y5xo/outside/new.txt (file state is current in your context \u2014 no need to Read it back)",
+  "edit outside": "The file /tmp/author-probe-nip4y5xo/outside/planted.txt has been updated successfully. (file state is current in your context \u2014 no need to Read it back)",
+  "read through ~": "1\tPLANTED-edited-7f3c1a\n2\t",
+  "bash": "<tool_use_error>Error: No such tool available: Bash. Bash is disabled for this session, in subagents as well as here.</tool_use_error>",
+  "webfetch": "<tool_use_error>Error: No such tool available: WebFetch. WebFetch is disabled for this session, in subagents as well as here.</tool_use_error>",
+  "read inside (control)": "1\tTHE BRIEF-2b91\n2\t"
+ },
+ "stderr_tail": ""
+}

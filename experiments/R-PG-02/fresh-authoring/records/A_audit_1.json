@@ -1,0 +1,44 @@
+{
+ "tool_calls": {
+  "Read": 7,
+  "Write": 22
+ },
+ "tools_not_allowed": [],
+ "paths_outside_scratch": [],
+ "guard_refusals": 0,
+ "other_tool_errors": 0,
+ "models": [
+  "claude-opus-5-5"
+ ],
+ "gate_or_answer_mentions": {},
+ "files_in_scratch": [
+  "architecture.md",
+  "base.json",
+  "brief.md",
+  "clean/a01.json",
+  "clean/a02.json",
+  "clean/a03.json",
+  "clean/a04.json",
+  "clean/a05.json",
+  "clean/a06.json",
+  "clean/a07.json",
+  "clean/a08.json",
+  "clean/a09.json",
+  "clean/a10.json",
+  "clean/a11.json",
+  "clean/a12.json",
+  "clean/a13.json",
+  "clean/a14.json",
+  "clean/a15.json",
+  "clean/a16.json",
+  "clean/a17.json",
+  "clean/a18.json",
+  "clean/a19.json",
+  "clean/a20.json",
+  "done.md",
+  "format.md",
+  "parts_sheet.md",
+  "risk_row_1.md",
+  "vocabulary.md"
+ ]
+}
