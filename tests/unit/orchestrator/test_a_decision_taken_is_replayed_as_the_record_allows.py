@@ -440,10 +440,10 @@ def _resolution(verb: str | None, shown: str | None = DIGEST) -> QueueResolution
     return QueueResolution(
         item_id="run-1-s1",
         ts=TS,
-        decision=verb or "free text",
+        decision={"approve": "approve", "reject": "reject: split it"}.get(verb or "", "free text"),
         resolved_by="yasin",
         verb=verb,  # type: ignore[arg-type]
-        note=None,
+        note="split it" if verb == "reject" else None,
         shown_sha256=shown if verb else None,
     )
 

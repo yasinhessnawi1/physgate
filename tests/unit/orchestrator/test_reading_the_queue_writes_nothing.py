@@ -154,13 +154,13 @@ def test_a_torn_final_line_is_not_read_and_not_cut(
         (DECISIONS_NAME, b"not a record\n", "Invalid JSON"),
         (
             DECISIONS_NAME,
-            b'{"kind":"resolution","item_id":"nope","ts":"2026-10-10T00:00:00.000000Z",'
+            b'{"item_id":"nope","ts":"2026-10-10T00:00:00.000000Z","kind":"resolution",'
             b'"decision":"x","resolved_by":"y"}\n',
             "which is not an open item",
         ),
         (
             DECISIONS_NAME,
-            b'{"kind":"resolution","item_id":"run-1-s1","ts":"2026-10-10T00:00:00.000000Z",'
+            b'{"item_id":"run-1-s1","ts":"2026-10-10T00:00:00.000000Z","kind":"resolution",'
             b'"decision":"x","resolved_by":"y"}\n',
             "which is not an open item",
         ),

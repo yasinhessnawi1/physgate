@@ -149,11 +149,11 @@ def test_a_process_killed_before_the_escalation_escalates_on_resume_without_revi
     loop = rig.open()
     loop.start(plan("s1"))
 
-    def killed(self: Loop, subtask_id: str, blocked: ReviewRan) -> None:
+    def killed(self: Loop, subtask_id: str) -> None:
         raise KilledError
 
     with monkeypatch.context() as patch:
-        patch.setattr(Loop, "_escalate_blocked", killed)
+        patch.setattr(Loop, "_to_a_person", killed)
         with pytest.raises(KilledError):
             loop.run()
     loop.close()

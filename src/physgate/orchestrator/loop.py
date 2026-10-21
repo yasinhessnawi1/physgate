@@ -106,7 +106,6 @@ from physgate.orchestrator.protocols import (
     Reviewer,
     ReviewResult,
     SessionTrajectory,
-    SpecDefect,
     require_mode,
     require_separate_models,
 )
@@ -600,10 +599,8 @@ class Loop:
                 self._decide(step.subtask_id, step.attempt)
             elif step.kind == "escalate":
                 now = self.state.subtasks[step.subtask_id].attempts[-1]
-                if now.unavailable_final is not None:
-                    self._escalate_unavailable(step.subtask_id, now.unavailable_final)
-                elif now.blocked is not None:
-                    self._escalate_blocked(step.subtask_id, now.blocked)
+                if now.unavailable_final is not None or now.blocked is not None:
+                    self._to_a_person(step.subtask_id)
                 else:
                     self._escalate(step.subtask_id)
             elif step.kind == "infra_failed":
@@ -703,14 +700,26 @@ class Loop:
         except QueueItemMismatchError as exc:
             self._incident(None, "queue_item_mismatch", f"{exc}: {exc.context}")
             return False
-        if taken.acts and taken.effect == "merge" and subtask_id is not None and commit:
-            if self._merger.artefact_diff(commit) != item.artefact_diff:
-                detail = f"item {item.item_id}: the attempt's diff is not the one the item shows"
+        # Held to the record whole, not field by field: the item as listed must be the item the
+        # loop builds from the log now, its links, finding, diff and consequence alike. Otherwise
+        # the person decided on something the run did not write.
+        if (
+            resolution.verb is not None
+            and subtask_id is not None
+            and self._item_for(subtask_id, item_id=item.item_id, ts=item.ts, scan=scan) != item
+        ):
+            detail = f"item {item.item_id} is not the item the run's record builds"
+            self._incident(None, "queue_item_mismatch", detail)
+            return False
+        if taken.acts and taken.effect == "merge":
+            if subtask_id is None or commit is None:
+                detail = f"item {item.item_id}: an approve that merges names no attempt's commit"
                 self._incident(None, "queue_item_mismatch", detail)
                 return False
-            # Every trajectory the item links, of every attempt, as the person was shown them.
+            # Every trajectory of every attempt, each held to its seal: a stream named and not
+            # sealed is one nothing can vouch for, and refuses the merge.
             sessions = [s for a in self.state.subtasks[subtask_id].attempts for s in a.ended]
-            if not self._trajectories_hold(None, sessions):
+            if not self._sealed_hold(sessions):
                 return False
         self._emit(
             DecisionTaken(
@@ -741,8 +750,14 @@ class Loop:
         """
         streams: list[bytes] = []
         for session in self.state.subtasks[subtask_id].attempts[-1].ended:
-            if session.trajectory is None or session.trajectory_seal is None:
-                continue
+            if session.trajectory is None:
+                continue  # nothing was captured: no stream, and none a reviewer was shown
+            if session.trajectory_seal is None:
+                # A stream named and never sealed: the scan cannot say what it held, and an
+                # unscanned stream is never one that showed nothing.
+                detail = f"subtask {subtask_id}: session {session.session_id}'s stream has no seal"
+                self._incident(where, "trajectory_tampered", detail)
+                return None
             try:
                 streams.append(read_sealed(Path(session.trajectory), session.trajectory_seal))
             except TrajectoryTamperedError as exc:
@@ -1550,6 +1565,15 @@ class Loop:
             checks=checks,
         )
 
+    def _sealed_hold(self, sessions: list[SessionEnded]) -> bool:
+        """Every stream the sessions name is sealed and still what was sealed; else an incident."""
+        for session in sessions:
+            if session.trajectory is not None and session.trajectory_seal is None:
+                detail = f"session {session.session_id}'s stream is named and has no seal"
+                self._incident(None, "trajectory_tampered", detail)
+                return False
+        return self._trajectories_hold(None, sessions)
+
     def _trajectories_hold(self, subtask_id: str | None, sessions: list[SessionEnded]) -> bool:
         """Every sealed trajectory is still what it was; otherwise an incident."""
         for session in sessions:
@@ -1562,50 +1586,20 @@ class Loop:
                 return False
         return True
 
-    def _escalate_unavailable(self, subtask_id: str, unavailable: ReviewUnavailable) -> None:
-        """Send a subtask whose review reached no verdict to a person, spending no attempt."""
-        self._to_a_person(
-            subtask_id,
-            attempt=unavailable.attempt,
-            source="review_unavailable",
-            cause=unavailable.cause,
-            detail=unavailable.detail,
-            spec_defects=unavailable.spec_defects,
-        )
+    def _to_a_person(self, subtask_id: str) -> None:
+        """Send a subtask whose review blocked it or reached no verdict to a person.
 
-    def _escalate_blocked(self, subtask_id: str, blocked: ReviewRan) -> None:
-        """Send a subtask whose review blocked it to a person, spending no attempt.
-
-        The review is on the record as a review; only the routing is shared with a
-        review that reached no verdict.
+        No attempt is spent. A blocked review is on the record as a review; only the routing is
+        shared with a review that reached no verdict.
         """
-        self._to_a_person(
-            subtask_id,
-            attempt=blocked.attempt,
-            source="review_blocked",
-            cause="blocking_spec_defect",
-            detail=blocked.result.finding,
-            spec_defects=blocked.result.spec_defects,
-        )
-
-    def _to_a_person(
-        self,
-        subtask_id: str,
-        *,
-        attempt: int,
-        source: Literal["review_unavailable", "review_blocked"],
-        cause: str,
-        detail: str,
-        spec_defects: tuple[SpecDefect, ...],
-    ) -> None:
         session = self.state.subtasks[subtask_id].attempts[-1].session
-        if session is None or session.trajectory is None or session.attempt_commit is None:
+        if session is None:
             msg = "a review sent to a person with no completed session behind it"
             raise RunStateError(msg, subtask=subtask_id)
         if not self._trajectories_hold(subtask_id, [session]):
             return
         scan: tuple[ScanHit, ...] = ()
-        if source == "review_unavailable" and self._acts():
+        if source_of(self.state.subtasks[subtask_id]) == "review_unavailable" and self._acts():
             found = self._scan_hits(subtask_id, where=subtask_id)
             if found is None:
                 return
@@ -1613,22 +1607,93 @@ class Loop:
         item_id = self._next_item_id(subtask_id)
         if item_id not in {item.item_id for item in self.queue.items()}:
             self.queue.add(
-                unavailable_item(
-                    item_id=item_id,
-                    run_id=self.config.run_id,
-                    subtask_id=subtask_id,
-                    attempt=attempt,
-                    source=source,
-                    cause=cause,
-                    detail=detail,
-                    spec_defects=spec_defects,
-                    artefact_diff=self._merger.artefact_diff(session.attempt_commit),
-                    trajectory=session.trajectory,
-                    ts=self.log.events[-1].ts,
-                    consequence=self._consequence(subtask_id, source, scan),
-                )
+                self._item_for(subtask_id, item_id=item_id, ts=self.log.events[-1].ts, scan=scan)
             )
         self._emit(Escalated(**self._env(), subtask_id=subtask_id, item_id=item_id))
+
+    def _item_for(
+        self, subtask_id: str, *, item_id: str, ts: str, scan: tuple[ScanHit, ...]
+    ) -> QueueItem:
+        """The item the loop lists for a subtask it sends to a person, from the record alone.
+
+        The one builder: what a person is shown, and what a decision on it is held to when the
+        loop takes it, are the same function of the event log, so an item listed otherwise than
+        this rebuilds it is not one the loop wrote (ARCH-133). ``ts`` is the item's own time;
+        ``scan`` what the scan before review found, for an item whose review never judged it.
+
+        Raises:
+            RunStateError: the subtask did not end in a way that reaches the queue, or its last
+                attempt has no completed session behind it.
+        """
+        sub = self.state.subtasks[subtask_id]
+        try:
+            source = source_of(sub)
+        except ValueError as exc:
+            raise RunStateError(str(exc), subtask=subtask_id) from None
+        attempts = sub.attempts
+        now = attempts[-1]
+        if source in ("review_unavailable", "review_blocked"):
+            session = now.session
+            if session is None or session.trajectory is None or session.attempt_commit is None:
+                msg = "a review sent to a person with no completed session behind it"
+                raise RunStateError(msg, subtask=subtask_id)
+            blocked, unavailable = now.blocked, now.unavailable_final
+            if blocked is not None:
+                attempt, cause = blocked.attempt, "blocking_spec_defect"
+                detail, defects = blocked.result.finding, blocked.result.spec_defects
+            elif unavailable is not None:
+                attempt, cause = unavailable.attempt, unavailable.cause
+                detail, defects = unavailable.detail, unavailable.spec_defects
+            else:  # source_of names one of the two only when the attempt carries it
+                msg = "a review sent to a person that neither blocked nor reached no verdict"
+                raise RunStateError(msg, subtask=subtask_id)
+            return unavailable_item(
+                item_id=item_id,
+                run_id=self.config.run_id,
+                subtask_id=subtask_id,
+                attempt=attempt,
+                source="review_blocked" if blocked is not None else "review_unavailable",
+                cause=cause,
+                detail=detail,
+                spec_defects=defects,
+                artefact_diff=self._merger.artefact_diff(session.attempt_commit),
+                trajectory=session.trajectory,
+                ts=ts,
+                consequence=self._consequence(subtask_id, source, scan),
+            )
+        findings = tuple(a.rejected.finding for a in attempts if a.rejected is not None)
+        sessions = [a.session for a in attempts if a.session is not None]
+        trajectories = tuple(s.trajectory for s in sessions if s.trajectory is not None)
+        commits = [s.attempt_commit for s in sessions if s.attempt_commit is not None]
+        decided = now.decided
+        if source == "escalation_decision" and decided is not None:
+            # Sent to a person with attempts left, by the backend's answer or the confidence
+            # floor: an item of its own, with the attempts made so far.
+            return decided_item(
+                item_id=item_id,
+                run_id=self.config.run_id,
+                subtask_id=subtask_id,
+                decision=decided.decision,
+                findings=findings,
+                artefact_diff=self._merger.artefact_diff(commits[-1]),
+                trajectories=trajectories,
+                ts=ts,
+                attempt=now.number,
+                consequence=self._consequence(subtask_id, "escalation_decision"),
+            )
+        return escalation_item(
+            item_id=item_id,
+            run_id=self.config.run_id,
+            subtask_id=subtask_id,
+            findings=findings,
+            artefact_diff=self._merger.artefact_diff(commits[-1]),
+            trajectories=trajectories,
+            ts=ts,
+            spent_by_person=sum(
+                1 for a in attempts if a.person_rejected is not None and a.rejected is None
+            ),
+            consequence=self._consequence(subtask_id, "repair_budget_exhausted"),
+        )
 
     def _next_item_id(self, subtask_id: str) -> str:
         """The id of the subtask's next queue item: a new round each time it comes back."""
@@ -1638,43 +1703,12 @@ class Loop:
 
     def _escalate(self, subtask_id: str) -> None:
         attempts = self.state.subtasks[subtask_id].attempts
-        findings = tuple(a.rejected.finding for a in attempts if a.rejected is not None)
         sessions = [a.session for a in attempts if a.session is not None]
         if not self._trajectories_hold(subtask_id, sessions):
             return  # the queue item would link a trajectory that is not what was sealed
-        trajectories = tuple(s.trajectory for s in sessions if s.trajectory is not None)
-        commits = [s.attempt_commit for s in sessions if s.attempt_commit is not None]
         item_id = self._next_item_id(subtask_id)
         if item_id not in {item.item_id for item in self.queue.items()}:
-            decided = attempts[-1].decided
-            if decided is not None and not decided.decision.forced:
-                # Sent to a person with attempts left, by the backend's answer or the
-                # confidence floor: an item of its own, with the attempts made so far.
-                item = decided_item(
-                    item_id=item_id,
-                    run_id=self.config.run_id,
-                    subtask_id=subtask_id,
-                    decision=decided.decision,
-                    findings=findings,
-                    artefact_diff=self._merger.artefact_diff(commits[-1]),
-                    trajectories=trajectories,
-                    ts=self.log.events[-1].ts,
-                    attempt=attempts[-1].number,
-                    consequence=self._consequence(subtask_id, "escalation_decision"),
-                )
-            else:
-                item = escalation_item(
-                    item_id=item_id,
-                    run_id=self.config.run_id,
-                    subtask_id=subtask_id,
-                    findings=findings,
-                    artefact_diff=self._merger.artefact_diff(commits[-1]),
-                    trajectories=trajectories,
-                    ts=self.log.events[-1].ts,
-                    spent_by_person=sum(
-                        1 for a in attempts if a.person_rejected is not None and a.rejected is None
-                    ),
-                    consequence=self._consequence(subtask_id, "repair_budget_exhausted"),
-                )
-            self.queue.add(item)
+            self.queue.add(
+                self._item_for(subtask_id, item_id=item_id, ts=self.log.events[-1].ts, scan=())
+            )
         self._emit(Escalated(**self._env(), subtask_id=subtask_id, item_id=item_id))

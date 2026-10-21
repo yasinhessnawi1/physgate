@@ -203,6 +203,27 @@ class QueueResolution(_Record):
     note: NonEmptyStr | None = None
     shown_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")] | None = None
 
+    @model_validator(mode="after")
+    def _one_meaning(self) -> QueueResolution:
+        # The free text is what every reader of the file reads, and the verb is what the run
+        # acts on: one line may not say two things. A verb comes with the digest of the view it
+        # was taken on and its text is exactly the verb's; with no verb, nothing binds.
+        if self.verb is None:
+            if self.note is not None or self.shown_sha256 is not None:
+                msg = "a note or a view's digest belongs to a decision with a verb"
+                raise ValueError(msg)
+            return self
+        if self.shown_sha256 is None:
+            msg = "a decision with a verb names the digest of the view it was taken on"
+            raise ValueError(msg)
+        if self.verb == "reject" and self.note is None:
+            msg = "a rejection carries its note"
+            raise ValueError(msg)
+        if self.decision != (self.verb if self.note is None else f"{self.verb}: {self.note}"):
+            msg = "a decision's text is exactly its verb and note"
+            raise ValueError(msg)
+        return self
+
     @model_serializer(mode="wrap")
     def _omit_unbound_fields(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         data: dict[str, Any] = handler(self)
@@ -306,19 +327,21 @@ def _read_path(path: Path, cap: int) -> bytes | None:
     """The bytes of the regular file at ``path``, or ``None`` if there is none.
 
     For readers that take the path as given (the writer's own files, a read-only view the
-    operator UI has already held to its allowlist). The open never blocks, so a named pipe
-    put in a file's place is refused instead of waited on.
+    operator UI has already held to its allowlist). It holds the file to the rules the
+    decision function holds it to under its lock: never through a link, a regular file with
+    one name. The open never blocks, so a named pipe put in a file's place is refused instead
+    of waited on.
 
     Raises:
-        OSError: not a regular file, or past ``cap`` (``FileTooLargeError``).
+        OSError: a link, a second name, not a regular file, or past ``cap``
+            (``FileTooLargeError``).
     """
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC)
     except FileNotFoundError:
         return None
     try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            raise OSError(errno.EINVAL, "not a regular file")
+        _plain(fd)
         return _read_fd(fd, cap)
     finally:
         os.close(fd)
@@ -648,6 +671,14 @@ def _parse(
     def admit(raw: bytes) -> QueueItem | QueueResolution:
         nonlocal offset
         record = adapter.validate_json(raw)
+        if record.model_dump_json().encode() + b"\n" != raw:
+            # Only the form the writer writes is read. A line the parser takes in another form
+            # (a key given twice, of which it keeps the last; keys reordered; an escape for a
+            # plain character; space or a carriage return around the record) would have one
+            # meaning here and its digest would bind other bytes than any reader of the file
+            # sees, so it is refused, never normalised.
+            msg = "the line is not in the one form the queue's writer writes"
+            raise ValueError(msg)
         records.check(record)
         records.record(record)
         if isinstance(record, QueueItem):
@@ -695,22 +726,41 @@ def read_queue(run_dir: Path) -> QueueView:
     """
     records = _Records()
     at: list[tuple[int, QueueResolution]] = []
-    for name, adapter, cap in (
-        (QUEUE_NAME, _ITEM, QUEUE_READ_CAP),
-        (DECISIONS_NAME, _DECISION, DECISIONS_READ_CAP),
-    ):
-        path = Path(run_dir) / name
-        try:
-            data = _read_path(path, cap)
-        except OSError as exc:
-            raise _unreadable(path, exc) from None
-        if data is not None:
-            _parse(data, adapter, records, at, name=str(path))
+    files = _read_run_files(
+        run_dir, (QUEUE_NAME, QUEUE_READ_CAP), (DECISIONS_NAME, DECISIONS_READ_CAP)
+    )
+    (items_name, items), (decided_name, decided) = files
+    if items is not None:
+        _parse(items, _ITEM, records, at, name=str(Path(run_dir) / items_name))
+    if decided is not None:
+        _parse(decided, _DECISION, records, at, name=str(Path(run_dir) / decided_name))
     return QueueView(
         items=tuple(records.items.values()),
         decisions=tuple(at),
         digests={k: item_sha256(line) for k, line in records.lines.items()},
     )
+
+
+def _read_run_files(run_dir: Path, *wanted: tuple[str, int]) -> list[tuple[str, bytes | None]]:
+    """Each named file's bytes in ``run_dir``, read as the decision function reads them.
+
+    Never through a link, and only a regular file with one name within its cap, exactly the
+    rules :func:`record_decision` holds the same files to under its lock, so every reader of
+    the queue reads the bytes a decision was bound to and no others. A file that is not there
+    reads as ``None``.
+
+    Raises:
+        QueueError: a file is a link, has a second name, is not a regular file or is past its
+            cap.
+    """
+    found: list[tuple[str, bytes | None]] = []
+    for name, cap in wanted:
+        path = Path(run_dir) / name
+        try:
+            found.append((name, _read_path(path, cap)))
+        except OSError as exc:
+            raise _unreadable(path, exc) from None
+    return found
 
 
 def _events_of_run(run_dir: Path) -> list[Event] | None:
@@ -722,10 +772,10 @@ def _events_of_run(run_dir: Path) -> list[Event] | None:
     """
     events_path = Path(run_dir) / EVENTS_NAME
     try:
-        log = _read_path(events_path, RECORD_READ_CAP)
-    except OSError as exc:
+        ((_, log),) = _read_run_files(run_dir, (EVENTS_NAME, RECORD_READ_CAP))
+    except QueueError as exc:
         msg = "the run-event log is not a file this reader reads"
-        raise CorruptEventLogError(msg, log=str(events_path), reason=str(exc.strerror)) from None
+        raise CorruptEventLogError(msg, log=str(events_path), **exc.context) from None
     return None if log is None else parse_events(log, log=str(events_path))
 
 
@@ -1016,13 +1066,7 @@ def item_view(
     if not 0 <= position < len(view.items):
         return None
     item = view.items[position]
-    events_path = Path(run_dir) / EVENTS_NAME
-    try:
-        log = _read_path(events_path, RECORD_READ_CAP)
-    except OSError as exc:
-        msg = "the run-event log is not a file this reader reads"
-        raise CorruptEventLogError(msg, log=str(events_path), reason=str(exc.strerror)) from None
-    events = parse_events(log, log=str(events_path)) if log is not None else []
+    events = _events_of_run(run_dir) or []
     statuses = trajectory_statuses(item, events, read_stream)
     return ItemView(
         position=position,
@@ -1318,7 +1362,7 @@ def _require_bindable(item: QueueItem, record: QueueResolution, shown: ShownItem
     """
     if record.verb != "approve":
         return
-    if any(status != "holds" for status in shown.trajectories):
+    if not shown.trajectories or any(status != "holds" for status in shown.trajectories):
         msg = (
             "an approve binds to an item every trajectory of which held its seal when shown, "
             "and this one's did not, so the decision is refused"
