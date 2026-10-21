@@ -86,12 +86,31 @@ NotEvaluableNeeds = Literal["blocking", "defect"]
 #:   the criterion is on its safety-critical list and non-blocking otherwise (rules 3 and
 #:   7, and A6).
 #: - electrical and mechanical: always blocking, as their verdict policies state.
+#: - sizing, integration and design: always blocking, as their verdict policies state.
+#:   The three review before their roles are dispatched: a rule here lets a reviewer
+#:   judge, and admits no session of the role, which only the role register does.
 #: A role with no rubric rule of its own takes the stricter: blocking.
 NOT_EVALUABLE_NEEDS: dict[str, NotEvaluableNeeds] = {
     "control": "defect",
     "firmware": "blocking",
     "electrical": "blocking",
     "mechanical": "blocking",
+    "sizing": "blocking",
+    "integration": "blocking",
+    "design": "blocking",
+}
+#: Each role's item-id prefix per section, in the order of :data:`SECTIONS`, as its
+#: approved rubric numbers its items. No two roles share a prefix, so an item id in a
+#: verdict or a ledger line names its rubric as well as its item. The design reviewer
+#: judges the plan, hence ``P``: ``DS`` is already firmware's.
+ITEM_PREFIXES: dict[str, tuple[str, str, str, str]] = {
+    "control": ("A", "D", "S", "R"),
+    "firmware": ("AC", "DS", "AP", "RH"),
+    "electrical": ("EA", "ES", "EP", "EH"),
+    "mechanical": ("MA", "MS", "MP", "MH"),
+    "sizing": ("SA", "SS", "SP", "SH"),
+    "integration": ("IA", "IS", "IP", "IH"),
+    "design": ("PA", "PS", "PP", "PH"),
 }
 
 

@@ -352,8 +352,18 @@ def test_each_role_takes_its_own_rubric_s_rule_and_a_role_with_none_the_stricter
     assert not_evaluable_needs("firmware") == "blocking"  # firmware rubric, verdict policy
     assert not_evaluable_needs("electrical") == "blocking"  # electrical rubric, verdict policy
     assert not_evaluable_needs("mechanical") == "blocking"  # mechanical rubric, verdict policy
-    assert set(NOT_EVALUABLE_NEEDS) == {"control", "firmware", "electrical", "mechanical"}
-    assert not_evaluable_needs("design") == "blocking"  # no rubric of its own: the stricter
+    for role in ("sizing", "integration", "design"):  # each one's verdict policy
+        assert not_evaluable_needs(role) == "blocking"
+    assert set(NOT_EVALUABLE_NEEDS) == {
+        "control",
+        "firmware",
+        "electrical",
+        "mechanical",
+        "sizing",
+        "integration",
+        "design",
+    }
+    assert not_evaluable_needs("simulation") == "blocking"  # no rubric of its own: the stricter
 
 
 def test_a_numbered_specification_s_criteria_are_not_answered_more_than_once_each() -> None:
