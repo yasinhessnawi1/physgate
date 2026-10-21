@@ -647,9 +647,12 @@ def test_nothing_a_command_starts_outlives_it(layout: Layout, *, reaper: bool) -
         if '"survivors"' in line and json.loads(line).get("hook") == "survivors"
     ]
     if not reaper:
-        # Without the reaper the survivor is still writing in the next command.
+        # Without the reaper the survivor is still writing in the next command, and the
+        # hook, told by the configuration that the reaper is on, refuses each command that
+        # gave no "done" line: a reaper that is missing is not taken for one that finished.
         assert "growing" in looked, looked
-        assert caught == []
+        assert [(c["event"], c["decision"]) for c in caught] == [("PostToolUse", "refuse")] * 2
+        assert all("did not finish" in c["reason"] for c in caught)
         return
     assert "still" in looked, looked
     if sys.platform == "darwin":
