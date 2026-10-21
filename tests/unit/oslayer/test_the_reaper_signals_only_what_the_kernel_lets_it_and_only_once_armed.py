@@ -12,7 +12,9 @@ itself; a process that keeps forking or hops pids is followed until two rounds f
 from __future__ import annotations
 
 import ast
+import os
 import signal
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -239,9 +241,9 @@ def test_the_fence_is_proven_only_by_a_parent_canary_that_refuses(
 
 
 def _darwin(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(reaper_module.sys, "platform", "darwin")
-    monkeypatch.setattr(reaper_module.os, "getpid", lambda: ME)
-    monkeypatch.setattr(reaper_module.os, "getppid", lambda: CANARY)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(os, "getpid", lambda: ME)
+    monkeypatch.setattr(os, "getppid", lambda: CANARY)
 
 
 def test_unsandboxed_it_only_runs_the_command_and_signals_nothing(
