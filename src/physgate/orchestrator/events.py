@@ -88,6 +88,7 @@ IncidentCause = Literal[
     "os_layer_misplaced",
     "os_layer_aborted",
     "stream_quarantined",
+    "queue_item_mismatch",
 ]
 
 #: Why a run stopped short of the end of its plan.
@@ -441,6 +442,85 @@ class Escalated(_Event):
     item_id: NonEmptyStr
 
 
+#: What a person's decision did when the loop took it (ARCH-133).
+DecisionEffect = Literal["merge", "retry", "fix", "end_subtask", "none"]
+#: Why a decision taken did not act. ``record_only_source``: approve or reject on an item whose
+#: source neither verb acts on. ``last_rejection_automated``: approve where an automated check,
+#: not the reviewer, refused the attempt. ``indicator_in_history``: approve where a review of
+#: some attempt of the subtask confirmed a reward-hacking indicator. ``scan_hit``: approve where
+#: the scan before review found one no review judged. ``not_bound``: a decision that names no
+#: verb, or no view. ``legacy_item``: an item that says nothing of what a verb does.
+#: ``held_os_layer_off``: written while a session ran without the OS layer, so its own shell
+#: could have written it; it acts once the operator confirms it.
+WhyNot = Literal[
+    "record_only_source",
+    "last_rejection_automated",
+    "indicator_in_history",
+    "scan_hit",
+    "not_bound",
+    "legacy_item",
+    "held_os_layer_off",
+]
+
+
+class DecisionTaken(_Event):
+    """A person's decision on a queue item, taken into the run where no attempt is in progress.
+
+    What it did is computed by code from the item and from the lines before this one
+    (``decisions.decision_effect``), never from the decision's words, and replay holds the line
+    to what those lines allow. ``decision_offset`` is where the decision's line starts in the
+    decisions file, which is what tells a decision written in a session's window from one that
+    was not. A held decision is taken twice: once not acting, then once more, confirmed by the
+    operator on the command line, naming who.
+    """
+
+    kind: Literal["decision_taken"] = "decision_taken"
+    #: ``None`` for the integration item, which no subtask owns.
+    subtask_id: NonEmptyStr | None
+    item_id: NonEmptyStr
+    verb: Literal["approve", "reject"] | None
+    #: The person's note, verbatim, as the decisions file holds it.
+    note: NonEmptyStr | None
+    resolved_by: NonEmptyStr
+    decided_ts: Timestamp
+    decision_offset: Annotated[int, Field(ge=0)]
+    shown_sha256: Sha256 | None
+    attempt: Annotated[int, Field(ge=1)] | None
+    attempt_commit: Sha | None
+    effect: DecisionEffect
+    acts: bool
+    why_not: WhyNot | None
+    #: The operator who confirmed a held decision on the command line, by OS user name.
+    confirmed_by: NonEmptyStr | None = None
+
+    @model_validator(mode="after")
+    def _an_act_needs_no_excuse_and_a_non_act_has_one(self) -> DecisionTaken:
+        if self.acts == (self.why_not is not None):
+            msg = "a decision that acts says no reason it would not, and one that does not says why"
+            raise ValueError(msg)
+        if self.acts and self.effect == "none":
+            msg = "a decision that acts has an effect"
+            raise ValueError(msg)
+        if self.confirmed_by is not None and not self.acts:
+            msg = "a confirmed decision is the one that acts"
+            raise ValueError(msg)
+        return self
+
+
+class SubtaskRejected(_Event):
+    """The subtask ends without a merge, and no attempt of it runs again.
+
+    A person rejected it with no attempt left, or the one fix a person ordered after a blocked
+    review was not accepted.
+    """
+
+    kind: Literal["subtask_rejected"] = "subtask_rejected"
+    subtask_id: NonEmptyStr
+    attempt: Annotated[int, Field(ge=1)]
+    by: Literal["person", "fix_not_accepted"]
+    item_id: NonEmptyStr | None
+
+
 class Incident(_Event):
     """Something the loop cannot answer by itself happened. The run halts after it."""
 
@@ -661,6 +741,8 @@ Event = Annotated[
     | DiffChecked
     | EscalationDecided
     | Escalated
+    | DecisionTaken
+    | SubtaskRejected
     | Incident
     | Resumed
     | Decomposed

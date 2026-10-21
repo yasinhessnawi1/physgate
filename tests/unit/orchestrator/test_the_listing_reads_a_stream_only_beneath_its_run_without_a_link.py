@@ -100,6 +100,7 @@ def test_a_link_recorded_as_a_parent_step_is_never_opened(run_dir: Path, tmp_pat
     item = read_queue(run_dir).items[0]
     for link in ("../../outside/stdout.jsonl", "sessions/../../x/stdout.jsonl", "/etc/passwd"):
         forged = item.model_copy(update={"trajectories": (link,)})
+
         def refuse(session_id: str) -> bytes | None:
             raise AssertionError(f"read {session_id!r}")
 

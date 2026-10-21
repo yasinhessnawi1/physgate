@@ -106,6 +106,7 @@ from physgate.orchestrator.queue import (
     decided_item,
     escalation_item,
     integration_item,
+    item_id_for,
     unavailable_item,
 )
 from physgate.orchestrator.record import PlanEntry, RunRecord
@@ -1294,7 +1295,7 @@ class Loop:
             raise RunStateError(msg, subtask=subtask_id)
         if not self._trajectories_hold(subtask_id, [session]):
             return
-        item_id = f"{self.config.run_id}-{subtask_id}"
+        item_id = self._next_item_id(subtask_id)
         if item_id not in {item.item_id for item in self.queue.items()}:
             self.queue.add(
                 unavailable_item(
@@ -1313,6 +1314,12 @@ class Loop:
             )
         self._emit(Escalated(**self._env(), subtask_id=subtask_id, item_id=item_id))
 
+    def _next_item_id(self, subtask_id: str) -> str:
+        """The id of the subtask's next queue item: a new round each time it comes back."""
+        return item_id_for(
+            self.config.run_id, subtask_id, self.state.subtasks[subtask_id].rounds + 1
+        )
+
     def _escalate(self, subtask_id: str) -> None:
         attempts = self.state.subtasks[subtask_id].attempts
         findings = tuple(a.rejected.finding for a in attempts if a.rejected is not None)
@@ -1321,7 +1328,7 @@ class Loop:
             return  # the queue item would link a trajectory that is not what was sealed
         trajectories = tuple(s.trajectory for s in sessions if s.trajectory is not None)
         commits = [s.attempt_commit for s in sessions if s.attempt_commit is not None]
-        item_id = f"{self.config.run_id}-{subtask_id}"
+        item_id = self._next_item_id(subtask_id)
         if item_id not in {item.item_id for item in self.queue.items()}:
             decided = attempts[-1].decided
             if decided is not None and not decided.decision.forced:

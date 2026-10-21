@@ -23,8 +23,9 @@ from typing import Literal, NoReturn
 
 from pydantic import ValidationError
 
-from physgate.orchestrator.budget import after_rejection
+from physgate.orchestrator.budget import REPAIR_BUDGET, after_rejection
 from physgate.orchestrator.common import GateMode
+from physgate.orchestrator.decisions import require_taken
 from physgate.orchestrator.escalation import (
     REGISTER,
     TO_THE_QUEUE,
@@ -37,6 +38,7 @@ from physgate.orchestrator.escalation_state import EscalationState, escalation_s
 from physgate.orchestrator.events import (
     RESUMABLE_HALTS,
     AttemptRejected,
+    DecisionTaken,
     Decomposed,
     DiffChecked,
     EnvironmentRecorded,
@@ -67,6 +69,7 @@ from physgate.orchestrator.events import (
     Stage,
     StageEntered,
     SubtaskPlanned,
+    SubtaskRejected,
     SubtaskRemoved,
     TokensUsed,
     WorktreeRemoved,
@@ -78,9 +81,11 @@ from physgate.orchestrator.exceptions import (
     CorruptEventLogError,
     EscalationBackendError,
     MergePreconditionError,
+    QueueError,
     RunConfigError,
     RunStateError,
 )
+from physgate.orchestrator.queue import item_id_for
 from physgate.orchestrator.repair import FindingSource
 from physgate.orchestrator.run_config import load_run_config
 from physgate.state.task_ledger import TaskLedger, TaskLine, read_ledger
@@ -114,6 +119,12 @@ class AttemptState:
     #: give. ``None`` until the attempt has ended without a merge and been decided.
     routed: bool | None = None
     decided: EscalationDecided | None = None
+    #: Whether this attempt is the one fix a person ordered after a blocked review (ARCH-133).
+    fix: bool = False
+    #: A person's approve that is merging this attempt.
+    approved: DecisionTaken | None = None
+    #: A person's reject that spent this attempt: the next attempt, the fix, or the end follows.
+    person_rejected: DecisionTaken | None = None
 
     def restart(self, cursor: Stage | None) -> None:
         """Forget everything the attempt did after ``cursor``."""
@@ -142,12 +153,18 @@ class SubtaskState:
     """One planned subtask and every attempt made at it."""
 
     plan: SubtaskPlanned
-    status: Literal["planned", "removed", "active", "done", "escalated"] = "planned"
+    status: Literal["planned", "removed", "active", "done", "escalated", "rejected"] = "planned"
     attempts: list[AttemptState] = field(default_factory=list)
     #: The attempt number a ``resolve`` may start or restart now, if any.
     next_resolve: int | None = 1
     #: The approval-queue item an escalated subtask waits on.
     queue_item: str | None = None
+    #: How many times the subtask has gone to the queue: its next item's round is one more.
+    rounds: int = 0
+    #: Whether the next attempt is the fix a person ordered.
+    fix_next: bool = False
+    #: Why the subtask is ending without a merge, until its ``subtask_rejected`` line is written.
+    ending: Literal["person", "fix_not_accepted"] | None = None
 
 
 @dataclass(frozen=True)
@@ -155,15 +172,30 @@ class Step:
     """What the loop does next."""
 
     kind: Literal[
-        "attempt", "infra_failed", "decide", "escalate", "integrate", "halted", "escalated", "done"
+        "attempt",
+        "infra_failed",
+        "decide",
+        "escalate",
+        "end_subtask",
+        "integrate",
+        "halted",
+        "escalated",
+        "done",
     ]
     subtask_id: str | None = None
     attempt: int | None = None
-    point: Literal["resolve", "verify_reading", "diff"] | None = None
+    point: Literal["resolve", "verify_reading", "merge", "diff"] | None = None
 
 
 def _refuse(message: str) -> NoReturn:
     raise ValueError(message)
+
+
+def _item_id(run_id: str, subtask_id: str, round_: int) -> str:
+    try:
+        return item_id_for(run_id, subtask_id, round_)
+    except QueueError as exc:
+        _refuse(str(exc))
 
 
 class RunState:
@@ -191,6 +223,9 @@ class RunState:
         #: the escalation a blocking failure there led to.
         self.integration: IntegrationGateRan | IntegrationGateSkipped | None = None
         self.integration_escalated: IntegrationEscalated | None = None
+        #: Every person's decision the run took, by item, and the held ones since confirmed.
+        self.taken: dict[str, DecisionTaken] = {}
+        self.confirmed: set[str] = set()
 
     # -- following the log -------------------------------------------------------
 
@@ -202,13 +237,14 @@ class RunState:
         """Take ``event`` as the next line, or raise ``ValueError`` if it cannot be.
 
         Once the integration call is on the record the plan is closed: no line about
-        a subtask may follow, except a worktree removal. The rule is applied after the
-        line's own rules, so a line that breaks one of those is refused for it.
+        a subtask may follow, except a worktree removal or a person's decision. The rule is
+        applied after the line's own rules, so a line that breaks one of those is refused for
+        it. A decision that acts on a design integration skipped as incomplete reopens it.
         """
         closed = (
             self.integration is not None
             and getattr(event, "subtask_id", None) is not None
-            and not isinstance(event, WorktreeRemoved)
+            and not isinstance(event, WorktreeRemoved | DecisionTaken)
         )
         self._record(event)
         if closed:
@@ -236,7 +272,10 @@ class RunState:
             if event.subtask_id not in self.subtasks or event.subtask_id in self.worktrees_handled:
                 _refuse("a worktree removal for no subtask, or for one already handled")
             sub = self.subtasks[event.subtask_id]
-            allowed = {"done": sub.status == "done", "queue_resolved": sub.status == "escalated"}
+            allowed = {
+                "done": sub.status == "done",
+                "queue_resolved": sub.status in ("escalated", "rejected"),
+            }
             self._expect(allowed[event.reason], "a worktree removal")
             self.worktrees_handled.add(event.subtask_id)
             return
@@ -257,6 +296,9 @@ class RunState:
             return  # attributed or recorded, never a transition
         if isinstance(event, IntegrationGateRan | IntegrationGateSkipped | IntegrationEscalated):
             self._integrate(event)
+            return
+        if isinstance(event, DecisionTaken):
+            self._take(event)
             return
         if event.subtask_id is None:
             return  # an incident with no subtask, taken above; for the type checker
@@ -355,9 +397,20 @@ class RunState:
         elif isinstance(event, EscalationDecided):
             self._decided(sub, now, event)
         elif isinstance(event, Escalated):
-            self._expect(now.routed is True, "an escalation")
+            self._expect(now.routed is True and sub.ending is None, "an escalation")
+            if event.item_id != _item_id(event.run_id, sub.plan.subtask_id, sub.rounds + 1):
+                _refuse("an escalation names another item than its subtask's next round")
             sub.status = "escalated"
             sub.queue_item = event.item_id
+            sub.rounds += 1
+        elif isinstance(event, SubtaskRejected):
+            self._expect(sub.ending == event.by, "a subtask's end")
+            spent = now.person_rejected
+            named = spent.item_id if spent is not None and event.by == "person" else None
+            if event.item_id != named:
+                _refuse("a subtask's end names another item than the decision that ended it")
+            sub.status = "rejected"
+            sub.ending = None
         elif isinstance(event, Incident):
             self.incident = event
         elif isinstance(event, Resumed):
@@ -377,6 +430,14 @@ class RunState:
         loop sent to a person exactly where the rules do, so the rules' route is taken as
         the answer it would have recorded.
         """
+        if now.fix:
+            # The fix a person ordered is routed by rule, never asked about: not accepted, the
+            # subtask ends; a review that reached no verdict goes to the person once more.
+            if now.unavailable_final is not None:
+                now.routed = True
+            else:
+                sub.ending = "fix_not_accepted"
+            return
         if self.escalation_backend is not None:
             return
         state = self._state_of(sub.plan.subtask_id)
@@ -394,7 +455,7 @@ class RunState:
         """Take a decision line: due, about the state the log implies, routed by the rule."""
         if self.escalation_backend is None:
             _refuse("a decision line in a log whose run names no escalation backend")
-        due = self._ended_without_merge(now) and now.decided is None
+        due = self._ended_without_merge(now) and now.decided is None and not now.fix
         self._expect(due and now.cursor in ("decide", "review"), "an escalation decision")
         decision = event.decision
         if decision.backend_id != self.escalation_backend:
@@ -423,6 +484,39 @@ class RunState:
         if not routed:
             # Only a rejection with budget left can go on; the forced routes always route.
             sub.next_resolve = after_rejection(now.number)
+
+    def _take(self, event: DecisionTaken) -> None:
+        """Take a person's decision: held to what the lines before it allow, then acted on."""
+        try:
+            require_taken(self, event)
+        except ValueError as exc:
+            _refuse(str(exc))
+        if event.confirmed_by is not None:
+            self.confirmed.add(event.item_id)
+        else:
+            self.taken[event.item_id] = event
+        if not event.acts or event.subtask_id is None:
+            return
+        sub = self.subtasks[event.subtask_id]
+        now = sub.attempts[-1]
+        skipped = self.integration
+        if isinstance(skipped, IntegrationGateSkipped) and skipped.reason == "not_all_merged":
+            # The design changes again: integration is judged once more when it is complete.
+            self.integration = None
+        sub.status = "active"
+        self._ledger(sub.plan.subtask_id, person_decision=event.verb, queue_item=event.item_id)
+        if event.effect == "merge":
+            now.approved = event
+            now.cursor = "decide"
+            return
+        now.person_rejected = event
+        if event.effect == "retry":
+            sub.next_resolve = after_rejection(now.number)
+        elif event.effect == "fix":
+            sub.next_resolve = now.number + 1
+            sub.fix_next = True
+        else:
+            sub.ending = "person"
 
     def _integrate(
         self, event: IntegrationGateRan | IntegrationGateSkipped | IntegrationEscalated
@@ -464,7 +558,12 @@ class RunState:
         if sub.status not in ("planned", "active") or sub.next_resolve != attempt:
             _refuse(f"attempt {attempt} of {sub.plan.subtask_id!r} cannot start now")
         if not sub.attempts or sub.attempts[-1].number != attempt:
-            sub.attempts.append(AttemptState(number=attempt))
+            if any(a.fix for a in sub.attempts):
+                _refuse("the fix a person ordered is a subtask's last attempt")
+            if attempt > REPAIR_BUDGET and not sub.fix_next:
+                _refuse("an attempt past the repair budget is only the fix a person ordered")
+            sub.attempts.append(AttemptState(number=attempt, fix=sub.fix_next))
+            sub.fix_next = False
             self._ledger(sub.plan.subtask_id, attempt_count=attempt, reset=True)
         sub.status = "active"
         sub.next_resolve = None
@@ -486,7 +585,7 @@ class RunState:
             and (self.rejection_basis(now) is not None or self.mergeable(now)),
             "diff": now.cursor == "decide" and now.merged is not None,
         }
-        if not allowed.get(stage, False) or now.rejected is not None:
+        if not allowed.get(stage, False) or (now.rejected is not None and now.approved is None):
             _refuse(f"stage {stage!r} cannot follow {now.cursor!r}")
         now.cursor = stage
 
@@ -524,9 +623,17 @@ class RunState:
         return next((stage for stage, outcome in done if outcome is not None), None)
 
     def mergeable(self, now: AttemptState) -> bool:
-        """The attempt passed review after a gate result that allows a merge."""
+        """The attempt passed review, or a person approved it, after a gate result that merges.
+
+        A person's approve overrides the reviewer and nothing else (ARCH-133): the gate result
+        must still be one the run's mode merges.
+        """
         reviewed = now.review is not None and now.review.result.verdict == "pass"
-        return reviewed and now.merged is None and self._gate_allows_review(now)
+        return (
+            (reviewed or now.approved is not None)
+            and now.merged is None
+            and self._gate_allows_review(now)
+        )
 
     def _resume(self, sub: SubtaskState, now: AttemptState, point: str) -> None:
         if self._ended_without_merge(now):
@@ -570,6 +677,7 @@ class RunState:
             base = last.model_dump()
         if reset:
             base |= {"gate_result": None, "review_result": None, "merge_commit": None}
+            base |= {"person_decision": None, "queue_item": None}
         self.ledger.append(TaskLine.model_validate(base | changes))
 
     # -- deciding what happens next ------------------------------------------------
@@ -580,11 +688,19 @@ class RunState:
             return Step(kind="halted")
         for subtask_id in self.order:
             sub = self.subtasks[subtask_id]
-            if sub.status in ("removed", "done", "escalated"):
+            if sub.status in ("removed", "done", "escalated", "rejected"):
                 continue
             if sub.status == "planned":
                 return Step("attempt", subtask_id, 1, "resolve")
             now = sub.attempts[-1]
+            if sub.ending is not None:
+                return Step("end_subtask", subtask_id, now.number)
+            if now.approved is not None:
+                # A person's approve: merge exactly the attempt it names, then diff.
+                point: Literal["merge", "diff"] = "merge" if now.merged is None else "diff"
+                return Step("attempt", subtask_id, now.number, point)
+            if now.person_rejected is not None and sub.next_resolve is not None:
+                return Step("attempt", subtask_id, sub.next_resolve, "resolve")
             if self._ended_without_merge(now):
                 # Asked once at every attempt end that did not merge; then the queue, or
                 # the next attempt.
@@ -699,7 +815,8 @@ def require_mergeable(ledger_path: Path, subtask_id: str, gate_mode: GateMode) -
     """The subtask's ledger line, read back from disk, if it permits a merge (ARCH-001).
 
     A merge needs a gate result and a review result on the ledger line. The review
-    must have passed. The gate result must be one the run's gate mode allows:
+    must have passed, or a person's approve bound to the attempt must have overridden its
+    verdict (ARCH-133). The gate result must be one the run's gate mode allows:
     a pass when the gate blocks, a pass or a logged failure when it observes, and
     ``skipped`` when it is off.
 
@@ -713,16 +830,20 @@ def require_mergeable(ledger_path: Path, subtask_id: str, gate_mode: GateMode) -
     finally:
         ledger.close()
     allowed = {"on": {"pass"}, "observe": {"pass", "fail"}, "off": {"skipped"}}[gate_mode]
-    if line is None or line.gate_result is None or line.review_result is None:
+    approved = line is not None and line.person_decision == "approve"
+    if line is None or line.gate_result is None or (line.review_result is None and not approved):
         msg = "a merge needs a gate result and a review result on the ledger line"
         raise MergePreconditionError(msg, subtask=subtask_id)
-    if line.review_result != "pass" or line.gate_result not in allowed:
+    reviewed = line.review_result == "pass" or (
+        line.person_decision == "approve" and line.review_result in ("fail", "blocked", None)
+    )
+    if not reviewed or line.gate_result not in allowed:
         msg = "the ledger line does not permit a merge"
         raise MergePreconditionError(
             msg,
             subtask=subtask_id,
             gate_result=line.gate_result,
-            review_result=line.review_result,
+            review_result=str(line.review_result),
             gate_mode=gate_mode,
         )
     return line

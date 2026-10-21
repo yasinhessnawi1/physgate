@@ -16,9 +16,17 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    StringConstraints,
+    ValidationError,
+    model_serializer,
+)
 
 from physgate.state.exceptions import CorruptRecordError
 
@@ -105,6 +113,19 @@ class TaskLine(BaseModel):
     gate_result: Outcome | None = None
     review_result: Outcome | None = None
     merge_commit: str | None = None
+    #: A person's decision on the subtask's queue item that acted on this attempt, and the
+    #: item's id (ARCH-133). Left out of the line when absent, so a line without them is
+    #: written exactly as before they existed.
+    person_decision: Literal["approve", "reject"] | None = None
+    queue_item: NonEmptyStr | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_absent_decision(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        for name in ("person_decision", "queue_item"):
+            if data.get(name) is None:
+                data.pop(name, None)
+        return data
 
 
 class TaskLedger:

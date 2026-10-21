@@ -65,6 +65,10 @@ class StaleViewError(QueueError):
     """A decision was sent for an item as it was shown, and the item is no longer that."""
 
 
+class QueueItemMismatchError(QueueError):
+    """An item, the decision on it and the run's event log do not agree; the run halts."""
+
+
 class MergePreconditionError(OrchestratorError):
     """A merge was about to happen without what the ledger must show first (ARCH-001)."""
 
