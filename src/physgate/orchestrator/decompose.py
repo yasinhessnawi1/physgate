@@ -10,9 +10,10 @@ structured output, validated here, and a missing or invalid one fails the run.
 A second call would be a second model call; a rerun is a new run.
 
 From a valid plan the orchestrator, not the model, mints the subtask ids from
-the run's seed, writes each module's specification onto the run branch, writes
-every interface node into the store (they are immutable from creation), commits
-the store, and records the run.
+the run's seed, writes each module's specification onto the run branch with each
+interface node beside them as a contract a role session must read, writes every
+interface node into the store (they are immutable from creation), commits the
+store, and records the run.
 """
 
 from __future__ import annotations
@@ -65,8 +66,38 @@ from physgate.orchestrator.record import (
 )
 from physgate.orchestrator.run_config import RunConfig
 from physgate.series.collect import series_library
-from physgate.state.schema import Node
+from physgate.state.exceptions import MalformedNodeIdError
+from physgate.state.schema import Node, validate_node_id
 from physgate.state.store import Store
+
+#: Where the run branch holds each interface node the decomposition planned, one JSON file
+#: per node named by its id, written in the commit that issues the specifications. Every
+#: file there is required reading for every role session of the run (ARCH-020).
+INTERFACES_DIR = ".physgate/interfaces"
+
+
+def interface_contract(node_id: str) -> str:
+    """Where the run branch holds the interface node ``node_id``, relative to a worktree."""
+    return f"{INTERFACES_DIR}/{node_id}.json"
+
+
+def interface_contracts(repo: Path, commit: str) -> tuple[str, ...]:
+    """Every interface contract ``commit`` issued, relative to a worktree, sorted.
+
+    Read from git's objects, never from a worktree, so nothing a session did in its own
+    worktree can take a contract off the list. A commit from before contracts were
+    issued holds none, and the answer is empty.
+
+    Raises:
+        GitError: git cannot list ``commit``.
+    """
+    listing = git(
+        repo,
+        *("ls-tree", "-r", "-z", "--name-only", "--full-tree", commit, f"{INTERFACES_DIR}/"),
+        objects_only=True,
+    )
+    return tuple(sorted(name for name in listing.split("\0") if name))
+
 
 FailureCause = Literal[
     "no_structured_output",
@@ -547,8 +578,9 @@ def start_run(
 
     Raises:
         RunStateError: the run directory already holds a run.
-        DecompositionError: the store refused an interface node the plan validated,
-            or the curated library cannot be put into the target: a planned role's
+        DecompositionError: an interface node's id is not a node id, the store
+            refused an interface node the plan validated, or the curated library
+            cannot be put into the target: a planned role's
             file missing or empty, or the target holding other bytes where it goes.
     """
     require_fresh(run_dir)
@@ -564,6 +596,15 @@ def start_run(
         # .physgate/lib, and the run branch holds the very bytes the harness ships.
         curated.update(series_library())
         _require_library_fits(target_repo, config.target_head, curated)
+        # A contract's file is named by its node's id, so an id that is no node id would
+        # name a file outside the contracts' directory; the store would refuse it only
+        # after the specifications were committed.
+        for node in outcome.plan.interface_nodes:
+            try:
+                validate_node_id(node.id)
+            except MalformedNodeIdError as exc:
+                msg = "an interface node's id is not a node id"
+                raise DecompositionError(msg, node=node.id[:64], reason=str(exc)) from None
     store_root = run_dir / "store"
     record = RunRecord(config, run_dir)
     spent = DecompositionCall(session_id=outcome.session_id, usage=outcome.usage)
@@ -590,6 +631,12 @@ def start_run(
                 assigned_role=module.role,
                 module_dir=module.module_dir,
             )
+        )
+    # Beside the specifications and in the same commit: what each role designs against.
+    (run.integration / INTERFACES_DIR).mkdir(parents=True, exist_ok=True)
+    for node in plan.interface_nodes:
+        (run.integration / interface_contract(node.id)).write_text(
+            node.model_dump_json(indent=2) + "\n"
         )
     spec_commit = commit_all(
         run.integration,

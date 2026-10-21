@@ -61,7 +61,7 @@ from physgate.orchestrator.credentials import (
     write_key_helper,
     write_login,
 )
-from physgate.orchestrator.decompose import binary_version, read_stream
+from physgate.orchestrator.decompose import binary_version, interface_contracts, read_stream
 from physgate.orchestrator.events import SessionSpawned, read_events
 from physgate.orchestrator.exceptions import (
     AccountingError,
@@ -1056,11 +1056,22 @@ class ClaudeDispatcher:
         # from the role session like the library's reviewer tree.
         protect += ["--review-material", str(self._review_root)]
         # The always-loaded set (cross's standards, the role's own standards and
-        # skill) is a subset of required reading, which adds the module spec.
-        # loader.py names both relative to the worktree being dispatched to, never
+        # skill) is a subset of required reading, which adds the module spec and every
+        # interface contract the specification commit issued (a superset of the ones
+        # touching the module, until the plan names each interface's consumers).
+        # loader.py names them relative to the worktree being dispatched to, never
         # the orchestrator's own checkout — that is where this session's Read
         # tool actually operates.
-        reading_paths = loader.required_reading(request.assigned_role, Path(request.spec_path))
+        contracts = (
+            interface_contracts(self._run.repo, request.spec_commit)
+            if request.spec_commit is not None
+            else ()
+        )
+        reading_paths = loader.required_reading(
+            request.assigned_role,
+            Path(request.spec_path),
+            interfaces=tuple(Path(path) for path in contracts),
+        )
         always_loaded_paths = loader.always_loaded(request.assigned_role)
         reading_args = [
             arg for path in reading_paths for arg in ("--reading", str(worktree / path))
