@@ -55,6 +55,7 @@ from physgate.hooks.reasons import SERIES_WRITER_REASON as SERIES_WRITER_REASON
 from physgate.hooks.reasons import STORE_REASON as STORE_REASON
 from physgate.hooks.reasons import series_outbox_reason
 from physgate.hooks.runtime import EVENTS, HookSpec
+from physgate.oslayer import reaper_install
 from physgate.oslayer.placement import machine_writable, placement_refusal
 from physgate.oslayer.policy import NETWORK_UNENFORCED, sandbox_policy
 from physgate.oslayer.probe import claude_temp_dirs, shared_temp_dirs
@@ -582,11 +583,18 @@ def install(
                 "the directory every session of the user shares"
             )
             raise ValueError(msg)
+        readable = request.os_layer_readable
+        if reaper_install.wanted():
+            # Nothing a command starts outlives it (M-128): the reaper runs as each sandboxed
+            # command's first process, named by the shell prefix, and must be readable there.
+            reaper_dir = reaper_install.place(target, config.installation.base_prefix)
+            readable = (*readable, str(reaper_dir))
+            spawn_env.update(reaper_install.spawn_env(reaper_dir))
         policy = sandbox_policy(
             config,
             home=request.user_home,
             temp_dir=temp,
-            readable=request.os_layer_readable,
+            readable=readable,
             shared_temp=shared_temp_dirs(),
             claude_temp=claude_temp_dirs(),
             network=request.os_layer_network,

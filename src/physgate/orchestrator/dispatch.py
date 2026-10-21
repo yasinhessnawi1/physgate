@@ -98,6 +98,7 @@ from physgate.oslayer import placeholders
 from physgate.oslayer.abort import aborted_tool_uses
 from physgate.oslayer.placement import machine_writable, placement_refusal
 from physgate.oslayer.probe import Absent, Present, judge_here
+from physgate.oslayer.reaper_install import CANARY_EXPORT
 from physgate.reviewers.ending import SWEEPS, SessionEnd, await_session, group, stop_all
 from physgate.reviewers.packet import issued_spec_sha256
 from physgate.reviewers.places import SESSION_DIRNAME
@@ -115,7 +116,14 @@ OWNER_NAME = "owner.json"
 #: (a pipe only the orchestrator writes), then replaces itself with the binary, its standard
 #: input then ``/dev/null``. Its pid and start time are the session's from the first moment;
 #: if the orchestrator dies before the release, the pipe closes and nothing of the session runs.
-HELD = ("/bin/sh", "-c", 'IFS= read -r _ || exit 70; exec "$@" </dev/null', "physgate-held")
+#: The shell exports its own pid, which the binary keeps, as the survivor reaper's canary
+#: (:mod:`physgate.oslayer.reaper_install`): a process outside every command's sandbox.
+HELD = (
+    "/bin/sh",
+    "-c",
+    "IFS= read -r _ || exit 70; " + CANARY_EXPORT + 'exec "$@" </dev/null',
+    "physgate-held",
+)
 
 
 def spawn_held(
