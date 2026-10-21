@@ -33,14 +33,17 @@ def series_outbox_reason(platform: str, *, os_layer: bool) -> str:
 
     What a command can read back depends on the OS layer and on the platform's mechanism
     (:func:`physgate.oslayer.policy.outbox_read_denial`): on macOS nothing in the outbox is
-    readable to any command; on Linux a record an earlier command wrote is unreadable, but a
-    command can read back what it wrote itself; without the OS layer only the hooks' text
-    rule stands.
+    readable to any command; on Linux a record an earlier command wrote is unreadable in the
+    outbox, but the command that wrote it can read it back and keep a copy (a link or the
+    bytes) where later commands read it; without the OS layer only the hooks' text rule stands.
     """
     if os_layer and platform == "darwin":
         reads = "no command can read it back"
     elif os_layer and platform.startswith("linux"):
-        reads = "no command can read back a record an earlier command wrote"
+        reads = (
+            "no command can read back a record an earlier command wrote, unless the command "
+            "that wrote it kept a copy"
+        )
     else:
         reads = "nothing but this refusal keeps a command from reading it"
     return (

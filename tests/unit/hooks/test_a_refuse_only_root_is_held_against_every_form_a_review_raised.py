@@ -243,7 +243,13 @@ def test_no_file_tool_reads_the_outbox(config: SessionConfig) -> None:
     ("platform", "os_layer", "claims", "never"),
     [
         ("darwin", True, "no command can read it back", "earlier command"),
-        ("linux", True, "no command can read back a record an earlier command wrote", "it back"),
+        (
+            "linux",
+            True,
+            "no command can read back a record an earlier command wrote, unless the command "
+            "that wrote it kept a copy",
+            "no command can read it back",
+        ),
         ("darwin", False, "nothing but this refusal", "no command can read"),
         ("linux", False, "nothing but this refusal", "no command can read"),
     ],

@@ -56,7 +56,8 @@ mechanisms deny the reads differently, each measured on Claude Code 2.1.301:
   **What Linux does not deny:** an entry made during a command is not in that command's list,
   so the command that wrote a record, and any process of that same command, can read it
   back, link it elsewhere and keep it, and every command lists the names. The guarantee there
-  is that no command reads a record an earlier command wrote.
+  is that no command reads a record an earlier command wrote, unless the command that wrote it
+  kept a copy.
 
 A platform with neither mechanism gets no policy at all: building one refuses, rather than
 leaving the outbox readable.
