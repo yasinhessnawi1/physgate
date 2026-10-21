@@ -36,7 +36,7 @@ from physgate.orchestrator import dispatch as dispatch_module
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.decompose import Outcome, Plan, PlannedModule, mint_id, start_run
 from physgate.orchestrator.dispatch import ClaudeDispatcher
-from physgate.orchestrator.exceptions import DecompositionError
+from physgate.orchestrator.exceptions import DecompositionError, InvocationError
 from physgate.orchestrator.git import commit_all, head_of
 from physgate.orchestrator.install import prepare_install
 from physgate.orchestrator.invocation import claude_binary
@@ -323,3 +323,17 @@ def test_where_no_contract_was_issued_the_installer_gets_the_reading_it_always_g
     assert reading == before
     assert without == with_commit
     assert configs[0] == configs[1]
+
+
+def test_a_decomposed_run_s_session_with_no_specification_commit_is_refused(
+    tmp_path: Path,
+) -> None:
+    """Fail closed: a run that recorded interface contracts installs no session without them."""
+    run, cfg, subtask_id = _decompose(tmp_path, (_interface(INTERFACES[0]),))
+    worktree = run.open_subtask(subtask_id)
+    sdir = run.run_dir / "sessions" / "probe"
+    with pytest.raises(InvocationError, match="interface contracts"):
+        _dispatcher(cfg, run, _dev_physgate_binary())._install(  # noqa: SLF001 - the thing under test
+            _request(cfg, subtask_id, None), worktree, sdir, None
+        )
+    assert not (sdir / "session").exists()

@@ -81,6 +81,15 @@ def interface_contract(node_id: str) -> str:
     return f"{INTERFACES_DIR}/{node_id}.json"
 
 
+#: The most interface nodes a plan may hold. Every role session must Read every interface
+#: contract of its run before any other tool, one Read and so one turn each, on top of its
+#: knowledge files and its specification. The smallest turn budget any recorded run has
+#: given a session is 80, and 20 contracts keep that preamble to a quarter of it; the
+#: recorded plans have held one or two interface nodes. Checked as a plan problem, not put
+#: on the schema, so the schema the decomposition call is sent stays as it was.
+MAX_INTERFACE_NODES = 20
+
+
 def contracts_of(nodes: Sequence[Node]) -> dict[str, str]:
     """Each interface node's contract file, by its path relative to a worktree."""
     return {interface_contract(node.id): node.model_dump_json(indent=2) + "\n" for node in nodes}
@@ -203,6 +212,11 @@ def plan_problems(plan: Plan, roles: Sequence[str]) -> list[str]:
             if one == other or one.is_relative_to(other) or other.is_relative_to(one):
                 found.append(f"module directories {one} and {other} overlap")
     ids = [n.id for n in plan.interface_nodes]
+    if len(ids) > MAX_INTERFACE_NODES:
+        found.append(
+            f"the plan has {len(ids)} interface nodes; at most {MAX_INTERFACE_NODES} are "
+            "allowed, since every session reads every contract before it works"
+        )
     if len(set(ids)) != len(ids):
         found.append("two interface nodes share an id")
     owners = {m.role for m in plan.modules}
