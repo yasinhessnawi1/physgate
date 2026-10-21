@@ -93,6 +93,7 @@ def test_a_dispatched_session_plants_nothing_in_the_harness(
         main=[
             *reads,
             tool("Read", file_path="{cwd}/.physgate/specs/{cwd_name}.md"),
+            tool("Read", file_path=f"{{cwd}}/.physgate/interfaces/{INTERFACE['id']}.json"),
             tool("Write", file_path=str(by_tool), content="planted\n"),
             tool(
                 "Bash",

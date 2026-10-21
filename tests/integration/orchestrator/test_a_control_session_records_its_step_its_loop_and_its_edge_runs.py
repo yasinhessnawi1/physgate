@@ -83,6 +83,7 @@ def test_a_control_session_s_records_are_sealed_and_its_quantities_agree_with_th
         main=[
             *reads,
             tool("Read", file_path="{cwd}/.physgate/specs/{cwd_name}.md"),
+            tool("Read", file_path=f"{{cwd}}/.physgate/interfaces/{INTERFACE['id']}.json"),
             tool("Write", file_path="{cwd}/modules/control/sim.py", content=CONTROL_SCRIPT),
             tool(
                 "Bash",

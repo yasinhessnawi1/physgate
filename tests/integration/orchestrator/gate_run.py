@@ -97,6 +97,7 @@ def session(*payloads: dict[str, Any]) -> Script:
         main=[
             *_KNOWLEDGE_READS,
             tool("Read", file_path="{cwd}/.physgate/specs/{cwd_name}.md"),
+            tool("Read", file_path=f"{{cwd}}/.physgate/interfaces/{INTERFACE['id']}.json"),
             *writes,
             text("done"),
         ]

@@ -517,6 +517,9 @@ def test_a_session_cannot_write_the_run_s_records_streams_integration_worktree_o
     run_dir = tmp_path / "run"
     repo = tmp_path / "target"
     records = {name: f"{name} as the orchestrator wrote it\n" for name in RECORD_FILES}
+    # The event log is one dispatch reads (whether the run recorded interface contracts),
+    # and refuses when it cannot: it starts empty, as a run's log is before its first line.
+    records["events.jsonl"] = ""
     run_dir.mkdir(parents=True)
     for name, content in records.items():
         (run_dir / name).write_text(content)

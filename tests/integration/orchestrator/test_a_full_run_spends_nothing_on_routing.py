@@ -138,6 +138,12 @@ def test_decompose_run_and_resume_through_the_command_with_routing_at_zero(
                     for relative in loader.always_loaded("electrical")
                 ),
                 tool("Read", file_path=str(worktree / ".physgate" / "specs" / f"{subtask}.md")),
+                tool(
+                    "Read",
+                    file_path=str(
+                        worktree / ".physgate" / "interfaces" / f"{INTERFACE['id']}.json"
+                    ),
+                ),
                 tool("Bash", command="echo 'x = 1' > modules/power/driver.py"),
                 tool(
                     "Write",

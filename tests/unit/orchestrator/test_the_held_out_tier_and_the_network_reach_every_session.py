@@ -81,7 +81,9 @@ def test_a_malformed_value_is_refused(change: dict[str, Any]) -> None:
 def _dispatcher(tmp_path: Path, **config: Any) -> ClaudeDispatcher:  # noqa: ANN401
     return ClaudeDispatcher(
         config=make_config(**config),
-        run=SimpleNamespace(subtask_branch=lambda subtask: f"b/{subtask}"),  # type: ignore[arg-type]
+        run=SimpleNamespace(  # type: ignore[arg-type]
+            subtask_branch=lambda subtask: f"b/{subtask}", run_dir=tmp_path / "run"
+        ),
         store_root=tmp_path / "store",
         install_bin=tmp_path / "install" / "bin" / "physgate",
         binary="claude",
@@ -116,7 +118,9 @@ def _install_argv(
     monkeypatch.setattr(dispatch, "harness_protection", lambda: [])
     dispatcher = ClaudeDispatcher(
         config=make_config(**config),
-        run=SimpleNamespace(subtask_branch=lambda subtask: f"b/{subtask}"),  # type: ignore[arg-type]
+        run=SimpleNamespace(  # type: ignore[arg-type]
+            subtask_branch=lambda subtask: f"b/{subtask}", run_dir=tmp_path / "run"
+        ),
         store_root=tmp_path / "store",
         install_bin=tmp_path / "install" / "bin" / "physgate",
         binary="claude",

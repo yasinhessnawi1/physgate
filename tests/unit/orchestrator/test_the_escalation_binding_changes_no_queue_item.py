@@ -79,7 +79,7 @@ SOURCES = {"repair_budget_exhausted", "review_blocked", "review_unavailable", "g
 
 @pytest.fixture(autouse=True)
 def _runs_as_the_golden_file_was_recorded(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Build every run without the series writer in its run branch.
+    """Build every run without the series writer or the interface contracts in its run branch.
 
     The golden file was recorded before decomposition put the series writer into the run
     branch, and every tree compared here is a hash, so the one added file changes every tree
@@ -88,6 +88,10 @@ def _runs_as_the_golden_file_was_recorded(monkeypatch: pytest.MonkeyPatch) -> No
     about the runs is changed, and they are compared exactly as before.
     """
     monkeypatch.setattr(decompose, "series_library", dict)
+    # The same holds for the interface contracts decomposition later put beside the
+    # specifications: one added file per interface node, and every tree hash changes with it.
+    # Their writing and their reading are held by the dispatch tests.
+    monkeypatch.setattr(decompose, "contracts_of", lambda nodes: {})
 
 
 #: The stand-in plan's nodes, by id, as the real gate reads them.

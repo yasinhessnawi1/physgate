@@ -61,8 +61,8 @@ from physgate.orchestrator.credentials import (
     write_key_helper,
     write_login,
 )
-from physgate.orchestrator.decompose import binary_version, read_stream
-from physgate.orchestrator.events import SessionSpawned, read_events
+from physgate.orchestrator.decompose import binary_version, interface_contracts, read_stream
+from physgate.orchestrator.events import Decomposed, SessionSpawned, read_events
 from physgate.orchestrator.exceptions import (
     AccountingError,
     InvocationError,
@@ -1035,6 +1035,39 @@ class ClaudeDispatcher:
         """
         return review_material_seen(stream, frozenset(self._config.held_out_canaries))
 
+    def _contracts(self, request: SessionRequest) -> tuple[str, ...]:
+        """The interface contracts ``request``'s session must read, from its specification commit.
+
+        Fails closed: a request without a specification commit, in a run whose decomposition
+        recorded interface nodes, would install a session that reads none of them.
+
+        Raises:
+            InvocationError: the run recorded interface nodes and the request names no
+                specification commit, or the event log that says so cannot be read.
+        """
+        if request.spec_commit is not None:
+            return interface_contracts(self._run.repo, request.spec_commit)
+        log = self._run.run_dir / "events.jsonl"
+        try:
+            recorded = [
+                node
+                for e in (read_events(log) if log.exists() else [])
+                if isinstance(e, Decomposed)
+                for node in e.interface_nodes
+            ]
+        except (OSError, ValueError, OrchestratorError) as exc:
+            msg = "the event log could not be read, so the run's interface contracts are unknown"
+            raise InvocationError(msg, error=repr(exc)) from exc
+        if recorded:
+            msg = (
+                "the run recorded interface contracts, and the session names no "
+                "specification commit to read them from"
+            )
+            raise InvocationError(
+                msg, subtask_id=request.subtask_id, interface_nodes=",".join(recorded)
+            )
+        return ()
+
     def _install(
         self, request: SessionRequest, worktree: Path, sdir: Path, temp: Path | None
     ) -> Installed:
@@ -1056,11 +1089,18 @@ class ClaudeDispatcher:
         # from the role session like the library's reviewer tree.
         protect += ["--review-material", str(self._review_root)]
         # The always-loaded set (cross's standards, the role's own standards and
-        # skill) is a subset of required reading, which adds the module spec.
-        # loader.py names both relative to the worktree being dispatched to, never
+        # skill) is a subset of required reading, which adds the module spec and every
+        # interface contract the specification commit issued (a superset of the ones
+        # touching the module, until the plan names each interface's consumers).
+        # loader.py names them relative to the worktree being dispatched to, never
         # the orchestrator's own checkout — that is where this session's Read
         # tool actually operates.
-        reading_paths = loader.required_reading(request.assigned_role, Path(request.spec_path))
+        contracts = self._contracts(request)
+        reading_paths = loader.required_reading(
+            request.assigned_role,
+            Path(request.spec_path),
+            interfaces=tuple(Path(path) for path in contracts),
+        )
         always_loaded_paths = loader.always_loaded(request.assigned_role)
         reading_args = [
             arg for path in reading_paths for arg in ("--reading", str(worktree / path))

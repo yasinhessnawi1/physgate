@@ -71,6 +71,7 @@ def test_a_record_a_session_writes_is_sealed_on_its_end_and_never_committed(
         main=[
             *reads,
             tool("Read", file_path="{cwd}/.physgate/specs/{cwd_name}.md"),
+            tool("Read", file_path=f"{{cwd}}/.physgate/interfaces/{INTERFACE['id']}.json"),
             tool("Write", file_path="{cwd}/modules/power/sim.py", content=SCRIPT),
             tool("Bash", command="python3 modules/power/sim.py", description="record"),
             text("done"),
