@@ -56,6 +56,7 @@ figures, and is then refused.
 from __future__ import annotations
 
 import contextlib
+import errno
 import hashlib
 import json
 import math
@@ -276,11 +277,35 @@ def _under(path: str, root: str) -> bool:
     return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
 
 
-def _code_file(path: str, base: str) -> dict[str, str]:
-    with open(path, "rb") as handle:
-        digest = hashlib.sha256(handle.read()).hexdigest()
-    shown = os.path.relpath(path, base).replace(os.sep, "/") if _under(path, base) else path
-    return {"path": shown, "sha256": digest}
+#: How a file of code is opened to be digested: never through a link at its last step, and
+#: without waiting on a pipe or a device, so that what is digested is the regular file the
+#: descriptor holds, judged on that descriptor and not on the path a second time.
+_READ_CODE = (
+    os.O_RDONLY
+    | getattr(os, "O_NOFOLLOW", 0)
+    | getattr(os, "O_NONBLOCK", 0)
+    | getattr(os, "O_CLOEXEC", 0)
+)
+
+
+def _digest(path: str) -> str | None:
+    """The digest of the regular file at ``path``, or ``None`` if there is none there now."""
+    try:
+        fd = os.open(path, _READ_CODE)
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            return None  # a link where the file was: not the file that was loaded
+        raise
+    with os.fdopen(fd, "rb") as handle:
+        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+            return None
+        return hashlib.sha256(handle.read()).hexdigest()
+
+
+def _shown(path: str, base: str) -> str:
+    return os.path.relpath(path, base).replace(os.sep, "/") if _under(path, base) else path
 
 
 def producer(base: str) -> dict[str, object]:
@@ -305,15 +330,17 @@ def producer(base: str) -> dict[str, object]:
         path = os.path.realpath(found)
         if path == script or any(_under(path, root) for root in roots):
             continue
-        if os.path.isfile(path):
-            loaded.add(path)
-    if len(loaded) > MAX_LOADED:
-        msg = f"the process loaded {len(loaded)} files of code; a record names at most {MAX_LOADED}"
+        loaded.add(path)
+    script_digest = _digest(script)
+    if script_digest is None:
+        msg = f"the script {script} is not a regular file now, so its code cannot be named"
         raise SeriesWriterError(msg)
-    return {
-        "script": _code_file(script, base),
-        "loaded": [_code_file(path, base) for path in sorted(loaded)],
-    }
+    digests = {path: _digest(path) for path in sorted(loaded)}
+    named = [{"path": _shown(p, base), "sha256": d} for p, d in digests.items() if d is not None]
+    if len(named) > MAX_LOADED:
+        msg = f"the process loaded {len(named)} files of code; a record names at most {MAX_LOADED}"
+        raise SeriesWriterError(msg)
+    return {"script": {"path": _shown(script, base), "sha256": script_digest}, "loaded": named}
 
 
 #: How a record is opened: made new, in the outbox itself, never through a link. A name already
@@ -335,16 +362,54 @@ def _write_all(fd: int, data: bytes) -> None:
         os.fsync(handle.fileno())
 
 
-def _make_outbox(outbox: str) -> None:
-    """Make the outbox if it is missing, without reading it.
+#: How a directory on the way to the outbox is held: as itself, never through a link.
+_DIRECTORY = os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+#: How the outbox itself is held, to make a record in it by name. Seatbelt refuses opening it
+#: to read (it is read-denied whole) but grants a search-only descriptor, which is all a
+#: name made in it needs (``O_SEARCH``, Darwin's ``O_EXEC | O_DIRECTORY``; measured on
+#: Claude Code 2.1.301). Elsewhere a path-only descriptor where there is one, else a plain one.
+_DARWIN_O_EXEC = 0x40000000
 
-    ``os.makedirs`` with ``exist_ok`` looks at a directory that already exists, and the
-    outbox may not be looked at: an existing one is taken as found, and the write into it
-    says whether it is a directory.
+
+def _outbox_mode() -> int:
+    if sys.platform == "darwin":
+        return _DIRECTORY | _DARWIN_O_EXEC
+    return _DIRECTORY | getattr(os, "O_PATH", os.O_RDONLY)
+
+
+def _open_dir(name: str, parent: int, mode: int) -> int:
+    """Make the directory ``name`` in ``parent`` if it is missing, and hold it.
+
+    Made and then opened by name in ``parent``'s descriptor, never through a link: if the name
+    is a link, or anything but a directory, by the time it is opened, the open fails and nothing
+    is written. An existing directory is taken as found, without looking at it, since the
+    outbox may not be looked at.
     """
-    os.makedirs(os.path.dirname(outbox), exist_ok=True)
     with contextlib.suppress(FileExistsError):
-        os.mkdir(outbox)
+        os.mkdir(name, 0o755, dir_fd=parent)
+    try:
+        return os.open(name, mode, dir_fd=parent)
+    except OSError as exc:
+        if exc.errno in (errno.ELOOP, errno.ENOTDIR):
+            msg = (
+                f"{name} in the worktree's .physgate is not a directory of its own (a link or a "
+                "file is there): no record is written through it"
+            )
+            raise SeriesWriterError(msg) from None
+        raise
+
+
+def _open_outbox(base: str) -> int:
+    """Hold the outbox, reached from the worktree one directory at a time, never by a link."""
+    worktree_fd = os.open(base, os.O_RDONLY | _DIRECTORY)
+    try:
+        physgate_fd = _open_dir(".physgate", worktree_fd, os.O_RDONLY | _DIRECTORY)
+    finally:
+        os.close(worktree_fd)
+    try:
+        return _open_dir(os.path.basename(OUTBOX), physgate_fd, _outbox_mode())
+    finally:
+        os.close(physgate_fd)
 
 
 def _taken(record_id: str) -> SeriesWriterError:
@@ -354,15 +419,17 @@ def _taken(record_id: str) -> SeriesWriterError:
     )
 
 
-def _open_new(final: str, record_id: str) -> int:
-    """Make the record's file, new and empty, in the outbox; return it open for writing.
+def _open_new(outbox: int, record_id: str) -> int:
+    """Make the record's file, new and empty, in the held outbox; return it open for writing.
+
+    Every check after this is made on the descriptor, never on the name again.
 
     Raises:
         SeriesWriterError: something is already at its name, or the file made there has a
             second name somewhere (another name could read what is written into it).
     """
     try:
-        fd = os.open(final, _CREATE, 0o644)
+        fd = os.open(record_id + ".json", _CREATE, 0o644, dir_fd=outbox)
     except FileExistsError:
         raise _taken(record_id) from None
     try:
@@ -426,11 +493,13 @@ def record(
         group=group,
         producer=producer(base),
     )
-    outbox = os.path.join(base, OUTBOX)
-    _make_outbox(outbox)
-    final = os.path.join(outbox, record_id + ".json")
-    _write_all(_open_new(final, record_id), data)
-    return final
+    outbox = _open_outbox(base)
+    try:
+        fd = _open_new(outbox, record_id)
+    finally:
+        os.close(outbox)
+    _write_all(fd, data)
+    return os.path.join(base, OUTBOX, record_id + ".json")
 
 
 # ── extractors: reading a quantity off a record's own samples ─────────────────────────────

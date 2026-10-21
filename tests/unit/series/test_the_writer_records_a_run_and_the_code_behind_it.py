@@ -144,14 +144,39 @@ def test_the_writer_leaves_the_session_s_bounds_to_the_collector(tmp_path: Path)
     assert names == ["first.json", "second.json"]
 
 
+#: Run inside a script before anything else: every file the process opens is known by the
+#: place it opened, a name given relative to a held directory included, so a stand-in can
+#: judge an open made through a directory's descriptor as the sandbox does, by where it lands.
+_WHERE = """
+import errno
+_real_open = os.open
+_held = {}
+def _where(path, dir_fd=None):
+    path = os.fspath(path)
+    if dir_fd is not None and not os.path.isabs(path):
+        path = os.path.join(_held[dir_fd], path)
+    return os.path.abspath(path)
+def _opening(path, flags, mode=0o777, *, dir_fd=None):
+    return _real_open(path, flags, mode, dir_fd=dir_fd)
+def _open(path, flags, mode=0o777, *, dir_fd=None):
+    fd = _opening(path, flags, mode, dir_fd=dir_fd)
+    _held[fd] = _where(path, dir_fd)
+    return fd
+os.open = _open
+"""
+
 #: Run inside a script before it records: the outbox behaves as Seatbelt makes a read-denied
-#: one behave (measured on macOS with Claude Code 2.1.301). Listing it, asking about an entry
-#: (even through the descriptor that made it) and opening one to read fail; renaming, linking
-#: or removing anything in it, and renaming a file in over one already there, fail too;
-#: creating a new file there and writing it still work. The platform reads as macOS, whose
-#: writer takes a refused question about its own new entry as Seatbelt's.
-_BLIND = """
-import builtins, errno
+#: one behave (measured on macOS with Claude Code 2.1.301). Listing it, opening it to read,
+#: asking about an entry (even through the descriptor that made it) and opening one to read
+#: fail; renaming, linking or removing anything in it, and renaming a file in over one already
+#: there, fail too; holding it for search and creating a new file there and writing it still
+#: work. The platform reads as macOS, whose writer takes a refused question about its own new
+#: entry as Seatbelt's; Darwin's search flag is dropped where the kernel is not Darwin's.
+_BLIND = (
+    _WHERE
+    + """
+import builtins
+_real_platform = sys.platform
 class _Platform:
     platform = "darwin"
     def __getattr__(self, name):
@@ -159,9 +184,7 @@ class _Platform:
 series_writer.sys = _Platform()
 _outbox = os.path.realpath(os.path.join(here, ".physgate", "series"))
 _real_lstat = os.lstat
-_real_open = os.open
 _real_fstat = os.fstat
-_made = set()
 def _there(path):
     try:
         _real_lstat(path)
@@ -188,28 +211,30 @@ _moves = lambda src, dst, *a, **k: _inside(src) or (_inside(dst) and _there(dst)
 os.replace = _deny(os.replace, _moves)
 os.rename = _deny(os.rename, _moves)
 os.link = _deny(os.link, lambda src, dst, *a, **k: _inside(src))
-def _open(path, flags, *args, **kwargs):
-    if _inside(path) and not flags & os.O_WRONLY:
-        _refuse(path)
-    fd = _real_open(path, flags, *args, **kwargs)
-    if _inside(path):
-        _made.add(fd)
-    return fd
-os.open = _open
-os.fstat = _deny(_real_fstat, lambda fd: fd in _made)
+_SEARCH = 0x40000000
+def _opening(path, flags, mode=0o777, *, dir_fd=None):
+    where = _where(path, dir_fd)
+    if _inside(where) and not flags & (os.O_WRONLY | _SEARCH):
+        _refuse(where)
+    if _real_platform != "darwin":
+        flags &= ~_SEARCH
+    return _real_open(path, flags, mode, dir_fd=dir_fd)
+os.fstat = _deny(_real_fstat, lambda fd: _inside(_held.get(fd, "")) and _held[fd] != _outbox)
 builtins.open = _deny(builtins.open, lambda p, mode="r", *a, **k: _inside(p) and "r" in mode)
 """
+)
 
 #: Run inside a script before it records: every file the process makes is listed on stderr,
 #: so a test sees each place the writer put anything, however briefly.
-_MAKES = """
-_real_make = os.open
-def _make(path, flags, *args, **kwargs):
+_MAKES = (
+    _WHERE
+    + """
+def _opening(path, flags, mode=0o777, *, dir_fd=None):
     if flags & os.O_CREAT:
-        sys.stderr.write("made " + os.path.abspath(os.fspath(path)) + "\\n")
-    return _real_make(path, flags, *args, **kwargs)
-os.open = _make
+        sys.stderr.write("made " + _where(path, dir_fd) + "\\n")
+    return _real_open(path, flags, mode, dir_fd=dir_fd)
 """
+)
 
 
 def test_the_writer_writes_the_outbox_without_reading_it(tmp_path: Path) -> None:
@@ -299,15 +324,16 @@ def test_no_other_kind_of_entry_under_the_record_s_name_is_written_through(
 #: Run inside a script before it records: as the record's file is made, a second name is
 #: linked to it outside the outbox, as a process of the same command could on Linux, where
 #: an entry made during a command is not denied to that command.
-_SECOND_NAME = """
-_real_make = os.open
-def _make(path, flags, *args, **kwargs):
-    fd = _real_make(path, flags, *args, **kwargs)
+_SECOND_NAME = (
+    _WHERE
+    + """
+def _opening(path, flags, mode=0o777, *, dir_fd=None):
+    fd = _real_open(path, flags, mode, dir_fd=dir_fd)
     if flags & os.O_CREAT and os.path.basename(os.fspath(path)) == "step_nominal.json":
-        os.link(path, os.path.join(here, "modules", "control", "caught"))
+        os.link(_where(path, dir_fd), os.path.join(here, "modules", "control", "caught"))
     return fd
-os.open = _make
 """
+)
 
 
 def test_a_record_s_file_with_a_second_name_is_left_empty(tmp_path: Path) -> None:
@@ -325,7 +351,10 @@ def test_a_refused_question_about_its_own_entry_is_taken_as_seatbelt_s_only_on_m
 ) -> None:
     # Elsewhere a writer that cannot ask how many names its new file has does not write it.
     base = worktree(tmp_path)
-    linux = _BLIND.replace('platform = "darwin"', 'platform = "linux"')
+    # On Linux the outbox itself may be held; only the question about the entry is refused.
+    linux = _BLIND.replace('platform = "darwin"', 'platform = "linux"').replace(
+        "(os.O_WRONLY | _SEARCH)", "(os.O_WRONLY | _SEARCH | os.O_DIRECTORY)"
+    )
     done = run(write_script(base, extra=linux))
     assert done.returncode != 0
     assert "Operation not permitted" in done.stderr
@@ -444,3 +473,53 @@ def test_a_site_hook_from_anywhere_but_the_standard_library_is_named(tmp_path: P
     root = Path(os.path.realpath(tmp_path))
     paths = _site_hook_record(tmp_path, root / "home" / "site-packages")
     assert str(root / "etc" / "python3.12" / "sitecustomize.py") in paths
+
+
+#: Run inside a script before it records: the moment the writer makes the outbox, it is
+#: swapped for a link to a directory the session reads, as a process of the session could.
+_SWAP_OUTBOX = """
+_real_mkdir = os.mkdir
+def _mkdir(path, mode=0o777, *, dir_fd=None):
+    _real_mkdir(path, mode, dir_fd=dir_fd)
+    if os.fspath(path) == "series":
+        os.rmdir(path, dir_fd=dir_fd)
+        os.symlink(os.path.join(here, "modules", "control", "stash"), path, dir_fd=dir_fd)
+os.mkdir = _mkdir
+"""
+
+
+@pytest.mark.parametrize("when", ["before the writer runs", "between making it and opening it"])
+def test_an_outbox_that_is_a_link_is_never_written_through(tmp_path: Path, when: str) -> None:
+    # Checked by name and then opened by name, the outbox could be a link by the time the
+    # record is made, and the record would land where the session reads it.
+    base = worktree(tmp_path)
+    stash = base / "modules" / "control" / "stash"
+    stash.mkdir()
+    extra = _SWAP_OUTBOX
+    if when == "before the writer runs":
+        (base / ".physgate" / "series").symlink_to(stash)
+        extra = ""
+    done = run(write_script(base, extra=extra))
+    assert done.returncode != 0
+    assert "not a directory of its own" in done.stderr
+    assert list(stash.iterdir()) == []
+
+
+def test_a_loaded_file_that_is_no_regular_file_when_it_is_digested_is_not_waited_on(
+    tmp_path: Path,
+) -> None:
+    # Judged and digested through one descriptor: a pipe where a loaded file was named is
+    # neither read (a read would wait for ever) nor named.
+    base = worktree(tmp_path)
+    pipe = base / "modules" / "control" / "piped.py"
+    os.mkfifo(pipe)
+    extra = (
+        "import types\n"
+        "_piped = types.ModuleType('piped')\n"
+        f"_piped.__file__ = {str(pipe)!r}\n"
+        "sys.modules['piped'] = _piped\n"
+    )
+    done = run(write_script(base, extra=extra))
+    assert done.returncode == 0, done.stderr
+    record = parse_record(Path(done.stdout.strip()).read_bytes())
+    assert "modules/control/piped.py" not in {f.path for f in record.producer.loaded}

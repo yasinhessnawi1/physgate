@@ -46,8 +46,9 @@ mechanisms deny the reads differently, each measured on Claude Code 2.1.301:
 - on macOS Seatbelt denies the outbox whole, to every process of the session: a command
   cannot list it, read, link, copy, rename or remove anything in it, nor rename it or a
   directory above it away; even the metadata of an entry is denied, through the descriptor
-  that made it. A command can still create a new file there and write it, which is how the
-  series writer writes. So no command, nor a process that outlived one, reads a record;
+  that made it. A command can still hold the outbox by a search-only descriptor, create a
+  new file in it through that descriptor and write it, which is how the series writer
+  writes. So no command, nor a process that outlived one, reads a record;
 - on Linux bubblewrap lays an empty layer over a read-denied directory, and a record written
   into that layer would be gone when the command ends. The outbox's entries are denied
   instead (``<outbox>/*``), expanded as each command starts: every record an earlier command
