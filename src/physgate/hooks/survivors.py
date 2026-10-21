@@ -22,10 +22,13 @@ import re
 from typing import TYPE_CHECKING
 
 from physgate.hooks.runtime import ALLOW, Decision, HookSpec, refuse
-from physgate.oslayer.reaper import TAG
 
 if TYPE_CHECKING:
     from physgate.hooks.views import ConfigView, InputView
+
+#: The reaper's tag (``physgate.oslayer.reaper.TAG``, which a test holds equal). Not imported:
+#: the reaper module loads ``ctypes`` and ``subprocess``, which the hook hot path stays off.
+TAG = "physgate-reaper:"
 
 #: The reaper's lines, each whole on a line of its own.
 LINE = re.compile(

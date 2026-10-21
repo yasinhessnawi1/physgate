@@ -18,6 +18,7 @@ from physgate.hooks import survivors
 from physgate.hooks.config import HookInput, SessionConfig
 from physgate.hooks.registry import REGISTRY
 from physgate.hooks.runtime import dispatch
+from physgate.oslayer import reaper
 
 STOPPED = "physgate-reaper: stopped 2 process(es) this command left running"
 NOT_REAPING = "physgate-reaper: not reaping: the canary 400 is gone"
@@ -89,6 +90,10 @@ def test_a_mention_another_tool_or_nothing_is_allowed(tmp_path: Path) -> None:
     ):
         assert dispatch([survivors.HOOK], hook_input, config).allow
     assert _log(config) == []
+
+
+def test_the_hook_reads_the_reaper_s_own_tag() -> None:
+    assert survivors.TAG == reaper.TAG
 
 
 def test_the_hook_is_registered() -> None:
