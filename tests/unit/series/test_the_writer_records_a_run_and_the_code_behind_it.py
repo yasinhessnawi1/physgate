@@ -53,6 +53,8 @@ def test_the_record_is_the_same_wherever_the_script_is_run_from(tmp_path: Path) 
     first = run(script)
     assert first.returncode == 0, first.stderr
     data = Path(first.stdout.strip()).read_bytes()
+    # An id is written once: the record is taken away, as the session's end collects it.
+    Path(first.stdout.strip()).unlink()
     again = subprocess.run(
         [sys.executable, "-E", "-s", "sim.py"],
         cwd=script.parent,
@@ -144,13 +146,22 @@ def test_the_writer_leaves_the_session_s_bounds_to_the_collector(tmp_path: Path)
 
 #: Run inside a script before it records: the outbox behaves as Seatbelt makes a read-denied
 #: one behave (measured on macOS with Claude Code 2.1.301). Listing it, asking about an entry
-#: and opening one to read fail; renaming or removing anything in it, and renaming a file in
-#: over one already there, fail too; creating a file there, rewriting one in place, and
-#: renaming one in from beside it under a new name still work.
+#: (even through the descriptor that made it) and opening one to read fail; renaming, linking
+#: or removing anything in it, and renaming a file in over one already there, fail too;
+#: creating a new file there and writing it still work. The platform reads as macOS, whose
+#: writer takes a refused question about its own new entry as Seatbelt's.
 _BLIND = """
 import builtins, errno
+class _Platform:
+    platform = "darwin"
+    def __getattr__(self, name):
+        return getattr(sys, name)
+series_writer.sys = _Platform()
 _outbox = os.path.realpath(os.path.join(here, ".physgate", "series"))
 _real_lstat = os.lstat
+_real_open = os.open
+_real_fstat = os.fstat
+_made = set()
 def _there(path):
     try:
         _real_lstat(path)
@@ -161,7 +172,7 @@ def _inside(path):
     path = "" if isinstance(path, int) else os.path.abspath(os.fspath(path))
     return path == _outbox or path.startswith(_outbox + os.sep)
 def _refuse(path):
-    raise PermissionError(errno.EPERM, "Operation not permitted", os.fspath(path))
+    raise PermissionError(errno.EPERM, "Operation not permitted", str(path))
 def _deny(real, refused):
     def guarded(path, *args, **kwargs):
         if refused(path, *args, **kwargs):
@@ -176,8 +187,28 @@ for _name in ("stat", "lstat", "unlink", "remove"):
 _moves = lambda src, dst, *a, **k: _inside(src) or (_inside(dst) and _there(dst))
 os.replace = _deny(os.replace, _moves)
 os.rename = _deny(os.rename, _moves)
-os.open = _deny(os.open, lambda p, flags, *a, **k: _inside(p) and not flags & os.O_WRONLY)
+os.link = _deny(os.link, lambda src, dst, *a, **k: _inside(src))
+def _open(path, flags, *args, **kwargs):
+    if _inside(path) and not flags & os.O_WRONLY:
+        _refuse(path)
+    fd = _real_open(path, flags, *args, **kwargs)
+    if _inside(path):
+        _made.add(fd)
+    return fd
+os.open = _open
+os.fstat = _deny(_real_fstat, lambda fd: fd in _made)
 builtins.open = _deny(builtins.open, lambda p, mode="r", *a, **k: _inside(p) and "r" in mode)
+"""
+
+#: Run inside a script before it records: every file the process makes is listed on stderr,
+#: so a test sees each place the writer put anything, however briefly.
+_MAKES = """
+_real_make = os.open
+def _make(path, flags, *args, **kwargs):
+    if flags & os.O_CREAT:
+        sys.stderr.write("made " + os.path.abspath(os.fspath(path)) + "\\n")
+    return _real_make(path, flags, *args, **kwargs)
+os.open = _make
 """
 
 
@@ -186,46 +217,119 @@ def test_the_writer_writes_the_outbox_without_reading_it(tmp_path: Path) -> None
     (base / ".physgate" / "series").mkdir()
     first = run(write_script(base, extra=_BLIND))
     assert first.returncode == 0, first.stderr
-    # Written again under its id: the rename in over the earlier record is refused, so the
-    # record is rewritten in place, whole.
-    again = run(write_script(base, name="again.py", extra=_BLIND))
-    assert again.returncode == 0, again.stderr
     outbox = base / ".physgate" / "series"
     assert sorted(p.name for p in outbox.iterdir()) == ["step_nominal.json"]
     record = parse_record((outbox / "step_nominal.json").read_bytes())
-    assert record.producer.script.path == "modules/control/again.py"
+    assert record.producer.script.path == "modules/control/sim.py"
     # Nothing is left beside the outbox either.
     assert sorted(p.name for p in (base / ".physgate").iterdir()) == ["lib", "series"]
 
 
-#: Run inside a script before it records: the outbox behaves as bubblewrap makes it behave
-#: with its entries read-denied (measured on Linux with Claude Code 2.1.301): a record an
-#: earlier command wrote is a mount point, and a rename over it fails as busy.
-_MASKED = """
-import errno
-_real_replace = os.replace
-def _busy(src, dst, *args, **kwargs):
-    if os.path.basename(dst) == "step_nominal.json" and os.path.lexists(dst):
-        raise OSError(errno.EBUSY, "Device or resource busy", dst)
-    return _real_replace(src, dst, *args, **kwargs)
-os.replace = _busy
-"""
-
-
-def test_a_record_an_earlier_command_wrote_and_cannot_be_replaced_is_refused_by_name(
+def test_the_writer_makes_nothing_but_the_record_and_nothing_beside_the_outbox(
     tmp_path: Path,
 ) -> None:
+    # A file made beside the outbox and moved in later could be linked or held open, before
+    # the move, by a process the session left running; the record's file is made in place.
     base = worktree(tmp_path)
-    first = run(write_script(base))
+    done = run(write_script(base, extra=_MAKES))
+    assert done.returncode == 0, done.stderr
+    lines = done.stderr.splitlines()
+    made = [line.removeprefix("made ") for line in lines if line.startswith("made ")]
+    assert made == [str(base / ".physgate" / "series" / "step_nominal.json")]
+
+
+@pytest.mark.parametrize("blind", [False, True])
+def test_a_record_id_already_written_is_refused_and_the_record_left_as_it_was(
+    tmp_path: Path, blind: bool
+) -> None:
+    # From the same command or a later one, on either platform: a name already in the outbox
+    # is never written over, so the script records the run under a new id.
+    base = worktree(tmp_path)
+    first = run(write_script(base, extra=_BLIND if blind else ""))
     assert first.returncode == 0, first.stderr
     outbox = base / ".physgate" / "series"
     before = (outbox / "step_nominal.json").read_bytes()
-    again = run(write_script(base, name="again.py", extra=_MASKED))
+    again = run(write_script(base, name="again.py", extra=_BLIND if blind else ""))
     assert again.returncode != 0
-    assert "written by an earlier command" in again.stderr
-    assert "under a new id" in again.stderr
+    assert "already in the outbox" in again.stderr and "under a new id" in again.stderr
     assert (outbox / "step_nominal.json").read_bytes() == before
     assert sorted(p.name for p in (base / ".physgate").iterdir()) == ["lib", "series"]
+
+
+@pytest.mark.parametrize("blind", [False, True])
+def test_a_file_linked_in_under_the_record_s_name_is_never_written_through(
+    tmp_path: Path, blind: bool
+) -> None:
+    # The bait: a session links a file of its own into the outbox under the name its script
+    # will record, then reads the record through its own name. The writer refuses the name.
+    base = worktree(tmp_path)
+    outbox = base / ".physgate" / "series"
+    outbox.mkdir()
+    bait = base / "modules" / "control" / "bait.txt"
+    bait.write_text("BAIT")
+    os.link(bait, outbox / "step_nominal.json")
+    done = run(write_script(base, extra=_BLIND if blind else ""))
+    assert done.returncode != 0
+    assert "already in the outbox" in done.stderr
+    assert bait.read_text() == "BAIT"
+
+
+@pytest.mark.parametrize("bait", ["a symbolic link", "a directory", "a fifo"])
+def test_no_other_kind_of_entry_under_the_record_s_name_is_written_through(
+    tmp_path: Path, bait: str
+) -> None:
+    base = worktree(tmp_path)
+    outbox = base / ".physgate" / "series"
+    outbox.mkdir()
+    target = base / "modules" / "control" / "target.txt"
+    target.write_text("TARGET")
+    entry = outbox / "step_nominal.json"
+    if bait == "a symbolic link":
+        entry.symlink_to(target)
+    elif bait == "a directory":
+        entry.mkdir()
+    else:
+        os.mkfifo(entry)
+    done = run(write_script(base))
+    assert done.returncode != 0
+    assert "already in the outbox" in done.stderr
+    assert target.read_text() == "TARGET"
+
+
+#: Run inside a script before it records: as the record's file is made, a second name is
+#: linked to it outside the outbox, as a process of the same command could on Linux, where
+#: an entry made during a command is not denied to that command.
+_SECOND_NAME = """
+_real_make = os.open
+def _make(path, flags, *args, **kwargs):
+    fd = _real_make(path, flags, *args, **kwargs)
+    if flags & os.O_CREAT and os.path.basename(os.fspath(path)) == "step_nominal.json":
+        os.link(path, os.path.join(here, "modules", "control", "caught"))
+    return fd
+os.open = _make
+"""
+
+
+def test_a_record_s_file_with_a_second_name_is_left_empty(tmp_path: Path) -> None:
+    base = worktree(tmp_path)
+    done = run(write_script(base, extra=_SECOND_NAME))
+    assert done.returncode != 0
+    assert "has 2 names" in done.stderr and "nothing was written" in done.stderr
+    # Nothing reached the second name; the empty record is refused when the session ends.
+    assert (base / "modules" / "control" / "caught").read_bytes() == b""
+    assert (base / ".physgate" / "series" / "step_nominal.json").read_bytes() == b""
+
+
+def test_a_refused_question_about_its_own_entry_is_taken_as_seatbelt_s_only_on_macos(
+    tmp_path: Path,
+) -> None:
+    # Elsewhere a writer that cannot ask how many names its new file has does not write it.
+    base = worktree(tmp_path)
+    linux = _BLIND.replace('platform = "darwin"', 'platform = "linux"')
+    done = run(write_script(base, extra=linux))
+    assert done.returncode != 0
+    assert "Operation not permitted" in done.stderr
+    assert (base / ".physgate" / "series" / "step_nominal.json").read_bytes() == b""
 
 
 def test_a_writer_that_reads_the_outbox_fails_where_it_is_unreadable(tmp_path: Path) -> None:
@@ -273,31 +377,16 @@ def test_the_writer_runs_on_the_oldest_interpreter_a_session_may_find(tmp_path: 
     }
 
 
-def test_writing_a_record_again_replaces_it_whole(tmp_path: Path) -> None:
+def test_a_record_cut_short_is_left_where_the_collector_refuses_it(tmp_path: Path) -> None:
+    # Not whole-or-nothing: the record's file is made before it is written, and a write that
+    # fails part way leaves it short. The collector refuses it when the session ends.
     base = worktree(tmp_path)
-    first = run(write_script(base))
-    assert first.returncode == 0, first.stderr
-    again = run(write_script(base, name="again.py"))
-    assert again.returncode == 0, again.stderr
-    outbox = base / ".physgate" / "series"
-    assert sorted(p.name for p in outbox.iterdir()) == ["step_nominal.json"]
-    record = parse_record((outbox / "step_nominal.json").read_bytes())
-    assert record.producer.script.path == "modules/control/again.py"
-
-
-def test_a_rewrite_that_fails_part_way_leaves_the_earlier_record_whole(tmp_path: Path) -> None:
-    base = worktree(tmp_path)
-    first = run(write_script(base))
-    assert first.returncode == 0, first.stderr
-    outbox = base / ".physgate" / "series"
-    before = (outbox / "step_nominal.json").read_bytes()
-
     failing = "def _fail(fd):\n    raise OSError('the disk went away')\nos.fsync = _fail"
-    done = run(write_script(base, name="failing.py", extra=failing))
+    done = run(write_script(base, extra=failing))
     assert done.returncode != 0
     assert "the disk went away" in done.stderr
+    outbox = base / ".physgate" / "series"
     assert sorted(p.name for p in outbox.iterdir()) == ["step_nominal.json"]
-    assert (outbox / "step_nominal.json").read_bytes() == before
 
 
 #: Run inside a script before it records: the interpreter's standard library is taken to be

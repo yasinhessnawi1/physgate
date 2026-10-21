@@ -345,7 +345,8 @@ def test_a_denial_bites_however_the_path_is_spelled(tmp_path: Path, given: str) 
 
 
 #: A role's simulation script under its module: it writes one record through the run's copy
-#: of the series writer, as the writer's own usage shows, with the marker in its title.
+#: of the series writer, as the writer's own usage shows, with the marker in its title, under
+#: the id it is given (``step_nominal`` by default), and says whether the writer refused it.
 SIMULATION = f"""\
 import os, sys
 here = os.path.dirname(os.path.abspath(__file__))
@@ -354,21 +355,18 @@ while not os.path.isfile(os.path.join(here, ".physgate", "lib", "series_writer.p
 sys.path.insert(0, os.path.join(here, ".physgate", "lib"))
 import series_writer
 
-series_writer.record(
-    "step_nominal",
-    title={MARKER!r},
-    axis="time",
-    x=("time", "s", [0.0, 0.1, 0.2]),
-    traces=[("position", "m", [0.0, 0.05, 0.1])],
-)
-series_writer.record(
-    "step_nominal",
-    title={MARKER!r} + " again",
-    axis="time",
-    x=("time", "s", [0.0, 0.1, 0.2]),
-    traces=[("position", "m", [0.0, 0.05, 0.1])],
-)
-print("recorded")
+record_id = sys.argv[1] if len(sys.argv) > 1 else "step_nominal"
+try:
+    series_writer.record(
+        record_id,
+        title={MARKER!r},
+        axis="time",
+        x=("time", "s", [0.0, 0.1, 0.2]),
+        traces=[("position", "m", [0.0, 0.05, 0.1])],
+    )
+    print("recorded", record_id)
+except series_writer.SeriesWriterError as exc:
+    print("refused:", exc)
 """
 
 #: The command a role session ran after a command naming the outbox was refused: it joins
@@ -401,15 +399,20 @@ except OSError as e:
 """
 
 
-def _series_steps(layout: Layout) -> list[dict[str, object]]:
+def _module(layout: Layout) -> Path:
+    """The module directory, holding the simulation script, with the writer at its place."""
     lib = layout.worktree / ".physgate" / "lib"
     lib.mkdir(parents=True)
     (lib / "series_writer.py").write_bytes(writer_source())
     module = layout.worktree / "modules" / "control"
     module.mkdir(parents=True)
     (module / "sim.py").write_text(SIMULATION)
+    return module
+
+
+def _series_steps(layout: Layout) -> list[dict[str, object]]:
     # By its full path each time: the shell's directory carries over from one command to the next.
-    into = f"cd {module} && "
+    into = f"cd {_module(layout)} && "
     return [
         tool("Bash", command=into + "python3 sim.py", description="simulate"),
         tool("Bash", command=into + python(READ_BACK), description="read back"),
@@ -418,15 +421,19 @@ def _series_steps(layout: Layout) -> list[dict[str, object]]:
 
 
 @pytest.mark.usefixtures("layer")
-def test_with_the_layer_the_writer_still_writes_and_rewrites_a_record(layout: Layout) -> None:
-    run = run_session(layout, _series_steps(layout)[:1], layer=True)
+def test_with_the_layer_the_writer_writes_a_record_once(layout: Layout) -> None:
+    into = f"cd {_module(layout)} && "
+    twice = tool("Bash", command=into + "python3 sim.py; python3 sim.py", description="twice")
+    run = run_session(layout, [twice], layer=True)
     told = run["told"]
-    assert isinstance(told, list) and "recorded" in str(told[0]), told
-    # Written, then written again under its id: the second is the one on the disk, whole,
-    # and nothing of the writer's is left beside the outbox.
+    assert isinstance(told, list)
+    # Written, then refused under the same id in the same command: the first is the one on
+    # the disk, whole, and nothing of the writer's is left beside the outbox.
+    assert "recorded step_nominal" in str(told[0]), told
+    assert "refused: the record 'step_nominal' is already in the outbox" in str(told[0]), told
     outbox = layout.worktree / ".physgate" / "series"
     assert sorted(p.name for p in outbox.iterdir()) == ["step_nominal.json"]
-    assert json.loads((outbox / "step_nominal.json").read_text())["title"] == f"{MARKER} again"
+    assert json.loads((outbox / "step_nominal.json").read_text())["title"] == MARKER
     assert sorted(p.name for p in outbox.parent.iterdir()) == ["lib", "series"]
 
 
@@ -450,26 +457,127 @@ def test_a_later_command_reads_no_record_from_the_outbox_by_a_path_built_at_run_
     assert MARKER not in moved and "denied:" in moved, moved
     assert not (layout.worktree / "modules" / "control" / "moved").exists()
     record = layout.worktree / ".physgate" / "series" / "step_nominal.json"
-    assert f"{MARKER} again" in record.read_text()
+    assert json.loads(record.read_text())["title"] == MARKER
 
 
 @pytest.mark.usefixtures("layer")
-def test_a_record_an_earlier_command_wrote_is_rewritten_or_refused_never_read(
-    layout: Layout,
-) -> None:
-    # Run again in a later command: macOS rewrites the record in place; on Linux what an
-    # earlier command wrote is out of reach, so the writer refuses and says why.
+def test_a_record_id_an_earlier_command_wrote_is_refused_never_rewritten(layout: Layout) -> None:
+    # Run again in a later command, on either platform: the writer refuses the id and says
+    # why, and the record the earlier command wrote stays as it was.
     first = _series_steps(layout)[0]
     run = run_session(layout, [first, first], layer=True)
     told = run["told"]
     assert isinstance(told, list)
     assert "recorded" in str(told[0]), told[0]
+    assert "already in the outbox" in str(told[1]) and "under a new id" in str(told[1]), told[1]
     record = layout.worktree / ".physgate" / "series" / "step_nominal.json"
-    if sys.platform == "darwin":
-        assert "recorded" in str(told[1]), told[1]
-    else:
-        assert "written by an earlier command" in str(told[1]), told[1]
-    assert json.loads(record.read_text())["title"] == f"{MARKER} again"
+    assert json.loads(record.read_text())["title"] == MARKER
+
+
+#: A file of the session's own, linked into the outbox under the name the simulation will
+#: record, so that the record would be readable through the session's own name for it.
+PLANT_BAIT = """\
+import os
+p = os.path.join('..', '..', '.physgate', 'ser' + 'ies')
+os.makedirs(p, exist_ok=True)
+open('bait.txt', 'w').write('BAIT')
+try:
+    os.link('bait.txt', os.path.join(p, 'step_nominal.json'))
+    print('linked')
+except OSError as e:
+    print('link denied:', e.strerror)
+"""
+
+
+@pytest.mark.usefixtures("layer")
+def test_a_record_is_never_written_through_a_name_the_session_linked_into_the_outbox(
+    layout: Layout,
+) -> None:
+    # The writer used to fall back to writing a record in place when the outbox refused the
+    # rename over it: through a hard link the session had planted, the session then read the
+    # record by its own name and unlinked it, and the record sealed with one name again.
+    into = f"cd {_module(layout)} && "
+    steps = [
+        tool("Bash", command=into + python(PLANT_BAIT), description="plant"),
+        tool("Bash", command=into + "python3 sim.py", description="simulate"),
+        tool(
+            "Bash", command=into + python("print(open('ba' + 'it.txt').read())"), description="read"
+        ),
+    ]
+    run = run_session(layout, steps, layer=True)
+    told = run["told"]
+    assert isinstance(told, list)
+    planted, simulated, read = (str(said) for said in told)
+    assert "linked" in planted, planted
+    assert "refused:" in simulated and "already in the outbox" in simulated, simulated
+    assert MARKER not in read and "BAIT" in read, read
+    assert (layout.worktree / "modules" / "control" / "bait.txt").read_text() == "BAIT"
+
+
+#: Started by one command and left running after it, in a session of its own: for fifteen
+#: seconds it catches every file it can beside and in the outbox, by a link of its own, as
+#: fast as it can (it holds no open file, so its catches are read by the next command).
+WATCHER = """\
+import os, time
+d = os.path.join('..', '..', '.physgate')
+p = os.path.join(d, 'ser' + 'ies')
+end = time.time() + 15
+n = 0
+while time.time() < end:
+    try:
+        names = [os.path.join(d, x) for x in os.listdir(d)]
+    except OSError:
+        names = []
+    names += [os.path.join(p, 'step_%d.json' % k) for k in range(5)]
+    for name in names:
+        if name.endswith(('.tmp', '.json')):
+            try:
+                os.link(name, 'caught%d' % n)
+                n += 1
+            except OSError:
+                pass
+"""
+
+SPAWN_WATCHER = (
+    "import subprocess, sys\n"
+    f"subprocess.Popen([sys.executable, '-c', {WATCHER!r}], start_new_session=True,"
+    " stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+    "print('spawned')"
+)
+
+READ_CATCHES = """\
+import glob
+caught = sorted(glob.glob('cau' + 'ght*'))
+print('caught', len(caught))
+for name in caught:
+    print(name, open(name).read()[:200])
+"""
+
+
+@pytest.mark.usefixtures("layer")
+def test_a_process_left_running_catches_no_record_as_it_is_written(layout: Layout) -> None:
+    # A process that outlived its command linked every temporary record the writer made
+    # beside the outbox before it was renamed in. No such file is made now, and a record in
+    # the outbox can be neither linked out nor opened by any process of the session.
+    into = f"cd {_module(layout)} && "
+    steps = [
+        tool("Bash", command=into + python(SPAWN_WATCHER), description="watch"),
+        tool(
+            "Bash",
+            command=into + "sleep 2; for k in 0 1 2 3 4; do python3 sim.py step_$k; done",
+            description="simulate",
+        ),
+        tool("Bash", command=into + "sleep 1; " + python(READ_CATCHES), description="read"),
+    ]
+    run = run_session(layout, steps, layer=True)
+    told = run["told"]
+    assert isinstance(told, list)
+    spawned, simulated, read = (str(said) for said in told)
+    assert "spawned" in spawned, spawned
+    assert all(f"recorded step_{k}" in simulated for k in range(5)), simulated
+    assert MARKER not in read, read
+    outbox = layout.worktree / ".physgate" / "series"
+    assert sorted(p.name for p in outbox.iterdir()) == [f"step_{k}.json" for k in range(5)]
 
 
 def test_without_the_layer_the_outbox_reads_back_which_shows_the_probe_works(
@@ -480,4 +588,4 @@ def test_without_the_layer_the_outbox_reads_back_which_shows_the_probe_works(
     assert isinstance(told, list)
     simulated, read_back = (str(said) for said in told)
     assert "recorded" in simulated, simulated
-    assert f"{MARKER} again" in read_back, read_back
+    assert MARKER in read_back, read_back

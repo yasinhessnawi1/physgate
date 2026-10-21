@@ -124,27 +124,6 @@ def test_a_writer_s_temporary_file_is_discarded(tmp_path: Path, run_dir: Path) -
     assert (run_dir / "series" / DISCARDED_DIR / "session-1" / ".step.json.123.tmp").exists()
 
 
-def test_a_writer_s_temporary_file_left_beside_the_outbox_is_moved_aside(
-    tmp_path: Path, run_dir: Path
-) -> None:
-    # The writer writes beside the outbox and renames in; a writer killed between the two
-    # leaves its file there, outside the module, where the commit would carry it.
-    base = worktree(tmp_path)
-    beside = _outbox(base).parent
-    (beside / ".step.json.123.tmp").write_text("{")
-    (beside / ".step.json.124.tmp").symlink_to(base / "modules" / "control" / "helper.py")
-    (beside / "notes.tmp").write_text("not the writer's\n")
-    series = _collect(base, run_dir)
-    assert series.records == () and series.refused == ()
-    assert [e.name for e in series.discarded] == [".physgate/.step.json.123.tmp"]
-    assert (run_dir / "series" / DISCARDED_DIR / "session-1" / ".step.json.123.tmp").exists()
-    # A link and a file of another name stay where they are, for the change check to judge.
-    assert sorted(p.name for p in beside.iterdir() if p.name != "lib") == [
-        ".step.json.124.tmp",
-        "notes.tmp",
-    ]
-
-
 def test_a_record_that_does_not_validate_is_refused_with_the_schema_s_reason(
     tmp_path: Path, run_dir: Path
 ) -> None:

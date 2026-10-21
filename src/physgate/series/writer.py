@@ -39,11 +39,9 @@ Use, from a script under the module directory::
         group="step",
     )
 
-The record lands in ``.physgate/series/<id>.json``. A new record arrives whole or not at all.
-Written again under its id from the same command, it is replaced; from a later command it is
-rewritten in place on macOS (a rewrite cut short is refused when the session ends) and
-refused on Linux, where what an earlier command wrote is out of reach: record the run under
-a new id there.
+The record lands in ``.physgate/series/<id>.json``. Each id is written once: a second record
+under an id already used, from this command or an earlier one, is refused, and the script
+records the run under a new id. Nothing in the outbox is read back.
 
 **The extractors.** A quantity read off a record is checked against the record by the
 functions at the end of this file, the very ones the orchestrator runs, so a role computes the
@@ -58,12 +56,12 @@ figures, and is then refused.
 from __future__ import annotations
 
 import contextlib
-import errno
 import hashlib
 import json
 import math
 import os
 import re
+import stat
 import sys
 import sysconfig
 
@@ -318,17 +316,15 @@ def producer(base: str) -> dict[str, object]:
     }
 
 
-#: How a record's temporary file is opened, and how a record already there is rewritten:
-#: never through a link.
-_CREATE = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
-_REWRITE = os.O_WRONLY | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
-#: The temporary file's name, beside the outbox; the collector clears one a killed writer left.
-TEMPORARY_PATTERN = r"^\.[a-z][a-z0-9_]{0,63}\.json\.[0-9]{1,10}\.tmp$"
-
-
-def temporary_name(record_id: str, pid: int) -> str:
-    """The name of a record's temporary file, written beside the outbox before it moves in."""
-    return f".{record_id}.json.{pid}.tmp"
+#: How a record is opened: made new, in the outbox itself, never through a link. A name already
+#: there is never written through, whoever put it there.
+_CREATE = (
+    os.O_WRONLY
+    | os.O_CREAT
+    | os.O_EXCL
+    | getattr(os, "O_NOFOLLOW", 0)
+    | getattr(os, "O_CLOEXEC", 0)
+)
 
 
 def _write_all(fd: int, data: bytes) -> None:
@@ -351,6 +347,49 @@ def _make_outbox(outbox: str) -> None:
         os.mkdir(outbox)
 
 
+def _taken(record_id: str) -> SeriesWriterError:
+    return SeriesWriterError(
+        f"the record {record_id!r} is already in the outbox, and a record is never written "
+        "over: record this run under a new id"
+    )
+
+
+def _open_new(final: str, record_id: str) -> int:
+    """Make the record's file, new and empty, in the outbox; return it open for writing.
+
+    Raises:
+        SeriesWriterError: something is already at its name, or the file made there has a
+            second name somewhere (another name could read what is written into it).
+    """
+    try:
+        fd = os.open(final, _CREATE, 0o644)
+    except FileExistsError:
+        raise _taken(record_id) from None
+    try:
+        try:
+            made = os.fstat(fd)
+        except PermissionError:
+            if sys.platform != "darwin":
+                raise
+            # Seatbelt denies the outbox whole, the metadata of an entry included, even
+            # through the descriptor that made it. There nothing can add a name to an entry
+            # either: linking one out, or opening it, is refused to every process of the
+            # session (measured on Claude Code 2.1.301, from the writing command and from a
+            # process that outlived an earlier one).
+            return fd
+        if not stat.S_ISREG(made.st_mode) or made.st_nlink != 1:
+            msg = (
+                f"the file made for the record {record_id!r} has {made.st_nlink} names, and "
+                "another name could read what is written: nothing was written, and the record "
+                "is refused when the session ends; record this run under a new id"
+            )
+            raise SeriesWriterError(msg)
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
 def record(
     record_id: str,
     *,
@@ -363,15 +402,18 @@ def record(
 ) -> str:
     """Write one record into the worktree's outbox; return its path.
 
-    A new record arrives whole or not at all. The outbox is written blind: nothing in it is
-    listed, looked at or read back, because a role session's shell may not read it. The
-    session's bounds on the count and the bytes of its records (:data:`MAX_RECORDS_PER_SESSION`,
-    :data:`MAX_SESSION_BYTES`) are therefore the collector's alone to hold, and a record beyond
-    them is set aside there.
+    The outbox is written blind: nothing in it is listed, looked at or read back, because a
+    role session's shell may not read it. The record's file is made new in the outbox, empty,
+    and checked to have no other name before anything is written into it; only then are the
+    bytes written and synced. A record cut short is refused when the session ends. An id is
+    written once: a name already in the outbox is never written through or replaced.
+
+    The session's bounds on the count and the bytes of its records
+    (:data:`MAX_RECORDS_PER_SESSION`, :data:`MAX_SESSION_BYTES`) are the collector's alone to
+    hold, and a record beyond them is set aside there.
 
     Raises:
-        SeriesWriterError: the record is not one the format admits, or an earlier command
-            wrote its id where the sandbox keeps that record out of reach.
+        SeriesWriterError: the record is not one the format admits, or its id is taken.
     """
     base = worktree()
     data = build(
@@ -387,35 +429,7 @@ def record(
     outbox = os.path.join(base, OUTBOX)
     _make_outbox(outbox)
     final = os.path.join(outbox, record_id + ".json")
-    # Written beside the outbox and renamed into it: a file in a read-denied outbox can be
-    # created but not renamed or removed there (macOS), and a temporary file must be both.
-    temporary = os.path.join(os.path.dirname(outbox), temporary_name(record_id, os.getpid()))
-    fd = os.open(temporary, _CREATE, 0o644)
-    try:
-        _write_all(fd, data)
-        try:
-            os.replace(temporary, final)
-        except PermissionError:
-            # The record is there already, and the outbox may be added to but not replaced
-            # in (macOS): it is rewritten in place. Not whole-or-nothing, as a rename is; a
-            # rewrite cut short leaves a record the collector refuses, and the script is run
-            # again.
-            _write_all(os.open(final, _REWRITE), data)
-            os.unlink(temporary)
-        except OSError as exc:
-            if exc.errno != errno.EBUSY:
-                raise
-            # An earlier command wrote this id, and the sandbox holds what an earlier command
-            # wrote out of every later command's reach (Linux).
-            msg = (
-                f"the record {record_id!r} was written by an earlier command, and this session "
-                "cannot write over it: record this run under a new id"
-            )
-            raise SeriesWriterError(msg) from None
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.unlink(temporary)
-        raise
+    _write_all(_open_new(final, record_id), data)
     return final
 
 
