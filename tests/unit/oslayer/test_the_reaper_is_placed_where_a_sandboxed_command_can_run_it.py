@@ -20,10 +20,10 @@ from physgate.hooks.registry import REGISTRY
 from physgate.hooks.settings import InstallRequest, install
 from physgate.orchestrator.dispatch import HELD
 from physgate.oslayer import reaper_install
-from physgate.oslayer.reaper import CANARY_ENV
+from physgate.oslayer.reaper import CANARY_ENV, SHELL
 
 
-def _request(tmp_path: Path, temp: str | None) -> InstallRequest:
+def _request(tmp_path: Path, temp: str | None, *, canary: bool = True) -> InstallRequest:
     worktree = tmp_path / "worktree"
     worktree.mkdir(parents=True, exist_ok=True)
     out = tmp_path / "outside"
@@ -41,6 +41,7 @@ def _request(tmp_path: Path, temp: str | None) -> InstallRequest:
         os_layer_temp_dir=temp,
         # As the run's ``sessions/`` is for a dispatched session: kept from its shell.
         extra_protected_refuse_only=(str(out),),
+        spawns_with_canary=canary,
     )
 
 
@@ -60,13 +61,29 @@ def test_on_macos_with_the_layer_the_prefix_names_a_readable_reaper(
     # The sandbox reads the reaper's directory although the run's sessions are kept from it.
     settings = json.loads(done.settings_path.read_text())
     assert str(front.parent) in json.dumps(settings["sandbox"])
+    # The front passes a command through only where it can read the session's settings,
+    # which the sandbox denies every command.
+    assert f"[ -r '{done.settings_path}' ]" in text
+    config = json.loads(done.config_path.read_text())
+    assert config["survivor_reaper"] is True
+    sessions = [r for r in config["protected_roots"] if r["path"] == str(front.parent.parent)]
+    assert [r["reads"] for r in sessions] == ["shell_denied"]
+
+
+def test_a_spawner_that_does_not_export_the_canary_is_refused(
+    outside_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(reaper_install, "wanted", lambda: True)
+    with pytest.raises(ValueError, match="must be spawned with its canary exported"):
+        install(_request(outside_tmp, "/tmp/pg-0123456789ab", canary=False), REGISTRY)
 
 
 def test_without_the_layer_or_off_macos_nothing_is_named(
     outside_tmp: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    done = install(_request(outside_tmp / "a", None), REGISTRY)
+    done = install(_request(outside_tmp / "a", None, canary=False), REGISTRY)
     assert "CLAUDE_CODE_SHELL_PREFIX" not in done.spawn_env
+    assert json.loads(done.config_path.read_text())["survivor_reaper"] is False
     monkeypatch.setattr(reaper_install, "wanted", lambda: False)
     done = install(_request(outside_tmp / "b", "/tmp/pg-0123456789ab"), REGISTRY)
     assert "CLAUDE_CODE_SHELL_PREFIX" not in done.spawn_env
@@ -82,27 +99,56 @@ def test_a_prefix_claude_code_would_split_is_refused(tmp_path: Path) -> None:
     target = tmp_path / "a -b"
     target.mkdir()
     with pytest.raises(ValueError, match="would split"):
-        reaper_install.place(target, sys.base_prefix)
+        reaper_install.place(target, sys.base_prefix, target / "settings.json")
     with pytest.raises(ValueError, match="no base interpreter"):
-        reaper_install.place(tmp_path, str(tmp_path / "nowhere"))
+        reaper_install.place(tmp_path, str(tmp_path / "nowhere"), tmp_path / "settings.json")
+
+
+def _front(tmp_path: Path) -> tuple[Path, Path]:
+    settings = tmp_path / "settings.json"
+    settings.write_text("{}")
+    return reaper_install.place(
+        tmp_path, sys.base_prefix, settings
+    ) / reaper_install.FRONT, settings
 
 
 def test_the_front_runs_a_hook_command_itself_when_the_canary_takes_its_signal(
     tmp_path: Path,
 ) -> None:
     # Unsandboxed, as a hook command is: signal 0 to the canary (this test's own process)
-    # is delivered, so the front runs the command with the hook shell, no interpreter started.
-    front = reaper_install.place(tmp_path, sys.base_prefix) / reaper_install.FRONT
+    # is delivered and the settings can be read, so the front runs the command with the
+    # hook shell, no interpreter started.
+    front, _ = _front(tmp_path)
     env = {"PATH": "/usr/bin:/bin", CANARY_ENV: str(os.getpid())}
     done = subprocess.run(
         [str(front), 'echo "$0"; exit 5'], env=env, capture_output=True, text=True, check=False
     )
     assert (done.returncode, done.stdout.strip()) == (5, reaper_install.HOOK_SHELL)
-    # Without a canary the reaper runs and, unsandboxed, only runs the command too.
+
+
+def test_the_front_hands_over_when_the_settings_cannot_be_read(tmp_path: Path) -> None:
+    # As inside the sandbox, which read-denies them: even with the canary taking its
+    # signal, the reaper runs the command (here unsandboxed, so it only runs it, in the
+    # command shell), never the front's silent pass-through.
+    front, settings = _front(tmp_path)
+    settings.chmod(0)
+    env = {"PATH": "/usr/bin:/bin", CANARY_ENV: str(os.getpid())}
     done = subprocess.run(
-        [str(front), "exit 6"], env={"PATH": "/usr/bin:/bin"}, capture_output=True, check=False
+        [str(front), 'echo "$0"; exit 5'], env=env, capture_output=True, text=True, check=False
     )
-    assert (done.returncode, done.stderr) == (6, b"")
+    assert (done.returncode, done.stdout.strip()) == (5, SHELL)
+
+
+def test_the_front_hands_over_without_a_canary(tmp_path: Path) -> None:
+    front, _ = _front(tmp_path)
+    done = subprocess.run(
+        [str(front), 'echo "$0"; exit 6'],
+        env={"PATH": "/usr/bin:/bin"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (done.returncode, done.stdout.strip(), done.stderr) == (6, SHELL, "")
 
 
 def test_the_held_spawn_exports_the_pid_the_binary_keeps() -> None:

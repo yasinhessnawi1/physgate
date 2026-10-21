@@ -4,9 +4,12 @@
 command's first process. Claude Code 2.1.301 applies ``CLAUDE_CODE_SHELL_PREFIX`` to the
 command string before it wraps that in ``sandbox-exec`` (measured 21.10.2026), so the
 prefix names it. It also wraps every hook command, which runs unsandboxed. The prefix is
-therefore a small shell front: when signal 0 to the canary is delivered, this process is
-outside any sandbox that fences signals (a hook), and the front only runs the command. Else
-it hands over to the reaper, which checks its three guards itself.
+therefore a small shell front: when signal 0 to the canary is delivered **and** the session's
+settings file can be read (the sandbox read-denies it to every command), this process is a
+hook command outside the sandbox, and the front only runs it with the hook shell. Otherwise
+it hands over to the reaper, which checks its three guards itself and says why it signals
+nothing when they fail: a sandboxed command whose canary takes its signal is never let
+through silently.
 
 Both files are written into the session's settings directory, which no session writes, and
 that directory is opened to the sandbox for reads (``os_layer_readable``): the harness
@@ -44,10 +47,11 @@ CANARY_EXPORT = f"{CANARY_ENV}=$$; export {CANARY_ENV}; "
 _FRONT_TEXT = """\
 #!/bin/sh
 # Written by physgate (oslayer/reaper_install.py) for one session: CLAUDE_CODE_SHELL_PREFIX.
-# The only signal this front sends is 0 to the canary, the session's Claude Code. Delivered
-# means this process is outside any sandbox that fences signals (a hook command): it only
-# runs the command. Otherwise the reaper runs the command and checks its own guards.
-if [ "$#" -eq 1 ] && kill -0 "${{{canary}:-none}}" 2>/dev/null; then
+# The only signal this front sends is 0 to the canary, the session's Claude Code. Delivered,
+# with the session's settings readable (which the sandbox denies every command), means a
+# hook command outside the sandbox: it only runs it. Otherwise the reaper runs the command,
+# checks its own guards, and says why when they fail.
+if [ "$#" -eq 1 ] && kill -0 "${{{canary}:-none}}" 2>/dev/null && [ -r {settings} ]; then
   exec {hook_shell} -c "$1"
 fi
 exec {python} -I -S {program} "$@"
@@ -84,8 +88,11 @@ def _quoted(path: Path) -> str:
     return f"'{text}'"
 
 
-def place(target_dir: Path, base_prefix: str) -> Path:
+def place(target_dir: Path, base_prefix: str, settings: Path) -> Path:
     """Write the front and the reaper into ``target_dir``; return their directory.
+
+    ``settings`` is the session's settings file, which the sandbox read-denies: the front
+    passes a command through only where it can read it.
 
     Raises:
         ValueError: no base interpreter, or a path the prefix cannot carry: Claude Code
@@ -106,6 +113,7 @@ def place(target_dir: Path, base_prefix: str) -> Path:
         _FRONT_TEXT.format(
             canary=CANARY_ENV,
             hook_shell=HOOK_SHELL,
+            settings=_quoted(settings),
             python=_quoted(python),
             program=_quoted(program),
         )

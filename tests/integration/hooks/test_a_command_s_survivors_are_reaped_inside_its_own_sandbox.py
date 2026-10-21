@@ -26,6 +26,7 @@ from pathlib import Path
 import pytest
 
 from physgate.oslayer import reaper as reaper_module
+from physgate.oslayer import reaper_install
 from physgate.oslayer.reaper import CANARY_ENV, TAG
 
 pytestmark = [
@@ -152,7 +153,8 @@ def test_a_dry_run_names_only_the_command_s_own_orphan(fixture: Fixture) -> None
     out, err = run.communicate(timeout=30)
     orphan = fixture.pid("orphan.pid")
     assert run.returncode == 3
-    assert f"{TAG} dry run: fence held; would signal [{orphan}]; own shells []" in err
+    assert f"\n{TAG} dry run: fence held; would signal [{orphan}]; parent {os.getpid()}\n" in err
+    assert err.endswith(f"\n{TAG} done\n")
     # Both outside sleepers were alive while it chose, so leaving them out was a choice.
     fixture.outside_untouched()
     assert alive(orphan), "a dry run signalled its orphan"
@@ -178,6 +180,16 @@ def test_every_survivor_is_stopped_and_nothing_outside_is_reached(fixture: Fixtu
     assert len(stopped) == 1, err
     assert int(stopped[0].split()[2]) >= len(pids)
     assert "still running" not in err
+    assert err.endswith(f"\n{TAG} done\n")
+    fixture.outside_untouched()
+
+
+def test_output_without_a_final_newline_cannot_hide_its_line(fixture: Fixture) -> None:
+    run = fixture.reaper(spawn_lingerer("glued.pid", 30) + "; printf x >&2")
+    _, err = run.communicate(timeout=30)
+    assert run.returncode == 0
+    assert err.startswith(f"x\n{TAG} stopped 1 process(es) this command left running\n"), err
+    assert not alive(fixture.pid("glued.pid"))
     fixture.outside_untouched()
 
 
@@ -225,28 +237,83 @@ def test_a_canary_it_can_signal_proves_no_fence_and_it_signals_nothing(fixture: 
     fixture.outside_untouched()
 
 
-def test_a_canary_outside_the_command_s_sandbox_refuses_it(fixture: Fixture) -> None:
-    # The sibling sandbox's sleeper is outside this command's sandbox: the fence holds.
-    run = fixture.reaper(spawn_lingerer("held.pid", 30) + "; exit 4", canary=fixture.sibling.pid)
+def test_a_canary_that_refuses_but_is_not_its_parent_proves_no_fence(fixture: Fixture) -> None:
+    # The sibling sandbox's sleeper refuses it (it is outside this command's sandbox), but
+    # it is not the process that spawned the command: nothing is signalled.
+    run = fixture.reaper(spawn_lingerer("held.pid", 2) + "; exit 4", canary=fixture.sibling.pid)
     _, err = run.communicate(timeout=30)
+    lingerer = fixture.pid("held.pid")
     assert run.returncode == 4
-    assert "not reaping" not in err
-    assert not alive(fixture.pid("held.pid"))
+    assert f"is not this process's parent ({os.getpid()})" in err
+    assert alive(lingerer)
+    assert gone_within(lingerer, 10)
     fixture.outside_untouched()
 
 
-def test_claude_code_s_sigterm_is_answered_by_reaping_within_its_grace(fixture: Fixture) -> None:
-    run = fixture.reaper(spawn_lingerer("term.pid", 30) + "; sleep 30")
+def test_the_front_inside_the_sandbox_never_passes_a_command_through(fixture: Fixture) -> None:
+    # The shell front, inside a sandbox that read-denies the session's settings as the
+    # OS layer does, with a canary the kernel lets it signal (one inside the sandbox): it
+    # hands over to the reaper, which says why it signals nothing, never runs it silently.
+    settings = fixture.root / "settings.json"
+    settings.write_text("{}")
+    front = reaper_install.place(fixture.root, sys.base_prefix, settings) / reaper_install.FRONT
+    profile = PROFILE.format(root=fixture.root) + f'(deny file-read* (literal "{settings}"))\n'
+    command = spawn_lingerer("front.pid", 2) + "; exit 4"
+    shell = f"sleep 2 & {CANARY_ENV}=$! exec {front} {shlex.quote(command)}"
+    run = subprocess.Popen(  # noqa: S603 - the test's own fixture
+        ["/usr/bin/sandbox-exec", "-p", profile, "/bin/sh", "-c", shell],
+        cwd=fixture.root,
+        env={"PATH": "/usr/bin:/bin"},
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    _, err = run.communicate(timeout=30)
+    lingerer = fixture.pid("front.pid")
+    assert run.returncode == 4
+    assert "could be signalled from inside the sandbox" in err, err
+    assert err.endswith(f"\n{TAG} done\n")
+    assert alive(lingerer)
+    assert gone_within(lingerer, 10)
+    fixture.outside_untouched()
+
+
+#: A survivor that hops pids: it forks, and the parent ends, every 2 ms, for its lifetime.
+HOPPER = (
+    f'{PYTHON} -I -c "import os,time,sys\n'
+    "if os.fork(): sys.exit(0)\n"
+    "os.setsid(); open('hopper.pid','w').write(str(os.getpid()))\n"
+    "end=time.time()+30\n"
+    "while time.time()<end:\n"
+    "    if os.fork(): os._exit(0)\n"
+    '    time.sleep(0.002)\n"'
+)
+
+
+@pytest.mark.parametrize("hopper", [False, True], ids=["plain", "pid-hopper"])
+def test_claude_code_s_sigterm_is_answered_by_reaping_within_its_grace(
+    fixture: Fixture, *, hopper: bool
+) -> None:
+    # Claude Code sends SIGKILL 1.5 s after its SIGTERM. The worst case here, a survivor
+    # that changes pid every few milliseconds, must still be reaped well inside that.
+    start = HOPPER if hopper else spawn_lingerer("term.pid", 30)
+    run = fixture.reaper(start + "; sleep 30")
+    name = "hopper.pid" if hopper else "term.pid"
     deadline = time.monotonic() + 10
-    while not (fixture.root / "term.pid").exists() and time.monotonic() < deadline:
+    while not (fixture.root / name).exists() and time.monotonic() < deadline:
         time.sleep(0.05)
+    time.sleep(0.2)
     started = time.monotonic()
     run.send_signal(signal.SIGTERM)  # the test's own reaper, as Claude Code would
-    run.communicate(timeout=10)
+    _, err = run.communicate(timeout=10)
     took = time.monotonic() - started
+    print(f"SIGTERM answered in {took:.3f} s ({'pid-hopper' if hopper else 'plain'})")  # noqa: T201
     assert run.returncode == 128 + signal.SIGTERM
-    assert took < 1.5, f"took {took:.2f} s; Claude Code sends SIGKILL after 1.5 s"
-    assert not alive(fixture.pid("term.pid"))
+    assert took < 1.0, f"took {took:.2f} s; Claude Code sends SIGKILL after 1.5 s"
+    assert f"process(es) when the command was stopped (signal {signal.SIGTERM})" in err, err
+    assert "still running" not in err
+    assert err.endswith(f"\n{TAG} done\n")
+    if not hopper:
+        assert not alive(fixture.pid(name))
     fixture.outside_untouched()
 
 
@@ -257,7 +324,7 @@ def test_a_command_that_kills_its_reaper_keeps_its_survivor(fixture: Fixture) ->
     run = fixture.reaper(spawn_lingerer("tamper.pid", 2) + "; kill -9 $PPID")
     _, err = run.communicate(timeout=30)
     assert run.returncode == -signal.SIGKILL
-    assert TAG not in err
+    assert TAG not in err  # no ``done`` line: the survivors hook refuses the command
     lingerer = fixture.pid("tamper.pid")
     assert alive(lingerer)
     assert gone_within(lingerer, 10)

@@ -1107,6 +1107,8 @@ class ClaudeDispatcher:
             # The held-out tier: no role session reads or writes it (ARCH-141).
             *(arg for root in self._config.held_out for arg in ("--held-out", root)),
             *(["--os-layer-temp", str(temp)] if temp is not None else []),
+            # The held spawn exports the session's pid as the survivor reaper's canary.
+            "--spawns-with-canary",
             # No remote host where the run asks for it; only the OS layer can enforce that.
             *(
                 ["--os-layer-network", self._config.network]

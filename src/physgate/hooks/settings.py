@@ -143,6 +143,11 @@ class InstallRequest(BaseModel):
     #: ``open`` leaves the network as the layer found it. Without the OS layer nothing
     #: can enforce ``none``: the install says so (:data:`Installed.network_unenforced`).
     os_layer_network: Literal["open", "none"] = "open"
+    #: Whether the spawner exports the session's own pid as the survivor reaper's canary
+    #: (:data:`physgate.oslayer.reaper_install.CANARY_EXPORT`), as the dispatcher's held
+    #: spawn does. A session that gets the reaper is refused without it: its reaper could
+    #: never prove its fence, and every command would be refused.
+    spawns_with_canary: bool = False
 
 
 #: The longest temporary directory Claude Code takes for a sandboxed session. A longer
@@ -392,6 +397,11 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         request.state_dir: "shell_denied",
         request.claude_config_dir: "shell_denied",
     }
+    reaper_on = request.os_layer_temp_dir is not None and reaper_install.wanted()
+    if reaper_on:
+        # The reaper's front tells a hook command from a sandboxed one by whether it can
+        # read the session's settings: kept from every command (its own directory is opened).
+        reads[request.target_dir] = "shell_denied"
     if outbox in protected:
         # Written blind: a script's record goes in, and nothing of the session reads it back,
         # by a tool or by a command, whatever spelling of the path the command builds.
@@ -484,6 +494,7 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         installation=installation,
         watchdog_seconds=WATCHDOG_SECONDS,
         hook_timeout_seconds=HOOK_TIMEOUT_SECONDS,
+        survivor_reaper=reaper_on,
     )
 
 
@@ -584,10 +595,19 @@ def install(
             )
             raise ValueError(msg)
         readable = request.os_layer_readable
-        if reaper_install.wanted():
+        if config.survivor_reaper:
             # Nothing a command starts outlives it (M-128): the reaper runs as each sandboxed
             # command's first process, named by the shell prefix, and must be readable there.
-            reaper_dir = reaper_install.place(target, config.installation.base_prefix)
+            if not request.spawns_with_canary:
+                msg = (
+                    "a session with the survivor reaper must be spawned with its canary "
+                    f"exported ({reaper_install.CANARY_EXPORT.strip()} before the exec of the "
+                    "binary, as the dispatcher's held spawn does); this spawner does not say so"
+                )
+                raise ValueError(msg)
+            reaper_dir = reaper_install.place(
+                target, config.installation.base_prefix, target / SETTINGS_NAME
+            )
             readable = (*readable, str(reaper_dir))
             spawn_env.update(reaper_install.spawn_env(reaper_dir))
         policy = sandbox_policy(

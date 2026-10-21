@@ -19,7 +19,7 @@ orphan it is delivered.
 ``CLAUDE_CODE_SHELL_PREFIX`` names it, and Claude Code 2.1.301 applies the prefix before it
 wraps the command in ``sandbox-exec``. It runs the command, and when the command ends (or
 Claude Code stops it with SIGTERM) it stops and kills every process the kernel lets it signal
-that started at or after it, other than itself and its own shells. The kernel refuses
+that started at or after it, other than itself. The kernel refuses
 every signal it sends to any process outside the sandbox, so no choice it makes can reach
 one.
 
@@ -29,15 +29,21 @@ Before any signal other than 0, three guards must all hold, or nothing is signal
    which the prefix wraps as well, or a call by hand) means it only runs the command, with
    ``exec``, and sends no signal at all.
 2. **The canary refuses it**: signal 0 to the session's Claude Code (its pid in
-   ``PHYSGATE_REAPER_CANARY``, set by the harness) must fail with EPERM. Anything else
-   (unset, gone, delivered) means the fence is not what it was measured to be: nothing is
-   signalled, and the command is told why on its standard error.
+   ``PHYSGATE_REAPER_CANARY``, set by the harness) must fail with EPERM, and the canary must
+   be this program's parent (Claude Code spawned the command; the shells between exec).
+   Anything else (unset, gone, delivered, another process) means the fence is not what it
+   was measured to be: nothing is signalled, and the command is told why.
 3. **Start time**: a target must have started at or after this program did, checked again
    just before each signal.
 
 Every signal goes through :meth:`Reaper._send`, which refuses a pid of 1 or less (so no group
 and no broadcast signal) and any signal but 0 unless the first two guards held.
 ``--dry-run`` reports what would be signalled and sends signal 0 only.
+
+Each line it writes stands on its own (a newline before it), and a sandboxed run always ends
+with ``physgate-reaper: done``: a command that killed its reaper leaves no such line, which
+the survivors hook refuses. A command can print the line itself and then kill its reaper;
+that forgery stays a residual (the reaper shares the command's sandbox, as it must).
 
 The standard library only, and nothing of physgate: it runs inside the sandbox, from a copy
 in the session's write-denied settings directory, under the base interpreter.
@@ -52,7 +58,7 @@ import signal
 import subprocess
 import sys
 import time
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -64,10 +70,16 @@ SHELL = "/bin/zsh"
 CANARY_ENV = "PHYSGATE_REAPER_CANARY"
 #: The prefix of every line this program writes on the command's standard error.
 TAG = "physgate-reaper:"
-#: How long reaping may take: Claude Code follows its SIGTERM with SIGKILL after 1500 ms.
-BUDGET_S = 1.0
+#: How long reaping may go on: Claude Code follows its SIGTERM with SIGKILL after 1500 ms,
+#: and the whole of the reaper's answer (reaping, a last wait for the command's shell, its
+#: lines) must end well inside that. Measured worst case on fixtures: see the integration test.
+BUDGET_S = 0.6
+#: The longest last wait for the command's shell after a stop signal.
+FINAL_WAIT_S = 0.1
+#: How many rounds in a row must find nothing before the reaper says none is left.
+EMPTY_ROUNDS = 2
 #: The most rounds of stopping and killing before giving up on a process that keeps forking.
-MAX_ROUNDS = 50
+MAX_ROUNDS = 400
 
 #: The signals that ask a command to stop: Claude Code's SIGTERM, an interrupt, a hang-up.
 _STOPS = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
@@ -158,6 +170,8 @@ class Reaper:
 
     kernel: KernelView
     me: int
+    #: This process's parent: the canary must be it (Claude Code spawned the command).
+    parent: int
     started_us: int
     dry_run: bool = False
     #: Set once the sandbox and canary guards held; no signal but 0 goes out before.
@@ -192,79 +206,92 @@ class Reaper:
         return self._send(pid, 0) == "delivered"
 
     def fence(self, environ: Mapping[str, str]) -> str | None:
-        """``None`` when the canary refuses this process, else why the fence is not proven."""
+        """``None`` when the canary, this process's parent, refuses it; else why not."""
         raw = environ.get(CANARY_ENV, "")
         if not raw.isdigit() or int(raw) <= 1:
             return f"{CANARY_ENV} is not a pid ({raw!r})"
         answer = self._send(int(raw), 0)
-        if answer == "refused":
-            return None
         if answer == "gone":
             return f"the canary {raw} is gone"
-        return f"the canary {raw} could be signalled from inside the sandbox"
-
-    def own_shells(self) -> set[int]:
-        """This process's ancestors inside its own sandbox: the shells that ran it.
-
-        The walk stops at the first ancestor the kernel refuses (outside the sandbox).
-        """
-        shells: set[int] = set()
-        info = self.kernel.info(self.me)
-        while info is not None and info.ppid > 1 and info.ppid not in shells:
-            if not self.reachable(info.ppid):
-                break
-            shells.add(info.ppid)
-            info = self.kernel.info(info.ppid)
-        return shells
+        if answer == "delivered":
+            return f"the canary {raw} could be signalled from inside the sandbox"
+        if int(raw) != self.parent:
+            return f"the canary {raw} is not this process's parent ({self.parent})"
+        return None
 
     def _eligible(self, pid: int) -> bool:
         info = self.kernel.info(pid)
         return info is not None and not info.zombie and info.started_us >= self.started_us
 
-    def members(self, keep: Iterable[int]) -> list[int]:
+    def members(self) -> list[int]:
         """The processes to stop: started at or after this one, and signalable from here.
 
-        ``keep`` (this process's own shells) and this process are left out. A pid of 1 or
-        less is never considered.
+        This process is left out, and a pid of 1 or less is never considered.
         """
-        left_out = {self.me, *keep}
         found: list[int] = []
         for pid in self.kernel.pids():
-            if pid <= 1 or pid in left_out:
+            if pid <= 1 or pid == self.me:
                 continue
             if self._eligible(pid) and self.reachable(pid):
                 found.append(pid)
         return found
 
-    def reap(self, keep: Iterable[int], *, deadline: float) -> tuple[int, bool]:
-        """Stop, then kill, every member, in rounds until a round finds none.
+    def _stop_round(self) -> tuple[list[int], bool]:
+        """Stop each member as soon as it is found, newest pid first.
 
-        Returns how many distinct processes were killed, and whether none was left.
+        A process that hops from pid to pid (forks, and the parent ends) every few
+        milliseconds is gone by the time a whole listing has been asked about: its newest
+        pid is asked first, and stopped at once, so it cannot hop on. Returns the stopped
+        pids, and whether a process that started after this one vanished between its
+        reading and its signal (a hop under way, so the round is not an empty one).
         """
-        kept = set(keep)
+        stopped: list[int] = []
+        churn = False
+        for pid in sorted(self.kernel.pids(), reverse=True):
+            if pid <= 1 or pid == self.me or not self._eligible(pid):
+                continue
+            answer = self._send(pid, 0)
+            if answer == "gone":
+                churn = True
+            # Checked again just before the signal: a pid handed meanwhile to a process
+            # that started earlier is let alone (one outside the sandbox the kernel refuses).
+            elif answer == "delivered" and self._eligible(pid):
+                if self._send(pid, signal.SIGSTOP) == "delivered":
+                    stopped.append(pid)
+                else:
+                    churn = True
+        return stopped, churn
+
+    def reap(self, *, deadline: float) -> tuple[int, bool]:
+        """Stop, then kill, every member, in rounds until two rounds in a row find none.
+
+        Two, and a round in which a young process vanished mid-round does not count as
+        empty, so a process that hops pids is looked for again. Returns how many distinct
+        processes were killed, and whether the last two rounds found none.
+        """
         killed: set[int] = set()
+        empty = 0
         for _ in range(MAX_ROUNDS):
-            found = self.members(kept)
-            if not found:
-                return len(killed), True
-            # Stopped first, so none forks while the round kills the others. Each is
-            # checked again just before its signal: a pid handed to a process that
-            # started earlier is let alone (one outside the sandbox the kernel refuses).
-            for pid in found:
-                if self._eligible(pid):
-                    self._send(pid, signal.SIGSTOP)
+            found, churn = self._stop_round()
+            if not found and not churn:
+                empty += 1
+                if empty == EMPTY_ROUNDS:
+                    return len(killed), True
+                continue
+            empty = 0
             for pid in found:
                 if self._eligible(pid) and self._send(pid, signal.SIGKILL) == "delivered":
                     killed.add(pid)
             if time.monotonic() > deadline:
                 break
-            time.sleep(0.005)
-        return len(killed), not self.members(kept)
+        return len(killed), False
 
 
 def _say(line: str) -> None:
+    # A line of its own whatever the command wrote last: output without a final newline
+    # cannot run into it and hide it from the hook.
     with contextlib.suppress(OSError):
-        os.write(2, f"{TAG} {line}\n".encode())
+        os.write(2, f"\n{TAG} {line}\n".encode())
 
 
 def _status(returncode: int) -> int:
@@ -291,8 +318,9 @@ def run(
         execv(SHELL, [SHELL, "-c", command])
         return 0
     own = kernel.info(me)
-    reaper = Reaper(kernel, me, own.started_us if own is not None else 0, dry_run=dry_run)
-    why_not = reaper.fence(environ) if own is not None else "its own start time is unreadable"
+    started = own.started_us if own is not None else None
+    reaper = Reaper(kernel, me, os.getppid(), started or 0, dry_run=dry_run)
+    why_not = reaper.fence(environ) if started is not None else "its own start time is unreadable"
     reaper.armed = why_not is None and not dry_run
     if why_not is not None:
         _say(f"not reaping: {why_not}")
@@ -319,7 +347,6 @@ def run(
 def _run_and_reap(
     command: str, reaper: Reaper, why_not: str | None, stopped: list[int], waiting: list[bool]
 ) -> int:
-    keep = reaper.own_shells()
     child = subprocess.Popen([SHELL, "-c", command], close_fds=False)  # noqa: S603
     returncode: int | None = None
     try:
@@ -334,18 +361,22 @@ def _run_and_reap(
     if reaper.dry_run:
         _say(
             f"dry run: fence {'held' if why_not is None else 'not proven'}; would signal "
-            f"{reaper.members(keep)}; own shells {sorted(keep)}"
+            f"{reaper.members()}; parent {reaper.parent}"
         )
     elif reaper.armed:
-        killed, clean = reaper.reap(keep, deadline=deadline)
-        if returncode is not None and killed:
+        killed, clean = reaper.reap(deadline=deadline)
+        if killed and returncode is not None:
             _say(f"stopped {killed} process(es) this command left running")
+        elif killed:
+            _say(f"stopped {killed} process(es) when the command was stopped (signal {stopped[0]})")
         if not clean:
             _say("some process of this command was still running after reaping")
     if returncode is None:
         with contextlib.suppress(subprocess.TimeoutExpired):
-            child.wait(timeout=0.2)
+            child.wait(timeout=FINAL_WAIT_S)
+        _say("done")
         return 128 + stopped[0]
+    _say("done")
     return _status(returncode)
 
 

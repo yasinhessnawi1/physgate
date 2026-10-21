@@ -42,6 +42,7 @@ def _request(root: Path, worktree: Path, *, profile: Profile = "role") -> Instal
         user_home=str(out / "home"),
         token_ceiling=1000,
         os_layer_temp_dir=TEMP,
+        spawns_with_canary=True,
     )
 
 

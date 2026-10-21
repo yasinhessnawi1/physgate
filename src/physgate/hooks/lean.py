@@ -97,6 +97,12 @@ def _positive_int(value: object, where: str) -> int:
     return value
 
 
+def _bool(value: object, where: str) -> bool:
+    if not isinstance(value, bool):
+        raise _fail(where, "must be a boolean")
+    return value
+
+
 def _choice(value: object, where: str, choices: tuple[str, ...]) -> str:
     if not isinstance(value, str) or value not in choices:
         raise _fail(where, f"must be one of {', '.join(choices)}")
@@ -180,6 +186,7 @@ _CONFIG_FIELDS = (
     "experiments", "held_out", "answer_keys", "read_roots", "review_material", "required_reading",
     "always_loaded", "token_ceiling",
     "tools_allowed", "installation", "watchdog_seconds", "hook_timeout_seconds",
+    "survivor_reaper",
 )  # fmt: skip
 
 
@@ -224,6 +231,7 @@ class LeanConfig:
         self.hook_timeout_seconds: int = _positive_int(
             data["hook_timeout_seconds"], "hook_timeout_seconds"
         )
+        self.survivor_reaper: bool = _bool(data["survivor_reaper"], "survivor_reaper")
         if self.profile == "role" and not self.role:
             raise _fail("role", "a role session must name its role")
         if (self.profile == "reviewer") != bool(self.read_roots):

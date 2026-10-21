@@ -228,6 +228,8 @@ def _run_session(
         "claude_config_dir": str(outside / "claude-config"),
         "user_home": str(outside / "home"),
         "token_ceiling": 100_000,
+        # Spawned below with its pid exported as the survivor reaper's canary.
+        "spawns_with_canary": True,
     }
     fields.update(request_fields)
     # A test may wire a reduced set of hooks, to show one layer working alone.

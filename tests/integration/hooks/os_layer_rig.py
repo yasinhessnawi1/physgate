@@ -148,6 +148,7 @@ def run_session(
         extra_protected_refuse_only=(str(layout.root / "run" / "sessions"), str(layout.decisions)),
         os_layer_temp_dir=str(layout.temp.resolve()) if layer else None,
         os_layer_network=network,
+        spawns_with_canary=True,
     )
     installed = install(request, REGISTRY)
     binary = claude_binary()
