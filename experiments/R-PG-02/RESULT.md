@@ -2,8 +2,10 @@
 
 **Pre-registration:** `CRITERIA.md`, frozen at commit `254a2ff` (19.10.2026); its facts filled
 by `4fe482a` (the pick: K) and `841e6d4` (the fresh set's manifest digest), both 19.10.2026,
-before the first review; R7 item 11 added with `0132d01` (19.10.2026) and R7 item 12 with
-`0936f1f` (20.10.2026), both before any review was read. The file as run is git blob
+before the first review; R7 item 11 added with `ac40cff` and amended with `73c492c`, `8a690d7`
+and `0132d01` (all 19.10.2026, before any review); R7 item 12 added with `0936f1f`
+(20.10.2026), which also changed R8's lane count and §12 row 9 from 4 lanes to 8. That commit
+was made after attempt 1 had started producing reviews, none of which was read. The file as run is git blob
 `dd3d23d4ed894799e58769d344819a6e2f51228b` (sha256
 `c3dc40fea1b0a218e3b1e19af2dd8a543292176a9b7da10dd7d9fb064c0b9eb0`) at `0936f1f`.
 **Run commit:** `0936f1f7a36392cecc2091f28cd7b3dee524b02f`, the last commit that changes
@@ -111,7 +113,7 @@ The primary figures above count them as rejections (conservative), as pre-regist
 | Layer | R (of 40) | A (of 40) | J | Raw reject |
 |---|---|---|---|--:|
 | Paired reviewers | 27 [0.520, 0.799] | 25 [0.470, 0.758] | 0.30 [0.075, 0.50] | 37 |
-| Gate | 16 [0.264, 0.554] | **40** [0.912, 1.000] | 0.40 [0.25, 0.55] | 16 |
+| Gate | 16 [0.263, 0.554] | **40** [0.912, 1.000] | 0.40 [0.25, 0.55] | 16 |
 
 - **In R-PG-01's sense** (any failing record), the gate caught **16 of 40**, beside R-PG-01's 17
   of 40. Every one of the 16 is a right-reason catch ("caught, elsewhere": 0), and every one is
@@ -122,7 +124,11 @@ The primary figures above count them as rejections (conservative), as pre-regist
 - **Old twins whose own numbers the source check finds differ from their cited rows
   (`mismatch`): 8** (`a17`, `a18`, `a23`, `a24`, `a29`, `a31`, `a36`, `a40`). Reported, never
   scored.
-- **Old minus fresh J:** paired −0.15, gate −0.10 (both layers did better on the fresh set).
+- **Old minus fresh J:** paired **−0.15**, bootstrap [−0.45, 0.15]; gate **−0.10**, bootstrap
+  [−0.30, 0.125] (each set's pairs resampled on its own, 10,000 draws, seed 13, §6). Both
+  intervals hold 0, so **the difference is unresolved** for both layers. An independent
+  re-derivation got the same points and the gate's interval, and [−0.45, 0.125] for the paired
+  reviewers; the upper bounds differ by one bootstrap step.
 
 ## The practice set (reported, never a result)
 
@@ -374,13 +380,15 @@ replaced, and no review was re-run.
 1. The planner of the fixes saw R-PG-01 corpus detail beyond its published counts (base node
    identifiers; the injection sites of `a23`, `a29`, `a40`; the shapes of the ten unit-class
    errors). Two hand-made node names that coincided with base identifiers were renamed before any
-   fix. This is one reason the fresh set is primary.
+   fix. From then on, nobody working on the fixes read the planning note, R-PG-01's result or its
+   readiness material. This is one reason the fresh set is primary.
 2. The old set is seen at class level; the fixes target the error kinds R-PG-01's counts named.
    The old set cannot show that the fixes generalise.
 3. The old twins' gate outcome was measured once, count only, at the freeze (40 of 40).
 4. The gate's fixes were written against hand-made errors. Three gate relations were proposed
    from the practice authors' vocabulary (`_mass` read as a mass; `torque_peak` against
-   `reaction_moment`; `supported_mass` against the masses carried). The fresh set's authors use
+   `reaction_moment`; `supported_mass` against the masses carried), each written as a general
+   rule with its own false-positive check on every clean design. The fresh set's authors use
    the same vocabulary, which may favour the gate on the fresh set.
 5. The drafter of the pre-registration read R-PG-01's criteria and published counts, the
    planner's exposure statement, the practice set's tuning metrics and its provenance; no file of
@@ -398,8 +406,10 @@ replaced, and no review was re-run.
     configuration that judged it was picked afterwards, mechanically (K: A 7/20, R 13/20).
     The authoring ran on the ARM virtual machine as new sessions in sandboxes of their own (Read,
     Write and Edit only); their recorded checks show no tool outside that set, no guard refusal,
-    no gate or answer mention, and no secret in their output. *To be stated by the owner:* who ran
-    the authoring, and that no person or agent involved in tuning opened a file of the fresh set.
+    no gate or answer mention, and no secret in their output.
+
+    > **[SLOT: the owner's statement, R7 item 10]** Who ran the authoring, and that no person or
+    > agent involved in tuning opened a file of the fresh set. *Not yet supplied.*
 11. An instrument fix before the run (19.10.2026, attempt 0's dry run): the pilot's stand-in and
     parameters, in the pilot script only; no pinned tree changed. The dry run's prefix scans
     self-match on repository text, as found again here (above).
@@ -414,7 +424,10 @@ replaced, and no review was re-run.
 
 **Still to publish under §10** (not in this commit): the fresh corpus with its authors' records
 and the two continuation messages; the practice corpus and the tuning record (R9) under
-`experiments/R-PG-02/practice/`; the rubric approver's exposure statement. The results rows, the
+`experiments/R-PG-02/practice/`.
+
+> **[SLOT: the rubric approver's exposure statement, R2]** Who approved each rubric, and what
+> they had seen. *Not yet supplied.* The results rows, the
 tally's full output, the `physgate catches` output and the launch logs are in `evidence/`.
 
 ## Limits
