@@ -198,6 +198,17 @@ def add_parsers(
             command.add_argument(
                 "--quarantine-why", help="why the stream is gone (required with --quarantine)"
             )
+            command.add_argument(
+                "--confirm",
+                metavar="ITEM_ID",
+                action="append",
+                default=[],
+                help=(
+                    "confirm a queue decision held because it was written while a session ran "
+                    "without the OS layer; recorded with your OS user, and refused for an item "
+                    "whose decision is not held"
+                ),
+            )
         command.set_defaults(
             func=functools.partial(_drive, resume=resume, registrations=registrations)
         )
@@ -597,6 +608,16 @@ def _quarantine_request(args: argparse.Namespace) -> tuple[str, str, str] | None
     return session, getpass.getuser(), why
 
 
+def _confirm_request(args: argparse.Namespace) -> tuple[tuple[str, ...], str | None]:
+    """The operator's ``--confirm`` items, and who confirms them: the OS user, or no one.
+
+    A command-line flag only, never read from a file a session could write: what it confirms
+    is a decision a session's own shell may have written (ARCH-133).
+    """
+    confirm = tuple(getattr(args, "confirm", None) or ())
+    return confirm, getpass.getuser() if confirm else None
+
+
 def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registrations | None) -> int:
     if registrations is None:
         try:
@@ -703,7 +724,8 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
             )
         )
         loop.record.emit(_os_layer_checked(loop.record.envelope(), config, layer))
-        step = loop.resume() if resume else loop.run()
+        confirm, confirmed_by = _confirm_request(args)
+        step = loop.resume(confirm=confirm, confirmed_by=confirmed_by) if resume else loop.run()
         account = TokenAccount.from_events(loop.log.events)
         account.assert_no_routing()
     except OrchestratorError as exc:

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from physgate.flags import GATE_MODE, REGISTER, Flag, GateMode
+from physgate.flags import GATE_MODE, QUEUE_DECISIONS, REGISTER, Flag, GateMode, QueueDecisions
 from physgate.orchestrator.common import GateMode as OrchestratorGateMode
 from physgate.orchestrator.run_config import RunConfig
 
@@ -16,8 +16,13 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_the_register_is_not_empty_and_names_the_gate_mode() -> None:
-    assert [flag.name for flag in REGISTER] == ["gate_mode"]
+    assert [flag.name for flag in REGISTER] == ["gate_mode", "queue_decisions"]
     assert GATE_MODE.architecture == "ARCH-140"
+    assert QUEUE_DECISIONS.architecture == "ARCH-133"
+
+
+def test_the_queue_decisions_type_is_exactly_the_registered_values() -> None:
+    assert typing.get_args(QueueDecisions) == QUEUE_DECISIONS.values
 
 
 def test_the_gate_mode_type_is_exactly_the_registered_values() -> None:

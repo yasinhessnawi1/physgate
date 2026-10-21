@@ -190,6 +190,17 @@ class Step:
     point: Literal["resolve", "verify_reading", "merge", "diff"] | None = None
 
 
+def at_a_boundary(step: Step) -> bool:
+    """Where a person's decision may be taken: no attempt in progress, none half judged.
+
+    Between subtasks, at the integration call, or at the end of the run (ARCH-133). The loop
+    takes decisions only where this holds, and the replay refuses one taken anywhere else.
+    """
+    if step.kind in ("integrate", "done", "escalated"):
+        return True
+    return step.kind == "attempt" and step.point == "resolve"
+
+
 def _refuse(message: str) -> NoReturn:
     raise ValueError(message)
 
@@ -491,6 +502,8 @@ class RunState:
 
     def _take(self, event: DecisionTaken) -> None:
         """Take a person's decision: held to what the lines before it allow, then acted on."""
+        if not at_a_boundary(self.next_step()):
+            _refuse("a decision is taken only where no attempt is in progress")
         try:
             require_taken(self, event)
         except ValueError as exc:

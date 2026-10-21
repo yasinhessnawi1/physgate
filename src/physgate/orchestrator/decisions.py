@@ -344,7 +344,11 @@ def require_taken(state: RunState, event: DecisionTaken) -> None:
     now = sub.attempts[-1]
     if event.verb is None:
         # Free text binds to nothing, on any item.
-        if event.acts or event.effect != "none" or event.why_not not in ("not_bound", "legacy_item"):
+        if (
+            event.acts
+            or event.effect != "none"
+            or event.why_not not in ("not_bound", "legacy_item")
+        ):
             msg = "a decision with no verb binds to nothing and records only"
             raise ValueError(msg)
         return

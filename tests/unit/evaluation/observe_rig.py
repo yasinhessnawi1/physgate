@@ -115,6 +115,7 @@ def config(run_id: str, repo: Path, role: str = "electrical", **overrides: Any) 
         "role_python": None,
         "git_binary": None,
         "escalation_backend": "rules",
+        "queue_decisions": "record",
         "held_out": (),
         "held_out_canaries": (),
         "held_out_sha256": (),

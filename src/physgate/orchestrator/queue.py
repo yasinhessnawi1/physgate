@@ -65,6 +65,7 @@ from physgate.orchestrator.escalation import CONFIDENCE_FLOOR, Decision
 from physgate.orchestrator.events import (
     Event,
     LeftoverRead,
+    OsLayerChecked,
     SessionEnded,
     StageEntered,
     parse_events,
@@ -728,27 +729,55 @@ def _events_of_run(run_dir: Path) -> list[Event] | None:
     return None if log is None else parse_events(log, log=str(events_path))
 
 
+def _windows(events: list[Event]) -> list[tuple[int, int | None, str, bool]]:
+    """Each session's window as (start, end, session, whether the OS layer was present).
+
+    A session ran under the state the last ``os_layer_checked`` line before its spawn records;
+    with none recorded, it is taken as having run without the layer.
+    """
+    windows: list[tuple[int, int | None, str, bool]] = []
+    layer = False
+    open_at: int | None = None
+    open_layer = False
+    for event in events:
+        if isinstance(event, OsLayerChecked):
+            layer = event.state.state == "present"
+        elif isinstance(event, StageEntered) and event.decisions_bytes is not None:
+            open_at, open_layer = event.decisions_bytes, layer
+        elif (
+            isinstance(event, SessionEnded | LeftoverRead)
+            and open_at is not None
+            and event.decisions_bytes is not None
+        ):
+            windows.append((open_at, event.decisions_bytes, event.session_id, open_layer))
+            open_at = None
+    if open_at is not None:
+        windows.append((open_at, None, "still running or not yet resumed", open_layer))
+    return windows
+
+
 def windows_of(events: list[Event]) -> list[tuple[int, int | None, str]]:
     """The decisions file's byte ranges written while each session ran: (start, end, session).
 
     A session's window opens at its spawn stage and closes at its end, or at the resume that
     found it left over; a window still open has no end.
     """
-    windows: list[tuple[int, int | None, str]] = []
-    open_at: int | None = None
-    for event in events:
-        if isinstance(event, StageEntered) and event.decisions_bytes is not None:
-            open_at = event.decisions_bytes
-        elif (
-            isinstance(event, SessionEnded | LeftoverRead)
-            and open_at is not None
-            and event.decisions_bytes is not None
-        ):
-            windows.append((open_at, event.decisions_bytes, event.session_id))
-            open_at = None
-    if open_at is not None:
-        windows.append((open_at, None, "still running or not yet resumed"))
-    return windows
+    return [(start, end, session) for start, end, session, _ in _windows(events)]
+
+
+def held_windows_of(events: list[Event]) -> list[tuple[int, int | None]]:
+    """The windows of the sessions that ran without the OS layer: (start, end).
+
+    A decision line starting in one may have been written by that session's own shell, which
+    nothing but the layer keeps from the decisions file, so it acts only once an operator
+    confirms it (ARCH-133). The same windows as :func:`windows_of`, by the same reading.
+    """
+    return [(start, end) for start, end, _, present in _windows(events) if not present]
+
+
+def within(offset: int, windows: list[tuple[int, int | None]]) -> bool:
+    """Whether a decision line starting at ``offset`` was written inside one of ``windows``."""
+    return any(start <= offset and (end is None or offset < end) for start, end in windows)
 
 
 def session_windows(run_dir: Path) -> list[tuple[int, int | None, str]]:
