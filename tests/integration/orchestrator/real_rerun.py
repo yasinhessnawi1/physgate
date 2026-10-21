@@ -366,6 +366,7 @@ def dry_script(api: Any) -> None:  # noqa: ANN401
         main=[
             *reads,
             tool("Read", file_path="{cwd}/.physgate/specs/{cwd_name}.md"),
+            tool("Read", file_path=f"{{cwd}}/.physgate/interfaces/{INTERFACE['id']}.json"),
             *writes,
             text("done"),
         ]

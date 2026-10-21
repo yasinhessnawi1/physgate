@@ -81,6 +81,11 @@ def interface_contract(node_id: str) -> str:
     return f"{INTERFACES_DIR}/{node_id}.json"
 
 
+def contracts_of(nodes: Sequence[Node]) -> dict[str, str]:
+    """Each interface node's contract file, by its path relative to a worktree."""
+    return {interface_contract(node.id): node.model_dump_json(indent=2) + "\n" for node in nodes}
+
+
 def interface_contracts(repo: Path, commit: str) -> tuple[str, ...]:
     """Every interface contract ``commit`` issued, relative to a worktree, sorted.
 
@@ -633,11 +638,9 @@ def start_run(
             )
         )
     # Beside the specifications and in the same commit: what each role designs against.
-    (run.integration / INTERFACES_DIR).mkdir(parents=True, exist_ok=True)
-    for node in plan.interface_nodes:
-        (run.integration / interface_contract(node.id)).write_text(
-            node.model_dump_json(indent=2) + "\n"
-        )
+    for relative, contract in contracts_of(plan.interface_nodes).items():
+        (run.integration / relative).parent.mkdir(parents=True, exist_ok=True)
+        (run.integration / relative).write_text(contract)
     spec_commit = commit_all(
         run.integration,
         f"Specifications for run {config.run_id}\n\n"

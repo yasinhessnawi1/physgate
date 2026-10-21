@@ -130,6 +130,7 @@ def session_script() -> Script:
                 for relative in loader.always_loaded("electrical")
             ),
             tool("Read", file_path="{cwd}/.physgate/specs/{cwd_name}.md"),
+            tool("Read", file_path="{cwd}/.physgate/interfaces/iface.bus.json"),
             tool(
                 "Bash",
                 command="sleep 1; mkdir -p modules/{cwd_name} && echo 'x = 1' > "

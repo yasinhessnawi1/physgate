@@ -345,6 +345,7 @@ def session_script() -> Script:
                 for relative in loader.always_loaded("electrical")
             ),
             tool("Read", file_path="{cwd}/.physgate/specs/{cwd_name}.md"),
+            tool("Read", file_path=f"{{cwd}}/.physgate/interfaces/{INTERFACE['id']}.json"),
             tool(
                 "Bash",
                 command=f"sleep 3; mkdir -p {MODULE_DIR} && printf 'def current_limit_a() "

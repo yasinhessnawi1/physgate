@@ -52,6 +52,7 @@ def test_a_decision_made_during_a_session_stands_and_the_session_cannot_write_on
                 for relative in loader.always_loaded("electrical")
             ),
             tool("Read", file_path="{cwd}/.physgate/specs/{cwd_name}.md"),
+            tool("Read", file_path="{cwd}/.physgate/interfaces/iface.bus.json"),
             tool("Bash", command=f"sleep 2; echo forged >> ../../{DECISIONS_NAME}"),
             text("done"),
         ]
