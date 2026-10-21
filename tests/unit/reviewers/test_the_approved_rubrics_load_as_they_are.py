@@ -51,6 +51,10 @@ APPROVED = {
             # A sub-check whose input the account lists as absent from a stand-in design is
             # noted, never blocked and never unmet; everything else is judged as before.
             ("final_v7", "239abc99afc21f133d27377d3daae6f3f62914f76c0fa2d7d9ee2ddf723bf506", 56),
+            # In a proposed revision, a Section 2/3 condition the base already has with the same
+            # numbers is noted, not charged, and an input the parts sheet does not give never
+            # blocks; every byte outside Sections 2 and 3 is the seventh version's.
+            ("final_v8", "ae1fac81c028e403e0089d5c9184be6030b56597e41cb87ad60e03e568c12751", 56),
         ),
         ("A", "D", "S", "R"),
     ),
@@ -67,6 +71,8 @@ APPROVED = {
             ("final_v5", "23f3695b69e3bd73b38caba4bdf1239c46231e47f7e2381027de7c6974543698", 54),
             # The same stand-in-absences rule as control's seventh version.
             ("final_v6", "6e34b7524282e98923983e075f81b9f603d398f3ec79d1c92f0fada1562603fe", 54),
+            # The same inherited-condition and absent-input rules as control's eighth version.
+            ("final_v7", "dbcfb1b77bdb93fd734a84e0bd6ac7c9269a55b8bec44e6711e38c33fe088729", 54),
         ),
         ("AC", "DS", "AP", "RH"),
     ),
@@ -81,6 +87,8 @@ APPROVED = {
             ("final_v4", "3eeb546ec900cbcb615b8dcb5fd2ece89f43514de128aab4916448e976efb712", 66),
             # The same stand-in-absences rule as control's seventh version.
             ("final_v5", "02f4afd8f51f7fc2e87f10d47190fc966674ecfe3b8d0e4631407366f318e793", 66),
+            # The same inherited-condition and absent-input rules as control's eighth version.
+            ("final_v6", "0515e42953bf981da8fc11dcf245e6067d231d0d3bd8a0ac0ef02bffd11934e3", 66),
         ),
         ("EA", "ES", "EP", "EH"),
     ),
@@ -96,6 +104,8 @@ APPROVED = {
             ("final_v4", "d07b7f4722f64da7d0d08bf5c68ae99801d22397c4401ad95f1e9b37cf508653", 61),
             # The same stand-in-absences rule as control's seventh version.
             ("final_v5", "d63d5daf943790c9c726907794483d6185d8bfdaf841cadc66d504762abb58d0", 61),
+            # The same inherited-condition and absent-input rules as control's eighth version.
+            ("final_v6", "82715e9b989d461cecd49f27d1d7c1f6d8c69883f92606cad052c2ecab6ca0b2", 61),
         ),
         ("MA", "MS", "MP", "MH"),
     ),
