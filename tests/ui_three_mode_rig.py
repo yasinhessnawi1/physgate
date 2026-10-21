@@ -115,8 +115,15 @@ class StandInSession:
         )
 
 
-def _start(runs: Path, run_id: str, repo: Path, mode: str, library: Path) -> RunConfig:
-    cfg: RunConfig = evaluation_rig().config(run_id, repo, gate_mode=mode, seed=SEED)
+def _start(
+    runs: Path,
+    run_id: str,
+    repo: Path,
+    mode: str,
+    library: Path,
+    **overrides: Any,  # noqa: ANN401 - run parameters, as the evaluation rig's config takes them
+) -> RunConfig:
+    cfg: RunConfig = evaluation_rig().config(run_id, repo, gate_mode=mode, seed=SEED, **overrides)
     name, module_dir = MODULE
     plan = Plan(
         modules=(
@@ -172,6 +179,9 @@ def _drive(
     repo: Path,
     gate: Any = None,  # noqa: ANN401 - the real physics gate, or the evaluation rig's test gate
     payloads: tuple[dict[str, Any], ...] = DRIVE_MODULE,
+    *,
+    reviewer: Any = None,  # noqa: ANN401 - a stand-in reviewer in place of the passing one
+    resume: bool = False,
 ) -> str:
     run_dir = runs / cfg.run_id
     run = RunGit(repo=repo, run_dir=run_dir, run_id=cfg.run_id)
@@ -183,7 +193,7 @@ def _drive(
         run_dir=run_dir,
         gate=PhysicsGate() if gate is None else gate,
         reviewers={
-            role: evaluation_rig().Reviewer(model=m, ids="drive")
+            role: reviewer or evaluation_rig().Reviewer(model=m, ids="drive")
             for role, m in cfg.models.reviewers.items()
         },
         dispatcher=StandInSession(run, payloads, clock=clock),
@@ -196,7 +206,7 @@ def _drive(
         clock=clock,
     )
     try:
-        step = loop.run()
+        step = loop.resume() if resume else loop.run()
     finally:
         loop.close()
         keeper.close()
