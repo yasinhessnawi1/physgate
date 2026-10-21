@@ -191,7 +191,9 @@ protected:
   what arrives.
 - **Reads** are denied for the held-out tier, the answer keys, review material,
   the harness checkout, every session's own files (its credentials and these
-  hooks' records), and the queue's decisions file.
+  hooks' records), the queue's decisions file, and the series outbox: whole on
+  macOS; on Linux every record an earlier command wrote, unless the command that
+  wrote it kept a copy (it can read it back, and link or copy it elsewhere).
 - **The file tools stay these hooks'**: no permission rule is written, because
   Claude Code applies one before any hook runs, without the reason or the log
   line a refusal here gives.

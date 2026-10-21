@@ -74,6 +74,8 @@ def test_the_outbox_is_a_root_refused_and_never_put_back(config: SessionConfig) 
     outbox = roots[str(Path(config.worktree) / OUTBOX)]
     assert outbox.watch == "none"
     assert "series outbox" in outbox.reason
+    # Written by scripts, read back by nothing of the session's.
+    assert (outbox.shell_writes, outbox.reads) == ("allowed", "denied")
     writer = roots[str(Path(config.worktree) / ".physgate" / "lib")]
     assert writer.watch == "revert"
 
@@ -196,17 +198,35 @@ def test_a_call_whose_working_directory_is_unknown_is_refused(config: SessionCon
     [
         "python3 modules/control/sim.py",
         "cd modules/control && python3 sim.py",
-        "cat .physgate/series/earlier.json",
         "cat .physgate/lib/series_writer.py",
-        "ls -la .physgate/series",
-        "grep -c x .physgate/series/earlier.json",
         "python3 -c 'print(1)' > modules/control/out.txt",
     ],
 )
-def test_running_a_script_and_reading_the_outbox_are_allowed(
+def test_running_a_script_and_reading_the_writer_are_allowed(
     config: SessionConfig, command: str
 ) -> None:
     assert _bash(config, command) == "allow", command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat .physgate/series/earlier.json",
+        "ls -la .physgate/series",
+        "grep -c x .physgate/series/earlier.json",
+    ],
+)
+def test_reading_the_outbox_back_is_refused(config: SessionConfig, command: str) -> None:
+    # A record goes in blind: what a script wrote there is the collector's to judge.
+    refused = _bash(config, command)
+    assert refused != "allow", command
+
+
+def test_no_file_tool_reads_the_outbox(config: SessionConfig) -> None:
+    record = os.path.join(config.worktree, OUTBOX, "earlier.json")
+    assert _tool(config, "Read", record) != "allow"
+    writer_dir = os.path.join(config.worktree, ".physgate", "lib", "x.py")
+    assert _tool(config, "Read", writer_dir) == "allow"
 
 
 def test_the_writer_whose_opening_lines_the_skill_points_to_can_be_read(

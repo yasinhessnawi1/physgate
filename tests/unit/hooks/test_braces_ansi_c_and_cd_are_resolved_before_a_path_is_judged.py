@@ -137,11 +137,16 @@ def test_a_brace_pattern_beyond_the_bound_is_refused_only_where_it_writes(
         "mkdir -p modules/control/{src,tests}",
         "touch modules/control/{a,b}.py",
         f"{MARKER} > modules/control/out{{1,2}}.txt",
-        "cat .physgate/{series,x}/earlier.json",
+        "cat .physgate/{lib,x}/earlier.py",
     ],
 )
 def test_an_ordinary_brace_pattern_is_allowed(config: SessionConfig, command: str) -> None:
     assert _decide(config, command) == "allow"
+
+
+def test_a_brace_pattern_reading_into_the_outbox_is_refused(config: SessionConfig) -> None:
+    # One alternative is the outbox, which no command reads back.
+    assert _decide(config, "cat .physgate/{series,x}/earlier.json") != "allow"
 
 
 # --- ANSI-C quoting --------------------------------------------------------------------

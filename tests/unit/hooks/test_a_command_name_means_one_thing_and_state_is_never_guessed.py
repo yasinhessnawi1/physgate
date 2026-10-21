@@ -32,7 +32,8 @@ from physgate.hooks.settings import InstallRequest, build_config, current_instal
 
 ROOT = ".physgate/series"
 M = "echo marker"
-READ = ".physgate/series/earlier.json"
+#: A protected file a shell command may still read: the series writer's directory.
+READ = ".physgate/lib/earlier.py"
 
 
 @pytest.fixture
@@ -40,6 +41,8 @@ def config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SessionConfig:
     worktree = Path(os.path.realpath(tmp_path)) / "wt"
     (worktree / ROOT).mkdir(parents=True)
     (worktree / ROOT / "earlier.json").write_text("{}\n")
+    (worktree / ".physgate" / "lib").mkdir()
+    (worktree / READ).write_text("x = 1\n")
     (worktree / "modules" / "control").mkdir(parents=True)
     monkeypatch.delenv("OLDPWD", raising=False)
     monkeypatch.delenv("CDPATH", raising=False)

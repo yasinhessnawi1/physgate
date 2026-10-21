@@ -34,7 +34,14 @@ from physgate.hooks.config import (
     SessionConfig,
 )
 from physgate.hooks.settings import InstallRequest, build_config, current_installation
-from physgate.oslayer.policy import FIELD_RULES, OsPolicy, sandbox_policy
+from physgate.oslayer.policy import (
+    EVERY_ENTRY,
+    FIELD_RULES,
+    GLOB_CHARACTERS,
+    OsPolicy,
+    outbox_read_denial,
+    sandbox_policy,
+)
 
 
 def _layout(tmp_path: Path) -> dict[str, Path]:
@@ -224,12 +231,35 @@ def test_no_permission_rule_is_written_so_the_hooks_see_every_file_tool_call(
     assert set(policy.settings) == {"sandbox"}
 
 
-def test_no_path_is_a_pattern(tmp_path: Path) -> None:
-    policy, _ = _policy(tmp_path)
+@pytest.mark.parametrize("platform", ["darwin", "linux"])
+def test_no_path_is_a_pattern_but_the_outbox_s_entries_on_linux(
+    tmp_path: Path, platform: str
+) -> None:
+    paths = _layout(tmp_path)
+    (paths["worktree"] / ".git").write_text("gitdir: x\n")
+    policy = sandbox_policy(
+        _config(paths),
+        home=str(paths["sdir"] / "home"),
+        temp_dir=str(paths["temp"]),
+        platform=platform,
+    )
     fs = _fs(policy)
+    outbox = paths["worktree"] / ".physgate" / "series"
+    entries = {str(outbox / EVERY_ENTRY), os.path.join(os.path.realpath(outbox), EVERY_ENTRY)}
+    patterns = []
     for name in ("allowWrite", "denyWrite", "denyRead", "allowRead"):
         for path in fs[name]:
-            assert path.startswith("/") and not set(path) & set("*?[")
+            literal = path.removesuffix(f"/{EVERY_ENTRY}") if path in entries else path
+            assert literal.startswith("/") and not set(literal) & set(GLOB_CHARACTERS), path
+            patterns += [path] if literal != path else []
+    assert set(patterns) <= entries and bool(patterns) == (platform == "linux")
+
+
+@pytest.mark.parametrize("spelled", ["w[1]", "w*", "w?", "w{a,b}", "w}", "w\\x", "w]"])
+def test_an_outbox_whose_path_reads_as_a_pattern_gets_no_policy(spelled: str) -> None:
+    # Its entries could not be named without the pattern meaning more than the outbox.
+    with pytest.raises(ValueError, match="pattern"):
+        outbox_read_denial(f"/runs/{spelled}/.physgate/series", "linux")
 
 
 def test_a_temporary_directory_inside_a_read_denied_root_is_refused(tmp_path: Path) -> None:
@@ -319,6 +349,57 @@ def test_the_series_outbox_is_left_to_the_scripts_that_write_it(tmp_path: Path) 
     )
     assert str(outbox) not in _fs(policy)["denyWrite"]
     assert str(paths["worktree"] / ".physgate" / "lib") in _fs(policy)["denyWrite"]
+
+
+def _outbox_policy(tmp_path: Path, platform: str) -> tuple[dict[str, Any], Path]:
+    paths = _layout(tmp_path)
+    outbox = paths["worktree"] / ".physgate" / "series"
+    outbox.mkdir(parents=True)
+    policy = sandbox_policy(
+        _config(paths),
+        home=str(paths["sdir"] / "home"),
+        temp_dir=str(paths["temp"]),
+        platform=platform,
+    )
+    return _fs(policy), outbox
+
+
+def test_on_macos_the_outbox_is_read_denied_whole_and_left_writable(tmp_path: Path) -> None:
+    # Seatbelt denies the listing and every file in it, and a write is not a read there, so
+    # a script still creates and replaces its records.
+    fs, outbox = _outbox_policy(tmp_path, "darwin")
+    assert str(outbox) in fs["denyRead"]
+    assert not any(outbox.is_relative_to(d) for d in fs["denyWrite"])
+
+
+def test_on_linux_the_outbox_s_entries_are_read_denied_and_the_directory_is_not(
+    tmp_path: Path,
+) -> None:
+    # bubblewrap lays an empty layer over a read-denied directory, and the writer's rename into
+    # it fails as a move across devices: the entries are denied instead, as they stand when
+    # each command starts.
+    fs, outbox = _outbox_policy(tmp_path, "linux")
+    assert str(outbox / EVERY_ENTRY) in fs["denyRead"]
+    assert not any(outbox.is_relative_to(d) for d in fs["denyRead"] if not d.endswith("*"))
+    assert not any(outbox.is_relative_to(d) for d in fs["denyWrite"])
+
+
+def test_only_the_root_scripts_write_is_read_denied_by_its_entries(tmp_path: Path) -> None:
+    fs, outbox = _outbox_policy(tmp_path, "linux")
+    by_entries = [d for d in fs["denyRead"] if d.endswith(f"/{EVERY_ENTRY}")]
+    assert by_entries and {str(Path(d).parent) for d in by_entries} <= {
+        str(outbox),
+        os.path.realpath(outbox),
+    }
+
+
+@pytest.mark.parametrize("platform", ["win32", "cygwin", "freebsd14", ""])
+def test_a_platform_with_no_mechanism_for_the_outbox_gets_no_policy(
+    tmp_path: Path, platform: str
+) -> None:
+    # Fails closed: no settings that would leave the outbox readable to the shell.
+    with pytest.raises(ValueError, match="series outbox"):
+        _outbox_policy(tmp_path, platform)
 
 
 @pytest.mark.parametrize(

@@ -26,7 +26,7 @@ from hook_helpers import event
 from physgate.hooks import paths, shell_paths, tools
 from physgate.hooks.config import HookInput, SessionConfig
 from physgate.hooks.settings import InstallRequest, build_config, current_installation
-from physgate.oslayer.policy import sandbox_policy
+from physgate.oslayer.policy import EVERY_ENTRY, sandbox_policy
 
 #: Each kind of root, as a file beneath it, relative to the request's base directory.
 FILES = {
@@ -65,8 +65,10 @@ ROLE = {
     "knowledge": "A R R A R F T revert",
     "series_writer": "A R R A R F T revert",
     # Only a script's own write reaches the outbox (the OS layer allows it); the hooks
-    # refuse every tool and shell write to it.
-    "series_outbox": "A R R A R F F none",
+    # refuse every tool and shell write to it, and nothing of the session reads it back:
+    # the hooks refuse a read by a tool or a named command, and the OS layer denies one by a
+    # path built at run time (on Linux the outbox's entries, as each command starts).
+    "series_outbox": "R R R R R T F none",
     "settings_dir": "A R R A R F T revert",
     "env_file": "A R R A R F T revert",
     "experiment_criteria": "A R R A R F T -",
@@ -101,7 +103,7 @@ REVIEWER = {
     "hook_source": "A R R - - - - revert",
     "knowledge": "A R R - - - - revert",
     "series_writer": "A R R - - - - revert",
-    "series_outbox": "A R R - - - - none",
+    "series_outbox": "R R R - - - - none",
     "settings_dir": "A R R - - - - revert",
     "env_file": "A R R - - - - revert",
     "experiment_criteria": "A R R - - - - -",
@@ -158,7 +160,15 @@ def _decide(hook: object, config: SessionConfig, wt: Path, **call: Any) -> str: 
 
 
 def _under(path: str, roots: list[str]) -> str:
-    return "T" if any(Path(path).is_relative_to(Path(r)) for r in roots) else "F"
+    """``T`` if a named root holds ``path``; a root ending ``/*`` holds each entry beneath it."""
+
+    def holds(root: str, target: Path) -> bool:
+        if root.endswith(f"/{EVERY_ENTRY}"):
+            directory = Path(root).parent
+            return target.is_relative_to(directory) and target != directory
+        return target.is_relative_to(Path(root))
+
+    return "T" if any(holds(r, Path(path)) for r in roots) else "F"
 
 
 def _watch(config: SessionConfig, path: str) -> str:

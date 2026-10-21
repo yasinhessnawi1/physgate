@@ -211,7 +211,19 @@ def test_the_writer_s_constants_are_the_schema_s() -> None:
     assert schema.UNIT_GRAMMAR is unit_spelling.UNIT_SPELLING
 
 
-ALLOWED_IMPORTS = {"__future__", "hashlib", "json", "math", "os", "re", "sys", "sysconfig"}
+ALLOWED_IMPORTS = {
+    "__future__",
+    "contextlib",
+    "errno",
+    "hashlib",
+    "json",
+    "math",
+    "os",
+    "re",
+    "stat",
+    "sys",
+    "sysconfig",
+}
 
 
 def test_the_writer_imports_only_the_standard_library_it_names() -> None:
