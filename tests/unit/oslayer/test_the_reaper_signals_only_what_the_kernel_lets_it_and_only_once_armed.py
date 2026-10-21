@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from physgate.oslayer import reaper as reaper_module
-from physgate.oslayer.reaper import CANARY_ENV, Info, Reaper, RefusedError, run
+from physgate.oslayer.reaper import CANARY_ENV, SHELL, Info, Reaper, RefusedError, run
 
 ME = 500
 #: When the reaper started, in microseconds.
@@ -192,7 +192,7 @@ def test_unsandboxed_it_only_runs_the_command_and_signals_nothing(
         environ={CANARY_ENV: str(CANARY)},
         execv=lambda path, argv: ran.append((path, argv)),
     )
-    assert ran == [("/bin/bash", ["/bin/bash", "-c", "echo 'a b'; exit 3"])]
+    assert ran == [(SHELL, [SHELL, "-c", "echo 'a b'; exit 3"])]
     assert kernel.sent == []
 
 

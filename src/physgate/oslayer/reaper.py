@@ -56,8 +56,10 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
-#: The shell the command string is written for (the dispatcher pins Claude Code's shell to it).
-SHELL = "/bin/bash"
+#: The shell the command string is written for. Claude Code picks zsh where neither
+#: ``CLAUDE_CODE_SHELL`` nor ``SHELL`` names another, as for a role session (which has no
+#: ``SHELL``); the installer pins it, so a command runs in the shell it did before.
+SHELL = "/bin/zsh"
 #: Where the harness puts the session's Claude Code pid, the canary.
 CANARY_ENV = "PHYSGATE_REAPER_CANARY"
 #: The prefix of every line this program writes on the command's standard error.

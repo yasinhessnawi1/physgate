@@ -51,7 +51,7 @@ def test_on_macos_with_the_layer_the_prefix_names_a_readable_reaper(
     done = install(_request(outside_tmp, "/tmp/pg-0123456789ab"), REGISTRY)
     front = Path(done.spawn_env["CLAUDE_CODE_SHELL_PREFIX"])
     assert front == outside_tmp / "outside" / "session" / "reaper" / "reaper"
-    assert done.spawn_env["CLAUDE_CODE_SHELL"] == "/bin/bash"
+    assert done.spawn_env["CLAUDE_CODE_SHELL"] == "/bin/zsh"
     assert os.access(front, os.X_OK)
     program = front.with_name("reaper.py")
     assert program.read_bytes() == Path(reaper_install.__file__).with_name("reaper.py").read_bytes()
@@ -91,13 +91,13 @@ def test_the_front_runs_a_hook_command_itself_when_the_canary_takes_its_signal(
     tmp_path: Path,
 ) -> None:
     # Unsandboxed, as a hook command is: signal 0 to the canary (this test's own process)
-    # is delivered, so the front runs the command with no interpreter started.
+    # is delivered, so the front runs the command with the hook shell, no interpreter started.
     front = reaper_install.place(tmp_path, sys.base_prefix) / reaper_install.FRONT
     env = {"PATH": "/usr/bin:/bin", CANARY_ENV: str(os.getpid())}
     done = subprocess.run(
         [str(front), 'echo "$0"; exit 5'], env=env, capture_output=True, text=True, check=False
     )
-    assert (done.returncode, done.stdout.strip()) == (5, "/bin/bash")
+    assert (done.returncode, done.stdout.strip()) == (5, reaper_install.HOOK_SHELL)
     # Without a canary the reaper runs and, unsandboxed, only runs the command too.
     done = subprocess.run(
         [str(front), "exit 6"], env={"PATH": "/usr/bin:/bin"}, capture_output=True, check=False

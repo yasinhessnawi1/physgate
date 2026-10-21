@@ -26,6 +26,10 @@ from pathlib import Path
 
 from physgate.oslayer.reaper import CANARY_ENV, SHELL
 
+#: The shell Claude Code runs a hook command with (``spawn`` with ``shell: true``), which
+#: the front keeps for the hook commands it passes through.
+HOOK_SHELL = "/bin/sh"
+
 #: The directory, inside the session's settings directory, that holds the reaper.
 DIRNAME = "reaper"
 #: The front's file name: what ``CLAUDE_CODE_SHELL_PREFIX`` names.
@@ -44,7 +48,7 @@ _FRONT_TEXT = """\
 # means this process is outside any sandbox that fences signals (a hook command): it only
 # runs the command. Otherwise the reaper runs the command and checks its own guards.
 if [ "$#" -eq 1 ] && kill -0 "${{{canary}:-none}}" 2>/dev/null; then
-  exec {shell} -c "$1"
+  exec {hook_shell} -c "$1"
 fi
 exec {python} -I -S {program} "$@"
 """
@@ -100,7 +104,10 @@ def place(target_dir: Path, base_prefix: str) -> Path:
     program.chmod(0o644)
     front.write_text(
         _FRONT_TEXT.format(
-            canary=CANARY_ENV, shell=SHELL, python=_quoted(python), program=_quoted(program)
+            canary=CANARY_ENV,
+            hook_shell=HOOK_SHELL,
+            python=_quoted(python),
+            program=_quoted(program),
         )
     )
     front.chmod(0o755)
@@ -111,7 +118,9 @@ def spawn_env(directory: Path) -> dict[str, str]:
     """What Claude Code's environment carries for the reaper in ``directory``.
 
     The shell is pinned to the one the reaper runs the command string with, since Claude
-    Code writes that string for the shell it runs.
+    Code writes that string (and its shell snapshot) for the shell it runs. It is the one
+    Claude Code picks for a role session without the pin, so nothing about how a command
+    runs changes.
     """
     return {"CLAUDE_CODE_SHELL_PREFIX": str(directory / FRONT), "CLAUDE_CODE_SHELL": SHELL}
 
