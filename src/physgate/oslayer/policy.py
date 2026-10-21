@@ -38,20 +38,24 @@ the home opened again.
 
 **The series outbox is written blind.** A record reaches it by a script's own write, so a
 shell command may write there and may not read there: a command that joins the outbox's path
-at run time, which the hooks' text rule cannot see, must find nothing to read. The two
-mechanisms deny that differently, each measured on Claude Code 2.1.301:
+at run time, which the hooks' text rule cannot see, must find nothing to read. The series
+writer makes each record's file new in the outbox and writes it there; it never writes
+through a name already there, and nothing waits beside the outbox to be caught. The two
+mechanisms deny the reads differently, each measured on Claude Code 2.1.301:
 
-- on macOS Seatbelt denies the outbox whole. A command cannot list it, read, link, copy,
-  rename or remove anything in it, nor rename it or a directory above it away; it can still
-  create a file there, rewrite one in place, and rename one in from beside it under a new
-  name, which is how the series writer writes;
-- on Linux bubblewrap lays an empty layer over a read-denied directory, and the writer's
-  rename into it then fails as a move across devices, so no record could be written. The
-  outbox's entries are denied instead (``<outbox>/*``), expanded as each command starts:
-  every record an earlier command wrote is unreadable and cannot be written over, renamed or
-  moved away with the outbox; a command reads back only what it wrote itself, and lists the
-  names. A record written again under an id an earlier command used is therefore refused
-  there, and the writer says so; the script records the run under a new id.
+- on macOS Seatbelt denies the outbox whole, to every process of the session: a command
+  cannot list it, read, link, copy, rename or remove anything in it, nor rename it or a
+  directory above it away; even the metadata of an entry is denied, through the descriptor
+  that made it. A command can still create a new file there and write it, which is how the
+  series writer writes. So no command, nor a process that outlived one, reads a record;
+- on Linux bubblewrap lays an empty layer over a read-denied directory, and a record written
+  into that layer would be gone when the command ends. The outbox's entries are denied
+  instead (``<outbox>/*``), expanded as each command starts: every record an earlier command
+  wrote is unreadable and cannot be written over, renamed or moved away with the outbox.
+  **What Linux does not deny:** an entry made during a command is not in that command's list,
+  so the command that wrote a record, and any process of that same command, can read it
+  back, link it elsewhere and keep it, and every command lists the names. The guarantee there
+  is that no command reads a record an earlier command wrote.
 
 A platform with neither mechanism gets no policy at all: building one refuses, rather than
 leaving the outbox readable.
@@ -211,6 +215,9 @@ def _spelled(*paths: str) -> list[str]:
 #: What names every entry of a directory to the Linux sandbox, which expands it against the
 #: directory as it stands when each command starts.
 EVERY_ENTRY = "*"
+#: The characters a glob reads as more than themselves: in the outbox's own path they would
+#: name other places than the outbox's entries, or none.
+GLOB_CHARACTERS = "*?[]{}\\"
 
 
 def outbox_read_denial(path: str, platform: str) -> str:
@@ -223,7 +230,7 @@ def outbox_read_denial(path: str, platform: str) -> str:
     if platform == "darwin":
         return path
     if platform.startswith("linux"):
-        if set(path) & set("*?["):
+        if set(path) & set(GLOB_CHARACTERS):
             msg = f"the series outbox's path {path} reads as a pattern; its entries cannot be named"
             raise ValueError(msg)
         return os.path.join(path, EVERY_ENTRY)

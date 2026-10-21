@@ -26,12 +26,31 @@ SERIES_WRITER_REASON = (
     "there by the orchestrator; no session writes it, since a changed writer could record a "
     "curve other than the one its script computed"
 )
-SERIES_OUTBOX_REASON = (
-    "it is the series outbox, which a record reaches when the script that ran the simulation "
-    "writes it there through the series writer; no file tool writes or reads it, no command may "
-    "name it, and no command can read it back, and the orchestrator seals a record from it only "
-    "when the code it names is the module's, unchanged and committed"
-)
+
+
+def series_outbox_reason(platform: str, *, os_layer: bool) -> str:
+    """The reason given for the series outbox, saying only what holds where the session runs.
+
+    What a command can read back depends on the OS layer and on the platform's mechanism
+    (:func:`physgate.oslayer.policy.outbox_read_denial`): on macOS nothing in the outbox is
+    readable to any command; on Linux a record an earlier command wrote is unreadable, but a
+    command can read back what it wrote itself; without the OS layer only the hooks' text
+    rule stands.
+    """
+    if os_layer and platform == "darwin":
+        reads = "no command can read it back"
+    elif os_layer and platform.startswith("linux"):
+        reads = "no command can read back a record an earlier command wrote"
+    else:
+        reads = "nothing but this refusal keeps a command from reading it"
+    return (
+        "it is the series outbox, which a record reaches when the script that ran the "
+        "simulation writes it there through the series writer; no file tool writes or reads "
+        f"it, no command may name it, and {reads}; the orchestrator seals a record from it "
+        "only when the code it names is the module's, unchanged and committed"
+    )
+
+
 STORE_REASON = (
     "it is the design-state graph's own store: its journal is the only authority, and a "
     "line appended to it is replayed as genuine, so no agent tool writes any file in it"

@@ -17,6 +17,7 @@ failures, so the day a layer closes them the test says so.
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -24,10 +25,12 @@ from hook_helpers import bash, event
 
 from physgate.hooks import paths, shell_paths
 from physgate.hooks.config import HookInput, SessionConfig
-from physgate.hooks.reasons import SERIES_OUTBOX_REASON
+from physgate.hooks.reasons import series_outbox_reason
 from physgate.hooks.settings import InstallRequest, build_config, current_installation
 
 OUTBOX = ".physgate/series"
+#: The fixture installs without the OS layer, so its reason claims nothing of it.
+REASON = series_outbox_reason(sys.platform, os_layer=False)
 
 
 @pytest.fixture
@@ -78,7 +81,7 @@ def test_the_outbox_is_a_root_refused_and_never_put_back(config: SessionConfig) 
     assert outbox.watch == "none"
     # The settings name the series outbox themselves, with its own reason, ahead of a root the
     # request adds; before they did, it was the generic reason for a root written at run time.
-    assert outbox.reason == SERIES_OUTBOX_REASON
+    assert outbox.reason == REASON
 
 
 @pytest.mark.parametrize("tool", ["Write", "Edit", "NotebookEdit"])
@@ -226,7 +229,7 @@ def test_reading_the_outbox_back_is_refused(config: SessionConfig, command: str)
     # A record goes in blind: what a script wrote there is the collector's to judge.
     refused = _bash(config, command)
     assert refused != "allow", command
-    assert SERIES_OUTBOX_REASON in refused, command
+    assert REASON in refused, command
 
 
 def test_no_file_tool_reads_the_outbox(config: SessionConfig) -> None:
@@ -234,3 +237,22 @@ def test_no_file_tool_reads_the_outbox(config: SessionConfig) -> None:
     assert _tool(config, "Read", record) != "allow"
     writer_dir = os.path.join(config.worktree, ".physgate", "lib", "x.py")
     assert _tool(config, "Read", writer_dir) == "allow"
+
+
+@pytest.mark.parametrize(
+    ("platform", "os_layer", "claims", "never"),
+    [
+        ("darwin", True, "no command can read it back", "earlier command"),
+        ("linux", True, "no command can read back a record an earlier command wrote", "it back"),
+        ("darwin", False, "nothing but this refusal", "no command can read"),
+        ("linux", False, "nothing but this refusal", "no command can read"),
+    ],
+)
+def test_the_outbox_s_reason_claims_only_what_holds_where_the_session_runs(
+    platform: str, os_layer: bool, claims: str, never: str
+) -> None:
+    # On Linux a command reads back what it wrote itself, so the reason given there may not
+    # say that no command can read the outbox; without the OS layer it may say neither.
+    reason = series_outbox_reason(platform, os_layer=os_layer)
+    assert claims in reason
+    assert never not in reason

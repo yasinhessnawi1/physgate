@@ -51,9 +51,9 @@ from physgate.hooks.reasons import GIT_USER_CONFIG_REASON as GIT_USER_CONFIG_REA
 from physgate.hooks.reasons import HARNESS_REASON as HARNESS_REASON
 from physgate.hooks.reasons import HELD_OUT_REASON as HELD_OUT_REASON
 from physgate.hooks.reasons import KNOWLEDGE_REASON as KNOWLEDGE_REASON
-from physgate.hooks.reasons import SERIES_OUTBOX_REASON as SERIES_OUTBOX_REASON
 from physgate.hooks.reasons import SERIES_WRITER_REASON as SERIES_WRITER_REASON
 from physgate.hooks.reasons import STORE_REASON as STORE_REASON
+from physgate.hooks.reasons import series_outbox_reason
 from physgate.hooks.runtime import EVENTS, HookSpec
 from physgate.oslayer.placement import machine_writable, placement_refusal
 from physgate.oslayer.policy import NETWORK_UNENFORCED, sandbox_policy
@@ -363,7 +363,10 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         str(worktree / ".physgate" / "lib"): (SERIES_WRITER_REASON, "revert"),
         # Refused only, never put back: a script's own write, which no hook sees, is the one way
         # a record arrives, and the orchestrator collects and checks what arrived.
-        str(worktree / ".physgate" / "series"): (SERIES_OUTBOX_REASON, "none"),
+        str(worktree / ".physgate" / "series"): (
+            series_outbox_reason(sys.platform, os_layer=request.os_layer_temp_dir is not None),
+            "none",
+        ),
     }
     if request.profile == "baseline":
         # The raw agent keeps the evaluation's two protections and the roots that keep a
