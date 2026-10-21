@@ -33,7 +33,7 @@ from pydantic import (
     model_validator,
 )
 
-from physgate.orchestrator.budget import REPAIR_BUDGET, InfraCause
+from physgate.orchestrator.budget import ATTEMPT_LIMIT, InfraCause
 from physgate.orchestrator.common import (
     GateMode,
     NonEmptyStr,
@@ -66,7 +66,7 @@ Stage = Literal[
 
 #: An attempt number: the repair budget bounds it in the record itself, so a fourth
 #: attempt cannot even be written down.
-Attempt = Annotated[int, Field(ge=1, le=REPAIR_BUDGET)]
+Attempt = Annotated[int, Field(ge=1, le=ATTEMPT_LIMIT)]
 Sha = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
 Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 

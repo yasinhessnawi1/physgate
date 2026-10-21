@@ -28,6 +28,7 @@ from knowledge_fixture import build_fixture_library
 from physgate.evaluation.observe.rerun import MEASURED, RerunPlan
 from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper
 from physgate.orchestrator.budget import SessionEnd
+from physgate.orchestrator.canaries import CanaryCheck
 from physgate.orchestrator.decompose import Outcome, Plan, PlannedModule, mint_id, start_run
 from physgate.orchestrator.escalation import bind
 from physgate.orchestrator.git import head_of, object_format, verified_git_dir
@@ -514,6 +515,7 @@ def drive(
         merger=GitMerger(run, removal_timeout_s=60.0),
         graph=keeper,
         escalation=bind("rules"),
+        material=CanaryCheck(held_out=frozenset(), review_material=frozenset()),
         sleep=lambda _: None,
         **({"clock": clock} if clock is not None else {}),
     )

@@ -19,6 +19,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from physgate.evaluation.observe.manifest import Sha256
+from physgate.orchestrator.budget import ATTEMPT_LIMIT
 from physgate.orchestrator.common import ModelString, NonEmptyStr
 from physgate.orchestrator.protocols import Usage
 from physgate.orchestrator.trajectory import Seal
@@ -46,7 +47,7 @@ class Ratio(_Frozen):
     """Paired over generalist, on one attempt read under one seal: n = 1."""
 
     subtask_id: NonEmptyStr
-    attempt: Annotated[int, Field(ge=1, le=3)]
+    attempt: Annotated[int, Field(ge=1, le=ATTEMPT_LIMIT)]
     trajectory_seal: Seal
     attempt_commit: NonEmptyStr
     reviewer_model: ModelString

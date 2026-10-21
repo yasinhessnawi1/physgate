@@ -38,8 +38,10 @@ from physgate.evaluation.inject.runner import CONTROLS_DIRNAME as INSTRUMENT_CON
 from physgate.evaluation.inject.runner import InstrumentConfig
 from physgate.gate.exceptions import GateError
 from physgate.knowledge.library import LibraryError, read_library
+from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, canaries
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper
+from physgate.orchestrator.canaries import CanaryCheck
 from physgate.orchestrator.catches import catches, parse_time
 from physgate.orchestrator.common import first_problem, render_jsonl
 from physgate.orchestrator.credentials import SECRET_VARIABLE, credential_for
@@ -608,6 +610,17 @@ def _quarantine_request(args: argparse.Namespace) -> tuple[str, str, str] | None
     return session, getpass.getuser(), why
 
 
+def material_check(config: RunConfig) -> CanaryCheck:
+    """What the loop holds a person's words to before they reach a role session (ARCH-133).
+
+    The run's held-out canaries, and every canary the harness's rubric promotions recorded:
+    the same sets a session's own stream is held to.
+    """
+    harness = harness_root()
+    rubric = canaries(harness / KNOWLEDGE_ROOT / PROMOTIONS_NAME) if harness else frozenset()
+    return CanaryCheck(held_out=frozenset(config.held_out_canaries), review_material=rubric)
+
+
 def _confirm_request(args: argparse.Namespace) -> tuple[tuple[str, ...], str | None]:
     """The operator's ``--confirm`` items, and who confirms them: the OS user, or no one.
 
@@ -702,6 +715,7 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
             merger=GitMerger(run, removal_timeout_s=REMOVAL_TIMEOUT_S),
             graph=keeper,
             escalation=escalation,
+            material=material_check(config),
         )
     except (OrchestratorError, ReviewError) as exc:
         return _fail(str(exc), **exc.context)

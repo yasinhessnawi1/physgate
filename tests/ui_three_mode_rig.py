@@ -35,6 +35,7 @@ from ui_rig import evaluation_rig
 from physgate.gate.runner import PhysicsGate
 from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper
 from physgate.orchestrator.budget import SessionEnd
+from physgate.orchestrator.canaries import CanaryCheck
 from physgate.orchestrator.decompose import Outcome, Plan, PlannedModule, mint_id, start_run
 from physgate.orchestrator.escalation import bind
 from physgate.orchestrator.events import (
@@ -190,6 +191,7 @@ def _drive(
         merger=GitMerger(run, removal_timeout_s=60.0),
         graph=keeper,
         escalation=bind("rules"),
+        material=CanaryCheck(held_out=frozenset(), review_material=frozenset()),
         sleep=lambda _: None,
         clock=clock,
     )

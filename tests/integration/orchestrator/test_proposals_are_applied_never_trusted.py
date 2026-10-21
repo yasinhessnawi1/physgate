@@ -19,6 +19,7 @@ import pytest
 from git_rig import DispatchPort, Gate, GitDispatcher, Reviewer, config, run_layout, sh
 
 from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper
+from physgate.orchestrator.canaries import CanaryCheck
 from physgate.orchestrator.change_sets import change_history
 from physgate.orchestrator.escalation import bind
 from physgate.orchestrator.events import (
@@ -116,6 +117,7 @@ class Rig:
             merger=GitMerger(self.run, removal_timeout_s=60.0),
             graph=keeper or self.keeper,
             escalation=bind("rules"),
+            material=CanaryCheck(held_out=frozenset(), review_material=frozenset()),
             sleep=lambda _: None,
         )
 

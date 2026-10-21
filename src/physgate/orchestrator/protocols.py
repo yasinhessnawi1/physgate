@@ -26,6 +26,7 @@ from pydantic import (
     model_validator,
 )
 
+from physgate.orchestrator.budget import ATTEMPT_LIMIT
 from physgate.orchestrator.common import ModelString, NonEmptyStr
 from physgate.orchestrator.exceptions import GateContractError, ModelSeparationError
 from physgate.series.seal import AttemptSeries
@@ -115,11 +116,27 @@ class SessionTrajectory(_Frozen):
     trajectory_length: Annotated[int, Field(ge=0)]
 
 
+class PersonOrder(_Frozen):
+    """What a person ordered an attempt to be, and the exact instruction its session was given.
+
+    Carried to the attempt's reviewer (ARCH-133), who is told under a fixed label that the
+    attempt was ordered by a person and what its implementer was told, and still judges it
+    against the issued specification alone.
+    """
+
+    #: The one fix after a review that blocked, or a retry after a person's reject.
+    kind: Literal["fix_after_block", "retry_after_reject"]
+    item_id: NonEmptyStr
+    #: The attempt the person decided on; this attempt is the next.
+    of_attempt: Annotated[int, Field(ge=1, le=ATTEMPT_LIMIT)]
+    instruction: NonEmptyStr
+
+
 class Artefact(_Frozen):
     """What an attempt produced, as the gate and the reviewer receive it."""
 
     subtask_id: NonEmptyStr
-    attempt: Annotated[int, Field(ge=1, le=3)]
+    attempt: Annotated[int, Field(ge=1, le=ATTEMPT_LIMIT)]
     assigned_role: NonEmptyStr
     attempt_commit: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
     worktree: NonEmptyStr
@@ -153,12 +170,17 @@ class Artefact(_Frozen):
     #: sealed any or named one. Left out of a dump when absent, so an attempt with none is
     #: recorded exactly as before.
     series: AttemptSeries | None = None
+    #: What a person ordered this attempt to be, when one did. Left out of a dump when absent,
+    #: so every attempt no person ordered is recorded exactly as before.
+    ordered_by_person: PersonOrder | None = None
 
     @model_serializer(mode="wrap")
     def _omit_absent_series(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         data: dict[str, Any] = handler(self)
         if self.series is None:
             data.pop("series", None)
+        if self.ordered_by_person is None:
+            data.pop("ordered_by_person", None)
         return data
 
     @model_validator(mode="after")
@@ -181,7 +203,7 @@ class ChangeSet(_Frozen):
     """
 
     subtask_id: NonEmptyStr
-    attempt: Annotated[int, Field(ge=1, le=3)]
+    attempt: Annotated[int, Field(ge=1, le=ATTEMPT_LIMIT)]
     revisions: Annotated[tuple[Revision, ...], Field(min_length=1)]
 
 

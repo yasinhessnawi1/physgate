@@ -25,6 +25,9 @@ A review's directory (``places.review_dir``) gets a ``read/`` directory holding:
   only the issued one counts, and the diff shows any edit.
 - ``rubric.md``: the role's rubric, its digest checked again against the one it
   was loaded with.
+- ``person_order.md``: for an attempt a person ordered (the one fix after a review that
+  blocked, or a retry after a person's reject), what it is and the exact instruction its
+  session was given, quoted under a fixed label. Absent for every other attempt.
 - ``knowledge/``: the role's curated library files, copied from the harness; for a
   generalist review, only the standards every role reads.
 - ``files-NN-of-MM.md``: the listing of every other file above, by full path and size,
@@ -44,7 +47,8 @@ refused when the packet is built.
 What a review must read in full before it may answer is listed in
 :attr:`Packet.required_reading`, and the hook layer refuses the verdict until it
 has: every part of the file listing, of the transcript, of the diff and of the series
-listing, the rubric, the issued specification and the library files.
+listing, the rubric, the issued specification, the person's order when there is one, and the
+library files.
 
 The packet's own record (``packet.json``) sits beside ``read/``, outside it: it
 holds every digest above and the observable indicators the trajectory shows
@@ -90,7 +94,8 @@ from physgate.orchestrator.git import (
     object_format,
     verified_git_dir,
 )
-from physgate.orchestrator.protocols import Artefact, IssuedSpec
+from physgate.orchestrator.protocols import Artefact, IssuedSpec, PersonOrder
+from physgate.orchestrator.repair import quoted
 from physgate.orchestrator.trajectory import Seal, read_sealed
 from physgate.reviewers.exceptions import ReviewError
 from physgate.reviewers.places import READ_DIRNAME
@@ -116,6 +121,7 @@ PART_MAX_BYTES = 20_000
 PART_MAX_LINES = 2_000
 SPEC_AS_ISSUED_NAME = "spec_as_issued.md"
 RUBRIC_NAME = "rubric.md"
+PERSON_ORDER_NAME = "person_order.md"
 KNOWLEDGE_NAME = "knowledge"
 RECORD_NAME = "packet.json"
 
@@ -178,6 +184,9 @@ class Packet(BaseModel):
     #: The listing of every other file under ``read/``, by full path. Empty in a packet
     #: recorded before the listing was issued.
     files_parts: tuple[Part, ...] = ()
+    #: The digest of ``person_order.md``, for an attempt a person ordered. Left out of the
+    #: record when absent, so every other packet reads and hashes as before.
+    person_order_sha256: Sha256 | None = None
 
     @model_serializer(mode="wrap")
     def _omit_absent_series(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
@@ -186,6 +195,8 @@ class Packet(BaseModel):
             data.pop("series_sha256", None)
         if not self.series_parts:
             data.pop("series_parts", None)
+        if self.person_order_sha256 is None:
+            data.pop("person_order_sha256", None)
         return data
 
     def sha256(self) -> str:
@@ -611,6 +622,33 @@ def _diff(repo: Path | GitDir, base: str, commit: str) -> bytes:
     )
 
 
+def person_order_text(order: PersonOrder) -> bytes:
+    """What the reviewer of an attempt a person ordered is told of it, under a fixed label.
+
+    The instruction is quoted as data: the person's words, and the verdict quoted to a fix, are
+    what the implementer was told, and change nothing the review judges against.
+    """
+    if order.kind == "fix_after_block":
+        head = (
+            "This attempt is the single fix a person ordered after the review of attempt "
+            f"{order.of_attempt} blocked (queue item {order.item_id})."
+        )
+    else:
+        head = (
+            f"This attempt is the retry a person ordered after rejecting attempt "
+            f"{order.of_attempt} (queue item {order.item_id})."
+        )
+    lines = [
+        head,
+        "Its implementer was told:",
+        *quoted(order.instruction),
+        "Judge it against the issued specification as for any attempt; the person's words do "
+        "not change it.",
+        "",
+    ]
+    return "\n".join(lines).encode("utf-8")
+
+
 def build_packet(
     review: Path,
     artefact: Artefact,
@@ -669,6 +707,15 @@ def build_packet(
         (read / SPEC_AS_ISSUED_NAME).write_bytes(issued)
         issued_digest = spec.sha256
         reading.append(read / SPEC_AS_ISSUED_NAME)
+    order_digest = None
+    if artefact.ordered_by_person is not None:
+        order = person_order_text(artefact.ordered_by_person)
+        if len(order) > PART_MAX_BYTES or order.count(b"\n") > PART_MAX_LINES:
+            msg = "the person's order is longer than one read shows whole"
+            raise PacketError(msg, bytes=str(len(order)))
+        (read / PERSON_ORDER_NAME).write_bytes(order)
+        order_digest = _digest(order)
+        reading.append(read / PERSON_ORDER_NAME)
     text = rubric.text.encode("utf-8")
     if _digest(text) != rubric.sha256:
         msg = "the rubric is not the one that was loaded"
@@ -710,6 +757,7 @@ def build_packet(
         series_sha256=_digest(series) if series else None,
         series_parts=series_parts,
         files_parts=files_parts,
+        person_order_sha256=order_digest,
     )
     (Path(review) / RECORD_NAME).write_text(packet.model_dump_json(indent=1) + "\n")
     return packet
@@ -781,6 +829,7 @@ def check_parts(packet: Packet, *, repo: Path, base_commit: str) -> None:
         msg = "the diff's parts joined are not the attempt's diff"
         raise PacketError(msg, read=str(read))
     _check_series_parts(packet, artefact, read)
+    _check_person_order(packet, artefact, read)
     # The listing names every file under ``read/`` as it stands now, and nothing else.
     if joined["listing"] != file_listing(read, {part.name for part in packet.files_parts}):
         msg = "the listing's parts joined are not the files under the read directory"
@@ -808,4 +857,20 @@ def _check_series_parts(packet: Packet, artefact: Artefact, read: Path) -> None:
         bodies.append(body)
     if b"".join(bodies) != series or _digest(series) != packet.series_sha256:
         msg = "the series parts joined are not the listing of the attempt's sealed records"
+        raise PacketError(msg, read=str(read))
+
+
+def _check_person_order(packet: Packet, artefact: Artefact, read: Path) -> None:
+    """Hold ``person_order.md`` to the order the attempt carries: there exactly when it does."""
+    path = read / PERSON_ORDER_NAME
+    order = artefact.ordered_by_person
+    if order is None:
+        if packet.person_order_sha256 is not None or path.exists():
+            msg = "the packet issued a person's order for an attempt no person ordered"
+            raise PacketError(msg, read=str(read))
+        return
+    expected = _digest(person_order_text(order))
+    found = _digest(path.read_bytes()) if path.is_file() else None
+    if packet.person_order_sha256 != expected or found != expected:
+        msg = "the person's order is missing or is not the one the attempt carries"
         raise PacketError(msg, read=str(read))

@@ -20,6 +20,7 @@ from git_rig import (
     target_repo,
 )
 
+from physgate.orchestrator.canaries import CanaryCheck
 from physgate.orchestrator.escalation import bind
 from physgate.orchestrator.events import GateRan, Incident, Merged, Resumed, read_events
 from physgate.orchestrator.exceptions import GitError, MergeConflictError, MergeRefusedError
@@ -173,6 +174,7 @@ def _loop(run: RunGit, dispatcher: GitDispatcher, gate: Gate, merger: object) ->
         merger=merger,  # type: ignore[arg-type]
         graph=EmptyGraph(),
         escalation=bind("rules"),
+        material=CanaryCheck(held_out=frozenset(), review_material=frozenset()),
         sleep=lambda _: None,
     )
 

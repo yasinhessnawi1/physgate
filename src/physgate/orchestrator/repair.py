@@ -182,3 +182,30 @@ def person_repair_instruction(attempt: int, note: str, finding: Finding | None) 
         "before this goes to a person for a decision.",
     ]
     return "\n".join(lines)
+
+
+#: The fixed lines a fix's instruction ends with: what the fix may not do, and that it is final.
+NO_INPUT_SUPPLIED = "Do not supply an input it lacks."
+LAST_ATTEMPT = "This is the last attempt."
+
+
+def fix_instruction(attempt: int, finding: str, lacking: tuple[str, ...], note: str) -> str:
+    """The instruction the one fix a person ordered starts from, after the review of ``attempt``.
+
+    A fixed template: the review's finding and each blocking defect it named, then the person's
+    note, each quoted as data, then the lines that the issued specification still governs and
+    that this is the last attempt. No model phrases any of it, and nothing of the earlier
+    session's trajectory is in it: the worktree holds what was done.
+    """
+    lines = [f"The review of attempt {attempt} blocked.", "", "The review found:", *quoted(finding)]
+    for defect in lacking:
+        lines += ["", "It names what the specification lacks:", *quoted(defect)]
+    lines += [
+        "",
+        "A person asked for one attempt to fix it and wrote:",
+        *quoted(note),
+        "",
+        f"{STILL_GOVERNS} {NO_INPUT_SUPPLIED}",
+        LAST_ATTEMPT,
+    ]
+    return "\n".join(lines)

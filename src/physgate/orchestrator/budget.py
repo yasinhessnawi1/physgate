@@ -25,6 +25,12 @@ from physgate.orchestrator.exceptions import RepairBudgetExhaustedError
 #: Implementation attempts per subtask before it goes to the approval queue (ARCH-030).
 REPAIR_BUDGET = 3
 
+#: The highest attempt number a subtask can reach: the repair budget, and the one fix a person
+#: may order after a review that blocked (ARCH-133), which is outside the budget and always the
+#: subtask's last attempt. Every bound on an attempt number is this one; the replay holds an
+#: attempt past the budget to being that fix.
+ATTEMPT_LIMIT = REPAIR_BUDGET + 1
+
 #: Why a session is an infrastructure outcome. Each is recorded, so an experiment
 #: can decide for itself how to count one (a turn limit may be an agent looping).
 #: ``credential_refused`` is an API error with HTTP 401 or 403: retrying cannot fix a

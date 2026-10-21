@@ -417,6 +417,12 @@ def role_prompt(request: SessionRequest) -> str:
         "each run through the series writer, .physgate/lib/series_writer.py, into "
         ".physgate/series/, which nothing else may write. Stop when the specification is met.\n"
     )
+    if request.kind == "fix":
+        # The one fix a person ordered: told so, then its instruction. Nothing else differs.
+        text += (
+            f"\nThis session is the one fix a person ordered for subtask {request.subtask_id}, "
+            f"attempt {request.attempt}.\n"
+        )
     if request.repair_instruction:
         text += f"\n{request.repair_instruction}\n"
     return text

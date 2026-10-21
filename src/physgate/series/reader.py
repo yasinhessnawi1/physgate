@@ -35,7 +35,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
-from physgate.orchestrator.budget import REPAIR_BUDGET
+from physgate.orchestrator.budget import ATTEMPT_LIMIT
 from physgate.orchestrator.events import SessionEnded
 from physgate.orchestrator.trajectory import Seal
 from physgate.series.exceptions import RecordRefusedError, RecordTamperedError
@@ -66,8 +66,8 @@ def record_path(
         if not pattern.fullmatch(value):
             msg = f"the {what} is not a plain identifier"
             raise RecordRefusedError(msg, value=value[:64])
-    if isinstance(attempt, bool) or not 1 <= attempt <= REPAIR_BUDGET:
-        msg = f"an attempt is a number from 1 to {REPAIR_BUDGET}"
+    if isinstance(attempt, bool) or not 1 <= attempt <= ATTEMPT_LIMIT:
+        msg = f"an attempt is a number from 1 to {ATTEMPT_LIMIT}"
         raise RecordRefusedError(msg, attempt=str(attempt))
     return Path(run_dir) / SERIES_DIR / subtask_id / str(attempt) / session_id / f"{record_id}.json"
 

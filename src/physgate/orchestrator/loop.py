@@ -92,6 +92,7 @@ from physgate.orchestrator.ports import (
     ChangeChecker,
     Dispatcher,
     GraphPort,
+    MaterialCheck,
     Merger,
     RecordsSpawns,
     SessionReport,
@@ -103,6 +104,7 @@ from physgate.orchestrator.protocols import (
     Gate,
     IntegrationArtefact,
     IssuedSpec,
+    PersonOrder,
     Reviewer,
     ReviewResult,
     SessionTrajectory,
@@ -126,7 +128,12 @@ from physgate.orchestrator.queue import (
     within,
 )
 from physgate.orchestrator.record import PlanEntry, RunRecord
-from physgate.orchestrator.repair import Finding, person_repair_instruction, repair_instruction
+from physgate.orchestrator.repair import (
+    Finding,
+    fix_instruction,
+    person_repair_instruction,
+    repair_instruction,
+)
 from physgate.orchestrator.replay import (
     AttemptState,
     Step,
@@ -243,6 +250,7 @@ class Loop:
         merger: Merger,
         graph: GraphPort,
         escalation: EscalationInterface,
+        material: MaterialCheck,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], datetime] = utc_now,
     ) -> None:
@@ -254,6 +262,9 @@ class Loop:
             RunConfigError: the run directory holds another configuration, or a log
                 with no configuration.
             EscalationBackendError: see :func:`require_binding`.
+
+        ``material`` holds the text a person's decision sends to a role session to the canaries
+        of material no session may read, before the session is spawned (ARCH-133).
         """
         refuse_unregistered(config, gate, reviewers)
         require_binding(config, escalation)
@@ -271,6 +282,7 @@ class Loop:
         self._merger = merger
         self._graph = graph
         self._escalation = escalation
+        self._material = material
         self._sleep = sleep
         self._appends: tuple[str, ...] = ()
         #: The items the operator confirms on this resume, and who; none on a plain run.
@@ -846,9 +858,65 @@ class Loop:
             return
         self._diff(subtask_id, attempt)
 
+    def _instruction(self, subtask_id: str, attempt: int) -> tuple[str | None, PersonOrder | None]:
+        """What ``attempt`` starts from, and the person's order behind it if a person gave one.
+
+        Rebuilt from the log on every call, by code: a session restarted after a kill, and the
+        attempt's reviewer, are told exactly what the first session was.
+
+        Raises:
+            RunStateError: a fix ordered after a review that did not block, or with no note.
+        """
+        sub = self.state.subtasks[subtask_id]
+        previous = sub.attempts[-2] if attempt > 1 and len(sub.attempts) > 1 else None
+        if previous is None:
+            return None, None
+        before = previous.rejected
+        ordered = previous.person_rejected
+        if ordered is not None and ordered.effect == "fix":
+            blocked = previous.blocked
+            if blocked is None or ordered.note is None:
+                msg = "a fix is ordered after a review that blocked, with the person's note"
+                raise RunStateError(msg, subtask=subtask_id, attempt=str(attempt))
+            text = fix_instruction(
+                previous.number,
+                blocked.result.finding,
+                tuple(d.finding for d in blocked.result.spec_defects if d.blocking),
+                ordered.note,
+            )
+            return text, PersonOrder(
+                kind="fix_after_block",
+                item_id=ordered.item_id,
+                of_attempt=previous.number,
+                instruction=text,
+            )
+        if ordered is not None and ordered.note is not None:
+            # The next attempt starts from the person's note, quoted as data, with the reviewer's
+            # finding when a review rejected the attempt the person sent back.
+            finding = before.finding if before is not None else None
+            return person_repair_instruction(previous.number, ordered.note, finding), None
+        return (repair_instruction(previous.number, before.finding) if before else None), None
+
+    def _material_clean(self, subtask_id: str, text: str) -> bool:
+        """``text`` shows no material a role session may not read; otherwise the run halts.
+
+        Held-out material counts the tier as exposed (ARCH-141). The canary is never recorded.
+        """
+        seen = self._material.seen(text)
+        if seen is None:
+            return True
+        cause: IncidentCause = "held_out_read" if seen == "held_out" else "review_material_read"
+        what = "held-out" if seen == "held_out" else "reviewer"
+        detail = f"{what} material in the instruction a person's decision gives {subtask_id}"
+        self._incident(subtask_id, cause, detail)
+        return False
+
     def _session(self, subtask_id: str, attempt: int) -> bool:
         sub = self.state.subtasks[subtask_id]
         self._stage(subtask_id, attempt, "resolve")
+        instruction, order = self._instruction(subtask_id, attempt)
+        if order is not None and not self._material_clean(subtask_id, order.instruction):
+            return False
         # The decisions file's length now and when the session ends: the window a
         # decision written meanwhile falls in, which the queue listing marks.
         self._emit(
@@ -860,20 +928,6 @@ class Loop:
                 decisions_bytes=self._decisions_bytes(),
             )
         )
-        previous = sub.attempts[-2] if attempt > 1 and len(sub.attempts) > 1 else None
-        before = previous.rejected if previous is not None else None
-        ordered = previous.person_rejected if previous is not None else None
-        if ordered is not None and ordered.effect == "fix":
-            msg = "the fix a person ordered is dispatched as a fix, which this loop cannot yet do"
-            raise RunStateError(msg, subtask=subtask_id)
-        if ordered is not None and ordered.note is not None:
-            # The next attempt starts from the person's note, quoted as data, with the reviewer's
-            # finding when a review rejected the attempt the person sent back.
-            instruction: str | None = person_repair_instruction(
-                attempt - 1, ordered.note, before.finding if before is not None else None
-            )
-        else:
-            instruction = repair_instruction(attempt - 1, before.finding) if before else None
         request = SessionRequest(
             subtask_id=subtask_id,
             attempt=attempt,
@@ -884,6 +938,7 @@ class Loop:
             repair_instruction=instruction,
             bounds=self.config.bounds,
             spec_commit=self._spec_commit(),
+            kind="fix" if order is not None and order.kind == "fix_after_block" else "attempt",
         )
         try:
             report = self._dispatcher.run(request, on_spawn=self._spawned)
@@ -1200,6 +1255,7 @@ class Loop:
             issued_spec=self._issued_spec(sub.plan.spec_path, session),
             earlier_sessions=self._earlier_sessions(subtask_id, attempt),
             series=self._attempt_series(subtask_id, attempt, check.series_checks),
+            ordered_by_person=self._instruction(subtask_id, attempt)[1],
         )
         self._stage(subtask_id, attempt, "gate")
         mode = self.config.gate_mode
