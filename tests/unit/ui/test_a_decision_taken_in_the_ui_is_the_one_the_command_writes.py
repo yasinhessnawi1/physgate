@@ -38,7 +38,7 @@ from ui_rig import context_over, escalated_run, fake_ui, sealed_session, serving
 
 from physgate.cli import main
 from physgate.orchestrator import queue as queue_module
-from physgate.orchestrator.queue import DECISIONS_NAME, decision_text, read_queue
+from physgate.orchestrator.queue import DECISIONS_NAME, read_queue
 from physgate.ui.server import ACT_TOKEN_HEADER, make_server
 
 RUN = "run-esc"
@@ -179,11 +179,13 @@ def test_a_ui_decision_writes_exactly_what_the_command_writes(
     by_ui = _copy(built, tmp_path / "ui-root")
     assert _tree(by_command) == _tree(by_ui)
     before = _tree(by_ui)
-    item_id = read_queue(by_command).items[0].item_id
-
+    view = read_queue(by_command)
+    item_id = view.items[0].item_id
+    # The command binds by the digest its listing printed, as the page binds by its view.
+    noted = ["--note", note] if note.strip() else []
     code, printed = _command(
-        ["queue", "resolve", item_id, "--run-dir", str(by_command),
-         "--decision", decision_text(verb, note), "--by", "yasin"],  # type: ignore[arg-type]  # verb is one of the two
+        ["queue", "resolve", item_id, "--run-dir", str(by_command), f"--{verb}", *noted,
+         "--sha256", view.digests[item_id], "--by", "yasin"],
         capsys,
     )  # fmt: skip
     assert code == 0

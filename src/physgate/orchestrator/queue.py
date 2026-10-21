@@ -38,9 +38,19 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    StringConstraints,
+    TypeAdapter,
+    ValidationError,
+    model_serializer,
+    model_validator,
+)
 
 from physgate.orchestrator.budget import REPAIR_BUDGET
 from physgate.orchestrator.common import (
@@ -60,9 +70,10 @@ from physgate.orchestrator.events import (
     read_jsonl,
 )
 from physgate.orchestrator.exceptions import CorruptEventLogError, QueueError, StaleViewError
-from physgate.orchestrator.protocols import GateResult, QuantityRef, SpecDefect
+from physgate.orchestrator.protocols import GateResult, IndicatorKind, QuantityRef, SpecDefect
 from physgate.orchestrator.repair import Finding
 from physgate.orchestrator.trajectory import Seal, seal
+from physgate.reviewers.scan import ScanHit
 
 #: The queue's sources (ARCH-130); a blocked review and one with no verdict are kept apart,
 #: and a subtask the escalation decision sent to a person while it had attempts left is its
@@ -84,6 +95,67 @@ class _Record(BaseModel):
     ts: Timestamp
 
 
+#: What approving an item does: merge the attempt it names, or record the decision only.
+OnApprove = Literal["merge_attempt", "record_only"]
+#: What rejecting an item does: start the next attempt from the note, order the one fix a
+#: blocked review gets, end the subtask, or record the decision only.
+OnReject = Literal["retry", "fix", "end_subtask", "record_only"]
+#: Why approving an item records only. ``gate``, ``change_check`` and ``reading``: an automated
+#: check refused the attempt, and a person overrides the reviewer alone. ``indicator_in_history``:
+#: a review of some attempt of the subtask confirmed a reward-hacking indicator.
+#: ``scan_hit``: the scan that runs before review found one, and no review judged it.
+#: ``source``: the item's source is not one an approve merges from (an integration failure, an
+#: arbitration). ``legacy``: the item was written before items said what a verb does.
+WhyRecordOnly = Literal[
+    "gate", "change_check", "reading", "indicator_in_history", "scan_hit", "source", "legacy"
+]
+Sha1 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
+
+
+class ConfirmedIndicator(BaseModel):
+    """A reward-hacking indicator a review of the subtask confirmed: which attempt, which kind."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    attempt: Annotated[int, Field(ge=1)]
+    kind: IndicatorKind
+
+
+class ItemConsequence(BaseModel):
+    """What each verb will do to an item, and why approve records only when it does (ARCH-133).
+
+    Computed by code from the run's event log when the item is listed, and part of the item's
+    line, so a decision bound to the line's digest is bound to this too. The loop computes it
+    again when it takes the decision; an item that says otherwise than the log halts the run.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    #: The attempt the item concerns, and the commit that attempt's change check checked: the
+    #: only commit an approve may merge. ``None`` for an item about no one attempt.
+    attempt: Annotated[int, Field(ge=1)] | None
+    attempt_commit: Sha1 | None
+    on_approve: OnApprove
+    on_reject: OnReject
+    why_record_only: WhyRecordOnly | None = None
+    #: Every indicator a review of any attempt of the subtask confirmed, oldest first.
+    confirmed_indicators: tuple[ConfirmedIndicator, ...] = ()
+    #: What the scan before review found in the attempt's sealed streams, for an item whose
+    #: review never judged them; empty otherwise.
+    scan_hits: tuple[ScanHit, ...] = ()
+
+    @model_validator(mode="after")
+    def _approve_says_what_it_merges_or_why_it_does_not(self) -> ItemConsequence:
+        merges = self.on_approve == "merge_attempt"
+        if merges == (self.why_record_only is not None):
+            msg = "approve merges with no reason not to, or records only and says why"
+            raise ValueError(msg)
+        if merges and (self.attempt is None or self.attempt_commit is None):
+            msg = "an approve that merges names the attempt and the commit it merges"
+            raise ValueError(msg)
+        return self
+
+
 class QueueItem(_Record):
     """One decision a person has to take."""
 
@@ -96,14 +168,82 @@ class QueueItem(_Record):
     triggering_finding: NonEmptyStr
     quantities: Annotated[tuple[QuantityRef, ...], Field(max_length=3)]
     trajectories: Annotated[tuple[NonEmptyStr, ...], Field(min_length=1)]
+    #: What each verb will do. ``None`` on an item written before items said so, or by a run
+    #: that only records decisions; either is taken as recording only.
+    consequence: ItemConsequence | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_absent_consequence(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        # Left out when absent, so an item with none is written exactly as before it existed.
+        data: dict[str, Any] = handler(self)
+        if self.consequence is None:
+            data.pop("consequence", None)
+        return data
+
+
+#: The words a person decides with, mapped onto the free-text decision.
+Verb = Literal["approve", "reject"]
 
 
 class QueueResolution(_Record):
-    """A person's decision on one item."""
+    """A person's decision on one item.
+
+    ``verb``, ``note`` and ``shown_sha256`` are written for a decision taken with a verb on a
+    view of the item (ARCH-133); a free-text decision, and every line written before they
+    existed, carries none of them and binds to nothing.
+    """
 
     kind: Literal["resolution"] = "resolution"
     decision: NonEmptyStr
     resolved_by: NonEmptyStr
+    verb: Verb | None = None
+    note: NonEmptyStr | None = None
+    shown_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")] | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_unbound_fields(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        for name in ("verb", "note", "shown_sha256"):
+            if data.get(name) is None:
+                data.pop(name, None)
+        return data
+
+
+#: The longest note a person's decision carries, in characters: a bound on what reaches a
+#: session's prompt, and so a size, not a threshold on anything measured.
+MAX_NOTE = 4000
+
+#: Control characters a note may not hold: every C0 control but the tab and the line break,
+#: the delete character, and the C1 controls. A note is quoted into a session's prompt, where an
+#: escape sequence or a carriage return could make it read as something it is not.
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+class PersonDecision(BaseModel):
+    """A person's decision with a verb: what the decision function binds to a view."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    verb: Verb
+    note: Annotated[str, StringConstraints(max_length=MAX_NOTE)] | None
+
+    @model_validator(mode="after")
+    def _a_note_is_clean_and_a_rejection_has_one(self) -> PersonDecision:
+        if self.note is not None:
+            if not self.note.strip():
+                msg = "a note says something; leave it out rather than send it blank"
+                raise ValueError(msg)
+            if _CONTROL.search(self.note):
+                msg = "a note holds no control character but a tab or a line break"
+                raise ValueError(msg)
+        elif self.verb == "reject":
+            msg = "a rejection says why: its note is required"
+            raise ValueError(msg)
+        return self
+
+    def text(self) -> str:
+        """The free-text decision every reader of the decisions file already reads."""
+        return decision_text(self.verb, self.note or "")
 
 
 #: The items file, in the run directory.
@@ -203,20 +343,34 @@ def escalation_item(
     artefact_diff: str,
     trajectories: tuple[str, ...],
     ts: str,
+    spent_by_person: int = 0,
+    consequence: ItemConsequence | None = None,
 ) -> QueueItem:
     """The item for a subtask whose every attempt was rejected.
 
     The triggering finding is the last one. The quantities are the last
     finding's that has any, because the most recent evidence is the most
-    relevant.
+    relevant. An attempt a person rejected from the queue left no finding of its own, so
+    ``spent_by_person`` counts those; every attempt is still one finding or one of them.
 
     Raises:
         QueueError: fewer findings or trajectories than attempts were given.
     """
-    if len(findings) != REPAIR_BUDGET or len(trajectories) != REPAIR_BUDGET:
+    if (
+        not findings
+        or spent_by_person < 0
+        or len(findings) + spent_by_person != REPAIR_BUDGET
+        or len(trajectories) != REPAIR_BUDGET
+    ):
         msg = "an exhausted budget is escalated with every attempt's finding and trajectory"
         raise QueueError(msg, findings=str(len(findings)), trajectories=str(len(trajectories)))
     with_quantities = [f for f in findings if f.quantities]
+    rejected = (
+        f"was rejected on all {REPAIR_BUDGET} attempts"
+        if not spent_by_person
+        else f"has no attempt left of {REPAIR_BUDGET}: a person rejected {spent_by_person} of "
+        "them from the queue, and the others were rejected"
+    )
     return QueueItem(
         item_id=item_id,
         ts=ts,
@@ -224,7 +378,7 @@ def escalation_item(
         subtask_id=subtask_id,
         source="repair_budget_exhausted",
         decision_required=(
-            f"Subtask {subtask_id} was rejected on all {REPAIR_BUDGET} attempts. Decide whether "
+            f"Subtask {subtask_id} {rejected}. Decide whether "
             "to accept the last attempt as it stands, rewrite the subtask's specification, or "
             "split the subtask."
         ),
@@ -232,6 +386,7 @@ def escalation_item(
         triggering_finding=findings[-1].text,
         quantities=with_quantities[-1].quantities if with_quantities else (),
         trajectories=trajectories,
+        consequence=consequence,
     )
 
 
@@ -245,6 +400,8 @@ def decided_item(
     artefact_diff: str,
     trajectories: tuple[str, ...],
     ts: str,
+    attempt: int | None = None,
+    consequence: ItemConsequence | None = None,
 ) -> QueueItem:
     """The item for a rejected subtask the escalation decision sent to a person, attempts left.
 
@@ -259,7 +416,15 @@ def decided_item(
     if decision.forced or decision.basis not in ("answer", "floor"):
         msg = "only a decision that routed by its answer or its confidence makes this item"
         raise QueueError(msg, basis=str(decision.basis), forced=str(decision.forced))
-    if not findings or len(findings) != len(trajectories) or len(findings) >= REPAIR_BUDGET:
+    # An attempt a person rejected from the queue has a trajectory and no finding, so there may
+    # be fewer findings than trajectories; never more, and never an attempt past the budget.
+    number = len(trajectories) if attempt is None else attempt
+    if (
+        not findings
+        or len(findings) > len(trajectories)
+        or number != len(trajectories)
+        or number >= REPAIR_BUDGET
+    ):
         msg = "a decided escalation is sent with each attempt's finding and trajectory so far"
         raise QueueError(msg, findings=str(len(findings)), trajectories=str(len(trajectories)))
     why = (
@@ -275,7 +440,7 @@ def decided_item(
         subtask_id=subtask_id,
         source="escalation_decision",
         decision_required=(
-            f"Subtask {subtask_id} was rejected on attempt {len(findings)} of {REPAIR_BUDGET}, "
+            f"Subtask {subtask_id} was rejected on attempt {number} of {REPAIR_BUDGET}, "
             f"and the escalation backend {decision.backend_id} sent it to a person because {why}. "
             "Decide whether to accept the last attempt as it stands, rewrite the subtask's "
             "specification, or split the subtask."
@@ -284,7 +449,25 @@ def decided_item(
         triggering_finding=findings[-1].text,
         quantities=with_quantities[-1].quantities if with_quantities else (),
         trajectories=trajectories,
+        consequence=consequence,
     )
+
+
+def item_id_for(run_id: str, subtask_id: str, round_: int) -> str:
+    """An item's id: the run and the subtask, and from a subtask's second item on, its round.
+
+    A subtask can come back to the queue after a person's reject started another attempt, or
+    after the fix a blocked review gets; each time it is a new item, never a reuse of the last.
+    The first keeps the id items always had.
+
+    Raises:
+        QueueError: the round is not a positive number.
+    """
+    if round_ < 1:
+        msg = "an item's round counts from one"
+        raise QueueError(msg, round=str(round_))
+    base = f"{run_id}-{subtask_id}"
+    return base if round_ == 1 else f"{base}-r{round_}"
 
 
 #: The subtask field of the item the integration call escalates: it is about the
@@ -305,6 +488,7 @@ def unavailable_item(
     artefact_diff: str,
     trajectory: str,
     ts: str,
+    consequence: ItemConsequence | None = None,
 ) -> QueueItem:
     """The item for a subtask whose review blocked it or reached no verdict; no attempt spent.
 
@@ -339,6 +523,7 @@ def unavailable_item(
         triggering_finding=detail,
         quantities=(),
         trajectories=(trajectory,),
+        consequence=consequence,
     )
 
 
@@ -350,6 +535,7 @@ def integration_item(
     run_span: tuple[str, str],
     trajectories: tuple[str, ...],
     ts: str,
+    consequence: ItemConsequence | None = None,
 ) -> QueueItem:
     """The item for an integrated design the gate refused (a physics-gate escalation).
 
@@ -385,6 +571,7 @@ def integration_item(
         triggering_finding=result.finding,
         quantities=result.quantities,
         trajectories=trajectories,
+        consequence=consequence,
     )
 
 
@@ -513,24 +700,31 @@ def read_queue(run_dir: Path) -> QueueView:
     )
 
 
-def session_windows(run_dir: Path) -> list[tuple[int, int | None, str]]:
-    """The decisions file's byte ranges written while each session ran: (start, end, session).
+def _events_of_run(run_dir: Path) -> list[Event] | None:
+    """The run's event log, read without writing; ``None`` when there is none.
 
-    From the event log: a session's window opens at its spawn stage and closes at
-    its end, or at the resume that found it left over; a window still open has no
-    end. No event log, no windows.
+    Raises:
+        CorruptEventLogError: the log is not a file this reader reads, or holds a line the
+            loop could not have written.
     """
-    events_path = Path(run_dir) / "events.jsonl"
+    events_path = Path(run_dir) / EVENTS_NAME
     try:
         log = _read_path(events_path, RECORD_READ_CAP)
     except OSError as exc:
         msg = "the run-event log is not a file this reader reads"
         raise CorruptEventLogError(msg, log=str(events_path), reason=str(exc.strerror)) from None
-    if log is None:
-        return []
+    return None if log is None else parse_events(log, log=str(events_path))
+
+
+def windows_of(events: list[Event]) -> list[tuple[int, int | None, str]]:
+    """The decisions file's byte ranges written while each session ran: (start, end, session).
+
+    A session's window opens at its spawn stage and closes at its end, or at the resume that
+    found it left over; a window still open has no end.
+    """
     windows: list[tuple[int, int | None, str]] = []
     open_at: int | None = None
-    for event in parse_events(log, log=str(events_path)):
+    for event in events:
         if isinstance(event, StageEntered) and event.decisions_bytes is not None:
             open_at = event.decisions_bytes
         elif (
@@ -545,8 +739,24 @@ def session_windows(run_dir: Path) -> list[tuple[int, int | None, str]]:
     return windows
 
 
-def queue_listing(run_dir: Path) -> dict[str, object]:
+def session_windows(run_dir: Path) -> list[tuple[int, int | None, str]]:
+    """The decisions file's byte ranges written while each session ran: (start, end, session).
+
+    From the event log (:func:`windows_of`). No event log, no windows.
+    """
+    events = _events_of_run(run_dir)
+    return [] if events is None else windows_of(events)
+
+
+def queue_listing(
+    run_dir: Path, *, read_stream: Callable[[str], bytes | None] | None = None
+) -> dict[str, object]:
     """What ``physgate queue list`` prints: the open items, and every decision with its mark.
+
+    Each open item is listed with its line's digest and each trajectory's seal status, which is
+    what a decision bound to it names (ARCH-133). ``read_stream`` returns a session's stream by
+    its id, as :func:`trajectory_statuses` takes it; by default it is read from the run
+    directory's sessions.
 
     A decision is not refused for being made while a session ran, since a person may decide
     then; but a session's hidden write could add one too, so a decision whose line starts
@@ -557,7 +767,13 @@ def queue_listing(run_dir: Path) -> dict[str, object]:
         CorruptEventLogError: the event log does.
     """
     view = read_queue(run_dir)
-    windows = session_windows(run_dir)
+    events = _events_of_run(run_dir) or []
+    windows = windows_of(events)
+    reader = read_stream or (
+        lambda session_id: _read_path(
+            Path(run_dir) / SESSIONS_NAME / session_id / STREAM_NAME, RECORD_READ_CAP
+        )
+    )
     decided = []
     for offset, decision in view.decisions:
         during = [
@@ -565,7 +781,15 @@ def queue_listing(run_dir: Path) -> dict[str, object]:
         ]
         flag = f"made while session {during[0]} ran; confirm" if during else None
         decided.append({**decision.model_dump(), "flag": flag})
-    return {"open": [item.model_dump() for item in view.open_items()], "decided": decided}
+    listed = [
+        {
+            **item.model_dump(),
+            "item_sha256": view.digests[item.item_id],
+            "trajectory_statuses": list(trajectory_statuses(item, events, reader)),
+        }
+        for item in view.open_items()
+    ]
+    return {"open": listed, "decided": decided}
 
 
 def item_sha256(line: bytes) -> str:
@@ -745,10 +969,32 @@ def item_view(
     )
 
 
-# -- the one decision function ------------------------------------------------------------
+def statuses_now(run_dir: Path, item_id: str) -> tuple[TrajectoryStatus, ...]:
+    """Each of an item's trajectory statuses as they read now: the view the command line shows.
 
-#: The words a person decides with in the operator UI, mapped onto the free-text decision.
-Verb = Literal["approve", "reject"]
+    The command line has no page that showed them; ``physgate queue list`` printed them, and a
+    decision bound to the digest it printed is bound to these as the decision function reads
+    them again under its lock. Read without writing.
+
+    Raises:
+        QueueError: no such item, or a queue file the writer could not have written.
+        CorruptEventLogError: the event log does.
+    """
+    view = read_queue(run_dir)
+    item = next((i for i in view.items if i.item_id == item_id), None)
+    if item is None:
+        raise _not_open(item_id, Path(run_dir) / QUEUE_NAME)
+    events = _events_of_run(run_dir) or []
+    return trajectory_statuses(
+        item,
+        events,
+        lambda session_id: _read_path(
+            Path(run_dir) / SESSIONS_NAME / session_id / STREAM_NAME, RECORD_READ_CAP
+        ),
+    )
+
+
+# -- the one decision function ------------------------------------------------------------
 
 
 def decision_text(verb: Verb, note: str) -> str:
@@ -830,7 +1076,8 @@ def record_decision(
     run_dir: Path,
     item_id: str,
     *,
-    decision: str,
+    decision: str | None = None,
+    person: PersonDecision | None = None,
     resolved_by: str,
     clock: Callable[[], datetime] | None = None,
     shown: ShownItem | None = None,
@@ -852,6 +1099,12 @@ def record_decision(
     5. a torn final line, which only a decider that died mid-write can leave while the lock is
        free, is cut; the decision is appended as one line and synced.
 
+    The decision is ``decision``, free text that binds to nothing, or ``person``, a verb and a
+    note bound to the view ``shown`` (ARCH-133): its line then also names the verb, the note and
+    the digest of the item line shown. A bound approve is refused unless every trajectory shown
+    held its seal, and an approve of a blocked review unless its note says how the blocked check
+    is decided.
+
     A refusal writes nothing. ``run_dir`` also names the files in a refusal.
 
     Raises:
@@ -861,12 +1114,21 @@ def record_decision(
         StaleViewError: the item is no longer as ``shown``.
     """
     queue_path = Path(run_dir) / QUEUE_NAME
+    if (decision is None) == (person is None):
+        msg = "a decision is one of free text or a verb with its note, never both or neither"
+        raise QueueError(msg, item=item_id)
+    if person is not None and shown is None:
+        msg = "a decision with a verb is bound to the view it was taken on, and none was given"
+        raise QueueError(msg, item=item_id)
     try:
         record = QueueResolution(
             item_id=item_id,
             ts=utc_stamp((clock or utc_now)()),
-            decision=decision,
+            decision=person.text() if person is not None else str(decision),
             resolved_by=resolved_by,
+            verb=person.verb if person is not None else None,
+            note=person.note if person is not None else None,
+            shown_sha256=shown.item_sha256 if person is not None and shown is not None else None,
         )
     except ValidationError as exc:
         msg = "the decision is not one the queue can record"
@@ -950,6 +1212,8 @@ def _decide(dir_fd: int, run_dir: Path, record: QueueResolution, shown: ShownIte
             raise QueueError(str(exc), queue=str(queue_path)) from None
         if shown is not None:
             _require_as_shown(dir_fd, run_dir, records, record.item_id, shown)
+        if record.verb is not None and shown is not None:
+            _require_bindable(records.items[record.item_id], record, shown)
         if good_end != len(decided):
             os.ftruncate(append, good_end)
         _write_all(append, record.model_dump_json().encode() + b"\n")
@@ -982,6 +1246,28 @@ def _lock(fd: int, path: Path) -> None:
 
 def _checked(item_id: str) -> None:
     """Called with the lock held, before anything is read. A seam for the lock's own tests."""
+
+
+def _require_bindable(item: QueueItem, record: QueueResolution, shown: ShownItem) -> None:
+    """Refuse a bound approve its view cannot carry.
+
+    A trajectory shown that did not hold its seal, or a blocked review approved without saying
+    how the check it could not decide is decided.
+    """
+    if record.verb != "approve":
+        return
+    if any(status != "holds" for status in shown.trajectories):
+        msg = (
+            "an approve binds to an item every trajectory of which held its seal when shown, "
+            "and this one's did not, so the decision is refused"
+        )
+        raise QueueError(msg, item=item.item_id, shown=",".join(shown.trajectories))
+    if item.source == "review_blocked" and record.note is None:
+        msg = (
+            "approving a blocked review decides the check the review could not: the note says "
+            "how, and none was given"
+        )
+        raise QueueError(msg, item=item.item_id)
 
 
 def _require_as_shown(

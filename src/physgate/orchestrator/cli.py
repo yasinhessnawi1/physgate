@@ -58,6 +58,7 @@ from physgate.orchestrator.events import (
 from physgate.orchestrator.exceptions import (
     InvocationError,
     OrchestratorError,
+    QueueError,
     ReviewerNotRegisteredError,
     RunConfigError,
     RunStateError,
@@ -74,7 +75,13 @@ from physgate.orchestrator.invocation import claude_binary, session_search_path
 from physgate.orchestrator.loop import Loop, escalation_for, refuse_unregistered, require_gate
 from physgate.orchestrator.merge import GitMerger, RunGit
 from physgate.orchestrator.protocols import Gate, Reviewer
-from physgate.orchestrator.queue import queue_listing, record_decision
+from physgate.orchestrator.queue import (
+    PersonDecision,
+    ShownItem,
+    queue_listing,
+    record_decision,
+    statuses_now,
+)
 from physgate.orchestrator.replay import recorded_ledger
 from physgate.orchestrator.requirements import RunFacts, refusals
 from physgate.orchestrator.role_python import RolePython
@@ -217,10 +224,25 @@ def add_parsers(
     listing = actions.add_parser("list", help="print the open items")
     listing.add_argument("--run-dir", required=True, type=Path)
     listing.set_defaults(func=_queue_list)
-    resolve = actions.add_parser("resolve", help="record a decision on one item")
+    resolve = actions.add_parser(
+        "resolve",
+        help="record a decision on one item",
+        description=(
+            "Record a decision on one item. --approve or --reject binds it to the item line whose "
+            "digest `queue list` printed (--sha256), and a run that acts on decisions acts on it; "
+            "--decision records free text, which binds to nothing and never acts."
+        ),
+    )
     resolve.add_argument("item")
     resolve.add_argument("--run-dir", required=True, type=Path)
-    resolve.add_argument("--decision", required=True)
+    form = resolve.add_mutually_exclusive_group(required=True)
+    form.add_argument("--decision", help="free text, recorded only")
+    form.add_argument("--approve", action="store_true", help="approve the item as shown")
+    form.add_argument("--reject", action="store_true", help="reject the item as shown")
+    resolve.add_argument("--note", help="why; required to reject")
+    resolve.add_argument(
+        "--sha256", help="the item line's digest as `queue list` printed it; required with a verb"
+    )
     resolve.add_argument("--by", required=True)
     resolve.set_defaults(func=_queue_resolve)
 
@@ -714,10 +736,32 @@ def _queue_list(args: argparse.Namespace) -> int:
 
 
 def _queue_resolve(args: argparse.Namespace) -> int:
+    run_dir = args.run_dir.resolve()
     try:
-        record = record_decision(
-            args.run_dir.resolve(), args.item, decision=args.decision, resolved_by=args.by
-        )
+        if args.decision is not None:
+            if args.sha256 is not None or args.note is not None:
+                msg = "free text binds to nothing: give a verb to bind it, or leave out the rest"
+                raise QueueError(msg, item=args.item)
+            record = record_decision(
+                run_dir, args.item, decision=args.decision, resolved_by=args.by
+            )
+        else:
+            if args.sha256 is None:
+                msg = "a decision with a verb names the item line it was taken on: give --sha256"
+                raise QueueError(msg, item=args.item)
+            try:
+                person = PersonDecision(
+                    verb="approve" if args.approve else "reject", note=args.note
+                )
+                shown = ShownItem(
+                    item_sha256=args.sha256, trajectories=statuses_now(run_dir, args.item)
+                )
+            except ValidationError as exc:
+                msg = "the decision is not one the queue can record"
+                raise QueueError(msg, reason=first_problem(exc)) from None
+            record = record_decision(
+                run_dir, args.item, person=person, resolved_by=args.by, shown=shown
+            )
     except OrchestratorError as exc:
         return _fail(str(exc), **exc.context)
     _print({"resolved": record.model_dump()})
