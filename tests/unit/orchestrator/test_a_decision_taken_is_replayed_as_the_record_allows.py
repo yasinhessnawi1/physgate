@@ -16,13 +16,14 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from decision_rig import DIGEST, TS
+from decision_rig import decide as _decide
+from decision_rig import escalated as _escalated
 from loop_fakes import (
     FakeDispatcher,
-    FakeGate,
     FakeReviewer,
     Rig,
     failing_gate_result,
-    plan,
     sha,
 )
 
@@ -51,91 +52,9 @@ from physgate.orchestrator.exceptions import (
     ReviewUnavailableError,
 )
 from physgate.orchestrator.loop import Loop
-from physgate.orchestrator.protocols import IndicatorReport, ReviewResult, SpecDefect
 from physgate.orchestrator.queue import QueueItem, QueueResolution, unavailable_item
 from physgate.orchestrator.repair import Finding
 from physgate.orchestrator.replay import replay, require_mergeable
-
-TS = "2026-10-21T12:00:00.000000Z"
-DIGEST = "a" * 64
-
-
-def _review(verdict: str, n: int, **fields: Any) -> ReviewResult:
-    return ReviewResult(
-        verdict=verdict,  # type: ignore[arg-type]
-        finding="the gain changed silently" if verdict != "blocked" else "no mass given",
-        reviewer_model="claude-opus-5-5",
-        session_id=f"rev-{n}",
-        usage=(),
-        **fields,
-    )
-
-
-CONFIRMED = (
-    IndicatorReport(
-        kind="disabled_checks", evidence="toolu_1", disposition="confirmed", reason="a skip"
-    ),
-)
-BLOCKED = _review("blocked", 1, spec_defects=(SpecDefect(finding="no mass", blocking=True),))
-
-
-def _escalated(tmp_path: Path, scenario: str) -> Loop:
-    """A loop over a run whose one subtask is waiting in the queue, as ``scenario`` sent it."""
-    run = tmp_path / scenario
-    run.mkdir(parents=True)
-    rig = Rig(run, dispatcher=FakeDispatcher(trajectories=run / "sessions"))
-    if scenario == "unavailable":
-        rig.reviewer = FakeReviewer(
-            unavailable={1: ReviewUnavailableError("no verdict", cause="invalid_verdict")}
-        )
-    elif scenario == "gate_exhausted":
-        rig.gate = FakeGate(verdicts=["fail"] * 3)
-    elif scenario == "review_exhausted":
-        rig.reviewer = FakeReviewer(verdicts=["fail"] * 3)
-    elif scenario == "indicator_then_unavailable":
-        rig.reviewer = FakeReviewer(
-            results={1: _review("fail", 1, indicators=CONFIRMED)},
-            unavailable={2: ReviewUnavailableError("no verdict", cause="invalid_verdict")},
-        )
-    elif scenario == "blocked":
-        rig.reviewer = FakeReviewer(results={1: BLOCKED})
-    else:
-        raise AssertionError(scenario)
-    loop = rig.open()
-    loop.start(plan("s1"))
-    assert loop.run().kind == "done"
-    assert loop.state.subtasks["s1"].status == "escalated"
-    return loop
-
-
-def _decide(loop: Loop, verb: str, note: str | None = "because", **override: Any) -> DecisionTaken:
-    """Take a decision as the record allows it, with any field forged."""
-    sub = loop.state.subtasks["s1"]
-    now = sub.attempts[-1]
-    expected = item_consequence(loop.state, "s1", source=source_of(sub))
-    if verb == "approve":
-        effect = "merge" if expected.on_approve == "merge_attempt" else "none"
-    else:
-        effect = expected.on_reject if expected.on_reject != "record_only" else "none"
-    fields: dict[str, Any] = {
-        "subtask_id": "s1",
-        "item_id": sub.queue_item,
-        "verb": verb,
-        "note": note,
-        "resolved_by": "yasin",
-        "decided_ts": TS,
-        "decision_offset": 0,
-        "shown_sha256": DIGEST,
-        "attempt": now.number,
-        "attempt_commit": expected.attempt_commit,
-        "effect": effect,
-        "acts": effect != "none",
-        "why_not": None if effect != "none" else "record_only_source",
-    }
-    fields.update(override)
-    event = DecisionTaken(**loop.record.envelope(), **fields)
-    loop.record.emit(event)
-    return event
 
 
 def _replayed(loop: Loop) -> list[str]:
@@ -244,15 +163,25 @@ def test_a_reject_on_a_blocked_review_orders_one_fix_as_the_last_attempt(tmp_pat
 @pytest.mark.parametrize(
     ("scenario", "verb", "override", "why"),
     [
-        ("gate_exhausted", "approve", {"effect": "merge", "acts": True, "why_not": None}, "merges"),
+        (
+            "gate_exhausted",
+            "approve",
+            {"effect": "merge", "acts": True, "why_not": None},
+            "other than the record allows",
+        ),
         (
             "indicator_then_unavailable",
             "approve",
             {"effect": "merge", "acts": True, "why_not": None},
-            "merges",
+            "other than the record allows",
         ),
-        ("review_exhausted", "approve", {"attempt_commit": sha("other")}, "another attempt"),
-        ("review_exhausted", "approve", {"attempt": 2}, "another attempt"),
+        (
+            "review_exhausted",
+            "approve",
+            {"attempt_commit": sha("other")},
+            "another attempt or commit",
+        ),
+        ("review_exhausted", "approve", {"attempt": 2}, "another attempt or commit"),
         ("review_exhausted", "reject", {"effect": "retry"}, "other than the record allows"),
         ("unavailable", "reject", {"effect": "fix"}, "other than the record allows"),
         ("blocked", "reject", {"effect": "retry"}, "other than the record allows"),
@@ -490,7 +419,7 @@ def test_a_decision_that_does_not_act_leaves_integration_closed(tmp_path: Path) 
 
 def _item(loop: Loop, *, consequence: object = "computed") -> QueueItem:
     sub = loop.state.subtasks["s1"]
-    computed = item_consequence(loop.state, "s1", source=source_of(sub))
+    computed = item_consequence(loop.state, "s1", source=source_of(sub), scan_hits=())
     return unavailable_item(
         item_id=str(sub.queue_item),
         run_id="run-1",
@@ -521,20 +450,34 @@ def _resolution(verb: str | None, shown: str | None = DIGEST) -> QueueResolution
 
 def test_the_effect_of_a_bound_approve_is_the_merge_the_item_names(tmp_path: Path) -> None:
     loop = _escalated(tmp_path, "unavailable")
-    taken = decision_effect(loop.state, _item(loop), _resolution("approve"), line_sha256=DIGEST)
+    taken = decision_effect(
+        loop.state,
+        _item(loop),
+        _resolution("approve"),
+        line_sha256=DIGEST,
+        scan_hits=(),
+        held=False,
+    )
     assert (taken.effect, taken.acts, taken.why_not) == ("merge", True, None)
     held = decision_effect(
-        loop.state, _item(loop), _resolution("approve"), line_sha256=DIGEST, held=True
+        loop.state, _item(loop), _resolution("approve"), line_sha256=DIGEST, held=True, scan_hits=()
     )
     assert (held.effect, held.acts, held.why_not) == ("merge", False, "held_os_layer_off")
 
 
 def test_a_free_text_or_legacy_decision_never_acts(tmp_path: Path) -> None:
     loop = _escalated(tmp_path, "unavailable")
-    unbound = decision_effect(loop.state, _item(loop), _resolution(None), line_sha256=DIGEST)
+    unbound = decision_effect(
+        loop.state, _item(loop), _resolution(None), line_sha256=DIGEST, scan_hits=(), held=False
+    )
     assert (unbound.acts, unbound.why_not) == (False, "not_bound")
     legacy = decision_effect(
-        loop.state, _item(loop, consequence=None), _resolution("approve"), line_sha256=DIGEST
+        loop.state,
+        _item(loop, consequence=None),
+        _resolution("approve"),
+        line_sha256=DIGEST,
+        scan_hits=(),
+        held=False,
     )
     assert (legacy.acts, legacy.why_not) == (False, "legacy_item")
 
@@ -542,13 +485,25 @@ def test_a_free_text_or_legacy_decision_never_acts(tmp_path: Path) -> None:
 def test_an_item_rewritten_after_its_decision_is_a_mismatch(tmp_path: Path) -> None:
     loop = _escalated(tmp_path, "unavailable")
     with pytest.raises(QueueItemMismatchError, match="not the one the decision"):
-        decision_effect(loop.state, _item(loop), _resolution("approve"), line_sha256="b" * 64)
+        decision_effect(
+            loop.state,
+            _item(loop),
+            _resolution("approve"),
+            line_sha256="b" * 64,
+            scan_hits=(),
+            held=False,
+        )
     lying = _item(loop).consequence
     assert lying is not None
     forged = lying.model_copy(update={"on_reject": "end_subtask"})
     with pytest.raises(QueueItemMismatchError, match="another consequence"):
         decision_effect(
-            loop.state, _item(loop, consequence=forged), _resolution("reject"), line_sha256=DIGEST
+            loop.state,
+            _item(loop, consequence=forged),
+            _resolution("reject"),
+            line_sha256=DIGEST,
+            scan_hits=(),
+            held=False,
         )
 
 
@@ -563,7 +518,14 @@ def test_a_confirmed_indicator_on_any_earlier_attempt_makes_approve_record_only(
     assert [(c.attempt, c.kind) for c in consequence.confirmed_indicators] == [
         (1, "disabled_checks")
     ]
-    taken = decision_effect(loop.state, _item(loop), _resolution("approve"), line_sha256=DIGEST)
+    taken = decision_effect(
+        loop.state,
+        _item(loop),
+        _resolution("approve"),
+        line_sha256=DIGEST,
+        scan_hits=(),
+        held=False,
+    )
     assert (taken.acts, taken.why_not) == (False, "indicator_in_history")
 
 
@@ -591,7 +553,7 @@ def test_the_item_says_approve_records_only_where_an_automated_check_or_an_indic
 ) -> None:
     loop = _escalated(tmp_path, scenario)
     sub = loop.state.subtasks["s1"]
-    consequence = item_consequence(loop.state, "s1", source=source_of(sub))
+    consequence = item_consequence(loop.state, "s1", source=source_of(sub), scan_hits=())
     assert consequence.why_record_only == why
     assert consequence.on_approve == ("record_only" if why else "merge_attempt")
 
@@ -617,8 +579,12 @@ def test_a_gate_failure_and_a_stale_digest_together_halt_on_the_digest(tmp_path:
     sub = loop.state.subtasks["s1"]
     item = escalation_item_of(loop)
     with pytest.raises(QueueItemMismatchError, match="not the one the decision"):
-        decision_effect(loop.state, item, _resolution("approve"), line_sha256="c" * 64)
-    taken = decision_effect(loop.state, item, _resolution("approve"), line_sha256=DIGEST)
+        decision_effect(
+            loop.state, item, _resolution("approve"), line_sha256="c" * 64, scan_hits=(), held=False
+        )
+    taken = decision_effect(
+        loop.state, item, _resolution("approve"), line_sha256=DIGEST, scan_hits=(), held=False
+    )
     assert (taken.acts, taken.why_not) == (False, "last_rejection_automated")
     assert sub.status == "escalated"
 
@@ -635,5 +601,5 @@ def escalation_item_of(loop: Loop) -> QueueItem:
         artefact_diff="diff",
         trajectories=tuple(f"sessions/sess-{n}/stdout.jsonl" for n in (1, 2, 3)),
         ts=TS,
-        consequence=item_consequence(loop.state, "s1", source=source_of(sub)),
+        consequence=item_consequence(loop.state, "s1", source=source_of(sub), scan_hits=()),
     )

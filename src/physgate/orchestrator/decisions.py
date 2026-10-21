@@ -82,11 +82,12 @@ def confirmed_indicators(sub: SubtaskState) -> tuple[ConfirmedIndicator, ...]:
     Every attempt, every round and the fix: an attempt that confirmed gaming and a later one
     that failed for something else still leave the subtask's history with it.
     """
+    # Read from every review line the subtask's log holds, never from what an attempt still
+    # remembers: a resumed attempt forgets its review, and its history must not.
     return tuple(
-        ConfirmedIndicator(attempt=attempt.number, kind=indicator.kind)
-        for attempt in sub.attempts
-        if attempt.review is not None
-        for indicator in attempt.review.result.indicators
+        ConfirmedIndicator(attempt=review.attempt, kind=indicator.kind)
+        for review in sub.reviews
+        for indicator in review.result.indicators
         if indicator.disposition == "confirmed"
     )
 
@@ -176,7 +177,7 @@ def _on_reject(sub: SubtaskState, source: QueueSource) -> OnReject:
 
 
 def item_consequence(
-    state: RunState, subtask_id: str, *, source: QueueSource, scan_hits: tuple[ScanHit, ...] = ()
+    state: RunState, subtask_id: str, *, source: QueueSource, scan_hits: tuple[ScanHit, ...]
 ) -> ItemConsequence:
     """What each verb will do to the subtask's item, and why approve records only if it does.
 
@@ -190,6 +191,8 @@ def item_consequence(
             on_approve="record_only",
             on_reject="record_only",
             why_record_only="source",
+            confirmed_indicators=(),
+            scan_hits=(),
         )
     sub = state.subtasks[subtask_id]
     now = sub.attempts[-1]
@@ -211,6 +214,7 @@ def item_consequence(
             on_reject=on_reject,
             why_record_only=why,
             confirmed_indicators=indicators,
+            scan_hits=(),
         )
     why_not: WhyRecordOnly | None = _automated_block(now)
     if why_not is None and indicators:
@@ -246,8 +250,8 @@ def decision_effect(
     resolution: QueueResolution,
     *,
     line_sha256: str,
-    scan_hits: tuple[ScanHit, ...] = (),
-    held: bool = False,
+    scan_hits: tuple[ScanHit, ...],
+    held: bool,
 ) -> Taken:
     """What the loop does with ``resolution`` on ``item``, from the run as its log replays.
 
@@ -260,6 +264,9 @@ def decision_effect(
             item's line changed since it was decided, its subtask is not waiting on it, or it
             states another consequence than the log gives. The run halts on it.
     """
+    if resolution.item_id != item.item_id:
+        msg = "the decision is on another item than the one it is taken with"
+        raise QueueItemMismatchError(msg, item=item.item_id, decided=resolution.item_id)
     if item.consequence is None:
         return Taken(effect="none", acts=False, why_not="legacy_item")
     if resolution.verb is None or resolution.shown_sha256 is None:
@@ -268,7 +275,11 @@ def decision_effect(
         msg = "the item's line is not the one the decision was taken on"
         raise QueueItemMismatchError(msg, item=item.item_id)
     if item.subtask_id == INTEGRATION:
-        expected = item_consequence(state, INTEGRATION, source=item.source)
+        escalated = state.integration_escalated
+        if escalated is None or escalated.item_id != item.item_id:
+            msg = "the run escalated no such integration item"
+            raise QueueItemMismatchError(msg, item=item.item_id)
+        expected = item_consequence(state, INTEGRATION, source=item.source, scan_hits=())
     else:
         sub = state.subtasks.get(item.subtask_id)
         if sub is None or sub.status != "escalated" or sub.queue_item != item.item_id:
@@ -330,29 +341,35 @@ def require_taken(state: RunState, event: DecisionTaken) -> None:
     if sub is None or sub.status != "escalated" or sub.queue_item != event.item_id:
         msg = "a decision on an item its subtask is not waiting on"
         raise ValueError(msg)
-    if not event.acts:
-        return
     now = sub.attempts[-1]
     if event.verb is None:
-        msg = "a decision that acts names its verb"
-        raise ValueError(msg)
-    expected = item_consequence(state, event.subtask_id, source=source_of(sub))
-    if event.verb == "approve":
-        # The scan's hits are not in the log: an approve that merged was taken where the scan
-        # found none, so a consequence that records only for a scan hit alone may still merge.
-        # Every other reason (an automated check, an indicator in the history) is the log's.
-        allowed = event.effect == "merge" and (
-            expected.on_approve == "merge_attempt" or expected.why_record_only == "scan_hit"
-        )
-        if not allowed:
-            msg = "an approve that merges where the record does not allow it"
+        # Free text binds to nothing, on any item.
+        if event.acts or event.effect != "none" or event.why_not not in ("not_bound", "legacy_item"):
+            msg = "a decision with no verb binds to nothing and records only"
             raise ValueError(msg)
-        if (event.attempt, event.attempt_commit) != (now.number, expected.attempt_commit):
-            msg = "an approve that names another attempt or commit than the record's"
-            raise ValueError(msg)
-    elif expected.on_reject == "record_only" or event.effect != expected.on_reject:
-        msg = "a reject that does other than the record allows"
+        return
+    if event.shown_sha256 is None:
+        msg = "a decision with a verb names the digest of the item line it was taken on"
         raise ValueError(msg)
-    if event.note is None and event.verb == "reject":
+    expected = item_consequence(state, event.subtask_id, source=source_of(sub), scan_hits=())
+    if (event.attempt, event.attempt_commit) != (now.number, expected.attempt_commit):
+        msg = "a decision that names another attempt or commit than the record's"
+        raise ValueError(msg)
+    # What the log alone gives the verb. The scan's hits and the item's own line are not in the
+    # log; the loop checked those when it took the decision, so a scan hit may only turn an
+    # effect the log allows into recording, and nothing turns one it does not allow into an act.
+    effect, why = _effect_of(expected, event.verb)
+    if event.why_not is None or event.why_not == "held_os_layer_off":
+        allowed = why is None and event.effect == effect
+    elif event.why_not == "scan_hit":
+        allowed = event.verb == "approve" and event.effect == "none" and effect == "merge"
+    elif event.why_not == "legacy_item":
+        allowed = event.effect == "none"
+    else:
+        allowed = event.effect == "none" and event.why_not == why
+    if not allowed:
+        msg = "a decision that does other than the record allows"
+        raise ValueError(msg)
+    if event.acts and event.verb == "reject" and event.note is None:
         msg = "a reject that acts carries its note"
         raise ValueError(msg)

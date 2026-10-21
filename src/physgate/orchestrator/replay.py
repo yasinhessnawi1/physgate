@@ -163,6 +163,9 @@ class SubtaskState:
     rounds: int = 0
     #: Whether the next attempt is the fix a person ordered.
     fix_next: bool = False
+    #: Every review line of the subtask, in order, never forgotten: the history the
+    #: reward-hacking indicator rule reads, which a resumed attempt's restart must not reset.
+    reviews: list[ReviewRan] = field(default_factory=list)
     #: Why the subtask is ending without a merge, until its ``subtask_rejected`` line is written.
     ending: Literal["person", "fix_not_accepted"] | None = None
 
@@ -339,6 +342,7 @@ class RunState:
             done = now.cursor == "review" and now.review is None
             self._expect(done and now.unavailable_final is None, "a review line")
             now.review = event
+            sub.reviews.append(event)
             self._ledger(sub.plan.subtask_id, review_result=event.result.verdict)
             if now.blocked is not None:
                 self._ended(sub, now)

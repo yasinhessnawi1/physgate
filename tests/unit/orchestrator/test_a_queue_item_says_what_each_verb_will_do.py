@@ -60,7 +60,13 @@ def _unavailable(consequence: ItemConsequence | None = None) -> QueueItem:
 
 
 MERGES = ItemConsequence(
-    attempt=2, attempt_commit=COMMIT, on_approve="merge_attempt", on_reject="retry"
+    attempt=2,
+    attempt_commit=COMMIT,
+    on_approve="merge_attempt",
+    on_reject="retry",
+    why_record_only=None,
+    confirmed_indicators=(),
+    scan_hits=(),
 )
 INDICATED = ItemConsequence(
     attempt=2,
@@ -69,6 +75,7 @@ INDICATED = ItemConsequence(
     on_reject="retry",
     why_record_only="indicator_in_history",
     confirmed_indicators=(ConfirmedIndicator(attempt=1, kind="disabled_checks"),),
+    scan_hits=(),
 )
 
 
@@ -130,9 +137,26 @@ def test_the_listing_shows_each_open_item_s_trajectory_statuses(tmp_path: Path) 
     ids=["no reason", "a reason it merges anyway", "no commit", "no attempt"],
 )
 def test_a_consequence_that_does_not_hold_together_is_refused(fields: dict[str, object]) -> None:
-    base: dict[str, object] = {"attempt": 2, "attempt_commit": COMMIT}
-    with pytest.raises(ValidationError):
+    base: dict[str, object] = {
+        "attempt": 2,
+        "attempt_commit": COMMIT,
+        "why_record_only": None,
+        "confirmed_indicators": (),
+        "scan_hits": (),
+    }
+    with pytest.raises(ValidationError) as refused:
         ItemConsequence.model_validate({**base, **fields})
+    # Refused by the rule, not for a missing field: the case reaches the validator.
+    assert all(e["type"] != "missing" for e in refused.value.errors())
+
+
+@pytest.mark.parametrize("left_out", ["why_record_only", "confirmed_indicators", "scan_hits"])
+def test_a_consequence_that_leaves_a_field_out_is_refused_not_read_as_none(left_out: str) -> None:
+    line = json.loads(INDICATED.model_dump_json())
+    del line[left_out]
+    with pytest.raises(ValidationError) as refused:
+        ItemConsequence.model_validate_json(json.dumps(line))
+    assert [e["type"] for e in refused.value.errors()] == ["missing"]
 
 
 def test_scan_hits_are_carried_as_the_scan_reported_them() -> None:

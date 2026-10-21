@@ -138,12 +138,13 @@ class ItemConsequence(BaseModel):
     attempt_commit: Sha1 | None
     on_approve: OnApprove
     on_reject: OnReject
-    why_record_only: WhyRecordOnly | None = None
+    why_record_only: WhyRecordOnly | None
     #: Every indicator a review of any attempt of the subtask confirmed, oldest first.
-    confirmed_indicators: tuple[ConfirmedIndicator, ...] = ()
+    confirmed_indicators: tuple[ConfirmedIndicator, ...]
     #: What the scan before review found in the attempt's sealed streams, for an item whose
-    #: review never judged them; empty otherwise.
-    scan_hits: tuple[ScanHit, ...] = ()
+    #: review never judged them; empty otherwise. Every field is written out: a line that
+    #: leaves one out is not one the orchestrator wrote, and is refused rather than read as none.
+    scan_hits: tuple[ScanHit, ...]
 
     @model_validator(mode="after")
     def _approve_says_what_it_merges_or_why_it_does_not(self) -> ItemConsequence:
