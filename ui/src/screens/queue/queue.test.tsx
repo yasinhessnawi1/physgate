@@ -108,7 +108,8 @@ describe("the decision text is the queue's own", () => {
   it("the confirmation shows the line as the queue writes it, keys in its order", () => {
     expect(lineToWrite(VIEW, "reject", "split it", "yasin")).toBe(
       '{"item_id":"run-esc-s1","ts":"‹the time you confirm›","kind":"resolution",' +
-        '"decision":"reject: split it","resolved_by":"yasin"}',
+        '"decision":"reject: split it","resolved_by":"yasin","verb":"reject",' +
+        `"note":"split it","shown_sha256":"${DIGEST}"}`,
     );
     expect(lineToWrite(VIEW, "reject", "", "yasin")).toBeNull();
   });
@@ -176,6 +177,7 @@ describe("the records are held to their shapes", () => {
           decision: "approve",
           resolved_by: "yasin",
           flag: "made while session sess-7 ran; confirm",
+          taken: null,
         },
       ],
     });
@@ -323,6 +325,7 @@ describe("the item shows the five things, and every seal status apart", () => {
           decision: "approve",
           resolvedBy: "yasin",
           flag: "made while session still running or not yet resumed ran; confirm",
+          taken: null,
         }}
         source={SOURCE}
         subtaskName="Subtask 1"

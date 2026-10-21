@@ -16,6 +16,7 @@ function item(itemId: string, subtaskId: string, source: QueueItem["source"]): Q
     triggeringFinding: "",
     quantities: [],
     trajectories: [],
+    consequence: null,
   };
 }
 
@@ -48,7 +49,16 @@ describe("repairs used up is said only where the queue recorded it", () => {
   it("stays once the item is decided, read from the decided item's own record", () => {
     const decided: QueueListing = {
       open: [],
-      decided: [{ itemId: "r-s1", ts: "t", decision: "approve", resolvedBy: "yasin", flag: null }],
+      decided: [
+        {
+          itemId: "r-s1",
+          ts: "t",
+          decision: "approve",
+          resolvedBy: "yasin",
+          flag: null,
+          taken: null,
+        },
+      ],
     };
     const views = [view(item("r-s1", "s1", "repair_budget_exhausted"), false)];
     expect(repairsUsedUp(decided, views, "r-s1", "s1")).toBe(true);

@@ -53,12 +53,17 @@ export function lineToWrite(
 ): string | null {
   const decision = decisionText(verb, note);
   if (decision === null) return null;
+  // The decision is bound to this view, so its line also names the verb, the note when there is
+  // one, and the digest of the item as shown: exactly the fields the queue writes, in its order.
   return JSON.stringify({
     item_id: view.item.itemId,
     ts: "‹the time you confirm›",
     kind: "resolution",
     decision,
     resolved_by: operator,
+    verb,
+    ...(isBlank(note) ? {} : { note }),
+    shown_sha256: view.itemSha256,
   });
 }
 

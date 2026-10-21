@@ -351,3 +351,26 @@ test("a page on another origin cannot take a decision, read the token, or frame 
   await expect(framed.locator(".pg-queue-item")).toHaveCount(0);
   expect(await decisions(page, "run-esc-forged")).toEqual([]);
 });
+
+test("an item in a run that acts on decisions says what each verb will do", async ({ page }) => {
+  await open(page, "light", "run-esc-act");
+  const detail = page.locator(".pg-queue-item");
+  // The gate refused every attempt, so a person overrides nothing: approve records only.
+  await expect(detail.locator(".pg-queue-on-approve")).toHaveText(
+    "Approve records only: the physics gate refused the attempt, and a person overrides the " +
+      "reviewer alone.",
+  );
+  await expect(detail.locator(".pg-queue-on-reject")).toHaveText(
+    "Reject: the subtask ends rejected, and nothing of it is merged.",
+  );
+  await expect(page.locator(".pg-queue-actions > .pg-btn-act")).toContainText(
+    "Approve (records only)…",
+  );
+});
+
+test("an item in a run that only records says nothing of what a verb does", async ({ page }) => {
+  await open(page, "light", "run-esc-view");
+  await expect(page.locator(".pg-queue-item")).toBeVisible();
+  await expect(page.locator(".pg-queue-on-approve")).toHaveCount(0);
+  await expect(page.locator(".pg-queue-actions > .pg-btn-act")).not.toContainText("records only");
+});

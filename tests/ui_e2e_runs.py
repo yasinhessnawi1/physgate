@@ -7,8 +7,10 @@ own records, unchecked ones and a pass over nothing among them, reach the browse
 ``run-refused``, is a copy of the clean run whose ledger ends in a line no writer of this
 package could have written, so the server refuses its ledger and the browser tests see the error
 state render. Five more are copies of one run whose first subtask the loop escalated, for the
-Queue view's tests (see ``QUEUE_RUNS``). The browser tests start ``physgate ui`` over the root
-this prints, so what they check is the real server reading real records.
+Queue view's tests (see ``QUEUE_RUNS``), and one more run that acts on decisions,
+``run-esc-act``, whose item says what each verb will do. The browser tests start
+``physgate ui`` over the root this prints, so what they check is the real server reading real
+records.
 
 Usage: ``uv run python tests/ui_e2e_runs.py <directory>``. The directory is emptied first.
 """
@@ -53,6 +55,8 @@ def escalated(out: Path, runs: Path) -> None:
         and json.loads(raw).get("decisions_bytes") is not None
     )
     window.write_bytes(b"".join(lines[: spawned + 1]))
+    # One run that acts on decisions, so its item says what approve and reject will do.
+    escalated_run(out, "run-esc-act", acts=True)
 
 
 def main(argv: list[str]) -> int:

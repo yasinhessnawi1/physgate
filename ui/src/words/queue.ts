@@ -2,12 +2,16 @@
  * What the screens say about the approval queue, in one place.
  *
  * Two tables. The first says why a person is asked, one sentence per source the queue records.
- * The second is every sentence any screen says about a decision. Today's harness records a
- * decision as one line, and the run reads it only to remove the subtask's working copy at its
- * next clean-up; it never reads the verb, and nothing is retried, resumed or merged. So the copy
- * says only that. A sentence that promised more would be a claim born in the interface.
+ * The second is every sentence any screen says about a decision.
+ *
+ * What a decision does depends on the run. A run that only records decisions (every evaluation
+ * run, and every run before decisions could act) writes one line and reads it only to remove the
+ * subtask's working copy; its items say nothing about what a verb does, and the copy for them says
+ * only that. A run that acts on decisions writes, on each item, what approve and reject will do
+ * and why, computed from its record; the copy for such an item is made from those fields alone.
+ * A sentence that promised more than the record says would be a claim born in the interface.
  */
-import type { QueueSource } from "../api/queue";
+import type { Consequence, QueueSource, Taken, WhyRecordOnly } from "../api/queue";
 import { causeWords, triesWords } from "./review";
 
 export interface SourceWords {
@@ -55,7 +59,7 @@ export const DECISION_COPY = {
   /** The glossary's entry for a queue item. */
   queueItem:
     "A question the run could not settle by itself. Your decision is recorded against the run; " +
-    "it does not restart the subtask.",
+    "it does not restart the subtask unless the item says, before you decide, what it will do.",
   /** Under the buttons: which of the two needs a reason. */
   reasonRule: "Approving needs no reason; a rejection must say why.",
 } as const;
@@ -124,4 +128,95 @@ export function queueHeadline(item: {
   if (cause === undefined) return HEADLINES.review_unavailable;
   const attempt = /attempt (\d{1,4})/.exec(text)?.[1];
   return `The review${attempt === undefined ? "" : ` of attempt ${attempt}`} reached no verdict: ${causeWords(cause)}${triesWords(text)}`;
+}
+
+/** Why approving an item records only, after "Approve records only: ". */
+const WHY_RECORD_ONLY_WORDS: Readonly<Record<WhyRecordOnly, string>> = {
+  gate: "the physics gate refused the attempt, and a person overrides the reviewer alone",
+  change_check: "the change check refused the attempt, and a person overrides the reviewer alone",
+  reading:
+    "the attempt's required reading was not completed, and a person overrides the reviewer alone",
+  indicator_in_history: "a review of this subtask confirmed a reward-hacking indicator",
+  scan_hit: "the scan before review found a reward-hacking indicator that no review judged",
+  source: "for an item of this kind a decision is recorded and changes nothing in the run",
+  legacy: "the item was listed before items said what a decision does",
+};
+
+/** The approve button's label on an item whose approve records only. */
+export const APPROVE_RECORDS_ONLY = "Approve (records only)…";
+
+/** What each choice does to an item, in the dialog and on the item, from its own fields. */
+export interface ChoiceWords {
+  /** The approve button's label. */
+  readonly approveLabel: `${string}…`;
+  readonly approve: string;
+  readonly reject: string;
+}
+
+function indicatorWords(c: Consequence): string {
+  const named = c.confirmedIndicators.map((i) => `attempt ${String(i.attempt)} (${i.kind})`);
+  return named.length === 1
+    ? `the review of ${named[0] ?? ""} confirmed a reward-hacking indicator`
+    : `reviews of this subtask confirmed reward-hacking indicators: ${named.join(", ")}`;
+}
+
+const REJECT_WORDS: Readonly<Record<Consequence["onReject"], string>> = {
+  retry:
+    "Reject: this attempt is spent, and the next one starts from your note, quoted as you " +
+    "wrote it. Its reviewer is told what it was told.",
+  fix:
+    "Reject: one fix is made by a fresh session in the subtask's working copy, told the " +
+    "review's verdict and your note and nothing of the earlier session. It is the subtask's " +
+    "last attempt; if it is not accepted, the subtask ends rejected.",
+  end_subtask: "Reject: the subtask ends rejected, and nothing of it is merged.",
+  record_only: "Reject: the decision is recorded, and nothing in the run acts on it.",
+};
+
+/** What approve and reject will do to an item, made from the consequence the run listed. */
+export function consequenceWords(c: Consequence): ChoiceWords {
+  const reject = REJECT_WORDS[c.onReject];
+  if (c.onApprove === "merge_attempt") {
+    const commit = c.attemptCommit === null ? "" : ` (commit ${c.attemptCommit.slice(0, 12)})`;
+    return {
+      approveLabel: "Approve…",
+      approve:
+        `Approve: attempt ${String(c.attempt ?? "")}${commit} is merged into the run exactly as ` +
+        "shown, by the run's own merge, and the whole-design gate then judges it with the rest.",
+      reject,
+    };
+  }
+  const why =
+    c.whyRecordOnly === "indicator_in_history" && c.confirmedIndicators.length > 0
+      ? indicatorWords(c)
+      : WHY_RECORD_ONLY_WORDS[c.whyRecordOnly ?? "source"];
+  return {
+    approveLabel: APPROVE_RECORDS_ONLY,
+    approve: `Approve records only: ${why}.`,
+    reject,
+  };
+}
+
+const NOT_TAKEN_WORDS: Readonly<Record<string, string>> = {
+  held_os_layer_off:
+    "Held: it was written while a session ran without the OS layer, so it acts only once an " +
+    "operator confirms it on the command line.",
+  not_bound: "Recorded only: it was not taken on a view of the item.",
+  legacy_item: "Recorded only: the item does not say what a decision does.",
+};
+
+/** What the run did with a decision, from its own record of taking it. */
+export function takenWords(t: Taken): string {
+  if (!t.acts) {
+    const known = t.whyNot === null ? undefined : NOT_TAKEN_WORDS[t.whyNot];
+    return known ?? `Recorded only (${t.whyNot ?? "no reason recorded"}).`;
+  }
+  const done: Readonly<Record<Taken["effect"], string>> = {
+    merge: "The run took it: the attempt it names was merged.",
+    retry: "The run took it: the next attempt started from the note.",
+    fix: "The run took it: one fix was ordered.",
+    end_subtask: "The run took it: the subtask ended rejected.",
+    none: "The run took it; it changed nothing.",
+  };
+  const by = t.confirmedBy === null ? "" : ` Confirmed on the command line by ${t.confirmedBy}.`;
+  return done[t.effect] + by;
 }

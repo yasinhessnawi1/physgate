@@ -777,3 +777,47 @@ def test_a_record_mode_run_takes_no_decision_and_writes_no_consequence(tmp_path:
     assert _of(rig.run_dir, DecisionTaken) == [] and rig.merger.merges == []
     with pytest.raises(RunStateError, match="only records"):
         _resume(rig, confirm=("run-1-s1",), confirmed_by="operator")
+
+
+# -- what the listing says the run did ---------------------------------------------------------
+
+
+def _decided(run_dir: Path) -> list[dict[str, Any]]:
+    from physgate.orchestrator.queue import queue_listing
+
+    decided = queue_listing(run_dir)["decided"]
+    assert isinstance(decided, list)
+    return decided
+
+
+def test_the_listing_says_what_the_run_did_with_each_decision_it_took(tmp_path: Path) -> None:
+    rig = _rig(tmp_path / "run", reviewer=FakeReviewer(unavailable={1: NO_VERDICT}))
+    loop = _start(rig, "s1")
+    loop.run()
+    loop.close()
+    decide(rig.run_dir, "approve")
+    (before,) = _decided(rig.run_dir)
+    assert "taken" not in before  # not taken yet
+    _resume(rig)
+    (after,) = _decided(rig.run_dir)
+    assert after["taken"] == {
+        "effect": "merge",
+        "acts": True,
+        "why_not": None,
+        "confirmed_by": None,
+    }
+
+
+def test_a_record_runs_listing_is_as_it_always_was(tmp_path: Path) -> None:
+    rig = _rig(
+        tmp_path / "run",
+        reviewer=FakeReviewer(unavailable={1: NO_VERDICT}),
+        config_overrides={"queue_decisions": "record"},
+    )
+    loop = _start(rig, "s1")
+    loop.run()
+    loop.close()
+    record_decision(rig.run_dir, "run-1-s1", decision="approve", resolved_by="yasin")
+    _resume(rig)
+    (decided,) = _decided(rig.run_dir)
+    assert set(decided) == {"item_id", "ts", "kind", "decision", "resolved_by", "flag"}

@@ -1,8 +1,8 @@
 /**
  * Approve or reject an open item. Each button opens a confirmation that says first, in one
  * sentence, what is recorded and by whom; then the exact line the queue writes, echoing the note
- * as it is typed; what the server checks first and does not write; and what follows, which is
- * nothing else in the run. Only a rejection needs a reason. What the page showed of the item goes
+ * as it is typed; what the server checks first and does not write; and what follows: what the
+ * item says the verb will do where the run acts on decisions, and otherwise nothing else in it. Only a rejection needs a reason. What the page showed of the item goes
  * with the decision, so the server refuses it if the item changed meanwhile.
  */
 import { useMemo, useState } from "react";
@@ -12,7 +12,12 @@ import type { ItemView, Resolved, Verb } from "../../api/queue";
 import { Button, type Confirmation } from "../../design/components/actions/Button";
 import { ErrorState } from "../../design/components/status/States";
 import { usePaletteEntries } from "../../shell/palette";
-import { DECISION_COPY, decisionSummary } from "../../words/queue";
+import {
+  APPROVE_RECORDS_ONLY,
+  consequenceWords,
+  DECISION_COPY,
+  decisionSummary,
+} from "../../words/queue";
 import { lineToWrite, whyNot } from "./model";
 
 export function Decide({
@@ -35,12 +40,14 @@ export function Decide({
   // The buttons and the command palette open the same confirmation, under the same rules.
   const [opened, setOpened] = useState<Verb | null>(null);
   const why = whyNot(operator, holdsToken);
+  // A primitive, so the palette's entries are recomputed exactly when the label changes.
+  const recordsOnly = view.item.consequence?.onApprove === "record_only";
   const entries = useMemo(
     () => [
       {
         id: "queue-approve",
         section: "This item",
-        label: "Approve…",
+        label: recordsOnly ? APPROVE_RECORDS_ONLY : "Approve…",
         disabledBecause: why,
         run: () => {
           setOpened("approve");
@@ -56,10 +63,12 @@ export function Decide({
         },
       },
     ],
-    [why],
+    [why, recordsOnly],
   );
   usePaletteEntries(entries);
 
+  const choices = view.item.consequence === null ? null : consequenceWords(view.item.consequence);
+  const approveLabel = choices?.approveLabel ?? "Approve…";
   const confirmation = (verb: Verb): Confirmation => {
     const who = operator ?? "no one";
     return {
@@ -69,7 +78,13 @@ export function Decide({
       check:
         `that the item is still the one shown (its digest ${view.itemSha256}) and that each of ` +
         `its ${String(view.trajectories.length)} transcripts is still as sealed`,
-      outcome: DECISION_COPY.then,
+      // What follows: the item's own consequence where the run acts on decisions, else nothing.
+      outcome:
+        choices === null
+          ? DECISION_COPY.then
+          : verb === "approve"
+            ? choices.approve
+            : choices.reject,
       recordedAs: operator === null ? "no operator: this page names none" : `${operator} (human)`,
       confirmLabel: verb === "approve" ? "Approve" : "Reject",
       ...(verb === "reject" ? { needsReason: true } : { takesNote: true }),
@@ -94,7 +109,7 @@ export function Decide({
       <div className="pg-queue-actions">
         <Button
           variant="act"
-          label="Approve…"
+          label={approveLabel}
           confirm={confirmation("approve")}
           disabledBecause={why}
           open={opened === "approve"}

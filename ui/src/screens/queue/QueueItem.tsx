@@ -1,8 +1,10 @@
 /**
  * One queue item as a person decides it: the decision it asks for, why a person is asked (with
  * the queue's own source under it), what triggered it, up to three quantities with their source,
- * the artefact diff as recorded, and the transcripts' seals folded into one line. A decided item
- * shows its decision and the queue's own mark, word for word, and no way to decide again.
+ * the artefact diff as recorded, and the transcripts' seals folded into one line. Where the run
+ * that listed it acts on decisions, what each verb will do, from the item's own fields. A decided
+ * item shows its decision, the queue's own mark word for word, what the run did with it once it
+ * took it, and no way to decide again.
  */
 import type { ReactNode } from "react";
 
@@ -14,7 +16,7 @@ import { type Source, sourceAttribute } from "../../design/components/data/sourc
 import { Term } from "../../design/components/help/Term";
 import { StatusTag } from "../../design/components/status/StatusTag";
 import { nodeLabel, quantityLabel } from "../../words/humanise";
-import { queueHeadline, SOURCE_WORDS } from "../../words/queue";
+import { consequenceWords, queueHeadline, SOURCE_WORDS, takenWords } from "../../words/queue";
 import { clockTime, utc } from "../../words/runs";
 import { ActorTag } from "../common/ActorTag";
 import { SEAL_TAG, sealLine } from "./model";
@@ -75,6 +77,14 @@ export function QueueItem({
           </dd>
           <dt>What triggered it</dt>
           <dd className="pg-queue-finding">{item.triggeringFinding}</dd>
+          {item.consequence !== null && (
+            <>
+              <dt>If you approve</dt>
+              <dd className="pg-queue-on-approve">{consequenceWords(item.consequence).approve}</dd>
+              <dt>If you reject</dt>
+              <dd className="pg-queue-on-reject">{consequenceWords(item.consequence).reject}</dd>
+            </>
+          )}
         </dl>
         <details className="pg-details pg-seals">
           <summary>{sealLine(view)}</summary>
@@ -145,6 +155,12 @@ export function QueueItem({
             </dd>
             <dt>At</dt>
             <dd className="mono">{decided.ts}</dd>
+            {decided.taken !== null && (
+              <>
+                <dt>What the run did</dt>
+                <dd className="pg-queue-taken">{takenWords(decided.taken)}</dd>
+              </>
+            )}
           </dl>
           {decided.flag !== null && (
             <p className="pg-queue-flag" role="note">

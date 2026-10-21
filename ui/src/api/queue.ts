@@ -8,7 +8,7 @@
  */
 import { requireQuantity } from "../design/quantity";
 import type { Quantity } from "../design/quantity";
-import { count, flag, list, object, oneOf, optionalText, text } from "./check";
+import { count, flag, list, object, oneOf, optionalCount, optionalText, text } from "./check";
 import { ShapeError } from "./client";
 
 export const SOURCES = [
@@ -20,6 +20,64 @@ export const SOURCES = [
   "escalation_decision",
 ] as const;
 export type QueueSource = (typeof SOURCES)[number];
+
+export const ON_APPROVE = ["merge_attempt", "record_only"] as const;
+export const ON_REJECT = ["retry", "fix", "end_subtask", "record_only"] as const;
+export const WHY_RECORD_ONLY = [
+  "gate",
+  "change_check",
+  "reading",
+  "indicator_in_history",
+  "scan_hit",
+  "source",
+  "legacy",
+] as const;
+export type OnApprove = (typeof ON_APPROVE)[number];
+export type OnReject = (typeof ON_REJECT)[number];
+export type WhyRecordOnly = (typeof WHY_RECORD_ONLY)[number];
+
+/**
+ * What each verb will do to an item, as the run that listed it computed it from its record.
+ * Only a run that acts on decisions writes it; an item without one is decided and recorded, and
+ * nothing in the run acts on it.
+ */
+export interface Consequence {
+  readonly attempt: number | null;
+  readonly attemptCommit: string | null;
+  readonly onApprove: OnApprove;
+  readonly onReject: OnReject;
+  readonly whyRecordOnly: WhyRecordOnly | null;
+  /** Every reward-hacking indicator a review of the subtask confirmed: which attempt, which kind. */
+  readonly confirmedIndicators: readonly { readonly attempt: number; readonly kind: string }[];
+  /** How many hits the scan before review found, for an item whose review never judged them. */
+  readonly scanHits: number;
+}
+
+function consequence(value: unknown): Consequence | null {
+  if (value === undefined || value === null) return null;
+  const c = object(value, "an item's consequence");
+  const commit = optionalText(c.attempt_commit, "an attempt's commit");
+  if (commit !== null && !/^[0-9a-f]{40}$/.test(commit))
+    throw new ShapeError("an attempt's commit");
+  return {
+    attempt: optionalCount(c.attempt, "the attempt an item concerns"),
+    attemptCommit: commit,
+    onApprove: oneOf(c.on_approve, ON_APPROVE, "what approve does"),
+    onReject: oneOf(c.on_reject, ON_REJECT, "what reject does"),
+    whyRecordOnly:
+      c.why_record_only === null || c.why_record_only === undefined
+        ? null
+        : oneOf(c.why_record_only, WHY_RECORD_ONLY, "why approve records only"),
+    confirmedIndicators: list(c.confirmed_indicators, "the confirmed indicators").map((raw) => {
+      const i = object(raw, "a confirmed indicator");
+      return {
+        attempt: count(i.attempt, "an indicator's attempt"),
+        kind: text(i.kind, "an indicator's kind"),
+      };
+    }),
+    scanHits: list(c.scan_hits, "the scan's hits").length,
+  };
+}
 
 export interface CitedQuantity {
   readonly nodeId: string;
@@ -38,6 +96,8 @@ export interface QueueItem {
   readonly triggeringFinding: string;
   readonly quantities: readonly CitedQuantity[];
   readonly trajectories: readonly string[];
+  /** What each verb will do; ``null`` on an item no run that acts on decisions listed. */
+  readonly consequence: Consequence | null;
 }
 
 export function queueItem(value: unknown): QueueItem {
@@ -62,7 +122,21 @@ export function queueItem(value: unknown): QueueItem {
     trajectories: list(item.trajectories, "the trajectories").map((raw) =>
       text(raw, "a trajectory link"),
     ),
+    consequence: consequence(item.consequence),
   };
+}
+
+export const EFFECTS = ["merge", "retry", "fix", "end_subtask", "none"] as const;
+export type Effect = (typeof EFFECTS)[number];
+
+/** What the run did with a decision, from its own record; absent until it takes it. */
+export interface Taken {
+  readonly effect: Effect;
+  readonly acts: boolean;
+  /** Why it did not act, in the record's own words. */
+  readonly whyNot: string | null;
+  /** The operator who confirmed a held decision on the command line, if one did. */
+  readonly confirmedBy: string | null;
 }
 
 export interface Decided {
@@ -72,6 +146,18 @@ export interface Decided {
   readonly resolvedBy: string;
   /** The queue's own mark for a decision written while a session ran, word for word. */
   readonly flag: string | null;
+  readonly taken: Taken | null;
+}
+
+function taken(value: unknown): Taken | null {
+  if (value === undefined || value === null) return null;
+  const t = object(value, "what the run did with a decision");
+  return {
+    effect: oneOf(t.effect, EFFECTS, "a decision's effect"),
+    acts: flag(t.acts, "whether a decision acted"),
+    whyNot: optionalText(t.why_not, "why a decision did not act"),
+    confirmedBy: optionalText(t.confirmed_by, "who confirmed a decision"),
+  };
 }
 
 function decided(value: unknown): Decided {
@@ -82,6 +168,7 @@ function decided(value: unknown): Decided {
     decision: text(d.decision, "a decision"),
     resolvedBy: text(d.resolved_by, "who decided"),
     flag: optionalText(d.flag, "a decision's mark"),
+    taken: taken(d.taken),
   };
 }
 

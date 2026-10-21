@@ -63,6 +63,7 @@ from physgate.orchestrator.common import (
 )
 from physgate.orchestrator.escalation import CONFIDENCE_FLOOR, Decision
 from physgate.orchestrator.events import (
+    DecisionTaken,
     Event,
     LeftoverRead,
     OsLayerChecked,
@@ -806,6 +807,23 @@ def _windows(events: list[Event]) -> list[tuple[int, int | None, str, bool]]:
     return windows
 
 
+def _taken_of(events: list[Event]) -> dict[str, dict[str, object]]:
+    """Each decision the run took, by item: its effect, whether it acted, why not, who confirmed.
+
+    A confirmation of a held decision replaces what the held line said, since it is what acted.
+    """
+    taken: dict[str, dict[str, object]] = {}
+    for event in events:
+        if isinstance(event, DecisionTaken):
+            taken[event.item_id] = {
+                "effect": event.effect,
+                "acts": event.acts,
+                "why_not": event.why_not,
+                "confirmed_by": event.confirmed_by,
+            }
+    return taken
+
+
 def windows_of(events: list[Event]) -> list[tuple[int, int | None, str]]:
     """The decisions file's byte ranges written while each session ran: (start, end, session).
 
@@ -860,13 +878,19 @@ def queue_listing(
     view = read_queue(run_dir)
     events = _events_of_run(run_dir) or []
     windows = windows_of(events)
+    taken = _taken_of(events)
     decided = []
     for offset, decision in view.decisions:
         during = [
             sid for start, end, sid in windows if start <= offset and (end is None or offset < end)
         ]
         flag = f"made while session {during[0]} ran; confirm" if during else None
-        decided.append({**decision.model_dump(), "flag": flag})
+        entry: dict[str, object] = {**decision.model_dump(), "flag": flag}
+        if decision.item_id in taken:
+            # What the run did with it, from its own record; absent until it takes the decision,
+            # and in every run that only records, whose listing is as it always was.
+            entry["taken"] = taken[decision.item_id]
+        decided.append(entry)
     with _stream_reader(run_dir, read_stream) as reader:
         listed = [
             {

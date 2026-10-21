@@ -88,6 +88,7 @@ const OPEN: QueueListing = {
       triggeringFinding: "f",
       quantities: [],
       trajectories: [],
+      consequence: null,
     },
   ],
   decided: [],
@@ -184,7 +185,16 @@ describe("the ledger folds to one row per subtask, read from its latest record",
   it("an escalated subtask a person decided says who and what, and that it is not merged", () => {
     const decided: QueueListing = {
       open: [],
-      decided: [{ itemId: ITEM, ts: "t", decision: "approve", resolvedBy: "yasin", flag: null }],
+      decided: [
+        {
+          itemId: ITEM,
+          ts: "t",
+          decision: "approve",
+          resolvedBy: "yasin",
+          flag: null,
+          taken: null,
+        },
+      ],
     };
     const [control] = fold({ queue: decided });
     expect(control?.state).toEqual({
