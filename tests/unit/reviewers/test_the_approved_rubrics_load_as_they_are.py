@@ -99,6 +99,14 @@ APPROVED = {
         ),
         ("MA", "MS", "MP", "MH"),
     ),
+    "integration": (
+        (("final", "68b7b1ac4af9f821078c18891729b055ee086fc285a6ddefb5c498192fac198e", 57),),
+        ("IA", "IS", "IP", "IH"),
+    ),
+    "design": (
+        (("final", "04aa9d73f433efcf10376b5be74e74a2397ef66d653441a61e52819996931c67", 65),),
+        ("PA", "PS", "PP", "PH"),
+    ),
 }
 VERSIONS = [(role, folder) for role, (versions, _) in APPROVED.items() for folder, _, _ in versions]
 _CANARY = re.compile(rb"\n\n<!-- [0-9a-f]{32} -->\n\Z")
