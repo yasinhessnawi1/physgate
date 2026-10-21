@@ -42,6 +42,7 @@ def _real_config(paths: list[Path], limit: int) -> SessionConfig:
         ),
         watchdog_seconds=5,
         hook_timeout_seconds=30,
+        os_layer_home=None,
     )
 
 

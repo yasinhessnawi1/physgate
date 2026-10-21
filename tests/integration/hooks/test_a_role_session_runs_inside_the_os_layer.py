@@ -18,8 +18,10 @@ refuses to start, and the session's end says why.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -340,3 +342,67 @@ def test_a_denial_bites_however_the_path_is_spelled(tmp_path: Path, given: str) 
         for said in told:
             assert MARKER not in str(said) and "reached" not in str(said), said
         assert (real / "run" / "queue_decisions.jsonl").read_text() == ""
+
+
+#: Started by one command in a session of its own, so the shell's job control does not see
+#: it: for twenty seconds it appends a line to a file in the worktree every tenth of a second.
+LINGERER = """\
+import time
+end = time.time() + 20
+with open('alive.log', 'a', buffering=1) as log:
+    while time.time() < end:
+        log.write('x\\n')
+        time.sleep(0.1)
+"""
+
+SPAWN_LINGERER = (
+    "import subprocess, sys\n"
+    f"subprocess.Popen([sys.executable, '-c', {LINGERER!r}], start_new_session=True,"
+    " stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+    "import time; time.sleep(0.5)\n"
+    "print('spawned')"
+)
+
+#: In a later command: whether the file is still growing.
+STILL_GROWING = """\
+import os, time
+before = os.path.getsize('alive.log')
+time.sleep(1.5)
+print('growing' if os.path.getsize('alive.log') > before else 'still')
+"""
+
+
+@pytest.mark.usefixtures("layer")
+def test_nothing_a_command_starts_outlives_it(layout: Layout) -> None:
+    # A process started in a session of its own got past the refusal of backgrounding and,
+    # on macOS, lived on across later commands. Linux's process namespace ends it with its
+    # command; on macOS the hook layer kills it when the command ends, and says so.
+    into = f"cd {layout.worktree} && "
+    steps = [
+        tool("Bash", command=into + python(SPAWN_LINGERER), description="spawn"),
+        tool("Bash", command=into + python(STILL_GROWING), description="look"),
+    ]
+    run = run_session(layout, steps, layer=True)
+    told = run["told"]
+    assert isinstance(told, list)
+    spawned, looked = (str(said) for said in told)
+    assert "spawned" in spawned, spawned
+    assert "still" in looked, looked
+    # On macOS the hook layer killed it after the command that started it, and refused that
+    # command; the session is told the first refusal of the call, which may be another
+    # hook's, so the record is read from the hooks' log.
+    lines = (layout.sdir / "state" / "hooks.log.jsonl").read_text().splitlines()
+    caught = [
+        json.loads(line)
+        for line in lines
+        if '"survivors"' in line and json.loads(line).get("hook") == "survivors"
+    ]
+    if sys.platform == "darwin":
+        assert [(c["event"], c["decision"]) for c in caught] == [("PostToolUse", "refuse")]
+        assert "left 1 process(es) running after it ended" in caught[0]["reason"]
+    else:
+        assert caught == []
+    log = layout.worktree / "alive.log"
+    size = log.stat().st_size
+    time.sleep(1.0)
+    assert log.stat().st_size == size

@@ -68,6 +68,10 @@ FIELD_RULES: dict[str, str] = {
     "required_reading": "readable: the session must read it",
     "always_loaded": "readable: loaded into every session",
     "installation": "write-denied through the protected roots that name it",
+    "os_layer_home": (
+        "the home the settings open to the session's shell (given to the generator apart); "
+        "named here so the survivor check can tell this session's sandbox from any other"
+    ),
 }
 
 

@@ -146,6 +146,10 @@ class SessionConfig(BaseModel):
     installation: Installation
     watchdog_seconds: Annotated[int, Field(gt=0)]
     hook_timeout_seconds: Annotated[int, Field(gt=0)]
+    #: The session's home where the OS layer runs, ``None`` where it does not. Its sandbox
+    #: opens the home to reads inside a root every other session's denies, which is how a
+    #: process its commands left running is told apart (:mod:`physgate.oslayer.survivors`).
+    os_layer_home: AbsolutePath | None
 
     @model_validator(mode="after")
     def _coherent(self) -> Self:

@@ -26,6 +26,7 @@ session is started with them.
 | `graph.py`, `journal_view.py` | A graph node reaches the store only as a proposal file, checked for owner, kind, schema and quantity names that shadow none a relation reads, as it is written; the journal is read without ever opening a store |
 | `reading.py` | No tool but Read until the required reading is done (ARCH-020) |
 | `token_ceiling.py` | Every tool refused while the always-loaded set is over its ceiling (ARCH-023) |
+| `survivors.py` | Nothing a shell command starts outlives it: on macOS a process its command left running is told apart by its sandbox (`oslayer/survivors.py`) and killed after each command, before each tool call and at the session's end; Linux's per-command process namespace already does it |
 | `sentinel.py`, `snapshot.py` | The second layer: every protected path compared at every hook, and put back when it moved |
 | `state.py`, `reasons.py`, `exceptions.py` | The hook layer's own records, the shared refusal reasons, the domain exceptions |
 

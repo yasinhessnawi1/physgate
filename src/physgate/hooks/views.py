@@ -117,6 +117,9 @@ class ConfigView(Protocol):
     @property
     def hook_timeout_seconds(self) -> int: ...  # noqa: D102
 
+    @property
+    def os_layer_home(self) -> str | None: ...  # noqa: D102
+
 
 class InputView(Protocol):
     """The event description Claude Code hands a hook."""

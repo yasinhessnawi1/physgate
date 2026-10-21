@@ -179,7 +179,7 @@ _CONFIG_FIELDS = (
     "profile", "role", "worktree", "own_branch", "store_root", "state_dir", "protected_roots",
     "experiments", "held_out", "answer_keys", "read_roots", "review_material", "required_reading",
     "always_loaded", "token_ceiling",
-    "tools_allowed", "installation", "watchdog_seconds", "hook_timeout_seconds",
+    "tools_allowed", "installation", "watchdog_seconds", "hook_timeout_seconds", "os_layer_home",
 )  # fmt: skip
 
 
@@ -223,6 +223,9 @@ class LeanConfig:
         self.watchdog_seconds: int = _positive_int(data["watchdog_seconds"], "watchdog_seconds")
         self.hook_timeout_seconds: int = _positive_int(
             data["hook_timeout_seconds"], "hook_timeout_seconds"
+        )
+        self.os_layer_home: str | None = _optional(
+            data["os_layer_home"], "os_layer_home", _absolute
         )
         if self.profile == "role" and not self.role:
             raise _fail("role", "a role session must name its role")

@@ -476,6 +476,7 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         installation=installation,
         watchdog_seconds=WATCHDOG_SECONDS,
         hook_timeout_seconds=HOOK_TIMEOUT_SECONDS,
+        os_layer_home=request.user_home if request.os_layer_temp_dir is not None else None,
     )
 
 
