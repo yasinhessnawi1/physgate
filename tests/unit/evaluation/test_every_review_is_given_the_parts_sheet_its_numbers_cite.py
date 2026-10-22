@@ -14,15 +14,21 @@ of its worktree, listed to it like every other file:
 - held to the blindness check like everything else a reviewer is shown, so a sheet that
   names the corpus, an artefact or an answer stops the run before any review. A real sheet is
   written indented over many lines, so it is read as one JSON value, its strings decoded,
-  never line by line.
+  never line by line;
+- whole: a sheet converted from its authors' table carries every range, list, text and note
+  that table holds, and they reach the review as the table writes them, the account naming
+  where each is.
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
 import subprocess
 from pathlib import Path
+from typing import Any
 
+import parts_sheet_sources as converter
 import pytest
 from instrument_corpus import AUTHOR, LABEL, SOURCE, SOURCE_ROWS, SeededFakeReviewer, write_corpus
 
@@ -34,7 +40,12 @@ from physgate.evaluation.inject.corpus import (
     write_manifest,
 )
 from physgate.evaluation.inject.exceptions import BlindnessError, CorpusError
-from physgate.evaluation.inject.materialise import PARTS_SHEET_NAME
+from physgate.evaluation.inject.materialise import (
+    ACCOUNT_SHEET,
+    ACCOUNT_SHEET_GIVEN,
+    ACCOUNT_SHEET_REMARKS,
+    PARTS_SHEET_NAME,
+)
 from physgate.evaluation.inject.runner import run_instrument
 from physgate.orchestrator.protocols import Artefact
 
@@ -82,6 +93,8 @@ def test_every_review_and_every_twin_s_is_given_the_corpus_s_own_sheet(tmp_path:
     assert corpus.parts_sheet == sheet
     assert PARTS_SHEET_NAME not in in_the_revision
     assert all(f"`{PARTS_SHEET_NAME}`" in account for account in accounts)
+    # A sheet with no value given as written is told in the words it was always told.
+    assert all(ACCOUNT_SHEET in a and ACCOUNT_SHEET_GIVEN not in a for a in accounts)
 
 
 def test_the_loaded_sheet_is_the_one_the_manifest_digests(tmp_path: Path) -> None:
@@ -119,13 +132,24 @@ def test_a_sheet_changed_after_the_listing_is_refused_not_given(
         ({"quantity": "see m1", "value": 2, "unit": "A"}, "m1"),
         ({"quantity": "as the reviewer reads it", "value": 2, "unit": "A"}, "reviewer"),
         ({"quantity": "expected_check", "value": None, "unit": None}, "expected_check"),
+        ({"quantity": "rate", "value": 2, "unit": "Hz", "note": "the answer key"}, "answer"),
+        ({"quantity": "rate", "value": 2, "unit": "Hz", "given": "2 Hz, a twin's"}, "twin"),
     ],
-    ids=["a-telling-word", "an-artefact-id", "the-reader", "an-answer-field"],
+    ids=[
+        "a-telling-word",
+        "an-artefact-id",
+        "the-reader",
+        "an-answer-field",
+        "a-telling-note",
+        "a-telling-given-value",
+    ],
 )
 def test_a_sheet_that_tells_stops_the_run_before_any_review(
     tmp_path: Path, row: dict[str, object], found: str
 ) -> None:
     rows = {**SOURCE_ROWS, "R9.01": {**row, "url": SOURCE}}
+    if "given" in row:  # a sheet that gives one value as written gives every row without one
+        rows["R8.01"] = {**rows["R8.01"], "given": "12.5 to 1600 Hz"}
     corpus = load_corpus(write_corpus(tmp_path / "corpus", rows=rows))
     reviewer = SeededFakeReviewer()
     with pytest.raises(BlindnessError) as caught:
@@ -161,3 +185,78 @@ def test_an_escaped_telling_word_in_an_indented_sheet_is_refused(tmp_path: Path)
         _run(corpus, tmp_path, reviewer)
     assert "inject" in caught.value.context["found"]
     assert reviewer.seen == []
+
+
+#: An authors' table for the test design: its numbers as the sheet above has them, and rows a
+#: single number cannot hold (a list, a range, a text), with notes.
+TABLE = (
+    "| Row | Quantity | Value | Unit | Source URL | Retrieved | Note |\n"
+    "|---|---|---|---|---|---|---|\n"
+    f"| R1.01 | stall current @ 6V | 1.5 | A | {SOURCE} | 2026-10-01 | at the stated voltage |\n"
+    f"| R1.02 | mass (weight) | 9.5 | g | same URL as above | 2026-10-01 | — |\n"
+    f"| R5.01 | cell nominal voltage | 1.2 | V | {SOURCE} | 2026-10-01 | — |\n"
+    f"| R5.02 | number of cells in the pack | 6 | dimensionless | {SOURCE} | 2026-10-01 | — |\n"
+    f"| R8.01 | gyroscope ODR options | 12.5, 26, 52, 104, 208 | Hz | {SOURCE} | 2026-10-01 "
+    "| the register's settings |\n"
+    f"| R8.02 | supply range | 2.7–3.6 | V | {SOURCE} | 2026-10-01 | min and max |\n"
+    f"| R8.03 | package | LGA-14 | — | {SOURCE} | 2026-10-01 | a text value |\n"
+)
+#: What the table gives that a single number cannot, and its notes, as the table writes them.
+GIVEN = {"R8.01": "12.5, 26, 52, 104, 208 Hz", "R8.02": "2.7–3.6 V", "R8.03": "LGA-14"}
+NOTES = {
+    "R1.01": "at the stated voltage",
+    "R8.01": "the register's settings",
+    "R8.02": "min and max",
+    "R8.03": "a text value",
+}
+
+
+def test_a_sheet_converted_from_its_table_reaches_every_review_with_every_value_and_note(
+    tmp_path: Path,
+) -> None:
+    root = write_corpus(tmp_path / "corpus")
+    (root / SOURCES_NAME).write_bytes(converter.convert(TABLE, label="a test parts sheet"))
+    (root / "parts_sheet.md").write_text(TABLE)
+    write_manifest(root, manifest_for(root, label=LABEL, author_model=AUTHOR))
+    corpus = load_corpus(root)
+    given: list[dict[str, Any]] = []
+    accounts: list[str] = []
+
+    def look(artefact: Artefact) -> None:
+        given.append(json.loads((Path(artefact.worktree) / PARTS_SHEET_NAME).read_bytes()))
+        accounts.append(Path(artefact.trajectory).read_text())
+
+    _run(corpus, tmp_path, SeededFakeReviewer(before_verdict=look))
+    assert len(given) == 2 * len(corpus.artefacts)
+    for sheet in given:
+        rows = sheet["rows"]
+        assert list(rows) == ["R1.01", "R1.02", "R5.01", "R5.02", "R8.01", "R8.02", "R8.03"]
+        assert all(r["value"] is not None or r.get("given") for r in rows.values())
+        assert {k: r["given"] for k, r in rows.items() if "given" in r} == GIVEN
+        assert {k: r["note"] for k, r in rows.items() if "note" in r} == NOTES
+    assert all(ACCOUNT_SHEET_GIVEN in a and ACCOUNT_SHEET not in a for a in accounts)
+
+
+def test_remarks_carried_from_the_table_reach_every_review_and_the_account_names_them(
+    tmp_path: Path,
+) -> None:
+    remark = "Every address was read on one day; R8.01 lists the register's settings."
+    root = write_corpus(tmp_path / "corpus")
+    sheet = converter.convert(f"{remark}\n\n{TABLE}", label="a test parts sheet", prose="carry")
+    (root / SOURCES_NAME).write_bytes(sheet)
+    write_manifest(root, manifest_for(root, label=LABEL, author_model=AUTHOR))
+    corpus = load_corpus(root)
+    given: list[dict[str, Any]] = []
+    accounts: list[str] = []
+
+    def look(artefact: Artefact) -> None:
+        given.append(json.loads((Path(artefact.worktree) / PARTS_SHEET_NAME).read_bytes()))
+        accounts.append(Path(artefact.trajectory).read_text())
+
+    _run(corpus, tmp_path, SeededFakeReviewer(before_verdict=look))
+    assert given and all(sheet["remarks"] == [remark] for sheet in given)
+    for account in accounts:
+        lines = account.split("\n")
+        assert lines.count(ACCOUNT_SHEET_REMARKS.rstrip("\n")) == 1
+        assert ACCOUNT_SHEET.rstrip("\n") not in lines
+        assert ACCOUNT_SHEET_GIVEN.rstrip("\n") not in lines

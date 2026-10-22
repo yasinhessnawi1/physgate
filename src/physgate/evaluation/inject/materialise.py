@@ -31,7 +31,15 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from physgate.evaluation.inject.corpus import Base, Patch, name_telltales, strings_of, telltales
+from physgate.evaluation.inject.corpus import (
+    Base,
+    Patch,
+    gives_values,
+    name_telltales,
+    read_sheet,
+    strings_of,
+    telltales,
+)
 from physgate.evaluation.inject.exceptions import BlindnessError, CorpusError
 from physgate.orchestrator.git import (
     EMPTY_TREES,
@@ -81,6 +89,35 @@ ACCOUNT_PRECISION = (
     "derived number is the arithmetic of the rows its source cites, and it is that "
     "arithmetic when the two agree within half a unit in the third significant figure.\n"
 )
+#: How the account names the parts sheet when its rows give only numbers: the sentence every
+#: review of such a sheet has been told, kept byte for byte so a corpus written before rows
+#: could give more is told what it was told.
+ACCOUNT_SHEET = (
+    f"The parts sheet the design's numbers come from is `{PARTS_SHEET_NAME}` in the "
+    "worktree, given with the design: each row by its id, with its number, its unit "
+    "and the address it was read from. A source written as `derived: [R1.03] * "
+    "[R5.02]` is arithmetic over the rows it names.\n"
+)
+#: How the account names a parts sheet whose rows also give values as written, or notes.
+ACCOUNT_SHEET_GIVEN = (
+    f"The parts sheet the design's numbers come from is `{PARTS_SHEET_NAME}` in the "
+    "worktree, given with the design: each row by its id, with its number and its unit "
+    "where the row is one number; under `given`, its value as the parts sheet's authors "
+    "wrote it where that is not the number alone, such as a range, a list or a text; under "
+    "`note`, their note on the row where it has one; and the address it was read from. A "
+    "source written as `derived: [R1.03] * [R5.02]` is arithmetic over the rows it names.\n"
+)
+#: Each sentence's own digest, pinned by a test: a change to either is a change to what a
+#: review is told, outside the three paragraphs below.
+ACCOUNT_SHEET_SHA256 = hashlib.sha256(ACCOUNT_SHEET.encode()).hexdigest()
+ACCOUNT_SHEET_GIVEN_SHA256 = hashlib.sha256(ACCOUNT_SHEET_GIVEN.encode()).hexdigest()
+#: How the account names a parts sheet that also carries its authors' remarks: the sentence
+#: above, and where the remarks are.
+ACCOUNT_SHEET_REMARKS = ACCOUNT_SHEET_GIVEN.removesuffix("\n") + (
+    " Under `remarks`, the sheet holds lines its authors wrote beside its rows, each as they "
+    "wrote it.\n"
+)
+ACCOUNT_SHEET_REMARKS_SHA256 = hashlib.sha256(ACCOUNT_SHEET_REMARKS.encode()).hexdigest()
 #: The three paragraphs' digest, pinned by a test and recorded on every run.
 ACCOUNT_SHA256 = hashlib.sha256(
     (ACCOUNT_FORM + ACCOUNT_ABSENCES + ACCOUNT_PRECISION).encode()
@@ -174,12 +211,17 @@ def materialise(
     With no patch, the base itself is the one revision, over an empty design:
     how the base alone is gated before any artefact is written over it. With a
     ``parts_sheet``, its bytes are written as :data:`PARTS_SHEET_NAME` beside the
-    design, in the given design's commit, and the account names it.
+    design, in the given design's commit, and the account names it, in the words the
+    sheet calls for (:data:`ACCOUNT_SHEET`, :data:`ACCOUNT_SHEET_GIVEN` or
+    :data:`ACCOUNT_SHEET_REMARKS`).
 
     Raises:
-        CorpusError: ``into`` exists, or the store refuses a write.
+        CorpusError: ``into`` exists, the store refuses a write, or ``parts_sheet`` is
+            not a parts sheet.
     """
     into = Path(into)
+    # Read, and refused if it is no parts sheet, before anything is written.
+    sources = read_sheet(parts_sheet) if parts_sheet is not None else None
     if into.exists():
         msg = "an artefact is materialised into a directory that does not exist yet"
         raise CorpusError(msg, into=str(into))
@@ -202,7 +244,14 @@ def materialise(
         store.close()
     commit = _commit(worktree, "a proposed revision")
     trajectory = into / TRAJECTORY_NAME
-    trajectory.write_text(neutral_trajectory(written, parts_sheet=parts_sheet is not None))
+    trajectory.write_text(
+        neutral_trajectory(
+            written,
+            parts_sheet=parts_sheet is not None,
+            sheet_gives=sources is not None and gives_values(sources),
+            sheet_remarks=sources is not None and sources.remarks is not None,
+        )
+    )
     return Materialised(
         worktree=worktree,
         graph_root=graph_root,
@@ -228,8 +277,19 @@ def _write(store: Store, payload: dict[str, object]) -> int:
     return result.revision
 
 
-def neutral_trajectory(nodes: tuple[dict[str, object], ...], *, parts_sheet: bool = False) -> str:
-    """The reviewer's account of the revision: the same template for every artefact."""
+def neutral_trajectory(
+    nodes: tuple[dict[str, object], ...],
+    *,
+    parts_sheet: bool = False,
+    sheet_gives: bool = False,
+    sheet_remarks: bool = False,
+) -> str:
+    """The reviewer's account of the revision: the same template for every artefact.
+
+    With ``parts_sheet``, the account names the sheet in one of three sentences: for a sheet
+    that carries its authors' remarks; else, with ``sheet_gives``, for one whose rows give
+    values as written or notes; else for a sheet of numbers.
+    """
     parts = [
         "# A proposed revision of the design\n",
         f"The design is the graph under `{DESIGN_DIRNAME}/` in the worktree: one file per "
@@ -238,12 +298,10 @@ def neutral_trajectory(nodes: tuple[dict[str, object], ...], *, parts_sheet: boo
         "It wrote the nodes below, which now read as follows.\n",
     ]
     if parts_sheet:
-        parts.append(
-            f"The parts sheet the design's numbers come from is `{PARTS_SHEET_NAME}` in the "
-            "worktree, given with the design: each row by its id, with its number, its unit "
-            "and the address it was read from. A source written as `derived: [R1.03] * "
-            "[R5.02]` is arithmetic over the rows it names.\n"
-        )
+        if sheet_remarks:
+            parts.append(ACCOUNT_SHEET_REMARKS)
+        else:
+            parts.append(ACCOUNT_SHEET_GIVEN if sheet_gives else ACCOUNT_SHEET)
     # The revision's form, and with a sheet what it lacks and how its numbers are
     # written: fixed bytes, so no item is told more than another.
     parts.append(ACCOUNT_FORM)
