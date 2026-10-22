@@ -76,7 +76,7 @@ def register_of(roles: Iterable[RegisteredRole]) -> dict[str, RegisteredRole]:
 
 
 #: The roles the harness ships registered: those whose dispatch has everything it needs.
-SHIPPED: tuple[RegisteredRole, ...] = (CONTROL, FIRMWARE)
+SHIPPED: tuple[RegisteredRole, ...] = (CONTROL, FIRMWARE, INTEGRATION)
 #: Every role registered so far, keyed by name.
 ROLES: dict[str, RegisteredRole] = register_of(SHIPPED)
 

@@ -2,9 +2,11 @@
 
 Each of the three has a rubric rule (a criterion not evaluable always blocks) and its own
 item prefixes, distinct from every other role's, so an item id in a verdict names its
-rubric. None of that admits a session of the role: a run naming one is refused at the role
-register whatever reviewer it brings. The generic model separation check is exercised once,
-not per role.
+rubric. None of that admits a session of the role: only the role register does. Integration
+is registered, with its reading and its reviewer's promoted rubric; sizing is not yet, and
+``design`` names the plan's reviewer, never a role. A run naming either is refused at the
+role register whatever reviewer it brings. The generic model separation check is exercised
+once, not per role.
 """
 
 from __future__ import annotations
@@ -45,8 +47,10 @@ def test_no_two_roles_share_a_prefix() -> None:
     assert len(every) == len(set(every)), sorted(p for p in every if every.count(p) > 1)
 
 
-@pytest.mark.parametrize("role", NEW)
-def test_a_run_naming_a_new_role_is_refused_whatever_reviewer_it_brings(role: str) -> None:
+@pytest.mark.parametrize("role", [r for r in NEW if r != "integration"])
+def test_a_run_naming_an_unregistered_new_role_is_refused_whatever_reviewer_it_brings(
+    role: str,
+) -> None:
     base = make_config(gate_mode="off")
     models = base.models.model_copy(
         update={
@@ -62,8 +66,9 @@ def test_a_run_naming_a_new_role_is_refused_whatever_reviewer_it_brings(role: st
 
 
 def test_the_model_separation_check_takes_a_distinct_reviewer_and_refuses_the_same_model() -> None:
-    # The generic check every role's review passes through, not a per-role refusal: the
-    # design reviewer against the decomposition model is checked with the code track (E1a).
+    # The generic check every role's review passes through, not a per-role refusal. The
+    # design reviewer against the decomposition's model is refused in the run configuration,
+    # and again at the review call once the plan review exists.
     require_separate_models(implementer=IMPLEMENTER, reviewer=REVIEWER)
     with pytest.raises(ModelSeparationError):
         require_separate_models(implementer=IMPLEMENTER, reviewer=IMPLEMENTER)

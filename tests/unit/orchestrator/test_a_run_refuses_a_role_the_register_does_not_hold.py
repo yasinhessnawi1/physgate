@@ -35,10 +35,12 @@ def shipped(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delitem(roles.ROLES, name, raising=False)
 
 
-def test_the_register_ships_the_control_and_firmware_roles_only(shipped: None) -> None:
+def test_the_register_ships_the_control_firmware_and_integration_roles_only(
+    shipped: None,
+) -> None:
     # Read from what the module ships, not from the register this suite has added to.
-    assert [role.name for role in roles.SHIPPED] == ["control", "firmware"]
-    assert set(roles.ROLES) == {"control", "firmware"}
+    assert [role.name for role in roles.SHIPPED] == ["control", "firmware", "integration"]
+    assert set(roles.ROLES) == {"control", "firmware", "integration"}
 
 
 def test_an_unregistered_role_is_refused_by_name(shipped: None) -> None:
