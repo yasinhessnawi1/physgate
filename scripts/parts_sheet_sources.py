@@ -14,6 +14,19 @@ Row, Quantity, Value, Unit, Source URL, Retrieved and Note. A review is given
   or ``same driver URL as above``, which is the address of the nearest row above it;
 - the Retrieved column must hold one date for every row, because a row has no field for it.
 
+**Keeping an earlier sheet's numbers** (``--keep-values-from``). A corpus whose design was
+written against an earlier sheet cites that sheet's numbers, some picked by hand from a range
+or a list, which the table alone does not make citable. Given that sheet, the converter keeps
+every field of it byte for byte, its label included, and adds only what it lacked:
+
+- a row the earlier sheet gave a number keeps that ``value`` and ``unit``; ``given`` is added
+  unless the table writes exactly that number in that unit, and the note;
+- a row it left without a number gains ``given`` and the note.
+
+It refuses, naming the row, when the two disagree: another set or order of rows, another
+quantity or address, a kept number that is not among the numbers the table's value cell
+holds, or an earlier sheet that already gives values.
+
 A table whose columns are not those seven, a table line that is not a header, separator or
 row, a row with another number of cells, an empty value or quantity, a row id given twice or
 a source it cannot follow, stops it with the reason; nothing is written. The sheet is written
@@ -23,9 +36,12 @@ same bytes. An existing output file is never written over.
 Usage::
 
     uv run python scripts/parts_sheet_sources.py <parts_sheet.md> <sources.json> --label TEXT
+    uv run python scripts/parts_sheet_sources.py <parts_sheet.md> <sources.json> \
+        --keep-values-from <earlier sources.json>
 
 It prints counts only: rows, rows with a number, rows with a given value, rows with neither
-(always 0), notes and followed references.
+(always 0), notes and followed references; when keeping, the numbers kept and the rows whose
+earlier fields changed (always 0).
 """
 
 from __future__ import annotations
@@ -35,6 +51,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from typing import Any
 
 from physgate.evaluation.inject.corpus import Sources
 from physgate.gate.units import UnitRefusedError, parse
@@ -51,6 +68,11 @@ _ADDRESS = re.compile(r"https?://\S+")
 #: ``same URL``, ``same driver URL``, ``same URL as above``: the address of the row above.
 _SAME = re.compile(r"same (?:[a-z]+ )?url(?: as above)?", re.IGNORECASE)
 _UNESCAPED_PIPE = re.compile(r"(?<!\\)\|")
+#: A number written in a value cell, unsigned; a minus sign before it is read separately.
+_TOKEN = re.compile(r"(?<![0-9.])(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
+_MINUS = ("-", "\u2212")
+#: The only fields keeping adds to an earlier sheet's row.
+ADDED = ("given", "note")
 
 
 class SheetRefusedError(ValueError):
@@ -76,6 +98,15 @@ def _number(cell: str, unit: str) -> float | int | None:
     return number
 
 
+def _url(row_id: str, source: str, address: str | None) -> str:
+    if _ADDRESS.fullmatch(source):
+        return source
+    if _SAME.fullmatch(source) and address is not None:
+        return address
+    msg = f"row {row_id} has a source that is no address and no reference it can follow"
+    raise SheetRefusedError(msg)
+
+
 def _row(cells: list[str], address: str | None) -> dict[str, object]:
     row_id, quantity, value, unit, source, _, note = cells
     if quantity in DASHES:
@@ -84,13 +115,7 @@ def _row(cells: list[str], address: str | None) -> dict[str, object]:
     if value in DASHES:
         msg = f"row {row_id} has no value: a cell that holds nothing cannot be given"
         raise SheetRefusedError(msg)
-    if _ADDRESS.fullmatch(source):
-        url = source
-    elif _SAME.fullmatch(source) and address is not None:
-        url = address
-    else:
-        msg = f"row {row_id} has a source that is no address and no reference it can follow"
-        raise SheetRefusedError(msg)
+    url = _url(row_id, source, address)
     number = _number(value, unit)
     written = value if unit in DASHES else f"{value} {unit}"
     row: dict[str, object] = {"quantity": quantity, "value": number}
@@ -103,13 +128,82 @@ def _row(cells: list[str], address: str | None) -> dict[str, object]:
     return row
 
 
-def convert(markdown: str, *, label: str) -> bytes:
-    """The parts sheet the table in ``markdown`` gives, as the bytes of ``sources.json``.
+def _holds(cell: str, number: float) -> bool:
+    """Whether ``number`` is among the numbers ``cell`` writes, with its sign."""
+    for found in _TOKEN.finditer(cell):
+        read = float(found.group(0))
+        signed = found.start() > 0 and cell[found.start() - 1] in _MINUS
+        if number in ((read, -read) if signed else (read,)):
+            return True
+    return False
+
+
+def _kept(
+    row_id: str, cells: list[str], fresh: dict[str, object], before: dict[str, Any]
+) -> dict[str, Any]:
+    """The earlier sheet's row, every field as it was, with what the table adds to it."""
+    value, unit = cells[2], cells[3]
+    written = value if unit in DASHES else f"{value} {unit}"
+    for field in ("quantity", "url"):
+        if fresh[field] != before[field]:
+            msg = f"row {row_id}: the table and the earlier sheet give it another {field}"
+            raise SheetRefusedError(msg)
+    row = dict(before)
+    if before["value"] is None:
+        row["given"] = written
+    elif not _holds(value, before["value"]):
+        msg = f"row {row_id}: the earlier sheet's number {before['value']} is not among the table's"
+        raise SheetRefusedError(msg)
+    elif json.dumps(before["value"]) != value or unit != before["unit"]:
+        row["given"] = written
+    if "note" in fresh:
+        row["note"] = fresh["note"]
+    return row
+
+
+def _earlier(keep: bytes, ids: list[str]) -> dict[str, Any]:
+    """The earlier sheet, held to the table's rows.
 
     Raises:
-        SheetRefusedError: the table holds something the sheet cannot carry whole.
+        SheetRefusedError: it is not a parts sheet, already gives values, or holds other rows.
+    """
+    try:
+        earlier: dict[str, Any] = json.loads(keep)
+        rows: dict[str, dict[str, Any]] = earlier["rows"]
+        given = sorted(k for k, r in rows.items() if any(f in r for f in ADDED))
+    except (ValueError, KeyError, TypeError, AttributeError) as exc:
+        msg = f"the earlier sheet is not a parts sheet: {exc}"
+        raise SheetRefusedError(msg) from exc
+    if given:
+        msg = f"the earlier sheet already gives values or notes, at {given[:5]}"
+        raise SheetRefusedError(msg)
+    try:
+        Sources.model_validate_json(keep)
+    except ValueError as exc:
+        msg = f"the earlier sheet is not a parts sheet: {exc}"
+        raise SheetRefusedError(msg) from exc
+    if set(rows) != set(ids):
+        odd = sorted(set(rows) ^ set(ids))
+        msg = f"the table and the earlier sheet hold other rows: {odd[:10]}"
+        raise SheetRefusedError(msg)
+    if list(rows) != ids:
+        msg = "the table and the earlier sheet hold their rows in another order"
+        raise SheetRefusedError(msg)
+    return earlier
+
+
+def convert(markdown: str, *, label: str | None = None, keep: bytes | None = None) -> bytes:
+    """The parts sheet the table in ``markdown`` gives, as the bytes of ``sources.json``.
+
+    With ``keep``, an earlier sheet's bytes, every field of that sheet is kept as it was and
+    the table adds only ``given`` and ``note``; the label is the earlier sheet's.
+
+    Raises:
+        SheetRefusedError: the table holds something the sheet cannot carry whole, or it
+            and the earlier sheet disagree, or no label is given and none is kept.
     """
     rows: dict[str, dict[str, object]] = {}
+    cells_of: dict[str, list[str]] = {}
     dates: set[str] = set()
     address: str | None = None
     headed = False
@@ -138,6 +232,7 @@ def convert(markdown: str, *, label: str) -> bytes:
             msg = f"row {cells[0]} is written twice"
             raise SheetRefusedError(msg)
         rows[cells[0]] = _row(cells, address)
+        cells_of[cells[0]] = cells
         address = str(rows[cells[0]]["url"])
         dates.add(cells[5])
     if not rows:
@@ -146,10 +241,35 @@ def convert(markdown: str, *, label: str) -> bytes:
     if len(dates) != 1 or next(iter(dates)) in DASHES:
         msg = f"the Retrieved column holds {len(dates)} dates; a row has no field for its own"
         raise SheetRefusedError(msg)
-    sheet = {"label": label, "rows": rows}
+    sheet: dict[str, Any] = {"label": label, "rows": rows}
+    if keep is not None:
+        earlier = _earlier(keep, list(rows))
+        if label is not None and label != earlier["label"]:
+            msg = "a kept sheet keeps the earlier sheet's label, and another label was given"
+            raise SheetRefusedError(msg)
+        sheet = {
+            "label": earlier["label"],
+            "rows": {k: _kept(k, cells_of[k], rows[k], r) for k, r in earlier["rows"].items()},
+        }
+        _additive(earlier, sheet)
+    elif label is None:
+        msg = "a sheet converted from the table alone needs a label"
+        raise SheetRefusedError(msg)
     written = (json.dumps(sheet, indent=1, ensure_ascii=False) + "\n").encode()
     Sources.model_validate_json(written)  # the sheet the corpus loader will read
     return written
+
+
+def _additive(earlier: dict[str, Any], sheet: dict[str, Any]) -> None:
+    """Refuse a kept sheet that is not the earlier one with only ``given`` and ``note`` added."""
+    same = earlier["label"] == sheet["label"] and list(earlier["rows"]) == list(sheet["rows"])
+    for row_id, before in earlier["rows"].items() if same else ():
+        after = sheet["rows"][row_id]
+        same = same and all(json.dumps(after.get(f)) == json.dumps(v) for f, v in before.items())
+        same = same and set(after) - set(before) <= set(ADDED)
+    if not same:
+        msg = "the kept sheet is not the earlier sheet with values and notes added"
+        raise SheetRefusedError(msg)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -157,11 +277,18 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
     parser.add_argument("table", type=Path, help="the authors' parts_sheet.md")
     parser.add_argument("out", type=Path, help="the sources.json to write; must not exist")
-    parser.add_argument("--label", required=True, help="the sheet's label")
+    parser.add_argument("--label", help="the sheet's label; when keeping, the earlier sheet's")
+    parser.add_argument(
+        "--keep-values-from",
+        type=Path,
+        help="an earlier sources.json whose every field is kept, the table adding to it",
+    )
     args = parser.parse_args(argv)
     out: Path = args.out
+    earlier: Path | None = args.keep_values_from
+    keep = earlier.read_bytes() if earlier is not None else None
     try:
-        written = convert(args.table.read_text(encoding="utf-8"), label=args.label)
+        written = convert(args.table.read_text(encoding="utf-8"), label=args.label, keep=keep)
     except SheetRefusedError as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 1
@@ -186,6 +313,14 @@ def main(argv: list[str] | None = None) -> int:
         f" notes {sum('note' in r for r in rows)}"
         f" references {references}"
     )
+    if keep is not None:
+        before = json.loads(keep)["rows"]
+        after = json.loads(written)["rows"]
+        changed = sum(
+            any(json.dumps(after[k].get(f)) != json.dumps(v) for f, v in r.items())
+            for k, r in before.items()
+        )
+        print(f"kept {sum(r['value'] is not None for r in before.values())} changed {changed}")
     return 0
 
 
