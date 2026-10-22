@@ -8,8 +8,10 @@ Usage (from the repository root):
 - ``draw``: before any coding, with ``random.Random(23)``: error classes sorted by name and pairs
   by id; in the fresh set one pair of each class, then in the practice set two classes drawn with
   ``sample(classes, 2)`` and one pair of each, in the order drawn; a pair is eligible if it has at
-  least one finding line. Writes ``slice.json``; prints the six ids and the slice's line and flaw
-  counts (the "Slice filled" fact).
+  least one finding line. Refused unless the sets' error classes are the frozen four
+  (:data:`CLASSES`) and :data:`FRESH_PER_CLASS` is the one pair the draw takes. Writes
+  ``slice.json``; prints the six ids and the slice's line and flaw counts (the "Slice filled"
+  fact).
 - ``bank``: after calibration round 1, counts the slice lines on which coder 1's and coder 2's
   codes after §5.5 form each unordered pair, takes every bank item of Appendix D whose pair has 2
   or more, and writes the prompts of version 1 (or says there is no round 2). No person chooses.
@@ -51,6 +53,12 @@ def draw(lines: list[dict[str, Any]], sets: dict[str, X.SetData]) -> dict[str, l
         return found
 
     classes = sorted({a["error_class"] for sd in sets.values() for a in sd.artefacts.values()})
+    # Held to the frozen draw before the generator is used: a fifth or misspelled class, or
+    # another number per class, would change the seeded draw silently, so it is refused.
+    if FRESH_PER_CLASS != 1:
+        raise X.Refused("the draw takes one fresh pair per class (one rng.choice); no other number")
+    if tuple(classes) != CLASSES:
+        raise X.Refused(f"the sets' error classes {classes} are not the frozen {list(CLASSES)}")
     out: dict[str, list[str]] = {"fresh": [], "practice": []}
     for cls in classes:
         out["fresh"].append(rng.choice(eligible("fresh", cls)))

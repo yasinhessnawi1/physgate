@@ -288,6 +288,41 @@ def test_the_slice_draws_one_fresh_pair_per_class_then_two_practice_classes(
     assert SL.draw(fx["lines"], fx["setdata"]) == pairs
 
 
+def test_the_slice_draw_on_the_fixture_is_the_one_drawn_before_the_refusals(
+    fx: dict[str, Any],
+) -> None:
+    # pinned at d642c06, before draw() held the classes to CLASSES: the RNG's calls are unchanged
+    assert SL.draw(fx["lines"], fx["setdata"]) == {
+        "fresh": ["e1", "m1", "p1", "u1"],
+        "practice": ["u1", "m1"],
+    }
+
+
+def _reclassed(sets: dict[str, X.SetData], pair: str, cls: str) -> dict[str, X.SetData]:
+    out = {}
+    for name, sd in sets.items():
+        arts = {p: dict(a) for p, a in sd.artefacts.items()}
+        arts[pair]["error_class"] = cls
+        out[name] = X.SetData(sd.name, sd.seed, sd.base, arts, sd.sheet)
+    return out
+
+
+@pytest.mark.parametrize("cls", ["thermal", "propagations"])
+def test_the_slice_refuses_classes_other_than_the_frozen_four(fx: dict[str, Any], cls: str) -> None:
+    # every class still has an eligible pair, so only the frozen list can refuse the draw
+    sets = _reclassed(fx["setdata"], "p1", cls)
+    with pytest.raises(X.Refused, match="classes"):
+        SL.draw(fx["lines"], sets)
+
+
+def test_the_slice_refuses_a_draw_it_does_not_implement(
+    fx: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(SL, "FRESH_PER_CLASS", 2)
+    with pytest.raises(X.Refused, match="per class"):
+        SL.draw(fx["lines"], fx["setdata"])
+
+
 def test_the_slice_refuses_a_class_without_an_eligible_pair(fx: dict[str, Any]) -> None:
     lines = [x for x in fx["lines"] if not (x["set"] == "fresh" and x["pair"] == "p1")]
     with pytest.raises(X.Refused):

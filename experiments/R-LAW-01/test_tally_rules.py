@@ -412,6 +412,22 @@ def test_the_scope_note_reads_the_same_flaws_as_the_deciding_share(tmp_path: Pat
     assert d["scope_note_data_side"] is False
 
 
+def test_the_literal_count_beside_the_decision_reads_the_deciding_flaws(tmp_path: Path) -> None:
+    derated = "P * 1.5 <= M"  # one input each side and a non-integer literal
+    on_injection = [flaw([ln(p, "L", "L", relation=derated)]) for p in PAIRS[:3]]
+    elsewhere = [
+        flaw([ln(PAIRS[3], "L", "L", locus=UNCHANGED, origin="already_in_base", relation=derated)])
+    ]
+    for p in PAIRS[4:13]:
+        elsewhere.append(flaw([ln(p, "N", "N", locus=UNCHANGED, origin="already_in_base")]))
+    d = build(tmp_path, on_injection + elsewhere).run()["decision"]
+    # on the injection 3 of 3 are L, elsewhere 1 of 10: the share elsewhere decides
+    assert d["mix_dependent"] and d["deciding_share"] == "elsewhere"
+    assert d["share"] == pytest.approx(0.1)
+    # the count beside it reads the same flaws as S5 and L + L-if-data (over every flaw: 4)
+    assert d["L_flaws_one_input_each_side_non_integer_literal"] == 1
+
+
 def test_interruptions_are_reported_and_leave_the_decision_taken(tmp_path: Path) -> None:
     events = [
         {"event": "failed_call", "step": "s", "reason": "P0001 try1: usage_limit", "utc": "x"},

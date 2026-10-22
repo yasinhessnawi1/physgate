@@ -637,7 +637,7 @@ class Tally:
         g_parts: Counter[str] = Counter()
         d_kinds: Counter[str] = Counter()
         n_kinds: Counter[str] = Counter()
-        l_reps: list[str] = []
+        l_reps: list[tuple[dict[str, Any], str]] = []
         l_all: list[str] = []
         for u in flaws:
             if not self.real(u, er):
@@ -653,9 +653,10 @@ class Tally:
             if c == "N":
                 n_kinds[self.kind_of(rep, "N")] += 1
             if c == "L" and rep is not None:
-                l_reps.append(rep)
+                l_reps.append((u, rep))
                 l_all += [i for i in self.code_lines(u, er) if self.final[i] == "L"]
-        fields = [self.l_fields(i) for i in l_reps]
+        fields_of = [(u, self.l_fields(i)) for u, i in l_reps]
+        fields = [f for _, f in fields_of]
         out["secondary"] = {
             "shares": {c: sh(codes.get(c, 0)) for c in (*ORDER, "uncoded")},
             "counts": dict(codes),
@@ -768,8 +769,11 @@ class Tally:
             "robust": not crossing,
             "readings_crossing": crossing,
             "strict_law_share": readings["S5"]["share"],
+            # on the deciding flaws, as S5 and L + L-if-data beside it (reading 9)
             "L_flaws_one_input_each_side_non_integer_literal": sum(
-                1 for f in fields if f["one_input_each_side_non_integer_literal"]
+                1
+                for u, f in fields_of
+                if (keep is None or keep(u)) and f["one_input_each_side_non_integer_literal"]
             ),
             "L_plus_L_if_data": lplus,
             "scope_note_data_side": bool(
