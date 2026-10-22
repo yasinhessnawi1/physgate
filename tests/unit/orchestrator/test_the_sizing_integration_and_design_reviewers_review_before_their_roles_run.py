@@ -57,7 +57,7 @@ def test_a_run_naming_a_new_role_is_refused_whatever_reviewer_it_brings(role: st
     config = base.model_copy(update={"models": models})
     reviewer = SimpleNamespace(model=REVIEWER)
     with pytest.raises(RoleNotRegisteredError) as refused:
-        refuse_unregistered(config, None, {role: reviewer})  # type: ignore[dict-item]
+        refuse_unregistered(config, None, {role: reviewer})
     assert role in refused.value.context["roles"]
 
 
