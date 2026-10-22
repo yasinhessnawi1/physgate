@@ -85,5 +85,28 @@ QUEUE_DECISIONS = Flag(
     architecture="ARCH-133",
 )
 
+#: Whether a run's role sessions may run where the OS layer is absent. Spelled out for the type
+#: checker, as the others are; a test holds it equal to the register's entry.
+OsLayerAbsent = Literal["refuse", "allow"]
+
+OS_LAYER_ABSENT = Flag(
+    name="os_layer_absent",
+    values=("refuse", "allow"),
+    meanings={
+        "refuse": (
+            "role sessions run only inside the OS layer: a run whose layer is absent is refused "
+            "at its configuration, and at every run and resume, before any session starts; every "
+            "run recorded before the switch existed reads as this"
+        ),
+        "allow": (
+            "for development only: where the layer is absent, role sessions run with the text "
+            "hooks alone, said on standard error and on every run's and resume's OS-layer line; "
+            "a run that acts on queue decisions is refused all the same, and the evaluation "
+            "refuses a reportable run that names it"
+        ),
+    },
+    architecture="ARCH-091",
+)
+
 #: Every ablation flag, in the order the architecture lists the switches.
-REGISTER: tuple[Flag, ...] = (GATE_MODE, QUEUE_DECISIONS)
+REGISTER: tuple[Flag, ...] = (GATE_MODE, QUEUE_DECISIONS, OS_LAYER_ABSENT)

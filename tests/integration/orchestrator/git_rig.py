@@ -310,6 +310,7 @@ PARAMS = {
     "role_python",
     "escalation_backend",
     "queue_decisions",
+    "os_layer_absent",
     "held_out",
     "held_out_canaries",
     "held_out_sha256",
@@ -359,6 +360,8 @@ def config(run_id: str = "run-1") -> RunConfig:
         git_binary=None,
         escalation_backend="rules",
         queue_decisions="record",
+        # The rig also runs where the layer is absent (the hook suite's job has no sandbox).
+        os_layer_absent="allow",
         held_out=(),
         held_out_canaries=(),
         held_out_sha256=(),

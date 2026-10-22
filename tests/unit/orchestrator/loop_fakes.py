@@ -385,7 +385,10 @@ class Rig:
 
         self.merger.ledger_path = self.run_dir / "ledger.jsonl"
         bounds = SCRIPTED_BOUNDS.model_copy(update={"infra_retry_delays_s": self.delays})
-        config = make_config(gate_mode=self.gate_mode, bounds=bounds, **self.config_overrides)
+        # The rig's loops run over fakes, and record no OS-layer line unless a test does:
+        # development, which the allowance is for. A test of the refusal names ``refuse``.
+        overrides = {"os_layer_absent": "allow", **self.config_overrides}
+        config = make_config(gate_mode=self.gate_mode, bounds=bounds, **overrides)
         sleeper: Callable[[float], None] = self.slept.append
         return Loop(
             config=config,

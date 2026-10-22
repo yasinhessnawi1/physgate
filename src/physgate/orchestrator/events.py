@@ -667,6 +667,11 @@ class OsLayerChecked(_Event):
     #: Whether that listing was read: ``False`` when it could not be, which is never
     #: taken for "nothing listens". ``None`` for ``open``, and on a line written before.
     loopback_listeners_read: bool | None = None
+    #: Where the layer is absent: ``True`` when the run's parameters allow role sessions
+    #: without it, for development (``os_layer_absent: allow``), and the run goes on;
+    #: ``False`` when nothing allows it, and the run is refused before any session. ``None``
+    #: where the layer runs, and on a line written before.
+    absent_allowed: bool | None = None
 
 
 class LeftoverStopped(_Event):

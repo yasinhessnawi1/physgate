@@ -10,6 +10,10 @@ product's to run as it likes; neither is held to this.
 A reportable run also records a person's queue decisions and acts on none, so no measured
 outcome is changed by a decision taken during it.
 
+A reportable run never names the core's development allowance for running without the OS
+layer (``os_layer_absent: allow``), whatever the layer where it runs: its record never carries
+an allowance a measurement would have to explain.
+
 A reportable run that asks for ``network: none`` is refused on the same ground: only
 the OS layer refuses a shell remote hosts, so without it the record would say ``none`` while
 the sessions stay online.
@@ -34,6 +38,21 @@ def os_layer_for_reportable_runs(facts: RunFacts) -> str | None:
         return (
             "a reportable run's role sessions run only inside the OS layer, and here it is "
             f"absent: {facts.os_layer.reason}"
+        )
+    return None
+
+
+def no_os_layer_allowance_for_reportable_runs(facts: RunFacts) -> str | None:
+    """Refuse a reportable run whose parameters allow role sessions without the OS layer.
+
+    The allowance is the core's, for development. A reportable run is refused where the layer is
+    absent in any case (:func:`os_layer_for_reportable_runs`); this refuses the allowance itself,
+    present layer or not, so no reportable run's record names it.
+    """
+    if facts.config.reportable and facts.config.os_layer_absent == "allow":
+        return (
+            "a reportable run never allows role sessions without the OS layer: "
+            "os_layer_absent: refuse"
         )
     return None
 
@@ -66,6 +85,7 @@ def record_decisions_for_reportable_runs(facts: RunFacts) -> str | None:
 #: The requirements the evaluation holds every run to.
 REQUIREMENTS: tuple[RunRequirement, ...] = (
     os_layer_for_reportable_runs,
+    no_os_layer_allowance_for_reportable_runs,
     network_none_for_reportable_runs,
     record_decisions_for_reportable_runs,
 )

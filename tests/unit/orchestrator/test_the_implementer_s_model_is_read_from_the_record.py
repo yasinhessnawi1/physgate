@@ -39,11 +39,12 @@ def test_a_reviewer_on_the_recorded_implementer_s_string_is_refused_whatever_the
     # The caller now holds a configuration naming another implementer, and the
     # reviewer has moved onto the string the record names.
     loop.config = make_config(
+        os_layer_absent="allow",  # as the rig's own configuration allows
         models=ModelStrings(
             decomposition=RECORDED,
             roles={"electrical": OTHER},
             reviewers={"electrical": RECORDED},
-        )
+        ),
     )
     rig.reviewer.model = RECORDED
     with pytest.raises(ModelSeparationError) as raised:

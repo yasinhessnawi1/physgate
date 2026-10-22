@@ -117,6 +117,8 @@ def config(run_id: str, repo: Path, role: str = "electrical", **overrides: Any) 
         "git_binary": None,
         "escalation_backend": "rules",
         "queue_decisions": "record",
+        # A development rig: its loops run with no OS-layer line recorded.
+        "os_layer_absent": "allow",
         "held_out": (),
         "held_out_canaries": (),
         "held_out_sha256": (),
