@@ -338,7 +338,10 @@ def test_a_fix_session_is_installed_with_exactly_a_role_sessions_hooks(
     monkeypatch.setattr(subprocess, "run", fake_run)
     dispatcher = ClaudeDispatcher(
         config=make_config(),
-        run=SimpleNamespace(subtask_branch=lambda subtask: f"b/{subtask}"),  # type: ignore[arg-type]
+        # A run with no event log yet: no interface contracts recorded, so both sessions read none.
+        run=SimpleNamespace(  # type: ignore[arg-type]
+            subtask_branch=lambda subtask: f"b/{subtask}", run_dir=tmp_path / "run"
+        ),
         store_root=tmp_path / "store",
         install_bin=tmp_path / "install" / "bin" / "physgate",
         binary="claude",
