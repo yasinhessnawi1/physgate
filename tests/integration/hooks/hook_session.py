@@ -36,6 +36,7 @@ from fake_messages_api import DUMMY_KEY, FakeMessagesApi, Script, serving
 from physgate.hooks.registry import REGISTRY
 from physgate.hooks.runtime import HookSpec
 from physgate.hooks.settings import Installed, InstallRequest, install
+from physgate.oslayer.reaper_install import with_canary
 
 #: The Claude Code version the hook contract was measured on: the one role
 #: sessions run on, so the hooks are proven on the binary that runs them.
@@ -227,6 +228,8 @@ def _run_session(
         "claude_config_dir": str(outside / "claude-config"),
         "user_home": str(outside / "home"),
         "token_ceiling": 100_000,
+        # Spawned below with its pid exported as the survivor reaper's canary.
+        "spawns_with_canary": True,
     }
     fields.update(request_fields)
     # A test may wire a reduced set of hooks, to show one layer working alone.
@@ -262,20 +265,23 @@ def _run_session(
             **installed.spawn_env,
         }
         proc = subprocess.run(
-            [
-                binary,
-                "-p",
-                "go",
-                *_spawn_args(installed, setting_sources),
-                "--output-format",
-                "stream-json",
-                "--verbose",
-                "--include-hook-events",
-                "--model",
-                "claude-sonnet-4-5",
-                "--permission-mode",
-                "bypassPermissions",
-            ],
+            # Spawned as the dispatcher spawns a session: its pid is the reaper's canary.
+            with_canary(
+                [
+                    binary,
+                    "-p",
+                    "go",
+                    *_spawn_args(installed, setting_sources),
+                    "--output-format",
+                    "stream-json",
+                    "--verbose",
+                    "--include-hook-events",
+                    "--model",
+                    "claude-sonnet-4-5",
+                    "--permission-mode",
+                    "bypassPermissions",
+                ]
+            ),
             cwd=worktree,
             env=env,
             capture_output=True,

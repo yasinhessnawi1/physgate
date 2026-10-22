@@ -28,6 +28,7 @@ from physgate.hooks.registry import REGISTRY
 from physgate.hooks.settings import InstallRequest, install
 from physgate.oslayer.abort import ABORT_PREFIX
 from physgate.oslayer.probe import Present, gather_facts, judge
+from physgate.oslayer.reaper_install import with_canary
 
 MARKER = "STANDIN-HELDOUT-MARKER"
 SEARCH_PATH = "/usr/bin:/bin:/usr/sbin:/sbin"
@@ -118,6 +119,7 @@ def run_session(
     timeout: float = 300,
     aborts_fail: bool = True,
     network: Literal["open", "none"] = "open",
+    reaper: bool = True,
 ) -> dict[str, object]:
     """Install a role session for ``layout``, with or without the OS layer, and run it.
 
@@ -125,6 +127,10 @@ def run_session(
     sandbox failed before the command started. It fails the test, because a refusal
     test would otherwise pass on a command no layer judged. ``aborts_fail`` off leaves
     that to the caller, which is shown the aborted steps under ``aborted``.
+
+    The session is spawned as the dispatcher spawns one, its pid exported as the survivor
+    reaper's canary. ``reaper`` off leaves the reaper out of the session's environment: the
+    red control of the test that it stops what a command left running.
     """
     request = InstallRequest(
         profile="role",
@@ -142,6 +148,7 @@ def run_session(
         extra_protected_refuse_only=(str(layout.root / "run" / "sessions"), str(layout.decisions)),
         os_layer_temp_dir=str(layout.temp.resolve()) if layer else None,
         os_layer_network=network,
+        spawns_with_canary=True,
     )
     installed = install(request, REGISTRY)
     binary = claude_binary()
@@ -159,21 +166,25 @@ def run_session(
             "CLAUDE_CODE_MAX_RETRIES": "0",
             **installed.spawn_env,
         }
+        if not reaper:
+            env.pop("CLAUDE_CODE_SHELL_PREFIX", None)
         started = time.monotonic()
         done = subprocess.run(
-            [
-                binary,
-                "-p",
-                "go",
-                *installed.spawn_args,
-                "--output-format",
-                "stream-json",
-                "--verbose",
-                "--model",
-                "claude-sonnet-4-5",
-                "--permission-mode",
-                "bypassPermissions",
-            ],
+            with_canary(
+                [
+                    binary,
+                    "-p",
+                    "go",
+                    *installed.spawn_args,
+                    "--output-format",
+                    "stream-json",
+                    "--verbose",
+                    "--model",
+                    "claude-sonnet-4-5",
+                    "--permission-mode",
+                    "bypassPermissions",
+                ]
+            ),
             cwd=layout.worktree,
             env=env,
             capture_output=True,

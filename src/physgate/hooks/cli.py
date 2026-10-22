@@ -92,6 +92,13 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
         "host and every loopback service; without it, 'none' cannot be enforced, "
         "and the install says so on stderr and in what it prints",
     )
+    p.add_argument(
+        "--spawns-with-canary",
+        action="store_true",
+        help="the spawner exports the session's own pid as the survivor reaper's canary "
+        "before it execs the binary (the dispatcher's held spawn does); required on macOS "
+        "with the OS layer, where every command runs under the reaper",
+    )
     p.set_defaults(func=_install)
 
 
@@ -125,6 +132,7 @@ def _install(args: argparse.Namespace) -> int:
         os_layer_temp_dir=_abs(args.os_layer_temp) if args.os_layer_temp else None,
         os_layer_readable=tuple(_abs(p) for p in args.os_layer_readable),
         os_layer_network=args.os_layer_network,
+        spawns_with_canary=args.spawns_with_canary,
     )
     done = install(request, REGISTRY)
     printed: dict[str, object] = {

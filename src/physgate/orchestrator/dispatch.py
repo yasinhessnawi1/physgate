@@ -98,6 +98,7 @@ from physgate.oslayer import placeholders
 from physgate.oslayer.abort import aborted_tool_uses
 from physgate.oslayer.placement import machine_writable, placement_refusal
 from physgate.oslayer.probe import Absent, Present, judge_here
+from physgate.oslayer.reaper_install import CANARY_EXPORT
 from physgate.reviewers.ending import SWEEPS, SessionEnd, await_session, group, stop_all
 from physgate.reviewers.packet import issued_spec_sha256
 from physgate.reviewers.places import SESSION_DIRNAME
@@ -115,7 +116,14 @@ OWNER_NAME = "owner.json"
 #: (a pipe only the orchestrator writes), then replaces itself with the binary, its standard
 #: input then ``/dev/null``. Its pid and start time are the session's from the first moment;
 #: if the orchestrator dies before the release, the pipe closes and nothing of the session runs.
-HELD = ("/bin/sh", "-c", 'IFS= read -r _ || exit 70; exec "$@" </dev/null', "physgate-held")
+#: The shell exports its own pid, which the binary keeps, as the survivor reaper's canary
+#: (:mod:`physgate.oslayer.reaper_install`): a process outside every command's sandbox.
+HELD = (
+    "/bin/sh",
+    "-c",
+    "IFS= read -r _ || exit 70; " + CANARY_EXPORT + 'exec "$@" </dev/null',
+    "physgate-held",
+)
 
 
 def spawn_held(
@@ -1139,6 +1147,8 @@ class ClaudeDispatcher:
             # The held-out tier: no role session reads or writes it (ARCH-141).
             *(arg for root in self._config.held_out for arg in ("--held-out", root)),
             *(["--os-layer-temp", str(temp)] if temp is not None else []),
+            # The held spawn exports the session's pid as the survivor reaper's canary.
+            "--spawns-with-canary",
             # No remote host where the run asks for it; only the OS layer can enforce that.
             *(
                 ["--os-layer-network", self._config.network]
@@ -1396,6 +1406,7 @@ class ClaudeDispatcher:
                 msg = "the session was answered by a model other than the pinned one"
                 raise InvocationError(msg, asked=request.model, answered=",".join(echoed))
         halted, appends = self._hook_log(sdir / "state", session_id)
+        unverified = self._reaper_unverified(sdir / "state", session_id)
         # The session has ended: its series records leave the worktree before anything is
         # committed, sealed if they hold, so no record is ever in git or in a review's diff.
         series = collect(
@@ -1457,6 +1468,7 @@ class ClaudeDispatcher:
             placeholders_refused=placeholders_refused,
             withheld_problems=withheld_problems,
             os_layer_aborted=aborted,
+            reaper_unverified=unverified,
         )
 
     @staticmethod
@@ -1750,6 +1762,21 @@ class ClaudeDispatcher:
     @staticmethod
     def _read_in_full(config_path: Path, session_id: str) -> bool:
         return read_in_full(config_path, session_id)
+
+    @staticmethod
+    def _reaper_unverified(state: Path, session_id: str) -> tuple[str, ...]:
+        """The shell commands whose reaper's word the hook layer logged as cut off."""
+        log = state / "hooks.log.jsonl"
+        if not log.exists():
+            return ()
+        found = []
+        for line in read_session_file(log).decode(errors="replace").splitlines():
+            record = json.loads(line)
+            if record.get("session") == session_id and record.get("decision") == (
+                "reaper_unverified"
+            ):
+                found.append(json.dumps(record.get("tool_input"))[:200])
+        return tuple(found)
 
     @staticmethod
     def _hook_log(state: Path, session_id: str) -> tuple[bool, tuple[str, ...]]:

@@ -58,6 +58,7 @@ def _shim(paths: Sequence[Path], ceiling: int, role: str) -> SessionConfig:
         ),
         watchdog_seconds=5,
         hook_timeout_seconds=30,
+        survivor_reaper=False,
     )
 
 

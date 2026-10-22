@@ -51,6 +51,7 @@ def config_dict(tmp: Path, **overrides: Any) -> dict[str, Any]:  # noqa: ANN401 
         },
         "watchdog_seconds": 5,
         "hook_timeout_seconds": 30,
+        "survivor_reaper": False,
     }
     base.update(overrides)
     # A reviewer reads only beneath its allowance, so a reviewer built here gets one

@@ -112,6 +112,8 @@ def test_the_installer_command_takes_the_raw_agent_offline(
             "/tmp/pg-0123456789ab",
             "--os-layer-network",
             "none",
+            # Spawned with its pid exported as the survivor reaper's canary (macOS).
+            "--spawns-with-canary",
         ]
     )
     assert args.func(args) == 0
@@ -149,7 +151,9 @@ def test_offline_asked_for_without_the_os_layer_is_said_never_silently_dropped(
     assert NETWORK_UNENFORCED in said.err
     assert "sandbox" not in json.loads(Path(printed["settings"]).read_text())
     # With the layer, nothing is said: the printed record is exactly what dispatch reads.
-    args = parser.parse_args([*common, "--os-layer-temp", "/tmp/pg-0123456789ab"])
+    args = parser.parse_args(
+        [*common, "--os-layer-temp", "/tmp/pg-0123456789ab", "--spawns-with-canary"]
+    )
     assert args.func(args) == 0
     said = capsys.readouterr()
     assert "network_unenforced" not in json.loads(said.out) and not said.err

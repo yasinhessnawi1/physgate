@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -589,3 +590,77 @@ def test_without_the_layer_the_outbox_reads_back_which_shows_the_probe_works(
     simulated, read_back = (str(said) for said in told)
     assert "recorded" in simulated, simulated
     assert MARKER in read_back, read_back
+
+
+#: Started by one command in a session of its own, so the shell's job control does not see
+#: it: for twenty seconds it appends a line to a file in the worktree every tenth of a second.
+LINGERER = """\
+import time
+end = time.time() + 20
+with open('alive.log', 'a', buffering=1) as log:
+    while time.time() < end:
+        log.write('x\\n')
+        time.sleep(0.1)
+"""
+
+SPAWN_LINGERER = (
+    "import subprocess, sys\n"
+    f"subprocess.Popen([sys.executable, '-c', {LINGERER!r}], start_new_session=True,"
+    " stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+    "import time; time.sleep(0.5)\n"
+    "print('spawned')"
+)
+
+#: In a later command: whether the file is still growing.
+STILL_GROWING = """\
+import os, time
+before = os.path.getsize('alive.log')
+time.sleep(1.5)
+print('growing' if os.path.getsize('alive.log') > before else 'still')
+"""
+
+
+@pytest.mark.usefixtures("layer")
+@pytest.mark.parametrize("reaper", [True, False], ids=["reaper", "red-control-without-it"])
+def test_nothing_a_command_starts_outlives_it(layout: Layout, *, reaper: bool) -> None:
+    # A process started in a session of its own got past the refusal of backgrounding and,
+    # on macOS, lived on across later commands (M-128). Linux's process namespace ends it
+    # with its command; on macOS the reaper, inside the command's own sandbox, stops it,
+    # and the hook layer refuses the command that left it.
+    if not reaper and sys.platform != "darwin":
+        pytest.skip("the reaper exists on macOS only; Linux has no control to run")
+    into = f"cd {layout.worktree} && "
+    steps = [
+        tool("Bash", command=into + python(SPAWN_LINGERER), description="spawn"),
+        tool("Bash", command=into + python(STILL_GROWING), description="look"),
+    ]
+    run = run_session(layout, steps, layer=True, reaper=reaper)
+    told = run["told"]
+    assert isinstance(told, list)
+    spawned, looked = (str(said) for said in told)
+    assert "spawned" in spawned, spawned
+    log_path = layout.sdir / "state" / "hooks.log.jsonl"
+    lines = log_path.read_text().splitlines() if log_path.exists() else []
+    caught = [
+        json.loads(line)
+        for line in lines
+        if '"survivors"' in line and json.loads(line).get("hook") == "survivors"
+    ]
+    if not reaper:
+        # Without the reaper the survivor is still writing in the next command, and the
+        # hook, told by the configuration that the reaper is on, refuses each command that
+        # gave no "done" line: a reaper that is missing is not taken for one that finished.
+        assert "growing" in looked, looked
+        assert [(c["event"], c["decision"]) for c in caught] == [("PostToolUse", "refuse")] * 2
+        assert all("did not finish" in c["reason"] for c in caught)
+        return
+    assert "still" in looked, looked
+    if sys.platform == "darwin":
+        assert [(c["event"], c["decision"]) for c in caught] == [("PostToolUse", "refuse")]
+        assert "left 1 process(es) running after it ended" in caught[0]["reason"]
+    else:
+        assert caught == []
+    log = layout.worktree / "alive.log"
+    size = log.stat().st_size
+    time.sleep(1.0)
+    assert log.stat().st_size == size
