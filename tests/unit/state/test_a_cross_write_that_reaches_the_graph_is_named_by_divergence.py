@@ -242,16 +242,26 @@ def test_the_owner_is_the_one_the_register_named_whatever_its_name(graph_before:
 # --- one entry per change, and the check as it was without the duties ---------------------------
 
 
-def test_a_change_named_for_ownership_is_named_once_and_for_that(graph_before: Store) -> None:
-    # Sizing's node changed during control's step: something wrote it that the step's role
-    # does not own. That it would also break the cross rule is not named a second time: it
-    # is a cross-role write first, as the hook and apply refuse it first.
+@pytest.mark.parametrize(
+    "foreign",
+    [
+        node("sizing.motor_left", "sizing", "cross", updated="tampered"),
+        node("iface.sizing.p09", "sizing", "cross", kind="interface", quantities={}),
+    ],
+    ids=["a cross node of another role", "a new interface of another role"],
+)
+def test_a_change_named_for_ownership_is_named_once_and_for_that(
+    graph_before: Store, foreign: dict[str, Any]
+) -> None:
+    # A node of sizing's changed during control's step: something wrote it that the step's
+    # role does not own. Written by control, it would also break a duty (a cross node from a
+    # role that does not own them; an interface created in a step), and that is not named a
+    # second time: it is a cross-role write first, as the hook and apply refuse it first.
     cursor = graph_before.head_revision()
-    foreign = node("sizing.motor_left", "sizing", "electrical", updated="tampered")
     assert graph_before.write_node(foreign, "sizing").accepted
     found = divergence(graph_before, graph_before.diff(cursor), "control", SHIPPING)
     assert [(d.node_id, d.reason, d.owner_role) for d in found] == [
-        ("sizing.motor_left", REJECT_CROSS_ROLE, "sizing")
+        (str(foreign["id"]), REJECT_CROSS_ROLE, "sizing")
     ]
 
 
