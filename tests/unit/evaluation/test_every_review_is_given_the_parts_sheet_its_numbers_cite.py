@@ -43,6 +43,7 @@ from physgate.evaluation.inject.exceptions import BlindnessError, CorpusError
 from physgate.evaluation.inject.materialise import (
     ACCOUNT_SHEET,
     ACCOUNT_SHEET_GIVEN,
+    ACCOUNT_SHEET_REMARKS,
     PARTS_SHEET_NAME,
 )
 from physgate.evaluation.inject.runner import run_instrument
@@ -234,3 +235,28 @@ def test_a_sheet_converted_from_its_table_reaches_every_review_with_every_value_
         assert {k: r["given"] for k, r in rows.items() if "given" in r} == GIVEN
         assert {k: r["note"] for k, r in rows.items() if "note" in r} == NOTES
     assert all(ACCOUNT_SHEET_GIVEN in a and ACCOUNT_SHEET not in a for a in accounts)
+
+
+def test_remarks_carried_from_the_table_reach_every_review_and_the_account_names_them(
+    tmp_path: Path,
+) -> None:
+    remark = "Every address was read on one day; R8.01 lists the register's settings."
+    root = write_corpus(tmp_path / "corpus")
+    sheet = converter.convert(f"{remark}\n\n{TABLE}", label="a test parts sheet", prose="carry")
+    (root / SOURCES_NAME).write_bytes(sheet)
+    write_manifest(root, manifest_for(root, label=LABEL, author_model=AUTHOR))
+    corpus = load_corpus(root)
+    given: list[dict[str, Any]] = []
+    accounts: list[str] = []
+
+    def look(artefact: Artefact) -> None:
+        given.append(json.loads((Path(artefact.worktree) / PARTS_SHEET_NAME).read_bytes()))
+        accounts.append(Path(artefact.trajectory).read_text())
+
+    _run(corpus, tmp_path, SeededFakeReviewer(before_verdict=look))
+    assert given and all(sheet["remarks"] == [remark] for sheet in given)
+    for account in accounts:
+        lines = account.split("\n")
+        assert lines.count(ACCOUNT_SHEET_REMARKS.rstrip("\n")) == 1
+        assert ACCOUNT_SHEET.rstrip("\n") not in lines
+        assert ACCOUNT_SHEET_GIVEN.rstrip("\n") not in lines

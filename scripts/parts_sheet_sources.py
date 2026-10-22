@@ -15,11 +15,13 @@ Row, Quantity, Value, Unit, Source URL, Retrieved and Note. A review is given
 - the Retrieved column must hold one date for every row, because a row has no field for it.
 
 **Lines outside the tables.** A heading is the table's structure and is not carried. A line
-that holds a pipe or a row id is refused: a row written there, without its leading pipe or
-inside a quote, would otherwise be lost. A code fence is refused, since a table written inside
-one is no table. Every other line is prose, and the command is told what to do with it by
-name: ``--prose carry`` writes each line, as written, to the sheet's ``remarks``; ``--prose
-drop`` leaves them out and counts them. A text with prose and neither is refused.
+that holds a pipe, or starts with a row id (after any indent, quote or list marker), is
+refused: a row written there, without its leading pipe or inside a quote or a list, would
+otherwise be lost. A code fence is refused, since a table written inside one is no table.
+Every other line is prose, a row id later in it naming a row in passing, and the command is
+told what to do with it by name: ``--prose carry`` writes each line, as written, to the
+sheet's ``remarks``; ``--prose drop`` leaves them out and counts them. A text with prose and
+neither is refused.
 
 **What a review is given holds no telltale word.** Every ``given``, ``note`` and remark the
 converter writes is held to the corpus's telltale words, the same list the instrument holds a
@@ -86,8 +88,9 @@ _DONE = {"carry": "carried", "drop": "dropped"}
 ADDED = ("given", "note")
 SHEET_ADDED = ("remarks",)
 _ROW_ID = re.compile(r"R[0-9]+[a-z]?\.[0-9]{2}")
-#: A row id anywhere in a line, as a word of its own.
-_ROW_MENTION = re.compile(r"(?<![A-Za-z0-9])R[0-9]+[a-z]?\.[0-9]{2}(?![0-9])")
+#: A line that starts with a row id, after any indent and any quote or list marker: a row
+#: written outside a table. A row id later in a line names a row in passing.
+_ROW_LEAD = re.compile(r"\s*(?:(?:[>*+-]|[0-9]+[.)])\s*)*R[0-9]+[a-z]?\.[0-9]{2}(?![0-9])")
 _FENCE = re.compile(r"\s*(```|~~~)")
 _NUMBER = re.compile(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
 _WHOLE = re.compile(r"[+-]?[0-9]+")
@@ -202,10 +205,10 @@ def read_table(markdown: str) -> Table:
         if not line.lstrip().startswith("|"):
             if line.lstrip().startswith("#"):
                 continue
-            if "|" in line or _ROW_MENTION.search(line):
+            if "|" in line or _ROW_LEAD.match(line):
                 msg = (
-                    f"line {number}: a line outside the tables holds a pipe or a row id, and a "
-                    "row written there would be lost"
+                    f"line {number}: a line outside the tables holds a pipe or starts with a row "
+                    "id, and a row written there would be lost"
                 )
                 raise SheetRefusedError(msg)
             prose.append((number, line))

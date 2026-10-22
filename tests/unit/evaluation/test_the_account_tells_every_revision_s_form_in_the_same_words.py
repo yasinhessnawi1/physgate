@@ -36,6 +36,8 @@ from physgate.evaluation.inject.materialise import (
     ACCOUNT_SHEET,
     ACCOUNT_SHEET_GIVEN,
     ACCOUNT_SHEET_GIVEN_SHA256,
+    ACCOUNT_SHEET_REMARKS,
+    ACCOUNT_SHEET_REMARKS_SHA256,
     ACCOUNT_SHEET_SHA256,
     materialise,
     neutral_trajectory,
@@ -52,6 +54,8 @@ PINNED = "8580efd05af6fd2d304810950f00bb2c3d462302dddfd00b1d12373e340ab838"
 PINNED_SHEET = "4adba41d2ba10410d8fa734013dcfa305c0918190e0757cb54ab6f3fc625c9c9"
 #: The sentence a review is told when rows of its sheet give values as written, or notes.
 PINNED_SHEET_GIVEN = "09f545b2df9d39fe8c27784768d58d5dfa71a243c2fa5808996ed8a0718fe439"
+#: The sentence a review is told when its sheet carries its authors' remarks.
+PINNED_SHEET_REMARKS = "65a39190adc73dcd083fb10807765af9e4dcd8b3ebbce51a36731e93dd5a5a77"
 #: Every account of two committed corpora written before rows gave values (each artefact,
 #: clean and injected, in id order), digested as the code before that change wrote them.
 OLD_ACCOUNTS = {
@@ -143,7 +147,18 @@ def test_each_parts_sheet_sentence_is_pinned_by_its_own_digest() -> None:
     assert ACCOUNT_SHEET_SHA256 == PINNED_SHEET
     assert hashlib.sha256(ACCOUNT_SHEET_GIVEN.encode()).hexdigest() == ACCOUNT_SHEET_GIVEN_SHA256
     assert ACCOUNT_SHEET_GIVEN_SHA256 == PINNED_SHEET_GIVEN
-    assert telltales(ACCOUNT_SHEET) == [] == telltales(ACCOUNT_SHEET_GIVEN)
+    assert hashlib.sha256(ACCOUNT_SHEET_REMARKS.encode()).hexdigest() == (
+        ACCOUNT_SHEET_REMARKS_SHA256
+    )
+    assert ACCOUNT_SHEET_REMARKS_SHA256 == PINNED_SHEET_REMARKS
+    sentences = (ACCOUNT_SHEET, ACCOUNT_SHEET_GIVEN, ACCOUNT_SHEET_REMARKS)
+    assert all(telltales(s) == [] for s in sentences) and len(set(sentences)) == 3
+
+
+def test_the_remarks_sentence_is_the_given_sentence_and_names_the_remarks() -> None:
+    assert ACCOUNT_SHEET_REMARKS.startswith(ACCOUNT_SHEET_GIVEN.rstrip("\n"))
+    assert "`remarks`" in ACCOUNT_SHEET_REMARKS
+    assert "`remarks`" not in ACCOUNT_SHEET + ACCOUNT_SHEET_GIVEN
 
 
 def test_the_given_sentence_names_the_sheet_s_authors_not_the_datasheet() -> None:
@@ -153,21 +168,34 @@ def test_the_given_sentence_names_the_sheet_s_authors_not_the_datasheet() -> Non
 
 
 @pytest.mark.parametrize(
-    ("gives", "told", "not_told"),
-    [(False, ACCOUNT_SHEET, ACCOUNT_SHEET_GIVEN), (True, ACCOUNT_SHEET_GIVEN, ACCOUNT_SHEET)],
-    ids=["a-sheet-of-numbers", "a-sheet-that-gives-values"],
+    ("gives", "remarks", "told"),
+    [
+        (False, False, ACCOUNT_SHEET),
+        (True, False, ACCOUNT_SHEET_GIVEN),
+        (False, True, ACCOUNT_SHEET_REMARKS),
+        (True, True, ACCOUNT_SHEET_REMARKS),
+    ],
+    ids=["a-sheet-of-numbers", "a-sheet-that-gives-values", "remarks", "values-and-remarks"],
 )
-def test_the_account_tells_the_sentence_its_sheet_calls_for(
-    gives: bool, told: str, not_told: str
+def test_the_account_tells_the_one_sentence_its_sheet_calls_for(
+    gives: bool, remarks: bool, told: str
 ) -> None:
     nodes = tuple(dict(n) for n in BASE_NODES[:1])
-    account = neutral_trajectory(nodes, parts_sheet=True, sheet_gives=gives)
-    assert account.count(told) == 1 and not_told not in account
-    assert neutral_trajectory(nodes, parts_sheet=False, sheet_gives=gives).count("parts sheet") == 0
+    account = neutral_trajectory(nodes, parts_sheet=True, sheet_gives=gives, sheet_remarks=remarks)
+    others = {ACCOUNT_SHEET, ACCOUNT_SHEET_GIVEN, ACCOUNT_SHEET_REMARKS} - {told}
+    # Each sentence is a whole line of the account, so one cannot hide inside another.
+    assert account.split("\n").count(told.rstrip("\n")) == 1
+    assert all(account.split("\n").count(o.rstrip("\n")) == 0 for o in others)
+    without = neutral_trajectory(nodes, parts_sheet=False, sheet_gives=gives, sheet_remarks=remarks)
+    assert without.count("parts sheet") == 0
 
 
 def _sheet(rows: dict[str, Any]) -> bytes:
-    return json.dumps({"label": "a sheet", "rows": rows}).encode()
+    remarks = rows.pop("remarks", None)
+    sheet: dict[str, Any] = {"label": "a sheet", "rows": rows}
+    if remarks is not None:
+        sheet["remarks"] = remarks
+    return json.dumps(sheet).encode()
 
 
 ROW: dict[str, Any] = {"quantity": "rate", "value": 2, "unit": "Hz", "url": "https://e.com/x"}
@@ -179,14 +207,17 @@ ROW: dict[str, Any] = {"quantity": "rate", "value": 2, "unit": "Hz", "url": "htt
         ({"R1.01": ROW}, ACCOUNT_SHEET),
         ({"R1.01": {**ROW, "given": "2.0 Hz"}}, ACCOUNT_SHEET_GIVEN),
         ({"R1.01": {**ROW, "note": "typical"}}, ACCOUNT_SHEET_GIVEN),
+        ({"R1.01": ROW, "remarks": ["one line"]}, ACCOUNT_SHEET_REMARKS),
+        ({"R1.01": {**ROW, "note": "typical"}, "remarks": ["one line"]}, ACCOUNT_SHEET_REMARKS),
     ],
-    ids=["numbers-only", "a-given-value", "a-note"],
+    ids=["numbers-only", "a-given-value", "a-note", "remarks", "a-note-and-remarks"],
 )
 def test_materialise_reads_from_the_sheet_which_sentence_it_calls_for(
     tmp_path: Path, rows: dict[str, Any], told: str
 ) -> None:
     made = materialise(BASE, _patch(MAGNITUDE_ARTEFACT, "clean"), tmp_path / "r", _sheet(rows))
-    assert told in made.trajectory.read_text()
+    lines = made.trajectory.read_text().split("\n")
+    assert lines.count(told.rstrip("\n")) == 1
 
 
 def test_materialise_refuses_a_sheet_that_is_no_parts_sheet_before_writing_anything(

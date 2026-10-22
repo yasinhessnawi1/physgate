@@ -36,6 +36,7 @@ from physgate.evaluation.inject.corpus import (
     Patch,
     gives_values,
     name_telltales,
+    read_sheet,
     strings_of,
     telltales,
 )
@@ -110,6 +111,13 @@ ACCOUNT_SHEET_GIVEN = (
 #: review is told, outside the three paragraphs below.
 ACCOUNT_SHEET_SHA256 = hashlib.sha256(ACCOUNT_SHEET.encode()).hexdigest()
 ACCOUNT_SHEET_GIVEN_SHA256 = hashlib.sha256(ACCOUNT_SHEET_GIVEN.encode()).hexdigest()
+#: How the account names a parts sheet that also carries its authors' remarks: the sentence
+#: above, and where the remarks are.
+ACCOUNT_SHEET_REMARKS = ACCOUNT_SHEET_GIVEN.removesuffix("\n") + (
+    " Under `remarks`, the sheet holds lines its authors wrote beside its rows, each as they "
+    "wrote it.\n"
+)
+ACCOUNT_SHEET_REMARKS_SHA256 = hashlib.sha256(ACCOUNT_SHEET_REMARKS.encode()).hexdigest()
 #: The three paragraphs' digest, pinned by a test and recorded on every run.
 ACCOUNT_SHA256 = hashlib.sha256(
     (ACCOUNT_FORM + ACCOUNT_ABSENCES + ACCOUNT_PRECISION).encode()
@@ -203,16 +211,17 @@ def materialise(
     With no patch, the base itself is the one revision, over an empty design:
     how the base alone is gated before any artefact is written over it. With a
     ``parts_sheet``, its bytes are written as :data:`PARTS_SHEET_NAME` beside the
-    design, in the given design's commit, and the account names it, in the words its
-    rows call for (:data:`ACCOUNT_SHEET` or :data:`ACCOUNT_SHEET_GIVEN`).
+    design, in the given design's commit, and the account names it, in the words the
+    sheet calls for (:data:`ACCOUNT_SHEET`, :data:`ACCOUNT_SHEET_GIVEN` or
+    :data:`ACCOUNT_SHEET_REMARKS`).
 
     Raises:
         CorpusError: ``into`` exists, the store refuses a write, or ``parts_sheet`` is
             not a parts sheet.
     """
     into = Path(into)
-    if parts_sheet is not None:
-        gives_values(parts_sheet)  # refused here, before anything is written
+    # Read, and refused if it is no parts sheet, before anything is written.
+    sources = read_sheet(parts_sheet) if parts_sheet is not None else None
     if into.exists():
         msg = "an artefact is materialised into a directory that does not exist yet"
         raise CorpusError(msg, into=str(into))
@@ -239,7 +248,8 @@ def materialise(
         neutral_trajectory(
             written,
             parts_sheet=parts_sheet is not None,
-            sheet_gives=parts_sheet is not None and gives_values(parts_sheet),
+            sheet_gives=sources is not None and gives_values(sources),
+            sheet_remarks=sources is not None and sources.remarks is not None,
         )
     )
     return Materialised(
@@ -268,12 +278,17 @@ def _write(store: Store, payload: dict[str, object]) -> int:
 
 
 def neutral_trajectory(
-    nodes: tuple[dict[str, object], ...], *, parts_sheet: bool = False, sheet_gives: bool = False
+    nodes: tuple[dict[str, object], ...],
+    *,
+    parts_sheet: bool = False,
+    sheet_gives: bool = False,
+    sheet_remarks: bool = False,
 ) -> str:
     """The reviewer's account of the revision: the same template for every artefact.
 
-    With ``parts_sheet``, the account names the sheet; with ``sheet_gives``, in the sentence
-    for a sheet whose rows give values as written or notes.
+    With ``parts_sheet``, the account names the sheet in one of three sentences: for a sheet
+    that carries its authors' remarks; else, with ``sheet_gives``, for one whose rows give
+    values as written or notes; else for a sheet of numbers.
     """
     parts = [
         "# A proposed revision of the design\n",
@@ -283,7 +298,10 @@ def neutral_trajectory(
         "It wrote the nodes below, which now read as follows.\n",
     ]
     if parts_sheet:
-        parts.append(ACCOUNT_SHEET_GIVEN if sheet_gives else ACCOUNT_SHEET)
+        if sheet_remarks:
+            parts.append(ACCOUNT_SHEET_REMARKS)
+        else:
+            parts.append(ACCOUNT_SHEET_GIVEN if sheet_gives else ACCOUNT_SHEET)
     # The revision's form, and with a sheet what it lacks and how its numbers are
     # written: fixed bytes, so no item is told more than another.
     parts.append(ACCOUNT_FORM)

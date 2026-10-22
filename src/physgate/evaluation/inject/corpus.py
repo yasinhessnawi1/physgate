@@ -456,17 +456,21 @@ class Corpus:
     parts_sheet: bytes
 
 
-def gives_values(sheet: bytes) -> bool:
-    """Whether a parts sheet gives any row's value as written or a note: more than numbers.
+def read_sheet(sheet: bytes) -> Sources:
+    """A parts sheet's bytes, read.
 
     Raises:
         CorpusError: the bytes are not a parts sheet.
     """
     try:
-        sources = Sources.model_validate_json(sheet)
+        return Sources.model_validate_json(sheet)
     except ValidationError as exc:
         msg = "the bytes given as a parts sheet are not a parts sheet"
         raise CorpusError(msg, reason=first_problem(exc)) from exc
+
+
+def gives_values(sources: Sources) -> bool:
+    """Whether a parts sheet gives any row's value as written or a note: more than numbers."""
     return any(r.given is not None or r.note is not None for r in sources.rows.values())
 
 

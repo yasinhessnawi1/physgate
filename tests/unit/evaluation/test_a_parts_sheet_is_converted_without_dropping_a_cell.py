@@ -16,8 +16,9 @@ cell out:
   for the address of the nearest row above;
 - the retrieval date is one date for the whole sheet, so no row's date is dropped;
 - a line of prose outside the tables is carried as a remark of the sheet or dropped and
-  counted, as the command is told; one that holds a pipe or a row id, or a code fence, is
-  refused, since a row written there would be lost;
+  counted, as the command is told; one that holds a pipe or starts with a row id, or a code
+  fence, is refused, since a row written there would be lost; one that names a row in
+  passing is prose;
 - no value, note or remark it writes holds a word that would give the corpus away;
 - a column, a line or a cell it does not know how to carry stops it, and nothing is written.
 
@@ -433,14 +434,39 @@ WITH_PROSE = SHEET.replace("## R1: motor and supply\n\n", f"## R1: motor and sup
     [
         f"R1.08 | voltage | 5 | V | {MOTOR} | {DAY} | — |",
         f"> | R1.08 | voltage | 5 | V | {MOTOR} | {DAY} | — |",
-        "The driver's limit is R1.07 above.",
+        "R1.08 voltage 5 V",
+        "  R1a.02: number of cells 6",
+        "- R1.08 voltage 5 V",
+        "> R1.08 voltage 5 V",
+        "1. R1.08 voltage 5 V",
         "a | b",
     ],
-    ids=["a-row-without-its-leading-pipe", "a-row-in-a-quote", "a-row-id-in-prose", "a-pipe"],
+    ids=[
+        "a-row-without-its-leading-pipe",
+        "a-row-in-a-quote",
+        "a-row-id-starting-a-line",
+        "an-indented-row-id-starting-a-line",
+        "a-row-id-starting-a-bullet",
+        "a-row-id-starting-a-quote",
+        "a-row-id-starting-a-numbered-item",
+        "a-pipe",
+    ],
 )
-def test_a_line_outside_the_tables_that_holds_a_pipe_or_a_row_id_is_refused(line: str) -> None:
+def test_a_line_outside_the_tables_that_holds_a_pipe_or_starts_with_a_row_id_is_refused(
+    line: str,
+) -> None:
     with pytest.raises(converter.SheetRefusedError, match="outside"):
         converter.convert(SHEET + f"\n{line}\n", label=LABEL, prose="carry")
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["The driver's limit is R1.07 above.", "See R1.03 and R1a.01 for the supply.", "Rated 5 V."],
+    ids=["a-row-id-mid-sentence", "two-row-ids-in-passing", "no-row-id"],
+)
+def test_prose_that_mentions_a_row_in_passing_is_carried(line: str) -> None:
+    carried = json.loads(converter.convert(SHEET + f"\n{line}\n", label=LABEL, prose="carry"))
+    assert carried["remarks"] == [line]
 
 
 def test_a_code_fence_is_refused_since_a_row_inside_it_is_no_table_row() -> None:
