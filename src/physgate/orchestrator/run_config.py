@@ -53,6 +53,16 @@ class ModelStrings(_Frozen):
     roles: dict[NonEmptyStr, ModelString]
     reviewers: dict[NonEmptyStr, ModelString]
 
+    @model_validator(mode="after")
+    def _the_design_reviewer_is_not_the_decomposition_s_model(self) -> ModelStrings:
+        # The design reviewer judges the plan, so the decomposition is its implementer:
+        # a judge on the model it judges is the self-preference reviewers are paired on
+        # another model to avoid (ARCH-060). Refused here, before any call is made.
+        if self.reviewers.get("design") == self.decomposition:
+            msg = "the design reviewer may not run on the decomposition's model"
+            raise ValueError(msg)
+        return self
+
 
 class RunBounds(_Frozen):
     """The limits a session runs under. Required, like the seed; none has a default.

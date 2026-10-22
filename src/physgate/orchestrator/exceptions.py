@@ -85,6 +85,10 @@ class RoleNotRegisteredError(OrchestratorError):
     """A run names a role the role register does not hold, so it may not dispatch it."""
 
 
+class RoleRegisterError(OrchestratorError):
+    """The role register would hold two roles of one name, or two owning one duty."""
+
+
 class RunStateError(OrchestratorError):
     """The run is not in a state that allows what was asked: started twice, or interrupted."""
 
