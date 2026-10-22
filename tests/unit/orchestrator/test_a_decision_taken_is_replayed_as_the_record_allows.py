@@ -565,11 +565,18 @@ def test_a_scan_hit_on_an_item_no_review_judged_makes_approve_record_only(tmp_pa
     hit = ScanHit(kind="disabled_checks", evidence="toolu_9", what="a test skipped")
     consequence = item_consequence(loop.state, "s1", source="review_unavailable", scan_hits=(hit,))
     assert (consequence.on_approve, consequence.why_record_only) == ("record_only", "scan_hit")
-    # The same hit on an item whose review judged the scan changes nothing: the review did.
-    judged = _escalated(tmp_path / "judged", "review_exhausted")
-    sub = judged.state.subtasks["s1"]
+    # An exhausted budget counts it too: the loop scans only the attempts no review judged
+    # (one that ended at the gate, say), and what it found there is in the commit.
+    exhausted = _escalated(tmp_path / "exhausted", "review_exhausted")
+    sub = exhausted.state.subtasks["s1"]
+    found = item_consequence(exhausted.state, "s1", source=source_of(sub), scan_hits=(hit,))
+    assert (found.on_approve, found.why_record_only) == ("record_only", "scan_hit")
+    # A review that blocked judged the attempt's streams itself: the same hit changes nothing.
+    blocked = _escalated(tmp_path / "blocked", "blocked")
+    sub = blocked.state.subtasks["s1"]
+    assert source_of(sub) == "review_blocked"
     assert (
-        item_consequence(judged.state, "s1", source=source_of(sub), scan_hits=(hit,)).scan_hits
+        item_consequence(blocked.state, "s1", source=source_of(sub), scan_hits=(hit,)).scan_hits
         == ()
     )
 

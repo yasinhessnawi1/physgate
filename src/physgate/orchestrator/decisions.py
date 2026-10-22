@@ -58,6 +58,15 @@ if TYPE_CHECKING:
     from physgate.orchestrator.replay import AttemptState, RunState, SubtaskState
 
 
+#: The sources whose approve can merge and whose scan before review counts: a review that
+#: reached no verdict, and the two ends with attempts made by then, any of which may have ended
+#: at the gate or the change check unreviewed. Each attempt no review judged is scanned; a hit
+#: makes approve record only.
+SCANNED_SOURCES: frozenset[QueueSource] = frozenset(
+    {"review_unavailable", "repair_budget_exhausted", "escalation_decision"}
+)
+
+
 @dataclass(frozen=True)
 class Taken:
     """What a decision does when the loop takes it: the effect, whether it acts, and why not."""
@@ -189,8 +198,8 @@ def item_consequence(
 ) -> ItemConsequence:
     """What each verb will do to the subtask's item, and why approve records only if it does.
 
-    ``scan_hits`` is what the scan before review found in the attempt's streams; it counts only
-    for an item whose review never judged them (``review_unavailable``).
+    ``scan_hits`` is what the scan before review found in the streams of the attempts no review
+    judged; it counts for the sources in :data:`SCANNED_SOURCES`.
     """
     if subtask_id == INTEGRATION or source == "gate_escalation":
         return ItemConsequence(
@@ -212,7 +221,7 @@ def item_consequence(
         else None
     )
     indicators = confirmed_indicators(sub)
-    hits = scan_hits if source == "review_unavailable" else ()
+    hits = scan_hits if source in SCANNED_SOURCES else ()
     if source == "arbitration":
         why, on_reject = _arbitration_effect()
         return ItemConsequence(

@@ -22,10 +22,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import pytest
-from loop_fakes import FakeDispatcher, FakeReviewer, plan
+from loop_fakes import FakeDispatcher, FakeGate, FakeReviewer, plan
 from orch_helpers import CLEAN_HARNESS, make_config
 from test_a_blocked_review_is_a_review_that_goes_to_a_person import BLOCKING, blocked_review
 from test_a_queue_decision_acts_at_a_boundary import (
@@ -347,3 +347,123 @@ def test_a_confirmation_of_a_decision_taken_and_not_held_is_refused(tmp_path: Pa
     assert taken.acts
     with pytest.raises(RunStateError, match="not held"):
         _resume(rig, confirm=("run-1-s1",), confirmed_by="operator")
+
+
+# -- one read of the file, sealed up to its last whole line ------------------------------------
+
+
+def _forge_prefix(run_dir: Path) -> None:
+    """A bound approve of s2 put before the bytes already in the decisions file."""
+    path = run_dir / DECISIONS_NAME
+    old = path.read_bytes()
+    path.write_bytes(b"")
+    decide(run_dir, "approve", item_id="run-1-s2")
+    path.write_bytes(path.read_bytes() + old)
+
+
+def _two_items_then_reject(run_dir: Path) -> Any:
+    rig = _rig(run_dir, reviewer=FakeReviewer(unavailable={1: NO_VERDICT, 2: NO_VERDICT}))
+    loop = _start(rig, "s1", "s2")
+    loop.run()
+    loop.close()
+    decide(run_dir, "reject", "try the table's gain", item_id="run-1-s1")
+    return rig
+
+
+def test_the_decisions_taken_are_parsed_from_the_bytes_the_seals_were_checked_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The review's proof: the file is swapped in the gap after the seals were checked on one
+    # read of it and before the decisions were parsed from another.
+    import inspect
+
+    from physgate.orchestrator.queue import decisions_file_bytes as real
+
+    run_dir = tmp_path / "run"
+    rig = _two_items_then_reject(run_dir)
+    state = {"armed": False, "fired": False}
+
+    def read_then_swap(where: Path) -> bytes:
+        data = real(where)
+        if inspect.stack()[1].function == "_session":
+            state["armed"] = True  # the seal of s1's retry, as it spawns
+        elif state["armed"] and not state["fired"]:
+            state["fired"] = True
+            _forge_prefix(run_dir)  # what a race in the gap would do
+        return data
+
+    monkeypatch.setattr("physgate.orchestrator.loop.decisions_file_bytes", read_then_swap)
+    rig.dispatcher = FakeDispatcher(trajectories=run_dir / "sessions")
+    _resume(rig)
+    assert state["fired"]
+    taken = [(t.item_id, t.acts) for t in _of(run_dir, DecisionTaken)]
+    assert ("run-1-s2", True) not in taken
+    assert "s2" not in [m[0] for m in rig.merger.merges]
+    # Read again at the next boundary, the rewritten file halts the run.
+    assert [i.cause for i in _of(run_dir, Incident)] == ["decisions_rewritten"]
+
+
+def test_a_torn_tail_the_writer_cuts_does_not_trip_the_seal(tmp_path: Path) -> None:
+    # A person's decision died mid-line before the retry spawned; the next decision, written
+    # while the retry runs, cuts that torn tail as the writer always does. Only whole lines
+    # are sealed, so the cut is no rewrite.
+    from physgate.orchestrator.queue import record_decision
+
+    run_dir = tmp_path / "run"
+    rig = _two_items_then_reject(run_dir)
+    with (run_dir / DECISIONS_NAME).open("ab") as torn:
+        torn.write(b'{"item_id":"zz')
+    rig.dispatcher = FakeDispatcher(trajectories=run_dir / "sessions")
+
+    def person() -> None:
+        record_decision(run_dir, "run-1-s2", decision="later", resolved_by="yasin")
+
+    rig.dispatcher.during[1] = person
+    _resume(rig)
+    assert "decisions_rewritten" not in [i.cause for i in _of(run_dir, Incident)]
+    (seal,) = [
+        record
+        for record in map(json.loads, (run_dir / "events.jsonl").read_text().splitlines())
+        if record["kind"] == "decisions_sealed"
+        and (record["subtask_id"], record["attempt"]) == ("s1", 2)
+    ]
+    # The retry's seal covers the reject's whole line, not the torn bytes after it.
+    assert seal["length"] == (run_dir / DECISIONS_NAME).read_bytes().index(b"\n") + 1
+
+
+# -- every unjudged stream, whatever sent the subtask to a person -----------------------------
+
+
+@pytest.mark.parametrize("marked", [True, False], ids=["marked", "clean"])
+def test_an_exhausted_budgets_unreviewed_attempt_is_scanned_before_an_approve(
+    tmp_path: Path, marked: bool
+) -> None:
+    # Attempt 1 failed at the gate, so no review judged its stream, which shows a check switched
+    # off; attempts 2 and 3 were rejected by the reviewer. The commit an approve would merge
+    # holds attempt 1's work.
+    run_dir = tmp_path / "run"
+    dispatcher = (MarkingDispatcher if marked else FakeDispatcher)(
+        trajectories=run_dir / "sessions"
+    )
+    rig = _rig(
+        run_dir,
+        dispatcher=dispatcher,
+        gate=FakeGate(verdicts=["fail", "pass", "pass"]),
+        reviewer=FakeReviewer(verdicts=["fail", "fail"]),
+    )
+    loop = _start(rig, "s1")
+    loop.run()
+    loop.close()
+    (item,) = read_queue(run_dir).open_items()
+    assert item.source == "repair_budget_exhausted" and item.consequence is not None
+    if not marked:
+        assert item.consequence.on_approve == "merge_attempt"
+        return
+    assert (item.consequence.on_approve, item.consequence.why_record_only) == (
+        "record_only",
+        "scan_hit",
+    )
+    decide(run_dir, "approve")
+    _resume(rig)
+    (taken,) = _of(run_dir, DecisionTaken)
+    assert (taken.acts, taken.why_not) == (False, "scan_hit") and rig.merger.merges == []

@@ -28,6 +28,7 @@ from physgate.orchestrator.change_sets import change_history
 from physgate.orchestrator.common import utc_now
 from physgate.orchestrator.credentials import SECRET_VARIABLE
 from physgate.orchestrator.decisions import (
+    SCANNED_SOURCES,
     decision_effect,
     item_consequence,
     person_order,
@@ -130,6 +131,7 @@ from physgate.orchestrator.queue import (
     item_id_for,
     read_queue,
     unavailable_item,
+    whole_lines,
     within,
 )
 from physgate.orchestrator.record import PlanEntry, RunRecord
@@ -669,9 +671,12 @@ class Loop:
         a held one the operator confirmed on the command line is taken again, acting.
         """
         self.queue.refresh()
-        if not self._decisions_as_sealed():
+        # One read of the file: the seals are checked on these bytes and the decisions parsed
+        # from them, so nothing written between the two is taken.
+        data = decisions_file_bytes(self.run_dir)
+        if not self._decisions_as_sealed(data):
             return True  # halted: the next step says so
-        view = read_queue(self.run_dir)
+        view = read_queue(self.run_dir, decisions=data)
         items = {item.item_id: item for item in view.items}
         held = self._held_windows()
         confirm, confirmed_by = self._confirm
@@ -699,18 +704,14 @@ class Loop:
                 return True
         return took
 
-    def _decisions_as_sealed(self) -> bool:
+    def _decisions_as_sealed(self, data: bytes) -> bool:
         """Every prefix of the decisions file a session started beside is still its first bytes.
 
         The file only grows: a person's decision is a line appended at its end. A prefix that
         changed was rewritten beneath a session that may have written it, and a decision read from
         it could be one no person made, so the run halts and nothing is taken (ARCH-133).
         """
-        seals = [e for e in self.log.events if isinstance(e, DecisionsSealed)]
-        if not seals:
-            return True
-        data = decisions_file_bytes(self.run_dir)
-        for seal in seals:
+        for seal in (e for e in self.log.events if isinstance(e, DecisionsSealed)):
             prefix = data[: seal.length]
             if len(prefix) < seal.length or hashlib.sha256(prefix).hexdigest() != seal.sha256:
                 detail = (
@@ -749,7 +750,7 @@ class Loop:
                 self._incident(None, "queue_item_mismatch", f"item {item.item_id} names no attempt")
                 return False
             attempt = sub.attempts[-1].number
-            if item.source == "review_unavailable":
+            if item.source in SCANNED_SOURCES:
                 found = self._scan_hits(subtask_id, where=None)
                 if found is None:
                     return False
@@ -997,8 +998,9 @@ class Loop:
         )
         if self._acts():
             # The decisions file as this session starts: no later decision is taken unless
-            # these bytes are still the file's first (ARCH-133).
-            beside = decisions_file_bytes(self.run_dir)
+            # these bytes are still the file's first (ARCH-133). Whole lines only: a torn final
+            # line is no decision, and the writer may lawfully cut it.
+            beside = whole_lines(decisions_file_bytes(self.run_dir))
             self._emit(
                 DecisionsSealed(
                     **self._env(),
@@ -1757,7 +1759,7 @@ class Loop:
         if not self._trajectories_hold(subtask_id, [session]):
             return
         scan: tuple[ScanHit, ...] = ()
-        if source_of(self.state.subtasks[subtask_id]) == "review_unavailable" and self._acts():
+        if source_of(self.state.subtasks[subtask_id]) in SCANNED_SOURCES and self._acts():
             found = self._scan_hits(subtask_id, where=subtask_id)
             if found is None:
                 return
@@ -1837,7 +1839,7 @@ class Loop:
                 trajectories=trajectories,
                 ts=ts,
                 attempt=now.number,
-                consequence=self._consequence(subtask_id, "escalation_decision"),
+                consequence=self._consequence(subtask_id, "escalation_decision", scan),
             )
         return escalation_item(
             item_id=item_id,
@@ -1850,7 +1852,7 @@ class Loop:
             spent_by_person=sum(
                 1 for a in attempts if a.person_rejected is not None and a.rejected is None
             ),
-            consequence=self._consequence(subtask_id, "repair_budget_exhausted"),
+            consequence=self._consequence(subtask_id, "repair_budget_exhausted", scan),
         )
 
     def _next_item_id(self, subtask_id: str) -> str:
@@ -1864,9 +1866,17 @@ class Loop:
         sessions = [a.session for a in attempts if a.session is not None]
         if not self._trajectories_hold(subtask_id, sessions):
             return  # the queue item would link a trajectory that is not what was sealed
+        scan: tuple[ScanHit, ...] = ()
+        if self._acts():
+            # An attempt that ended at the gate or the change check was never reviewed, and its
+            # work is in the commit an approve would merge: its streams are scanned as well.
+            found = self._scan_hits(subtask_id, where=subtask_id)
+            if found is None:
+                return
+            scan = found
         item_id = self._next_item_id(subtask_id)
         if item_id not in {item.item_id for item in self.queue.items()}:
             self.queue.add(
-                self._item_for(subtask_id, item_id=item_id, ts=self.log.events[-1].ts, scan=())
+                self._item_for(subtask_id, item_id=item_id, ts=self.log.events[-1].ts, scan=scan)
             )
         self._emit(Escalated(**self._env(), subtask_id=subtask_id, item_id=item_id))

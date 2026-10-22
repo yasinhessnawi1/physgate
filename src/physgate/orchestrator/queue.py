@@ -744,8 +744,12 @@ class QueueView:
         return [item for item in self.items if item.item_id not in decided]
 
 
-def read_queue(run_dir: Path) -> QueueView:
+def read_queue(run_dir: Path, *, decisions: bytes | None = None) -> QueueView:
     """The queue of the run at ``run_dir``, read without writing anything.
+
+    ``decisions`` is the decisions file's bytes as a caller already read them
+    (:func:`decisions_file_bytes`), parsed in place of a second read, so what the caller checked
+    of the file is exactly what is parsed.
 
     Nothing is created: a run directory, or either file, that is missing reads as empty. A
     torn final line is left where it is and not read, since its writer may still be completing
@@ -758,10 +762,15 @@ def read_queue(run_dir: Path) -> QueueView:
     """
     records = _Records()
     at: list[tuple[int, QueueResolution]] = []
-    files = _read_run_files(
-        run_dir, (QUEUE_NAME, QUEUE_READ_CAP), (DECISIONS_NAME, DECISIONS_READ_CAP)
-    )
-    (items_name, items), (decided_name, decided) = files
+    if decisions is None:
+        files = _read_run_files(
+            run_dir, (QUEUE_NAME, QUEUE_READ_CAP), (DECISIONS_NAME, DECISIONS_READ_CAP)
+        )
+        (items_name, items), (decided_name, decided) = files
+    else:
+        # The decisions as the caller read them, once: what it checked is what is parsed.
+        ((items_name, items),) = _read_run_files(run_dir, (QUEUE_NAME, QUEUE_READ_CAP))
+        decided_name, decided = DECISIONS_NAME, decisions
     if items is not None:
         _parse(items, _ITEM, records, at, name=str(Path(run_dir) / items_name))
     if decided is not None:
@@ -793,6 +802,15 @@ def _read_run_files(run_dir: Path, *wanted: tuple[str, int]) -> list[tuple[str, 
         except OSError as exc:
             raise _unreadable(path, exc) from None
     return found
+
+
+def whole_lines(data: bytes) -> bytes:
+    """``data`` up to and including its last line break: the lines a reader reads.
+
+    A final line without its terminator is a write still in progress, or one that died; it is
+    not read, and the writer may cut it (as :func:`_parse` and the writer treat it).
+    """
+    return data[: data.rfind(b"\n") + 1]
 
 
 def decisions_file_bytes(run_dir: Path) -> bytes:
