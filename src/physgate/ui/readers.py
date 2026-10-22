@@ -41,7 +41,7 @@ from __future__ import annotations
 import errno
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -405,31 +405,39 @@ def _queue_files(context: Context, run_dir: Path) -> None:
         context.allowlist.resolve(path)
 
 
-def queue(context: Context, params: Mapping[str, str]) -> Response:
-    """The open items and every decision with its mark, byte for byte ``physgate queue list``."""
-    run_dir = run_dir_of(context, params)
-    _queue_files(context, run_dir)
-    return json_response(queue_listing(run_dir))
-
-
-def queue_item(context: Context, params: Mapping[str, str]) -> Response:
-    """One item as a person is shown it: open or not, its digest, each trajectory's seal status.
+def _streams(context: Context, run_dir: Path) -> Callable[[str], bytes | None]:
+    """A session's stream by its id, held to the allowlist before it is read.
 
     A trajectory's path is built from the session id its link names, never taken as recorded.
+    A stream the allowlist refuses (a link out of the run, a second name) is not read; it is
+    reported as tampered, which is what the decision's own check finds as well.
     """
-    run_dir = run_dir_of(context, params)
-    _queue_files(context, run_dir)
 
     def stream(session_id: str) -> bytes | None:
         try:
             path = _file(context, run_dir, SESSIONS, session_id, STREAM)
         except PathRefusedError as exc:
-            # A stream the allowlist refuses (a link out of the run, a second name) is not read;
-            # it is reported as tampered, which is what the decision's own check finds as well.
             raise OSError(errno.EPERM, str(exc)) from None
         return read_stream(path)
 
-    view = item_view(run_dir, int(params["position"]), read_stream=stream)
+    return stream
+
+
+def queue(context: Context, params: Mapping[str, str]) -> Response:
+    """The open items and every decision with its mark, byte for byte ``physgate queue list``.
+
+    Each open item's trajectory statuses are read through the allowlist, as the item view's are.
+    """
+    run_dir = run_dir_of(context, params)
+    _queue_files(context, run_dir)
+    return json_response(queue_listing(run_dir, read_stream=_streams(context, run_dir)))
+
+
+def queue_item(context: Context, params: Mapping[str, str]) -> Response:
+    """One item as a person is shown it: open or not, its digest, each trajectory's seal status."""
+    run_dir = run_dir_of(context, params)
+    _queue_files(context, run_dir)
+    view = item_view(run_dir, int(params["position"]), read_stream=_streams(context, run_dir))
     if view is None:
         msg = "the run's queue holds no item at that position"
         raise NotFoundError(msg, position=params["position"])

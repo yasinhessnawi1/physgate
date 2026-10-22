@@ -169,13 +169,19 @@ def test_sealed_bytes_that_are_not_a_record_are_refused(run_dir: Path) -> None:
         read_record(path, sealed)
 
 
+def test_the_fix_a_person_ordered_has_a_record_path_of_its_own() -> None:
+    path = record_path(Path("/run"), "sub", 4, "s", "r")
+    assert path.parts[-4:] == ("sub", "4", "s", "r.json")
+
+
 @pytest.mark.parametrize(
     ("subtask", "attempt", "session", "record"),
     [
         ("../escape", 1, "s", "r"),
         ("a/b", 1, "s", "r"),
         ("sub", 0, "s", "r"),
-        ("sub", 4, "s", "r"),
+        # Past the last attempt a subtask can reach: the budget's three and the one fix.
+        ("sub", 5, "s", "r"),
         ("sub", True, "s", "r"),
         ("sub", 1, "s/../t", "r"),
         ("sub", 1, "s", "R"),

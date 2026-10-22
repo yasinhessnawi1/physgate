@@ -172,11 +172,11 @@ def test_a_legacy_line_not_yet_escalated_escalates_as_it_was_written(
     loop = rig.open()
     loop.start(plan("s1"))
 
-    def killed(self: Loop, subtask_id: str, unavailable: ReviewUnavailable) -> None:
+    def killed(self: Loop, subtask_id: str) -> None:
         raise KilledError
 
     with monkeypatch.context() as patch:
-        patch.setattr(Loop, "_escalate_unavailable", killed)
+        patch.setattr(Loop, "_to_a_person", killed)
         with pytest.raises(KilledError):
             loop.run()
     loop.close()

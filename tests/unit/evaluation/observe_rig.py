@@ -28,6 +28,7 @@ from knowledge_fixture import build_fixture_library
 from physgate.evaluation.observe.rerun import MEASURED, RerunPlan
 from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper
 from physgate.orchestrator.budget import SessionEnd
+from physgate.orchestrator.canaries import CanaryCheck
 from physgate.orchestrator.decompose import Outcome, Plan, PlannedModule, mint_id, start_run
 from physgate.orchestrator.escalation import bind
 from physgate.orchestrator.git import head_of, object_format, verified_git_dir
@@ -115,6 +116,7 @@ def config(run_id: str, repo: Path, role: str = "electrical", **overrides: Any) 
         "role_python": None,
         "git_binary": None,
         "escalation_backend": "rules",
+        "queue_decisions": "record",
         "held_out": (),
         "held_out_canaries": (),
         "held_out_sha256": (),
@@ -513,9 +515,18 @@ def drive(
         merger=GitMerger(run, removal_timeout_s=60.0),
         graph=keeper,
         escalation=bind("rules"),
+        material=CanaryCheck(held_out=frozenset(), review_material=frozenset()),
         sleep=lambda _: None,
         **({"clock": clock} if clock is not None else {}),
     )
+    if cfg.queue_decisions == "act" and cfg.os_layer is not None:
+        # As the command does before it drives: the OS layer recorded where the sessions run,
+        # which a run that acts on decisions is refused without.
+        from physgate.orchestrator.events import OsLayerChecked
+
+        loop.record.emit(
+            OsLayerChecked(**loop.record.envelope(), state=cfg.os_layer, as_recorded=True)
+        )
     try:
         step = loop.resume() if resume else loop.run()
     finally:

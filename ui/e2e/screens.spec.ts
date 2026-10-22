@@ -539,7 +539,7 @@ for (const theme of THEMES) {
       for (const term of ["Gate", "Observe", "Unchecked", "Attempt", "Repair", "Safe point"])
         await expect(glossary.locator("dt", { hasText: new RegExp(`^${term}$`) })).toHaveCount(1);
       await expect(glossary).toContainText(
-        "A question the run could not settle by itself. Your decision is recorded against the run; it does not restart the subtask.",
+        "A question the run could not settle by itself. Your decision is recorded against the run; it does not restart the subtask unless the item says, before you decide, what it will do.",
       );
       await expect(glossary).toContainText("Power balance check");
       await common(page, seen, `glossary-${theme}-${String(width)}`);

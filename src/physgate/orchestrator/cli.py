@@ -38,8 +38,10 @@ from physgate.evaluation.inject.runner import CONTROLS_DIRNAME as INSTRUMENT_CON
 from physgate.evaluation.inject.runner import InstrumentConfig
 from physgate.gate.exceptions import GateError
 from physgate.knowledge.library import LibraryError, read_library
+from physgate.knowledge.promote import KNOWLEDGE_ROOT, PROMOTIONS_NAME, canaries
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper
+from physgate.orchestrator.canaries import CanaryCheck
 from physgate.orchestrator.catches import catches, parse_time
 from physgate.orchestrator.common import first_problem, render_jsonl
 from physgate.orchestrator.credentials import SECRET_VARIABLE, credential_for
@@ -58,6 +60,7 @@ from physgate.orchestrator.events import (
 from physgate.orchestrator.exceptions import (
     InvocationError,
     OrchestratorError,
+    QueueError,
     ReviewerNotRegisteredError,
     RunConfigError,
     RunStateError,
@@ -74,7 +77,13 @@ from physgate.orchestrator.invocation import claude_binary, session_search_path
 from physgate.orchestrator.loop import Loop, escalation_for, refuse_unregistered, require_gate
 from physgate.orchestrator.merge import GitMerger, RunGit
 from physgate.orchestrator.protocols import Gate, Reviewer
-from physgate.orchestrator.queue import queue_listing, record_decision
+from physgate.orchestrator.queue import (
+    PersonDecision,
+    ShownItem,
+    queue_listing,
+    record_decision,
+    statuses_now,
+)
 from physgate.orchestrator.replay import recorded_ledger
 from physgate.orchestrator.requirements import RunFacts, refusals
 from physgate.orchestrator.role_python import RolePython
@@ -191,6 +200,17 @@ def add_parsers(
             command.add_argument(
                 "--quarantine-why", help="why the stream is gone (required with --quarantine)"
             )
+            command.add_argument(
+                "--confirm",
+                metavar="ITEM_ID",
+                action="append",
+                default=[],
+                help=(
+                    "confirm a queue decision held because it was written while a session ran "
+                    "without the OS layer; recorded with your OS user, and refused for an item "
+                    "whose decision is not held"
+                ),
+            )
         command.set_defaults(
             func=functools.partial(_drive, resume=resume, registrations=registrations)
         )
@@ -217,10 +237,25 @@ def add_parsers(
     listing = actions.add_parser("list", help="print the open items")
     listing.add_argument("--run-dir", required=True, type=Path)
     listing.set_defaults(func=_queue_list)
-    resolve = actions.add_parser("resolve", help="record a decision on one item")
+    resolve = actions.add_parser(
+        "resolve",
+        help="record a decision on one item",
+        description=(
+            "Record a decision on one item. --approve or --reject binds it to the item line whose "
+            "digest `queue list` printed (--sha256), and a run that acts on decisions acts on it; "
+            "--decision records free text, which binds to nothing and never acts."
+        ),
+    )
     resolve.add_argument("item")
     resolve.add_argument("--run-dir", required=True, type=Path)
-    resolve.add_argument("--decision", required=True)
+    form = resolve.add_mutually_exclusive_group(required=True)
+    form.add_argument("--decision", help="free text, recorded only")
+    form.add_argument("--approve", action="store_true", help="approve the item as shown")
+    form.add_argument("--reject", action="store_true", help="reject the item as shown")
+    resolve.add_argument("--note", help="why; required to reject")
+    resolve.add_argument(
+        "--sha256", help="the item line's digest as `queue list` printed it; required with a verb"
+    )
     resolve.add_argument("--by", required=True)
     resolve.set_defaults(func=_queue_resolve)
 
@@ -575,6 +610,27 @@ def _quarantine_request(args: argparse.Namespace) -> tuple[str, str, str] | None
     return session, getpass.getuser(), why
 
 
+def material_check(config: RunConfig) -> CanaryCheck:
+    """What the loop holds a person's words to before they reach a role session (ARCH-133).
+
+    The run's held-out canaries, and every canary the harness's rubric promotions recorded:
+    the same sets a session's own stream is held to.
+    """
+    harness = harness_root()
+    rubric = canaries(harness / KNOWLEDGE_ROOT / PROMOTIONS_NAME) if harness else frozenset()
+    return CanaryCheck(held_out=frozenset(config.held_out_canaries), review_material=rubric)
+
+
+def _confirm_request(args: argparse.Namespace) -> tuple[tuple[str, ...], str | None]:
+    """The operator's ``--confirm`` items, and who confirms them: the OS user, or no one.
+
+    A command-line flag only, never read from a file a session could write: what it confirms
+    is a decision a session's own shell may have written (ARCH-133).
+    """
+    confirm = tuple(getattr(args, "confirm", None) or ())
+    return confirm, getpass.getuser() if confirm else None
+
+
 def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registrations | None) -> int:
     if registrations is None:
         try:
@@ -659,6 +715,7 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
             merger=GitMerger(run, removal_timeout_s=REMOVAL_TIMEOUT_S),
             graph=keeper,
             escalation=escalation,
+            material=material_check(config),
         )
     except (OrchestratorError, ReviewError) as exc:
         return _fail(str(exc), **exc.context)
@@ -681,7 +738,8 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
             )
         )
         loop.record.emit(_os_layer_checked(loop.record.envelope(), config, layer))
-        step = loop.resume() if resume else loop.run()
+        confirm, confirmed_by = _confirm_request(args)
+        step = loop.resume(confirm=confirm, confirmed_by=confirmed_by) if resume else loop.run()
         account = TokenAccount.from_events(loop.log.events)
         account.assert_no_routing()
     except OrchestratorError as exc:
@@ -714,10 +772,32 @@ def _queue_list(args: argparse.Namespace) -> int:
 
 
 def _queue_resolve(args: argparse.Namespace) -> int:
+    run_dir = args.run_dir.resolve()
     try:
-        record = record_decision(
-            args.run_dir.resolve(), args.item, decision=args.decision, resolved_by=args.by
-        )
+        if args.decision is not None:
+            if args.sha256 is not None or args.note is not None:
+                msg = "free text binds to nothing: give a verb to bind it, or leave out the rest"
+                raise QueueError(msg, item=args.item)
+            record = record_decision(
+                run_dir, args.item, decision=args.decision, resolved_by=args.by
+            )
+        else:
+            if args.sha256 is None:
+                msg = "a decision with a verb names the item line it was taken on: give --sha256"
+                raise QueueError(msg, item=args.item)
+            try:
+                person = PersonDecision(
+                    verb="approve" if args.approve else "reject", note=args.note
+                )
+                shown = ShownItem(
+                    item_sha256=args.sha256, trajectories=statuses_now(run_dir, args.item)
+                )
+            except ValidationError as exc:
+                msg = "the decision is not one the queue can record"
+                raise QueueError(msg, reason=first_problem(exc)) from None
+            record = record_decision(
+                run_dir, args.item, person=person, resolved_by=args.by, shown=shown
+            )
     except OrchestratorError as exc:
         return _fail(str(exc), **exc.context)
     _print({"resolved": record.model_dump()})

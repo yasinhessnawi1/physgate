@@ -76,6 +76,7 @@ def run_config(run_id: str) -> RunConfig:
         role_python=None,
         git_binary=None,
         escalation_backend="rules",
+        queue_decisions="record",
         held_out=(),
         held_out_canaries=(),
         held_out_sha256=(),
@@ -267,13 +268,13 @@ def real_runs(root: Path) -> Path:
     return runs
 
 
-def escalated_run(root: Path, name: str = "run-esc") -> Path:
+def escalated_run(root: Path, name: str = "run-esc", *, acts: bool = False) -> Path:
     """A run made by the real loop whose first subtask failed all three attempts.
 
     Its queue holds one open item, escalated with every attempt's sealed trajectory and the two
     quantities the gate's last finding cites. Made under
     ``root/runs``, beside the runs ``real_runs`` makes there, with a target repository of its
-    own.
+    own. ``acts``: the run acts on decisions, so its item says what each verb will do.
     """
     _rig()
     from observe_rig import Gate, fake_run, target_repo
@@ -285,7 +286,14 @@ def escalated_run(root: Path, name: str = "run-esc") -> Path:
         QuantityRef(node_id="electrical.motor_driver", name="current_limit", value=2.5, unit="A"),
     )
     repo = target_repo(root / name)
-    return fake_run(root / "runs", name, repo, gate=Gate(fail_on={1, 2, 3}, cited=cited))
+    from physgate.oslayer.probe import Present
+
+    # A run that acts on decisions is configured inside the OS layer, as it must be.
+    layer = Present(mechanism="seatbelt", claude_version="2.1.301")
+    overrides = {"queue_decisions": "act", "os_layer": layer} if acts else {}
+    return fake_run(
+        root / "runs", name, repo, gate=Gate(fail_on={1, 2, 3}, cited=cited), overrides=overrides
+    )
 
 
 def sealed_session(run_dir: Path) -> str:

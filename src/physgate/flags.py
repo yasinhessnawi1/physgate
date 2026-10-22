@@ -63,5 +63,27 @@ GATE_MODE = Flag(
     architecture="ARCH-140",
 )
 
+#: Whether a run acts on a person's queue decisions. Spelled out for the type checker, as
+#: the gate mode is; a test holds it equal to the register's entry.
+QueueDecisions = Literal["act", "record"]
+
+QUEUE_DECISIONS = Flag(
+    name="queue_decisions",
+    values=("act", "record"),
+    meanings={
+        "act": (
+            "a person's bound decision on a queue item is taken into the run where no attempt "
+            "is in progress and acted on in code: an approve merges, a reject retries, fixes "
+            "once or ends the subtask"
+        ),
+        "record": (
+            "decisions are recorded in the queue's decisions file and nothing in the run acts "
+            "on them; every run recorded before the switch existed reads as this, and every "
+            "evaluation run uses it, so no measured outcome depends on a decision"
+        ),
+    },
+    architecture="ARCH-133",
+)
+
 #: Every ablation flag, in the order the architecture lists the switches.
-REGISTER: tuple[Flag, ...] = (GATE_MODE,)
+REGISTER: tuple[Flag, ...] = (GATE_MODE, QUEUE_DECISIONS)

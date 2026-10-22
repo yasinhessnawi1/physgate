@@ -31,6 +31,7 @@ commit-graph files cannot reshape it.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -149,12 +150,29 @@ def write_scope_violations(
     return found
 
 
-def merge_message(subtask_id: str, attempt: int, commit: str, gate: str, review: str) -> str:
-    """The merge commit's message, from a template."""
-    return (
+def merge_message(
+    subtask_id: str,
+    attempt: int,
+    commit: str,
+    gate: str,
+    review: str,
+    *,
+    approved_by: tuple[str, str, str] | None = None,
+) -> str:
+    """The merge commit's message, from a template.
+
+    ``approved_by`` is who approved the attempt from the queue, the item and the digest of the
+    item line they were shown (ARCH-133). Who decided is quoted as JSON, so a name that holds a
+    line break cannot add a line of its own to the message.
+    """
+    text = (
         f"Merge subtask {subtask_id}, attempt {attempt}\n\n"
         f"Gate: {gate}. Review: {review}. Checked commit: {commit}.\n"
     )
+    if approved_by is not None:
+        who, item, shown = approved_by
+        text += f"Approved by {json.dumps(who)} on queue item {item}, as shown ({shown}).\n"
+    return text
 
 
 class GitMerger:

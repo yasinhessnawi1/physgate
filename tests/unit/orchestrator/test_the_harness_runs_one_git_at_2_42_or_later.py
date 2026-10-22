@@ -171,6 +171,7 @@ def test_a_run_recorded_before_the_field_loads_and_keeps_its_bytes(tmp_path: Pat
         "held_out_sha256",
         "network",
         "network_enforced",
+        "queue_decisions",
     ):  # recorded before these too
         del legacy[later]
     legacy_bytes = json.dumps(legacy, separators=(",", ":")).encode() + b"\n"
@@ -249,6 +250,7 @@ def _decompose_args(tmp_path: Path, **extra: object) -> list[str]:
         "thinking_display": "summarized",
         "role_python": None,
         "escalation_backend": "rules",
+        "queue_decisions": "record",
         "held_out": [],
         "held_out_canaries": [],
         "held_out_sha256": [],

@@ -137,9 +137,10 @@ def test_an_unterminated_final_line_is_dropped(tmp_path: Path) -> None:
     assert path.read_bytes() == whole
 
 
+# In the one form the writer writes, so a test of what a decision may name reaches that check.
 DECISION = (
-    b'{"kind": "resolution", "item_id": "q1", "ts": "' + TS.encode() + b'",'
-    b' "decision": "x", "resolved_by": "y"}\n'
+    b'{"item_id":"q1","ts":"' + TS.encode() + b'","kind":"resolution",'
+    b'"decision":"x","resolved_by":"y"}\n'
 )
 
 

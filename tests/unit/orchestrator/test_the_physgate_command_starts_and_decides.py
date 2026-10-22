@@ -33,6 +33,7 @@ PARAMS = {
     "thinking_display": "summarized",
     "role_python": None,
     "escalation_backend": "rules",
+    "queue_decisions": "record",
     "held_out": [],
     "held_out_canaries": [],
     "held_out_sha256": [],

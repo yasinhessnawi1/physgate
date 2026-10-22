@@ -44,7 +44,7 @@ from physgate.orchestrator.exceptions import OrchestratorError
 from physgate.orchestrator.run_config import RunConfig, load_run_config
 
 #: Reported when they differ, never refused: what an ablation varies on purpose.
-REPORTED = ("gate_mode", "auth", "harness", "escalation_backend")
+REPORTED = ("gate_mode", "auth", "harness", "escalation_backend", "queue_decisions")
 
 
 class _Frozen(BaseModel):

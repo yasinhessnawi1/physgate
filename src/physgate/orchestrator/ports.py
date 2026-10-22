@@ -15,9 +15,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Literal, Protocol, runtime_checkable
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
-from physgate.orchestrator.budget import SessionEnd
+from physgate.orchestrator.budget import ATTEMPT_LIMIT, SessionEnd
 from physgate.orchestrator.common import NonEmptyStr
 from physgate.orchestrator.install import InstallFacts
 from physgate.orchestrator.protocols import MessageUsage
@@ -33,11 +33,17 @@ class _Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
 
+#: What a role session is for: an attempt of the subtask, or the one fix a person ordered after
+#: a review that blocked (ARCH-133). Only the prompt's closing block reads it; the session is
+#: installed, enforced and judged as any attempt's is.
+RequestKind = Literal["attempt", "fix"]
+
+
 class SessionRequest(_Frozen):
     """One attempt to hand to a fresh role session."""
 
     subtask_id: NonEmptyStr
-    attempt: Annotated[int, Field(ge=1, le=3)]
+    attempt: Annotated[int, Field(ge=1, le=ATTEMPT_LIMIT)]
     assigned_role: NonEmptyStr
     spec_path: NonEmptyStr
     module_dir: NonEmptyStr
@@ -46,6 +52,15 @@ class SessionRequest(_Frozen):
     bounds: RunBounds
     #: The commit that issued the specification, when a decomposition issued it.
     spec_commit: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")] | None = None
+    #: An ordinary attempt, or the fix a person ordered; a fix always carries its instruction.
+    kind: RequestKind = "attempt"
+
+    @model_validator(mode="after")
+    def _a_fix_is_told_what_to_fix(self) -> SessionRequest:
+        if self.kind == "fix" and self.repair_instruction is None:
+            msg = "the fix a person ordered starts from its instruction, and none was given"
+            raise ValueError(msg)
+        return self
 
 
 class SessionReport(_Frozen):
@@ -294,4 +309,23 @@ class GraphPort(Protocol):
 
     def reopen(self) -> tuple[int, tuple[str, ...]]:
         """Close and reopen the store; return the node files recovery repaired and moved aside."""
+        ...
+
+
+#: What material a text shows that no role session may read: the held-out tier's, or a
+#: reviewer's (a rubric).
+MaterialSeen = Literal["held_out", "review_material"]
+
+
+@runtime_checkable
+class MaterialCheck(Protocol):
+    """Whether text bound for a role session shows material no session may read.
+
+    The loop holds a person's note, and the review verdict a fix is told, to it before either
+    reaches a session (ARCH-133). Built by the command from the run's held-out canaries and the
+    harness's rubric promotions, so the loop names no harness path.
+    """
+
+    def seen(self, text: str) -> MaterialSeen | None:
+        """The kind of material ``text`` shows, or ``None`` if it shows none looked for."""
         ...

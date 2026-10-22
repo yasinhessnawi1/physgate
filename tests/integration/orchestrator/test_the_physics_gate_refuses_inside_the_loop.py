@@ -26,6 +26,7 @@ from git_rig import DispatchPort, GitDispatcher, Reviewer, config, plan_entry, r
 
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.apply import GitChangeChecker, StoreKeeper
+from physgate.orchestrator.canaries import CanaryCheck
 from physgate.orchestrator.cli import default_registrations
 from physgate.orchestrator.escalation import bind
 from physgate.orchestrator.events import (
@@ -107,6 +108,7 @@ def run_loop(
         merger=GitMerger(run, removal_timeout_s=60.0),
         graph=keeper,
         escalation=bind("rules"),
+        material=CanaryCheck(held_out=frozenset(), review_material=frozenset()),
         sleep=lambda _: None,
     )
     try:

@@ -203,11 +203,15 @@ export function subtaskLabel(row: Pick<SubtaskRow, "role">): string {
   return `${capital(row.role.replaceAll("_", " "))} module`;
 }
 
-/** "2 of 3" where the server sent the budget, otherwise the count alone. */
+/**
+ * "2 of 3" where the server sent the budget, otherwise the count alone. An attempt past the
+ * budget is the one fix a person ordered after a review that blocked, which is outside it.
+ */
 export function attemptsWords(row: Pick<SubtaskRow, "attempts" | "budget">): string {
-  return row.budget === null
-    ? String(row.attempts)
-    : `${String(row.attempts)} of ${String(row.budget)}`;
+  if (row.budget === null) return String(row.attempts);
+  if (row.attempts > row.budget)
+    return `${String(row.budget)} of ${String(row.budget)}, then the one fix a person ordered`;
+  return `${String(row.attempts)} of ${String(row.budget)}`;
 }
 
 const DECISION_WORDS: Readonly<Record<string, string>> = {

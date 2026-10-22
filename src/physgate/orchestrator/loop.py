@@ -15,6 +15,7 @@ loop refuses to start in a gate mode that needs a gate when none is registered.
 
 from __future__ import annotations
 
+import hashlib
 import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
@@ -26,11 +27,21 @@ from physgate.orchestrator.budget import infra_retry_delay
 from physgate.orchestrator.change_sets import change_history
 from physgate.orchestrator.common import utc_now
 from physgate.orchestrator.credentials import SECRET_VARIABLE
+from physgate.orchestrator.decisions import (
+    SCANNED_SOURCES,
+    decision_effect,
+    item_consequence,
+    person_order,
+    scan_hits_of,
+    source_of,
+)
 from physgate.orchestrator.escalation import TO_THE_QUEUE, EscalationInterface, bind
 from physgate.orchestrator.escalation_state import escalation_state
 from physgate.orchestrator.events import (
     RESUMABLE_HALTS,
     AttemptRejected,
+    DecisionsSealed,
+    DecisionTaken,
     Decomposed,
     DiffChecked,
     Envelope,
@@ -51,6 +62,7 @@ from physgate.orchestrator.events import (
     LeftoverStopped,
     Merged,
     NodeFilesRepaired,
+    OsLayerChecked,
     ProposalsChecked,
     Resumed,
     ReviewRan,
@@ -59,6 +71,7 @@ from physgate.orchestrator.events import (
     SessionSpawned,
     Stage,
     StageEntered,
+    SubtaskRejected,
     TokensUsed,
     WorktreeRemoved,
     WriteDone,
@@ -70,6 +83,7 @@ from physgate.orchestrator.exceptions import (
     HeldOutExposedError,
     MergeConflictError,
     MergeRefusedError,
+    QueueItemMismatchError,
     ReviewerNotRegisteredError,
     ReviewUnavailableError,
     RunStateError,
@@ -83,6 +97,7 @@ from physgate.orchestrator.ports import (
     ChangeChecker,
     Dispatcher,
     GraphPort,
+    MaterialCheck,
     Merger,
     RecordsSpawns,
     SessionReport,
@@ -94,30 +109,48 @@ from physgate.orchestrator.protocols import (
     Gate,
     IntegrationArtefact,
     IssuedSpec,
+    PersonOrder,
     Reviewer,
     ReviewResult,
     SessionTrajectory,
-    SpecDefect,
     require_mode,
     require_separate_models,
 )
 from physgate.orchestrator.queue import (
     INTEGRATION,
+    ItemConsequence,
+    QueueItem,
+    QueueResolution,
+    QueueSource,
+    QueueView,
     decided_item,
+    decisions_file_bytes,
     escalation_item,
+    held_windows_of,
     integration_item,
+    item_id_for,
+    read_queue,
     unavailable_item,
+    whole_lines,
+    within,
 )
 from physgate.orchestrator.record import PlanEntry, RunRecord
-from physgate.orchestrator.repair import Finding, repair_instruction
+from physgate.orchestrator.repair import (
+    Finding,
+    repair_instruction,
+)
 from physgate.orchestrator.replay import (
     AttemptState,
     Step,
+    SubtaskState,
+    at_a_boundary,
     recorded_implementer,
     require_mergeable,
 )
 from physgate.orchestrator.run_config import RunConfig
 from physgate.orchestrator.trajectory import read_sealed
+from physgate.oslayer.probe import Present
+from physgate.reviewers.scan import ScanHit, ScanUnreadableError
 from physgate.roles import require_registered
 from physgate.series.reader import attempt_records
 from physgate.series.seal import AttemptRecord, AttemptSeries, SeriesCheck
@@ -223,6 +256,7 @@ class Loop:
         merger: Merger,
         graph: GraphPort,
         escalation: EscalationInterface,
+        material: MaterialCheck,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], datetime] = utc_now,
     ) -> None:
@@ -234,6 +268,9 @@ class Loop:
             RunConfigError: the run directory holds another configuration, or a log
                 with no configuration.
             EscalationBackendError: see :func:`require_binding`.
+
+        ``material`` holds the text a person's decision sends to a role session to the canaries
+        of material no session may read, before the session is spawned (ARCH-133).
         """
         refuse_unregistered(config, gate, reviewers)
         require_binding(config, escalation)
@@ -251,8 +288,11 @@ class Loop:
         self._merger = merger
         self._graph = graph
         self._escalation = escalation
+        self._material = material
         self._sleep = sleep
         self._appends: tuple[str, ...] = ()
+        #: The items the operator confirms on this resume, and who; none on a plain run.
+        self._confirm: tuple[frozenset[str], str | None] = (frozenset(), None)
         self.record = RunRecord(config, self.run_dir, clock=clock)
         self.state = self.record.state
         self.log = self.record.log
@@ -287,8 +327,10 @@ class Loop:
         """Drive the plan until it is done or the run halts.
 
         Raises:
-            RunStateError: a previous process left the run mid-attempt; resume it.
+            RunStateError: a previous process left the run mid-attempt; resume it; or the run
+                acts on queue decisions and this process recorded no OS layer.
         """
+        self._require_os_layer()
         self._stop_leftovers()
         if self.state.halted is None and self.state.interrupted() is not None:
             msg = "the run was interrupted mid-attempt; resume it instead"
@@ -297,7 +339,7 @@ class Loop:
             return self.state.next_step()
         return self._drive()
 
-    def resume(self) -> Step:
+    def resume(self, *, confirm: Sequence[str] = (), confirmed_by: str | None = None) -> Step:
         """Take over a run a previous process left, then drive it.
 
         The interrupted attempt restarts at its checkpoint with a fresh session,
@@ -305,14 +347,25 @@ class Loop:
         because its infrastructure retries ran out continues the same attempt with
         a fresh schedule.
 
+        Every leftover session is stopped and its stream read before anything else, so no
+        decision is taken before every stream a previous process left has been read. ``confirm``
+        names items whose decision is held because it was written while a session ran without
+        the OS layer; ``confirmed_by`` is the operator who confirms them on the command line
+        (ARCH-133). Only then does such a decision act.
+
         Raises:
-            RunStateError: the run halted for an incident, which a person resolves.
+            RunStateError: the run halted for an incident, which a person resolves; or an item
+                to confirm has no held decision, or the run acts on no decision at all; or the
+                run acts on queue decisions and this process recorded no OS layer.
         """
+        self._require_os_layer()
         self._stop_leftovers()
         halted = self.state.halted
         if halted is not None and halted.reason not in RESUMABLE_HALTS:
             msg = f"the run halted for {halted.reason}; a person resolves that before any resume"
             raise RunStateError(msg, run_dir=str(self.run_dir), detail=halted.detail)
+        self._require_confirmable(confirm, confirmed_by)
+        self._confirm = (frozenset(confirm), confirmed_by)
         if not self._journal_clean():
             return self.state.next_step()
         sub = self.state.interrupted()
@@ -322,8 +375,15 @@ class Loop:
             if sub is not None and now_changes is not None and sub.attempts[-1].merged is None
             else None
         )
+        approving = self._approved_unmerged()
+        if sub is None and approving is not None:
+            # A person's approve taken and not yet recorded as merged: a merge of exactly its
+            # commit may have landed before the process died, and is where the run left the branch.
+            sub, pending = approving
         if not self._run_branch_holds(sub.plan.subtask_id if sub else None, pending):
             return self.state.next_step()
+        if sub is not None and self.state.interrupted() is None:
+            sub = None
         if sub is not None:
             now = sub.attempts[-1]
             self._emit(
@@ -335,6 +395,74 @@ class Loop:
                 )
             )
         return self._drive()
+
+    def _require_os_layer(self) -> None:
+        """Refuse to drive a run that acts on decisions unless this process runs inside the layer.
+
+        Only the OS layer keeps a role session's own shell from the decisions file, so a run whose
+        decisions act runs nothing without it (ARCH-133). Read from the layer's record this
+        process wrote before driving; none recorded is refused like one absent, so a missing check
+        never reads as a present layer. Checked before anything is stopped, read or taken.
+
+        Raises:
+            RunStateError: as above.
+        """
+        if not self._acts():
+            return
+        checked = [e for e in self.log.events if isinstance(e, OsLayerChecked)]
+        state = checked[-1].state if checked else None
+        if isinstance(state, Present):
+            return
+        found = "not recorded" if state is None else f"absent: {state.reason}"
+        msg = f"a run that acts on queue decisions runs only inside the OS layer, here {found}"
+        raise RunStateError(msg, run_dir=str(self.run_dir))
+
+    def _approved_unmerged(self) -> tuple[SubtaskState, str] | None:
+        """The subtask an approve is merging and the commit it merges, if one is not merged yet."""
+        for subtask_id in self.state.order:
+            sub = self.state.subtasks[subtask_id]
+            now = sub.attempts[-1] if sub.attempts else None
+            if now is not None and now.approved is not None and now.merged is None:
+                commit = now.approved.attempt_commit
+                if commit is not None:
+                    return sub, commit
+        return None
+
+    def _require_confirmable(self, confirm: Sequence[str], confirmed_by: str | None) -> None:
+        """Refuse a confirmation the run cannot take: of nothing held, or in a run that records.
+
+        Checked before anything is taken, so a refusal leaves the run as it was.
+
+        Raises:
+            RunStateError: as above, or a confirmation with no operator named.
+        """
+        if not confirm:
+            return
+        if self.config.queue_decisions != "act":
+            msg = "the run only records decisions; nothing is confirmed in it"
+            raise RunStateError(msg, run_dir=str(self.run_dir))
+        if not confirmed_by:
+            msg = "a confirmation names the operator who makes it"
+            raise RunStateError(msg, run_dir=str(self.run_dir))
+        self.queue.refresh()
+        # Judged on the file as every take reads it: one read, its seals held first.
+        data = decisions_file_bytes(self.run_dir)
+        if not self._decisions_as_sealed(data):
+            msg = "the decisions file was rewritten beneath a session; the run halts on it"
+            raise RunStateError(msg, run_dir=str(self.run_dir))
+        view = read_queue(self.run_dir, decisions=data)
+        held = self._held_windows()
+        offsets = {decision.item_id: offset for offset, decision in view.decisions}
+        for item_id in confirm:
+            earlier = self.state.taken.get(item_id)
+            if earlier is not None:
+                ok = earlier.why_not == "held_os_layer_off" and item_id not in self.state.confirmed
+            else:
+                offset = offsets.get(item_id)
+                ok = offset is not None and within(offset, held)
+            if not ok:
+                msg = "a confirmation is of a held decision, and this item's decision is not held"
+                raise RunStateError(msg, item=item_id)
 
     def _expected_run_head(self) -> str | None:
         """Where the run last left its branch: its last recorded merge, or its start."""
@@ -463,6 +591,20 @@ class Loop:
             if sub.status == "done":
                 reason: Literal["done", "queue_resolved"] = "done"
             elif sub.status == "escalated" and sub.queue_item in resolved:
+                # In a run that acts, only once the decision is taken: an attempt may still run
+                # in this worktree because of it. Taken and still waiting, nothing will; held
+                # for the operator's confirmation, it still may.
+                taken = self.state.taken.get(sub.queue_item)
+                if self._acts() and (
+                    taken is None
+                    or (
+                        taken.why_not == "held_os_layer_off"
+                        and sub.queue_item not in self.state.confirmed
+                    )
+                ):
+                    continue
+                reason = "queue_resolved"
+            elif sub.status == "rejected":
                 reason = "queue_resolved"
             else:
                 continue
@@ -488,6 +630,8 @@ class Loop:
                 self._emit(EnvironmentRecorded(**self._env(), facts=facts))
         while True:
             step = self.state.next_step()
+            if self._at_a_boundary(step) and self._take_decisions():
+                continue  # what a decision did changes what comes next
             if step.kind in ("done", "halted", "escalated"):
                 self._clean_up_worktrees()
                 return step
@@ -497,20 +641,237 @@ class Loop:
             if step.subtask_id is None or step.attempt is None:
                 msg = "a step with no subtask or attempt"
                 raise RunStateError(msg, step=step.kind)
-            if step.kind == "decide":
+            if step.kind == "end_subtask":
+                self._end_subtask(step.subtask_id, step.attempt)
+            elif step.kind == "decide":
                 self._decide(step.subtask_id, step.attempt)
             elif step.kind == "escalate":
                 now = self.state.subtasks[step.subtask_id].attempts[-1]
-                if now.unavailable_final is not None:
-                    self._escalate_unavailable(step.subtask_id, now.unavailable_final)
-                elif now.blocked is not None:
-                    self._escalate_blocked(step.subtask_id, now.blocked)
+                if now.unavailable_final is not None or now.blocked is not None:
+                    self._to_a_person(step.subtask_id)
                 else:
                     self._escalate(step.subtask_id)
             elif step.kind == "infra_failed":
                 self._infra_failed(step.subtask_id, step.attempt)
             else:
                 self._attempt(step.subtask_id, step.attempt, step.point or "resolve")
+
+    # -- a person's decisions -------------------------------------------------------------
+
+    def _acts(self) -> bool:
+        return self.config.queue_decisions == "act"
+
+    def _at_a_boundary(self, step: Step) -> bool:
+        """Where a decision may be taken, in a run that acts on them (ARCH-133)."""
+        return self._acts() and at_a_boundary(step)
+
+    def _held_windows(self) -> list[tuple[int, int | None]]:
+        """The decisions file's ranges written while a session ran without the OS layer."""
+        return held_windows_of(list(self.log.events))
+
+    def _take_decisions(self) -> bool:
+        """Take every decision not yet taken, in the decisions file's order; True if any was.
+
+        Each becomes one ``decision_taken`` line computed by code from the item and the log;
+        a held one the operator confirmed on the command line is taken again, acting.
+        """
+        self.queue.refresh()
+        # One read of the file: the seals are checked on these bytes and the decisions parsed
+        # from them, so nothing written between the two is taken.
+        data = decisions_file_bytes(self.run_dir)
+        if not self._decisions_as_sealed(data):
+            return True  # halted: the next step says so
+        view = read_queue(self.run_dir, decisions=data)
+        items = {item.item_id: item for item in view.items}
+        held = self._held_windows()
+        confirm, confirmed_by = self._confirm
+        took = False
+        for offset, resolution in view.decisions:
+            item = items[resolution.item_id]
+            if resolution.item_id not in self.state.taken:
+                if not self._take(item, resolution, offset, view, held=within(offset, held)):
+                    return True
+                took = True
+            earlier = self.state.taken[resolution.item_id]
+            if (
+                resolution.item_id in confirm
+                and earlier.why_not == "held_os_layer_off"
+                and resolution.item_id not in self.state.confirmed
+            ):
+                if not self._take(
+                    item, resolution, offset, view, held=False, confirmed_by=confirmed_by
+                ):
+                    return True
+                took = True
+            if took and not at_a_boundary(self.state.next_step()):
+                # What it did starts an attempt's work (a merge, an end): that is driven first,
+                # and the next decision waits for the next boundary.
+                return True
+        return took
+
+    def _decisions_as_sealed(self, data: bytes) -> bool:
+        """Every prefix of the decisions file a session started beside is still its first bytes.
+
+        The file only grows: a person's decision is a line appended at its end. A prefix that
+        changed was rewritten beneath a session that may have written it, and a decision read from
+        it could be one no person made, so the run halts and nothing is taken (ARCH-133).
+        """
+        for seal in (e for e in self.log.events if isinstance(e, DecisionsSealed)):
+            prefix = data[: seal.length]
+            if len(prefix) < seal.length or hashlib.sha256(prefix).hexdigest() != seal.sha256:
+                detail = (
+                    f"the decisions file's first {seal.length} bytes, as subtask "
+                    f"{seal.subtask_id} attempt {seal.attempt} started beside them, changed"
+                )
+                self._incident(None, "decisions_rewritten", detail)
+                return False
+        return True
+
+    def _take(
+        self,
+        item: QueueItem,
+        resolution: QueueResolution,
+        offset: int,
+        view: QueueView,
+        *,
+        held: bool,
+        confirmed_by: str | None = None,
+    ) -> bool:
+        """Take one decision into the log; False if the run halted instead.
+
+        No attempt is in progress here, so an incident names no subtask; its detail does.
+        """
+        subtask_id = None if item.subtask_id == INTEGRATION else item.subtask_id
+        digest = view.digests.get(item.item_id)
+        if digest is None:
+            self._incident(None, "queue_item_mismatch", f"item {item.item_id} has no line")
+            return False
+        attempt: int | None = None
+        commit: str | None = None
+        scan: tuple[ScanHit, ...] = ()
+        if subtask_id is not None:
+            sub = self.state.subtasks.get(subtask_id)
+            if sub is None or not sub.attempts:
+                self._incident(None, "queue_item_mismatch", f"item {item.item_id} names no attempt")
+                return False
+            attempt = sub.attempts[-1].number
+            if item.source in SCANNED_SOURCES:
+                found = self._scan_hits(subtask_id, where=None)
+                if found is None:
+                    return False
+                scan = found
+            if sub.status == "escalated" and sub.queue_item == item.item_id:
+                commit = item_consequence(
+                    self.state, subtask_id, source=source_of(sub), scan_hits=()
+                ).attempt_commit
+        try:
+            taken = decision_effect(
+                self.state, item, resolution, line_sha256=digest, scan_hits=scan, held=held
+            )
+        except QueueItemMismatchError as exc:
+            self._incident(None, "queue_item_mismatch", f"{exc}: {exc.context}")
+            return False
+        # Held to the record whole, not field by field: the item as listed must be the item the
+        # loop builds from the log now, its links, finding, diff and consequence alike. Otherwise
+        # the person decided on something the run did not write.
+        if (
+            resolution.verb is not None
+            and subtask_id is not None
+            and self._item_for(subtask_id, item_id=item.item_id, ts=item.ts, scan=scan) != item
+        ):
+            detail = f"item {item.item_id} is not the item the run's record builds"
+            self._incident(None, "queue_item_mismatch", detail)
+            return False
+        if taken.acts and taken.effect == "merge":
+            if subtask_id is None or commit is None:
+                detail = f"item {item.item_id}: an approve that merges names no attempt's commit"
+                self._incident(None, "queue_item_mismatch", detail)
+                return False
+            # Every trajectory of every attempt, each held to its seal: a stream named and not
+            # sealed is one nothing can vouch for, and refuses the merge.
+            sessions = [s for a in self.state.subtasks[subtask_id].attempts for s in a.ended]
+            if not self._sealed_hold(sessions):
+                return False
+        self._emit(
+            DecisionTaken(
+                **self._env(),
+                subtask_id=subtask_id,
+                item_id=item.item_id,
+                verb=resolution.verb,
+                note=resolution.note,
+                resolved_by=resolution.resolved_by,
+                decided_ts=resolution.ts,
+                decision_offset=offset,
+                shown_sha256=resolution.shown_sha256,
+                attempt=attempt,
+                attempt_commit=commit,
+                effect=taken.effect,
+                acts=taken.acts,
+                why_not=taken.why_not,
+                confirmed_by=confirmed_by,
+                order_too_long=taken.order_too_long,
+            )
+        )
+        return True
+
+    def _scan_hits(self, subtask_id: str, *, where: str | None) -> tuple[ScanHit, ...] | None:
+        """What the scan before review finds in the unjudged attempts' streams; None if it halted.
+
+        Each stream is held to its seal first. A stream that is not what was sealed, or that
+        the scan cannot read, is an incident: it is never a stream that showed nothing.
+        """
+        # Every attempt no review judged, not only the last: an earlier attempt's work is in the
+        # commit an approve would merge, and no reviewer weighed what its streams show.
+        sub = self.state.subtasks[subtask_id]
+        judged = {review.attempt for review in sub.reviews}
+        sessions = [s for a in sub.attempts if a.number not in judged for s in a.ended]
+        streams: list[bytes] = []
+        for session in sessions:
+            if session.trajectory is None:
+                continue  # nothing was captured: no stream, and none a reviewer was shown
+            if session.trajectory_seal is None:
+                # A stream named and never sealed: the scan cannot say what it held, and an
+                # unscanned stream is never one that showed nothing.
+                detail = f"subtask {subtask_id}: session {session.session_id}'s stream has no seal"
+                self._incident(where, "trajectory_tampered", detail)
+                return None
+            try:
+                streams.append(read_sealed(Path(session.trajectory), session.trajectory_seal))
+            except TrajectoryTamperedError as exc:
+                self._incident(where, "trajectory_tampered", f"{exc}: {exc.context}")
+                return None
+        try:
+            return scan_hits_of(streams)
+        except ScanUnreadableError as exc:
+            detail = f"subtask {subtask_id}: the scan cannot read its stream: {exc}"
+            self._incident(where, "trajectory_tampered", detail)
+            return None
+
+    def _consequence(
+        self, subtask_id: str, source: QueueSource, scan_hits: tuple[ScanHit, ...] = ()
+    ) -> ItemConsequence | None:
+        """What each verb will do to the item, in a run that acts; none in one that records."""
+        if not self._acts():
+            return None
+        return item_consequence(self.state, subtask_id, source=source, scan_hits=scan_hits)
+
+    def _end_subtask(self, subtask_id: str, attempt: int) -> None:
+        """The subtask ends rejected: a person's reject with no attempt left, or a failed fix."""
+        sub = self.state.subtasks[subtask_id]
+        by = sub.ending
+        if by is None:
+            msg = "a subtask ended with no reason to"
+            raise RunStateError(msg, subtask=subtask_id)
+        spent = sub.attempts[-1].person_rejected
+        self._emit(
+            SubtaskRejected(
+                **self._env(),
+                subtask_id=subtask_id,
+                attempt=attempt,
+                by=by,
+                item_id=spent.item_id if by == "person" and spent is not None else None,
+            )
+        )
 
     def _decide(self, subtask_id: str, attempt: int) -> None:
         """Ask the escalation question about the attempt that just ended, and record the answer.
@@ -551,15 +912,84 @@ class Loop:
         )
 
     def _attempt(self, subtask_id: str, attempt: int, point: str) -> None:
+        if point == "merge":
+            # A person's approve, taken: merge exactly the attempt it names, then diff.
+            if self._merge_attempt(subtask_id, attempt):
+                self._diff(subtask_id, attempt)
+            return
         if point == "resolve" and not self._session(subtask_id, attempt):
             return
         if point in ("resolve", "verify_reading") and not self._judge(subtask_id, attempt):
             return
         self._diff(subtask_id, attempt)
 
+    def _instruction(self, subtask_id: str, attempt: int) -> tuple[str | None, PersonOrder | None]:
+        """What ``attempt`` starts from, and the person's order behind it if a person gave one.
+
+        Rebuilt from the log on every call, by code: a session restarted after a kill, and the
+        attempt's reviewer, are told exactly what the first session was.
+
+        Raises:
+            RunStateError: a fix ordered after a review that did not block, or with no note.
+        """
+        sub = self.state.subtasks[subtask_id]
+        previous = sub.attempts[-2] if attempt > 1 and len(sub.attempts) > 1 else None
+        if previous is None:
+            return None, None
+        before = previous.rejected
+        ordered = previous.person_rejected
+        if ordered is not None and ordered.effect in ("fix", "retry"):
+            if ordered.note is None:
+                msg = "a session a person ordered is ordered with the person's note"
+                raise RunStateError(msg, subtask=subtask_id, attempt=str(attempt))
+            try:
+                order = person_order(
+                    previous, effect=ordered.effect, item_id=ordered.item_id, note=ordered.note
+                )
+            except ValueError as exc:
+                raise RunStateError(str(exc), subtask=subtask_id, attempt=str(attempt)) from None
+            if order is not None:
+                return order.instruction, order
+        return (repair_instruction(previous.number, before.finding) if before else None), None
+
+    def _screened(self, subtask_id: str, order: PersonOrder) -> str:
+        """What a person's order is held to the canaries by, before its session is spawned.
+
+        A fix's whole instruction, the quoted verdict with the note; a retry's note, the one text
+        in it no check before it saw (ARCH-133). The reviewer's finding a retry also quotes is
+        what every automated repair quotes, and is held to nothing more here than there.
+        """
+        if order.kind == "fix_after_block":
+            return order.instruction
+        attempts = self.state.subtasks[subtask_id].attempts
+        spent = next((a.person_rejected for a in attempts if a.number == order.of_attempt), None)
+        if spent is None or spent.note is None:
+            msg = "a retry a person ordered has no note on the record"
+            raise RunStateError(msg, subtask=subtask_id, item=order.item_id)
+        return spent.note
+
+    def _material_clean(self, subtask_id: str, text: str) -> bool:
+        """``text`` shows no material a role session may not read; otherwise the run halts.
+
+        Held-out material counts the tier as exposed (ARCH-141). The canary is never recorded.
+        """
+        seen = self._material.seen(text)
+        if seen is None:
+            return True
+        cause: IncidentCause = "held_out_read" if seen == "held_out" else "review_material_read"
+        what = "held-out" if seen == "held_out" else "reviewer"
+        detail = f"{what} material in the instruction a person's decision gives {subtask_id}"
+        self._incident(subtask_id, cause, detail)
+        return False
+
     def _session(self, subtask_id: str, attempt: int) -> bool:
         sub = self.state.subtasks[subtask_id]
         self._stage(subtask_id, attempt, "resolve")
+        instruction, order = self._instruction(subtask_id, attempt)
+        if order is not None and not self._material_clean(
+            subtask_id, self._screened(subtask_id, order)
+        ):
+            return False
         # The decisions file's length now and when the session ends: the window a
         # decision written meanwhile falls in, which the queue listing marks.
         self._emit(
@@ -571,7 +1001,20 @@ class Loop:
                 decisions_bytes=self._decisions_bytes(),
             )
         )
-        before = sub.attempts[-2].rejected if attempt > 1 else None
+        if self._acts():
+            # The decisions file as this session starts: no later decision is taken unless
+            # these bytes are still the file's first (ARCH-133). Whole lines only: a torn final
+            # line is no decision, and the writer may lawfully cut it.
+            beside = whole_lines(decisions_file_bytes(self.run_dir))
+            self._emit(
+                DecisionsSealed(
+                    **self._env(),
+                    subtask_id=subtask_id,
+                    attempt=attempt,
+                    length=len(beside),
+                    sha256=hashlib.sha256(beside).hexdigest(),
+                )
+            )
         request = SessionRequest(
             subtask_id=subtask_id,
             attempt=attempt,
@@ -579,9 +1022,10 @@ class Loop:
             spec_path=sub.plan.spec_path,
             module_dir=sub.plan.module_dir,
             model=self.config.models.roles[sub.plan.assigned_role],
-            repair_instruction=repair_instruction(attempt - 1, before.finding) if before else None,
+            repair_instruction=instruction,
             bounds=self.config.bounds,
             spec_commit=self._spec_commit(),
+            kind="fix" if order is not None and order.kind == "fix_after_block" else "attempt",
         )
         try:
             report = self._dispatcher.run(request, on_spawn=self._spawned)
@@ -920,6 +1364,7 @@ class Loop:
             issued_spec=self._issued_spec(sub.plan.spec_path, session),
             earlier_sessions=self._earlier_sessions(subtask_id, attempt),
             series=self._attempt_series(subtask_id, attempt, check.series_checks),
+            ordered_by_person=self._instruction(subtask_id, attempt)[1],
         )
         self._stage(subtask_id, attempt, "gate")
         mode = self.config.gate_mode
@@ -973,16 +1418,38 @@ class Loop:
             self._reject(subtask_id, attempt, Finding.from_review(review))
             return False
         self._stage(subtask_id, attempt, "decide")
-        line = require_mergeable(self.ledger.path, subtask_id, mode)
-        changes = sub.attempts[-1].changes
+        return self._merge_attempt(subtask_id, attempt)
+
+    def _merge_attempt(self, subtask_id: str, attempt: int) -> bool:
+        """Merge the attempt's checked commit; True if it was merged.
+
+        The one merge a review's pass and a person's approve both go through. The ledger line
+        read back from disk must permit it (ARCH-001): a passing review, or a person's approve
+        bound to this attempt, beside a gate result the mode merges. The proposals are applied
+        under the store's own refusals, the run branch checked, exactly the checked commit merged.
+        """
+        sub = self.state.subtasks[subtask_id]
+        now = sub.attempts[-1]
+        line = require_mergeable(self.ledger.path, subtask_id, self.config.gate_mode)
+        changes = now.changes
         if changes is None:
             msg = "a merge with no recorded change check"
             raise RunStateError(msg, subtask=subtask_id)
         checked = changes.checked_commit
+        approved = now.approved
         merge_text = merge_message(
-            subtask_id, attempt, checked, str(line.gate_result), str(line.review_result)
+            subtask_id,
+            attempt,
+            checked,
+            str(line.gate_result),
+            str(line.review_result),
+            approved_by=(
+                (approved.resolved_by, approved.item_id, str(approved.shown_sha256))
+                if approved is not None
+                else None
+            ),
         )
-        if not self._apply(subtask_id, attempt, checked, role):
+        if not self._apply(subtask_id, attempt, checked, sub.plan.assigned_role):
             return False
         if not self._run_branch_holds(subtask_id, checked):
             return False
@@ -1161,6 +1628,7 @@ class Loop:
                     run_span=(start, head),
                     trajectories=tuple(s.trajectory for s in sessions if s.trajectory),
                     ts=self.log.events[-1].ts,
+                    consequence=self._consequence(INTEGRATION, "gate_escalation"),
                 )
             )
         self._emit(IntegrationEscalated(**self._env(), item_id=item_id))
@@ -1262,7 +1730,16 @@ class Loop:
             checks=checks,
         )
 
-    def _trajectories_hold(self, subtask_id: str, sessions: list[SessionEnded]) -> bool:
+    def _sealed_hold(self, sessions: list[SessionEnded]) -> bool:
+        """Every stream the sessions name is sealed and still what was sealed; else an incident."""
+        for session in sessions:
+            if session.trajectory is not None and session.trajectory_seal is None:
+                detail = f"session {session.session_id}'s stream is named and has no seal"
+                self._incident(None, "trajectory_tampered", detail)
+                return False
+        return self._trajectories_hold(None, sessions)
+
+    def _trajectories_hold(self, subtask_id: str | None, sessions: list[SessionEnded]) -> bool:
         """Every sealed trajectory is still what it was; otherwise an incident."""
         for session in sessions:
             if session.trajectory is None or session.trajectory_seal is None:
@@ -1274,100 +1751,137 @@ class Loop:
                 return False
         return True
 
-    def _escalate_unavailable(self, subtask_id: str, unavailable: ReviewUnavailable) -> None:
-        """Send a subtask whose review reached no verdict to a person, spending no attempt."""
-        self._to_a_person(
-            subtask_id,
-            attempt=unavailable.attempt,
-            source="review_unavailable",
-            cause=unavailable.cause,
-            detail=unavailable.detail,
-            spec_defects=unavailable.spec_defects,
-        )
+    def _to_a_person(self, subtask_id: str) -> None:
+        """Send a subtask whose review blocked it or reached no verdict to a person.
 
-    def _escalate_blocked(self, subtask_id: str, blocked: ReviewRan) -> None:
-        """Send a subtask whose review blocked it to a person, spending no attempt.
-
-        The review is on the record as a review; only the routing is shared with a
-        review that reached no verdict.
+        No attempt is spent. A blocked review is on the record as a review; only the routing is
+        shared with a review that reached no verdict.
         """
-        self._to_a_person(
-            subtask_id,
-            attempt=blocked.attempt,
-            source="review_blocked",
-            cause="blocking_spec_defect",
-            detail=blocked.result.finding,
-            spec_defects=blocked.result.spec_defects,
-        )
-
-    def _to_a_person(
-        self,
-        subtask_id: str,
-        *,
-        attempt: int,
-        source: Literal["review_unavailable", "review_blocked"],
-        cause: str,
-        detail: str,
-        spec_defects: tuple[SpecDefect, ...],
-    ) -> None:
         session = self.state.subtasks[subtask_id].attempts[-1].session
-        if session is None or session.trajectory is None or session.attempt_commit is None:
+        if session is None:
             msg = "a review sent to a person with no completed session behind it"
             raise RunStateError(msg, subtask=subtask_id)
         if not self._trajectories_hold(subtask_id, [session]):
             return
-        item_id = f"{self.config.run_id}-{subtask_id}"
+        scan: tuple[ScanHit, ...] = ()
+        if source_of(self.state.subtasks[subtask_id]) in SCANNED_SOURCES and self._acts():
+            found = self._scan_hits(subtask_id, where=subtask_id)
+            if found is None:
+                return
+            scan = found
+        item_id = self._next_item_id(subtask_id)
         if item_id not in {item.item_id for item in self.queue.items()}:
             self.queue.add(
-                unavailable_item(
-                    item_id=item_id,
-                    run_id=self.config.run_id,
-                    subtask_id=subtask_id,
-                    attempt=attempt,
-                    source=source,
-                    cause=cause,
-                    detail=detail,
-                    spec_defects=spec_defects,
-                    artefact_diff=self._merger.artefact_diff(session.attempt_commit),
-                    trajectory=session.trajectory,
-                    ts=self.log.events[-1].ts,
-                )
+                self._item_for(subtask_id, item_id=item_id, ts=self.log.events[-1].ts, scan=scan)
             )
         self._emit(Escalated(**self._env(), subtask_id=subtask_id, item_id=item_id))
 
+    def _item_for(
+        self, subtask_id: str, *, item_id: str, ts: str, scan: tuple[ScanHit, ...]
+    ) -> QueueItem:
+        """The item the loop lists for a subtask it sends to a person, from the record alone.
+
+        The one builder: what a person is shown, and what a decision on it is held to when the
+        loop takes it, are the same function of the event log, so an item listed otherwise than
+        this rebuilds it is not one the loop wrote (ARCH-133). ``ts`` is the item's own time;
+        ``scan`` what the scan before review found, for an item whose review never judged it.
+
+        Raises:
+            RunStateError: the subtask did not end in a way that reaches the queue, or its last
+                attempt has no completed session behind it.
+        """
+        sub = self.state.subtasks[subtask_id]
+        try:
+            source = source_of(sub)
+        except ValueError as exc:
+            raise RunStateError(str(exc), subtask=subtask_id) from None
+        attempts = sub.attempts
+        now = attempts[-1]
+        if source in ("review_unavailable", "review_blocked"):
+            session = now.session
+            if session is None or session.trajectory is None or session.attempt_commit is None:
+                msg = "a review sent to a person with no completed session behind it"
+                raise RunStateError(msg, subtask=subtask_id)
+            blocked, unavailable = now.blocked, now.unavailable_final
+            if blocked is not None:
+                attempt, cause = blocked.attempt, "blocking_spec_defect"
+                detail, defects = blocked.result.finding, blocked.result.spec_defects
+            elif unavailable is not None:
+                attempt, cause = unavailable.attempt, unavailable.cause
+                detail, defects = unavailable.detail, unavailable.spec_defects
+            else:  # source_of names one of the two only when the attempt carries it
+                msg = "a review sent to a person that neither blocked nor reached no verdict"
+                raise RunStateError(msg, subtask=subtask_id)
+            return unavailable_item(
+                item_id=item_id,
+                run_id=self.config.run_id,
+                subtask_id=subtask_id,
+                attempt=attempt,
+                source="review_blocked" if blocked is not None else "review_unavailable",
+                cause=cause,
+                detail=detail,
+                spec_defects=defects,
+                artefact_diff=self._merger.artefact_diff(session.attempt_commit),
+                trajectory=session.trajectory,
+                ts=ts,
+                consequence=self._consequence(subtask_id, source, scan),
+            )
+        findings = tuple(a.rejected.finding for a in attempts if a.rejected is not None)
+        sessions = [a.session for a in attempts if a.session is not None]
+        trajectories = tuple(s.trajectory for s in sessions if s.trajectory is not None)
+        commits = [s.attempt_commit for s in sessions if s.attempt_commit is not None]
+        decided = now.decided
+        if source == "escalation_decision" and decided is not None:
+            # Sent to a person with attempts left, by the backend's answer or the confidence
+            # floor: an item of its own, with the attempts made so far.
+            return decided_item(
+                item_id=item_id,
+                run_id=self.config.run_id,
+                subtask_id=subtask_id,
+                decision=decided.decision,
+                findings=findings,
+                artefact_diff=self._merger.artefact_diff(commits[-1]),
+                trajectories=trajectories,
+                ts=ts,
+                attempt=now.number,
+                consequence=self._consequence(subtask_id, "escalation_decision", scan),
+            )
+        return escalation_item(
+            item_id=item_id,
+            run_id=self.config.run_id,
+            subtask_id=subtask_id,
+            findings=findings,
+            artefact_diff=self._merger.artefact_diff(commits[-1]),
+            trajectories=trajectories,
+            ts=ts,
+            spent_by_person=sum(
+                1 for a in attempts if a.person_rejected is not None and a.rejected is None
+            ),
+            consequence=self._consequence(subtask_id, "repair_budget_exhausted", scan),
+        )
+
+    def _next_item_id(self, subtask_id: str) -> str:
+        """The id of the subtask's next queue item: a new round each time it comes back."""
+        return item_id_for(
+            self.config.run_id, subtask_id, self.state.subtasks[subtask_id].rounds + 1
+        )
+
     def _escalate(self, subtask_id: str) -> None:
         attempts = self.state.subtasks[subtask_id].attempts
-        findings = tuple(a.rejected.finding for a in attempts if a.rejected is not None)
         sessions = [a.session for a in attempts if a.session is not None]
         if not self._trajectories_hold(subtask_id, sessions):
             return  # the queue item would link a trajectory that is not what was sealed
-        trajectories = tuple(s.trajectory for s in sessions if s.trajectory is not None)
-        commits = [s.attempt_commit for s in sessions if s.attempt_commit is not None]
-        item_id = f"{self.config.run_id}-{subtask_id}"
+        scan: tuple[ScanHit, ...] = ()
+        if self._acts():
+            # An attempt that ended at the gate or the change check was never reviewed, and its
+            # work is in the commit an approve would merge: its streams are scanned as well.
+            found = self._scan_hits(subtask_id, where=subtask_id)
+            if found is None:
+                return
+            scan = found
+        item_id = self._next_item_id(subtask_id)
         if item_id not in {item.item_id for item in self.queue.items()}:
-            decided = attempts[-1].decided
-            if decided is not None and not decided.decision.forced:
-                # Sent to a person with attempts left, by the backend's answer or the
-                # confidence floor: an item of its own, with the attempts made so far.
-                item = decided_item(
-                    item_id=item_id,
-                    run_id=self.config.run_id,
-                    subtask_id=subtask_id,
-                    decision=decided.decision,
-                    findings=findings,
-                    artefact_diff=self._merger.artefact_diff(commits[-1]),
-                    trajectories=trajectories,
-                    ts=self.log.events[-1].ts,
-                )
-            else:
-                item = escalation_item(
-                    item_id=item_id,
-                    run_id=self.config.run_id,
-                    subtask_id=subtask_id,
-                    findings=findings,
-                    artefact_diff=self._merger.artefact_diff(commits[-1]),
-                    trajectories=trajectories,
-                    ts=self.log.events[-1].ts,
-                )
-            self.queue.add(item)
+            self.queue.add(
+                self._item_for(subtask_id, item_id=item_id, ts=self.log.events[-1].ts, scan=scan)
+            )
         self._emit(Escalated(**self._env(), subtask_id=subtask_id, item_id=item_id))

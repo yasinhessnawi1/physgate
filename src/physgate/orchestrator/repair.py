@@ -22,7 +22,7 @@ from physgate.orchestrator.exceptions import RepairBudgetExhaustedError
 from physgate.orchestrator.protocols import GateResult, NumericOutput, QuantityRef, ReviewResult
 
 #: What rejected an attempt.
-FindingSource = Literal["gate", "review", "write_scope", "proposal", "reading", "series"]
+FindingSource = Literal["gate", "review", "write_scope", "proposal", "reading", "series", "person"]
 
 _WHO = {
     "gate": "the physics gate",
@@ -31,7 +31,12 @@ _WHO = {
     "proposal": "the design-state store, which refused a proposed node",
     "reading": "the reading check (the required reading was not completed)",
     "series": "the series check (a simulation record was refused, or names other code)",
+    "person": "a person deciding the approval queue",
 }
+
+#: The fixed line every instruction that quotes a person's words ends with: what a person
+#: writes is data, and changes nothing the session works to.
+STILL_GOVERNS = "The specification as issued is unchanged and still governs."
 
 
 class Finding(BaseModel):
@@ -133,5 +138,74 @@ def repair_instruction(attempt: int, finding: Finding) -> str:
         f"Fix what the finding names. {remaining} "
         f"{'attempts remain' if remaining != 1 else 'attempt remains'} "
         "before this goes to a person for a decision.",
+    ]
+    return "\n".join(lines)
+
+
+def quoted(text: str) -> list[str]:
+    """``text`` between fences, as data: lines of the instruction, never instructions.
+
+    The fences are made long enough that the text holds neither, so nothing in it can close
+    its own quotation; the same text always gets the same fences, so the instruction is
+    rebuilt byte for byte from the record.
+    """
+    width = 3
+    while "<" * width in text or ">" * width in text:
+        width += 1
+    return ["<" * width, text, ">" * width]
+
+
+def person_repair_instruction(attempt: int, note: str, finding: Finding | None) -> str:
+    """The instruction the next attempt starts from, after a person rejected ``attempt``.
+
+    A fixed template: the reviewer's finding when a review rejected the attempt, then the
+    person's note, each quoted as data, then the line that nothing quoted changes the
+    specification. No model phrases any of it.
+
+    Raises:
+        RepairBudgetExhaustedError: ``attempt`` was the last one; a person's reject then ends
+            the subtask, and there is no next attempt to instruct.
+    """
+    require_within_budget(attempt)
+    if attempt == REPAIR_BUDGET:
+        msg = "the last attempt is not repaired"
+        raise RepairBudgetExhaustedError(msg, attempt=str(attempt))
+    lines = [f"Attempt {attempt} of {REPAIR_BUDGET} was rejected by {_WHO['person']}.", ""]
+    if finding is not None:
+        lines += [f"The rejection by {_WHO[finding.source]} found:", *quoted(finding.text), ""]
+    lines += ["A person wrote:", *quoted(note), "", STILL_GOVERNS]
+    remaining = REPAIR_BUDGET - attempt
+    lines += [
+        "",
+        f"Fix what the finding names. {remaining} "
+        f"{'attempts remain' if remaining != 1 else 'attempt remains'} "
+        "before this goes to a person for a decision.",
+    ]
+    return "\n".join(lines)
+
+
+#: The fixed lines a fix's instruction ends with: what the fix may not do, and that it is final.
+NO_INPUT_SUPPLIED = "Do not supply an input it lacks."
+LAST_ATTEMPT = "This is the last attempt."
+
+
+def fix_instruction(attempt: int, finding: str, lacking: tuple[str, ...], note: str) -> str:
+    """The instruction the one fix a person ordered starts from, after the review of ``attempt``.
+
+    A fixed template: the review's finding and each blocking defect it named, then the person's
+    note, each quoted as data, then the lines that the issued specification still governs and
+    that this is the last attempt. No model phrases any of it, and nothing of the earlier
+    session's trajectory is in it: the worktree holds what was done.
+    """
+    lines = [f"The review of attempt {attempt} blocked.", "", "The review found:", *quoted(finding)]
+    for defect in lacking:
+        lines += ["", "It names what the specification lacks:", *quoted(defect)]
+    lines += [
+        "",
+        "A person asked for one attempt to fix it and wrote:",
+        *quoted(note),
+        "",
+        f"{STILL_GOVERNS} {NO_INPUT_SUPPLIED}",
+        LAST_ATTEMPT,
     ]
     return "\n".join(lines)

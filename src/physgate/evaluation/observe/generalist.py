@@ -32,7 +32,7 @@ from physgate.evaluation.observe.exceptions import ManifestError, PriceSheetErro
 from physgate.evaluation.observe.manifest import Sha256, read_run_events
 from physgate.evaluation.observe.ratio import RATIO_KIND, Ratio, RatioLine, ReviewCost
 from physgate.knowledge.promote import KNOWLEDGE_ROOT
-from physgate.orchestrator.budget import infra_retry_delay
+from physgate.orchestrator.budget import ATTEMPT_LIMIT, infra_retry_delay
 from physgate.orchestrator.common import ModelString, NonEmptyStr
 from physgate.orchestrator.credentials import Credential
 from physgate.orchestrator.events import (
@@ -71,7 +71,7 @@ class GeneralistConfig(_Frozen):
     #: The paired run's configuration digest, as its first event line carries it.
     paired_config_sha256: Sha256
     subtask_id: NonEmptyStr
-    attempt: Annotated[int, Field(ge=1, le=3)]
+    attempt: Annotated[int, Field(ge=1, le=ATTEMPT_LIMIT)]
     paired_review_session: NonEmptyStr
     paired_packet_sha256: Sha256
     paired_rubric_sha256: Sha256

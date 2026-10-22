@@ -33,7 +33,7 @@ from pydantic import (
     model_validator,
 )
 
-from physgate.orchestrator.budget import REPAIR_BUDGET, InfraCause
+from physgate.orchestrator.budget import ATTEMPT_LIMIT, InfraCause
 from physgate.orchestrator.common import (
     GateMode,
     NonEmptyStr,
@@ -66,7 +66,7 @@ Stage = Literal[
 
 #: An attempt number: the repair budget bounds it in the record itself, so a fourth
 #: attempt cannot even be written down.
-Attempt = Annotated[int, Field(ge=1, le=REPAIR_BUDGET)]
+Attempt = Annotated[int, Field(ge=1, le=ATTEMPT_LIMIT)]
 Sha = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
 Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 
@@ -89,6 +89,8 @@ IncidentCause = Literal[
     "os_layer_aborted",
     "reaper_unverified",
     "stream_quarantined",
+    "queue_item_mismatch",
+    "decisions_rewritten",
 ]
 
 #: Why a run stopped short of the end of its plan.
@@ -176,6 +178,24 @@ class StageEntered(_Event):
     stage: Stage
     #: At the spawn stage: the queue decisions file's length as the session starts.
     decisions_bytes: Annotated[int, Field(ge=0)] | None = None
+
+
+class DecisionsSealed(_Event):
+    """The decisions file as a session starts, in a run that acts on queue decisions (ARCH-133).
+
+    The file is append-only: every decision a person writes is a line added at its end. So the
+    bytes a session started beside are still the file's first bytes at every later point, and a
+    decision is taken only while each such prefix is what it was. A prefix that changed was
+    rewritten beneath a session, by a hand no person's decision accounts for, and the run halts.
+    Written only by a run that acts, so a run that records keeps its log byte for byte.
+    """
+
+    kind: Literal["decisions_sealed"] = "decisions_sealed"
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    #: The file's length as the session starts, in bytes, and the digest of those bytes.
+    length: Annotated[int, Field(ge=0)]
+    sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 
 
 class Halted(_Event):
@@ -442,6 +462,92 @@ class Escalated(_Event):
     item_id: NonEmptyStr
 
 
+#: What a person's decision did when the loop took it (ARCH-133).
+DecisionEffect = Literal["merge", "retry", "fix", "end_subtask", "none"]
+#: Why a decision taken did not act. ``record_only_source``: approve or reject on an item whose
+#: source neither verb acts on. ``last_rejection_automated``: approve where an automated check,
+#: not the reviewer, refused the attempt. ``indicator_in_history``: approve where a review of
+#: some attempt of the subtask confirmed a reward-hacking indicator. ``scan_hit``: approve where
+#: the scan before review found one no review judged. ``not_bound``: a decision that names no
+#: verb, or no view. ``legacy_item``: an item that says nothing of what a verb does.
+#: ``held_os_layer_off``: written while a session ran without the OS layer, so its own shell
+#: could have written it; it acts once the operator confirms it.
+WhyNot = Literal[
+    "record_only_source",
+    "last_rejection_automated",
+    "indicator_in_history",
+    "scan_hit",
+    "not_bound",
+    "legacy_item",
+    "held_os_layer_off",
+]
+
+
+class DecisionTaken(_Event):
+    """A person's decision on a queue item, taken into the run where no attempt is in progress.
+
+    What it did is computed by code from the item and from the lines before this one
+    (``decisions.decision_effect``), never from the decision's words, and replay holds the line
+    to what those lines allow. ``decision_offset`` is where the decision's line starts in the
+    decisions file, which is what tells a decision written in a session's window from one that
+    was not. A held decision is taken twice: once not acting, then once more, confirmed by the
+    operator on the command line, naming who.
+    """
+
+    kind: Literal["decision_taken"] = "decision_taken"
+    #: ``None`` for the integration item, which no subtask owns.
+    subtask_id: NonEmptyStr | None
+    item_id: NonEmptyStr
+    verb: Literal["approve", "reject"] | None
+    #: The person's note, verbatim, as the decisions file holds it.
+    note: NonEmptyStr | None
+    resolved_by: NonEmptyStr
+    decided_ts: Timestamp
+    decision_offset: Annotated[int, Field(ge=0)]
+    shown_sha256: Sha256 | None
+    attempt: Annotated[int, Field(ge=1)] | None
+    attempt_commit: Sha | None
+    effect: DecisionEffect
+    acts: bool
+    why_not: WhyNot | None
+    #: The operator who confirmed a held decision on the command line, by OS user name.
+    confirmed_by: NonEmptyStr | None = None
+    #: A reject that would have ordered the one fix, or the next attempt, ends the subtask
+    #: instead: what that session's reviewer would be told of the order is longer than one read
+    #: shows whole, so its review could not be prepared. Nothing is spawned.
+    order_too_long: bool = False
+
+    @model_validator(mode="after")
+    def _an_act_needs_no_excuse_and_a_non_act_has_one(self) -> DecisionTaken:
+        if self.acts == (self.why_not is not None):
+            msg = "a decision that acts says no reason it would not, and one that does not says why"
+            raise ValueError(msg)
+        if self.acts and self.effect == "none":
+            msg = "a decision that acts has an effect"
+            raise ValueError(msg)
+        if self.confirmed_by is not None and not self.acts:
+            msg = "a confirmed decision is the one that acts"
+            raise ValueError(msg)
+        if self.order_too_long and (self.verb != "reject" or self.effect != "end_subtask"):
+            msg = "only a reject ends a subtask for an order its reviewer could not read whole"
+            raise ValueError(msg)
+        return self
+
+
+class SubtaskRejected(_Event):
+    """The subtask ends without a merge, and no attempt of it runs again.
+
+    A person rejected it with no attempt left, or the one fix a person ordered after a blocked
+    review was not accepted.
+    """
+
+    kind: Literal["subtask_rejected"] = "subtask_rejected"
+    subtask_id: NonEmptyStr
+    attempt: Annotated[int, Field(ge=1)]
+    by: Literal["person", "fix_not_accepted"]
+    item_id: NonEmptyStr | None
+
+
 class Incident(_Event):
     """Something the loop cannot answer by itself happened. The run halts after it."""
 
@@ -646,6 +752,7 @@ Event = Annotated[
     | SubtaskPlanned
     | SubtaskRemoved
     | StageEntered
+    | DecisionsSealed
     | GateRan
     | GateSkipped
     | IntegrationGateRan
@@ -662,6 +769,8 @@ Event = Annotated[
     | DiffChecked
     | EscalationDecided
     | Escalated
+    | DecisionTaken
+    | SubtaskRejected
     | Incident
     | Resumed
     | Decomposed

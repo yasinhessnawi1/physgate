@@ -18,6 +18,7 @@ from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.ports import (
     ChangeCheck,
     Leftover,
+    MaterialSeen,
     SessionReport,
     SessionRequest,
     SpawnHook,
@@ -310,6 +311,23 @@ class FakeMerger:
 
 
 @dataclass
+class FakeMaterial:
+    """Sees material in a text that holds one of its markers; records every text it was shown."""
+
+    held_out: tuple[str, ...] = ()
+    review_material: tuple[str, ...] = ()
+    shown: list[str] = field(default_factory=list)
+
+    def seen(self, text: str) -> MaterialSeen | None:
+        self.shown.append(text)
+        if any(marker in text for marker in self.held_out):
+            return "held_out"
+        if any(marker in text for marker in self.review_material):
+            return "review_material"
+        return None
+
+
+@dataclass
 class FakeGraph:
     """A graph port with an empty journal, reporting divergences on chosen diff calls."""
 
@@ -359,6 +377,8 @@ class Rig:
     config_overrides: dict[str, Any] = field(default_factory=dict)
     #: The escalation interface the loop asks; the run's binding, through the register.
     escalation: EscalationInterface = field(default_factory=lambda: bind("rules"))
+    #: What a person's words are held to before they reach a session.
+    material: FakeMaterial = field(default_factory=lambda: FakeMaterial())
 
     def open(self) -> Loop:
         from orch_helpers import SCRIPTED_BOUNDS
@@ -377,6 +397,7 @@ class Rig:
             merger=self.merger,
             graph=self.diff,
             escalation=self.escalation,
+            material=self.material,
             sleep=sleeper,
             clock=ticking_clock(),
         )

@@ -22,13 +22,10 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from physgate.orchestrator.common import NonEmptyStr, first_problem
 from physgate.orchestrator.exceptions import QueueError
-from physgate.orchestrator.queue import ShownItem, Verb, decision_text, record_decision
+from physgate.orchestrator.queue import MAX_NOTE, PersonDecision, ShownItem, Verb, record_decision
 from physgate.ui import readers
 from physgate.ui.exceptions import UIError
 from physgate.ui.routes import Context, Response, error_response, json_response, request_body
-
-#: The longest note taken with a decision, in characters. The body's own cap is far larger.
-MAX_NOTE = 4000
 
 
 class DecisionRequest(BaseModel):
@@ -59,16 +56,22 @@ def decide(context: Context, params: Mapping[str, str]) -> Response:
             400, UIError("the request is not a decision", reason=first_problem(exc))
         )
     try:
-        text = decision_text(request.verb, request.note)
-    except QueueError as exc:  # a rejection without its reason: the request is not a decision
-        return error_response(400, exc)
+        # A blank note is no note, as the page judges it; what remains is held to the queue's
+        # own rules for a note (bounded, no control character, required to reject).
+        person = PersonDecision(
+            verb=request.verb, note=request.note if request.note.strip() else None
+        )
+    except ValidationError as exc:  # not a decision the queue records: the request is refused
+        return error_response(
+            400, UIError("the request is not a decision", reason=first_problem(exc))
+        )
     run_dir = readers.run_dir_of(context, params)
     try:
         with context.allowlist.opened_directory(run_dir) as fd:
             record = record_decision(
                 run_dir,
                 request.item_id,
-                decision=text,
+                person=person,
                 resolved_by=operator,
                 shown=request.shown,
                 dir_fd=fd,

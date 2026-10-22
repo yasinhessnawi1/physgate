@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import base64
 import re
+from dataclasses import dataclass
+from typing import Literal
 
 #: The shortest run of a canary's characters taken as the canary shown. A canary is 32
 #: random hex characters; a given 16-character run of one turns up by chance about once
@@ -65,3 +67,25 @@ def canary_seen(data: bytes, live: frozenset[str]) -> str | None:
         if any(run in view for run in runs for view in lowered):
             return canary
     return None
+
+
+@dataclass(frozen=True)
+class CanaryCheck:
+    """Whether a text shows a held-out canary or a rubric's, in any form looked for.
+
+    The text a person or a reviewer wrote for a role session (a note, a quoted verdict) is held
+    to the same canaries as a session's own stream, with the same limit: a hit proves the text
+    shows the marked material, and no hit proves nothing.
+    """
+
+    held_out: frozenset[str]
+    review_material: frozenset[str]
+
+    def seen(self, text: str) -> Literal["held_out", "review_material"] | None:
+        """The held-out tier first, since its exposure is the one that is counted (ARCH-141)."""
+        data = text.encode()
+        if canary_seen(data, self.held_out) is not None:
+            return "held_out"
+        if canary_seen(data, self.review_material) is not None:
+            return "review_material"
+        return None

@@ -61,7 +61,7 @@ describe("the glossary", () => {
 
   it("says a queue item's decision is recorded and does not restart the subtask", () => {
     expect(GLOSSARY["queue-item"].means).toBe(DECISION_COPY.queueItem);
-    expect(html).toContain("it does not restart the subtask");
+    expect(html).toContain("it does not restart the subtask unless the item says");
     expect(bannedIn(html)).toEqual([]);
   });
 });
