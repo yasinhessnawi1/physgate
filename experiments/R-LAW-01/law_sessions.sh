@@ -19,13 +19,18 @@
 #     reason, or a non-zero exit. Its output is kept as <packet>.try<n>.failed-<time>.json, it is
 #     logged in the ledger with its cause and in interruptions.jsonl, and STOPPED is written:
 #     every session of the experiment stops starting, and the ones in flight end on their own.
-#   - Every call appends one line to the ledger: step, packet, try, model asked for, models the
-#     output names, tokens (input, output, cache read and cache creation), exit code, validity,
-#     and the cause if the call failed (``infrastructure``).
-#   - Before each session the ledger's total is read: at 60,000,000 tokens every session stops
-#     and the file VOID is written beside the ledger (the result is void, CRITERIA.md §12).
+#   - Every call appends one line to the ledger, counted and written in one append by
+#     law_verify.py ledger: step, packet, try, model asked for, models the output names, tokens
+#     (input, output, cache read and cache creation), exit code, validity, and the cause if the
+#     call failed (``infrastructure``).
+#   - Before each session, and once more after the last one settles, the ledger's total is read:
+#     at 60,000,000 tokens every session stops and the file VOID is written beside the ledger (the
+#     result is void, CRITERIA.md §12). A total that cannot be read (a torn line, a row without a
+#     whole token count) fails closed: STOPPED with the cause, logged, and no session starts. It
+#     is never VOID, which is the §12 result and is never resumed.
 #   Prints counts of sessions, tries, failed calls and tokens only.
-# spent: the ledger's token total over every try and failed call.
+# spent: the ledger's token total over every try and failed call (law_verify.py spent), or a
+#   refusal and exit 1 if any line of it cannot be read.
 # projection: after calibration round 1, spent + (tokens per session measured in the named
 #   round-1 steps) x (the table's 590 sessions less the sessions already run) must be at most
 #   60,000,000; exit 1 otherwise (a deviation before any measured session).
@@ -75,17 +80,8 @@ EFFORT=high
 sha() { if command -v sha256sum >/dev/null; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
 utc() { date -u +%FT%TZ; }
 
-spent() {
-  python3 -I - "$1" <<'PY'
-import json, sys, os
-p = sys.argv[1]
-t = 0
-if os.path.exists(p):
-    for line in open(p):
-        if line.strip():
-            t += int(json.loads(line).get("tokens") or 0)
-print(t)
-PY
+spent() { # ledger -> its token total, or a refusal and exit 1 if any line cannot be read
+  "$PY" -I "$HERE/law_verify.py" spent "$1"
 }
 
 projection() {
@@ -276,12 +272,12 @@ PY
 }
 
 case "${1:-}" in
-  spent) spent "$2"; exit 0 ;;
+  spent) spent "$2"; exit $? ;;
   projection) shift; projection "$@"; exit $? ;;
   watch) shift; watch_phase "$@"; exit 0 ;;
   smoke) shift; smoke "$@"; exit $? ;;
   run) shift ;;
-  *) sed -n '2,58p' "$0" >&2; exit 2 ;;
+  *) sed -n '2,66p' "$0" >&2; exit 2 ;;
 esac
 
 [ $# -ge 6 ] || { echo "run needs: step kind packets out model lanes [ids]" >&2; exit 2; }
@@ -341,26 +337,9 @@ if [ -n "$(ls -A "$OUT" 2>/dev/null)" ] && [ "${RLAW_RESUME:-0}" != 1 ]; then
   fi
 fi
 
-ledger_line() { # pid try exit valid file cause
-  python3 -I - "$STEP" "$1" "$2" "$MODEL" "$5" "$3" "$4" "$STANDIN" "$6" <<'PY' >> "$RLAW_LEDGER"
-import json, sys, datetime
-step, pid, tr, model, out, code, valid, standin, cause = sys.argv[1:10]
-try:
-    d = json.load(open(out))
-except Exception:
-    d = None
-msgs = d if isinstance(d, list) else ([d] if isinstance(d, dict) else [])
-res = [m for m in msgs if isinstance(m, dict) and m.get("type") == "result"]
-r = res[-1] if res else {}
-u = r.get("usage") or {}
-tok = sum(int(u.get(k) or 0) for k in ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
-print(json.dumps({"step": step, "packet": pid, "try": int(tr), "model_asked": model,
-                  "models_used": sorted((r.get("modelUsage") or {}).keys()), "tokens": tok,
-                  "exit": int(code), "valid": valid == "1", "standin": standin == "1",
-                  "infrastructure": cause or None,
-                  "utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")},
-                 sort_keys=True))
-PY
+ledger_line() { # pid try exit valid file cause: one line, counted by law_verify, in one append
+  "$PY" -I "$HERE/law_verify.py" ledger "$RLAW_LEDGER" "$STEP" "$1" "$2" "$MODEL" "$5" "$3" "$4" \
+    "$STANDIN" "$6"
 }
 
 valid_try() { # pid try -> 0 if that try's output has every form
@@ -419,13 +398,27 @@ call() { # pid try: one call of the session, then settled
   settle "$pid" "$tr" "$rc" live
 }
 
-guard() {
-  [ -e "$LEDGER_DIR/STOPPED" ] && return 1
-  [ -e "$LEDGER_DIR/VOID" ] && return 1
-  local t; t="$(spent "$RLAW_LEDGER")"
+total_holds() { # -> 0 while the ledger's total is read and below the guard
+  # At the guard: VOID (§12). A total that cannot be read as a non-negative integer fails closed:
+  # a stop with its cause, never VOID, which is the §12 result and is never resumed.
+  local t
+  t="$(spent "$RLAW_LEDGER" 2>&1)"
+  if [ $? -ne 0 ] || ! [[ "$t" =~ ^[0-9]+$ ]]; then
+    local why
+    why="the token guard cannot read the ledger's total: $(printf '%s' "${t:-no output}" | tr '\n' ' ')"
+    # logged once: every guard that reads the same ledger finds the same cause
+    { [ -e "$LEDGER_DIR/STOPPED" ] && grep -qxF -- "$why" "$LEDGER_DIR/STOPPED"; } || stop "$why"
+    return 1
+  fi
   if [ "$t" -ge "$GUARD" ]; then
     echo "token guard: $t >= $GUARD; the result is void" > "$LEDGER_DIR/VOID"; return 1
   fi
+}
+
+guard() {
+  [ -e "$LEDGER_DIR/STOPPED" ] && return 1
+  [ -e "$LEDGER_DIR/VOID" ] && return 1
+  total_holds
 }
 
 session() {
@@ -462,13 +455,21 @@ for pid in $mapfile_ids; do
   if [ $((n % LANES)) -eq 0 ]; then wait; fi
 done
 wait
+# the sessions in flight when the guard last read the ledger may have taken it past 60 M
+[ -e "$LEDGER_DIR/VOID" ] || total_holds
 
-python3 -I - "$RLAW_LEDGER" "$STEP" <<'PY'
+"$PY" -I - "$HERE" "$RLAW_LEDGER" "$STEP" <<'PY'
 import json, sys
-rows = [json.loads(x) for x in open(sys.argv[1]) if x.strip()]
-mine = [r for r in rows if r["step"] == sys.argv[2]]
+sys.path.insert(0, sys.argv[1])
+import law_verify as V
+try:
+    rows = V.ledger_rows(sys.argv[2])
+except V.LedgerUnreadable as exc:
+    print(json.dumps({"step": sys.argv[3], "refused": str(exc)}))
+    sys.exit(0)
+mine = [r for r in rows if r["step"] == sys.argv[3]]
 tries = [r for r in mine if not r.get("infrastructure")]
-print(json.dumps({"step": sys.argv[2], "sessions": len({r["packet"] for r in tries}),
+print(json.dumps({"step": sys.argv[3], "sessions": len({r["packet"] for r in tries}),
                   "tries": len(tries), "invalid_tries": sum(1 for r in tries if not r["valid"]),
                   "failed_calls": len(mine) - len(tries),
                   "nonzero_exits": sum(1 for r in tries if r["exit"] not in (0, -1)),

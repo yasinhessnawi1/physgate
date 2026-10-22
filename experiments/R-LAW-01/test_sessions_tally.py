@@ -7,20 +7,33 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
 
 import law_fixture as F
 import law_tally as TL
+import law_verify as V
 import pytest
 
 HERE = Path(__file__).resolve().parent
 SH = HERE / "law_sessions.sh"
 LIMIT = '[{"type":"result","is_error":true,"result":"usage_limit_reached"}]'
 GOOD = {"id": "F1", "verdict": "true_flaw", "origin": "introduced", "reason": "r"}
+#: Real outputs of the pinned 2.1.301 binary on the development account, 22.10.2026, copied byte
+#: for byte (sha256 90f8d1ea… and c8001a37…): ``smoke_out.json`` is the smoke session, and
+#: ``schema_fail_probe_out.json`` a session whose schema no value can meet, where the model gave up
+#: after two StructuredOutput calls (a success result without a structured output).
+#: ``retry_exhausted_out.json`` is the probe's result with the fields the binary's own
+#: structured-output exhaustion path sets in its place (``is_error`` true, ``subtype``
+#: ``error_max_structured_output_retries``, ``terminal_reason``
+#: ``structured_output_retry_exhausted``, ``errors``, and no ``result``), as the binary's strings
+#: give them: that path was not observed live.
+DATA = HERE / "testdata"
 
 
 def fake(tmp_path: Path, name: str, stdout: str, stderr: str = "", code: int = 0) -> Path:
@@ -174,6 +187,130 @@ def test_the_projection_check(tmp_path: Path) -> None:
     done = run("projection", str(ledger(tmp_path / "h.jsonl", heavy)), "slice-r1-c1")
     assert done.returncode == 1 and not json.loads(done.stdout)["holds"]
     assert run("spent", str(led)).stdout.strip() == str(30 * 50_000)
+
+
+#: Ledger lines no total can be read past: a driver killed mid-append, and rows that are not one
+#: call's whole line with a token count that is a non-negative integer.
+UNREADABLE = {
+    "a line cut short by a killed append": '{"step": "x", "packet": "P0009", "tok',
+    "a negative token count": json.dumps({"step": "x", "packet": "P", "try": 1, "tokens": -5}),
+    "a token count that is not an integer": json.dumps(
+        {"step": "x", "packet": "P", "try": 1, "tokens": "12"}
+    ),
+    "a row without a token count": json.dumps({"step": "x", "packet": "P", "try": 1}),
+    "a row that is not an object": "[1, 2]",
+}
+
+
+@pytest.mark.parametrize("case", sorted(UNREADABLE))
+def test_the_guard_fails_closed_on_a_ledger_it_cannot_read(
+    tmp_path: Path, packets: Path, case: str
+) -> None:
+    env = env_for(tmp_path)
+    led = Path(env["RLAW_LEDGER"])
+    before = json.dumps({"step": "x", "packet": "P", "try": 1, "tokens": 10}) + "\n"
+    led.write_text(before + UNREADABLE[case] + "\n")
+    out = tmp_path / "out"
+    done = run("run", "s", "reality", str(packets), str(out), "claude-opus-5-5", "1", env=env)
+    assert done.returncode == 4, done.stderr
+    # a stop, not the §12 result: VOID is never written on a read error
+    assert (tmp_path / "led" / "STOPPED").exists()
+    assert not (tmp_path / "led" / "VOID").exists()
+    # no session started
+    assert led.read_text() == before + UNREADABLE[case] + "\n"
+    assert not out.exists() or not list(out.iterdir())
+    ev = rows_of(tmp_path / "led" / "interruptions.jsonl")
+    assert [e["event"] for e in ev] == ["stop"] and "ledger" in ev[0]["reason"]
+    assert run("spent", str(led)).returncode != 0
+
+
+def test_a_ledger_past_the_guard_but_unreadable_is_stopped_not_voided(
+    tmp_path: Path, packets: Path
+) -> None:
+    env = env_for(tmp_path)
+    led = Path(env["RLAW_LEDGER"])
+    led.write_text(json.dumps({"step": "x", "packet": "P", "try": 1, "tokens": 70_000_000}) + "\n{")
+    done = run(
+        "run", "s", "reality", str(packets), str(tmp_path / "out"), "claude-opus-5-5", "1", env=env
+    )
+    assert done.returncode == 4
+    assert (tmp_path / "led" / "STOPPED").exists() and not (tmp_path / "led" / "VOID").exists()
+
+
+def test_the_guard_is_read_again_once_the_last_session_settles(
+    tmp_path: Path, packets: Path
+) -> None:
+    answer = json.dumps(
+        {
+            "type": "result",
+            "is_error": False,
+            "terminal_reason": "completed",
+            "structured_output": {"findings": [GOOD]},
+            "usage": {"input_tokens": 100},
+        }
+    )
+    env = env_for(tmp_path, RLAW_STANDIN=str(fake(tmp_path, "last", answer)))
+    led = ledger(
+        Path(env["RLAW_LEDGER"]), [{"step": "x", "packet": "P", "try": 1, "tokens": 59_999_950}]
+    )
+    done = run(
+        "run", "s", "reality", str(packets), str(tmp_path / "out"), "claude-opus-5-5", "1", env=env
+    )
+    # the guard let the session start below 60 M; the session ended past it: the result is void
+    assert [r["tokens"] for r in rows_of(led)] == [59_999_950, 100]
+    assert done.returncode == 3, done.stderr
+    assert "60000050" in (tmp_path / "led" / "VOID").read_text()
+
+
+def test_the_ledger_line_is_law_verify_s_own(tmp_path: Path, packets: Path) -> None:
+    calls = tmp_path / "py.calls"
+    py = tmp_path / "py"
+    py.write_text(
+        "#!/usr/bin/env bash\n"
+        f'printf "%s\\n" "$*" >> {shlex.quote(str(calls))}\n'
+        f'exec {shlex.quote(sys.executable)} "$@"\n'
+    )
+    py.chmod(0o755)
+    real = DATA / "smoke_out.json"
+    env = env_for(
+        tmp_path,
+        RLAW_STANDIN=str(fake(tmp_path, "real", real.read_text())),
+        RLAW_PY=str(py),
+    )
+    done = run(
+        "run", "s", "reality", str(packets), str(tmp_path / "out"), "claude-opus-5-5", "1", env=env
+    )
+    assert done.returncode == 0, done.stderr
+    rows = rows_of(Path(env["RLAW_LEDGER"]))
+    # the smoke session's form is no reality form: a try and the retry, each counted by law_verify
+    assert [r["try"] for r in rows] == [1, 2]
+    assert V.tokens_of(real) == 1572 and V.model_of(real) == ["claude-opus-5-5"]
+    assert {r["tokens"] for r in rows} == {1572}
+    assert all(r["models_used"] == ["claude-opus-5-5"] for r in rows)
+    assert all(
+        set(r)
+        == {
+            "step",
+            "packet",
+            "try",
+            "model_asked",
+            "models_used",
+            "tokens",
+            "exit",
+            "valid",
+            "standin",
+            "infrastructure",
+            "utc",
+        }
+        for r in rows
+    )
+    ledger_calls = [c for c in calls.read_text().splitlines() if "law_verify.py ledger " in c]
+    assert len(ledger_calls) == 2
+
+
+def test_the_driver_and_the_tally_hold_one_guard() -> None:
+    m = re.search(r"^GUARD=(\d+)$", SH.read_text(), re.M)
+    assert m is not None and int(m.group(1)) == TL.GUARD == 60_000_000
 
 
 # ---------------------------------------------------------------- statistics

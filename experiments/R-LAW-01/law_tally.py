@@ -6,9 +6,12 @@ Usage (from the repository root, with the project environment):
 
 Reads ``lines.jsonl``, ``flaws.jsonl``, ``units_s1.jsonl``, ``units_s6.jsonl``, ``slice.json``,
 ``reality.jsonl``, ``reality_summary.json``, ``codes.jsonl``, ``matches.jsonl``,
-``extract_counts.json``, ``group_counts.json`` and, if present, ``deviations.json`` and the ledger's
-``VOID`` marker. Refuses any output a stand-in wrote unless ``--dry-run``. Writes ``tally.json``
-and prints it: κ and the floor first, then the shares, intervals, readings and the decision.
+``extract_counts.json``, ``group_counts.json``, ``ledger/ledger.jsonl`` and, if present,
+``deviations.json`` and the ledger's ``VOID`` marker. The ledger is read in full and summed: a
+total of 60,000,000 tokens or more voids the result whether or not ``VOID`` was written (§12), and
+a ledger with a line that cannot be read is refused (as is a missing one, unless ``--dry-run``).
+Refuses any output a stand-in wrote unless ``--dry-run``. Writes ``tally.json`` and prints it: κ
+and the floor first, then the shares, intervals, readings and the decision.
 """
 
 from __future__ import annotations
@@ -33,6 +36,8 @@ SEED = 13
 DRAWS = 10_000
 Z = 1.959963984540054
 EXPECTED = {"lines": 993, "flaws": 348, "before_d": 367}
+#: §12's token guard; law_sessions.sh holds the same number (GUARD), and a test holds them equal.
+GUARD = 60_000_000
 ORDER = ("G", "L", "L-if-data", "D", "N")
 #: A missing form (§7): a category of its own that never agrees, not even with another one.
 NONE = "none"
@@ -245,7 +250,18 @@ class Tally:
         self.gcounts = json.loads((work / "group_counts.json").read_text())
         dev = work / "deviations.json"
         self.deviations: list[str] = json.loads(dev.read_text()) if dev.exists() else []
-        if (work / "VOID").exists() or (work / "ledger" / "VOID").exists():
+        # §12: the guard is read from the ledger itself, not only from the driver's VOID marker,
+        # so sessions that end past 60 M after the last guard read still void the result
+        led = work / "ledger" / "ledger.jsonl"
+        if not led.exists() and not dry_run:
+            raise X.Refused("no ledger: the 60 M token guard cannot be checked")
+        try:
+            self.ledger_rows = V.ledger_rows(led)
+        except V.LedgerUnreadable as exc:
+            raise X.Refused(f"the ledger cannot be read in full: {exc}") from exc
+        self.tokens_spent = sum(r["tokens"] for r in self.ledger_rows)
+        void = (work / "VOID").exists() or (work / "ledger" / "VOID").exists()
+        if void or self.tokens_spent >= GUARD:
             self.deviations.append("the 60 M token guard was reached: the result is void")
         check = work / "regate_check.json"
         if check.exists():
@@ -587,7 +603,10 @@ class Tally:
     # ---- everything
 
     def run(self) -> dict[str, Any]:
-        out: dict[str, Any] = {"dry_run": self.dry_run}
+        out: dict[str, Any] = {
+            "dry_run": self.dry_run,
+            "tokens": {"spent": self.tokens_spent, "guard": GUARD},
+        }
         k = self.kappas()
         out["agreement"] = k
         er = not self.reliable
@@ -797,10 +816,7 @@ class Tally:
         }
 
     def ledger_models(self, step: str) -> list[str]:
-        led = self.work / "ledger" / "ledger.jsonl"
-        if not led.exists():
-            return []
-        return sorted({m for r in X.read_jsonl(led) if r["step"] == step for m in r["models_used"]})
+        return sorted({m for r in self.ledger_rows if r["step"] == step for m in r["models_used"]})
 
     def per_coder(self) -> dict[str, Any]:
         out: dict[str, Any] = {}

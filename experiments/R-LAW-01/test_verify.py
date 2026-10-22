@@ -444,6 +444,57 @@ def test_a_line_takes_the_first_valid_try(tmp_path: Path) -> None:
         V.session_forms(tmp_path, tmp_path, "P0001", "coder")
 
 
+DATA = Path(__file__).resolve().parent / "testdata"
+
+
+@pytest.mark.parametrize(
+    ("name", "tokens"),
+    [
+        ("smoke_out.json", 2 + 219 + 0 + 1351),
+        ("schema_fail_probe_out.json", 10 + 533 + 4042 + 1696),
+        ("retry_exhausted_out.json", 10 + 533 + 4042 + 1696),
+    ],
+)
+def test_the_ledger_row_of_a_real_session_output(tmp_path: Path, name: str, tokens: int) -> None:
+    led = tmp_path / "ledger.jsonl"
+    out = DATA / name
+    args = ["ledger", str(led), "measured-c1", "P0001", "1", "claude-opus-5-5", str(out)]
+    assert V.main([*args, "0", "1", "0", ""]) == 0
+    assert V.main([*args, "1", "0", "1", "usage_limit"]) == 0
+    a, b = (json.loads(x) for x in led.read_text().splitlines())
+    assert a["tokens"] == b["tokens"] == tokens == V.tokens_of(out)
+    assert a["models_used"] == ["claude-opus-5-5"] == V.model_of(out)
+    assert (a["exit"], a["valid"], a["standin"], a["infrastructure"]) == (0, True, False, None)
+    assert (b["exit"], b["valid"], b["standin"], b["infrastructure"]) == (
+        1,
+        False,
+        True,
+        "usage_limit",
+    )
+    assert V.ledger_total(led) == 2 * tokens
+
+
+def test_a_session_output_that_is_not_the_binary_s_counts_no_token(tmp_path: Path) -> None:
+    led = tmp_path / "ledger.jsonl"
+    (tmp_path / "out.json").write_text("Error: something broke")
+    args = ["ledger", str(led), "s", "P0001", "1", "claude-opus-5-5", str(tmp_path / "out.json")]
+    assert V.main([*args, "1", "0", "0", "no_result"]) == 0
+    (r,) = V.ledger_rows(led)
+    assert r["tokens"] == 0 and r["models_used"] == [] and r["infrastructure"] == "no_result"
+
+
+def test_the_ledger_total_refuses_a_ledger_it_cannot_read(tmp_path: Path) -> None:
+    led = tmp_path / "ledger.jsonl"
+    assert V.ledger_total(led) == 0  # no ledger yet: nothing spent
+    led.write_text('{"step": "s", "packet": "P", "try": 1, "tokens": 3}\n\n')
+    assert V.ledger_total(led) == 3
+    for bad in ('{"step": "s", "tok', '{"tokens": true}', '{"tokens": 2.5}', '"x"'):
+        led.write_text('{"step": "s", "packet": "P", "try": 1, "tokens": 3}\n' + bad + "\n")
+        with pytest.raises(V.LedgerUnreadable):
+            V.ledger_total(led)
+    assert V.main(["spent", str(led)]) == 1
+
+
 def row(who: str, lid: str, code: str | None, failure: str | None = None) -> dict[str, Any]:
     f = None if code is None else form(code, d_kind="table", n_kind="wording")
     return {

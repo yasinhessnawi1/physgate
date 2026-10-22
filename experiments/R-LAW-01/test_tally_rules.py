@@ -405,3 +405,49 @@ def test_interruptions_are_reported_and_leave_the_decision_taken(tmp_path: Path)
     assert not any("deviation" in k for k in d if k.startswith("interruption"))
     assert out["interruptions"]["failed_calls"] == 1
     assert out["interruptions"]["stops"] == 1 and out["interruptions"]["resumes"] == 1
+
+
+# ---------------------------------------------------------------- §12, the token guard
+
+
+def _ledger(tmp: Path, text: str) -> None:
+    (tmp / "ledger" / "ledger.jsonl").write_text(text)
+
+
+def _row(tokens: int, packet: str = "P0001") -> str:
+    return json.dumps({"step": "measured-c1", "packet": packet, "try": 1, "tokens": tokens}) + "\n"
+
+
+def test_the_tally_sums_the_ledger_and_voids_at_the_guard(tmp_path: Path) -> None:
+    build(tmp_path, [flaw([ln("a1", "L", "L")])])
+    _ledger(tmp_path, _row(40_000_000) + _row(19_999_999, "P0002"))
+    d = TL.Tally(tmp_path, dry_run=True, sets=SETS).run()["decision"]
+    assert d["taken"] is True and d["deviations"] == []
+    # one token more and the guard is reached, with no VOID marker written
+    _ledger(tmp_path, _row(40_000_000) + _row(20_000_000, "P0002"))
+    assert not (tmp_path / "ledger" / "VOID").exists()
+    d = TL.Tally(tmp_path, dry_run=True, sets=SETS).run()["decision"]
+    assert d["taken"] is False
+    assert d["deviations"] == ["the 60 M token guard was reached: the result is void"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        _row(10) + '{"step": "measured-c1", "packet": "P0002", "tok',
+        _row(10) + json.dumps({"step": "s", "packet": "P", "try": 1, "tokens": -3}) + "\n",
+        _row(10) + "[1]\n",
+    ],
+    ids=["a torn line", "a negative count", "not a row"],
+)
+def test_the_tally_refuses_a_ledger_it_cannot_read_in_full(tmp_path: Path, text: str) -> None:
+    build(tmp_path, [flaw([ln("a1", "L", "L")])])
+    _ledger(tmp_path, text)
+    with pytest.raises(X.Refused, match="ledger"):
+        TL.Tally(tmp_path, dry_run=True, sets=SETS)
+
+
+def test_the_tally_refuses_a_real_run_without_a_ledger(tmp_path: Path) -> None:
+    build(tmp_path, [flaw([ln("a1", "L", "L")])])
+    with pytest.raises(X.Refused, match="ledger"):
+        TL.Tally(tmp_path, dry_run=False, sets=SETS)

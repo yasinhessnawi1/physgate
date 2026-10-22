@@ -4,6 +4,9 @@ Usage (from the repository root, with the project environment):
 
     uv run python -I experiments/R-LAW-01/law_verify.py valid <kind> <packet.md> <key> <out.json>
     uv run python -I experiments/R-LAW-01/law_verify.py codes <work> <step> <who> <packets> <out>
+    uv run python -I experiments/R-LAW-01/law_verify.py ledger <ledger> <step> <packet> <try>
+        <model asked> <out.json> <exit> <valid 0|1> <stand-in 0|1> <cause, or "">
+    uv run python -I experiments/R-LAW-01/law_verify.py spent <ledger>
 
 (``<kind>`` is coder, adjudicator or reality; ``<out>`` the step's sessions directory.)
 
@@ -17,13 +20,20 @@ Usage (from the repository root, with the project environment):
   values, units, dimension, comparator class, pairing, the miss against the tolerance, the
   fallbacks) and appends the result to ``<work>/codes.jsonl``. Prints counts of sessions, forms
   and failure kinds, never a code distribution.
+- ``ledger``: the session driver's ledger line for one call, counted from its output here (tokens
+  of every kind :data:`TOKEN_KINDS` names, and the models its ``modelUsage`` names) and appended
+  in one write, so that drivers appending at once never tear each other's lines.
+- ``spent``: the ledger's token total (exit 0), or a refusal (exit 1) if any line is not a whole
+  row whose token count is a non-negative integer; the 60 M guard reads nothing else (§12).
 """
 
 from __future__ import annotations
 
 import ast
+import datetime
 import json
 import math
+import os
 import re
 import sys
 from pathlib import Path
@@ -79,28 +89,104 @@ def structured(path: Path) -> dict[str, Any] | None:
 def result_message(path: Path) -> dict[str, Any]:
     try:
         data = json.loads(Path(path).read_text())
-    except (OSError, ValueError):
+    except Exception:  # noqa: BLE001 - an output that cannot be read still gets its ledger line
         return {}
     msgs = data if isinstance(data, list) else [data]
     results = [m for m in msgs if isinstance(m, dict) and m.get("type") == "result"]
     return results[-1] if results else {}
 
 
+#: The token kinds the ledger counts, of every try and every failed call (README reading 6).
+TOKEN_KINDS = (
+    "input_tokens",
+    "output_tokens",
+    "cache_read_input_tokens",
+    "cache_creation_input_tokens",
+)
+
+
 def tokens_of(path: Path) -> int:
     u = result_message(path).get("usage") or {}
-    return sum(
-        int(u.get(k) or 0)
-        for k in (
-            "input_tokens",
-            "output_tokens",
-            "cache_read_input_tokens",
-            "cache_creation_input_tokens",
-        )
-    )
+    return sum(int(u.get(k) or 0) for k in TOKEN_KINDS)
 
 
 def model_of(path: Path) -> list[str]:
     return sorted((result_message(path).get("modelUsage") or {}).keys())
+
+
+# ---------------------------------------------------------------- the ledger (§12)
+
+
+class LedgerUnreadable(Exception):
+    """A ledger whose total cannot be read: a torn line, or a row without its token count."""
+
+
+def ledger_row(
+    step: str,
+    packet: str,
+    tr: int,
+    model_asked: str,
+    out: Path,
+    code: int,
+    valid: bool,
+    standin: bool,
+    cause: str | None,
+) -> dict[str, Any]:
+    """One call's ledger line: the session driver writes exactly this, counted here."""
+    return {
+        "step": step,
+        "packet": packet,
+        "try": int(tr),
+        "model_asked": model_asked,
+        "models_used": model_of(out),
+        "tokens": tokens_of(out),
+        "exit": int(code),
+        "valid": valid,
+        "standin": standin,
+        "infrastructure": cause or None,
+        "utc": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+
+
+def append_row(ledger: Path, row: dict[str, Any]) -> None:
+    """Append one whole line in one write, so drivers appending at once never interleave."""
+    data = (json.dumps(row, sort_keys=True) + "\n").encode()
+    fd = os.open(ledger, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+    try:
+        written = os.write(fd, data)
+    finally:
+        os.close(fd)
+    if written != len(data):
+        raise OSError(f"a short write to {ledger}: {written} of {len(data)} bytes")
+
+
+def ledger_rows(ledger: Path) -> list[dict[str, Any]]:
+    """Every row of the ledger, or :class:`LedgerUnreadable` if any line is not a whole row whose
+    token count is a non-negative integer. A ledger not yet written has no rows."""
+    if not Path(ledger).exists():
+        return []
+    try:
+        text = Path(ledger).read_bytes().decode("utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise LedgerUnreadable(f"the ledger cannot be read: {exc}") from exc
+    rows = []
+    for n, line in enumerate(text.split("\n"), 1):
+        if not line.strip():
+            continue
+        try:
+            r = json.loads(line)
+        except ValueError as exc:
+            raise LedgerUnreadable(f"ledger line {n} is not a whole row") from exc
+        t = r.get("tokens") if isinstance(r, dict) else None
+        if type(t) is not int or t < 0:
+            raise LedgerUnreadable(f"ledger line {n} has no token count that is a whole number")
+        rows.append(r)
+    return rows
+
+
+def ledger_total(ledger: Path) -> int:
+    """The ledger's token total over every try and failed call (the 60 M guard reads this)."""
+    return sum(r["tokens"] for r in ledger_rows(ledger))
 
 
 # ---------------------------------------------------------------- the form's fields
@@ -632,6 +718,21 @@ def deciding_forms(
 
 
 def main(argv: list[str]) -> int:
+    if argv[:1] == ["ledger"] and len(argv) == 11:
+        led, step, packet, tr, model, out, code, valid, standin, cause = argv[1:]
+        row = ledger_row(
+            step, packet, int(tr), model, Path(out), int(code), valid == "1", standin == "1", cause
+        )
+        append_row(Path(led), row)
+        return 0
+    if argv[:1] == ["spent"] and len(argv) == 2:
+        try:
+            total = ledger_total(Path(argv[1]))
+        except LedgerUnreadable as exc:
+            print(json.dumps({"refused": str(exc)}))
+            return 1
+        print(total)
+        return 0
     if argv[:1] == ["valid"] and len(argv) in (5, 6):
         kind, packet, key_path, out = argv[1], Path(argv[2]), Path(argv[3]), Path(argv[4])
         # A sixth argument names another sheet digest: the driver passes one for a stand-in only.
