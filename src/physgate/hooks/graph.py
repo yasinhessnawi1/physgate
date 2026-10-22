@@ -78,6 +78,12 @@ SHELL_WRITE = (
     "read-only program (cat, head, grep, ls and the like, or git diff/log/show); any other "
     "command that names a proposal path is refused, whether or not it would in fact only read."
 )
+UNLOCATED = (
+    "This edit to a node proposal is refused: its old text occurs {found} times in the file "
+    "as this hook reads it, so what the edit would leave cannot be checked. Give old text "
+    "that occurs exactly once, character for character, or write the whole proposal with "
+    "the Write tool."
+)
 UNCHECKABLE = (
     "This command could not be split into the commands it would run ({detail}), so whether it "
     "writes a node proposal cannot be checked, and it is refused."
@@ -282,7 +288,15 @@ def _reaches_proposals(path: str, cwd: str, config: ConfigView) -> bool:
     return False
 
 
-def _content_after(hook_input: InputView, target: str) -> str:
+def _content_after(hook_input: InputView, target: str) -> str | int:
+    """What the Write or Edit would leave in the proposal, or how often an Edit's old text occurs.
+
+    Claude Code finds an Edit's old text more loosely than an exact match (it takes curly
+    quotes for straight ones, and reads line endings its own way), so an edit whose old
+    text this reading does not find exactly once, or at least once under ``replace_all``,
+    may still be made, and what it leaves cannot be checked here. Such an edit is answered
+    with the count, and refused.
+    """
     tool_input = hook_input.tool_input or {}
     if hook_input.tool_name == "Write":
         return str(tool_input.get("content", ""))
@@ -291,9 +305,13 @@ def _content_after(hook_input: InputView, target: str) -> str:
         with open(target) as handle:
             current = handle.read()
     old, new = str(tool_input.get("old_string", "")), str(tool_input.get("new_string", ""))
+    if not old:
+        # An empty old text creates a file that is not there, and locates nothing in one that is.
+        return new if not current else 0
+    found = current.count(old)
     if tool_input.get("replace_all"):
-        return current.replace(old, new)
-    return current.replace(old, new, 1)
+        return current.replace(old, new) if found else 0
+    return current.replace(old, new, 1) if found == 1 else found
 
 
 def _file_tool(hook_input: InputView, config: ConfigView) -> Decision:
@@ -307,8 +325,11 @@ def _file_tool(hook_input: InputView, config: ConfigView) -> Decision:
     stem, suffix = os.path.splitext(os.path.basename(target))
     if suffix != ".json":
         return refuse(REFUSED.format(reason="invalid", detail=NOT_JSON))
+    after = _content_after(hook_input, target)
+    if isinstance(after, int):
+        return refuse(UNLOCATED.format(found=after))
     try:
-        proposal = json.loads(_content_after(hook_input, target))
+        proposal = json.loads(after)
     except ValueError:
         return refuse(REFUSED.format(reason="invalid", detail=NOT_JSON))
     found = _check(proposal, stem, config)
