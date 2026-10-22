@@ -1,4 +1,4 @@
-"""A row of the parts sheet gives its value as the datasheet writes it, and its note.
+"""A row of the parts sheet gives its value as its authors wrote it, and its note.
 
 A row's ``value`` and ``unit`` are the one number a derived source may cite. A row that is
 not one number (a range, a list, a text) has none, and a sheet that held only that gave a
@@ -7,6 +7,9 @@ reviewer an empty row where its authors had a range. So a row may also carry:
 - ``given``: the value cell as its authors wrote it, with its unit. A sheet that gives it on
   any row gives it on every row with no number, so no row of such a sheet is empty;
 - ``note``: the authors' note on the row.
+
+Both are words: read without the whitespace around them, so a cell of spaces is no value.
+The sheet may also carry ``remarks``, lines its authors wrote beside the table.
 
 Neither is citable: a derived source still cites a number, and a row with only ``given``
 gives none. A sheet written before these fields existed has neither on any row; it loads as
@@ -87,10 +90,21 @@ def test_a_sheet_written_before_given_existed_loads_with_its_empty_rows() -> Non
     [
         {**RANGE, "given": ""},
         {**RANGE, "note": ""},
+        {**RANGE, "given": "   "},
+        {**RANGE, "given": "\u00a0\t"},
+        {**RANGE, "note": "  "},
         {**RANGE, "given": 2.7},
         {**RANGE, "min": 2.7},
     ],
-    ids=["an-empty-given", "an-empty-note", "a-number-as-given", "a-field-it-does-not-know"],
+    ids=[
+        "an-empty-given",
+        "an-empty-note",
+        "a-blank-given",
+        "a-given-of-a-no-break-space-and-a-tab",
+        "a-blank-note",
+        "a-number-as-given",
+        "a-field-it-does-not-know",
+    ],
 )
 def test_a_row_s_given_and_note_are_words_and_nothing_else_is_added(row: dict[str, Any]) -> None:
     with pytest.raises(ValidationError):
@@ -114,3 +128,27 @@ def test_a_committed_sheet_written_before_given_loads_unchanged(where: str) -> N
     assert digest(root / SOURCES_NAME) == OLD_SHEET_SHA256
     assert corpus.parts_sheet == (root / SOURCES_NAME).read_bytes()
     assert all(r.given is None and r.note is None for r in corpus.sources.rows.values())
+
+
+def test_a_given_value_and_a_note_are_read_without_their_surrounding_whitespace() -> None:
+    row = {**RANGE, "given": " 2.7–5.5 V\u00a0", "note": "\tmin and max "}
+    sheet = _sheet(**{"R1.01": row})
+    assert sheet.rows["R1.01"].given == "2.7–5.5 V" and sheet.rows["R1.01"].note == "min and max"
+
+
+def test_a_sheet_may_carry_its_authors_remarks_as_lines() -> None:
+    sheet = Sources.model_validate_json(
+        json.dumps({"label": "a sheet", "rows": {"R1.01": RANGE}, "remarks": ["one", "two"]})
+    )
+    assert sheet.remarks == ("one", "two")
+    assert _sheet(**{"R1.01": RANGE}).remarks is None
+
+
+@pytest.mark.parametrize(
+    "remarks", [[], [""], ["   "], [2]], ids=["none", "an-empty-line", "a-blank-line", "a-number"]
+)
+def test_remarks_are_lines_of_words(remarks: list[object]) -> None:
+    with pytest.raises(ValidationError):
+        Sources.model_validate_json(
+            json.dumps({"label": "a sheet", "rows": {"R1.01": RANGE}, "remarks": remarks})
+        )

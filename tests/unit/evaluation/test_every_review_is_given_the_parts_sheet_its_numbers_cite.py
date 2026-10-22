@@ -40,7 +40,11 @@ from physgate.evaluation.inject.corpus import (
     write_manifest,
 )
 from physgate.evaluation.inject.exceptions import BlindnessError, CorpusError
-from physgate.evaluation.inject.materialise import PARTS_SHEET_NAME
+from physgate.evaluation.inject.materialise import (
+    ACCOUNT_SHEET,
+    ACCOUNT_SHEET_GIVEN,
+    PARTS_SHEET_NAME,
+)
 from physgate.evaluation.inject.runner import run_instrument
 from physgate.orchestrator.protocols import Artefact
 
@@ -88,6 +92,8 @@ def test_every_review_and_every_twin_s_is_given_the_corpus_s_own_sheet(tmp_path:
     assert corpus.parts_sheet == sheet
     assert PARTS_SHEET_NAME not in in_the_revision
     assert all(f"`{PARTS_SHEET_NAME}`" in account for account in accounts)
+    # A sheet with no value given as written is told in the words it was always told.
+    assert all(ACCOUNT_SHEET in a and ACCOUNT_SHEET_GIVEN not in a for a in accounts)
 
 
 def test_the_loaded_sheet_is_the_one_the_manifest_digests(tmp_path: Path) -> None:
@@ -125,13 +131,24 @@ def test_a_sheet_changed_after_the_listing_is_refused_not_given(
         ({"quantity": "see m1", "value": 2, "unit": "A"}, "m1"),
         ({"quantity": "as the reviewer reads it", "value": 2, "unit": "A"}, "reviewer"),
         ({"quantity": "expected_check", "value": None, "unit": None}, "expected_check"),
+        ({"quantity": "rate", "value": 2, "unit": "Hz", "note": "the answer key"}, "answer"),
+        ({"quantity": "rate", "value": 2, "unit": "Hz", "given": "2 Hz, a twin's"}, "twin"),
     ],
-    ids=["a-telling-word", "an-artefact-id", "the-reader", "an-answer-field"],
+    ids=[
+        "a-telling-word",
+        "an-artefact-id",
+        "the-reader",
+        "an-answer-field",
+        "a-telling-note",
+        "a-telling-given-value",
+    ],
 )
 def test_a_sheet_that_tells_stops_the_run_before_any_review(
     tmp_path: Path, row: dict[str, object], found: str
 ) -> None:
     rows = {**SOURCE_ROWS, "R9.01": {**row, "url": SOURCE}}
+    if "given" in row:  # a sheet that gives one value as written gives every row without one
+        rows["R8.01"] = {**rows["R8.01"], "given": "12.5 to 1600 Hz"}
     corpus = load_corpus(write_corpus(tmp_path / "corpus", rows=rows))
     reviewer = SeededFakeReviewer()
     with pytest.raises(BlindnessError) as caught:
@@ -216,4 +233,4 @@ def test_a_sheet_converted_from_its_table_reaches_every_review_with_every_value_
         assert all(r["value"] is not None or r.get("given") for r in rows.values())
         assert {k: r["given"] for k, r in rows.items() if "given" in r} == GIVEN
         assert {k: r["note"] for k, r in rows.items() if "note" in r} == NOTES
-    assert all("`given`" in account and "`note`" in account for account in accounts)
+    assert all(ACCOUNT_SHEET_GIVEN in a and ACCOUNT_SHEET not in a for a in accounts)
