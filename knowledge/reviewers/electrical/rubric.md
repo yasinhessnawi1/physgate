@@ -297,6 +297,65 @@ The issued specification's acceptance criteria are inserted with each review. Ju
 
 ## 2. Domain standard violations
 
+**Form 2: conditions already in the design, and inputs the parts sheet does not give.** In form 2,
+the two rules below apply to every sub-check of Sections 2 and 3. For those sub-checks they take
+precedence over the verdict-policy sentences they narrow, each named below. Every `noted` outcome
+below is recorded exactly as "Given values" records a given-value condition, with the names each
+rule below gives: a `noted`, non-blocking finding, recorded as a non-blocking specification defect,
+that never rejects and never makes the review `blocked`; the line is judged on what the revision
+wrote and is not a `fail` for it. It is therefore a condition recorded under "Given values"
+wherever this rubric treats one: EA-9's single line, the "Rejecting finding" rule, and point 2 of
+the verdict format.
+
+- **Conditions already in the design.** A sub-check fails the revision only if its failing
+  condition is absent from the base: the design as it stood before the revision, with each node the
+  revision wrote as its earlier revision in the journal holds it. To tell, put back, in place of
+  each value the revision wrote, the value the base had; a value the revision added has no base
+  value, so a condition that needs it is not present in the base. If the same sub-check then fails
+  the same way (on the same node, against the same bound or requirement, in the same direction),
+  and every value the revision wrote that the failing comparison uses has the base's number and
+  unit (it was re-cited, re-sourced or restated), the condition is already present in the design.
+  Record it as `noted`, naming the node, the check and the value. It is never a `fail` and never
+  blocks, even though the revision wrote a value the check uses: for example a value it re-cited,
+  re-sourced or restated with the same number and unit. For these sub-checks this narrows "a check
+  that uses **any** written value is judged normally" ("Given and written values"), "A check that
+  involves any value the revision wrote is judged normally" ("Given values"), and the matching
+  clause of "Unwritten records" ("What rejects is what is written").
+  - A sub-check whose failing comparison uses a written number or unit that differs from the
+    base's, or a value the revision added, is judged normally, even where the base broke the same
+    bound. So is a sub-check that passes with the base's values, or fails only in another way.
+  - A value the revision wrote is still held to its own unit, its own source and its own
+    arithmetic, judged on that value alone.
+  - The items that read the values present are not touched by this rule: a unit error (ES-31), a
+    magnitude out of physical sense or unsupported by its source (ES-32), a balance that does not
+    close (ES-7, ES-33), and a changed quantity that did not reach a node it constrains (ES-34) are
+    findings as usual.
+- **Inputs the parts sheet does not give.** Where the design is a stand-in built from a parts
+  sheet, a sub-check that cannot be decided because it needs an input absent from both the parts
+  sheet (no row for it, or a row with no value) and the design graph (absent, and not derivable
+  from it by reading) is recorded as `noted`, naming the sub-check and the missing input. It is
+  never blocking, never `unmet` and never a `fail`, whether or not the sub-check carries a **[B]**
+  marker, and whether the input would otherwise be a missing input or a duty of the work. This is
+  "Stand-in absences" read as the account's own last sentence reads: a quantity the parts sheet
+  does not give is absent from the design by construction, whether or not the account names it. For
+  these sub-checks it overrides the bound of "Stand-in absences" "It reaches only the inputs the
+  account lists", every **[B]** marker, "In this rubric every missing-input defect is blocking"
+  ("Missing evidence", point 1), the missing-input sentence of "Blocking specification defect", and
+  the sentence of "Given values" by which such an input "still records a blocking specification
+  defect".
+  - How to tell: the design's values cite the sheet rows they come from. An input the design graph
+    lacks altogether counts as one the sheet does not give, unless the parts sheet, where it is
+    among what you are given, has a row with a value for it; an input the sheet gives keeps
+    "Missing evidence" and "Given values".
+  - Only that sub-check is `noted`: the rest of its item, and every other item, is judged normally.
+  - The duty of the work stays for what the revision wrote. A value the revision wrote for such a
+    quantity, or in place of it, is the work's value ("Missing evidence", point 1): it is held to
+    its unit, its source and its arithmetic, and every check that uses it and does not need the
+    absent input is judged normally. An input the sheet does not give is `noted` even where an item
+    makes it a duty of the work, as "Stand-in absences" already does for the inputs the account
+    lists.
+  - The items that read the values present are not touched by this rule, as under the rule above.
+
 The automated checks cover only what the preamble lists; you are not shown their output, a claim
 that they passed is no evidence for any item below, and the items under "Records, magnitudes and
 follow-ups" are judged by reading like the rest.
@@ -510,6 +569,9 @@ follow-ups" are judged by reading like the rest.
 
 ## 3. Skill-file antipatterns
 
+In form 2, the two rules at the start of Section 2 ("Conditions already in the design" and "Inputs
+the parts sheet does not give") apply to these items too.
+
 - **EP-1. Designing to the absolute maximum rating.** Look at every limit a comparison uses and its
   datasheet table. Counts when a limit comes from the absolute maximum table (skill; §1).
 - **EP-2. A power budget of typical currents.** Look at the budget's worst-case column. Counts when
@@ -629,4 +691,4 @@ reference to its source, is the work's, even when its number equals a given valu
   made to escape or satisfy a check and the design fails the corresponding rule when judged by
   reading; without that reasoning, at most `noted`.
 
-<!-- b12b7c04b3e0c97445c253534be79081 -->
+<!-- d9606574cf42a1bda981a2620a5f2355 -->

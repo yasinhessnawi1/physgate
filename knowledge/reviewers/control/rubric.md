@@ -389,6 +389,63 @@ The issued specification's acceptance criteria are inserted with each review. Ju
 
 ## 2. Domain standard violations
 
+**In a proposed revision: conditions already in the design, and inputs the parts sheet does not
+give.** When the work is a proposed revision of the design on its own (policy rule 10), the two
+rules below apply to every sub-check of this Section and of Section 3. For those sub-checks they
+take precedence over the policy sentences they narrow, each named below. Every `noted` outcome
+below is recorded exactly as rule 10's **Given values** records a given-value condition, with the
+names each rule below gives: a non-blocking specification defect that never rejects and never makes
+the review `blocked`, the item being judged on what the revision wrote. It is therefore a condition
+recorded under Given values wherever this rubric treats one: A7's single line, rule 4's rejecting
+findings and rule 7's non-blocking defects, and the verdict format.
+
+- **Conditions already in the design.** A sub-check fails the revision only if its failing
+  condition is absent from the base: the design as it stood before the revision, with each node the
+  revision wrote as its earlier revision in the journal holds it. To tell, put back, in place of
+  each value the revision wrote, the value the base had; a value the revision added has no base
+  value, so a condition that needs it is not present in the base. If the same sub-check then fails
+  the same way (on the same node, against the same bound or requirement, in the same direction),
+  and every value the revision wrote that the failing comparison uses has the base's number and
+  unit (it was re-cited, re-sourced or restated), the condition is already present in the design.
+  Record it as `noted`, naming the node, the check and the value. It is never a finding, a
+  violation or an error, and never blocks, even though the revision wrote a value the check uses:
+  for example a value it re-cited, re-sourced or restated with the same number and unit. For these
+  sub-checks this narrows rule 7's "a check that uses **any** written value is judged normally",
+  rule 10's "A check that involves any value the revision wrote is judged normally", and the
+  matching clause of **Unwritten records** ("What rejects is what is written").
+  - A sub-check whose failing comparison uses a written number or unit that differs from the
+    base's, or a value the revision added, is judged normally, even where the base broke the same
+    bound. So is a sub-check that passes with the base's values, or fails only in another way.
+  - A value the revision wrote is still held to its own unit, its own source and its own
+    arithmetic, judged on that value alone.
+  - The items that read the values present are not touched by this rule: a unit error, a magnitude
+    out of physical sense or unsupported by its source, a balance that does not close, and a
+    changed quantity that did not reach a node it constrains (the preamble; D25 to D28) are
+    findings as usual.
+- **Inputs the parts sheet does not give.** Where the design is a stand-in built from a parts
+  sheet, a sub-check that cannot be decided because it needs an input absent from both the parts
+  sheet (no row for it, or a row with no value) and the design graph (absent, and not derivable
+  from it by reading) is recorded as `noted`, naming the sub-check and the missing input. It is
+  never blocking, never `unmet` and never a finding, whether or not the sub-check is marked
+  **[B]**, and whether the input would otherwise be a missing input or a duty of the work. This is
+  rule 10's **Stand-in absences** read as the account's own last sentence reads: a quantity the
+  parts sheet does not give is absent from the design by construction, whether or not the account
+  names it. For these sub-checks it overrides the bound of Stand-in absences "It reaches only the
+  inputs the account lists", every **[B]** marker, rule 7's **Missing evidence** (point 1) and
+  **Blocking: missing input**, and rule 10's **Given values** where it sends such an input to them.
+  - How to tell: the design's values cite the sheet rows they come from. An input the design graph
+    lacks altogether counts as one the sheet does not give, unless the parts sheet, where it is
+    among what you are given, has a row with a value for it; an input the sheet gives keeps rule
+    7's handling.
+  - Only that sub-check is `noted`: the rest of its item, and every other item, is judged normally.
+  - The duty of the work stays for what the revision wrote. A value the revision wrote for such a
+    quantity, or in place of it, is the work's value (rule 7's **Missing evidence**, point 1): it
+    is held to its unit, its source and its arithmetic, and every check that uses it and does not
+    need the absent input is judged normally. An input the sheet does not give is `noted` even
+    where an item makes it a duty of the work, as **Stand-in absences** already does for the inputs
+    the account lists.
+  - The items that read the values present are not touched by this rule, as under the rule above.
+
 ### Plant model and stability
 
 - **D1. Plant model validity region stated.** *Cat. 2.* The work states where its linear or
@@ -677,6 +734,9 @@ The issued specification's acceptance criteria are inserted with each review. Ju
 
 ## 3. Skill-file antipatterns
 
+In a proposed revision, the two rules at the start of Section 2 (**Conditions already in the
+design** and **Inputs the parts sheet does not give**) apply to these items too.
+
 - **S1. Margins reported with no statement of which loop.** *Cat. 2.* A margin number without the
   loop it was measured on (state feedback, or with estimator and filters) and the breaking point.
   If the margin script omits a filter the code runs, D9 also applies.
@@ -788,4 +848,4 @@ in a proposed revision, it is recorded as policy rule 10's **Given values** says
   - *Do:* `noted` when the history reads precede a matching number; confirmed when the trajectory
     shows no derivation of it.
 
-<!-- e8045288917d0cb70a60a9c712f9a083 -->
+<!-- 9bd9476abbfdaa6f084e405e7b06068b -->
