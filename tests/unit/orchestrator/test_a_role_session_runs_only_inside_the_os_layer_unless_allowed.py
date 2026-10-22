@@ -26,7 +26,7 @@ from physgate.orchestrator.events import Envelope, OsLayerChecked, read_events
 from physgate.orchestrator.exceptions import RunStateError
 from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.requirements import RunFacts
-from physgate.orchestrator.run_config import load_run_config, write_run_config
+from physgate.orchestrator.run_config import load_run_config, os_layer_refusal, write_run_config
 from physgate.oslayer.probe import Absent, Present
 
 PRESENT = Present(mechanism="seatbelt", claude_version="2.1.301")
@@ -223,6 +223,102 @@ def test_the_layer_line_says_no_allowance_where_none_is_needed_or_given() -> Non
     assert cli._os_layer_checked(ENVELOPE, refused, ABSENT).absent_allowed is False
 
 
+def _recorded(tmp_path: Path, **overrides: object) -> bytes:
+    """A run recorded with one subtask planned and nothing run yet; its log's bytes."""
+    from physgate.orchestrator.record import RunRecord
+
+    record = RunRecord(make_config(**overrides), tmp_path / "run")
+    record.start(plan("power"))
+    record.close()
+    return (tmp_path / "run" / "events.jsonl").read_bytes()
+
+
+def _through_the_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, command: str, layer: Present | Absent
+) -> tuple[int, list[object]]:
+    """``physgate run`` or ``resume`` on the recorded run, where the layer measures ``layer``.
+
+    The layer is stubbed, so the measurement is this process's whatever the machine. A session
+    the run would prepare or start is counted and stopped there, so none spawns.
+    """
+    from loop_fakes import FakeGate, FakeReviewer
+    from test_the_physgate_command_starts_and_decides import (  # noqa: PLC0415
+        _run_args,
+        fake_binary,
+    )
+
+    from physgate.orchestrator.dispatch import ClaudeDispatcher
+
+    spawned: list[object] = []
+
+    def environment(_self: ClaudeDispatcher) -> object:
+        spawned.append("environment")
+        msg = "a role session's installation was being checked: a session was about to start"
+        raise AssertionError(msg)
+
+    def run(_self: ClaudeDispatcher, request: object, _on_spawn: object = None) -> object:
+        spawned.append(request)
+        msg = "a role session was started"
+        raise AssertionError(msg)
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-not-a-credential")
+    monkeypatch.setenv("PHYSGATE_CLAUDE_BIN", str(fake_binary(tmp_path, "2.1.272")))
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    monkeypatch.setattr(ClaudeDispatcher, "os_layer", lambda _self: layer)
+    monkeypatch.setattr(ClaudeDispatcher, "environment", environment)
+    monkeypatch.setattr(ClaudeDispatcher, "run", run)
+    registrations = cli.Registrations(gate=FakeGate(), reviewers={"electrical": FakeReviewer()})
+    return main([command, *_run_args(tmp_path)[1:]], registrations), spawned
+
+
+@pytest.mark.parametrize("command", ["run", "resume"])
+def test_the_command_refuses_a_run_whose_layer_is_absent_here_though_its_record_says_present(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    command: str,
+) -> None:
+    _recorded(tmp_path, os_layer_absent="refuse", os_layer=PRESENT)
+    code, spawned = _through_the_command(tmp_path, monkeypatch, command, ABSENT)
+    err = capsys.readouterr().err
+    assert code == 2 and spawned == []
+    assert "role sessions do not run without it" in err
+    assert "runs only inside the OS layer" in json.loads(err.strip().splitlines()[-1])["error"]
+    # The line records the layer this process measured, not the one the run recorded.
+    events = read_events(tmp_path / "run" / "events.jsonl")
+    (line,) = [e for e in events if isinstance(e, OsLayerChecked)]
+    assert line.state == ABSENT and line.as_recorded is False and line.absent_allowed is False
+    assert not (tmp_path / "run" / "sessions").exists()
+
+
+@pytest.mark.parametrize("command", ["run", "resume"])
+def test_the_command_refuses_a_reportable_run_whose_record_allows_the_absence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    command: str,
+) -> None:
+    # Written past the configuration's check, as only a hand on run.json could: the layer is
+    # present here, so the evaluation's requirement is all that refuses it.
+    monkeypatch.setattr(cli, "harness_state", lambda _root: CLEAN_HARNESS)
+    events = _recorded(
+        tmp_path,
+        reportable=True,
+        harness=CLEAN_HARNESS,
+        os_layer_absent="allow",
+        os_layer=PRESENT,
+    )
+    code, spawned = _through_the_command(tmp_path, monkeypatch, command, PRESENT)
+    error = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
+    assert code == 2 and spawned == []
+    assert error["error"] == "the run may not continue"
+    requirements = error["requirements"]
+    assert "a reportable run never allows role sessions without the OS layer" in requirements
+    # Refused before anything is recorded.
+    assert (tmp_path / "run" / "events.jsonl").read_bytes() == events
+    assert not (tmp_path / "run" / "sessions").exists()
+
+
 def test_the_allowance_never_lets_a_run_that_acts_on_decisions_run_without_the_layer(
     tmp_path: Path,
 ) -> None:
@@ -234,6 +330,48 @@ def test_the_allowance_never_lets_a_run_that_acts_on_decisions_run_without_the_l
     with pytest.raises(RunStateError, match="acts on queue decisions"):
         loop.run()
     loop.close()
+
+
+# -- never from the environment ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize("variable", ["OS_LAYER_ABSENT", "PHYSGATE_OS_LAYER_ABSENT"])
+def test_an_allowance_in_the_environment_changes_nothing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    variable: str,
+) -> None:
+    monkeypatch.setenv(variable, "allow")
+    # The one check, on a run that refuses and on one recorded before the flag existed.
+    refusing = make_config(os_layer_absent="refuse", os_layer=PRESENT)
+    assert os_layer_refusal(refusing, ABSENT) is not None
+    assert os_layer_refusal(refusing, None) is not None
+    write_run_config(tmp_path / "run.json", refusing)
+    loaded = load_run_config(tmp_path / "run.json")
+    assert loaded.os_layer_absent == "refuse" and loaded.sha256() == refusing.sha256()
+    # A new run's configuration: refused where the layer is absent, and still required.
+    assert main(_decompose(tmp_path / "a", monkeypatch, "refuse")) == 2
+    assert "runs only inside the OS layer" in capsys.readouterr().err
+    assert main(_decompose(tmp_path / "b", monkeypatch, None)) == 2
+    assert json.loads(capsys.readouterr().err)["reason"].startswith("os_layer_absent")
+    # Every run and resume: refused before any session.
+    rig = _rig(tmp_path / "run", "refuse")
+    loop = rig.open()
+    loop.start(plan("power"))
+    _checked(loop, ABSENT)
+    with pytest.raises(RunStateError, match="runs only inside the OS layer"):
+        loop.run()
+    loop.close()
+    assert _spawned(rig) == 0
+
+
+@pytest.mark.parametrize("variable", ["OS_LAYER_ABSENT", "PHYSGATE_OS_LAYER_ABSENT"])
+def test_a_refusal_in_the_environment_changes_nothing(
+    monkeypatch: pytest.MonkeyPatch, variable: str
+) -> None:
+    monkeypatch.setenv(variable, "refuse")
+    assert os_layer_refusal(make_config(os_layer_absent="allow"), ABSENT) is None
 
 
 # -- the evaluation ---------------------------------------------------------------------------
