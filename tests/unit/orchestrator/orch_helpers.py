@@ -68,6 +68,7 @@ def make_config(**overrides: Any) -> RunConfig:
         "git_binary": None,
         "escalation_backend": "rules",
         "queue_decisions": "record",
+        "os_layer_absent": "refuse",
         "held_out": (),
         "held_out_canaries": (),
         "held_out_sha256": (),

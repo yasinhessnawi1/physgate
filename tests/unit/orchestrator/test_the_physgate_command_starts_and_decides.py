@@ -34,6 +34,8 @@ PARAMS = {
     "role_python": None,
     "escalation_backend": "rules",
     "queue_decisions": "record",
+    # The stand-in binary predates the OS layer's pin, so the layer is absent here.
+    "os_layer_absent": "allow",
     "held_out": [],
     "held_out_canaries": [],
     "held_out_sha256": [],
@@ -458,7 +460,8 @@ def test_a_run_whose_record_holds_a_routing_token_fails_at_the_end(
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-not-a-credential")
     monkeypatch.setenv("PHYSGATE_CLAUDE_BIN", str(fake_binary(tmp_path, "2.1.272")))
     monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
-    record = RunRecord(make_config(), tmp_path / "run")
+    # The stand-in binary predates the OS layer's pin: allowed absent, for development.
+    record = RunRecord(make_config(os_layer_absent="allow"), tmp_path / "run")
     record.start([])
     one = Usage(
         input_tokens=1, output_tokens=0, cache_read_input_tokens=0, cache_creation_input_tokens=0

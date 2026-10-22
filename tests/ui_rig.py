@@ -77,6 +77,8 @@ def run_config(run_id: str) -> RunConfig:
         git_binary=None,
         escalation_backend="rules",
         queue_decisions="record",
+        # A development rig: its loops run with no OS-layer line recorded.
+        os_layer_absent="allow",
         held_out=(),
         held_out_canaries=(),
         held_out_sha256=(),

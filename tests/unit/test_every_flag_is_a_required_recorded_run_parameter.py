@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_the_register_is_not_empty_and_names_the_gate_mode() -> None:
-    assert [flag.name for flag in REGISTER] == ["gate_mode", "queue_decisions"]
+    assert [flag.name for flag in REGISTER] == ["gate_mode", "queue_decisions", "os_layer_absent"]
     assert GATE_MODE.architecture == "ARCH-140"
     assert QUEUE_DECISIONS.architecture == "ARCH-133"
 

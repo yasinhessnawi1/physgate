@@ -13,6 +13,10 @@ report a number measured under a different arm than the one it names.
 
 A flag is added here when the switch it names is built, and not before: an
 entry that nothing reads is a switch that does nothing.
+
+One flag is not an arm a run is measured under. ``os_layer_absent: allow`` is
+for development only, and it can never appear in a measured run: the evaluation
+refuses every reportable run that names it, whatever the OS layer where it runs.
 """
 
 from __future__ import annotations
@@ -85,5 +89,30 @@ QUEUE_DECISIONS = Flag(
     architecture="ARCH-133",
 )
 
+#: Whether a run's role sessions may run where the OS layer is absent. A development switch,
+#: not an ablation arm: ``allow`` can never appear in a measured run, because the evaluation
+#: refuses a reportable run that names it. Spelled out for the type checker, as the others are;
+#: a test holds it equal to the register's entry.
+OsLayerAbsent = Literal["refuse", "allow"]
+
+OS_LAYER_ABSENT = Flag(
+    name="os_layer_absent",
+    values=("refuse", "allow"),
+    meanings={
+        "refuse": (
+            "role sessions run only inside the OS layer: a run whose layer is absent is refused "
+            "at its configuration, and at every run and resume, before any session starts; every "
+            "run recorded before the switch existed reads as this"
+        ),
+        "allow": (
+            "for development only: where the layer is absent, role sessions run with the text "
+            "hooks alone, said on standard error and on every run's and resume's OS-layer line; "
+            "a run that acts on queue decisions is refused all the same; never in a measured "
+            "run, since the evaluation refuses a reportable run that names it"
+        ),
+    },
+    architecture="ARCH-091",
+)
+
 #: Every ablation flag, in the order the architecture lists the switches.
-REGISTER: tuple[Flag, ...] = (GATE_MODE, QUEUE_DECISIONS)
+REGISTER: tuple[Flag, ...] = (GATE_MODE, QUEUE_DECISIONS, OS_LAYER_ABSENT)

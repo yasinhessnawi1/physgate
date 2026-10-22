@@ -96,6 +96,7 @@ from physgate.orchestrator.run_config import (
     harness_state,
     load_run_config,
     network_enforced,
+    os_layer_refusal,
     require_endpoint,
     require_harness,
     require_reportable,
@@ -390,17 +391,22 @@ def _print(payload: dict[str, object]) -> None:
     print(json.dumps(payload, indent=1, sort_keys=True))
 
 
-def _say_os_layer(state: Present | Absent, network: Network) -> None:
-    """Say, where a person sees it, when role sessions run without the OS layer.
+def _say_os_layer(state: Present | Absent, network: Network, *, allowed: bool = False) -> None:
+    """Say, where a person sees it, when the OS layer is absent, and whether sessions run anyway.
 
-    And when the run asks for ``network: none``, which only the OS layer can enforce.
+    ``allowed``: the run's parameters allow role sessions without the layer, for development,
+    and nothing else refuses it. And say when the run asks for ``network: none``, which only the
+    OS layer can enforce.
     """
     if isinstance(state, Absent):
         what = "no OS protection" if state.no_os_protection else "the OS layer is absent"
-        print(
-            f"physgate: {what}: {state.reason}; role sessions' shell commands run without it",
-            file=sys.stderr,
+        then = (
+            "role sessions' shell commands run without it, allowed for development "
+            "(os_layer_absent: allow)"
+            if allowed
+            else "role sessions do not run without it"
         )
+        print(f"physgate: {what}: {state.reason}; {then}", file=sys.stderr)
     if network_enforced(network, state) is False:
         print(
             f"physgate: {NETWORK_UNENFORCED}; role sessions' shell commands stay online",
@@ -427,6 +433,9 @@ def _os_layer_checked(
         **envelope,
         state=layer,
         as_recorded=None if config.os_layer is None else config.os_layer == layer,
+        absent_allowed=None
+        if isinstance(layer, Present)
+        else os_layer_refusal(config, layer) is None,
         network_enforced=network_enforced(config.network, layer),
         loopback_listeners=found,
         loopback_listeners_read=None if config.network != "none" else found is not None,
@@ -532,7 +541,10 @@ def _decompose(args: argparse.Namespace) -> int:
     if credential is None:  # the configuration validated, so the mode is a known one
         return _fail("the run parameters name no auth mode")
     assert config.os_layer is not None  # measured above, for every new run
-    _say_os_layer(config.os_layer, config.network)
+    why = os_layer_refusal(config, config.os_layer)
+    _say_os_layer(config.os_layer, config.network, allowed=why is None)
+    if why is not None:
+        return _fail(why)
     refused = refusals(RunFacts(config=config, os_layer=config.os_layer, shell_sessions=True))
     if refused:
         return _fail("the run may not start", requirements="; ".join(refused))
@@ -720,7 +732,8 @@ def _drive(args: argparse.Namespace, *, resume: bool, registrations: Registratio
     except (OrchestratorError, ReviewError) as exc:
         return _fail(str(exc), **exc.context)
     layer = dispatcher.os_layer()
-    _say_os_layer(layer, config.network)
+    # Said here; refused by the loop, which records the layer's line first.
+    _say_os_layer(layer, config.network, allowed=os_layer_refusal(config, layer) is None)
     refused = refusals(RunFacts(config=config, os_layer=layer, shell_sessions=True))
     if refused:
         loop.close()

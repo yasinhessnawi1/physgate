@@ -163,6 +163,8 @@ def params() -> dict[str, Any]:
         "role_python": None,
         "escalation_backend": "rules",
         "queue_decisions": "record",
+        # A real run: inside the OS layer, or not at all.
+        "os_layer_absent": "refuse",
         "held_out": [],
         "held_out_canaries": [],
         "held_out_sha256": [],

@@ -136,7 +136,7 @@ def _instrument(
 
     library, _ = _library(tmp_path / "lib")
     monkeypatch.setattr("physgate.orchestrator.cli._library_root", lambda: library)
-    monkeypatch.setattr(inject_cli, "require_complete", lambda corpus: None)
+    monkeypatch.setattr(inject_cli, "require_complete", lambda corpus, per_class: None)
     monkeypatch.setenv("ANTHROPIC_API_KEY", DUMMY_KEY)
     corpus = write_corpus(tmp_path / "c")
     params = {
@@ -151,6 +151,11 @@ def _instrument(
         "effort": "low",
         "max_output_tokens": 1000,
         "token_ceiling": 1_000_000,
+        # One lane, no lane-wide pause and no repair resume: each artefact is one session.
+        "lanes": 1,
+        "pause_after_failures": 0,
+        "pause_s": 0.0,
+        "repair_resumes": 0,
     }
     (tmp_path / "params.json").write_text(json.dumps(params))
 

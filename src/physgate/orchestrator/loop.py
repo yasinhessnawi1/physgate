@@ -147,9 +147,8 @@ from physgate.orchestrator.replay import (
     recorded_implementer,
     require_mergeable,
 )
-from physgate.orchestrator.run_config import RunConfig
+from physgate.orchestrator.run_config import RunConfig, os_layer_refusal
 from physgate.orchestrator.trajectory import read_sealed
-from physgate.oslayer.probe import Present
 from physgate.reviewers.scan import ScanHit, ScanUnreadableError
 from physgate.roles import require_registered
 from physgate.series.reader import attempt_records
@@ -327,8 +326,9 @@ class Loop:
         """Drive the plan until it is done or the run halts.
 
         Raises:
-            RunStateError: a previous process left the run mid-attempt; resume it; or the run
-                acts on queue decisions and this process recorded no OS layer.
+            RunStateError: a previous process left the run mid-attempt; resume it; or this
+                process recorded no OS layer, and the run acts on queue decisions or does not
+                allow the layer's absence.
         """
         self._require_os_layer()
         self._stop_leftovers()
@@ -355,8 +355,9 @@ class Loop:
 
         Raises:
             RunStateError: the run halted for an incident, which a person resolves; or an item
-                to confirm has no held decision, or the run acts on no decision at all; or the
-                run acts on queue decisions and this process recorded no OS layer.
+                to confirm has no held decision, or the run acts on no decision at all; or this
+                process recorded no OS layer, and the run acts on queue decisions or does not
+                allow the layer's absence.
         """
         self._require_os_layer()
         self._stop_leftovers()
@@ -397,25 +398,23 @@ class Loop:
         return self._drive()
 
     def _require_os_layer(self) -> None:
-        """Refuse to drive a run that acts on decisions unless this process runs inside the layer.
+        """Refuse to drive a run whose role sessions would run without the OS layer here.
 
-        Only the OS layer keeps a role session's own shell from the decisions file, so a run whose
-        decisions act runs nothing without it (ARCH-133). Read from the layer's record this
-        process wrote before driving; none recorded is refused like one absent, so a missing check
-        never reads as a present layer. Checked before anything is stopped, read or taken.
+        Without the layer a role session's shell is bounded by the text hooks alone, so a run
+        runs nothing where it is absent unless its parameters allow that, for development, and a
+        run that acts on decisions never does (ARCH-091, ARCH-133); the check is
+        :func:`os_layer_refusal`, the one a new run's configuration was held to. Read from the
+        layer's record this process wrote before driving; none recorded is refused like one
+        absent, so a missing check never reads as a present layer. Checked before anything is
+        stopped, read or taken.
 
         Raises:
             RunStateError: as above.
         """
-        if not self._acts():
-            return
         checked = [e for e in self.log.events if isinstance(e, OsLayerChecked)]
-        state = checked[-1].state if checked else None
-        if isinstance(state, Present):
-            return
-        found = "not recorded" if state is None else f"absent: {state.reason}"
-        msg = f"a run that acts on queue decisions runs only inside the OS layer, here {found}"
-        raise RunStateError(msg, run_dir=str(self.run_dir))
+        why = os_layer_refusal(self.config, checked[-1].state if checked else None)
+        if why is not None:
+            raise RunStateError(why, run_dir=str(self.run_dir))
 
     def _approved_unmerged(self) -> tuple[SubtaskState, str] | None:
         """The subtask an approve is merging and the commit it merges, if one is not merged yet."""

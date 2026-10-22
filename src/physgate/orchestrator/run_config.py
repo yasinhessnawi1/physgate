@@ -27,7 +27,7 @@ from pydantic import (
 )
 
 import physgate
-from physgate.flags import QueueDecisions
+from physgate.flags import OsLayerAbsent, QueueDecisions
 from physgate.orchestrator.common import (
     AuthMode,
     GateMode,
@@ -141,6 +141,30 @@ def network_enforced(network: str, layer: Present | Absent) -> bool | None:
     not enforceable here, never dropped silently.
     """
     return isinstance(layer, Present) if network == "none" else None
+
+
+def os_layer_refusal(config: RunConfig, layer: Present | Absent | None) -> str | None:
+    """Why ``config``'s role sessions may not run where the OS layer is ``layer``, or ``None``.
+
+    The one check, asked at a new run's configuration and again at every run and resume with
+    the layer measured there (``None``: not recorded, which is refused like absent, so a missing
+    check never reads as a present layer). Without the layer a role session's shell is bounded
+    by the text hooks alone, and with it the outbox, the held-out tier and the answer keys. A run
+    that acts on queue decisions is refused whatever it allows: only the layer keeps a session's
+    own shell from the decisions file (ARCH-133). Any other run is refused unless its parameters
+    allow the absence, for development (ARCH-091).
+    """
+    if isinstance(layer, Present):
+        return None
+    found = "not recorded" if layer is None else f"absent: {layer.reason}"
+    if config.queue_decisions == "act":
+        return f"a run that acts on queue decisions runs only inside the OS layer, here {found}"
+    if config.os_layer_absent == "refuse":
+        return (
+            "a run runs only inside the OS layer unless its parameters allow the layer's absence "
+            f"(os_layer_absent: allow, for development only), here {found}"
+        )
+    return None
 
 
 #: The effort levels the pinned binary's ``--effort`` accepts. The binary sends
@@ -284,6 +308,12 @@ class RunConfig(_Frozen):
     #: acted on none, and reads as ``record``; the evaluation harness runs with ``record``.
     queue_decisions: QueueDecisions
 
+    #: Whether role sessions may run where the OS layer is absent (ARCH-091), a flag of the
+    #: register: ``allow`` for development only, never in a reportable run. Required, never
+    #: taken from the environment. A run recorded before the field existed named no allowance,
+    #: and reads as ``refuse``: resumed where the layer is absent, it is refused.
+    os_layer_absent: OsLayerAbsent
+
     #: The OS layer's state where the run was configured: present, with its mechanism,
     #: or absent, with the reason. Measured, never taken from the parameters; every run
     #: and resume measures it again and records whether it still holds. ``None`` only on
@@ -352,14 +382,11 @@ class RunConfig(_Frozen):
     def _acting_on_decisions_needs_the_os_layer(self) -> RunConfig:
         # Only the OS layer keeps a role session's own shell from the decisions file; the hook
         # layer judges words. A run whose decisions act would otherwise act on a line a session
-        # could have written itself (ARCH-133).
-        if self.queue_decisions == "act" and not isinstance(self.os_layer, Present):
-            msg = (
-                "a run that acts on queue decisions runs only inside the OS layer, and this "
-                "one's OS layer is "
-                + ("not recorded" if self.os_layer is None else f"absent: {self.os_layer.reason}")
-            )
-            raise ValueError(msg)
+        # could have written itself (ARCH-133). Held here for that run alone: a run recorded
+        # before the allowance existed reads as refusing it, and still loads where its layer was
+        # absent; the command asks the same check of every new run, and every run and resume.
+        if self.queue_decisions == "act" and (why := os_layer_refusal(self, self.os_layer)):
+            raise ValueError(why)
         return self
 
     @model_validator(mode="after")
@@ -376,7 +403,8 @@ class RunConfig(_Frozen):
         the field existed ran with, and ``role_python``, ``git_binary``,
         ``escalation_backend`` and ``os_layer`` when they are ``None``, ``held_out``,
         ``held_out_canaries`` and ``held_out_sha256`` when empty, ``network`` when ``open``,
-        ``network_enforced`` when ``None`` and ``queue_decisions`` when ``record``, so their
+        ``network_enforced`` when ``None``, ``queue_decisions`` when ``record`` and
+        ``os_layer_absent`` when ``refuse``, so their
         recorded digests still name them. A
         run that names a binding always records it, so the binding is part of its manifest id.
         """
@@ -403,6 +431,8 @@ class RunConfig(_Frozen):
             exclude.add("network_enforced")
         if self.queue_decisions == "record":
             exclude.add("queue_decisions")
+        if self.os_layer_absent == "refuse":
+            exclude.add("os_layer_absent")
         return self.model_dump_json(indent=None, exclude=exclude or None).encode() + b"\n"
 
     def sha256(self) -> str:
@@ -503,6 +533,8 @@ def load_run_config(path: Path) -> RunConfig:
         ("network_enforced", None),
         # Recorded before the field existed: nothing in the run acted on a decision.
         ("queue_decisions", "record"),
+        # Recorded before the field existed: no allowance was named.
+        ("os_layer_absent", "refuse"),
     ):
         if isinstance(recorded, dict) and name not in recorded:
             # Recorded before the field existed: nothing was held out, the network was open

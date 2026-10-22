@@ -70,6 +70,8 @@ def test_decomposition_refuses_before_its_model_call(
 ) -> None:
     params = json.loads((EXAMPLES / "params.api_key.json").read_text())
     assert "mechanical" in params["models"]["roles"]
+    # The stand-in binary below predates the OS layer's pin: allowed absent, for development.
+    params["os_layer_absent"] = "allow"
     (tmp_path / "params.json").write_text(json.dumps(params))
     (tmp_path / "brief.md").write_text("a brief\n")
     # A binary that answers only its version, the one the configuration's check accepts.

@@ -3,6 +3,6 @@
 Claude Code can run each shell command inside the platform's sandbox: Seatbelt on
 macOS, bubblewrap on Linux, nothing on native Windows. Where it can, a session
 runs with it on and with the protected paths denied; where it cannot, the run
-says so, with the reason, and goes on. Refusing a run without it is a policy of
-whoever needs one, and lives with them, not here.
+says so, with the reason. Whether it then goes on is the run's to say (its
+``os_layer_absent`` parameter, checked by the orchestrator); nothing here refuses.
 """

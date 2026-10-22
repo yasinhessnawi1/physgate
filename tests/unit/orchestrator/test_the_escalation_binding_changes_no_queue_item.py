@@ -50,7 +50,12 @@ ADDED_LINES: frozenset[str] = frozenset({"escalation_decided"})
 ADDED_FIELDS: dict[str, dict[str, Any]] = {
     # The run's escalation binding, recorded in its configuration and on its first line.
     # Every run before the interface was, by construction, the rules binding.
-    "config": {"escalation_backend": "rules"},
+    "config": {
+        "escalation_backend": "rules",
+        # The rig's loops run over fakes with no OS-layer line recorded, so its runs allow
+        # the layer's absence, as every run the golden file recorded went on without it.
+        "os_layer_absent": "allow",
+    },
     "run_started": {"escalation_backend": "rules"},
     # The series records a session left: none, in every session the golden file recorded.
     "session_ended": {"series": {"records": [], "refused": [], "discarded": []}},
