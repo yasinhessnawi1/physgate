@@ -181,9 +181,11 @@ def test_a_run_through_the_command_is_reviewed_rejected_repaired_and_accepted(
         code = main(["run", *common], registrations)
         out = capsys.readouterr()
         assert code == 0, out.err
-        # The run ended with its subtask merged, not with it sent to the queue: a review that
-        # came to no verdict escalates and still exits 0, so the step is read here.
-        assert json.loads(out.out)["step"] == "done", out.out
+        # The run ended with its subtask merged, not with it sent to the queue. Neither the exit
+        # code nor the step tells the two apart: a review that came to no verdict escalates the
+        # subtask, and the run still exits 0 at step "done". The subtask's own status does.
+        ended = json.loads(out.out)
+        assert ended["subtasks"] and set(ended["subtasks"].values()) == {"done"}, out.out
         # The generalist baseline of the accepted attempt, through its own command.
         planned = read_events(run_dir / "events.jsonl")
         subtask = next(e.subtask_id for e in planned if isinstance(e, SubtaskPlanned))
