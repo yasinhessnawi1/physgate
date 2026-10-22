@@ -467,3 +467,45 @@ def test_an_exhausted_budgets_unreviewed_attempt_is_scanned_before_an_approve(
     _resume(rig)
     (taken,) = _of(run_dir, DecisionTaken)
     assert (taken.acts, taken.why_not) == (False, "scan_hit") and rig.merger.merges == []
+
+
+def test_a_blocked_reviews_earlier_unreviewed_attempt_is_scanned_before_an_approve(
+    tmp_path: Path,
+) -> None:
+    # Attempt 1 failed at the gate, unreviewed, its stream showing a check switched off; the
+    # review of attempt 2 blocked. That review judged attempt 2's streams, not attempt 1's, and
+    # an approve would merge both attempts' work.
+    run_dir = tmp_path / "run"
+    rig = _rig(
+        run_dir,
+        dispatcher=MarkingDispatcher(trajectories=run_dir / "sessions"),
+        gate=FakeGate(verdicts=["fail", "pass"]),
+        reviewer=FakeReviewer(results={1: blocked_review(BLOCKING)}),
+    )
+    loop = _start(rig, "s1")
+    loop.run()
+    loop.close()
+    (item,) = read_queue(run_dir).open_items()
+    assert item.source == "review_blocked" and item.consequence is not None
+    assert (item.consequence.on_approve, item.consequence.why_record_only) == (
+        "record_only",
+        "scan_hit",
+    )
+    decide(run_dir, "approve", "the pole is the linearised plant's")
+    _resume(rig)
+    (taken,) = _of(run_dir, DecisionTaken)
+    assert (taken.acts, taken.why_not) == (False, "scan_hit") and rig.merger.merges == []
+
+
+def test_a_confirmation_is_judged_on_a_decisions_file_its_seals_hold(tmp_path: Path) -> None:
+    # The confirmation's own check reads the decisions file too: a file rewritten beneath a
+    # session's start is refused there, before any confirmation is judged on what it now says.
+    run_dir = tmp_path / "run"
+    rig = _two_items_then_reject(run_dir)
+    rig.dispatcher = FakeDispatcher(trajectories=run_dir / "sessions")
+    _resume(rig)  # s1's retry spawns beside the reject, and the run waits on s2
+    _forge_prefix(run_dir)
+    with pytest.raises(RunStateError, match="rewritten"):
+        _resume(rig, confirm=("run-1-s2",), confirmed_by="operator")
+    assert [i.cause for i in _of(run_dir, Incident)] == ["decisions_rewritten"]
+    assert ("run-1-s2", True) not in [(t.item_id, t.acts) for t in _of(run_dir, DecisionTaken)]

@@ -58,12 +58,13 @@ if TYPE_CHECKING:
     from physgate.orchestrator.replay import AttemptState, RunState, SubtaskState
 
 
-#: The sources whose approve can merge and whose scan before review counts: a review that
-#: reached no verdict, and the two ends with attempts made by then, any of which may have ended
-#: at the gate or the change check unreviewed. Each attempt no review judged is scanned; a hit
-#: makes approve record only.
+#: The sources whose approve can merge, and so whose scan before review counts: every one of
+#: them may carry an earlier attempt that ended at the gate or the change check unreviewed, whose
+#: work is in the commit an approve merges. Each attempt no review judged is scanned (a review
+#: that blocked judged its own attempt's streams, not an earlier one's); a hit makes approve
+#: record only. The same holds for each: the automated block, the indicator history, the scan.
 SCANNED_SOURCES: frozenset[QueueSource] = frozenset(
-    {"review_unavailable", "repair_budget_exhausted", "escalation_decision"}
+    {"review_unavailable", "review_blocked", "repair_budget_exhausted", "escalation_decision"}
 )
 
 

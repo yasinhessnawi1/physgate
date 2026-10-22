@@ -571,14 +571,18 @@ def test_a_scan_hit_on_an_item_no_review_judged_makes_approve_record_only(tmp_pa
     sub = exhausted.state.subtasks["s1"]
     found = item_consequence(exhausted.state, "s1", source=source_of(sub), scan_hits=(hit,))
     assert (found.on_approve, found.why_record_only) == ("record_only", "scan_hit")
-    # A review that blocked judged the attempt's streams itself: the same hit changes nothing.
+    # And a blocked review's: it judged its own attempt's streams, never an earlier one's, and
+    # the loop scans only those no review judged.
     blocked = _escalated(tmp_path / "blocked", "blocked")
     sub = blocked.state.subtasks["s1"]
     assert source_of(sub) == "review_blocked"
-    assert (
-        item_consequence(blocked.state, "s1", source=source_of(sub), scan_hits=(hit,)).scan_hits
-        == ()
+    found = item_consequence(blocked.state, "s1", source=source_of(sub), scan_hits=(hit,))
+    assert (found.on_approve, found.why_record_only) == ("record_only", "scan_hit")
+    # Only where approve never merges does a hit change nothing.
+    integration = item_consequence(
+        blocked.state, "integration", source="gate_escalation", scan_hits=(hit,)
     )
+    assert integration.scan_hits == ()
 
 
 def test_a_gate_failure_and_a_stale_digest_together_halt_on_the_digest(tmp_path: Path) -> None:

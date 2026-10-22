@@ -445,7 +445,12 @@ class Loop:
             msg = "a confirmation names the operator who makes it"
             raise RunStateError(msg, run_dir=str(self.run_dir))
         self.queue.refresh()
-        view = read_queue(self.run_dir)
+        # Judged on the file as every take reads it: one read, its seals held first.
+        data = decisions_file_bytes(self.run_dir)
+        if not self._decisions_as_sealed(data):
+            msg = "the decisions file was rewritten beneath a session; the run halts on it"
+            raise RunStateError(msg, run_dir=str(self.run_dir))
+        view = read_queue(self.run_dir, decisions=data)
         held = self._held_windows()
         offsets = {decision.item_id: offset for offset, decision in view.decisions}
         for item_id in confirm:
