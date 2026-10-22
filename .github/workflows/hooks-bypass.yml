@@ -119,7 +119,7 @@ jobs:
             --proc /proc /bin/true && echo "bubblewrap starts here"
 
       - name: The OS layer through the real binary, its probes and the ordinary commands
-        # The two OS-layer files of the hook suite. The rest of the hook suite runs in the job
+        # The OS-layer files of the hook suite. The rest of the hook suite runs in the job
         # above.
         env:
           PHYSGATE_CLAUDE_BIN: ${{ github.workspace }}/tests/integration/hooks/claude-code/node_modules/@anthropic-ai/claude-code-linux-x64/claude
@@ -128,13 +128,15 @@ jobs:
           uv run pytest -q -rs -m integration
           tests/integration/hooks/test_a_role_session_runs_inside_the_os_layer.py
           tests/integration/hooks/test_the_os_layer_refuses_no_ordinary_command.py
+          tests/integration/hooks/test_a_shell_command_cannot_write_the_proposals_inside_the_os_layer.py
+          tests/integration/hooks/test_the_proposals_deny_holds_on_more_routes.py
 
       - name: Every other test marked integration, wherever it lives
         # The whole test tree with only the hook suite left out, so that a marked test added
         # later, in a directory that exists now or in a new one, runs here without anyone
         # listing it: a marked suite that no job runs can stay red while every check is green.
         # A step of its own because pytest's --ignore also drops a file named on the command
-        # line beneath the ignored directory, so the two files above cannot share this
+        # line beneath the ignored directory, so the files above cannot share this
         # invocation. It runs whether or not the step above passed.
         if: success() || failure()
         env:

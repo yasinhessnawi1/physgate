@@ -189,7 +189,12 @@ protected:
   left to these hooks and the sentinel where its parent is missing too, since a
   denied path with a missing parent keeps a command from making that parent.
   The series outbox is left to the scripts that write it; the collector judges
-  what arrives.
+  what arrives. The node proposals directory is denied to every command, and
+  made before the session starts so that it can be: a proposal is the Write and
+  Edit tools' alone, which the sandbox does not wrap, so these hooks check each
+  one before it exists. A command that reaches it by a path built as it runs,
+  or by copying or moving a directory into place, names nothing these hooks
+  can see.
 - **Reads** are denied for the held-out tier, the answer keys, review material,
   the harness checkout, every session's own files (its credentials and these
   hooks' records), the queue's decisions file, and the series outbox: whole on

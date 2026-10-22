@@ -30,6 +30,13 @@ writable place three rules apply:
 - a root above a writable place (the run's ``sessions/`` above the session's
   home) is not named at all: the OS already denies everything in it but the home.
 
+**The node proposals are the file tools' alone.** A node reaches the graph as a proposal
+file the Write and Edit tools write in ``.physgate/proposals``, where the hooks check it
+before it exists. The hooks refuse a command that names the directory, but a command that
+reaches it by a path it builds as it runs, or by copying or moving a directory into place,
+names nothing they can see. So the proposals directory is write-denied to every shell
+command; the file tools, which the sandbox does not wrap, still write there.
+
 **Reads.** Denied for what no session reads (the held-out tier, answer keys,
 review material, the harness checkout, the series outbox)
 and for what the session's runtime keeps from its shell commands (its credentials, the
@@ -80,10 +87,14 @@ from types import MappingProxyType
 from typing import Any, Literal
 
 from physgate.hooks.config import ExperimentRule, SessionConfig
+from physgate.hooks.graph import PROPOSALS_DIR
 
 #: What the OS layer does with each path field of the session configuration.
 FIELD_RULES: dict[str, str] = {
-    "worktree": "writable: the session's working directory",
+    "worktree": (
+        "writable: the session's working directory, but for its node proposals, which only "
+        "the file tools write"
+    ),
     "store_root": "write-denied (named whole)",
     "state_dir": "write- and read-denied to shell commands: the hooks' records",
     "protected_roots": (
@@ -257,6 +268,11 @@ def _read_denied(config: SessionConfig, platform: str) -> set[str]:
     return denied
 
 
+def proposals_dir(worktree: str) -> str:
+    """Where the session's node proposals are written, by the file tools alone."""
+    return os.path.join(worktree, PROPOSALS_DIR)
+
+
 def _write_denied(
     config: SessionConfig,
     writable: tuple[str, ...],
@@ -271,6 +287,7 @@ def _write_denied(
     roots += [(path, ()) for path in plain]
     if config.store_root is not None:
         roots.append((config.store_root, ()))
+    roots.append((proposals_dir(config.worktree), ()))
     for rule in config.experiments:
         roots += [(path, ()) for path in _frozen(rule, exists, children)]
     named: set[str] = set()

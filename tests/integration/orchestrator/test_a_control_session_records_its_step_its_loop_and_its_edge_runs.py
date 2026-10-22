@@ -23,7 +23,7 @@ import pytest
 from gate_run import PayingReviewer, build_install
 from git_rig import PARAMS, config, target_repo
 from knowledge_fixture import fixture_text
-from scripted_endpoint import DUMMY_KEY, Script, serving, text, tool
+from scripted_endpoint import DUMMY_KEY, LAST_JSON_LINE, Script, serving, text, tool
 from stand_in_control import CONTROL_SCRIPT, RECORD_IDS
 
 from physgate.cli import main
@@ -89,6 +89,12 @@ def test_a_control_session_s_records_are_sealed_and_its_quantities_agree_with_th
                 "Bash",
                 command="python3 modules/control/sim.py control.loop",
                 description="simulate and record",
+            ),
+            # The node the script printed, written where only the file tools may write.
+            tool(
+                "Write",
+                file_path="{cwd}/.physgate/proposals/control.loop.json",
+                content=LAST_JSON_LINE,
             ),
             text("done"),
         ]

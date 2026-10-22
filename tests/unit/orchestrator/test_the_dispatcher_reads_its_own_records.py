@@ -46,6 +46,15 @@ def test_the_role_prompt_says_a_simulation_is_recorded_by_a_module_script_throug
     assert ".physgate/lib/series_writer.py" in sentence and ".physgate/series/" in sentence
 
 
+def test_the_role_prompt_says_a_proposal_is_written_with_the_write_tool_and_no_script() -> None:
+    # The OS layer denies the proposals to every command, so a session told only where to
+    # write would find its script refused there.
+    text = role_prompt(REQUEST.model_copy(update={"repair_instruction": None}))
+    sentence = next(line for line in text.split("; ") if ".physgate/proposals/" in line)
+    assert "with the Write tool" in sentence
+    assert "no command or script can write there" in sentence
+
+
 def test_a_role_session_is_never_the_binarys_own_resume() -> None:
     argv = role_argv(
         "/bin/claude",

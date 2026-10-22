@@ -10,8 +10,9 @@ is a stand-in, not the robot. Through the run's series writer it records:
 
 Then it reads the phase margin and the step's peak off its own records with the published
 extractors and prints them, each with the record it was read off, as JSON. Given a node id as
-its argument, it also writes the node proposal carrying them, as a session reporting what it
-read would.
+its argument, it prints the whole node proposal carrying them instead, on one line, for the
+session to write into the proposals with the Write tool: no command or script can write
+there, so a session reports what it read through the tool the hooks check.
 """
 
 from __future__ import annotations
@@ -106,10 +107,7 @@ if len(sys.argv) > 1:
         "quantities": reported, "requirements": [], "constrains": [], "model": None,
         "geometry_hash": "sha256:0", "updated": "2026-10-16T00:00:00Z",
     }
-    proposals = os.path.join(here, ".physgate", "proposals")
-    os.makedirs(proposals, exist_ok=True)
-    with open(os.path.join(proposals, node_id + ".json"), "w") as out:
-        json.dump(node, out)
+    print(json.dumps(node))
 else:
     print(json.dumps(reported))
 """
