@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +19,23 @@ import pytest
 
 HERE = Path(__file__).resolve().parent
 SH = HERE / "law_sessions.sh"
+LIMIT = '[{"type":"result","is_error":true,"result":"usage_limit_reached"}]'
+GOOD = {"id": "F1", "verdict": "true_flaw", "origin": "introduced", "reason": "r"}
+
+
+def fake(tmp_path: Path, name: str, stdout: str, stderr: str = "", code: int = 0) -> Path:
+    """An executable that answers every call with this output, stderr and exit code."""
+    exe = tmp_path / name
+    exe.write_text(
+        "#!/usr/bin/env bash\ncat > /dev/null\n"
+        f"printf '%s' {shlex.quote(stdout)}\nprintf '%s' {shlex.quote(stderr)} >&2\nexit {code}\n"
+    )
+    exe.chmod(0o755)
+    return exe
+
+
+def rows_of(path: Path) -> list[dict[str, Any]]:
+    return [json.loads(x) for x in path.read_text().splitlines() if x.strip()]
 
 
 def run(*args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
@@ -310,4 +329,366 @@ def test_a_usage_stop_is_logged_with_its_time(tmp_path: Path, packets: Path) -> 
     ev = [
         json.loads(x) for x in (tmp_path / "led" / "interruptions.jsonl").read_text().splitlines()
     ]
-    assert ev and ev[0]["event"] == "stop" and ev[0]["utc"].endswith("Z")
+    stops = [e for e in ev if e["event"] == "stop"]
+    assert stops and stops[0]["utc"].endswith("Z")
+
+
+# ---------------------------------------------------------------- a failed call is not a try
+
+FAILED_CALLS = {
+    "usage limit": (LIMIT, "", 0, "usage_limit"),
+    "refused credential 401": (
+        '{"type":"result","is_error":true,"terminal_reason":"api_error","api_error_status":401}',
+        "",
+        1,
+        "credential_refused",
+    ),
+    "refused credential 403": (
+        '{"type":"result","is_error":true,"terminal_reason":"api_error","api_error_status":403}',
+        "",
+        1,
+        "credential_refused",
+    ),
+    "server error after the binary's retries": (
+        '{"type":"result","is_error":true,"terminal_reason":"api_error","api_error_status":500}',
+        "",
+        1,
+        "api_error",
+    ),
+    "overloaded, ended as a success subtype": (
+        '{"type":"result","subtype":"success","is_error":true,"api_error_status":529}',
+        "",
+        1,
+        "api_error",
+    ),
+    "rate limit": (
+        '{"type":"result","is_error":true,"terminal_reason":"api_error","api_error_status":429}',
+        "",
+        1,
+        "rate_limit",
+    ),
+    "api error without a status": (
+        '{"type":"result","is_error":true,"terminal_reason":"api_error"}',
+        "",
+        1,
+        "api_error",
+    ),
+    "network failure": ("", "TypeError: fetch failed (ECONNRESET)", 1, "no_result"),
+    "not json": ("Error: something broke", "", 0, "no_result"),
+    "an error result of another kind": ('{"type":"result","is_error":true}', "", 0, "error"),
+    "a form, but a non-zero exit": (
+        json.dumps(
+            {"type": "result", "is_error": False, "structured_output": {"findings": [GOOD]}}
+        ),
+        "",
+        2,
+        "exit",
+    ),
+    "a form, but another terminal reason": (
+        json.dumps(
+            {
+                "type": "result",
+                "is_error": False,
+                "terminal_reason": "max_turns",
+                "structured_output": {"findings": [GOOD]},
+            }
+        ),
+        "",
+        0,
+        "terminal",
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(FAILED_CALLS))
+def test_a_failed_call_is_not_a_try_and_stops_the_run(
+    tmp_path: Path, packets: Path, case: str
+) -> None:
+    stdout, stderr, code, cause = FAILED_CALLS[case]
+    env = env_for(tmp_path, RLAW_STANDIN=str(fake(tmp_path, "failing", stdout, stderr, code)))
+    out = tmp_path / "out"
+    done = run("run", "s", "reality", str(packets), str(out), "claude-opus-5-5", "1", env=env)
+    assert done.returncode == 4, done.stderr
+    assert (tmp_path / "led" / "STOPPED").exists()
+    rows = rows_of(Path(env["RLAW_LEDGER"]))
+    assert len(rows) == 1 and rows[0]["try"] == 1 and not rows[0]["valid"]
+    assert rows[0]["infrastructure"].startswith(cause), rows[0]
+    assert not (out / "P0001.try1.json").exists()
+    failed = list(out.glob("P0001.try1.failed-*.json"))
+    assert len(failed) == 1 and failed[0].read_text() == stdout
+    ev = rows_of(tmp_path / "led" / "interruptions.jsonl")
+    assert [e["event"] for e in ev] == ["failed_call", "stop"]
+    assert (
+        ev[0]["packet"] == "P0001"
+        and ev[0]["try"] == 1
+        and ev[0]["cause"] == rows[0]["infrastructure"]
+    )
+    # resumed: the packet gets its first try, so the frozen retry is still there for a bad form
+    good = env_for(tmp_path, RLAW_RESUME="1")
+    again = run("run", "s", "reality", str(packets), str(out), "claude-opus-5-5", "1", env=good)
+    assert again.returncode == 0, again.stderr
+    rows = rows_of(Path(env["RLAW_LEDGER"]))
+    assert [(r["try"], r["valid"], r["infrastructure"] is None) for r in rows[1:]] == [
+        (1, True, True)
+    ]
+    assert (out / "P0001.try1.json").exists() and failed[0].exists()
+    assert not (tmp_path / "led" / "STOPPED").exists()
+    summary = json.loads(again.stdout.strip().splitlines()[-1])
+    assert summary["tries"] == 1 and summary["failed_calls"] == 1
+
+
+def test_an_invalid_form_is_a_try_and_gets_the_one_retry(tmp_path: Path, packets: Path) -> None:
+    empty = json.dumps({"type": "result", "is_error": False, "structured_output": {"findings": []}})
+    env = env_for(tmp_path, RLAW_STANDIN=str(fake(tmp_path, "empty", empty)))
+    out = tmp_path / "out"
+    done = run("run", "s", "reality", str(packets), str(out), "claude-opus-5-5", "1", env=env)
+    assert done.returncode == 0, done.stderr
+    rows = rows_of(Path(env["RLAW_LEDGER"]))
+    assert [(r["try"], r["valid"], r["infrastructure"]) for r in rows] == [
+        (1, False, None),
+        (2, False, None),
+    ]
+    assert not (tmp_path / "led" / "STOPPED").exists()
+    assert not (tmp_path / "led" / "interruptions.jsonl").exists()
+
+
+def test_a_session_cut_off_mid_call_counts_as_a_try(tmp_path: Path, packets: Path) -> None:
+    env = env_for(tmp_path)
+    out = tmp_path / "out"
+    out.mkdir()
+    # a killed session leaves its call's output half written under the in-flight name
+    (out / "P0001.try1.part.json").write_text('[{"type":"system"')
+    (out / "P0001.try1.part.err").write_text("")
+    (tmp_path / "led" / "STOPPED").write_text("killed\n")
+    done = run(
+        "run",
+        "s",
+        "reality",
+        str(packets),
+        str(out),
+        "claude-opus-5-5",
+        "1",
+        env={**env, "RLAW_RESUME": "1"},
+    )
+    assert done.returncode == 0, done.stderr
+    rows = rows_of(Path(env["RLAW_LEDGER"]))
+    assert [(r["try"], r["exit"], r["valid"]) for r in rows] == [(1, -1, False), (2, 0, True)]
+    assert (out / "P0001.try1.json").read_text() == '[{"type":"system"'
+    assert not list(out.glob("*.part.*"))
+
+
+def test_a_failed_call_found_on_resume_is_logged_and_not_a_try(
+    tmp_path: Path, packets: Path
+) -> None:
+    env = env_for(tmp_path)
+    out = tmp_path / "out"
+    out.mkdir()
+    # the driver was stopped after the call ended and before it was settled
+    (out / "P0001.try1.part.json").write_text(LIMIT)
+    (out / "P0001.try1.part.err").write_text("")
+    (tmp_path / "led" / "STOPPED").write_text("killed\n")
+    done = run(
+        "run",
+        "s",
+        "reality",
+        str(packets),
+        str(out),
+        "claude-opus-5-5",
+        "1",
+        env={**env, "RLAW_RESUME": "1"},
+    )
+    assert done.returncode == 0, done.stderr
+    rows = rows_of(Path(env["RLAW_LEDGER"]))
+    assert [(r["try"], r["infrastructure"]) for r in rows] == [(1, "usage_limit"), (1, None)]
+    assert rows[1]["valid"]
+    assert [e["event"] for e in rows_of(tmp_path / "led" / "interruptions.jsonl")] == [
+        "resume",
+        "failed_call",
+    ]
+
+
+# ---------------------------------------------------------------- a resume after a limit
+
+
+def test_a_resume_is_not_stopped_by_the_evidence_of_the_stop_it_resumes(
+    tmp_path: Path, packets: Path
+) -> None:
+    env = env_for(tmp_path)
+    out = tmp_path / "out"
+    out.mkdir()
+    # the stop being resumed left a usage-limit file and three rate-limit errors behind
+    (out / "P0009.try1.failed-20261022T100000Z.json").write_text(LIMIT)
+    for i in range(3):
+        (out / f"P000{i + 5}.try1.failed-20261022T10000{i}Z.json").write_text(
+            '{"type": "result", "is_error": true, "api_error_status": 429}'
+        )
+    (tmp_path / "led" / "STOPPED").write_text("usage limit\n")
+    done = run(
+        "run",
+        "s",
+        "reality",
+        str(packets),
+        str(out),
+        "claude-opus-5-5",
+        "1",
+        env={**env, "RLAW_RESUME": "1"},
+    )
+    assert done.returncode == 0, done.stderr
+    assert not (tmp_path / "led" / "STOPPED").exists()
+    rows = rows_of(Path(env["RLAW_LEDGER"]))
+    assert [(r["packet"], r["try"], r["valid"]) for r in rows] == [("P0001", 1, True)]
+
+
+def _watch(work: Path, group: int, since: Path) -> subprocess.Popen[str]:
+    return subprocess.Popen(
+        ["bash", str(SH), "watch", str(work), str(group), str(since), "measure"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env={**os.environ, "RLAW_WATCH_SECONDS": "1"},
+    )
+
+
+def _until(cond: Any, seconds: float = 20.0) -> bool:  # noqa: ANN401
+    end = time.time() + seconds
+    while time.time() < end:
+        if cond():
+            return True
+        time.sleep(0.2)
+    return False
+
+
+def test_the_watcher_reads_only_evidence_from_the_phase_now_running(tmp_path: Path) -> None:
+    work = tmp_path / "work"
+    s = work / "sessions" / "measured" / "c1"
+    s.mkdir(parents=True)
+    (work / "ledger").mkdir()
+    (s / "P0001.try1.failed-old.json").write_text(LIMIT)
+    (s / "P0001.try1.failed-old.err").write_text("usage_limit_reached")
+    for i in range(3):
+        (s / f"P000{i + 2}.try1.failed-old.json").write_text('{"api_error_status": 429}')
+    past = time.time() - 3600
+    for f in s.iterdir():
+        os.utime(f, (past, past))
+    since = work / "ledger" / "phase-start"
+    since.touch()
+    phase = subprocess.Popen(["sleep", "120"], start_new_session=True)
+    w = _watch(work, phase.pid, since)
+    try:
+        # the resumed phase keeps running past the old evidence
+        time.sleep(3)
+        assert w.poll() is None and phase.poll() is None
+        assert not (work / "ledger" / "STOPPED").exists()
+        # a usage limit of this phase stops new sessions and leaves those in flight to end
+        (s / "P0007.try1.failed-new.json").write_text(LIMIT)
+        assert _until(lambda: w.poll() is not None)
+        assert (work / "ledger" / "STOPPED").exists()
+        ev = rows_of(work / "ledger" / "interruptions.jsonl")
+        assert [e["event"] for e in ev] == ["stop"] and "watcher" in ev[0]["reason"]
+        assert phase.poll() is None
+    finally:
+        phase.kill()
+        w.kill()
+
+
+def test_the_watcher_kills_the_phase_at_the_token_guard(tmp_path: Path) -> None:
+    work = tmp_path / "work"
+    (work / "sessions").mkdir(parents=True)
+    (work / "ledger").mkdir()
+    since = work / "ledger" / "phase-start"
+    since.touch()
+    phase = subprocess.Popen(["sleep", "120"], start_new_session=True)
+    w = _watch(work, phase.pid, since)
+    try:
+        time.sleep(2)
+        assert phase.poll() is None
+        (work / "ledger" / "VOID").write_text("token guard\n")
+        assert _until(lambda: phase.poll() is not None)
+        assert _until(lambda: w.poll() is not None)
+    finally:
+        phase.kill()
+        w.kill()
+
+
+# ---------------------------------------------------------------- the smoke test (not run here)
+
+
+def _smoke(tmp_path: Path, result: dict[str, Any], name: str) -> tuple[int, dict[str, Any]]:
+    exe = fake(tmp_path, f"standin-{name}", json.dumps(result))
+    done = subprocess.run(
+        ["bash", str(SH), "smoke", str(tmp_path / name)],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "RLAW_STANDIN": str(exe)},
+        check=False,
+    )
+    return done.returncode, json.loads(done.stdout.strip().splitlines()[-1])
+
+
+def test_the_smoke_check_reads_one_session_s_output(tmp_path: Path) -> None:
+    usage = {
+        "input_tokens": 10,
+        "output_tokens": 20,
+        "cache_read_input_tokens": 30,
+        "cache_creation_input_tokens": 40,
+    }
+    good = {
+        "type": "result",
+        "is_error": False,
+        "terminal_reason": "completed",
+        "structured_output": {"sum": 5, "tools": [], "earlier_files": []},
+        "usage": usage,
+        "modelUsage": {
+            "claude-opus-5-5": {
+                "inputTokens": 10,
+                "outputTokens": 20,
+                "cacheReadInputTokens": 30,
+                "cacheCreationInputTokens": 40,
+            }
+        },
+    }
+    code, out = _smoke(tmp_path, good, "good")
+    assert code == 0 and out["holds"] and out["standin"]
+    assert all(out["checks"].values())
+    bad = dict(
+        good,
+        structured_output={"sum": 5, "tools": [], "earlier_files": ["# graphify"]},
+        usage=dict(usage, output_tokens=21),
+    )
+    code, out = _smoke(tmp_path, bad, "bad")
+    assert code == 1 and not out["holds"]
+    assert not out["checks"]["no_claude_md"]
+    assert not out["checks"]["usage_is_the_model_usage_sum"]
+    assert out["checks"]["json_schema_with_no_tools"]
+
+
+# ---------------------------------------------------------------- the launcher's preflight
+
+LAUNCH = HERE / "law_launch.sh"
+
+
+def preflight(work: Path, **env: str) -> subprocess.CompletedProcess[str]:
+    base = {k: v for k, v in os.environ.items() if k not in ("RLAW_PRIOR", "RLAW_RESUME")}
+    return subprocess.run(
+        ["bash", str(LAUNCH), "preflight", str(work)],
+        capture_output=True,
+        text=True,
+        env={**base, **env},
+        check=False,
+    )
+
+
+def test_the_preflight_refuses_a_work_dir_with_a_recorded_deviation(tmp_path: Path) -> None:
+    (tmp_path / "deviations.json").write_text('["the projection check failed"]')
+    done = preflight(tmp_path)
+    assert done.returncode == 1
+    assert "deviation" in done.stdout and "nothing runs" in done.stdout
+
+
+def test_the_preflight_holds_the_prior_adjudication_to_its_digest(tmp_path: Path) -> None:
+    other = tmp_path / "prior.json"
+    other.write_text("{}")
+    done = preflight(tmp_path, RLAW_PRIOR=str(other))
+    assert done.returncode == 1 and "prior adjudication" in done.stdout
+    gone = preflight(tmp_path, RLAW_PRIOR=str(tmp_path / "missing.json"))
+    assert gone.returncode == 1 and "prior adjudication" in gone.stdout

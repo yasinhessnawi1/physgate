@@ -443,6 +443,7 @@ def standin(argv: list[str], packet: str) -> dict[str, Any] | list[dict[str, Any
                 {
                     "type": "result",
                     "subtype": "success",
+                    "is_error": False,
                     "structured_output": {"findings": []},
                     "usage": {"input_tokens": 10, "output_tokens": 1},
                     "modelUsage": {model: {}},
