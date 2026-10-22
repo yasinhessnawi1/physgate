@@ -820,20 +820,21 @@ class Tally:
 
     def per_coder(self) -> dict[str, Any]:
         out: dict[str, Any] = {}
-        g_lines = [i for i in self.measured if self.final[i] == "G"]
+        g_lines = {i for i in self.measured if self.final[i] == "G"}
         for who in ("c1", "c2", "adj", "audit"):
             rows = [r for r in self.codes if r["who"] == who and r["line_id"] in self.measured]
             if not rows:
                 continue
-            claimed = sum(1 for i in g_lines if coder_code(self.coded.get(i, {}).get(who)) == "G")
+            # §7: of the G-caught lines this coder was given (its own rows, any step: the
+            # audit's are step "audit"), the share it claimed G; a line it never saw is in neither
+            mine = {r["line_id"]: r for r in rows if r["line_id"] in g_lines}
+            claimed = sum(1 for r in mine.values() if coder_code(r) == "G")
             out[who] = {
                 "forms": len(rows),
                 "without_form": sum(1 for r in rows if r.get("form") is None),
                 "failures": dict(Counter(r["failure"] for r in rows if r.get("failure"))),
                 "inconsistent_l_if_data": sum(1 for r in rows if r.get("inconsistent")),
-                "share_of_gate_caught_lines_claimed_G": (claimed / len(g_lines))
-                if g_lines
-                else None,
+                "share_of_gate_caught_lines_claimed_G": (claimed / len(mine)) if mine else None,
             }
         adj = [r for r in self.codes if r["who"] == "adj" and r["line_id"] in self.measured]
         out["adjudicator_choices"] = dict(

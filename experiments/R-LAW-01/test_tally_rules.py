@@ -122,6 +122,7 @@ def ln(
     c2: str | None,
     *,
     adj: str | None = None,
+    audit: str | None = None,
     side: str = "injected",
     verdict: str = "true_flaw",
     origin: str = "introduced",
@@ -132,7 +133,7 @@ def ln(
     return {
         "pair": pair,
         "side": side,
-        "codes": {"c1": c1, "c2": c2, "adj": adj},
+        "codes": {"c1": c1, "c2": c2, "adj": adj, "audit": audit},
         "verdict": verdict,
         "origin": origin,
         "matched": matched,
@@ -173,10 +174,10 @@ def build(
             )
             version = SETS["fresh"].version(spec["pair"], spec["side"])
             for who, code in spec["codes"].items():
-                if code is None and who == "adj":
+                if code is None and who in ("adj", "audit"):
                     continue
                 row: dict[str, Any] = {
-                    "step": "measured",
+                    "step": "audit" if who == "audit" else "measured",
                     "who": who,
                     "line_id": lid,
                     "packet": "P0001",
@@ -328,6 +329,25 @@ def test_kappa_counts_a_missing_form_as_a_disagreement(tmp_path: Path) -> None:
     # PABAK over six categories for κ₅ and three (G or L, the rest, none) for κ_L
     assert k["kappa5"]["pabak_weighted"] == pytest.approx((6 * 0.5 - 1) / 5)
     assert k["kappaL"]["pabak_weighted"] == pytest.approx((3 * 0.5 - 1) / 2)
+
+
+def test_each_coder_s_g_claims_are_read_from_its_own_rows(tmp_path: Path) -> None:
+    t = build(
+        tmp_path,
+        [
+            flaw([ln("a1", "G", "G", matched=True, audit="G")]),
+            flaw([ln("a2", "L", "N", adj="G", matched=True, audit="N")]),
+            flaw([ln("a3", "G", "G", matched=True)]),
+            flaw([ln("a4", "N", "N", audit="G")]),
+        ],
+    )
+    assert {i for i, c in t.final.items() if c == "G"} == {"L0001", "L0002", "L0003"}
+    per = t.per_coder()
+    claimed = {
+        w: per[w]["share_of_gate_caught_lines_claimed_G"] for w in ("c1", "c2", "adj", "audit")
+    }
+    # the coders saw every G-caught line; the adjudicator only L0002, the audit L0001 and L0002
+    assert claimed == pytest.approx({"c1": 2 / 3, "c2": 2 / 3, "adj": 1.0, "audit": 0.5})
 
 
 # ---------------------------------------------------------------- §8.1 and §8.2
