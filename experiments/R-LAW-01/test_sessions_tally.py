@@ -66,6 +66,15 @@ def ledger(path: Path, rows: list[dict[str, Any]]) -> Path:
     return path
 
 
+def new_phase(led: Path) -> None:
+    """What the launcher does as a phase starts: a stop from before it is old (an hour, here), and
+    ``ledger/phase-start`` is touched now."""
+    past = time.time() - 3600
+    if (led / "STOPPED").exists():
+        os.utime(led / "STOPPED", (past, past))
+    (led / "phase-start").touch()
+
+
 @pytest.fixture
 def packets(tmp_path: Path) -> Path:
     pk = tmp_path / "pk"
@@ -382,6 +391,7 @@ def test_a_cut_off_first_try_counts_and_gets_the_retry(tmp_path: Path, packets: 
     out.mkdir()
     (out / "P0001.try1.json").write_text("{")
     (tmp_path / "led" / "STOPPED").write_text("usage limit at P0001 try1\n")
+    new_phase(tmp_path / "led")
     done = run(
         "run",
         "s",
@@ -568,6 +578,7 @@ def test_a_failed_call_is_not_a_try_and_stops_the_run(
         and ev[0]["cause"] == rows[0]["infrastructure"]
     )
     # resumed: the packet gets its first try, so the frozen retry is still there for a bad form
+    new_phase(tmp_path / "led")
     good = env_for(tmp_path, RLAW_RESUME="1")
     again = run("run", "s", "reality", str(packets), str(out), "claude-opus-5-5", "1", env=good)
     assert again.returncode == 0, again.stderr
@@ -656,6 +667,7 @@ def test_a_session_cut_off_mid_call_counts_as_a_try(tmp_path: Path, packets: Pat
     (out / "P0001.try1.part.json").write_text('[{"type":"system"')
     (out / "P0001.try1.part.err").write_text("")
     (tmp_path / "led" / "STOPPED").write_text("killed\n")
+    new_phase(tmp_path / "led")
     done = run(
         "run",
         "s",
@@ -683,6 +695,7 @@ def test_a_failed_call_found_on_resume_is_logged_and_not_a_try(
     (out / "P0001.try1.part.json").write_text(LIMIT)
     (out / "P0001.try1.part.err").write_text("")
     (tmp_path / "led" / "STOPPED").write_text("killed\n")
+    new_phase(tmp_path / "led")
     done = run(
         "run",
         "s",
@@ -719,6 +732,7 @@ def test_a_resume_is_not_stopped_by_the_evidence_of_the_stop_it_resumes(
             '{"type": "result", "is_error": true, "api_error_status": 429}'
         )
     (tmp_path / "led" / "STOPPED").write_text("usage limit\n")
+    new_phase(tmp_path / "led")
     done = run(
         "run",
         "s",
@@ -733,6 +747,35 @@ def test_a_resume_is_not_stopped_by_the_evidence_of_the_stop_it_resumes(
     assert not (tmp_path / "led" / "STOPPED").exists()
     rows = rows_of(Path(env["RLAW_LEDGER"]))
     assert [(r["packet"], r["try"], r["valid"]) for r in rows] == [("P0001", 1, True)]
+
+
+def test_a_stop_written_in_the_resumed_phase_is_a_stop(tmp_path: Path, packets: Path) -> None:
+    env = env_for(tmp_path, RLAW_RESUME="1")
+    led = tmp_path / "led"
+    # the launcher consumed the old stop as the phase began; then another driver of this phase
+    # hit a failed call, before this driver started
+    (led / "phase-start").touch()
+    past = time.time() - 60
+    os.utime(led / "phase-start", (past, past))
+    (led / "STOPPED").write_text("a failed call at P0042 try1: usage_limit\n")
+    out = tmp_path / "out"
+    done = run("run", "s", "reality", str(packets), str(out), "claude-opus-5-5", "1", env=env)
+    assert done.returncode == 4
+    assert (led / "STOPPED").read_text() == "a failed call at P0042 try1: usage_limit\n"
+    assert not list(led.glob("STOPPED.*"))
+    assert not (led / "interruptions.jsonl").exists()  # no resume logged
+    assert not Path(env["RLAW_LEDGER"]).exists()  # nothing started
+
+
+def test_a_stop_with_no_phase_start_is_a_stop(tmp_path: Path, packets: Path) -> None:
+    env = env_for(tmp_path, RLAW_RESUME="1")
+    (tmp_path / "led" / "STOPPED").write_text("usage limit\n")
+    done = run(
+        "run", "s", "reality", str(packets), str(tmp_path / "out"), "claude-opus-5-5", "1", env=env
+    )
+    assert done.returncode == 4
+    assert (tmp_path / "led" / "STOPPED").exists()
+    assert not Path(env["RLAW_LEDGER"]).exists()
 
 
 def _watch(work: Path, group: int, since: Path) -> subprocess.Popen[str]:

@@ -57,7 +57,10 @@
 #                 ledger line is then marked, and the tally refuses marked outputs
 #   RLAW_SHEET_SHA256  with a stand-in only: the fixture sheet's digest
 #   RLAW_RESUME=1 resume after a stop (a failed call, the watcher, a killed process). Allowed
-#                 because each packet is an independent session on fixed inputs. The resume is
+#                 because each packet is an independent session on fixed inputs. Only a STOPPED
+#                 older than ledger/phase-start (the launcher touches it as a phase starts) is the
+#                 stop resumed from; one written since, or with no phase start, is a stop of the
+#                 phase now running, and nothing starts. The resume is
 #                 logged with its time in interruptions.jsonl beside the ledger, as every stop and
 #                 failed call is; each is an interruption RESULT reports, not a deviation. A
 #                 finished packet (a valid first try, or a second try) is never run again; a call
@@ -286,7 +289,7 @@ case "${1:-}" in
   watch) shift; watch_phase "$@"; exit 0 ;;
   smoke) shift; smoke "$@"; exit $? ;;
   run) shift ;;
-  *) sed -n '2,70p' "$0" >&2; exit 2 ;;
+  *) sed -n '2,73p' "$0" >&2; exit 2 ;;
 esac
 
 [ $# -ge 6 ] || { echo "run needs: step kind packets out model lanes [ids]" >&2; exit 2; }
@@ -316,11 +319,29 @@ PY
 stop() { # reason: write STOPPED and log the stop
   echo "$1" >> "$LEDGER_DIR/STOPPED"; event stop "$1"
 }
-if [ "${RLAW_RESUME:-0}" = 1 ] && [ -e "$LEDGER_DIR/STOPPED" ]; then
+older_than_phase() { # file -> 0 if it was last written before ledger/phase-start was touched
+  python3 -I - "$1" "$LEDGER_DIR/phase-start" <<'PY'
+import os, sys
+try:
+    sys.exit(0 if os.stat(sys.argv[1]).st_mtime_ns < os.stat(sys.argv[2]).st_mtime_ns else 1)
+except OSError:
+    sys.exit(1)  # no phase start: no stop can be shown to be from before it
+PY
+}
+# A STOPPED older than the phase's start is the stop this run resumes from. One written since
+# (or with no phase start to compare) is a stop of this phase, another driver's: nothing starts.
+if [ "${RLAW_RESUME:-0}" = 1 ] && [ -e "$LEDGER_DIR/STOPPED" ] && older_than_phase "$LEDGER_DIR/STOPPED"; then
   event resume "after: $(tr '\n' ' ' < "$LEDGER_DIR/STOPPED")"
   mv "$LEDGER_DIR/STOPPED" "$LEDGER_DIR/STOPPED.$(date -u +%Y%m%dT%H%M%SZ)"
 fi
-[ -e "$LEDGER_DIR/STOPPED" ] && { echo "STOPPED exists: resume only with RLAW_RESUME=1" >&2; exit 4; }
+if [ -e "$LEDGER_DIR/STOPPED" ]; then
+  if [ "${RLAW_RESUME:-0}" = 1 ]; then
+    echo "STOPPED was written since ledger/phase-start: this phase is stopped; nothing starts" >&2
+  else
+    echo "STOPPED exists: resume only with RLAW_RESUME=1" >&2
+  fi
+  exit 4
+fi
 
 STANDIN=0
 SHEET_ARG=""
