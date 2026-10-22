@@ -13,12 +13,16 @@ always-loaded reading and its reviewer's promoted rubric exist.
 The register holds both kinds of role: domain roles (ARCH-050) and the cross-cutting
 roles (ARCH-051), sizing and integration, which have no domain. Each cross-cutting
 duty has one owner at most; the register refuses a second (:func:`register_of`).
+It also refuses every other way of handing a domain role what a cross-cutting role
+holds: a domain role of the ``cross`` domain or name, and any row under a cross-cutting
+role's name that is not that role as defined here.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
 
+from physgate.knowledge import loader
 from physgate.orchestrator.exceptions import RoleNotRegisteredError, RoleRegisterError
 from physgate.roles.control import CONTROL
 from physgate.roles.firmware import FIRMWARE
@@ -26,18 +30,37 @@ from physgate.roles.integration import INTEGRATION
 from physgate.roles.role import CrossCuttingDuty, CrossCuttingRole, RegisteredRole, Role
 from physgate.roles.sizing import SIZING
 
+#: The cross-cutting roles as defined here, by name: their names belong to these rows.
+_DEFINED: dict[str, CrossCuttingRole] = {role.name: role for role in (SIZING, INTEGRATION)}
+#: Names no role may take. ``design`` is the plan's reviewer's key among a run's reviewer
+#: pins, so a role of that name would share its pin with the reviewer of the plan.
+_RESERVED_NAMES = frozenset({"design"})
+
 
 def register_of(roles: Iterable[RegisteredRole]) -> dict[str, RegisteredRole]:
     """``roles`` keyed by name, refusing a register no run could be held to.
 
     Raises:
-        RoleRegisterError: two roles share a name, or two cross-cutting roles own one
-            duty: two writers of the cross quantities, or two roles able to declare a
-            module complete, would each be one too many.
+        RoleRegisterError: a role takes a reserved name; a domain role is of the
+            ``cross`` domain or named ``cross``; a row under a cross-cutting role's name
+            is not that role as defined here; two roles share a name, of either kind;
+            or two cross-cutting roles own one duty: two writers of the cross
+            quantities, or two roles able to declare a module complete, would each be
+            one too many.
     """
     register: dict[str, RegisteredRole] = {}
     owners: dict[CrossCuttingDuty, str] = {}
     for role in roles:
+        if role.name in _RESERVED_NAMES:
+            msg = "this name pins the plan's reviewer, so no role may take it"
+            raise RoleRegisterError(msg, role=role.name)
+        if isinstance(role, Role) and loader.CROSS in (role.domain, role.name):
+            msg = "a domain role is never of the cross domain or named after it"
+            raise RoleRegisterError(msg, role=role.name, domain=role.domain)
+        defined = _DEFINED.get(role.name)
+        if defined is not None and role != defined:
+            msg = "this name is a cross-cutting role's, and this row is not that role"
+            raise RoleRegisterError(msg, role=role.name)
         if role.name in register:
             msg = "the role register already holds a role of this name"
             raise RoleRegisterError(msg, role=role.name)

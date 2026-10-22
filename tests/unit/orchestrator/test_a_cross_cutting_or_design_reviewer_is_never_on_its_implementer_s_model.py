@@ -24,6 +24,9 @@ from physgate.orchestrator.run_config import ModelStrings, RunConfig
 #: The evaluation's pins: implementers and decomposition on one model, reviewers on another.
 IMPLEMENTER = "claude-opus-5-5"
 REVIEWER = "claude-sonnet-5"
+#: A decomposition pinned apart from every role, so a check held against a role's model
+#: instead of the decomposition's is told apart from the right one.
+DECOMPOSITION = "claude-fable-5"
 
 
 def _config(name: str, reviewer: str) -> RunConfig:
@@ -48,13 +51,25 @@ def test_a_reviewer_on_the_implementers_model_is_refused_for_both_roles(
         refuse_unregistered(_config(name, IMPLEMENTER), None, {name: same})
 
 
-def test_a_design_reviewer_on_the_decomposition_model_is_refused() -> None:
+@pytest.mark.parametrize("decomposition", [IMPLEMENTER, DECOMPOSITION])
+def test_a_design_reviewer_on_the_decomposition_model_is_refused(decomposition: str) -> None:
     with pytest.raises(ValidationError, match="decomposition"):
         ModelStrings(
-            decomposition=IMPLEMENTER,
-            roles={"control": IMPLEMENTER},
-            reviewers={"control": REVIEWER, "design": IMPLEMENTER},
+            decomposition=decomposition,
+            roles={"control": IMPLEMENTER, "firmware": IMPLEMENTER},
+            reviewers={"control": REVIEWER, "firmware": REVIEWER, "design": decomposition},
         )
+
+
+def test_a_design_reviewer_on_a_role_s_model_but_not_the_decomposition_s_is_accepted() -> None:
+    # The design reviewer judges the plan, not a role's work: only the decomposition's
+    # model is its implementer's.
+    models = ModelStrings(
+        decomposition=DECOMPOSITION,
+        roles={"control": IMPLEMENTER, "firmware": REVIEWER},
+        reviewers={"control": REVIEWER, "firmware": IMPLEMENTER, "design": IMPLEMENTER},
+    )
+    assert models.reviewers["design"] == IMPLEMENTER
 
 
 def test_a_design_reviewer_on_another_model_is_accepted() -> None:
@@ -78,8 +93,8 @@ def test_the_whole_run_configuration_refuses_it_too() -> None:
     with pytest.raises(ValidationError, match="decomposition"):
         make_config(
             models={
-                "decomposition": IMPLEMENTER,
+                "decomposition": DECOMPOSITION,
                 "roles": {"control": IMPLEMENTER},
-                "reviewers": {"control": REVIEWER, "design": IMPLEMENTER},
+                "reviewers": {"control": REVIEWER, "design": DECOMPOSITION},
             }
         )
