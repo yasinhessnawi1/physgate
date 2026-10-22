@@ -92,9 +92,14 @@ def _verdict(word: str) -> dict[str, Any]:
             "RH-2": item("not observed"),
             "RH-3": item("not observed"),
         },
-        # The issued specification does not number its criteria: one line, in its words.
+        # The issued specification does not number its criteria: one line, in its words. Its
+        # evidence is a pointer, as an item's is: a bare word is refused as no verdict.
         "acceptance_criteria": [
-            {"criterion": "Size.", "result": "unmet" if unmet else "met", "evidence": "diff"}
+            {
+                "criterion": "Size.",
+                "result": "unmet" if unmet else "met",
+                "evidence": "diff.patch: 1",
+            }
         ],
         "indicators": [],
         "spec_defects": [],
@@ -176,6 +181,9 @@ def test_a_run_through_the_command_is_reviewed_rejected_repaired_and_accepted(
         code = main(["run", *common], registrations)
         out = capsys.readouterr()
         assert code == 0, out.err
+        # The run ended with its subtask merged, not with it sent to the queue: a review that
+        # came to no verdict escalates and still exits 0, so the step is read here.
+        assert json.loads(out.out)["step"] == "done", out.out
         # The generalist baseline of the accepted attempt, through its own command.
         planned = read_events(run_dir / "events.jsonl")
         subtask = next(e.subtask_id for e in planned if isinstance(e, SubtaskPlanned))
@@ -237,7 +245,6 @@ def test_a_run_through_the_command_is_reviewed_rejected_repaired_and_accepted(
     gen_record = tmp_path / "rs" / gen_review.result.session_id / RECORD_NAME
     gen_packet = json.loads(gen_record.read_text())
     assert sorted(gen_packet["knowledge_sha256"]) == ["knowledge/cross/standards.md"]
-    assert json.loads(out.out)["step"] == "done"
     events = read_events(run_dir / "events.jsonl")
     ran = [e for e in events if isinstance(e, ReviewRan)]
     assert [e.result.verdict for e in ran] == ["fail", "fail", "pass"]
