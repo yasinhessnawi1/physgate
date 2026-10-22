@@ -286,7 +286,11 @@ def escalated_run(root: Path, name: str = "run-esc", *, acts: bool = False) -> P
         QuantityRef(node_id="electrical.motor_driver", name="current_limit", value=2.5, unit="A"),
     )
     repo = target_repo(root / name)
-    overrides = {"queue_decisions": "act"} if acts else {}
+    from physgate.oslayer.probe import Present
+
+    # A run that acts on decisions is configured inside the OS layer, as it must be.
+    layer = Present(mechanism="seatbelt", claude_version="2.1.301")
+    overrides = {"queue_decisions": "act", "os_layer": layer} if acts else {}
     return fake_run(
         root / "runs", name, repo, gate=Gate(fail_on={1, 2, 3}, cited=cited), overrides=overrides
     )

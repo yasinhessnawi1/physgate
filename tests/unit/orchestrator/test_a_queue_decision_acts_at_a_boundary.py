@@ -64,7 +64,9 @@ from physgate.orchestrator.queue import (
 )
 from physgate.oslayer.probe import Present
 
-ACT = {"queue_decisions": "act"}
+#: A run that acts on decisions, configured where the OS layer runs, as it must be.
+PRESENT = Present(mechanism="seatbelt", claude_version="2.1.301")
+ACT = {"queue_decisions": "act", "os_layer": PRESENT}
 NO_VERDICT = ReviewUnavailableError("no verdict", cause="invalid_verdict")
 
 
@@ -497,6 +499,18 @@ def test_a_decision_written_during_a_session_is_taken_after_its_attempt_ends(
     assert loop.state.subtasks["s1"].status == "done"
 
 
+@pytest.fixture
+def entry_check_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The run's refusal to act without the OS layer, switched off.
+
+    A run that acts on decisions is refused where the layer is absent, at its configuration and
+    at every run and resume. The held window stands behind that refusal: these tests reach it by
+    switching the refusal off, as a run would reach it if the refusal were ever bypassed.
+    """
+    monkeypatch.setattr(Loop, "_require_os_layer", lambda self: None)
+
+
+@pytest.mark.usefixtures("entry_check_off")
 def test_a_decision_in_the_window_of_a_session_without_the_os_layer_is_held_until_confirmed(
     tmp_path: Path,
 ) -> None:
@@ -521,6 +535,7 @@ def test_a_decision_in_the_window_of_a_session_without_the_os_layer_is_held_unti
     assert [m[0] for m in rig.merger.merges] == ["s2", "s1"] and kind == "done"
 
 
+@pytest.mark.usefixtures("entry_check_off")
 @pytest.mark.parametrize("when", ["before", "after"])
 def test_a_leftovers_window_closes_at_its_leftover_read(tmp_path: Path, when: str) -> None:
     # s2's session runs without the OS layer and its orchestrator dies in it, so its window
@@ -805,6 +820,7 @@ def test_the_listing_says_what_the_run_did_with_each_decision_it_took(tmp_path: 
         "acts": True,
         "why_not": None,
         "confirmed_by": None,
+        "order_too_long": False,
     }
 
 

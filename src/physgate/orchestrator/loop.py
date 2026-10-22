@@ -15,6 +15,7 @@ loop refuses to start in a gate mode that needs a gate when none is registered.
 
 from __future__ import annotations
 
+import hashlib
 import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
@@ -29,6 +30,7 @@ from physgate.orchestrator.credentials import SECRET_VARIABLE
 from physgate.orchestrator.decisions import (
     decision_effect,
     item_consequence,
+    person_order,
     scan_hits_of,
     source_of,
 )
@@ -37,6 +39,7 @@ from physgate.orchestrator.escalation_state import escalation_state
 from physgate.orchestrator.events import (
     RESUMABLE_HALTS,
     AttemptRejected,
+    DecisionsSealed,
     DecisionTaken,
     Decomposed,
     DiffChecked,
@@ -58,6 +61,7 @@ from physgate.orchestrator.events import (
     LeftoverStopped,
     Merged,
     NodeFilesRepaired,
+    OsLayerChecked,
     ProposalsChecked,
     Resumed,
     ReviewRan,
@@ -119,6 +123,7 @@ from physgate.orchestrator.queue import (
     QueueSource,
     QueueView,
     decided_item,
+    decisions_file_bytes,
     escalation_item,
     held_windows_of,
     integration_item,
@@ -130,8 +135,6 @@ from physgate.orchestrator.queue import (
 from physgate.orchestrator.record import PlanEntry, RunRecord
 from physgate.orchestrator.repair import (
     Finding,
-    fix_instruction,
-    person_repair_instruction,
     repair_instruction,
 )
 from physgate.orchestrator.replay import (
@@ -144,6 +147,7 @@ from physgate.orchestrator.replay import (
 )
 from physgate.orchestrator.run_config import RunConfig
 from physgate.orchestrator.trajectory import read_sealed
+from physgate.oslayer.probe import Present
 from physgate.reviewers.scan import ScanHit, ScanUnreadableError
 from physgate.roles import require_registered
 from physgate.series.reader import attempt_records
@@ -321,8 +325,10 @@ class Loop:
         """Drive the plan until it is done or the run halts.
 
         Raises:
-            RunStateError: a previous process left the run mid-attempt; resume it.
+            RunStateError: a previous process left the run mid-attempt; resume it; or the run
+                acts on queue decisions and this process recorded no OS layer.
         """
+        self._require_os_layer()
         self._stop_leftovers()
         if self.state.halted is None and self.state.interrupted() is not None:
             msg = "the run was interrupted mid-attempt; resume it instead"
@@ -347,8 +353,10 @@ class Loop:
 
         Raises:
             RunStateError: the run halted for an incident, which a person resolves; or an item
-                to confirm has no held decision, or the run acts on no decision at all.
+                to confirm has no held decision, or the run acts on no decision at all; or the
+                run acts on queue decisions and this process recorded no OS layer.
         """
+        self._require_os_layer()
         self._stop_leftovers()
         halted = self.state.halted
         if halted is not None and halted.reason not in RESUMABLE_HALTS:
@@ -385,6 +393,27 @@ class Loop:
                 )
             )
         return self._drive()
+
+    def _require_os_layer(self) -> None:
+        """Refuse to drive a run that acts on decisions unless this process runs inside the layer.
+
+        Only the OS layer keeps a role session's own shell from the decisions file, so a run whose
+        decisions act runs nothing without it (ARCH-133). Read from the layer's record this
+        process wrote before driving; none recorded is refused like one absent, so a missing check
+        never reads as a present layer. Checked before anything is stopped, read or taken.
+
+        Raises:
+            RunStateError: as above.
+        """
+        if not self._acts():
+            return
+        checked = [e for e in self.log.events if isinstance(e, OsLayerChecked)]
+        state = checked[-1].state if checked else None
+        if isinstance(state, Present):
+            return
+        found = "not recorded" if state is None else f"absent: {state.reason}"
+        msg = f"a run that acts on queue decisions runs only inside the OS layer, here {found}"
+        raise RunStateError(msg, run_dir=str(self.run_dir))
 
     def _approved_unmerged(self) -> tuple[SubtaskState, str] | None:
         """The subtask an approve is merging and the commit it merges, if one is not merged yet."""
@@ -640,6 +669,8 @@ class Loop:
         a held one the operator confirmed on the command line is taken again, acting.
         """
         self.queue.refresh()
+        if not self._decisions_as_sealed():
+            return True  # halted: the next step says so
         view = read_queue(self.run_dir)
         items = {item.item_id: item for item in view.items}
         held = self._held_windows()
@@ -667,6 +698,28 @@ class Loop:
                 # and the next decision waits for the next boundary.
                 return True
         return took
+
+    def _decisions_as_sealed(self) -> bool:
+        """Every prefix of the decisions file a session started beside is still its first bytes.
+
+        The file only grows: a person's decision is a line appended at its end. A prefix that
+        changed was rewritten beneath a session that may have written it, and a decision read from
+        it could be one no person made, so the run halts and nothing is taken (ARCH-133).
+        """
+        seals = [e for e in self.log.events if isinstance(e, DecisionsSealed)]
+        if not seals:
+            return True
+        data = decisions_file_bytes(self.run_dir)
+        for seal in seals:
+            prefix = data[: seal.length]
+            if len(prefix) < seal.length or hashlib.sha256(prefix).hexdigest() != seal.sha256:
+                detail = (
+                    f"the decisions file's first {seal.length} bytes, as subtask "
+                    f"{seal.subtask_id} attempt {seal.attempt} started beside them, changed"
+                )
+                self._incident(None, "decisions_rewritten", detail)
+                return False
+        return True
 
     def _take(
         self,
@@ -750,18 +803,24 @@ class Loop:
                 acts=taken.acts,
                 why_not=taken.why_not,
                 confirmed_by=confirmed_by,
+                order_too_long=taken.order_too_long,
             )
         )
         return True
 
     def _scan_hits(self, subtask_id: str, *, where: str | None) -> tuple[ScanHit, ...] | None:
-        """What the scan before review finds in the attempt's sealed streams; None if it halted.
+        """What the scan before review finds in the unjudged attempts' streams; None if it halted.
 
         Each stream is held to its seal first. A stream that is not what was sealed, or that
         the scan cannot read, is an incident: it is never a stream that showed nothing.
         """
+        # Every attempt no review judged, not only the last: an earlier attempt's work is in the
+        # commit an approve would merge, and no reviewer weighed what its streams show.
+        sub = self.state.subtasks[subtask_id]
+        judged = {review.attempt for review in sub.reviews}
+        sessions = [s for a in sub.attempts if a.number not in judged for s in a.ended]
         streams: list[bytes] = []
-        for session in self.state.subtasks[subtask_id].attempts[-1].ended:
+        for session in sessions:
             if session.trajectory is None:
                 continue  # nothing was captured: no stream, and none a reviewer was shown
             if session.trajectory_seal is None:
@@ -873,34 +932,18 @@ class Loop:
             return None, None
         before = previous.rejected
         ordered = previous.person_rejected
-        if ordered is not None and ordered.effect == "fix":
-            blocked = previous.blocked
-            if blocked is None or ordered.note is None:
-                msg = "a fix is ordered after a review that blocked, with the person's note"
+        if ordered is not None and ordered.effect in ("fix", "retry"):
+            if ordered.note is None:
+                msg = "a session a person ordered is ordered with the person's note"
                 raise RunStateError(msg, subtask=subtask_id, attempt=str(attempt))
-            text = fix_instruction(
-                previous.number,
-                blocked.result.finding,
-                tuple(d.finding for d in blocked.result.spec_defects if d.blocking),
-                ordered.note,
-            )
-            return text, PersonOrder(
-                kind="fix_after_block",
-                item_id=ordered.item_id,
-                of_attempt=previous.number,
-                instruction=text,
-            )
-        if ordered is not None and ordered.note is not None:
-            # The next attempt starts from the person's note, quoted as data, with the reviewer's
-            # finding when a review rejected the attempt the person sent back.
-            finding = before.finding if before is not None else None
-            text = person_repair_instruction(previous.number, ordered.note, finding)
-            return text, PersonOrder(
-                kind="retry_after_reject",
-                item_id=ordered.item_id,
-                of_attempt=previous.number,
-                instruction=text,
-            )
+            try:
+                order = person_order(
+                    previous, effect=ordered.effect, item_id=ordered.item_id, note=ordered.note
+                )
+            except ValueError as exc:
+                raise RunStateError(str(exc), subtask=subtask_id, attempt=str(attempt)) from None
+            if order is not None:
+                return order.instruction, order
         return (repair_instruction(previous.number, before.finding) if before else None), None
 
     def _screened(self, subtask_id: str, order: PersonOrder) -> str:
@@ -952,6 +995,19 @@ class Loop:
                 decisions_bytes=self._decisions_bytes(),
             )
         )
+        if self._acts():
+            # The decisions file as this session starts: no later decision is taken unless
+            # these bytes are still the file's first (ARCH-133).
+            beside = decisions_file_bytes(self.run_dir)
+            self._emit(
+                DecisionsSealed(
+                    **self._env(),
+                    subtask_id=subtask_id,
+                    attempt=attempt,
+                    length=len(beside),
+                    sha256=hashlib.sha256(beside).hexdigest(),
+                )
+            )
         request = SessionRequest(
             subtask_id=subtask_id,
             attempt=attempt,

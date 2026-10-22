@@ -45,6 +45,7 @@ from physgate.orchestrator.events import (
     IntegrationGateRan,
     IntegrationGateSkipped,
     Merged,
+    OsLayerChecked,
     ReviewRan,
     read_events,
 )
@@ -205,6 +206,12 @@ def _drive(
         sleep=lambda _: None,
         clock=clock,
     )
+    if cfg.queue_decisions == "act" and cfg.os_layer is not None:
+        # As the command does before it drives: the OS layer recorded where the sessions run,
+        # which a run that acts on decisions is refused without.
+        loop.record.emit(
+            OsLayerChecked(**loop.record.envelope(), state=cfg.os_layer, as_recorded=True)
+        )
     try:
         step = loop.resume() if resume else loop.run()
     finally:

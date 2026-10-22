@@ -7,6 +7,9 @@ reaches the protected roots the measurement depends on. There is no override.
 A run of reviewers alone runs no shell, and a run that is not reportable is the
 product's to run as it likes; neither is held to this.
 
+A reportable run also records a person's queue decisions and acts on none, so no measured
+outcome is changed by a decision taken during it.
+
 A reportable run that asks for ``network: none`` is refused on the same ground: only
 the OS layer refuses a shell remote hosts, so without it the record would say ``none`` while
 the sessions stay online.
@@ -48,8 +51,21 @@ def network_none_for_reportable_runs(facts: RunFacts) -> str | None:
     return None
 
 
+def record_decisions_for_reportable_runs(facts: RunFacts) -> str | None:
+    """Refuse a reportable run that would act on a person's queue decisions.
+
+    A decision that acts changes what the run does next (a merge, a retry, a fix) by a person's
+    hand, so a measured outcome would no longer be the harness's alone. A reportable run records
+    decisions and acts on none (ARCH-133).
+    """
+    if facts.config.reportable and facts.config.queue_decisions != "record":
+        return "a reportable run records queue decisions and acts on none: queue_decisions: record"
+    return None
+
+
 #: The requirements the evaluation holds every run to.
 REQUIREMENTS: tuple[RunRequirement, ...] = (
     os_layer_for_reportable_runs,
     network_none_for_reportable_runs,
+    record_decisions_for_reportable_runs,
 )

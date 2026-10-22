@@ -119,6 +119,13 @@ FILES_PART = "files-{n:02d}-of-{total:02d}.md"
 #: numbers). 20,000 bytes stays under the token limit even at one token per byte.
 PART_MAX_BYTES = 20_000
 PART_MAX_LINES = 2_000
+
+
+def fits_one_read(data: bytes) -> bool:
+    """Whether ``data``, issued as one file, is shown whole by one read."""
+    return len(data) <= PART_MAX_BYTES and data.count(b"\n") <= PART_MAX_LINES
+
+
 SPEC_AS_ISSUED_NAME = "spec_as_issued.md"
 RUBRIC_NAME = "rubric.md"
 PERSON_ORDER_NAME = "person_order.md"
@@ -710,7 +717,7 @@ def build_packet(
     order_digest = None
     if artefact.ordered_by_person is not None:
         order = person_order_text(artefact.ordered_by_person)
-        if len(order) > PART_MAX_BYTES or order.count(b"\n") > PART_MAX_LINES:
+        if not fits_one_read(order):
             msg = "the person's order is longer than one read shows whole"
             raise PacketError(msg, bytes=str(len(order)))
         (read / PERSON_ORDER_NAME).write_bytes(order)

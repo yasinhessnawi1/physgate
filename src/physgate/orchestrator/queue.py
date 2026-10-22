@@ -35,6 +35,7 @@ import os
 import re
 import stat
 import time
+import unicodedata
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -188,6 +189,48 @@ class QueueItem(_Record):
 #: The words a person decides with, mapped onto the free-text decision.
 Verb = Literal["approve", "reject"]
 
+#: The longest note a person's decision carries, in characters: a bound on what reaches a
+#: session's prompt, and so a size, not a threshold on anything measured.
+MAX_NOTE = 4000
+#: The most lines a note holds. With :data:`MAX_NOTE` it keeps the longest note, quoted into the
+#: one fix's instruction and again into what that fix's reviewer is told, inside what one read of
+#: the review packet shows whole (2,000 lines, 20,000 bytes): a note can never be what makes
+#: an order unreadable. A size, like the cap on characters.
+MAX_NOTE_LINES = 200
+
+#: Control characters a note may not hold: every C0 control but the tab and the line break,
+#: the delete character, and the C1 controls. A note is quoted into a session's prompt, where an
+#: escape sequence or a carriage return could make it read as something it is not.
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+#: A run of three of the quotation's own fence characters. The note is quoted between fences
+#: made longer than any run it holds, so a note made of them would stretch its fences without
+#: bound; it holds none, and its quotation stays the size of the note.
+_FENCE = re.compile(r"<<<|>>>")
+
+
+def note_problem(note: str) -> str | None:
+    """Why ``note`` cannot be a person's note, or ``None`` if it can.
+
+    One rule for every place a note is held to: where a decision is made, and where a decision
+    line is read, so a line the writer would refuse is never read as one it wrote (ARCH-133).
+    Besides its size and the control characters, a note holds no Unicode format character (a
+    bidirectional override or isolate, a zero-width character, a byte-order mark) and no line or
+    paragraph separator: each makes the text a reader sees differ from the text a session reads.
+    """
+    if not note.strip():
+        return "a note says something; leave it out rather than send it blank"
+    if len(note) > MAX_NOTE:
+        return f"a note is at most {MAX_NOTE} characters"
+    if note.count("\n") >= MAX_NOTE_LINES:
+        return f"a note is at most {MAX_NOTE_LINES} lines"
+    if _CONTROL.search(note):
+        return "a note holds no control character but a tab or a line break"
+    if any(unicodedata.category(char) in ("Cf", "Zl", "Zp") for char in note):
+        return "a note holds no format character, and no line or paragraph separator"
+    if _FENCE.search(note):
+        return "a note holds no run of three '<' or '>', which its quotation is fenced with"
+    return None
+
 
 class QueueResolution(_Record):
     """A person's decision on one item.
@@ -220,6 +263,8 @@ class QueueResolution(_Record):
         if self.verb == "reject" and self.note is None:
             msg = "a rejection carries its note"
             raise ValueError(msg)
+        if self.note is not None and (problem := note_problem(self.note)) is not None:
+            raise ValueError(problem)
         if self.decision != (self.verb if self.note is None else f"{self.verb}: {self.note}"):
             msg = "a decision's text is exactly its verb and note"
             raise ValueError(msg)
@@ -234,16 +279,6 @@ class QueueResolution(_Record):
         return data
 
 
-#: The longest note a person's decision carries, in characters: a bound on what reaches a
-#: session's prompt, and so a size, not a threshold on anything measured.
-MAX_NOTE = 4000
-
-#: Control characters a note may not hold: every C0 control but the tab and the line break,
-#: the delete character, and the C1 controls. A note is quoted into a session's prompt, where an
-#: escape sequence or a carriage return could make it read as something it is not.
-_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
-
-
 class PersonDecision(BaseModel):
     """A person's decision with a verb: what the decision function binds to a view."""
 
@@ -255,12 +290,8 @@ class PersonDecision(BaseModel):
     @model_validator(mode="after")
     def _a_note_is_clean_and_a_rejection_has_one(self) -> PersonDecision:
         if self.note is not None:
-            if not self.note.strip():
-                msg = "a note says something; leave it out rather than send it blank"
-                raise ValueError(msg)
-            if _CONTROL.search(self.note):
-                msg = "a note holds no control character but a tab or a line break"
-                raise ValueError(msg)
+            if (problem := note_problem(self.note)) is not None:
+                raise ValueError(problem)
         elif self.verb == "reject":
             msg = "a rejection says why: its note is required"
             raise ValueError(msg)
@@ -764,6 +795,17 @@ def _read_run_files(run_dir: Path, *wanted: tuple[str, int]) -> list[tuple[str, 
     return found
 
 
+def decisions_file_bytes(run_dir: Path) -> bytes:
+    """The decisions file's bytes, read as every reader of the queue reads them; empty if none.
+
+    Raises:
+        QueueError: the file is a link, has a second name, is not a regular file or is past its
+            cap.
+    """
+    ((_, data),) = _read_run_files(run_dir, (DECISIONS_NAME, DECISIONS_READ_CAP))
+    return b"" if data is None else data
+
+
 def _events_of_run(run_dir: Path) -> list[Event] | None:
     """The run's event log, read without writing; ``None`` when there is none.
 
@@ -820,6 +862,7 @@ def _taken_of(events: list[Event]) -> dict[str, dict[str, object]]:
                 "acts": event.acts,
                 "why_not": event.why_not,
                 "confirmed_by": event.confirmed_by,
+                "order_too_long": event.order_too_long,
             }
     return taken
 

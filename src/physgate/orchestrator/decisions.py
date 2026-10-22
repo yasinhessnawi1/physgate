@@ -39,6 +39,7 @@ from physgate.orchestrator.events import (
     WhyNot,
 )
 from physgate.orchestrator.exceptions import QueueItemMismatchError
+from physgate.orchestrator.protocols import PersonOrder
 from physgate.orchestrator.queue import (
     INTEGRATION,
     ConfirmedIndicator,
@@ -49,6 +50,8 @@ from physgate.orchestrator.queue import (
     QueueSource,
     WhyRecordOnly,
 )
+from physgate.orchestrator.repair import fix_instruction, person_repair_instruction
+from physgate.reviewers.packet import fits_one_read, person_order_text
 from physgate.reviewers.scan import ScanHit, ScanUnreadableError, scan
 
 if TYPE_CHECKING:
@@ -62,6 +65,9 @@ class Taken:
     effect: DecisionEffect
     acts: bool
     why_not: WhyNot | None
+    #: A reject that ends the subtask in place of the order it would give, because what that
+    #: order's reviewer would be told is longer than one read shows whole.
+    order_too_long: bool = False
 
 
 #: Why approve records only, as an item says it, and as the decision taken on it says it.
@@ -166,9 +172,11 @@ def _arbitration_effect() -> tuple[WhyRecordOnly, OnReject]:
 def _on_reject(sub: SubtaskState, source: QueueSource) -> OnReject:
     """What a reject does to the subtask's item: one fix, the next attempt, or the end."""
     now = sub.attempts[-1]
-    fix_used = any(attempt.fix for attempt in sub.attempts)
     if source == "review_blocked":
-        return "end_subtask" if fix_used else "fix"
+        # Never a fix's own: a fix whose review blocked ends the subtask by rule and goes to no
+        # person (the replay routes it so, and refuses a second fix).
+        return "fix"
+    fix_used = any(attempt.fix for attempt in sub.attempts)
     if fix_used or after_rejection(now.number) is None:
         return "end_subtask"
     if source in ("review_unavailable", "escalation_decision"):
@@ -232,6 +240,52 @@ def item_consequence(
     )
 
 
+def person_order(
+    rejected: AttemptState, *, effect: DecisionEffect, item_id: str, note: str
+) -> PersonOrder | None:
+    """The order a person's reject of ``rejected`` gives the next session, built by code alone.
+
+    For the one fix: the review's finding and each blocking defect it named, and the note, in
+    the fix template. For a retry: the note, with the reviewer's finding when a review rejected
+    the attempt. Nothing for any other effect. The same function builds the order when the loop
+    takes the decision and when it starts the session, so both read the same text.
+
+    Raises:
+        ValueError: a fix of an attempt whose review did not block.
+    """
+    if effect == "fix":
+        blocked = rejected.blocked
+        if blocked is None:
+            msg = "a fix is ordered only after a review that blocked"
+            raise ValueError(msg)
+        text = fix_instruction(
+            rejected.number,
+            blocked.result.finding,
+            tuple(d.finding for d in blocked.result.spec_defects if d.blocking),
+            note,
+        )
+        return PersonOrder(
+            kind="fix_after_block", item_id=item_id, of_attempt=rejected.number, instruction=text
+        )
+    if effect == "retry":
+        before = rejected.rejected
+        text = person_repair_instruction(
+            rejected.number, note, before.finding if before is not None else None
+        )
+        return PersonOrder(
+            kind="retry_after_reject", item_id=item_id, of_attempt=rejected.number, instruction=text
+        )
+    return None
+
+
+def _order_fits(sub: SubtaskState, effect: DecisionEffect, item_id: str, note: str | None) -> bool:
+    """Whether the reviewer of the session a reject orders could read what it is told whole."""
+    if note is None:
+        return True
+    order = person_order(sub.attempts[-1], effect=effect, item_id=item_id, note=note)
+    return order is None or fits_one_read(person_order_text(order))
+
+
 def _effect_of(
     consequence: ItemConsequence, verb: Literal["approve", "reject"]
 ) -> tuple[DecisionEffect, WhyNot | None]:
@@ -289,12 +343,25 @@ def decision_effect(
     if expected != item.consequence:
         msg = "the item says another consequence than the run's record gives"
         raise QueueItemMismatchError(msg, item=item.item_id)
+    if resolution.verb == "approve" and item.source == "review_blocked" and resolution.note is None:
+        # The writer refuses this line; one that reaches the file anyway is refused here.
+        msg = "approving a blocked review says how the blocked check is decided, and this did not"
+        raise QueueItemMismatchError(msg, item=item.item_id)
     effect, why = _effect_of(expected, resolution.verb)
     if why is not None:
         return Taken(effect=effect, acts=False, why_not=why)
+    too_long = False
+    if effect in ("fix", "retry") and item.subtask_id != INTEGRATION:
+        sub = state.subtasks[item.subtask_id]
+        if not _order_fits(sub, effect, item.item_id, resolution.note):
+            # Refused before any session: a review that could not read what its session was
+            # told whole could not be prepared, and would be no review.
+            effect, too_long = "end_subtask", True
     if held:
-        return Taken(effect=effect, acts=False, why_not="held_os_layer_off")
-    return Taken(effect=effect, acts=True, why_not=None)
+        return Taken(
+            effect=effect, acts=False, why_not="held_os_layer_off", order_too_long=too_long
+        )
+    return Taken(effect=effect, acts=True, why_not=None, order_too_long=too_long)
 
 
 def require_taken(state: RunState, event: DecisionTaken) -> None:
@@ -363,6 +430,16 @@ def require_taken(state: RunState, event: DecisionTaken) -> None:
     # log; the loop checked those when it took the decision, so a scan hit may only turn an
     # effect the log allows into recording, and nothing turns one it does not allow into an act.
     effect, why = _effect_of(expected, event.verb)
+    too_long = (
+        why is None
+        and effect in ("fix", "retry")
+        and not _order_fits(sub, effect, event.item_id, event.note)
+    )
+    if too_long:
+        effect = "end_subtask"
+    if event.order_too_long != too_long:
+        msg = "a decision that says its order could not be read whole where the record does not"
+        raise ValueError(msg)
     if event.why_not is None or event.why_not == "held_os_layer_off":
         allowed = why is None and event.effect == effect
     elif event.why_not == "scan_hit":

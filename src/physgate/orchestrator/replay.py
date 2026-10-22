@@ -38,6 +38,7 @@ from physgate.orchestrator.escalation_state import EscalationState, escalation_s
 from physgate.orchestrator.events import (
     RESUMABLE_HALTS,
     AttemptRejected,
+    DecisionsSealed,
     DecisionTaken,
     Decomposed,
     DiffChecked,
@@ -279,7 +280,8 @@ class RunState:
             | TokensUsed
             | InstallChecked
             | SessionSpawned
-            | OsLayerChecked,
+            | OsLayerChecked
+            | DecisionsSealed,
         ):
             return  # recorded at any time, a halted run's resume included
         if isinstance(event, WorktreeRemoved):

@@ -1,11 +1,12 @@
 """Conditions a run must meet before it starts, registered by whoever needs them.
 
-The core states no such condition of its own about the OS layer: where the layer
-cannot run, a run records that and goes on. A party that needs more (the
-evaluation, whose numbers are reported) registers a requirement here from the
-command's composition root, and the core asks every registered requirement
-before a run spends anything: at decomposition, and again at every run and resume.
-Removing that party removes its requirement and touches nothing here.
+The core states one condition of its own about the OS layer, and states it in the run's
+configuration rather than here: a run that acts on queue decisions runs only inside the
+layer (ARCH-133). Otherwise, where the layer cannot run, a run records that and goes on.
+A party that needs more (the evaluation, whose numbers are reported) registers a
+requirement here from the command's composition root, and the core asks every registered
+requirement before a run spends anything: at decomposition, and again at every run and
+resume. Removing that party removes its requirement and touches nothing here.
 """
 
 from __future__ import annotations

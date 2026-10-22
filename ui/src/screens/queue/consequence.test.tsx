@@ -200,7 +200,13 @@ describe("what the run did with a decision", () => {
           decision: "approve",
           resolved_by: "yasin",
           flag: null,
-          taken: { effect: "merge", acts: true, why_not: null, confirmed_by: null },
+          taken: {
+            effect: "merge",
+            acts: true,
+            why_not: null,
+            confirmed_by: null,
+            order_too_long: false,
+          },
         },
       ],
     });
@@ -210,6 +216,7 @@ describe("what the run did with a decision", () => {
       acts: true,
       whyNot: null,
       confirmedBy: null,
+      orderTooLong: false,
     });
     const view = itemView({ ...raw(consequence()), open: false });
     const host = mount(
@@ -221,14 +228,62 @@ describe("what the run did with a decision", () => {
 
   it("says a held decision waits for the operator, and who confirmed one", () => {
     expect(
-      takenWords({ effect: "merge", acts: false, whyNot: "held_os_layer_off", confirmedBy: null }),
+      takenWords({
+        effect: "merge",
+        acts: false,
+        whyNot: "held_os_layer_off",
+        confirmedBy: null,
+        orderTooLong: false,
+      }),
     ).toContain("acts only once an operator confirms it");
     expect(
-      takenWords({ effect: "merge", acts: true, whyNot: null, confirmedBy: "operator" }),
+      takenWords({
+        effect: "merge",
+        acts: true,
+        whyNot: null,
+        confirmedBy: "operator",
+        orderTooLong: false,
+      }),
     ).toContain("Confirmed on the command line by operator.");
-    expect(takenWords({ effect: "none", acts: false, whyNot: "scan_hit", confirmedBy: null })).toBe(
-      "Recorded only (scan_hit).",
-    );
+    expect(
+      takenWords({
+        effect: "none",
+        acts: false,
+        whyNot: "scan_hit",
+        confirmedBy: null,
+        orderTooLong: false,
+      }),
+    ).toBe("Recorded only (scan_hit).");
+  });
+
+  it("says a reject ended the subtask when the session it ordered could not be reviewed", () => {
+    const words = takenWords({
+      effect: "end_subtask",
+      acts: true,
+      whyNot: null,
+      confirmedBy: null,
+      orderTooLong: true,
+    });
+    expect(words).toContain("the subtask ended rejected, and no session was started");
+    expect(words).toContain("longer than its reviewer can read whole");
+  });
+
+  it("refuses a taken decision that does not say whether its order was too long", () => {
+    expect(() =>
+      queueListing({
+        open: [],
+        decided: [
+          {
+            item_id: "x",
+            ts: "t",
+            decision: "reject: n",
+            resolved_by: "y",
+            flag: null,
+            taken: { effect: "end_subtask", acts: true, why_not: null, confirmed_by: null },
+          },
+        ],
+      }),
+    ).toThrow();
   });
 
   it("a decision the run has not taken carries nothing", () => {

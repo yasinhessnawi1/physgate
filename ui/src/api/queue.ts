@@ -137,6 +137,9 @@ export interface Taken {
   readonly whyNot: string | null;
   /** The operator who confirmed a held decision on the command line, if one did. */
   readonly confirmedBy: string | null;
+  /** A reject that ended the subtask in place of the session it would order, because that
+   * session's reviewer could not have read what it would be told whole. */
+  readonly orderTooLong: boolean;
 }
 
 export interface Decided {
@@ -157,6 +160,7 @@ function taken(value: unknown): Taken | null {
     acts: flag(t.acts, "whether a decision acted"),
     whyNot: optionalText(t.why_not, "why a decision did not act"),
     confirmedBy: optionalText(t.confirmed_by, "who confirmed a decision"),
+    orderTooLong: flag(t.order_too_long, "whether a reject's order was too long to review"),
   };
 }
 

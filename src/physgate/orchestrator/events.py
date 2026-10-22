@@ -90,6 +90,7 @@ IncidentCause = Literal[
     "reaper_unverified",
     "stream_quarantined",
     "queue_item_mismatch",
+    "decisions_rewritten",
 ]
 
 #: Why a run stopped short of the end of its plan.
@@ -177,6 +178,24 @@ class StageEntered(_Event):
     stage: Stage
     #: At the spawn stage: the queue decisions file's length as the session starts.
     decisions_bytes: Annotated[int, Field(ge=0)] | None = None
+
+
+class DecisionsSealed(_Event):
+    """The decisions file as a session starts, in a run that acts on queue decisions (ARCH-133).
+
+    The file is append-only: every decision a person writes is a line added at its end. So the
+    bytes a session started beside are still the file's first bytes at every later point, and a
+    decision is taken only while each such prefix is what it was. A prefix that changed was
+    rewritten beneath a session, by a hand no person's decision accounts for, and the run halts.
+    Written only by a run that acts, so a run that records keeps its log byte for byte.
+    """
+
+    kind: Literal["decisions_sealed"] = "decisions_sealed"
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    #: The file's length as the session starts, in bytes, and the digest of those bytes.
+    length: Annotated[int, Field(ge=0)]
+    sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 
 
 class Halted(_Event):
@@ -493,6 +512,10 @@ class DecisionTaken(_Event):
     why_not: WhyNot | None
     #: The operator who confirmed a held decision on the command line, by OS user name.
     confirmed_by: NonEmptyStr | None = None
+    #: A reject that would have ordered the one fix, or the next attempt, ends the subtask
+    #: instead: what that session's reviewer would be told of the order is longer than one read
+    #: shows whole, so its review could not be prepared. Nothing is spawned.
+    order_too_long: bool = False
 
     @model_validator(mode="after")
     def _an_act_needs_no_excuse_and_a_non_act_has_one(self) -> DecisionTaken:
@@ -504,6 +527,9 @@ class DecisionTaken(_Event):
             raise ValueError(msg)
         if self.confirmed_by is not None and not self.acts:
             msg = "a confirmed decision is the one that acts"
+            raise ValueError(msg)
+        if self.order_too_long and (self.verb != "reject" or self.effect != "end_subtask"):
+            msg = "only a reject ends a subtask for an order its reviewer could not read whole"
             raise ValueError(msg)
         return self
 
@@ -726,6 +752,7 @@ Event = Annotated[
     | SubtaskPlanned
     | SubtaskRemoved
     | StageEntered
+    | DecisionsSealed
     | GateRan
     | GateSkipped
     | IntegrationGateRan

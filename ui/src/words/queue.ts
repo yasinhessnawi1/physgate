@@ -218,5 +218,11 @@ export function takenWords(t: Taken): string {
     none: "The run took it; it changed nothing.",
   };
   const by = t.confirmedBy === null ? "" : ` Confirmed on the command line by ${t.confirmedBy}.`;
+  if (t.orderTooLong)
+    return (
+      "The run took it: the subtask ended rejected, and no session was started. What that " +
+      "session would have been told was longer than its reviewer can read whole." +
+      by
+    );
   return done[t.effect] + by;
 }

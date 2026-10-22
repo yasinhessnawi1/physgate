@@ -37,6 +37,7 @@ from physgate.orchestrator.queue import (
     record_decision,
     statuses_now,
 )
+from physgate.oslayer.probe import Present
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -61,7 +62,8 @@ def test_an_ended_run_resumed_takes_its_approve_then_runs_the_integration_gate(
     runs = tmp_path / "runs"
     library = build_fixture_library(tmp_path / "library")
     repo = evaluation_rig().target_repo(tmp_path / "target")
-    cfg = _start(runs, "drive-act", repo, "observe", library, queue_decisions="act")
+    layer = Present(mechanism="seatbelt", claude_version="2.1.301")
+    cfg = _start(runs, "drive-act", repo, "observe", library, queue_decisions="act", os_layer=layer)
     reviewer = NoVerdict(cfg.models.reviewers["electrical"])
     assert _drive(runs, cfg, repo, reviewer=reviewer) == "done"
     run_dir = runs / "drive-act"

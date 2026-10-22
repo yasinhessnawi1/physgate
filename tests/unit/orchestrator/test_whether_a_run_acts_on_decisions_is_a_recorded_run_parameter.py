@@ -16,6 +16,7 @@ from orch_helpers import make_config
 
 from physgate.cli import main
 from physgate.orchestrator.run_config import load_run_config, write_run_config
+from physgate.oslayer.probe import Present
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -34,7 +35,10 @@ def test_a_run_recorded_before_the_flag_reads_as_record_with_its_digest_unchange
 
 
 def test_an_act_run_records_the_flag_in_its_manifest(tmp_path: Path) -> None:
-    act, record = make_config(queue_decisions="act"), make_config(queue_decisions="record")
+    # The same run but for the flag; a run that acts is one configured inside the OS layer.
+    layer = Present(mechanism="seatbelt", claude_version="2.1.301")
+    act = make_config(queue_decisions="act", os_layer=layer)
+    record = make_config(queue_decisions="record", os_layer=layer)
     assert b'"queue_decisions":"act"' in act.canonical_bytes()
     assert act.sha256() != record.sha256()
     path = tmp_path / "run.json"

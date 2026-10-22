@@ -349,6 +349,20 @@ class RunConfig(_Frozen):
         return self
 
     @model_validator(mode="after")
+    def _acting_on_decisions_needs_the_os_layer(self) -> RunConfig:
+        # Only the OS layer keeps a role session's own shell from the decisions file; the hook
+        # layer judges words. A run whose decisions act would otherwise act on a line a session
+        # could have written itself (ARCH-133).
+        if self.queue_decisions == "act" and not isinstance(self.os_layer, Present):
+            msg = (
+                "a run that acts on queue decisions runs only inside the OS layer, and this "
+                "one's OS layer is "
+                + ("not recorded" if self.os_layer is None else f"absent: {self.os_layer.reason}")
+            )
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
     def _reportable_needs_a_clean_commit(self) -> RunConfig:
         if self.reportable and (self.harness.commit is None or not self.harness.clean):
             msg = "a reportable run starts only from a clean checkout with a commit"
