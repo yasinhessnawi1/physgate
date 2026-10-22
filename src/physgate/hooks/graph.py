@@ -36,8 +36,14 @@ The current owner and kind come from the journal, read without opening the
 store. The ownership rules are a list, so a rule the architecture adds later is
 one more entry rather than a new branch.
 
-A proposal written by a shell command is refused: only the Write and Edit tools
-carry the content, so only they can be checked before the file exists.
+Only the Write and Edit tools carry a proposal's content, so only they can be
+checked before the file exists. A command that names the proposals directory, or
+a directory above it, is refused here unless it only reads. A command can reach
+the directory without naming it, though: by a path it builds as it runs, or by
+copying or moving a directory of its own into place. This hook cannot see those,
+and the OS layer is what refuses them: it write-denies the proposals directory to
+every shell command (``physgate.oslayer.policy``). Where the OS layer does not
+run, they are the residual of this text check, as every path built at run time is.
 """
 
 from __future__ import annotations

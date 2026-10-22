@@ -438,7 +438,9 @@ def test_with_the_layer_the_writer_writes_a_record_once(layout: Layout) -> None:
     outbox = layout.worktree / ".physgate" / "series"
     assert sorted(p.name for p in outbox.iterdir()) == ["step_nominal.json"]
     assert json.loads((outbox / "step_nominal.json").read_text())["title"] == MARKER
-    assert sorted(p.name for p in outbox.parent.iterdir()) == ["lib", "series"]
+    # Beside the outbox: the writer's place, and the proposals the installer made, empty.
+    assert sorted(p.name for p in outbox.parent.iterdir()) == ["lib", "proposals", "series"]
+    assert list((outbox.parent / "proposals").iterdir()) == []
 
 
 @pytest.mark.usefixtures("layer")
