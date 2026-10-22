@@ -17,12 +17,19 @@ NODES: dict[str, dict[str, Any]] = {
     "e.heater": {
         "id": "e.heater",
         "constrains": ["e.supply"],
-        "requirements": ["the heater shall draw at most 20.0 W", "no number here"],
+        "requirements": [
+            "the heater shall draw at most 20.0 W",
+            "no number here",
+            "the heater shall draw at most 20.0W in standby",
+            "the pack shall store at least 20.0 Wh",
+        ],
         "quantities": {
             "supply_voltage": {"value": 12.0, "unit": "V"},
             "resistance": {"value": 6.0, "unit": "ohm"},
             "power_draw": {"value": 12.0, "unit": "W"},
             "max_power": {"value": 10.0, "unit": "W"},
+            "estimated_power": {"value": 10.0, "unit": "W"},
+            "maximum_power": {"value": 10.0, "unit": "W"},
             "temperature": {"value": 25.0, "unit": "degC"},
             "max_temperature": {"value": 20.0, "unit": "degC"},
             "rise": {"value": 5.0, "unit": "delta_degC"},
@@ -146,6 +153,60 @@ def test_rounding_counts_every_additive_term() -> None:
     assert verified(f)["code"] == "L"
 
 
+def test_rounding_allows_half_a_percent_of_the_terms_not_of_the_sides() -> None:
+    # a - b == c with a = 100 W, b = 99.0 W, c = 1.10 W: the sides are 1.00 W and 1.10 W, a miss
+    # of 0.10 W. Over every additive term the allowance is 0.5 % of 200.1 W = 1.0 W, so the
+    # relation holds; over the two sides alone it would be 0.5 % of 2.1 W and would not.
+    nodes: dict[str, dict[str, Any]] = {
+        "e.a": {
+            "id": "e.a",
+            "constrains": [],
+            "requirements": [],
+            "quantities": {
+                "p_in": {"value": 100.0, "unit": "W"},
+                "p_loss": {"value": 99.0, "unit": "W"},
+                "p_out": {"value": 1.1, "unit": "W"},
+            },
+        }
+    }
+
+    def i(sym: str, q: str) -> dict[str, Any]:
+        v = nodes["e.a"]["quantities"][q]
+        return {"symbol": sym, "node": "e.a", "quantity": q, "value": v["value"], "unit": v["unit"]}
+
+    f = form(
+        relation="a - b == c",
+        inputs=[i("a", "p_in"), i("b", "p_loss"), i("c", "p_out")],
+    )
+    out = V.verify_form(f, nodes)
+    assert out["failure"] == "within_tolerance" and out["code"] == "N"
+
+
+def test_a_relation_without_inputs_falls_back() -> None:
+    for code in ("G", "L"):
+        f = form(code, relation="0.6 + 0.5 <= 1", inputs=[], tolerance="inequality")
+        out = verified(f)
+        assert out["failure"] == "no_input" and out["code"] == "N", code
+    f = form(relation="0.6 + 0.5 <= 1", inputs=[], tolerance="inequality", fallback_code="D")
+    assert verified(f)["code"] == "D"
+
+
+def test_every_listed_input_must_be_used_in_the_relation() -> None:
+    f = form(
+        relation="P <= Pm",
+        inputs=[
+            inp("P", "e.heater", "power_draw"),
+            inp("Pm", "e.heater", "max_power"),
+            inp("R", "e.heater", "resistance"),
+        ],
+        tolerance="inequality",
+    )
+    out = verified(f)
+    assert out["failure"] == "unused_input" and out["code"] == "N"
+    f["inputs"] = f["inputs"][:2]
+    assert verified(f)["code"] == "L"
+
+
 def test_inequality_and_comparator_classes() -> None:
     f = form(
         relation="P <= Pm",
@@ -217,7 +278,7 @@ def test_a_dimension_mismatch_falls_back() -> None:
 
 
 def test_constants_pi_and_standard_gravity() -> None:
-    f = form(relation="P <= pi * g_n * R * 0", tolerance="inequality")
+    f = form(relation="P <= pi * g_n * R * V * 0", tolerance="inequality")
     assert verified(f)["failure"] == "dimension"
 
 
@@ -261,6 +322,31 @@ def test_the_pairing_check_for_a_limit() -> None:
     assert verified(far)["failure"] == "pairing"
 
 
+def test_a_rating_token_is_a_whole_token_of_the_name() -> None:
+    # "estimated" holds "rated" and "maximum" holds "max", but neither is the token
+    for name in ("estimated_power", "maximum_power"):
+        f = form(
+            relation="P <= M",
+            kind="limit",
+            tolerance="inequality",
+            inputs=[inp("P", "e.heater", "power_draw"), inp("M", "e.heater", name)],
+        )
+        assert verified(f)["failure"] == "pairing", name
+
+
+def test_a_limit_pairs_across_one_edge_in_either_direction() -> None:
+    # e.heater constrains e.supply; the left input on e.supply reaches e.heater only backwards
+    f = form(
+        relation="S <= M",
+        kind="limit",
+        tolerance="inequality",
+        inputs=[inp("S", "e.supply", "power_supply"), inp("M", "e.heater", "max_power")],
+    )
+    assert verified(f)["code"] == "L"  # 11 W <= 10 W is violated
+    f["relation"] = "M >= S"
+    assert verified(f)["code"] == "L"
+
+
 def test_a_requirement_input_quotes_its_number_and_unit() -> None:
     req = {"symbol": "Q", "node": "e.heater", "requirement": 0, "value": 20.0, "unit": "W"}
     f = form(
@@ -283,6 +369,24 @@ def test_a_requirement_input_quotes_its_number_and_unit() -> None:
     gone = dict(req, requirement=5)
     f4 = dict(f, inputs=[inp("P", "e.heater", "power_draw"), gone])
     assert verified(f4)["code"] == "L-if-data"
+
+
+def test_a_requirement_unit_is_a_whole_unit_token() -> None:
+    def with_req(index: int, unit: str) -> dict[str, Any]:
+        req = {"symbol": "Q", "node": "e.heater", "requirement": index, "value": 20.0, "unit": unit}
+        return form(
+            relation="P >= Q",
+            kind="limit",
+            tolerance="inequality",
+            inputs=[inp("P", "e.heater", "power_draw"), req],
+        )
+
+    # "h" is in "heater" and "W" is in "Wh", but neither is the requirement's unit
+    assert verified(with_req(0, "h"))["failure"] == "unit_differs"
+    assert verified(with_req(3, "W"))["failure"] == "unit_differs"
+    # a number may stand right before its unit
+    assert verified(with_req(2, "W"))["code"] == "L"
+    assert verified(with_req(0, "W"))["code"] == "L"
 
 
 def test_l_if_data_listing_a_present_quantity_is_inconsistent() -> None:

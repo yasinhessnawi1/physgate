@@ -369,6 +369,16 @@ def dims(v: Any) -> Any:  # noqa: ANN401
 
 
 NUMBER = re.compile(r"[-+]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][-+]?\d+)?")
+# What may stand right before and right after a unit written in a requirement: a space, an
+# opening or closing mark, the number itself before it, punctuation after it. Anything else
+# makes it part of a longer word or unit ("h" in "heater", "W" in "Wh", "m" in "m/s").
+UNIT_BEFORE = "\\s\\d(\\[{\"'“‘"
+UNIT_AFTER = "\\s.,;:)\\]}\"'”’"
+
+
+def unit_token_in(unit: str, text: str) -> bool:
+    """Whether ``unit`` is written in ``text`` as a whole unit token."""
+    return bool(re.search(rf"(?<![^{UNIT_BEFORE}]){re.escape(unit)}(?![^{UNIT_AFTER}])", text))
 
 
 def input_quantity(i: dict[str, Any], nodes: dict[str, dict[str, Any]]) -> Any:  # noqa: ANN401
@@ -389,7 +399,7 @@ def input_quantity(i: dict[str, Any], nodes: dict[str, dict[str, Any]]) -> Any: 
             raise Failure("value_differs") from exc
         if not any(float(t) == value for t in NUMBER.findall(text)):
             raise Failure("value_differs")
-        if not unit or unit not in text:
+        if not unit or not unit_token_in(unit, text):
             raise Failure("unit_differs")
         return si(value, unit)
     q = (node.get("quantities") or {}).get(i["quantity"])
@@ -416,8 +426,14 @@ def joined(a: str, b: str, nodes: dict[str, dict[str, Any]]) -> bool:
 
 
 def verify_relation(form: dict[str, Any], nodes: dict[str, dict[str, Any]]) -> dict[str, Any]:
-    """§5.5 for one G or L form: the facts of a relation that holds up, or :class:`Failure`."""
+    """§5.5 for one G or L form: the facts of a relation that holds up, or :class:`Failure`.
+
+    A relation over no node value is not a law over this design (``no_input``), and an input the
+    relation never reads is not one of its inputs (``unused_input``): both fall back.
+    """
     inputs = form["inputs"]
+    if not inputs:
+        raise Failure("no_input")
     env: dict[str, Any] = {"pi": math.pi, "g_n": ureg().Quantity(9.80665, "m/s**2")}
     by_symbol: dict[str, dict[str, Any]] = {}
     for i in inputs:
@@ -434,6 +450,8 @@ def verify_relation(form: dict[str, Any], nodes: dict[str, dict[str, Any]]) -> d
     used = names_in(left) | names_in(right)
     if used - set(by_symbol) - set(CONSTANTS):
         raise Failure("undefined_symbol")
+    if set(by_symbol) - used:
+        raise Failure("unused_input")
     env.update(built)
     try:
         lv, rv = evaluate(left, env), evaluate(right, env)
