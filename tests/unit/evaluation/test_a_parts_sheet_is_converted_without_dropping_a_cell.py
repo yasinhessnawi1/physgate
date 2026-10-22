@@ -15,6 +15,10 @@ cell out:
 - a source cell is an address, or ``same URL``, ``same supply URL`` or ``same URL as above``
   for the address of the nearest row above;
 - the retrieval date is one date for the whole sheet, so no row's date is dropped;
+- a line of prose outside the tables is carried as a remark of the sheet or dropped and
+  counted, as the command is told; one that holds a pipe or a row id, or a code fence, is
+  refused, since a row written there would be lost;
+- no value, note or remark it writes holds a word that would give the corpus away;
 - a column, a line or a cell it does not know how to carry stops it, and nothing is written.
 
 Running it twice gives the same bytes.
@@ -43,7 +47,7 @@ MOTOR, SUPPLY, PKG = (f"https://example.com/{p}" for p in ("motor", "supply", "p
 IMU, DRV, PACK = (f"https://example.com/{p}" for p in ("imu", "drv", "pack"))
 
 SHEET = (
-    "# Parts sheet\n\nEvery address read on one day.\n\n## R1: motor and supply\n\n"
+    "# Parts sheet\n\n## R1: motor and supply\n\n"
     + HEADER
     + f"| R1.01 | stall current @ 6V | 1.5 | A | https://example.com/motor | {DAY} | — |\n"
     + f"| R1.02 | mass | 1.50 | g | same URL as above | {DAY} | weighed with its bracket |\n"
@@ -395,3 +399,251 @@ def test_convert_holds_every_kept_sheet_to_the_additive_check(
     monkeypatch.setattr(converter, "_kept", changing)
     with pytest.raises(converter.SheetRefusedError, match="not the earlier sheet"):
         converter.convert(SHEET, keep=_old())
+
+
+# --- What reaches a review holds no telltale word ---------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("changed", "said"),
+    [
+        (_row(SHEET, "R1.03", 6, "the answer key says derate"), r"R1\.03.*answer"),
+        (_row(SHEET, "R1.05", 2, "QFN-24, see the twin part"), r"R1\.05.*twin"),
+        (_row(SHEET, "R1.07", 6, "current injected into the pin"), r"R1\.07.*inject"),
+    ],
+    ids=["a-note", "a-given-value", "an-inflected-word"],
+)
+def test_a_value_or_note_that_would_give_the_corpus_away_is_refused_naming_row_and_word(
+    changed: str, said: str
+) -> None:
+    with pytest.raises(converter.SheetRefusedError, match=said):
+        converter.convert(changed, label=LABEL)
+    with pytest.raises(converter.SheetRefusedError, match=said):
+        converter.convert(changed, keep=_old())
+
+
+# --- Lines outside the tables -----------------------------------------------------------------
+
+PROSE = "Every address read on one day.\n"
+WITH_PROSE = SHEET.replace("## R1: motor and supply\n\n", f"## R1: motor and supply\n\n{PROSE}\n")
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        f"R1.08 | voltage | 5 | V | {MOTOR} | {DAY} | — |",
+        f"> | R1.08 | voltage | 5 | V | {MOTOR} | {DAY} | — |",
+        "The driver's limit is R1.07 above.",
+        "a | b",
+    ],
+    ids=["a-row-without-its-leading-pipe", "a-row-in-a-quote", "a-row-id-in-prose", "a-pipe"],
+)
+def test_a_line_outside_the_tables_that_holds_a_pipe_or_a_row_id_is_refused(line: str) -> None:
+    with pytest.raises(converter.SheetRefusedError, match="outside"):
+        converter.convert(SHEET + f"\n{line}\n", label=LABEL, prose="carry")
+
+
+def test_a_code_fence_is_refused_since_a_row_inside_it_is_no_table_row() -> None:
+    fenced = SHEET + f"\n```\n| R1.08 | voltage | 5 | V | {MOTOR} | {DAY} | — |\n```\n"
+    with pytest.raises(converter.SheetRefusedError, match="fence"):
+        converter.convert(fenced, label=LABEL, prose="carry")
+
+
+def test_prose_must_be_carried_or_dropped_by_name() -> None:
+    with pytest.raises(converter.SheetRefusedError, match="prose"):
+        converter.convert(WITH_PROSE, label=LABEL)
+    carried = json.loads(converter.convert(WITH_PROSE, label=LABEL, prose="carry"))
+    assert carried["remarks"] == [PROSE.rstrip("\n")]
+    dropped = json.loads(converter.convert(WITH_PROSE, label=LABEL, prose="drop"))
+    assert "remarks" not in dropped and dropped["rows"] == carried["rows"]
+    assert "remarks" not in json.loads(converter.convert(SHEET, label=LABEL, prose="carry"))
+
+
+def test_carried_prose_is_held_to_the_telltale_words_and_named_by_line() -> None:
+    telling = WITH_PROSE.replace(PROSE, "The planted part is marked.\n")
+    with pytest.raises(converter.SheetRefusedError, match=r"line \d+.*planted"):
+        converter.convert(telling, label=LABEL, prose="carry")
+    assert "remarks" not in json.loads(converter.convert(telling, label=LABEL, prose="drop"))
+
+
+def test_keeping_carries_prose_as_an_addition_and_stays_additive() -> None:
+    kept = json.loads(converter.convert(WITH_PROSE, keep=_old(), prose="carry"))
+    assert kept["remarks"] == [PROSE.rstrip("\n")]
+    converter._additive(json.loads(_old()), kept)
+    with pytest.raises(converter.SheetRefusedError, match="already"):
+        converter.convert(WITH_PROSE, keep=_old_with(remarks=["an earlier remark"]), prose="carry")
+
+
+def test_the_command_says_how_prose_was_handled(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    table = tmp_path / "parts_sheet.md"
+    table.write_text(WITH_PROSE)
+    assert converter.main([str(table), str(tmp_path / "a.json"), "--label", LABEL]) != 0
+    assert not (tmp_path / "a.json").exists()
+    assert (
+        converter.main([str(table), str(tmp_path / "b.json"), "--label", LABEL, "--prose", "drop"])
+        == 0
+    )
+    assert "prose-dropped 1" in capsys.readouterr().out
+    assert (
+        converter.main([str(table), str(tmp_path / "c.json"), "--label", LABEL, "--prose", "carry"])
+        == 0
+    )
+    assert "prose-carried 1" in capsys.readouterr().out
+
+
+# --- A kept number is read from the cell only where it reads one way ---------------------------
+
+
+def _one(value: str, unit: str, note: str = "—") -> str:
+    return HEADER + f"| R1.01 | current | {value} | {unit} | {MOTOR} | {DAY} | {note} |\n"
+
+
+def _one_old(value: float | None, unit: str | None) -> bytes:
+    row = {"quantity": "current", "value": value, "unit": unit, "url": MOTOR}
+    return json.dumps({"label": "L", "rows": {"R1.01": row}}).encode()
+
+
+@pytest.mark.parametrize(
+    ("cell", "unit", "kept"),
+    [
+        ("1,500", "mA", 500),
+        ("1,500", "mA", 1),
+        ("1.5 × 10^3", "Hz", 1.5),
+        ("100k", "ohm", 100),
+        ("-40 to 85", "degC", 40),
+        ("4.5-5.5", "V", -5.5),
+        ("4.5-5.5", "V", 4.5),
+        ("1/2", "A", 1),
+        ("1.5e3", "A", 1.5),
+        ("1.5e3", "A", 3),
+        ("QFN-24", "dimensionless", 24),
+        ("QFN-24", "dimensionless", -24),
+        ("10³", "Hz", 10),
+        ("–40 to 85", "degC", 40),
+        ("–40 to 85", "degC", -40),
+        ("- 5", "V", 5),
+    ],
+    ids=[
+        "a-thousands-separator-right",
+        "a-thousands-separator-left",
+        "a-power-of-ten",
+        "an-si-suffix",
+        "a-sign-dropped",
+        "a-hyphen-read-as-a-minus",
+        "a-hyphenated-range",
+        "a-fraction",
+        "an-exponent-s-mantissa",
+        "an-exponent-s-power",
+        "a-number-inside-a-name",
+        "a-number-inside-a-name-read-as-negative",
+        "a-superscript-power",
+        "a-dash-that-may-be-a-minus-read-plus",
+        "a-dash-that-may-be-a-minus-read-minus",
+        "a-minus-set-apart",
+    ],
+)
+def test_a_kept_number_the_cell_does_not_write_one_way_is_refused(
+    cell: str, unit: str, kept: float
+) -> None:
+    with pytest.raises(converter.SheetRefusedError, match="R1.01"):
+        converter.convert(_one(cell, unit), keep=_one_old(kept, unit))
+
+
+@pytest.mark.parametrize(
+    ("cell", "unit", "kept"),
+    [
+        ("1.5e3", "A", 1500),
+        ("-40 to 85", "degC", -40),
+        ("-40 to 85", "degC", 85),
+        ("2.7–5.5", "V", 5.5),
+        ("12.5, 26, 52, 104", "Hz", 26),
+        ("5V", "V", 5),
+        ("±0.5", "V", 0.5),
+        ("up to 2", "A", 2),
+    ],
+    ids=[
+        "an-exponent-read-whole",
+        "a-negative-bound",
+        "the-other-bound",
+        "an-en-dash-range",
+        "a-list",
+        "a-unit-written-on-the-number",
+        "a-plus-or-minus",
+        "a-qualified-number",
+    ],
+)
+def test_a_kept_number_the_cell_writes_one_way_is_kept(cell: str, unit: str, kept: float) -> None:
+    row = json.loads(converter.convert(_one(cell, unit), keep=_one_old(kept, unit)))["rows"]
+    assert row["R1.01"]["value"] == kept and row["R1.01"]["given"] == f"{cell} {unit}"
+
+
+# --- A kept number keeps its unit's dimension and scale ----------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("unit", "kept_unit"),
+    [("mA", "A"), ("V", "A"), ("kHz", "Hz")],
+    ids=["another-scale", "another-dimension", "another-prefix"],
+)
+def test_a_cell_unit_the_gate_reads_as_another_quantity_is_refused(
+    unit: str, kept_unit: str
+) -> None:
+    with pytest.raises(converter.SheetRefusedError, match=r"R1\.01.*unit"):
+        converter.convert(_one("2", unit), keep=_one_old(2, kept_unit))
+
+
+@pytest.mark.parametrize(
+    ("unit", "kept_unit"),
+    [("LSB/g", "dimensionless"), ("ampere", "A")],
+    ids=["a-unit-the-gate-cannot-read", "the-same-unit-spelt-otherwise"],
+)
+def test_a_cell_unit_unreadable_or_the_same_passes_and_is_given(unit: str, kept_unit: str) -> None:
+    row = json.loads(converter.convert(_one("2", unit), keep=_one_old(2, kept_unit)))["rows"]
+    assert row["R1.01"]["unit"] == kept_unit and row["R1.01"]["given"] == f"2 {unit}"
+
+
+# --- An earlier sheet is read once, every key once ---------------------------------------------
+
+
+def _old_with(**top: Any) -> bytes:
+    return json.dumps({**json.loads(_old()), **top}).encode()
+
+
+_ROW_15 = f'{{"quantity": "current", "value": 1.5, "unit": "A", "url": "{MOTOR}"}}'
+_ROW_2 = f'{{"quantity": "current", "value": 2, "unit": "A", "url": "{MOTOR}"}}'
+_FIELD_TWICE = f'{{"quantity": "current", "value": 1.5, "value": 2, "unit": "A", "url": "{MOTOR}"}}'
+
+
+@pytest.mark.parametrize(
+    ("old", "said"),
+    [
+        (f'{{"label": "L", "rows": {{"R1.01": {_ROW_15}, "R1.01": {_ROW_2}}}}}', "R1.01"),
+        (f'{{"label": "L", "rows": {{"R1.01": {_FIELD_TWICE}}}}}', "value"),
+    ],
+    ids=["a-row-id-twice", "a-field-twice"],
+)
+def test_an_earlier_sheet_that_writes_a_key_twice_is_refused(old: str, said: str) -> None:
+    json.loads(old)  # plain JSON reading takes the last of the two, silently
+    with pytest.raises(converter.SheetRefusedError, match=f"twice.*{said}|{said}.*twice"):
+        converter.convert(_one("1.5–2", "A"), keep=old.encode())
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda s: s["rows"]["R1.03"].update(quantity="supply voltage"),
+        lambda s: s["rows"]["R1.03"].update(url=PKG),
+        lambda s: s.update(extra=["x"]),
+    ],
+    ids=["another-quantity", "another-address", "a-top-level-field-beyond-remarks"],
+)
+def test_the_additive_check_compares_quantity_address_and_the_sheet_s_own_fields(
+    change: Any,
+) -> None:
+    earlier = json.loads(_old())
+    kept = json.loads(converter.convert(SHEET, keep=_old()))
+    change(kept)
+    with pytest.raises(converter.SheetRefusedError, match="not the earlier sheet"):
+        converter._additive(earlier, kept)
