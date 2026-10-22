@@ -23,7 +23,7 @@ import pytest
 
 from physgate.knowledge import staging
 from physgate.knowledge.promote import _apply, rubric_path
-from physgate.reviewers.rubric import check_rubric, evaluation_words, load_rubric
+from physgate.reviewers.rubric import ITEM_PREFIXES, check_rubric, evaluation_words, load_rubric
 from physgate.reviewers.scan import ScanHit
 from physgate.reviewers.verdict import Answered, Unavailable, judge
 
@@ -99,6 +99,14 @@ APPROVED = {
         ),
         ("MA", "MS", "MP", "MH"),
     ),
+    "integration": (
+        (("final", "68b7b1ac4af9f821078c18891729b055ee086fc285a6ddefb5c498192fac198e", 57),),
+        ("IA", "IS", "IP", "IH"),
+    ),
+    "design": (
+        (("final", "04aa9d73f433efcf10376b5be74e74a2397ef66d653441a61e52819996931c67", 65),),
+        ("PA", "PS", "PP", "PH"),
+    ),
 }
 VERSIONS = [(role, folder) for role, (versions, _) in APPROVED.items() for folder, _, _ in versions]
 _CANARY = re.compile(rb"\n\n<!-- [0-9a-f]{32} -->\n\Z")
@@ -143,6 +151,11 @@ def _approved(role: str, folder: str | None = None) -> bytes:
     pytest.skip(f"the approved {role} rubric ({folder}) is not on this machine")
 
 
+def test_the_pinned_prefixes_are_the_registered_ones() -> None:
+    for role, (_, prefixes) in APPROVED.items():
+        assert ITEM_PREFIXES[role] == prefixes, role
+
+
 @pytest.mark.parametrize("role", sorted(APPROVED))
 def test_the_promoted_rubric_is_an_approved_version(role: str) -> None:
     promoted = _promoted(role)
@@ -164,7 +177,7 @@ def test_a_staged_rubric_is_the_latest_approved_version(role: str) -> None:
 def test_the_approved_rubric_parses_as_it_is(role: str, folder: str) -> None:
     text = _approved(role, folder).decode("utf-8")
     items = check_rubric(text)
-    prefixes = APPROVED[role][1]
+    prefixes = ITEM_PREFIXES[role]
     assert len(items) == _count(role, folder)
     assert evaluation_words(text) == []
     for section, prefix in zip(SECTION_ORDER, prefixes, strict=True):

@@ -159,12 +159,12 @@ def test_a_run_that_could_plan_a_role_without_curated_content_spends_no_call(
     # A registered role the real library carries no content for: a stand-in, registered here.
     monkeypatch.setitem(
         physgate_roles.ROLES,
-        "design",
-        physgate_roles.Role(name="design", domain="cross", architecture="ARCH-050"),
+        "simulation",
+        physgate_roles.Role(name="simulation", domain="cross", architecture="ARCH-050"),
     )
-    code, api, _, run_dir = _decompose(tmp_path, monkeypatch, roles=("control", "design"))
+    code, api, _, run_dir = _decompose(tmp_path, monkeypatch, roles=("control", "simulation"))
     assert code != 0
     printed = capsys.readouterr().err
-    assert "no curated file" in printed and "design" in printed
+    assert "no curated file" in printed and "simulation" in printed
     assert api.requests == []
     assert not (run_dir / "decomposition").exists()

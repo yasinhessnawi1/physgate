@@ -124,7 +124,7 @@ def test_a_link_on_the_way_to_the_library_is_refused(tmp_path: Path) -> None:
 
 
 #: The roles the real library carries curated content for.
-CURATED = ("control", "firmware", "electrical", "mechanical")
+CURATED = ("control", "firmware", "electrical", "mechanical", "design", "integration")
 #: The always-loaded ceiling every role's set is held to, in bytes.
 CEILING = 40_960
 
@@ -137,7 +137,7 @@ def test_the_real_library_serves_the_curated_roles_and_refuses_one_without_conte
         assert data == (real / relative).read_bytes()
         assert len(data) > 1000, relative  # curated, not a fixture
     with pytest.raises(LibraryError, match="no curated file"):
-        read_library(real, ["design"])
+        read_library(real, ["simulation"])
 
 
 @pytest.mark.parametrize("role", CURATED)
