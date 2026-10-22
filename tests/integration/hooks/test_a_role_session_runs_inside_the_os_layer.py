@@ -28,6 +28,7 @@ from fake_messages_api import tool
 from os_layer_rig import MARKER, Layout, layer_here, make_layout, python, run_session
 
 from physgate.orchestrator.budget import classify_session_end
+from physgate.orchestrator.queue import read_queue
 from physgate.oslayer.placement import machine_writable, placement_refusal
 from physgate.oslayer.probe import shared_temp_dirs
 
@@ -340,3 +341,5 @@ def test_a_denial_bites_however_the_path_is_spelled(tmp_path: Path, given: str) 
         for said in told:
             assert MARKER not in str(said) and "reached" not in str(said), said
         assert (real / "run" / "queue_decisions.jsonl").read_text() == ""
+        # What the loop reads at a boundary: the denied append left it no decision to take.
+        assert read_queue(real / "run").decisions == ()
