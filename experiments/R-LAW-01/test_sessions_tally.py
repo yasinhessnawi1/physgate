@@ -24,16 +24,16 @@ HERE = Path(__file__).resolve().parent
 SH = HERE / "law_sessions.sh"
 LIMIT = '[{"type":"result","is_error":true,"result":"usage_limit_reached"}]'
 GOOD = {"id": "F1", "verdict": "true_flaw", "origin": "introduced", "reason": "r"}
-#: Real outputs of the pinned 2.1.301 binary on the development account, 22.10.2026, copied byte
-#: for byte (sha256 90f8d1ea… and c8001a37…): ``smoke_out.json`` is the smoke session, and
+#: Real outputs of the pinned 2.1.301 binary on the development account, copied byte for byte
+#: (sha256 c8001a37…, 90f8d1ea… and 6812d707…): ``smoke_out.json`` is the smoke session;
 #: ``schema_fail_probe_out.json`` a session whose schema no value can meet, where the model gave up
-#: after two StructuredOutput calls (a success result without a structured output).
-#: ``retry_exhausted_out.json`` is the probe's result with the fields the binary's own
-#: structured-output exhaustion path sets in its place (``is_error`` true, ``subtype``
-#: ``error_max_structured_output_retries``, ``terminal_reason``
-#: ``structured_output_retry_exhausted``, ``errors``, and no ``result``), as the binary's strings
-#: give them: that path was not observed live.
+#: after two StructuredOutput calls (a success result without a structured output); and
+#: ``retry_exhausted_probe_out.json`` the same schema with MAX_STRUCTURED_OUTPUT_RETRIES=1, where
+#: the binary gave up itself: exit 1, ``is_error`` true, subtype
+#: ``error_max_structured_output_retries``, terminal reason ``structured_output_retry_exhausted``,
+#: two turns, and no usage reported (``modelUsage`` empty, every count 0).
 DATA = HERE / "testdata"
+EXHAUSTED = DATA / "retry_exhausted_probe_out.json"
 
 
 def fake(tmp_path: Path, name: str, stdout: str, stderr: str = "", code: int = 0) -> Path:
@@ -256,6 +256,7 @@ def test_the_guard_is_read_again_once_the_last_session_settles(
             "terminal_reason": "completed",
             "structured_output": {"findings": [GOOD]},
             "usage": {"input_tokens": 100},
+            "modelUsage": {"claude-opus-5-5": {"inputTokens": 100}},
         }
     )
     env = env_for(tmp_path, RLAW_STANDIN=str(fake(tmp_path, "last", answer)))
@@ -315,6 +316,53 @@ def test_the_ledger_line_is_law_verify_s_own(tmp_path: Path, packets: Path) -> N
     )
     ledger_calls = [c for c in calls.read_text().splitlines() if "law_verify.py ledger " in c]
     assert len(ledger_calls) == 2
+
+
+#: Failed calls whose output reports no usage. A call refused before any model work (a usage limit,
+#: a rate limit, a refused credential) is charged nothing; any other is charged as a try.
+NO_USAGE = {
+    "a server error": (
+        '{"type":"result","is_error":true,"terminal_reason":"api_error","api_error_status":500}',
+        1,
+        30_000,
+    ),
+    "a network failure": ("", 1, 30_000),
+    "a usage limit": (LIMIT, 0, 0),
+    "a rate limit": (
+        '{"type":"result","is_error":true,"terminal_reason":"api_error","api_error_status":429}',
+        1,
+        0,
+    ),
+    "a refused credential": (
+        '{"type":"result","is_error":true,"terminal_reason":"api_error","api_error_status":401}',
+        1,
+        0,
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(NO_USAGE))
+def test_a_call_that_reports_no_usage_is_charged_unless_refused_before_any_work(
+    tmp_path: Path, packets: Path, case: str
+) -> None:
+    stdout, code, charge = NO_USAGE[case]
+    env = env_for(tmp_path, RLAW_STANDIN=str(fake(tmp_path, "nousage", stdout, "", code)))
+    before = [
+        {"step": "s0", "packet": "P0101", "try": 1, "tokens": 30_000, "infrastructure": None},
+        {"step": "s0", "packet": "P0102", "try": 1, "tokens": 20_000},
+        # neither an estimate nor a failed call is a completed try's count
+        {"step": "s0", "packet": "P0103", "try": 1, "tokens": 900_000, "tokens_estimated": True},
+        {"step": "s0", "packet": "P0104", "try": 1, "tokens": 2_000_000, "infrastructure": "x"},
+    ]
+    led = ledger(Path(env["RLAW_LEDGER"]), before)
+    done = run(
+        "run", "s", "reality", str(packets), str(tmp_path / "out"), "claude-opus-5-5", "1", env=env
+    )
+    assert done.returncode == 4, done.stderr  # a failed call: the run stops
+    (row,) = rows_of(led)[len(before) :]
+    assert row["infrastructure"] and row["models_used"] == []
+    assert row["tokens"] == charge
+    assert row.get("tokens_estimated", False) is (charge > 0)
 
 
 def test_the_driver_and_the_tally_hold_one_guard() -> None:
@@ -609,7 +657,7 @@ def test_an_invalid_form_is_a_try_and_gets_the_one_retry(tmp_path: Path, packets
 
 def _exhausted(variant: str) -> str:
     """The binary's structured-output exhaustion result, or one of its two marks alone."""
-    r = json.loads((DATA / "retry_exhausted_out.json").read_text())
+    r = json.loads(EXHAUSTED.read_text())
     if variant == "the subtype alone":  # the retraction path keeps an aborted terminal reason
         r["terminal_reason"] = "aborted_tools"
     elif variant == "the terminal reason alone":
@@ -635,7 +683,10 @@ def test_the_binary_s_structured_output_exhaustion_is_a_try_with_no_form(
         (1, False, None),
         (2, False, None),
     ]
-    assert {r["tokens"] for r in rows} == {10 + 533 + 4042 + 1696}
+    # it reports no usage: each try is charged one session of the CRITERIA §12 unit, no try
+    # having reported its usage yet
+    assert [(r["tokens"], r.get("tokens_estimated")) for r in rows] == [(50_000, True)] * 2
+    assert all(r["models_used"] == [] for r in rows)
     assert not (tmp_path / "led" / "STOPPED").exists()
     assert not (tmp_path / "led" / "interruptions.jsonl").exists()
     assert not list(out.glob("*.failed-*"))

@@ -467,6 +467,27 @@ def test_the_tally_sums_the_ledger_and_voids_at_the_guard(tmp_path: Path) -> Non
     assert d["deviations"] == ["the 60 M token guard was reached: the result is void"]
 
 
+def test_the_tally_prints_the_estimated_rows_beside_the_token_total(tmp_path: Path) -> None:
+    build(tmp_path, [flaw([ln("a1", "L", "L")])])
+    est = {"step": "measured-c1", "packet": "P0003", "try": 1, "tokens_estimated": True}
+    _ledger(
+        tmp_path,
+        _row(40_000)
+        + _row(30_000, "P0002")
+        + json.dumps({**est, "tokens": 40_000})
+        + "\n"
+        + json.dumps({**est, "packet": "P0004", "tokens": 80_000})
+        + "\n",
+    )
+    out = TL.Tally(tmp_path, dry_run=True, sets=SETS).run()
+    assert out["tokens"] == {
+        "spent": 190_000,
+        "guard": 60_000_000,
+        "estimated_rows": 2,
+        "estimated_tokens": 120_000,
+    }
+
+
 @pytest.mark.parametrize(
     "text",
     [

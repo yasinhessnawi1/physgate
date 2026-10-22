@@ -22,7 +22,9 @@ Usage (from the repository root, with the project environment):
   and failure kinds, never a code distribution.
 - ``ledger``: the session driver's ledger line for one call, counted from its output here (tokens
   of every kind :data:`TOKEN_KINDS` names, and the models its ``modelUsage`` names) and appended
-  in one write, so that drivers appending at once never tear each other's lines.
+  in one write, so that drivers appending at once never tear each other's lines. An output that
+  reports no usage is charged from the ledger as it stands (:func:`charged`) and marked
+  ``tokens_estimated``.
 - ``spent``: the ledger's token total (exit 0), or a refusal (exit 1) if any line is not a whole
   row whose token count is a non-negative integer; the 60 M guard reads nothing else (§12).
 """
@@ -121,6 +123,52 @@ class LedgerUnreadable(Exception):
     """A ledger whose total cannot be read: a torn line, or a row without its token count."""
 
 
+#: CRITERIA §12's tokens per session: the charge's unit while no completed try has reported usage.
+SESSION_TOKENS = 50_000
+#: Failed calls refused before any model work; one whose output reports no usage costs nothing.
+REFUSED_BEFORE_WORK = ("usage_limit", "rate_limit", "credential_refused")
+
+
+def reports_usage(path: Path) -> bool:
+    """Whether the output has a result that names the models it used (``modelUsage``)."""
+    return bool(result_message(path).get("modelUsage"))
+
+
+def turns_of(path: Path) -> int:
+    """The result's ``num_turns``; 1 with no result, or none that is a whole number of turns."""
+    n = result_message(path).get("num_turns")
+    return n if type(n) is int and n > 0 else 1
+
+
+def charge_unit(ledger: Path) -> int:
+    """The largest count a completed try reported, among the ledger's rows now (an estimate's
+    charge is no report, and a failed call is no try); §12's 50,000 while there is none."""
+    try:
+        rows = ledger_rows(ledger)
+    except LedgerUnreadable:
+        return SESSION_TOKENS  # the guard stops on this ledger whatever is charged here
+    done = [
+        r["tokens"] for r in rows if not r.get("infrastructure") and not r.get("tokens_estimated")
+    ]
+    return max(done) if done else SESSION_TOKENS
+
+
+def charged(out: Path, cause: str | None, ledger: Path) -> tuple[int, bool]:
+    """The tokens a call is charged, and whether they are an estimate (README reading 12).
+
+    An output that reports no usage (no result, or a result whose ``modelUsage`` is empty, as the
+    binary's structured-output exhaustion reports it) is charged ceil(turns / 2), at least 1,
+    times :func:`charge_unit`, unless it is a failed call refused before any model work. A charge
+    never counts less than the output reports.
+    """
+    reported = tokens_of(out)
+    if reports_usage(out):
+        return reported, False
+    if cause and cause.split(" ", 1)[0] in REFUSED_BEFORE_WORK:
+        return reported, False
+    return max(reported, max(1, math.ceil(turns_of(out) / 2)) * charge_unit(ledger)), True
+
+
 def ledger_row(
     step: str,
     packet: str,
@@ -131,21 +179,27 @@ def ledger_row(
     valid: bool,
     standin: bool,
     cause: str | None,
+    ledger: Path,
 ) -> dict[str, Any]:
-    """One call's ledger line: the session driver writes exactly this, counted here."""
-    return {
+    """One call's ledger line: the session driver writes exactly this, counted here, with the
+    ledger as it stands when the line is written."""
+    tokens, estimated = charged(out, cause, ledger)
+    row = {
         "step": step,
         "packet": packet,
         "try": int(tr),
         "model_asked": model_asked,
         "models_used": model_of(out),
-        "tokens": tokens_of(out),
+        "tokens": tokens,
         "exit": int(code),
         "valid": valid,
         "standin": standin,
         "infrastructure": cause or None,
         "utc": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
+    if estimated:
+        row["tokens_estimated"] = True
+    return row
 
 
 def append_row(ledger: Path, row: dict[str, Any]) -> None:
@@ -721,7 +775,16 @@ def main(argv: list[str]) -> int:
     if argv[:1] == ["ledger"] and len(argv) == 11:
         led, step, packet, tr, model, out, code, valid, standin, cause = argv[1:]
         row = ledger_row(
-            step, packet, int(tr), model, Path(out), int(code), valid == "1", standin == "1", cause
+            step,
+            packet,
+            int(tr),
+            model,
+            Path(out),
+            int(code),
+            valid == "1",
+            standin == "1",
+            cause,
+            Path(led),
         )
         append_row(Path(led), row)
         return 0

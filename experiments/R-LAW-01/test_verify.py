@@ -452,7 +452,6 @@ DATA = Path(__file__).resolve().parent / "testdata"
     [
         ("smoke_out.json", 2 + 219 + 0 + 1351),
         ("schema_fail_probe_out.json", 10 + 533 + 4042 + 1696),
-        ("retry_exhausted_out.json", 10 + 533 + 4042 + 1696),
     ],
 )
 def test_the_ledger_row_of_a_real_session_output(tmp_path: Path, name: str, tokens: int) -> None:
@@ -474,13 +473,70 @@ def test_the_ledger_row_of_a_real_session_output(tmp_path: Path, name: str, toke
     assert V.ledger_total(led) == 2 * tokens
 
 
-def test_a_session_output_that_is_not_the_binary_s_counts_no_token(tmp_path: Path) -> None:
+def _charged(led: Path, out: Path, cause: str = "") -> dict[str, Any]:
+    args = ["ledger", str(led), "s", "P0009", "1", "claude-opus-5-5", str(out), "1", "0", "0"]
+    assert V.main([*args, cause]) == 0
+    return V.ledger_rows(led)[-1]
+
+
+def _ledger_rows(led: Path, rows: list[dict[str, Any]]) -> None:
+    led.write_text("".join(json.dumps(r) + "\n" for r in rows))
+
+
+def test_a_call_that_reports_no_usage_is_charged_from_the_ledger(tmp_path: Path) -> None:
     led = tmp_path / "ledger.jsonl"
-    (tmp_path / "out.json").write_text("Error: something broke")
-    args = ["ledger", str(led), "s", "P0001", "1", "claude-opus-5-5", str(tmp_path / "out.json")]
-    assert V.main([*args, "1", "0", "0", "no_result"]) == 0
-    (r,) = V.ledger_rows(led)
-    assert r["tokens"] == 0 and r["models_used"] == [] and r["infrastructure"] == "no_result"
+    live = DATA / "retry_exhausted_probe_out.json"  # two turns, modelUsage {}, every count 0
+    assert V.tokens_of(live) == 0 and V.model_of(live) == []
+    # no completed try yet: one session of CRITERIA §12's 50,000
+    r = _charged(led, live)
+    assert (r["tokens"], r["tokens_estimated"], r["models_used"]) == (50_000, True, [])
+    # then the largest count a completed try reported, never an estimate or a failed call's
+    _ledger_rows(
+        led,
+        [
+            {"step": "s", "packet": "P0001", "try": 1, "tokens": 7_000, "infrastructure": None},
+            {"step": "s", "packet": "P0002", "try": 2, "tokens": 4_000},
+            {"step": "s", "packet": "P0003", "try": 1, "tokens": 90_000, "tokens_estimated": True},
+            {"step": "s", "packet": "P0004", "try": 1, "tokens": 80_000, "infrastructure": "x"},
+        ],
+    )
+    assert _charged(led, live)["tokens"] == 7_000
+    # ceil(turns / 2) sessions of it: five turns are three
+    many = tmp_path / "five.json"
+    many.write_text(json.dumps({**json.loads(live.read_text()), "num_turns": 5}))
+    assert _charged(led, many)["tokens"] == 3 * 7_000
+    # no result at all is one turn; so is a cut-off output
+    (tmp_path / "broke.json").write_text("Error: something broke")
+    r = _charged(led, tmp_path / "broke.json", "no_result")
+    assert (r["tokens"], r["tokens_estimated"], r["infrastructure"]) == (7_000, True, "no_result")
+    (tmp_path / "cut.json").write_text('[{"type":"system"')
+    assert _charged(led, tmp_path / "cut.json")["tokens"] == 7_000
+    # an output that reports its usage is counted as it reports it
+    r = _charged(led, DATA / "smoke_out.json")
+    assert r["tokens"] == 1572 and "tokens_estimated" not in r
+
+
+@pytest.mark.parametrize(
+    ("cause", "charge"),
+    [
+        ("usage_limit", 0),
+        ("rate_limit (429)", 0),
+        ("credential_refused (401)", 0),
+        ("credential_refused (403)", 0),
+        ("api_error (500)", 7_000),
+        ("api_error", 7_000),
+        ("error_result", 7_000),
+        ("exit 2", 7_000),
+    ],
+)
+def test_a_call_refused_before_any_work_is_charged_nothing(
+    tmp_path: Path, cause: str, charge: int
+) -> None:
+    led = tmp_path / "ledger.jsonl"
+    _ledger_rows(led, [{"step": "s", "packet": "P0001", "try": 1, "tokens": 7_000}])
+    (tmp_path / "out.json").write_text('{"type":"result","is_error":true}')
+    r = _charged(led, tmp_path / "out.json", cause)
+    assert r["tokens"] == charge and r.get("tokens_estimated", False) is (charge > 0)
 
 
 def test_the_ledger_total_refuses_a_ledger_it_cannot_read(tmp_path: Path) -> None:

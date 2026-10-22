@@ -605,7 +605,15 @@ class Tally:
     def run(self) -> dict[str, Any]:
         out: dict[str, Any] = {
             "dry_run": self.dry_run,
-            "tokens": {"spent": self.tokens_spent, "guard": GUARD},
+            # beside the total: the rows charged by README reading 12 (no usage reported)
+            "tokens": {
+                "spent": self.tokens_spent,
+                "guard": GUARD,
+                "estimated_rows": sum(1 for r in self.ledger_rows if r.get("tokens_estimated")),
+                "estimated_tokens": sum(
+                    r["tokens"] for r in self.ledger_rows if r.get("tokens_estimated")
+                ),
+            },
         }
         k = self.kappas()
         out["agreement"] = k
