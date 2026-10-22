@@ -11,9 +11,9 @@
 #   inputs/digests.json and slice.json; the pinned binary's version; the work dir holds lines,
 #   flaws, the slice and the re-gate records. Reads no token and starts no session.
 # calibrate: CRITERIA.md §6, round 1 on the slice (coder 1 and coder 2 at once, two lanes each, then
-#   the adjudicator), §5.5, the bank rule, the projection check (a deviation stops here), and
-#   round 2 if any bank item is taken. Ends by printing the files the "Prompt filled" commit
-#   records. Never starts a measured session.
+#   the adjudicator), §5.5, the bank rule, the projection check (a deviation stops here; a ledger
+#   it cannot read is a stop, resumable), and round 2 if any bank item is taken. Ends by printing
+#   the files the "Prompt filled" commit records. Never starts a measured session.
 # measure: only once the "Prompt filled" commit is HEAD (prompts/final/ holds the last version run
 #   on the slice, each file at the sha256 prompts.json records, and RLAW_PRIOR held to its
 #   digest before any session): reality on the injected versions
@@ -143,12 +143,24 @@ round() { # n prompts-dir
   fi
 }
 
+projection_check() { # §12's projection after round 1: exit 1 is the frozen deviation; exit 2
+  # (a ledger it cannot read) or any other failure is a stop of the run, resumable, not a deviation
+  local out pc=0
+  out="$(bash "$SESS" projection "$RLAW_LEDGER" slice-r1-c1 slice-r1-c2 slice-r1-adj)" || pc=$?
+  printf '%s\n' "$out" | tee -a "$LOG"
+  case "$pc" in
+    0) ;;
+    1) echo '["the projection check after calibration round 1 failed"]' > "$WORK/deviations.json"
+       die "projection check failed: a deviation before any measured session" ;;
+    *) die "the projection check could not read the ledger (exit $pc): a stop, not a deviation" ;;
+  esac
+}
+
 calibrate() {
   build "$WORK/prompts/v0" "$PY" -I "$HERE/law_packets.py" prompts "$WORK/prompts/v0"
   round 1 "$WORK/prompts/v0"
   build "$WORK/bank.json" "$PY" -I "$HERE/law_slice.py" bank "$WORK" "$WORK/prompts/v1"
-  bash "$SESS" projection "$RLAW_LEDGER" slice-r1-c1 slice-r1-c2 slice-r1-adj | tee -a "$LOG" \
-    || { echo '["the projection check after calibration round 1 failed"]' > "$WORK/deviations.json"; die "projection check failed: a deviation before any measured session"; }
+  projection_check
   if "$PY" -I -c "import json,sys; sys.exit(0 if json.load(open('$WORK/bank.json'))['round_2'] else 1)"; then
     round 2 "$WORK/prompts/v1"
     FINAL=v1

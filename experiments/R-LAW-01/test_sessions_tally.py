@@ -198,6 +198,19 @@ def test_the_projection_check(tmp_path: Path) -> None:
     assert run("spent", str(led)).stdout.strip() == str(30 * 50_000)
 
 
+def test_the_projection_check_refuses_a_ledger_it_cannot_read(tmp_path: Path) -> None:
+    rows = [{"step": "slice-r1-c1", "packet": f"P{i}", "tokens": 50_000} for i in range(30)]
+    led = ledger(tmp_path / "l.jsonl", rows)
+    with led.open("a") as fh:
+        fh.write(
+            '{"step": "slice-r1-adj", "packet": "P0',
+        )
+    done = run("projection", str(led), "slice-r1-c1")
+    # not the check failing (exit 1, the frozen deviation): the ledger could not be read
+    assert done.returncode == 2, done.stderr
+    assert "refused" in json.loads(done.stdout.strip().splitlines()[-1])
+
+
 #: Ledger lines no total can be read past: a driver killed mid-append, and rows that are not one
 #: call's whole line with a token count that is a non-negative integer.
 UNREADABLE = {
@@ -976,6 +989,73 @@ def preflight(work: Path, **env: str) -> subprocess.CompletedProcess[str]:
         env={**base, **env},
         check=False,
     )
+
+
+def _launch_function(name: str) -> str:
+    """One function of the launcher, verbatim: a line of its own, or up to its closing brace."""
+    lines = LAUNCH.read_text().splitlines(keepends=True)
+    i = next(k for k, x in enumerate(lines) if x.startswith(f"{name}() {{"))
+    if lines[i].rstrip().endswith("}"):
+        return lines[i]
+    j = next(k for k in range(i + 1, len(lines)) if lines[k].rstrip() == "}")
+    return "".join(lines[i : j + 1])
+
+
+def projection_check(work: Path) -> subprocess.CompletedProcess[str]:
+    """Calibration's projection check after round 1, run as the launcher runs it (a phase under
+    way, so a stop of it is a stop of the run)."""
+    script = "set -euo pipefail\n" + "".join(
+        _launch_function(n) for n in ("say", "event", "die", "projection_check")
+    )
+    env = {
+        **os.environ,
+        "WORK": str(work),
+        "LOG": str(work / "launch.log"),
+        "RLAW_LEDGER": str(work / "ledger" / "ledger.jsonl"),
+        "SESS": str(SH),
+        "PY": sys.executable,
+        "RUNNING": "1",
+        "PHASE": "_calibrate",
+    }
+    return subprocess.run(
+        ["bash", "-c", script + "projection_check\n"],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+
+
+def test_an_unreadable_ledger_at_the_projection_is_a_stop_not_a_deviation(tmp_path: Path) -> None:
+    (tmp_path / "ledger").mkdir()
+    rows = [{"step": "slice-r1-c1", "packet": f"P{i}", "tokens": 50_000} for i in range(30)]
+    led = ledger(tmp_path / "ledger" / "ledger.jsonl", rows)
+    with led.open("a") as fh:
+        fh.write('{"step": "slice-r1-adj", "pack')
+    done = projection_check(tmp_path)
+    assert done.returncode == 1
+    assert not (tmp_path / "deviations.json").exists()
+    assert (tmp_path / "ledger" / "STOPPED").exists()  # resumable, logged as a stop
+    ev = rows_of(tmp_path / "ledger" / "interruptions.jsonl")
+    assert [e["event"] for e in ev] == ["stop"] and "projection" in ev[0]["reason"]
+
+
+def test_a_projection_past_the_guard_is_the_frozen_deviation(tmp_path: Path) -> None:
+    (tmp_path / "ledger").mkdir()
+    heavy = [{"step": "slice-r1-c1", "packet": f"P{i}", "tokens": 120_000} for i in range(30)]
+    ledger(tmp_path / "ledger" / "ledger.jsonl", heavy)
+    done = projection_check(tmp_path)
+    assert done.returncode == 1
+    assert json.loads((tmp_path / "deviations.json").read_text()) == [
+        "the projection check after calibration round 1 failed"
+    ]
+    # and a ledger that holds passes
+    (tmp_path / "deviations.json").unlink()
+    (tmp_path / "ledger" / "STOPPED").unlink()
+    light = [{"step": "slice-r1-c1", "packet": f"P{i}", "tokens": 50_000} for i in range(30)]
+    ledger(tmp_path / "ledger" / "ledger.jsonl", light)
+    assert projection_check(tmp_path).returncode == 0
+    assert not (tmp_path / "deviations.json").exists()
 
 
 def test_the_preflight_refuses_a_work_dir_with_a_recorded_deviation(tmp_path: Path) -> None:

@@ -37,7 +37,8 @@
 #   refusal and exit 1 if any line of it cannot be read.
 # projection: after calibration round 1, spent + (tokens per session measured in the named
 #   round-1 steps) x (the table's 590 sessions less the sessions already run) must be at most
-#   60,000,000; exit 1 otherwise (a deviation before any measured session).
+#   60,000,000; exit 1 otherwise (a deviation before any measured session). It reads the ledger
+#   as spent does: a ledger it cannot read is exit 2, a stop, never the deviation.
 # watch: the launch script's watcher over one phase (its process group). It reads only evidence
 #   newer than <since file>, which the launcher touches as the phase starts, so a resumed phase is
 #   never stopped by the files of the stop it resumes from. At a usage-limit file or a third
@@ -91,14 +92,22 @@ spent() { # ledger -> its token total, or a refusal and exit 1 if any line canno
   "$PY" -I "$HERE/law_verify.py" spent "$1"
 }
 
-projection() {
+projection() { # exit 0 holds, 1 fails (the frozen deviation), 2 the ledger cannot be read
   local ledger="$1"; shift
-  python3 -I - "$ledger" "$GUARD" "$TABLE_SESSIONS" "$@" <<'PY'
+  "$PY" -I - "$HERE" "$ledger" "$GUARD" "$TABLE_SESSIONS" "$@" <<'PY'
 import json, sys
-ledger, guard, table = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
-steps = set(sys.argv[4:])
-rows = [json.loads(x) for x in open(ledger) if x.strip()]
-spent = sum(int(r.get("tokens") or 0) for r in rows)
+sys.path.insert(0, sys.argv[1])
+import law_verify as V
+ledger, guard, table = sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
+steps = set(sys.argv[5:])
+try:
+    # the reader spent uses; a row without its step or packet cannot be read either
+    rows = V.ledger_rows(ledger)
+    keys = [(str(r["step"]), str(r["packet"])) for r in rows]
+except (V.LedgerUnreadable, KeyError) as exc:
+    print(json.dumps({"refused": f"the ledger cannot be read: {exc}"}))
+    sys.exit(2)
+spent = sum(r["tokens"] for r in rows)
 r1 = [r for r in rows if r["step"] in steps]
 sessions_r1 = len({(r["step"], r["packet"]) for r in r1})
 sessions_all = len({(r["step"], r["packet"]) for r in rows})
