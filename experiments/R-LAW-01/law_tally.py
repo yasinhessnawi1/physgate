@@ -34,7 +34,10 @@ DRAWS = 10_000
 Z = 1.959963984540054
 EXPECTED = {"lines": 993, "flaws": 348, "before_d": 367}
 ORDER = ("G", "L", "L-if-data", "D", "N")
-CATS6 = ("G", "L", "L-if-data", "D", "N", "none")
+#: A missing form (§7): a category of its own that never agrees, not even with another one.
+NONE = "none"
+CATS6 = ("G", "L", "L-if-data", "D", "N", NONE)
+CATS_L = ("GL", "rest", NONE)
 TIE_ORDER = ("N", "D", "L-if-data", "G", "L")
 TRUE = "true_flaw"
 
@@ -82,10 +85,12 @@ def cluster_share(per_cluster: list[tuple[int, int]], draws: int = DRAWS) -> lis
 def kappa_from(
     w: float, agree: float, m1: Mapping[str, float], m2: Mapping[str, float]
 ) -> float | None:
+    """Cohen's κ from weighted counts. Chance agreement runs over the codes only: two missing
+    forms never agree, so ``none`` adds nothing to it."""
     if w <= 0:
         return None
     po = agree / w
-    pe = sum((m1.get(c, 0.0) / w) * (m2.get(c, 0.0) / w) for c in set(m1) | set(m2))
+    pe = sum((m1.get(c, 0.0) / w) * (m2.get(c, 0.0) / w) for c in (set(m1) | set(m2)) - {NONE})
     return None if pe >= 1 else (po - pe) / (1 - pe)
 
 
@@ -93,7 +98,8 @@ def kappa_stats(
     rows: list[tuple[str, str, float, Any]], k_categories: int, draws: int = DRAWS
 ) -> dict[str, Any]:
     """Weighted κ with a cluster-bootstrap interval, and the unweighted κ, raw agreement and
-    PABAK beside it. ``rows``: (code 1, code 2, weight, cluster)."""
+    PABAK beside it. ``rows``: (code 1, code 2, weight, cluster). A missing form (``none``) is
+    a disagreement whatever stands against it, another missing form included (§7)."""
 
     Marg = defaultdict[str, float]
 
@@ -103,7 +109,7 @@ def kappa_stats(
         m2: Marg = defaultdict(float)
         for a, b, wt, _ in rs:
             w += wt
-            agree += wt * (a == b)
+            agree += wt * (a == b != NONE)
             m1[a] += wt
             m2[b] += wt
         return w, agree, m1, m2
@@ -163,7 +169,21 @@ def by_line(codes: list[dict[str, Any]], step: str) -> dict[str, dict[str, dict[
 
 
 def coder_code(r: dict[str, Any] | None) -> str:
-    return "none" if r is None or r.get("form") is None else str(r["code"])
+    return NONE if r is None or r.get("form") is None else str(r["code"])
+
+
+def gl(code: str) -> str:
+    """κ_L's three categories: G or L, the rest, and a missing form."""
+    return NONE if code in (NONE, "uncoded") else ("GL" if code in ("G", "L") else "rest")
+
+
+def resolution(
+    wilson_iv: list[float] | None, cluster_iv: list[float] | None
+) -> tuple[bool, list[float] | None]:
+    """§10: resolved if the wider of the two intervals lies wholly on one side of T."""
+    ivs = [iv for iv in (wilson_iv, cluster_iv) if iv]
+    wider = max(ivs, key=lambda iv: iv[1] - iv[0]) if ivs else None
+    return wider is not None and (wider[0] >= T or wider[1] < T), wider
 
 
 def rule1(w: dict[str, dict[str, Any]]) -> str:
@@ -393,16 +413,9 @@ class Tally:
             a, b = coder_code(w.get("c1")), coder_code(w.get("c2"))
             _, nlines, cl = flaw_of[lid]
             rows5.append((a, b, 1.0 / nlines, cl))
-            rowsL.append(
-                (
-                    "GL" if a in ("G", "L") else "rest",
-                    "GL" if b in ("G", "L") else "rest",
-                    1.0 / nlines,
-                    cl,
-                )
-            )
+            rowsL.append((gl(a), gl(b), 1.0 / nlines, cl))
         k5 = kappa_stats(rows5, len(CATS6))
-        kl = kappa_stats(rowsL, 2)
+        kl = kappa_stats(rowsL, len(CATS_L))
         meets = (
             k5["weighted"] is not None
             and kl["weighted"] is not None
@@ -419,6 +432,7 @@ class Tally:
             ls = self.code_lines(u, not self.reliable)
             a = aggregate([coder_code(self.coded.get(i, {}).get("c1")) for i in ls])
             b = aggregate([coder_code(self.coded.get(i, {}).get("c2")) for i in ls])
+            a, b = (NONE if c == "uncoded" else c for c in (a, b))
             pairs.append((a, b, 1.0, u["cluster"]))
         return kappa_stats(pairs, len(CATS6)) if pairs else None
 
@@ -433,17 +447,10 @@ class Tally:
         r5, rl = [], []
         for r in rows:
             a, b = coder_code(r), self.pre[r["line_id"]]
-            b = "none" if b == "uncoded" else b
+            b = NONE if b == "uncoded" else b
             n, cl = flaw_of[r["line_id"]]
             r5.append((a, b, 1.0 / n, cl))
-            rl.append(
-                (
-                    "GL" if a in ("G", "L") else "rest",
-                    "GL" if b in ("G", "L") else "rest",
-                    1.0 / n,
-                    cl,
-                )
-            )
+            rl.append((gl(a), gl(b), 1.0 / n, cl))
         lines = [
             r["line_id"] for r in rows if self.real({"lines": [r["line_id"]]}, not self.reliable)
         ]
@@ -452,7 +459,7 @@ class Tally:
         return {
             "models_in_ledger": self.ledger_models("audit"),
             "kappa5": kappa_stats(r5, len(CATS6)),
-            "kappaL": kappa_stats(rl, 2),
+            "kappaL": kappa_stats(rl, len(CATS_L)),
             "real_lines": len(lines),
             "L_share_by_audit_codes": by_audit / len(lines) if lines else None,
             "L_share_by_final_codes": by_final / len(lines) if lines else None,
@@ -642,10 +649,7 @@ class Tally:
                 for key in ("relation_origin", "unformed_by", "joined", "kind", "law")
             },
             "L_gap_from_coder_G": sum(1 for f in fields if f["gap"]),
-            "L_literals": [
-                {"line": i, "relation": f["relation"], "literals": f["literals"]}
-                for i, f in zip(l_reps, fields, strict=True)
-            ],
+            "L_literals": self.l_literals(),
         }
 
         def role_of(u: dict[str, Any]) -> str:
@@ -725,13 +729,12 @@ class Tally:
         out["readings"] = readings
         ds = deciding["share"]
         side = None if ds is None else ds >= T
-        ivs = [iv for iv in (deciding["wilson"], deciding["cluster"]) if iv]
-        wider = max(ivs, key=lambda iv: iv[1] - iv[0]) if ivs else None
-        resolved = wider is not None and (wider[0] >= T or wider[1] < T)
+        resolved, wider = resolution(deciding["wilson"], deciding["cluster"])
         crossing = [
             name for name, r in readings.items() if r["share"] is None or (r["share"] >= T) != side
         ]
-        lplus = out["secondary"]["L_plus_L_if_data"]["share"]
+        # beside the deciding share, on its own flaws: all of them, or those elsewhere
+        lplus = self.share(flaws, er, ("L", "L-if-data"), keep=keep)["share"]
         taken = not self.deviations
         priority = bool(side) and k["meets_floor"] and taken
         out["decision"] = {
@@ -756,18 +759,39 @@ class Tally:
             "below_kappa_floor": not k["meets_floor"],
             "unreliable_label": None if k["meets_floor"] else "unreliable, not a ceiling",
             "deviations": self.deviations,
-            "interruptions_counted_as_deviations": out["interruptions"]["events"],
+            "interruptions_reported": out["interruptions"]["events"],
         }
         return out
 
+    def l_literals(self) -> list[dict[str, Any]]:
+        """§8.2 item 8: every L relation of the measured set, with its literals and the lines that
+        state it (every measured line whose final code is L, not one line per flaw)."""
+        by: dict[str, dict[str, Any]] = {}
+        for lid in sorted(self.measured):
+            if self.final[lid] != "L":
+                continue
+            f = self.deciding.get(lid) or {}
+            facts = (f.get("_verified") or {}).get("relation_facts") or {}
+            rel = str(f.get("relation"))
+            e = by.setdefault(
+                rel,
+                {"relation": rel, "literals": facts.get("literals", []), "kinds": [], "lines": []},
+            )
+            e["lines"].append(lid)
+            if f.get("kind") not in e["kinds"]:
+                e["kinds"].append(f.get("kind"))
+        return [by[r] for r in sorted(by)]
+
     def interruptions(self) -> dict[str, Any]:
-        """Every logged stop and resume, with its time: each a deviation RESULT counts. They do
-        not void the result: a resumed packet is an independent session on fixed inputs."""
+        """Every logged stop, failed call and resume, with its time: each an interruption RESULT
+        reports, never a deviation. None changes whether the decision is taken: a resumed packet
+        is an independent session on fixed inputs, and a failed call is not a try."""
         p = self.work / "ledger" / "interruptions.jsonl"
         rows = X.read_jsonl(p) if p.exists() else []
         return {
             "events": len(rows),
             "stops": sum(1 for r in rows if r["event"] == "stop"),
+            "failed_calls": sum(1 for r in rows if r["event"] == "failed_call"),
             "resumes": sum(1 for r in rows if r["event"] == "resume"),
             "log": rows,
         }
