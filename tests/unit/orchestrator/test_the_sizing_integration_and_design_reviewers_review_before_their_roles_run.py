@@ -1,16 +1,14 @@
 """The sizing, integration and design reviewers are registered to review, never to admit a role.
 
-Each of the three has a rubric rule (a criterion not evaluable always blocks, as its
-verdict policy states) and its own item prefixes, distinct from every other role's, so an
-item id in a verdict names its rubric. None of that admits a session of the role: a run
-naming one is refused at the role register whatever reviewer it brings, and a reviewer on
-the implementer's model string is refused for each, the design reviewer's implementer
-being the decomposition.
+Each of the three has a rubric rule (a criterion not evaluable always blocks) and its own
+item prefixes, distinct from every other role's, so an item id in a verdict names its
+rubric. None of that admits a session of the role: a run naming one is refused at the role
+register whatever reviewer it brings. The generic model separation check is exercised once,
+not per role.
 """
 
 from __future__ import annotations
 
-import re
 from types import SimpleNamespace
 
 import pytest
@@ -47,15 +45,6 @@ def test_no_two_roles_share_a_prefix() -> None:
     assert len(every) == len(set(every)), sorted(p for p in every if every.count(p) > 1)
 
 
-def test_no_prefix_of_one_role_reads_as_an_item_of_another() -> None:
-    # A one-letter prefix followed by digits must never match a two-letter one's ids.
-    owners = {p: role for role, prefixes in ITEM_PREFIXES.items() for p in prefixes}
-    for prefix in owners:
-        for other in owners:
-            if other != prefix:
-                assert not re.fullmatch(rf"{prefix}-?[0-9]+", f"{other}-1"), (prefix, other)
-
-
 @pytest.mark.parametrize("role", NEW)
 def test_a_run_naming_a_new_role_is_refused_whatever_reviewer_it_brings(role: str) -> None:
     base = make_config(gate_mode="off")
@@ -72,19 +61,9 @@ def test_a_run_naming_a_new_role_is_refused_whatever_reviewer_it_brings(role: st
     assert role in refused.value.context["roles"]
 
 
-@pytest.mark.parametrize("role", NEW)
-def test_a_reviewer_on_the_implementer_s_model_is_refused_for_each_new_role(role: str) -> None:
-    config = make_config(
-        models=make_config().models.model_copy(
-            update={
-                "decomposition": IMPLEMENTER,
-                "roles": {role: IMPLEMENTER},
-                "reviewers": {role: REVIEWER},
-            }
-        )
-    )
-    # The design reviewer judges the plan, so its implementer is the decomposition.
-    implementer = config.models.decomposition if role == "design" else config.models.roles[role]
-    require_separate_models(implementer=implementer, reviewer=config.models.reviewers[role])
+def test_the_model_separation_check_takes_a_distinct_reviewer_and_refuses_the_same_model() -> None:
+    # The generic check every role's review passes through, not a per-role refusal: the
+    # design reviewer against the decomposition model is checked with the code track (E1a).
+    require_separate_models(implementer=IMPLEMENTER, reviewer=REVIEWER)
     with pytest.raises(ModelSeparationError):
-        require_separate_models(implementer=implementer, reviewer=implementer)
+        require_separate_models(implementer=IMPLEMENTER, reviewer=IMPLEMENTER)

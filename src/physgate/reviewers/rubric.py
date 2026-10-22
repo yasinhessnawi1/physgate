@@ -86,7 +86,8 @@ NotEvaluableNeeds = Literal["blocking", "defect"]
 #:   the criterion is on its safety-critical list and non-blocking otherwise (rules 3 and
 #:   7, and A6).
 #: - electrical and mechanical: always blocking, as their verdict policies state.
-#: - sizing, integration and design: always blocking, as their verdict policies state.
+#: - integration and design: always blocking, as their verdict policies state; sizing the same,
+#:   by the rule its rubric is to state (no sizing rubric is in the repository yet).
 #:   The three review before their roles are dispatched: a rule here lets a reviewer
 #:   judge, and admits no session of the role, which only the role register does.
 #: A role with no rubric rule of its own takes the stricter: blocking.
