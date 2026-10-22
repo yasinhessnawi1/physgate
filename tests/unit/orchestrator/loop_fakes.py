@@ -81,6 +81,7 @@ class FakeDispatcher:
     withheld: dict[int, str] = field(default_factory=dict)
     #: Per call: the tool calls whose command the OS layer's bubblewrap aborted.
     aborted: dict[int, tuple[str, ...]] = field(default_factory=dict)
+    unverified: dict[int, tuple[str, ...]] = field(default_factory=dict)
     #: Per call: why the session's worktree may not hold a sandboxed session.
     misplaced: dict[int, str] = field(default_factory=dict)
     #: Where to write real, sealed trajectory files; None keeps them notional.
@@ -125,6 +126,7 @@ class FakeDispatcher:
                 usage=(MessageUsage(message_id=f"m{call}", usage=usage(3)),),
                 series=self.series.get(call, SessionSeries()),
                 os_layer_aborted=self.aborted.get(call, ()),
+                reaper_unverified=self.unverified.get(call, ()),
             )
         trajectory = f"sessions/{sid}/stdout.jsonl"
         sealed = None
@@ -151,6 +153,7 @@ class FakeDispatcher:
             placeholders_refused=self.placeholders.get(call),
             withheld_problems=self.withheld.get(call),
             os_layer_aborted=self.aborted.get(call, ()),
+            reaper_unverified=self.unverified.get(call, ()),
             usage=(
                 MessageUsage(message_id=f"m{call}a", usage=usage(10)),
                 MessageUsage(message_id=f"m{call}a", usage=usage(10)),

@@ -1,0 +1,158 @@
+{
+ "id": "a20",
+ "error_class": "magnitude",
+ "expected_check": "magnitude",
+ "assigned_role": "control",
+ "description": "The required minimum balance-loop rate should be 50 Hz. It is written as 5 Hz, a dropped zero. A 200 ms control period is far too slow for a robot of this height: its tip-over time constant is on the order of 0.1 s, so a loop at 5 Hz cannot hold it upright, and 5 Hz is not a plausible minimum rate for a balancing robot.",
+ "edge": null,
+ "clean": {
+  "nodes": [
+   {
+    "id": "control.req_loop_rate",
+    "kind": "requirement",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 50,
+      "unit": "Hz",
+      "source": "design: lowest balance-loop rate the robot is specified to run at, relaxed to admit slower test builds",
+      "written_by": "control"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "control.balance_loop",
+    "kind": "module",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: 10 ms control period, meeting the required minimum loop rate",
+      "written_by": "control"
+     },
+     "plant_mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "control"
+     },
+     "torque_peak": {
+      "value": 0.145,
+      "unit": "N*m",
+      "source": "derived: [R1.07] * [R1.25]",
+      "written_by": "control"
+     },
+     "no_load_speed": {
+      "value": 68.1,
+      "unit": "rad/s",
+      "source": "https://www.pololu.com/product/3073/specs",
+      "written_by": "control"
+     },
+     "gear_ratio": {
+      "value": 2.88,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_loop_rate"
+    ],
+    "constrains": [
+     "firmware.balance_task"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "control.req_loop_rate": "The 100 Hz loop already exceeds the relaxed 50 Hz minimum, so its rate and every number that follows from it stay as they are."
+    }
+   }
+  ]
+ },
+ "injected": {
+  "nodes": [
+   {
+    "id": "control.req_loop_rate",
+    "kind": "requirement",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 5,
+      "unit": "Hz",
+      "source": "design: lowest balance-loop rate the robot is specified to run at, relaxed to admit slower test builds",
+      "written_by": "control"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "control.balance_loop",
+    "kind": "module",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: 10 ms control period, meeting the required minimum loop rate",
+      "written_by": "control"
+     },
+     "plant_mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "control"
+     },
+     "torque_peak": {
+      "value": 0.145,
+      "unit": "N*m",
+      "source": "derived: [R1.07] * [R1.25]",
+      "written_by": "control"
+     },
+     "no_load_speed": {
+      "value": 68.1,
+      "unit": "rad/s",
+      "source": "https://www.pololu.com/product/3073/specs",
+      "written_by": "control"
+     },
+     "gear_ratio": {
+      "value": 2.88,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_loop_rate"
+    ],
+    "constrains": [
+     "firmware.balance_task"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "control.req_loop_rate": "The 100 Hz loop already exceeds the relaxed 50 Hz minimum, so its rate and every number that follows from it stay as they are."
+    }
+   }
+  ]
+ }
+}

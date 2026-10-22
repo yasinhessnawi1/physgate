@@ -312,3 +312,17 @@ def test_an_interface_node_naming_a_quantity_that_shadows_a_relation_s_is_a_prob
     # Every other uncatalogued name is written, and the gate records it as unchecked.
     for name in ("motor_current", "no_load_current", "idle_current", "max", "dry_mass", "zeta"):
         assert plan_problems(plan(modules, [_naming(name, "A")]), ["electrical"]) == [], name
+
+
+def test_a_plan_with_more_interface_nodes_than_a_session_can_read_first_is_a_problem() -> None:
+    # Every role session must read every interface contract of its run before any other
+    # tool, so the number of interface nodes is bounded; the bound itself is not on the
+    # schema the model is sent.
+    from physgate.orchestrator.decompose import MAX_INTERFACE_NODES  # noqa: PLC0415
+
+    modules = [module("power", "modules/power")]
+    nodes = [{**NODE, "id": f"power.bus_{i}"} for i in range(MAX_INTERFACE_NODES + 1)]
+    found = plan_problems(plan(modules, nodes), ["electrical"])
+    assert any("interface nodes" in p and str(MAX_INTERFACE_NODES) in p for p in found), found
+    assert plan_problems(plan(modules, nodes[:MAX_INTERFACE_NODES]), ["electrical"]) == []
+    assert str(MAX_INTERFACE_NODES) not in json.dumps(json.loads(plan_schema())["properties"])

@@ -1,0 +1,218 @@
+{
+ "id": "a30",
+ "error_class": "magnitude",
+ "expected_check": "magnitude",
+ "assigned_role": "electrical",
+ "description": "The ATmega32U4's max_supply_voltage (absolute maximum) should be 6.0 V. It is written as 60 V, a decimal-point slip. A 5 V AVR microcontroller rated for 2.7 to 5.5 V cannot survive 60 V, and the node's own 1.0 V margin over the 5 V rail implies 6.0 V, not 60 V.",
+ "edge": null,
+ "clean": {
+  "nodes": [
+   {
+    "id": "electrical.mcu",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 5,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "max_supply_voltage": {
+      "value": 6.0,
+      "unit": "V",
+      "source": "https://ww1.microchip.com/downloads/en/DeviceDoc/Atmel-7766-8-bit-AVR-ATmega16U4-32U4_Datasheet.pdf",
+      "written_by": "electrical"
+     },
+     "supply_voltage_margin": {
+      "value": 1.0,
+      "unit": "V",
+      "source": "derived: [R7.09] - [R7.03]",
+      "written_by": "electrical"
+     },
+     "clock_frequency": {
+      "value": 16,
+      "unit": "MHz",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "current_draw": {
+      "value": 27,
+      "unit": "mA",
+      "source": "https://ww1.microchip.com/downloads/en/DeviceDoc/Atmel-7766-8-bit-AVR-ATmega16U4-32U4_Datasheet.pdf",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.control_board",
+     "firmware.balance_task"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "electrical.control_board",
+    "kind": "module",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "sensor_power_draw": {
+      "value": 2.97,
+      "unit": "mW",
+      "source": "derived: [R8.03] * [R8.05]",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.regulator_5v"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.mcu": "Only the MCU's voltage rating was added; the board's recorded draw is that of its sensor, which the MCU does not affect."
+    }
+   },
+   {
+    "id": "firmware.balance_task",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: task period set equal to the balance-loop period",
+      "written_by": "firmware"
+     },
+     "clock_frequency": {
+      "value": 16,
+      "unit": "MHz",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "firmware.imu_driver",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.mcu": "The MCU clock is unchanged at 16 MHz, so the task period and clock are unchanged."
+    }
+   }
+  ]
+ },
+ "injected": {
+  "nodes": [
+   {
+    "id": "electrical.mcu",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 5,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "max_supply_voltage": {
+      "value": 60,
+      "unit": "V",
+      "source": "https://ww1.microchip.com/downloads/en/DeviceDoc/Atmel-7766-8-bit-AVR-ATmega16U4-32U4_Datasheet.pdf",
+      "written_by": "electrical"
+     },
+     "supply_voltage_margin": {
+      "value": 1.0,
+      "unit": "V",
+      "source": "derived: [R7.09] - [R7.03]",
+      "written_by": "electrical"
+     },
+     "clock_frequency": {
+      "value": 16,
+      "unit": "MHz",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "current_draw": {
+      "value": 27,
+      "unit": "mA",
+      "source": "https://ww1.microchip.com/downloads/en/DeviceDoc/Atmel-7766-8-bit-AVR-ATmega16U4-32U4_Datasheet.pdf",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.control_board",
+     "firmware.balance_task"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "electrical.control_board",
+    "kind": "module",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "sensor_power_draw": {
+      "value": 2.97,
+      "unit": "mW",
+      "source": "derived: [R8.03] * [R8.05]",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.regulator_5v"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.mcu": "Only the MCU's voltage rating was added; the board's recorded draw is that of its sensor, which the MCU does not affect."
+    }
+   },
+   {
+    "id": "firmware.balance_task",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: task period set equal to the balance-loop period",
+      "written_by": "firmware"
+     },
+     "clock_frequency": {
+      "value": 16,
+      "unit": "MHz",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "firmware.imu_driver",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.mcu": "The MCU clock is unchanged at 16 MHz, so the task period and clock are unchanged."
+    }
+   }
+  ]
+ }
+}

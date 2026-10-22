@@ -1,0 +1,476 @@
+{
+ "id": "a07",
+ "error_class": "equilibrium",
+ "expected_check": "equilibrium",
+ "assigned_role": "mechanical",
+ "description": "mechanical.wheel_left and mechanical.wheel_right each give supported_mass 365 g, the whole robot with cage and batteries, not divided between the two wheels ([R9.06]). Each should be 182 g. The two wheel reactions then add up to 730 g for a robot of 365 g (mechanical.robot mass, mechanical.drivetrain supported_mass). The vertical forces leave a residual of 365 g, about 3.58 N.",
+ "edge": null,
+ "clean": {
+  "nodes": [
+   {
+    "id": "mechanical.bumper_cage",
+    "kind": "component",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "mass": {
+      "value": 35,
+      "unit": "g",
+      "source": "https://www.pololu.com/product/3574/specs",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.robot"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.robot",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "mass_without_battery": {
+      "value": 200,
+      "unit": "g",
+      "source": "https://www.pololu.com/product/3575/specs",
+      "written_by": "mechanical"
+     },
+     "mass": {
+      "value": 365,
+      "unit": "g",
+      "source": "derived: [R11.01] + [R5.07] * [R5.10]",
+      "written_by": "mechanical"
+     },
+     "overall_height": {
+      "value": 118.2,
+      "unit": "mm",
+      "source": "https://www.pololu.com/file/0J1283/balboa-32u4-balancing-robot-kit-dimensions.pdf",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.drivetrain",
+     "mechanical.wheel_left",
+     "mechanical.wheel_right",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.drivetrain",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "track_width": {
+      "value": 102,
+      "unit": "mm",
+      "source": "derived: [R10.07] - [R9.02]",
+      "written_by": "mechanical"
+     },
+     "gear_ratio": {
+      "value": 148.3,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "supported_mass": {
+      "value": 365,
+      "unit": "g",
+      "source": "derived: [R11.01] + [R5.07] * [R5.10]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.robot"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.wheel_left",
+    "kind": "component",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "wheel_diameter": {
+      "value": 80,
+      "unit": "mm",
+      "source": "https://www.pololu.com/product/1430",
+      "written_by": "mechanical"
+     },
+     "mass": {
+      "value": 19.8,
+      "unit": "g",
+      "source": "https://www.pololu.com/product/1430/specs",
+      "written_by": "mechanical"
+     },
+     "supported_mass": {
+      "value": 182,
+      "unit": "g",
+      "source": "derived: ([R11.01] + [R5.07] * [R5.10]) / [R9.06]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.drivetrain"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.wheel_right",
+    "kind": "component",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "wheel_diameter": {
+      "value": 80,
+      "unit": "mm",
+      "source": "https://www.pololu.com/product/1430",
+      "written_by": "mechanical"
+     },
+     "mass": {
+      "value": 19.8,
+      "unit": "g",
+      "source": "https://www.pololu.com/product/1430/specs",
+      "written_by": "mechanical"
+     },
+     "supported_mass": {
+      "value": 182,
+      "unit": "g",
+      "source": "derived: ([R11.01] + [R5.07] * [R5.10]) / [R9.06]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.drivetrain"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "control.balance_loop",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: inner tilt loop rate, meets control.req_sample_rate",
+      "written_by": "control"
+     },
+     "loop_gain": {
+      "value": 2.5,
+      "unit": "dimensionless",
+      "source": "design: proportional gain from normalised tilt error to normalised motor command",
+      "written_by": "control"
+     },
+     "mass": {
+      "value": 365,
+      "unit": "g",
+      "source": "derived: [R11.01] + [R5.07] * [R5.10]",
+      "written_by": "control"
+     },
+     "torque_peak": {
+      "value": 110,
+      "unit": "kgf*cm",
+      "source": "derived: [R1.07] * [R2.11]",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.balance_task"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.balance_task",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: runs control.balance_loop at its rate",
+      "written_by": "firmware"
+     },
+     "loop_gain": {
+      "value": 2.5,
+      "unit": "dimensionless",
+      "source": "design: gain of control.balance_loop",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.main",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "control.balance_loop": "The loop keeps its 100 Hz rate and its gain; the heavier plant is a model number the task does not hold."
+    }
+   }
+  ]
+ },
+ "injected": {
+  "nodes": [
+   {
+    "id": "mechanical.bumper_cage",
+    "kind": "component",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "mass": {
+      "value": 35,
+      "unit": "g",
+      "source": "https://www.pololu.com/product/3574/specs",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.robot"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.robot",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "mass_without_battery": {
+      "value": 200,
+      "unit": "g",
+      "source": "https://www.pololu.com/product/3575/specs",
+      "written_by": "mechanical"
+     },
+     "mass": {
+      "value": 365,
+      "unit": "g",
+      "source": "derived: [R11.01] + [R5.07] * [R5.10]",
+      "written_by": "mechanical"
+     },
+     "overall_height": {
+      "value": 118.2,
+      "unit": "mm",
+      "source": "https://www.pololu.com/file/0J1283/balboa-32u4-balancing-robot-kit-dimensions.pdf",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.drivetrain",
+     "mechanical.wheel_left",
+     "mechanical.wheel_right",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.drivetrain",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "track_width": {
+      "value": 102,
+      "unit": "mm",
+      "source": "derived: [R10.07] - [R9.02]",
+      "written_by": "mechanical"
+     },
+     "gear_ratio": {
+      "value": 148.3,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "supported_mass": {
+      "value": 365,
+      "unit": "g",
+      "source": "derived: [R11.01] + [R5.07] * [R5.10]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.robot"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.wheel_left",
+    "kind": "component",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "wheel_diameter": {
+      "value": 80,
+      "unit": "mm",
+      "source": "https://www.pololu.com/product/1430",
+      "written_by": "mechanical"
+     },
+     "mass": {
+      "value": 19.8,
+      "unit": "g",
+      "source": "https://www.pololu.com/product/1430/specs",
+      "written_by": "mechanical"
+     },
+     "supported_mass": {
+      "value": 365,
+      "unit": "g",
+      "source": "derived: [R11.01] + [R5.07] * [R5.10]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.drivetrain"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.wheel_right",
+    "kind": "component",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "wheel_diameter": {
+      "value": 80,
+      "unit": "mm",
+      "source": "https://www.pololu.com/product/1430",
+      "written_by": "mechanical"
+     },
+     "mass": {
+      "value": 19.8,
+      "unit": "g",
+      "source": "https://www.pololu.com/product/1430/specs",
+      "written_by": "mechanical"
+     },
+     "supported_mass": {
+      "value": 365,
+      "unit": "g",
+      "source": "derived: [R11.01] + [R5.07] * [R5.10]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.drivetrain"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "control.balance_loop",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: inner tilt loop rate, meets control.req_sample_rate",
+      "written_by": "control"
+     },
+     "loop_gain": {
+      "value": 2.5,
+      "unit": "dimensionless",
+      "source": "design: proportional gain from normalised tilt error to normalised motor command",
+      "written_by": "control"
+     },
+     "mass": {
+      "value": 365,
+      "unit": "g",
+      "source": "derived: [R11.01] + [R5.07] * [R5.10]",
+      "written_by": "control"
+     },
+     "torque_peak": {
+      "value": 110,
+      "unit": "kgf*cm",
+      "source": "derived: [R1.07] * [R2.11]",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.balance_task"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.balance_task",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: runs control.balance_loop at its rate",
+      "written_by": "firmware"
+     },
+     "loop_gain": {
+      "value": 2.5,
+      "unit": "dimensionless",
+      "source": "design: gain of control.balance_loop",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.main",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "control.balance_loop": "The loop keeps its 100 Hz rate and its gain; the heavier plant is a model number the task does not hold."
+    }
+   }
+  ]
+ }
+}

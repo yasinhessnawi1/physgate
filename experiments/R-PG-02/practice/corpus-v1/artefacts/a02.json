@@ -1,0 +1,1094 @@
+{
+ "id": "a02",
+ "error_class": "equilibrium",
+ "expected_check": "equilibrium",
+ "assigned_role": "electrical",
+ "description": "mechanical.drivetrain supported_mass is 165 g, from [R11.01] - [R10.03] without the six cells. It should be 330 g, the robot with its 165 g battery pack. The drivetrain carries the whole robot through the two wheels, whose supported_mass is 165 g each, 330 g together, and mechanical.robot gives mass 330 g. The load the drivetrain says it carries balances neither the weight above it nor the wheel reactions below it: the vertical residual is 165 g, about 1.62 N.",
+ "edge": null,
+ "clean": {
+  "nodes": [
+   {
+    "id": "electrical.motors",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "rated_voltage": {
+      "value": 6,
+      "unit": "V",
+      "source": "https://www.pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-2.pdf",
+      "written_by": "electrical"
+     },
+     "gear_ratio": {
+      "value": 75.81,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/product/3074/specs",
+      "written_by": "electrical"
+     },
+     "stall_current": {
+      "value": 1.5,
+      "unit": "A",
+      "source": "https://www.pololu.com/product/3074/specs",
+      "written_by": "electrical"
+     },
+     "no_load_current": {
+      "value": 0.15,
+      "unit": "A",
+      "source": "https://www.pololu.com/product/3074/specs",
+      "written_by": "electrical"
+     },
+     "stall_torque": {
+      "value": 1.1,
+      "unit": "kgf*cm",
+      "source": "https://www.pololu.com/product/3074/specs",
+      "written_by": "electrical"
+     },
+     "rated_output_power": {
+      "value": 1.3,
+      "unit": "W",
+      "source": "https://www.pololu.com/product/3074/specs",
+      "written_by": "electrical"
+     },
+     "mass": {
+      "value": 9.5,
+      "unit": "g",
+      "source": "https://www.pololu.com/product/3074/specs",
+      "written_by": "electrical"
+     },
+     "supply_voltage": {
+      "value": 6,
+      "unit": "V",
+      "source": "https://www.pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-2.pdf",
+      "written_by": "electrical"
+     },
+     "current_draw": {
+      "value": 1.5,
+      "unit": "A",
+      "source": "https://www.pololu.com/product/3074/specs",
+      "written_by": "electrical"
+     },
+     "torque_peak": {
+      "value": 1.1,
+      "unit": "kgf*cm",
+      "source": "https://www.pololu.com/product/3074/specs",
+      "written_by": "electrical"
+     },
+     "no_load_speed": {
+      "value": 45.0,
+      "unit": "rad/s",
+      "source": "https://www.pololu.com/product/3074/specs",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.power",
+     "electrical.motor_drivers",
+     "mechanical.gearboxes",
+     "mechanical.chassis",
+     "firmware.motor_output"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "electrical.power",
+    "kind": "module",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 7.2,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "motor_current_draw": {
+      "value": 3.0,
+      "unit": "A",
+      "source": "derived: [R1a.12] * [R1.25]",
+      "written_by": "electrical"
+     },
+     "motor_power_draw": {
+      "value": 21.6,
+      "unit": "W",
+      "source": "derived: [R5.03] * [R1a.12] * [R1.25]",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.motors": "The 75:1 HPCB 6V motor has the same 1.5 A stall current at 6 V as the 50:1, so the motor branch current and power bounds are unchanged; only their cited rows move to the #3074 sheet rows."
+    }
+   },
+   {
+    "id": "electrical.motor_drivers",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 7.2,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "max_input_voltage": {
+      "value": 10.8,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "thermal_resistance": {
+      "value": 60.9,
+      "unit": "K/W",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [
+     "electrical.req_input_voltage"
+    ],
+    "constrains": [
+     "electrical.power",
+     "electrical.control_board"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.motors": "The drivers see the same 7.2 V supply and the new motor's 1.5 A stall current equals the old one, so the driver load is unchanged."
+    }
+   },
+   {
+    "id": "mechanical.gearboxes",
+    "kind": "component",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "gear_ratio": {
+      "value": 218.5,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "external_gear_ratio": {
+      "value": 2.88,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "torque_peak": {
+      "value": 240,
+      "unit": "kgf*cm",
+      "source": "derived: [R1a.13] * [R2.12]",
+      "written_by": "mechanical"
+     },
+     "reaction_moment": {
+      "value": 240,
+      "unit": "kgf*cm",
+      "source": "derived: [R1a.13] * [R2.12]",
+      "written_by": "mechanical"
+     },
+     "no_load_speed": {
+      "value": 0.206,
+      "unit": "rad/s",
+      "source": "derived: [R1a.10] / [R2.12]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.drivetrain",
+     "control.balance_loop",
+     "control.speed_loop",
+     "firmware.odometry"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.chassis",
+    "kind": "component",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "mass": {
+      "value": 130,
+      "unit": "g",
+      "source": "https://www.pololu.com/product/3573/specs",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.robot"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.motors": "The 75:1 motor weighs 9.5 g like the 50:1 and has the same 10 x 12 x 25 mm body, so the chassis mass with motors and its motor clamps are unchanged."
+    }
+   },
+   {
+    "id": "firmware.motor_output",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "supply_voltage": {
+      "value": 7.2,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     },
+     "motor_voltage_limit": {
+      "value": 6,
+      "unit": "V",
+      "source": "https://www.pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-2.pdf",
+      "written_by": "firmware"
+     },
+     "max_duty_cycle": {
+      "value": 0.833,
+      "unit": "dimensionless",
+      "source": "derived: [R1.02] / [R5.03]",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "firmware.main",
+     "electrical.motors"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.motors": "The 75:1 motor is also an HPCB 6V part, so the 6 V voltage limit and the duty cap on the 7.2 V pack stay as they are."
+    }
+   },
+   {
+    "id": "mechanical.drivetrain",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "track_width": {
+      "value": 102,
+      "unit": "mm",
+      "source": "derived: [R10.07] - [R9.02]",
+      "written_by": "mechanical"
+     },
+     "gear_ratio": {
+      "value": 218.5,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "supported_mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.robot"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.robot",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "mass_without_battery": {
+      "value": 165,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03]",
+      "written_by": "mechanical"
+     },
+     "mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "mechanical"
+     },
+     "overall_height": {
+      "value": 118.2,
+      "unit": "mm",
+      "source": "https://www.pololu.com/file/0J1283/balboa-32u4-balancing-robot-kit-dimensions.pdf",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.drivetrain",
+     "mechanical.wheel_left",
+     "mechanical.wheel_right",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "mechanical.drivetrain": "A different overall ratio changes no mass or dimension of the robot; the motors keep their 9.5 g each."
+    }
+   },
+   {
+    "id": "control.balance_loop",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: inner tilt loop rate, meets control.req_sample_rate",
+      "written_by": "control"
+     },
+     "loop_gain": {
+      "value": 2.5,
+      "unit": "dimensionless",
+      "source": "design: proportional gain from normalised tilt error to normalised motor command",
+      "written_by": "control"
+     },
+     "mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "control"
+     },
+     "torque_peak": {
+      "value": 240,
+      "unit": "kgf*cm",
+      "source": "derived: [R1a.13] * [R2.12]",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.balance_task"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.balance_task",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: runs control.balance_loop at its rate",
+      "written_by": "firmware"
+     },
+     "loop_gain": {
+      "value": 2.5,
+      "unit": "dimensionless",
+      "source": "design: gain of control.balance_loop",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.main",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "control.balance_loop": "The loop keeps its 100 Hz rate and its gain on the normalised motor command; the higher peak wheel torque is a plant number the task does not hold."
+    }
+   },
+   {
+    "id": "control.speed_loop",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 50,
+      "unit": "Hz",
+      "source": "design: outer wheel speed loop, slower than the tilt loop",
+      "written_by": "control"
+     },
+     "loop_gain": {
+      "value": 0.2,
+      "unit": "dimensionless",
+      "source": "design: proportional gain from normalised wheel speed error to tilt setpoint",
+      "written_by": "control"
+     },
+     "no_load_speed": {
+      "value": 0.206,
+      "unit": "rad/s",
+      "source": "derived: [R1a.10] / [R2.12]",
+      "written_by": "control"
+     },
+     "counts_per_wheel_revolution": {
+      "value": 2620,
+      "unit": "dimensionless",
+      "source": "derived: [R3.02] * [R2.12]",
+      "written_by": "control"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "firmware.speed_task"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.speed_task",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 50,
+      "unit": "Hz",
+      "source": "design: runs control.speed_loop at its rate",
+      "written_by": "firmware"
+     },
+     "loop_gain": {
+      "value": 0.2,
+      "unit": "dimensionless",
+      "source": "design: gain of control.speed_loop",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "firmware.main",
+     "control.speed_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "control.speed_loop": "The speed loop keeps its 50 Hz rate and its gain; wheel speed now comes from firmware.odometry with the new counts per wheel revolution."
+    }
+   },
+   {
+    "id": "firmware.odometry",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "counts_per_motor_revolution": {
+      "value": 12,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     },
+     "counts_per_wheel_revolution": {
+      "value": 2620,
+      "unit": "dimensionless",
+      "source": "derived: [R3.02] * [R2.12]",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "firmware.main",
+     "control.speed_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.main",
+    "kind": "module",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "clock_frequency": {
+      "value": 16,
+      "unit": "MHz",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     },
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: scheduler tick at the fastest task rate",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "firmware.odometry": "A new counts-per-wheel-revolution constant changes no task rate, so the 100 Hz scheduler tick and the 16 MHz clock stay."
+    }
+   }
+  ]
+ },
+ "injected": {
+  "nodes": [
+   {
+    "id": "electrical.motors",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "rated_voltage": {
+      "value": 6,
+      "unit": "V",
+      "source": "https://www.pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-2.pdf",
+      "written_by": "electrical"
+     },
+     "gear_ratio": {
+      "value": 75.81,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/product/3074/specs",
+      "written_by": "electrical"
+     },
+     "stall_current": {
+      "value": 1.5,
+      "unit": "A",
+      "source": "https://www.pololu.com/product/3074/specs",
+      "written_by": "electrical"
+     },
+     "no_load_current": {
+      "value": 0.15,
+      "unit": "A",
+      "source": "https://www.pololu.com/product/3074/specs",
+      "written_by": "electrical"
+     },
+     "stall_torque": {
+      "value": 1.1,
+      "unit": "kgf*cm",
+      "source": "https://www.pololu.com/product/3074/specs",
+      "written_by": "electrical"
+     },
+     "rated_output_power": {
+      "value": 1.3,
+      "unit": "W",
+      "source": "https://www.pololu.com/product/3074/specs",
+      "written_by": "electrical"
+     },
+     "mass": {
+      "value": 9.5,
+      "unit": "g",
+      "source": "https://www.pololu.com/product/3074/specs",
+      "written_by": "electrical"
+     },
+     "supply_voltage": {
+      "value": 6,
+      "unit": "V",
+      "source": "https://www.pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-2.pdf",
+      "written_by": "electrical"
+     },
+     "current_draw": {
+      "value": 1.5,
+      "unit": "A",
+      "source": "https://www.pololu.com/product/3074/specs",
+      "written_by": "electrical"
+     },
+     "torque_peak": {
+      "value": 1.1,
+      "unit": "kgf*cm",
+      "source": "https://www.pololu.com/product/3074/specs",
+      "written_by": "electrical"
+     },
+     "no_load_speed": {
+      "value": 45.0,
+      "unit": "rad/s",
+      "source": "https://www.pololu.com/product/3074/specs",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.power",
+     "electrical.motor_drivers",
+     "mechanical.gearboxes",
+     "mechanical.chassis",
+     "firmware.motor_output"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "electrical.power",
+    "kind": "module",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 7.2,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "motor_current_draw": {
+      "value": 3.0,
+      "unit": "A",
+      "source": "derived: [R1a.12] * [R1.25]",
+      "written_by": "electrical"
+     },
+     "motor_power_draw": {
+      "value": 21.6,
+      "unit": "W",
+      "source": "derived: [R5.03] * [R1a.12] * [R1.25]",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.motors": "The 75:1 HPCB 6V motor has the same 1.5 A stall current at 6 V as the 50:1, so the motor branch current and power bounds are unchanged; only their cited rows move to the #3074 sheet rows."
+    }
+   },
+   {
+    "id": "electrical.motor_drivers",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 7.2,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "max_input_voltage": {
+      "value": 10.8,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "thermal_resistance": {
+      "value": 60.9,
+      "unit": "K/W",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [
+     "electrical.req_input_voltage"
+    ],
+    "constrains": [
+     "electrical.power",
+     "electrical.control_board"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.motors": "The drivers see the same 7.2 V supply and the new motor's 1.5 A stall current equals the old one, so the driver load is unchanged."
+    }
+   },
+   {
+    "id": "mechanical.gearboxes",
+    "kind": "component",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "gear_ratio": {
+      "value": 218.5,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "external_gear_ratio": {
+      "value": 2.88,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "torque_peak": {
+      "value": 240,
+      "unit": "kgf*cm",
+      "source": "derived: [R1a.13] * [R2.12]",
+      "written_by": "mechanical"
+     },
+     "reaction_moment": {
+      "value": 240,
+      "unit": "kgf*cm",
+      "source": "derived: [R1a.13] * [R2.12]",
+      "written_by": "mechanical"
+     },
+     "no_load_speed": {
+      "value": 0.206,
+      "unit": "rad/s",
+      "source": "derived: [R1a.10] / [R2.12]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.drivetrain",
+     "control.balance_loop",
+     "control.speed_loop",
+     "firmware.odometry"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.chassis",
+    "kind": "component",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "mass": {
+      "value": 130,
+      "unit": "g",
+      "source": "https://www.pololu.com/product/3573/specs",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.robot"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.motors": "The 75:1 motor weighs 9.5 g like the 50:1 and has the same 10 x 12 x 25 mm body, so the chassis mass with motors and its motor clamps are unchanged."
+    }
+   },
+   {
+    "id": "firmware.motor_output",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "supply_voltage": {
+      "value": 7.2,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     },
+     "motor_voltage_limit": {
+      "value": 6,
+      "unit": "V",
+      "source": "https://www.pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-2.pdf",
+      "written_by": "firmware"
+     },
+     "max_duty_cycle": {
+      "value": 0.833,
+      "unit": "dimensionless",
+      "source": "derived: [R1.02] / [R5.03]",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "firmware.main",
+     "electrical.motors"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.motors": "The 75:1 motor is also an HPCB 6V part, so the 6 V voltage limit and the duty cap on the 7.2 V pack stay as they are."
+    }
+   },
+   {
+    "id": "mechanical.drivetrain",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "track_width": {
+      "value": 102,
+      "unit": "mm",
+      "source": "derived: [R10.07] - [R9.02]",
+      "written_by": "mechanical"
+     },
+     "gear_ratio": {
+      "value": 218.5,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "supported_mass": {
+      "value": 165,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.robot"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.robot",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "mass_without_battery": {
+      "value": 165,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03]",
+      "written_by": "mechanical"
+     },
+     "mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "mechanical"
+     },
+     "overall_height": {
+      "value": 118.2,
+      "unit": "mm",
+      "source": "https://www.pololu.com/file/0J1283/balboa-32u4-balancing-robot-kit-dimensions.pdf",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.drivetrain",
+     "mechanical.wheel_left",
+     "mechanical.wheel_right",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "mechanical.drivetrain": "A different overall ratio changes no mass or dimension of the robot; the motors keep their 9.5 g each."
+    }
+   },
+   {
+    "id": "control.balance_loop",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: inner tilt loop rate, meets control.req_sample_rate",
+      "written_by": "control"
+     },
+     "loop_gain": {
+      "value": 2.5,
+      "unit": "dimensionless",
+      "source": "design: proportional gain from normalised tilt error to normalised motor command",
+      "written_by": "control"
+     },
+     "mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "control"
+     },
+     "torque_peak": {
+      "value": 240,
+      "unit": "kgf*cm",
+      "source": "derived: [R1a.13] * [R2.12]",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.balance_task"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.balance_task",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: runs control.balance_loop at its rate",
+      "written_by": "firmware"
+     },
+     "loop_gain": {
+      "value": 2.5,
+      "unit": "dimensionless",
+      "source": "design: gain of control.balance_loop",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.main",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "control.balance_loop": "The loop keeps its 100 Hz rate and its gain on the normalised motor command; the higher peak wheel torque is a plant number the task does not hold."
+    }
+   },
+   {
+    "id": "control.speed_loop",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 50,
+      "unit": "Hz",
+      "source": "design: outer wheel speed loop, slower than the tilt loop",
+      "written_by": "control"
+     },
+     "loop_gain": {
+      "value": 0.2,
+      "unit": "dimensionless",
+      "source": "design: proportional gain from normalised wheel speed error to tilt setpoint",
+      "written_by": "control"
+     },
+     "no_load_speed": {
+      "value": 0.206,
+      "unit": "rad/s",
+      "source": "derived: [R1a.10] / [R2.12]",
+      "written_by": "control"
+     },
+     "counts_per_wheel_revolution": {
+      "value": 2620,
+      "unit": "dimensionless",
+      "source": "derived: [R3.02] * [R2.12]",
+      "written_by": "control"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "firmware.speed_task"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.speed_task",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 50,
+      "unit": "Hz",
+      "source": "design: runs control.speed_loop at its rate",
+      "written_by": "firmware"
+     },
+     "loop_gain": {
+      "value": 0.2,
+      "unit": "dimensionless",
+      "source": "design: gain of control.speed_loop",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "firmware.main",
+     "control.speed_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "control.speed_loop": "The speed loop keeps its 50 Hz rate and its gain; wheel speed now comes from firmware.odometry with the new counts per wheel revolution."
+    }
+   },
+   {
+    "id": "firmware.odometry",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "counts_per_motor_revolution": {
+      "value": 12,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     },
+     "counts_per_wheel_revolution": {
+      "value": 2620,
+      "unit": "dimensionless",
+      "source": "derived: [R3.02] * [R2.12]",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "firmware.main",
+     "control.speed_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.main",
+    "kind": "module",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "clock_frequency": {
+      "value": 16,
+      "unit": "MHz",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     },
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: scheduler tick at the fastest task rate",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "firmware.odometry": "A new counts-per-wheel-revolution constant changes no task rate, so the 100 Hz scheduler tick and the 16 MHz clock stay."
+    }
+   }
+  ]
+ }
+}

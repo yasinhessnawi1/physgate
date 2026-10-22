@@ -42,6 +42,7 @@ def _request(tmp_path: Path, temp: str | None) -> InstallRequest:
         user_home=str(out / "home"),
         token_ceiling=1000,
         os_layer_temp_dir=temp,
+        spawns_with_canary=True,
     )
 
 

@@ -146,6 +146,9 @@ class SessionConfig(BaseModel):
     installation: Installation
     watchdog_seconds: Annotated[int, Field(gt=0)]
     hook_timeout_seconds: Annotated[int, Field(gt=0)]
+    #: Whether each shell command runs under the survivor reaper (macOS with the OS layer),
+    #: which ends every sandboxed command's output with its ``done`` line.
+    survivor_reaper: bool
 
     @model_validator(mode="after")
     def _coherent(self) -> Self:

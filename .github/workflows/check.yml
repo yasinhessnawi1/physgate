@@ -53,6 +53,11 @@ jobs:
         # version comes from the pin file in the repository root.
         run: uv sync --frozen
 
+      - name: Install zsh
+        # The reaper's tests run the shell Claude Code uses for a role session
+        # (/bin/zsh), which the runner image does not carry.
+        run: sudo apt-get install -y --no-install-recommends zsh
+
       - name: Install Node
         # The operator UI's toolchain. Exact tag, like every action pin here, and
         # the Node version the UI's package file names.

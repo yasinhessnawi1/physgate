@@ -1018,18 +1018,27 @@ class Loop:
             cause, detail = other
             self._emit(Incident(**self._env(), subtask_id=subtask_id, cause=cause, detail=detail))
             self._possible_abort(subtask_id, report)
+            self._unverified_reaping(subtask_id, report)
             self._halt_for(subtask_id, cause)
             return False
         if exposed:
             # No other incident: the exposure alone stops the run, and nothing is taken.
             self._possible_abort(subtask_id, report)
+            self._unverified_reaping(subtask_id, report)
             self._halt_for(subtask_id, "held_out_read")
             return False
         if report.os_layer_aborted:
             # Nothing else: the session was told of failures no layer judged, if its words
             # are bubblewrap's. Its work is not taken, and a person looks first.
             self._possible_abort(subtask_id, report)
+            self._unverified_reaping(subtask_id, report)
             self._halt_for(subtask_id, "os_layer_aborted")
+            return False
+        if report.reaper_unverified:
+            # A command's output was cut where its survivor reaper's last word stands: what
+            # it started may have lived on. Its work is not taken, and a person looks first.
+            self._unverified_reaping(subtask_id, report)
+            self._halt_for(subtask_id, "reaper_unverified")
             return False
         if report.end.outcome != "completed":
             return False
@@ -1073,6 +1082,19 @@ class Loop:
             # session ran under other limits than the run began with.
             return "managed_settings_changed", changed
         return None
+
+    def _unverified_reaping(self, subtask_id: str, report: SessionReport) -> None:
+        """Record the commands whose reaper could not be heard from, if any."""
+        if not report.reaper_unverified:
+            return
+        detail = (
+            f"{len(report.reaper_unverified)} shell command(s) of session {report.session_id} "
+            "gave output longer than Claude Code keeps, so the survivor reaper's done line "
+            f"could not be read: {'; '.join(report.reaper_unverified)}"
+        )
+        self._emit(
+            Incident(**self._env(), subtask_id=subtask_id, cause="reaper_unverified", detail=detail)
+        )
 
     def _possible_abort(self, subtask_id: str, report: SessionReport) -> None:
         """Record the results that carry bubblewrap's own line, if any: a possible abort.

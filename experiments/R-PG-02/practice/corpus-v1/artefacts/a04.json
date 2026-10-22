@@ -1,0 +1,656 @@
+{
+ "id": "a04",
+ "error_class": "equilibrium",
+ "expected_check": "equilibrium",
+ "assigned_role": "mechanical",
+ "description": "mechanical.gearboxes reaction_moment is 40.8 kgf*cm, the output torque divided over the two gearboxes ([R1.07] * [R2.17] / [R2.26]). But torque_peak on the same node is already the torque of one gearbox, 81.5 kgf*cm. The housing reaction of each gearbox must balance its own output torque, so reaction_moment should be 81.5 kgf*cm. As written, the moments on each gearbox leave a residual of 40.7 kgf*cm (about 3.99 N*m).",
+ "edge": null,
+ "clean": {
+  "nodes": [
+   {
+    "id": "mechanical.gearboxes",
+    "kind": "component",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "gear_ratio": {
+      "value": 110.2,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "external_gear_ratio": {
+      "value": 2.14,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "torque_peak": {
+      "value": 81.5,
+      "unit": "kgf*cm",
+      "source": "derived: [R1.07] * [R2.17]",
+      "written_by": "mechanical"
+     },
+     "reaction_moment": {
+      "value": 81.5,
+      "unit": "kgf*cm",
+      "source": "derived: [R1.07] * [R2.17]",
+      "written_by": "mechanical"
+     },
+     "no_load_speed": {
+      "value": 0.618,
+      "unit": "rad/s",
+      "source": "derived: [R1.10] / [R2.17]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.drivetrain",
+     "control.balance_loop",
+     "control.speed_loop",
+     "firmware.odometry"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.drivetrain",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "track_width": {
+      "value": 102,
+      "unit": "mm",
+      "source": "derived: [R10.07] - [R9.02]",
+      "written_by": "mechanical"
+     },
+     "gear_ratio": {
+      "value": 110.2,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "supported_mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.robot"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.robot",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "mass_without_battery": {
+      "value": 165,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03]",
+      "written_by": "mechanical"
+     },
+     "mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "mechanical"
+     },
+     "overall_height": {
+      "value": 118.2,
+      "unit": "mm",
+      "source": "https://www.pololu.com/file/0J1283/balboa-32u4-balancing-robot-kit-dimensions.pdf",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.drivetrain",
+     "mechanical.wheel_left",
+     "mechanical.wheel_right",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "mechanical.drivetrain": "The gear pair is swapped inside the same gearbox housing; no part is added or removed, so the robot's mass and height are unchanged."
+    }
+   },
+   {
+    "id": "control.balance_loop",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: inner tilt loop rate, meets control.req_sample_rate",
+      "written_by": "control"
+     },
+     "loop_gain": {
+      "value": 2.5,
+      "unit": "dimensionless",
+      "source": "design: proportional gain from normalised tilt error to normalised motor command",
+      "written_by": "control"
+     },
+     "mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "control"
+     },
+     "torque_peak": {
+      "value": 81.5,
+      "unit": "kgf*cm",
+      "source": "derived: [R1.07] * [R2.17]",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.balance_task"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.balance_task",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: runs control.balance_loop at its rate",
+      "written_by": "firmware"
+     },
+     "loop_gain": {
+      "value": 2.5,
+      "unit": "dimensionless",
+      "source": "design: gain of control.balance_loop",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.main",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "control.balance_loop": "The loop keeps its 100 Hz rate and its gain on the normalised motor command; the lower peak wheel torque is a plant number the task does not hold."
+    }
+   },
+   {
+    "id": "control.speed_loop",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 50,
+      "unit": "Hz",
+      "source": "design: outer wheel speed loop, slower than the tilt loop",
+      "written_by": "control"
+     },
+     "loop_gain": {
+      "value": 0.2,
+      "unit": "dimensionless",
+      "source": "design: proportional gain from normalised wheel speed error to tilt setpoint",
+      "written_by": "control"
+     },
+     "no_load_speed": {
+      "value": 0.618,
+      "unit": "rad/s",
+      "source": "derived: [R1.10] / [R2.17]",
+      "written_by": "control"
+     },
+     "counts_per_wheel_revolution": {
+      "value": 1320,
+      "unit": "dimensionless",
+      "source": "derived: [R3.02] * [R2.17]",
+      "written_by": "control"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "firmware.speed_task"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.speed_task",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 50,
+      "unit": "Hz",
+      "source": "design: runs control.speed_loop at its rate",
+      "written_by": "firmware"
+     },
+     "loop_gain": {
+      "value": 0.2,
+      "unit": "dimensionless",
+      "source": "design: gain of control.speed_loop",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "firmware.main",
+     "control.speed_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "control.speed_loop": "The speed loop keeps its 50 Hz rate and its gain; wheel speed now comes from firmware.odometry with the new counts per wheel revolution."
+    }
+   },
+   {
+    "id": "firmware.odometry",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "counts_per_motor_revolution": {
+      "value": 12,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     },
+     "counts_per_wheel_revolution": {
+      "value": 1320,
+      "unit": "dimensionless",
+      "source": "derived: [R3.02] * [R2.17]",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "firmware.main",
+     "control.speed_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.main",
+    "kind": "module",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "clock_frequency": {
+      "value": 16,
+      "unit": "MHz",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     },
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: scheduler tick at the fastest task rate",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "firmware.odometry": "A new counts-per-wheel-revolution constant changes no task rate, so the 100 Hz scheduler tick and the 16 MHz clock stay."
+    }
+   }
+  ]
+ },
+ "injected": {
+  "nodes": [
+   {
+    "id": "mechanical.gearboxes",
+    "kind": "component",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "gear_ratio": {
+      "value": 110.2,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "external_gear_ratio": {
+      "value": 2.14,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "torque_peak": {
+      "value": 81.5,
+      "unit": "kgf*cm",
+      "source": "derived: [R1.07] * [R2.17]",
+      "written_by": "mechanical"
+     },
+     "reaction_moment": {
+      "value": 40.8,
+      "unit": "kgf*cm",
+      "source": "derived: [R1.07] * [R2.17] / [R2.26]",
+      "written_by": "mechanical"
+     },
+     "no_load_speed": {
+      "value": 0.618,
+      "unit": "rad/s",
+      "source": "derived: [R1.10] / [R2.17]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.drivetrain",
+     "control.balance_loop",
+     "control.speed_loop",
+     "firmware.odometry"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.drivetrain",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "track_width": {
+      "value": 102,
+      "unit": "mm",
+      "source": "derived: [R10.07] - [R9.02]",
+      "written_by": "mechanical"
+     },
+     "gear_ratio": {
+      "value": 110.2,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "supported_mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.robot"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.robot",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "mass_without_battery": {
+      "value": 165,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03]",
+      "written_by": "mechanical"
+     },
+     "mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "mechanical"
+     },
+     "overall_height": {
+      "value": 118.2,
+      "unit": "mm",
+      "source": "https://www.pololu.com/file/0J1283/balboa-32u4-balancing-robot-kit-dimensions.pdf",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.drivetrain",
+     "mechanical.wheel_left",
+     "mechanical.wheel_right",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "mechanical.drivetrain": "The gear pair is swapped inside the same gearbox housing; no part is added or removed, so the robot's mass and height are unchanged."
+    }
+   },
+   {
+    "id": "control.balance_loop",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: inner tilt loop rate, meets control.req_sample_rate",
+      "written_by": "control"
+     },
+     "loop_gain": {
+      "value": 2.5,
+      "unit": "dimensionless",
+      "source": "design: proportional gain from normalised tilt error to normalised motor command",
+      "written_by": "control"
+     },
+     "mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "control"
+     },
+     "torque_peak": {
+      "value": 81.5,
+      "unit": "kgf*cm",
+      "source": "derived: [R1.07] * [R2.17]",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.balance_task"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.balance_task",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: runs control.balance_loop at its rate",
+      "written_by": "firmware"
+     },
+     "loop_gain": {
+      "value": 2.5,
+      "unit": "dimensionless",
+      "source": "design: gain of control.balance_loop",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.main",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "control.balance_loop": "The loop keeps its 100 Hz rate and its gain on the normalised motor command; the lower peak wheel torque is a plant number the task does not hold."
+    }
+   },
+   {
+    "id": "control.speed_loop",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 50,
+      "unit": "Hz",
+      "source": "design: outer wheel speed loop, slower than the tilt loop",
+      "written_by": "control"
+     },
+     "loop_gain": {
+      "value": 0.2,
+      "unit": "dimensionless",
+      "source": "design: proportional gain from normalised wheel speed error to tilt setpoint",
+      "written_by": "control"
+     },
+     "no_load_speed": {
+      "value": 0.618,
+      "unit": "rad/s",
+      "source": "derived: [R1.10] / [R2.17]",
+      "written_by": "control"
+     },
+     "counts_per_wheel_revolution": {
+      "value": 1320,
+      "unit": "dimensionless",
+      "source": "derived: [R3.02] * [R2.17]",
+      "written_by": "control"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "firmware.speed_task"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.speed_task",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 50,
+      "unit": "Hz",
+      "source": "design: runs control.speed_loop at its rate",
+      "written_by": "firmware"
+     },
+     "loop_gain": {
+      "value": 0.2,
+      "unit": "dimensionless",
+      "source": "design: gain of control.speed_loop",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "firmware.main",
+     "control.speed_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "control.speed_loop": "The speed loop keeps its 50 Hz rate and its gain; wheel speed now comes from firmware.odometry with the new counts per wheel revolution."
+    }
+   },
+   {
+    "id": "firmware.odometry",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "counts_per_motor_revolution": {
+      "value": 12,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     },
+     "counts_per_wheel_revolution": {
+      "value": 1320,
+      "unit": "dimensionless",
+      "source": "derived: [R3.02] * [R2.17]",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "firmware.main",
+     "control.speed_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.main",
+    "kind": "module",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "clock_frequency": {
+      "value": 16,
+      "unit": "MHz",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     },
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: scheduler tick at the fastest task rate",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "firmware.odometry": "A new counts-per-wheel-revolution constant changes no task rate, so the 100 Hz scheduler tick and the 16 MHz clock stay."
+    }
+   }
+  ]
+ }
+}

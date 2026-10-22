@@ -13,10 +13,12 @@ gate's registry knows is the schema's question alone.
 
 **What it records about the code.** The record names the script that ran (the program's
 ``__main__``) and every file of code the process had loaded from outside the interpreter's
-own installation, each with the digest of its bytes now. Paths inside the worktree are
-written relative to it; anything else is written as it is, absolute, and the orchestrator
-refuses a record whose code ran from outside the module. Write the record after the
-simulation, from the script that ran it.
+own installation, each with the digest of its bytes now. The interpreter's own site hook
+(``sitecustomize`` loaded from its standard library, which Ubuntu links to ``/etc``) is part
+of that installation and is not named. Paths inside the worktree are written relative to it;
+anything else is written as it is, absolute, and the orchestrator refuses a record whose
+code ran from anywhere but the module and the interpreter's own installation. Write the
+record after the simulation, from the script that ran it.
 
 Use, from a script under the module directory::
 
@@ -37,7 +39,9 @@ Use, from a script under the module directory::
         group="step",
     )
 
-The record lands in ``.physgate/series/<id>.json``, written whole or not at all.
+The record lands in ``.physgate/series/<id>.json``. Each id is written once: a second record
+under an id already used, from this command or an earlier one, is refused, and the script
+records the run under a new id. Nothing in the outbox is read back.
 
 **The extractors.** A quantity read off a record is checked against the record by the
 functions at the end of this file, the very ones the orchestrator runs, so a role computes the
@@ -51,11 +55,14 @@ figures, and is then refused.
 
 from __future__ import annotations
 
+import contextlib
+import errno
 import hashlib
 import json
 import math
 import os
 import re
+import stat
 import sys
 import sysconfig
 
@@ -248,15 +255,57 @@ def _interpreter_roots() -> list[str]:
     return sorted({os.path.realpath(root) for root in roots if root})
 
 
+def _standard_library() -> set[str]:
+    """The interpreter's standard-library directories, as its paths spell them and as they are."""
+    paths = sysconfig.get_paths()
+    found = {paths[key] for key in ("stdlib", "platstdlib") if paths.get(key)}
+    return {spelling for d in found for spelling in (os.path.abspath(d), os.path.realpath(d))}
+
+
+def _own_site_hook(name: str, found: str, standard_library: set[str]) -> bool:
+    """Whether ``found`` is the interpreter's own site hook, loaded from its standard library.
+
+    A distribution may keep that file outside the installation and link it in: Debian and
+    Ubuntu link ``<stdlib>/sitecustomize.py`` to ``/etc/python3.X/sitecustomize.py``, which
+    then runs in every process. It is judged by the place it was loaded from, not by where
+    the link leads; the same module found anywhere else is named like any other code.
+    """
+    return name == "sitecustomize" and os.path.dirname(os.path.abspath(found)) in standard_library
+
+
 def _under(path: str, root: str) -> bool:
     return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
 
 
-def _code_file(path: str, base: str) -> dict[str, str]:
-    with open(path, "rb") as handle:
-        digest = hashlib.sha256(handle.read()).hexdigest()
-    shown = os.path.relpath(path, base).replace(os.sep, "/") if _under(path, base) else path
-    return {"path": shown, "sha256": digest}
+#: How a file of code is opened to be digested: never through a link at its last step, and
+#: without waiting on a pipe or a device, so that what is digested is the regular file the
+#: descriptor holds, judged on that descriptor and not on the path a second time.
+_READ_CODE = (
+    os.O_RDONLY
+    | getattr(os, "O_NOFOLLOW", 0)
+    | getattr(os, "O_NONBLOCK", 0)
+    | getattr(os, "O_CLOEXEC", 0)
+)
+
+
+def _digest(path: str) -> str | None:
+    """The digest of the regular file at ``path``, or ``None`` if there is none there now."""
+    try:
+        fd = os.open(path, _READ_CODE)
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            return None  # a link where the file was: not the file that was loaded
+        raise
+    with os.fdopen(fd, "rb") as handle:
+        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+            return None
+        return hashlib.sha256(handle.read()).hexdigest()
+
+
+def _shown(path: str, base: str) -> str:
+    return os.path.relpath(path, base).replace(os.sep, "/") if _under(path, base) else path
 
 
 def producer(base: str) -> dict[str, object]:
@@ -272,23 +321,140 @@ def producer(base: str) -> dict[str, object]:
         raise SeriesWriterError(msg)
     script = os.path.realpath(main)
     roots = _interpreter_roots()
+    standard_library = _standard_library()
     loaded = set()
-    for module in list(sys.modules.values()):
+    for name, module in list(sys.modules.items()):
         found = getattr(module, "__file__", None)
-        if not isinstance(found, str):
+        if not isinstance(found, str) or _own_site_hook(name, found, standard_library):
             continue
         path = os.path.realpath(found)
         if path == script or any(_under(path, root) for root in roots):
             continue
-        if os.path.isfile(path):
-            loaded.add(path)
-    if len(loaded) > MAX_LOADED:
-        msg = f"the process loaded {len(loaded)} files of code; a record names at most {MAX_LOADED}"
+        loaded.add(path)
+    script_digest = _digest(script)
+    if script_digest is None:
+        msg = f"the script {script} is not a regular file now, so its code cannot be named"
         raise SeriesWriterError(msg)
-    return {
-        "script": _code_file(script, base),
-        "loaded": [_code_file(path, base) for path in sorted(loaded)],
-    }
+    digests = {path: _digest(path) for path in sorted(loaded)}
+    named = [{"path": _shown(p, base), "sha256": d} for p, d in digests.items() if d is not None]
+    if len(named) > MAX_LOADED:
+        msg = f"the process loaded {len(named)} files of code; a record names at most {MAX_LOADED}"
+        raise SeriesWriterError(msg)
+    return {"script": {"path": _shown(script, base), "sha256": script_digest}, "loaded": named}
+
+
+#: How a record is opened: made new, in the outbox itself, never through a link. A name already
+#: there is never written through, whoever put it there.
+_CREATE = (
+    os.O_WRONLY
+    | os.O_CREAT
+    | os.O_EXCL
+    | getattr(os, "O_NOFOLLOW", 0)
+    | getattr(os, "O_CLOEXEC", 0)
+)
+
+
+def _write_all(fd: int, data: bytes) -> None:
+    """Write ``data`` to ``fd`` and sync it, then close it."""
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(data)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+#: How a directory on the way to the outbox is held: as itself, never through a link.
+_DIRECTORY = os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+#: How the outbox itself is held, to make a record in it by name. Seatbelt refuses opening it
+#: to read (it is read-denied whole) but grants a search-only descriptor, which is all a
+#: name made in it needs (``O_SEARCH``, Darwin's ``O_EXEC | O_DIRECTORY``; measured on
+#: Claude Code 2.1.301). Elsewhere a path-only descriptor where there is one, else a plain one.
+_DARWIN_O_EXEC = 0x40000000
+
+
+def _outbox_mode() -> int:
+    if sys.platform == "darwin":
+        return _DIRECTORY | _DARWIN_O_EXEC
+    return _DIRECTORY | getattr(os, "O_PATH", os.O_RDONLY)
+
+
+def _open_dir(name: str, parent: int, mode: int) -> int:
+    """Make the directory ``name`` in ``parent`` if it is missing, and hold it.
+
+    Made and then opened by name in ``parent``'s descriptor, never through a link: if the name
+    is a link, or anything but a directory, by the time it is opened, the open fails and nothing
+    is written. An existing directory is taken as found, without looking at it, since the
+    outbox may not be looked at.
+    """
+    with contextlib.suppress(FileExistsError):
+        os.mkdir(name, 0o755, dir_fd=parent)
+    try:
+        return os.open(name, mode, dir_fd=parent)
+    except OSError as exc:
+        if exc.errno in (errno.ELOOP, errno.ENOTDIR):
+            msg = (
+                f"{name} in the worktree's .physgate is not a directory of its own (a link or a "
+                "file is there): no record is written through it"
+            )
+            raise SeriesWriterError(msg) from None
+        raise
+
+
+def _open_outbox(base: str) -> int:
+    """Hold the outbox, reached from the worktree one directory at a time, never by a link."""
+    worktree_fd = os.open(base, os.O_RDONLY | _DIRECTORY)
+    try:
+        physgate_fd = _open_dir(".physgate", worktree_fd, os.O_RDONLY | _DIRECTORY)
+    finally:
+        os.close(worktree_fd)
+    try:
+        return _open_dir(os.path.basename(OUTBOX), physgate_fd, _outbox_mode())
+    finally:
+        os.close(physgate_fd)
+
+
+def _taken(record_id: str) -> SeriesWriterError:
+    return SeriesWriterError(
+        f"the record {record_id!r} is already in the outbox, and a record is never written "
+        "over: record this run under a new id"
+    )
+
+
+def _open_new(outbox: int, record_id: str) -> int:
+    """Make the record's file, new and empty, in the held outbox; return it open for writing.
+
+    Every check after this is made on the descriptor, never on the name again.
+
+    Raises:
+        SeriesWriterError: something is already at its name, or the file made there has a
+            second name somewhere (another name could read what is written into it).
+    """
+    try:
+        fd = os.open(record_id + ".json", _CREATE, 0o644, dir_fd=outbox)
+    except FileExistsError:
+        raise _taken(record_id) from None
+    try:
+        try:
+            made = os.fstat(fd)
+        except PermissionError:
+            if sys.platform != "darwin":
+                raise
+            # Seatbelt denies the outbox whole, the metadata of an entry included, even
+            # through the descriptor that made it. There nothing can add a name to an entry
+            # either: linking one out, or opening it, is refused to every process of the
+            # session (measured on Claude Code 2.1.301, from the writing command and from a
+            # process that outlived an earlier one).
+            return fd
+        if not stat.S_ISREG(made.st_mode) or made.st_nlink != 1:
+            msg = (
+                f"the file made for the record {record_id!r} has {made.st_nlink} names, and "
+                "another name could read what is written: nothing was written, and the record "
+                "is refused when the session ends; record this run under a new id"
+            )
+            raise SeriesWriterError(msg)
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
 
 
 def record(
@@ -301,10 +467,20 @@ def record(
     inputs: object = None,
     group: object = None,
 ) -> str:
-    """Write one record into the worktree's outbox, whole or not at all; return its path.
+    """Write one record into the worktree's outbox; return its path.
+
+    The outbox is written blind: nothing in it is listed, looked at or read back, because a
+    role session's shell may not read it. The record's file is made new in the outbox, empty,
+    and checked to have no other name before anything is written into it; only then are the
+    bytes written and synced. A record cut short is refused when the session ends. An id is
+    written once: a name already in the outbox is never written through or replaced.
+
+    The session's bounds on the count and the bytes of its records
+    (:data:`MAX_RECORDS_PER_SESSION`, :data:`MAX_SESSION_BYTES`) are the collector's alone to
+    hold, and a record beyond them is set aside there.
 
     Raises:
-        SeriesWriterError: the record is not one the format admits, or the outbox is full.
+        SeriesWriterError: the record is not one the format admits, or its id is taken.
     """
     base = worktree()
     data = build(
@@ -317,34 +493,13 @@ def record(
         group=group,
         producer=producer(base),
     )
-    outbox = os.path.join(base, OUTBOX)
-    os.makedirs(outbox, exist_ok=True)
-    final = os.path.join(outbox, record_id + ".json")
-    others = [
-        os.path.join(outbox, name)
-        for name in os.listdir(outbox)
-        if name.endswith(".json") and not name.startswith(".") and name != record_id + ".json"
-    ]
-    if len(others) + 1 > MAX_RECORDS_PER_SESSION:
-        msg = f"a session leaves at most {MAX_RECORDS_PER_SESSION} records"
-        raise SeriesWriterError(msg)
-    if sum(os.path.getsize(path) for path in others) + len(data) > MAX_SESSION_BYTES:
-        msg = f"a session's records hold at most {MAX_SESSION_BYTES} bytes together"
-        raise SeriesWriterError(msg)
-    temporary = os.path.join(outbox, f".{record_id}.json.{os.getpid()}.tmp")
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
-    fd = os.open(temporary, flags, 0o644)
+    outbox = _open_outbox(base)
     try:
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(data)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, final)
-    except BaseException:
-        if os.path.lexists(temporary):
-            os.unlink(temporary)
-        raise
-    return final
+        fd = _open_new(outbox, record_id)
+    finally:
+        os.close(outbox)
+    _write_all(fd, data)
+    return os.path.join(base, OUTBOX, record_id + ".json")
 
 
 # ── extractors: reading a quantity off a record's own samples ─────────────────────────────

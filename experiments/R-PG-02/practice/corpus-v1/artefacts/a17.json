@@ -1,0 +1,232 @@
+{
+ "id": "a17",
+ "error_class": "magnitude",
+ "expected_check": "magnitude",
+ "assigned_role": "electrical",
+ "description": "electrical.motor_drivers thermal_resistance is 3.22 K/W. The DRV8838 junction-to-board resistance is 32.2 K/W (R4.16), so it should be 32.2 K/W. 3.22 K/W is below even the package's 9.8 K/W junction-to-case-bottom (R4.15), which is not plausible for a 3 x 3 mm WSON-8 die on an FR-4 board. It would understate the drivers' junction temperature rise tenfold, so any thermal margin computed from it is far too optimistic.",
+ "edge": null,
+ "clean": {
+  "nodes": [
+   {
+    "id": "electrical.motor_drivers",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 7.2,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "max_input_voltage": {
+      "value": 10.8,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "thermal_resistance": {
+      "value": 32.2,
+      "unit": "K/W",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [
+     "electrical.req_input_voltage"
+    ],
+    "constrains": [
+     "electrical.power",
+     "electrical.control_board"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "electrical.power",
+    "kind": "module",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 7.2,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "motor_current_draw": {
+      "value": 3.0,
+      "unit": "A",
+      "source": "derived: [R1.03] * [R1.25]",
+      "written_by": "electrical"
+     },
+     "motor_power_draw": {
+      "value": 21.6,
+      "unit": "W",
+      "source": "derived: [R5.03] * [R1.03] * [R1.25]",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.motor_drivers": "A thermal resistance describes how the drivers shed heat, not what they draw; the motor branch current and power bounds are unchanged."
+    }
+   },
+   {
+    "id": "electrical.control_board",
+    "kind": "module",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "max_input_voltage": {
+      "value": 10.8,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "supply_voltage": {
+      "value": 7.2,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "logic_voltage": {
+      "value": 5,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [
+     "electrical.req_input_voltage"
+    ],
+    "constrains": [
+     "mechanical.chassis"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.motor_drivers": "The board's voltages do not depend on the drivers' thermal path; the board holds no thermal figure."
+    }
+   }
+  ]
+ },
+ "injected": {
+  "nodes": [
+   {
+    "id": "electrical.motor_drivers",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 7.2,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "max_input_voltage": {
+      "value": 10.8,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "thermal_resistance": {
+      "value": 3.22,
+      "unit": "K/W",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [
+     "electrical.req_input_voltage"
+    ],
+    "constrains": [
+     "electrical.power",
+     "electrical.control_board"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "electrical.power",
+    "kind": "module",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 7.2,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "motor_current_draw": {
+      "value": 3.0,
+      "unit": "A",
+      "source": "derived: [R1.03] * [R1.25]",
+      "written_by": "electrical"
+     },
+     "motor_power_draw": {
+      "value": 21.6,
+      "unit": "W",
+      "source": "derived: [R5.03] * [R1.03] * [R1.25]",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.motor_drivers": "A thermal resistance describes how the drivers shed heat, not what they draw; the motor branch current and power bounds are unchanged."
+    }
+   },
+   {
+    "id": "electrical.control_board",
+    "kind": "module",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "max_input_voltage": {
+      "value": 10.8,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "supply_voltage": {
+      "value": 7.2,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "logic_voltage": {
+      "value": 5,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [
+     "electrical.req_input_voltage"
+    ],
+    "constrains": [
+     "mechanical.chassis"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.motor_drivers": "The board's voltages do not depend on the drivers' thermal path; the board holds no thermal figure."
+    }
+   }
+  ]
+ }
+}

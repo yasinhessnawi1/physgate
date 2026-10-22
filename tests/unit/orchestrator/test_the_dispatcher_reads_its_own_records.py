@@ -88,6 +88,18 @@ def test_the_hook_log_is_read_for_this_session_only(tmp_path: Path) -> None:
     assert ClaudeDispatcher._hook_log(tmp_path / "absent", "mine") == (False, ())
 
 
+def test_the_reaper_s_unverified_commands_are_read_for_this_session_only(tmp_path: Path) -> None:
+    records = [
+        {"session": "mine", "decision": "reaper_unverified", "tool_input": {"command": "ls"}},
+        {"session": "mine", "decision": "reaped", "tool_input": {"command": "x"}},
+        {"session": "other", "decision": "reaper_unverified", "tool_input": {"command": "y"}},
+    ]
+    (tmp_path / "hooks.log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in records))
+    assert ClaudeDispatcher._reaper_unverified(tmp_path, "mine") == ('{"command": "ls"}',)
+    assert ClaudeDispatcher._reaper_unverified(tmp_path, "nobody") == ()
+    assert ClaudeDispatcher._reaper_unverified(tmp_path / "absent", "mine") == ()
+
+
 def test_the_state_directory_filesystem_is_found_in_the_mount_table(tmp_path: Path) -> None:
     kind, local = filesystem_of(tmp_path)
     assert kind != "unknown" and isinstance(local, bool)

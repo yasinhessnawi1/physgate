@@ -1,0 +1,394 @@
+{
+ "id": "a28",
+ "error_class": "equilibrium",
+ "expected_check": "equilibrium",
+ "assigned_role": "mechanical",
+ "description": "The left gearbox's motor_reaction_moment should be 0.0726 N*m, the stall torque of the one gearmotor it carries. It is written as 0.145 N*m, the two-motor total. The per-side reactions now sum to 0.145 + 0.0726 = 0.218 N*m, not the 0.145 N*m the chassis carries at the motor clamps, so the moment balance between the gearboxes and the chassis is out by 0.0726 N*m.",
+ "edge": null,
+ "clean": {
+  "nodes": [
+   {
+    "id": "mechanical.gearbox_left",
+    "kind": "component",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "gear_ratio": {
+      "value": 2.88,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "overall_gear_ratio": {
+      "value": 148.3,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "motor_reaction_moment": {
+      "value": 0.0726,
+      "unit": "N*m",
+      "source": "https://www.pololu.com/product/3073/specs",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.chassis",
+     "control.balance_loop",
+     "firmware.encoder_counter"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.gearbox_right",
+    "kind": "component",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "gear_ratio": {
+      "value": 2.88,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "overall_gear_ratio": {
+      "value": 148.3,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "motor_reaction_moment": {
+      "value": 0.0726,
+      "unit": "N*m",
+      "source": "https://www.pololu.com/product/3073/specs",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.chassis",
+     "control.balance_loop",
+     "firmware.encoder_counter"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.chassis",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "reaction_moment": {
+      "value": 0.145,
+      "unit": "N*m",
+      "source": "derived: [R1.07] * [R1.25]",
+      "written_by": "mechanical"
+     },
+     "mass": {
+      "value": 165,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03]",
+      "written_by": "mechanical"
+     },
+     "track_width": {
+      "value": 102,
+      "unit": "mm",
+      "source": "derived: [R10.08] + [R10.09]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.assembly"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "mechanical.gearbox_left": "The two per-side reactions of 0.0726 N*m sum to the chassis total of 0.145 N*m already carried, so the chassis numbers are unchanged.",
+     "mechanical.gearbox_right": "The two per-side reactions of 0.0726 N*m sum to the chassis total of 0.145 N*m already carried, so the chassis numbers are unchanged."
+    }
+   },
+   {
+    "id": "control.balance_loop",
+    "kind": "module",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: 10 ms control period, meeting the required minimum loop rate",
+      "written_by": "control"
+     },
+     "plant_mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "control"
+     },
+     "torque_peak": {
+      "value": 0.145,
+      "unit": "N*m",
+      "source": "derived: [R1.07] * [R1.25]",
+      "written_by": "control"
+     },
+     "no_load_speed": {
+      "value": 68.1,
+      "unit": "rad/s",
+      "source": "https://www.pololu.com/product/3073/specs",
+      "written_by": "control"
+     },
+     "gear_ratio": {
+      "value": 2.88,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_loop_rate"
+    ],
+    "constrains": [
+     "firmware.balance_task"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "mechanical.gearbox_left": "The gear ratio is unchanged and a structural load does not change the loop's actuator figures.",
+     "mechanical.gearbox_right": "The gear ratio is unchanged and a structural load does not change the loop's actuator figures."
+    }
+   },
+   {
+    "id": "firmware.encoder_counter",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "counts_per_revolution": {
+      "value": 12,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     },
+     "overall_gear_ratio": {
+      "value": 148.3,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "control.speed_controller"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "mechanical.gearbox_left": "The gear ratios are unchanged, so the overall ratio the counter scales by is unchanged.",
+     "mechanical.gearbox_right": "The gear ratios are unchanged, so the overall ratio the counter scales by is unchanged."
+    }
+   }
+  ]
+ },
+ "injected": {
+  "nodes": [
+   {
+    "id": "mechanical.gearbox_left",
+    "kind": "component",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "gear_ratio": {
+      "value": 2.88,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "overall_gear_ratio": {
+      "value": 148.3,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "motor_reaction_moment": {
+      "value": 0.145,
+      "unit": "N*m",
+      "source": "derived: [R1.07] * [R1.25]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.chassis",
+     "control.balance_loop",
+     "firmware.encoder_counter"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.gearbox_right",
+    "kind": "component",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "gear_ratio": {
+      "value": 2.88,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "overall_gear_ratio": {
+      "value": 148.3,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "motor_reaction_moment": {
+      "value": 0.0726,
+      "unit": "N*m",
+      "source": "https://www.pololu.com/product/3073/specs",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.chassis",
+     "control.balance_loop",
+     "firmware.encoder_counter"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.chassis",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "reaction_moment": {
+      "value": 0.145,
+      "unit": "N*m",
+      "source": "derived: [R1.07] * [R1.25]",
+      "written_by": "mechanical"
+     },
+     "mass": {
+      "value": 165,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03]",
+      "written_by": "mechanical"
+     },
+     "track_width": {
+      "value": 102,
+      "unit": "mm",
+      "source": "derived: [R10.08] + [R10.09]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.assembly"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "mechanical.gearbox_left": "The two per-side reactions of 0.0726 N*m sum to the chassis total of 0.145 N*m already carried, so the chassis numbers are unchanged.",
+     "mechanical.gearbox_right": "The two per-side reactions of 0.0726 N*m sum to the chassis total of 0.145 N*m already carried, so the chassis numbers are unchanged."
+    }
+   },
+   {
+    "id": "control.balance_loop",
+    "kind": "module",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: 10 ms control period, meeting the required minimum loop rate",
+      "written_by": "control"
+     },
+     "plant_mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "control"
+     },
+     "torque_peak": {
+      "value": 0.145,
+      "unit": "N*m",
+      "source": "derived: [R1.07] * [R1.25]",
+      "written_by": "control"
+     },
+     "no_load_speed": {
+      "value": 68.1,
+      "unit": "rad/s",
+      "source": "https://www.pololu.com/product/3073/specs",
+      "written_by": "control"
+     },
+     "gear_ratio": {
+      "value": 2.88,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_loop_rate"
+    ],
+    "constrains": [
+     "firmware.balance_task"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "mechanical.gearbox_left": "The gear ratio is unchanged and a structural load does not change the loop's actuator figures.",
+     "mechanical.gearbox_right": "The gear ratio is unchanged and a structural load does not change the loop's actuator figures."
+    }
+   },
+   {
+    "id": "firmware.encoder_counter",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "counts_per_revolution": {
+      "value": 12,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     },
+     "overall_gear_ratio": {
+      "value": 148.3,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "control.speed_controller"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "mechanical.gearbox_left": "The gear ratios are unchanged, so the overall ratio the counter scales by is unchanged.",
+     "mechanical.gearbox_right": "The gear ratios are unchanged, so the overall ratio the counter scales by is unchanged."
+    }
+   }
+  ]
+ }
+}

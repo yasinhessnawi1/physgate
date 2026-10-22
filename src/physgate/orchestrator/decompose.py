@@ -10,9 +10,10 @@ structured output, validated here, and a missing or invalid one fails the run.
 A second call would be a second model call; a rerun is a new run.
 
 From a valid plan the orchestrator, not the model, mints the subtask ids from
-the run's seed, writes each module's specification onto the run branch, writes
-every interface node into the store (they are immutable from creation), commits
-the store, and records the run.
+the run's seed, writes each module's specification onto the run branch with each
+interface node beside them as a contract a role session must read, writes every
+interface node into the store (they are immutable from creation), commits the
+store, and records the run.
 """
 
 from __future__ import annotations
@@ -65,8 +66,52 @@ from physgate.orchestrator.record import (
 )
 from physgate.orchestrator.run_config import RunConfig
 from physgate.series.collect import series_library
-from physgate.state.schema import Node
+from physgate.state.exceptions import MalformedNodeIdError
+from physgate.state.schema import Node, validate_node_id
 from physgate.state.store import Store
+
+#: Where the run branch holds each interface node the decomposition planned, one JSON file
+#: per node named by its id, written in the commit that issues the specifications. Every
+#: file there is required reading for every role session of the run (ARCH-020).
+INTERFACES_DIR = ".physgate/interfaces"
+
+
+def interface_contract(node_id: str) -> str:
+    """Where the run branch holds the interface node ``node_id``, relative to a worktree."""
+    return f"{INTERFACES_DIR}/{node_id}.json"
+
+
+#: The most interface nodes a plan may hold. Every role session must Read every interface
+#: contract of its run before any other tool, one Read and so one turn each, on top of its
+#: knowledge files and its specification. The smallest turn budget any recorded run has
+#: given a session is 80, and 20 contracts keep that preamble to a quarter of it; the
+#: recorded plans have held one or two interface nodes. Checked as a plan problem, not put
+#: on the schema, so the schema the decomposition call is sent stays as it was.
+MAX_INTERFACE_NODES = 20
+
+
+def contracts_of(nodes: Sequence[Node]) -> dict[str, str]:
+    """Each interface node's contract file, by its path relative to a worktree."""
+    return {interface_contract(node.id): node.model_dump_json(indent=2) + "\n" for node in nodes}
+
+
+def interface_contracts(repo: Path, commit: str) -> tuple[str, ...]:
+    """Every interface contract ``commit`` issued, relative to a worktree, sorted.
+
+    Read from git's objects, never from a worktree, so nothing a session did in its own
+    worktree can take a contract off the list. A commit from before contracts were
+    issued holds none, and the answer is empty.
+
+    Raises:
+        GitError: git cannot list ``commit``.
+    """
+    listing = git(
+        repo,
+        *("ls-tree", "-r", "-z", "--name-only", "--full-tree", commit, f"{INTERFACES_DIR}/"),
+        objects_only=True,
+    )
+    return tuple(sorted(name for name in listing.split("\0") if name))
+
 
 FailureCause = Literal[
     "no_structured_output",
@@ -167,6 +212,11 @@ def plan_problems(plan: Plan, roles: Sequence[str]) -> list[str]:
             if one == other or one.is_relative_to(other) or other.is_relative_to(one):
                 found.append(f"module directories {one} and {other} overlap")
     ids = [n.id for n in plan.interface_nodes]
+    if len(ids) > MAX_INTERFACE_NODES:
+        found.append(
+            f"the plan has {len(ids)} interface nodes; at most {MAX_INTERFACE_NODES} are "
+            "allowed, since every session reads every contract before it works"
+        )
     if len(set(ids)) != len(ids):
         found.append("two interface nodes share an id")
     owners = {m.role for m in plan.modules}
@@ -547,8 +597,9 @@ def start_run(
 
     Raises:
         RunStateError: the run directory already holds a run.
-        DecompositionError: the store refused an interface node the plan validated,
-            or the curated library cannot be put into the target: a planned role's
+        DecompositionError: an interface node's id is not a node id, the store
+            refused an interface node the plan validated, or the curated library
+            cannot be put into the target: a planned role's
             file missing or empty, or the target holding other bytes where it goes.
     """
     require_fresh(run_dir)
@@ -564,6 +615,15 @@ def start_run(
         # .physgate/lib, and the run branch holds the very bytes the harness ships.
         curated.update(series_library())
         _require_library_fits(target_repo, config.target_head, curated)
+        # A contract's file is named by its node's id, so an id that is no node id would
+        # name a file outside the contracts' directory; the store would refuse it only
+        # after the specifications were committed.
+        for node in outcome.plan.interface_nodes:
+            try:
+                validate_node_id(node.id)
+            except MalformedNodeIdError as exc:
+                msg = "an interface node's id is not a node id"
+                raise DecompositionError(msg, node=node.id[:64], reason=str(exc)) from None
     store_root = run_dir / "store"
     record = RunRecord(config, run_dir)
     spent = DecompositionCall(session_id=outcome.session_id, usage=outcome.usage)
@@ -591,6 +651,10 @@ def start_run(
                 module_dir=module.module_dir,
             )
         )
+    # Beside the specifications and in the same commit: what each role designs against.
+    for relative, contract in contracts_of(plan.interface_nodes).items():
+        (run.integration / relative).parent.mkdir(parents=True, exist_ok=True)
+        (run.integration / relative).write_text(contract)
     spec_commit = commit_all(
         run.integration,
         f"Specifications for run {config.run_id}\n\n"

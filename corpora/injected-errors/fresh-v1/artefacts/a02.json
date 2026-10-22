@@ -1,0 +1,1032 @@
+{
+ "id": "a02",
+ "error_class": "equilibrium",
+ "expected_check": "equilibrium",
+ "assigned_role": "electrical",
+ "description": "The chassis mass should stay 165 g: frame and board 106 g + wheels 39.7 g + two gearmotors 19 g, and the 30:1 gearmotor weighs the same 9.5 g as the 50:1. It is written as 184 g, the new gearmotors' 2 x 9.5 g added on top of a figure that already holds the old ones. The parts no longer sum to the chassis mass, and chassis 184 g + pack 165 g = 349 g no longer equals the 330 g the assembly and balance loop carry, so the weight the wheels support does not add up.",
+ "edge": null,
+ "clean": {
+  "nodes": [
+   {
+    "id": "electrical.motor_left",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "rated_voltage": {
+      "value": 6,
+      "unit": "V",
+      "source": "https://www.pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-2.pdf",
+      "written_by": "electrical"
+     },
+     "stall_current": {
+      "value": 1.5,
+      "unit": "A",
+      "source": "https://www.pololu.com/product/3072/specs",
+      "written_by": "electrical"
+     },
+     "no_load_current": {
+      "value": 0.15,
+      "unit": "A",
+      "source": "https://www.pololu.com/product/3072/specs",
+      "written_by": "electrical"
+     },
+     "stall_torque": {
+      "value": 0.0441,
+      "unit": "N*m",
+      "source": "https://www.pololu.com/product/3072/specs",
+      "written_by": "electrical"
+     },
+     "no_load_speed": {
+      "value": 115,
+      "unit": "rad/s",
+      "source": "https://www.pololu.com/product/3072/specs",
+      "written_by": "electrical"
+     },
+     "gear_ratio": {
+      "value": 29.86,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/product/3072/specs",
+      "written_by": "electrical"
+     },
+     "rated_output_power": {
+      "value": 1.2,
+      "unit": "W",
+      "source": "https://www.pololu.com/product/3072/specs",
+      "written_by": "electrical"
+     },
+     "power_draw": {
+      "value": 9.0,
+      "unit": "W",
+      "source": "derived: [R1.02] * [R1a.04]",
+      "written_by": "electrical"
+     },
+     "mass": {
+      "value": 9.5,
+      "unit": "g",
+      "source": "https://www.pololu.com/product/3072/specs",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.driver_left",
+     "mechanical.gearbox_left",
+     "mechanical.chassis",
+     "firmware.encoder_counter",
+     "firmware.motor_output",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "electrical.motor_right",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "rated_voltage": {
+      "value": 6,
+      "unit": "V",
+      "source": "https://www.pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-2.pdf",
+      "written_by": "electrical"
+     },
+     "stall_current": {
+      "value": 1.5,
+      "unit": "A",
+      "source": "https://www.pololu.com/product/3072/specs",
+      "written_by": "electrical"
+     },
+     "no_load_current": {
+      "value": 0.15,
+      "unit": "A",
+      "source": "https://www.pololu.com/product/3072/specs",
+      "written_by": "electrical"
+     },
+     "stall_torque": {
+      "value": 0.0441,
+      "unit": "N*m",
+      "source": "https://www.pololu.com/product/3072/specs",
+      "written_by": "electrical"
+     },
+     "no_load_speed": {
+      "value": 115,
+      "unit": "rad/s",
+      "source": "https://www.pololu.com/product/3072/specs",
+      "written_by": "electrical"
+     },
+     "gear_ratio": {
+      "value": 29.86,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/product/3072/specs",
+      "written_by": "electrical"
+     },
+     "rated_output_power": {
+      "value": 1.2,
+      "unit": "W",
+      "source": "https://www.pololu.com/product/3072/specs",
+      "written_by": "electrical"
+     },
+     "power_draw": {
+      "value": 9.0,
+      "unit": "W",
+      "source": "derived: [R1.02] * [R1a.04]",
+      "written_by": "electrical"
+     },
+     "mass": {
+      "value": 9.5,
+      "unit": "g",
+      "source": "https://www.pololu.com/product/3072/specs",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.driver_right",
+     "mechanical.gearbox_right",
+     "mechanical.chassis",
+     "firmware.encoder_counter",
+     "firmware.motor_output",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "electrical.driver_left",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "current_limit": {
+      "value": 1.8,
+      "unit": "A",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     },
+     "output_current": {
+      "value": 1.5,
+      "unit": "A",
+      "source": "https://www.pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-2.pdf",
+      "written_by": "electrical"
+     },
+     "current_draw": {
+      "value": 1.25,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.04] / [R5.03]",
+      "written_by": "electrical"
+     },
+     "thermal_resistance": {
+      "value": 60.9,
+      "unit": "K/W",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.battery_pack"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.motor_left": "The 30:1 HPCB 6V gearmotor has the same 1.5 A stall current at 6 V as the 50:1, so the driver's output current, pack-side current and current limit are unchanged."
+    }
+   },
+   {
+    "id": "electrical.driver_right",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "current_limit": {
+      "value": 1.8,
+      "unit": "A",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     },
+     "output_current": {
+      "value": 1.5,
+      "unit": "A",
+      "source": "https://www.pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-2.pdf",
+      "written_by": "electrical"
+     },
+     "current_draw": {
+      "value": 1.25,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.04] / [R5.03]",
+      "written_by": "electrical"
+     },
+     "thermal_resistance": {
+      "value": 60.9,
+      "unit": "K/W",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.battery_pack"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.motor_right": "The 30:1 HPCB 6V gearmotor has the same 1.5 A stall current at 6 V as the 50:1, so the driver's output current, pack-side current and current limit are unchanged."
+    }
+   },
+   {
+    "id": "mechanical.gearbox_left",
+    "kind": "component",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "gear_ratio": {
+      "value": 2.88,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "overall_gear_ratio": {
+      "value": 86.1,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.chassis",
+     "control.balance_loop",
+     "firmware.encoder_counter"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.gearbox_right",
+    "kind": "component",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "gear_ratio": {
+      "value": 2.88,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "overall_gear_ratio": {
+      "value": 86.1,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.chassis",
+     "control.balance_loop",
+     "firmware.encoder_counter"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.chassis",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "reaction_moment": {
+      "value": 0.0883,
+      "unit": "N*m",
+      "source": "derived: [R1a.05] * [R1.25]",
+      "written_by": "mechanical"
+     },
+     "mass": {
+      "value": 165,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03]",
+      "written_by": "mechanical"
+     },
+     "track_width": {
+      "value": 102,
+      "unit": "mm",
+      "source": "derived: [R10.08] + [R10.09]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.assembly"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.assembly",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "unladen_mass": {
+      "value": 165,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03]",
+      "written_by": "mechanical"
+     },
+     "mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "mechanical.chassis": "Only the chassis reaction moment changed; the 30:1 gearmotor weighs the same 9.5 g as the 50:1, so the unladen and total masses are unchanged."
+    }
+   },
+   {
+    "id": "control.balance_loop",
+    "kind": "module",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: 10 ms control period, meeting the required minimum loop rate",
+      "written_by": "control"
+     },
+     "plant_mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "control"
+     },
+     "torque_peak": {
+      "value": 0.0883,
+      "unit": "N*m",
+      "source": "derived: [R1a.05] * [R1.25]",
+      "written_by": "control"
+     },
+     "no_load_speed": {
+      "value": 115,
+      "unit": "rad/s",
+      "source": "https://www.pololu.com/product/3072/specs",
+      "written_by": "control"
+     },
+     "gear_ratio": {
+      "value": 2.88,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_loop_rate"
+    ],
+    "constrains": [
+     "firmware.balance_task"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.balance_task",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: task period set equal to the balance-loop period",
+      "written_by": "firmware"
+     },
+     "clock_frequency": {
+      "value": 16,
+      "unit": "MHz",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "firmware.imu_driver",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "control.balance_loop": "The loop's actuator torque and speed figures changed, not its rate; the task period and clock are unchanged."
+    }
+   },
+   {
+    "id": "firmware.encoder_counter",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "counts_per_revolution": {
+      "value": 12,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     },
+     "overall_gear_ratio": {
+      "value": 86.1,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "control.speed_controller"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "control.speed_controller",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "loop_gain": {
+      "value": 0.5,
+      "unit": "dimensionless",
+      "source": "design: outer wheel-speed gain, normalised tilt set-point per normalised wheel speed",
+      "written_by": "control"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "firmware.encoder_counter": "The gain acts on wheel speed after the counter has scaled counts by the overall ratio, so the new ratio is absorbed in the counter and the gain is unchanged."
+    }
+   },
+   {
+    "id": "firmware.motor_output",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "pwm_duty_limit": {
+      "value": 0.833,
+      "unit": "dimensionless",
+      "source": "derived: [R1.02] / [R5.03]",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.driver_left",
+     "electrical.driver_right"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.motor_left": "The 30:1 gearmotor has the same 6 V rating, so the duty limit that holds the average motor voltage at 6 V from the 7.2 V pack is unchanged.",
+     "electrical.motor_right": "The 30:1 gearmotor has the same 6 V rating, so the duty limit that holds the average motor voltage at 6 V from the 7.2 V pack is unchanged."
+    }
+   }
+  ]
+ },
+ "injected": {
+  "nodes": [
+   {
+    "id": "electrical.motor_left",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "rated_voltage": {
+      "value": 6,
+      "unit": "V",
+      "source": "https://www.pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-2.pdf",
+      "written_by": "electrical"
+     },
+     "stall_current": {
+      "value": 1.5,
+      "unit": "A",
+      "source": "https://www.pololu.com/product/3072/specs",
+      "written_by": "electrical"
+     },
+     "no_load_current": {
+      "value": 0.15,
+      "unit": "A",
+      "source": "https://www.pololu.com/product/3072/specs",
+      "written_by": "electrical"
+     },
+     "stall_torque": {
+      "value": 0.0441,
+      "unit": "N*m",
+      "source": "https://www.pololu.com/product/3072/specs",
+      "written_by": "electrical"
+     },
+     "no_load_speed": {
+      "value": 115,
+      "unit": "rad/s",
+      "source": "https://www.pololu.com/product/3072/specs",
+      "written_by": "electrical"
+     },
+     "gear_ratio": {
+      "value": 29.86,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/product/3072/specs",
+      "written_by": "electrical"
+     },
+     "rated_output_power": {
+      "value": 1.2,
+      "unit": "W",
+      "source": "https://www.pololu.com/product/3072/specs",
+      "written_by": "electrical"
+     },
+     "power_draw": {
+      "value": 9.0,
+      "unit": "W",
+      "source": "derived: [R1.02] * [R1a.04]",
+      "written_by": "electrical"
+     },
+     "mass": {
+      "value": 9.5,
+      "unit": "g",
+      "source": "https://www.pololu.com/product/3072/specs",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.driver_left",
+     "mechanical.gearbox_left",
+     "mechanical.chassis",
+     "firmware.encoder_counter",
+     "firmware.motor_output",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "electrical.motor_right",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "rated_voltage": {
+      "value": 6,
+      "unit": "V",
+      "source": "https://www.pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-2.pdf",
+      "written_by": "electrical"
+     },
+     "stall_current": {
+      "value": 1.5,
+      "unit": "A",
+      "source": "https://www.pololu.com/product/3072/specs",
+      "written_by": "electrical"
+     },
+     "no_load_current": {
+      "value": 0.15,
+      "unit": "A",
+      "source": "https://www.pololu.com/product/3072/specs",
+      "written_by": "electrical"
+     },
+     "stall_torque": {
+      "value": 0.0441,
+      "unit": "N*m",
+      "source": "https://www.pololu.com/product/3072/specs",
+      "written_by": "electrical"
+     },
+     "no_load_speed": {
+      "value": 115,
+      "unit": "rad/s",
+      "source": "https://www.pololu.com/product/3072/specs",
+      "written_by": "electrical"
+     },
+     "gear_ratio": {
+      "value": 29.86,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/product/3072/specs",
+      "written_by": "electrical"
+     },
+     "rated_output_power": {
+      "value": 1.2,
+      "unit": "W",
+      "source": "https://www.pololu.com/product/3072/specs",
+      "written_by": "electrical"
+     },
+     "power_draw": {
+      "value": 9.0,
+      "unit": "W",
+      "source": "derived: [R1.02] * [R1a.04]",
+      "written_by": "electrical"
+     },
+     "mass": {
+      "value": 9.5,
+      "unit": "g",
+      "source": "https://www.pololu.com/product/3072/specs",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.driver_right",
+     "mechanical.gearbox_right",
+     "mechanical.chassis",
+     "firmware.encoder_counter",
+     "firmware.motor_output",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "electrical.driver_left",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "current_limit": {
+      "value": 1.8,
+      "unit": "A",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     },
+     "output_current": {
+      "value": 1.5,
+      "unit": "A",
+      "source": "https://www.pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-2.pdf",
+      "written_by": "electrical"
+     },
+     "current_draw": {
+      "value": 1.25,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.04] / [R5.03]",
+      "written_by": "electrical"
+     },
+     "thermal_resistance": {
+      "value": 60.9,
+      "unit": "K/W",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.battery_pack"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.motor_left": "The 30:1 HPCB 6V gearmotor has the same 1.5 A stall current at 6 V as the 50:1, so the driver's output current, pack-side current and current limit are unchanged."
+    }
+   },
+   {
+    "id": "electrical.driver_right",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "current_limit": {
+      "value": 1.8,
+      "unit": "A",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     },
+     "output_current": {
+      "value": 1.5,
+      "unit": "A",
+      "source": "https://www.pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-2.pdf",
+      "written_by": "electrical"
+     },
+     "current_draw": {
+      "value": 1.25,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.04] / [R5.03]",
+      "written_by": "electrical"
+     },
+     "thermal_resistance": {
+      "value": 60.9,
+      "unit": "K/W",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.battery_pack"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.motor_right": "The 30:1 HPCB 6V gearmotor has the same 1.5 A stall current at 6 V as the 50:1, so the driver's output current, pack-side current and current limit are unchanged."
+    }
+   },
+   {
+    "id": "mechanical.gearbox_left",
+    "kind": "component",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "gear_ratio": {
+      "value": 2.88,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "overall_gear_ratio": {
+      "value": 86.1,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.chassis",
+     "control.balance_loop",
+     "firmware.encoder_counter"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.gearbox_right",
+    "kind": "component",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "gear_ratio": {
+      "value": 2.88,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "overall_gear_ratio": {
+      "value": 86.1,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.chassis",
+     "control.balance_loop",
+     "firmware.encoder_counter"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.chassis",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "reaction_moment": {
+      "value": 0.0883,
+      "unit": "N*m",
+      "source": "derived: [R1a.05] * [R1.25]",
+      "written_by": "mechanical"
+     },
+     "mass": {
+      "value": 184,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R1a.07] * [R1.25]",
+      "written_by": "mechanical"
+     },
+     "track_width": {
+      "value": 102,
+      "unit": "mm",
+      "source": "derived: [R10.08] + [R10.09]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.assembly"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.assembly",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "unladen_mass": {
+      "value": 165,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03]",
+      "written_by": "mechanical"
+     },
+     "mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "mechanical.chassis": "Only the chassis reaction moment changed; the 30:1 gearmotor weighs the same 9.5 g as the 50:1, so the unladen and total masses are unchanged."
+    }
+   },
+   {
+    "id": "control.balance_loop",
+    "kind": "module",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: 10 ms control period, meeting the required minimum loop rate",
+      "written_by": "control"
+     },
+     "plant_mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "control"
+     },
+     "torque_peak": {
+      "value": 0.0883,
+      "unit": "N*m",
+      "source": "derived: [R1a.05] * [R1.25]",
+      "written_by": "control"
+     },
+     "no_load_speed": {
+      "value": 115,
+      "unit": "rad/s",
+      "source": "https://www.pololu.com/product/3072/specs",
+      "written_by": "control"
+     },
+     "gear_ratio": {
+      "value": 2.88,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_loop_rate"
+    ],
+    "constrains": [
+     "firmware.balance_task"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.balance_task",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: task period set equal to the balance-loop period",
+      "written_by": "firmware"
+     },
+     "clock_frequency": {
+      "value": 16,
+      "unit": "MHz",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "firmware.imu_driver",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "control.balance_loop": "The loop's actuator torque and speed figures changed, not its rate; the task period and clock are unchanged."
+    }
+   },
+   {
+    "id": "firmware.encoder_counter",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "counts_per_revolution": {
+      "value": 12,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     },
+     "overall_gear_ratio": {
+      "value": 86.1,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "control.speed_controller"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "control.speed_controller",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "loop_gain": {
+      "value": 0.5,
+      "unit": "dimensionless",
+      "source": "design: outer wheel-speed gain, normalised tilt set-point per normalised wheel speed",
+      "written_by": "control"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "firmware.encoder_counter": "The gain acts on wheel speed after the counter has scaled counts by the overall ratio, so the new ratio is absorbed in the counter and the gain is unchanged."
+    }
+   },
+   {
+    "id": "firmware.motor_output",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "pwm_duty_limit": {
+      "value": 0.833,
+      "unit": "dimensionless",
+      "source": "derived: [R1.02] / [R5.03]",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.driver_left",
+     "electrical.driver_right"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.motor_left": "The 30:1 gearmotor has the same 6 V rating, so the duty limit that holds the average motor voltage at 6 V from the 7.2 V pack is unchanged.",
+     "electrical.motor_right": "The 30:1 gearmotor has the same 6 V rating, so the duty limit that holds the average motor voltage at 6 V from the 7.2 V pack is unchanged."
+    }
+   }
+  ]
+ }
+}

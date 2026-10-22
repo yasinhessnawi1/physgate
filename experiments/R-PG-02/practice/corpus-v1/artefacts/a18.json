@@ -1,0 +1,200 @@
+{
+ "id": "a18",
+ "error_class": "magnitude",
+ "expected_check": "magnitude",
+ "assigned_role": "control",
+ "description": "control.req_sample_rate sample_rate is 5 Hz; the relaxed minimum is 50 Hz. The robot is an inverted pendulum about 0.12 m tall (R11.02), with a time constant of roughly sqrt(L/g), about 0.1 s, so it falls over in a few tenths of a second. A 5 Hz minimum allows 200 ms between updates, about two time constants, which is not plausible for stabilising this robot. The tilt estimator and balance loop would still meet it at 100 Hz, so the requirement no longer bounds anything.",
+ "edge": null,
+ "clean": {
+  "nodes": [
+   {
+    "id": "control.req_sample_rate",
+    "kind": "requirement",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 50,
+      "unit": "Hz",
+      "source": "design: minimum update rate for the balance loop and the tilt estimate it reads",
+      "written_by": "control"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "control.tilt_estimator",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "control.tilt_estimator",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: gyro and accelerometer fusion at the balance loop rate",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.imu_driver"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "control.req_sample_rate": "100 Hz is above the relaxed 50 Hz minimum, so the estimator keeps its rate."
+    }
+   },
+   {
+    "id": "control.balance_loop",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: inner tilt loop rate, meets control.req_sample_rate",
+      "written_by": "control"
+     },
+     "loop_gain": {
+      "value": 2.5,
+      "unit": "dimensionless",
+      "source": "design: proportional gain from normalised tilt error to normalised motor command",
+      "written_by": "control"
+     },
+     "mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "control"
+     },
+     "torque_peak": {
+      "value": 110,
+      "unit": "kgf*cm",
+      "source": "derived: [R1.07] * [R2.11]",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.balance_task"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "control.req_sample_rate": "100 Hz is above the relaxed 50 Hz minimum, so the loop keeps its rate and gain."
+    }
+   }
+  ]
+ },
+ "injected": {
+  "nodes": [
+   {
+    "id": "control.req_sample_rate",
+    "kind": "requirement",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 5,
+      "unit": "Hz",
+      "source": "design: minimum update rate for the balance loop and the tilt estimate it reads",
+      "written_by": "control"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "control.tilt_estimator",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "control.tilt_estimator",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: gyro and accelerometer fusion at the balance loop rate",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.imu_driver"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "control.req_sample_rate": "100 Hz is above the relaxed 50 Hz minimum, so the estimator keeps its rate."
+    }
+   },
+   {
+    "id": "control.balance_loop",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: inner tilt loop rate, meets control.req_sample_rate",
+      "written_by": "control"
+     },
+     "loop_gain": {
+      "value": 2.5,
+      "unit": "dimensionless",
+      "source": "design: proportional gain from normalised tilt error to normalised motor command",
+      "written_by": "control"
+     },
+     "mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "control"
+     },
+     "torque_peak": {
+      "value": 110,
+      "unit": "kgf*cm",
+      "source": "derived: [R1.07] * [R2.11]",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.balance_task"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "control.req_sample_rate": "100 Hz is above the relaxed 50 Hz minimum, so the loop keeps its rate and gain."
+    }
+   }
+  ]
+ }
+}

@@ -1,0 +1,154 @@
+{
+ "id": "a27",
+ "error_class": "equilibrium",
+ "expected_check": "equilibrium",
+ "assigned_role": "mechanical",
+ "description": "The chassis mass should stay 165 g (kit 200 g less the 35 g cage), a figure that already includes the wheels. It is written as 205 g, the 39.7 g wheel pair added a second time. The parts (frame and board 106 g, wheels 39.7 g, gearmotors 19 g) sum to 165 g, not 205 g, and chassis 205 g + pack 165 g = 370 g no longer equals the 330 g the assembly and balance loop carry, so the weight on the wheels does not balance.",
+ "edge": null,
+ "clean": {
+  "nodes": [
+   {
+    "id": "mechanical.chassis",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "reaction_moment": {
+      "value": 0.145,
+      "unit": "N*m",
+      "source": "derived: [R1.07] * [R1.25]",
+      "written_by": "mechanical"
+     },
+     "mass": {
+      "value": 165,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03]",
+      "written_by": "mechanical"
+     },
+     "track_width": {
+      "value": 102,
+      "unit": "mm",
+      "source": "derived: [R10.08] + [R10.09]",
+      "written_by": "mechanical"
+     },
+     "overall_width": {
+      "value": 112,
+      "unit": "mm",
+      "source": "https://www.pololu.com/file/0J1283/balboa-32u4-balancing-robot-kit-dimensions.pdf",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.assembly"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.assembly",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "unladen_mass": {
+      "value": 165,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03]",
+      "written_by": "mechanical"
+     },
+     "mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "mechanical.chassis": "A dimension was added to the chassis; no part was added or moved, so the unladen and total masses are unchanged."
+    }
+   }
+  ]
+ },
+ "injected": {
+  "nodes": [
+   {
+    "id": "mechanical.chassis",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "reaction_moment": {
+      "value": 0.145,
+      "unit": "N*m",
+      "source": "derived: [R1.07] * [R1.25]",
+      "written_by": "mechanical"
+     },
+     "mass": {
+      "value": 205,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R9.03] * [R9.06]",
+      "written_by": "mechanical"
+     },
+     "track_width": {
+      "value": 102,
+      "unit": "mm",
+      "source": "derived: [R10.08] + [R10.09]",
+      "written_by": "mechanical"
+     },
+     "overall_width": {
+      "value": 112,
+      "unit": "mm",
+      "source": "https://www.pololu.com/file/0J1283/balboa-32u4-balancing-robot-kit-dimensions.pdf",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.assembly"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.assembly",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "unladen_mass": {
+      "value": 165,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03]",
+      "written_by": "mechanical"
+     },
+     "mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "mechanical.chassis": "A dimension was added to the chassis; no part was added or moved, so the unladen and total masses are unchanged."
+    }
+   }
+  ]
+ }
+}

@@ -1,0 +1,519 @@
+{
+ "id": "a08",
+ "error_class": "propagation",
+ "expected_check": "propagation",
+ "assigned_role": "electrical",
+ "description": "Moving to alkaline cells raises the pack voltage from 7.2 V to 9 V. The firmware motor output, which the pack constrains, keeps the base pwm_duty_limit of 0.833 (6 V / 7.2 V) with no reason given; it should be 0.667 (6 V / 9 V). At 0.833 the 6 V gearmotors see an average of 7.5 V, 25 % over their rating, and the drivers' 1.00 A pack-side current no longer follows from the duty the firmware allows.",
+ "edge": {
+  "source": "electrical.battery_pack",
+  "target": "firmware.motor_output"
+ },
+ "clean": {
+  "nodes": [
+   {
+    "id": "electrical.battery_cell",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "rated_voltage": {
+      "value": 1.5,
+      "unit": "V",
+      "source": "derived: [R5.04] / [R5.10]",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.battery_pack"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "electrical.battery_pack",
+    "kind": "module",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 9,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "motor_current_draw": {
+      "value": 2.0,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.04] * [R4.19] / [R5.04]",
+      "written_by": "electrical"
+     },
+     "motor_power_draw": {
+      "value": 18.0,
+      "unit": "W",
+      "source": "derived: [R1.02] * [R1.04] * [R4.19]",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.assembly",
+     "firmware.motor_output",
+     "electrical.driver_left",
+     "electrical.driver_right"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "electrical.driver_left",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "current_limit": {
+      "value": 1.8,
+      "unit": "A",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     },
+     "output_current": {
+      "value": 1.5,
+      "unit": "A",
+      "source": "https://www.pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-2.pdf",
+      "written_by": "electrical"
+     },
+     "current_draw": {
+      "value": 1.0,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.04] / [R5.04]",
+      "written_by": "electrical"
+     },
+     "thermal_resistance": {
+      "value": 60.9,
+      "unit": "K/W",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.battery_pack"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "electrical.driver_right",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "current_limit": {
+      "value": 1.8,
+      "unit": "A",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     },
+     "output_current": {
+      "value": 1.5,
+      "unit": "A",
+      "source": "https://www.pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-2.pdf",
+      "written_by": "electrical"
+     },
+     "current_draw": {
+      "value": 1.0,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.04] / [R5.04]",
+      "written_by": "electrical"
+     },
+     "thermal_resistance": {
+      "value": 60.9,
+      "unit": "K/W",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.battery_pack"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.motor_output",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "pwm_duty_limit": {
+      "value": 0.667,
+      "unit": "dimensionless",
+      "source": "derived: [R1.02] / [R5.04]",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.driver_left",
+     "electrical.driver_right"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.assembly",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "unladen_mass": {
+      "value": 165,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "control.balance_loop",
+    "kind": "module",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: 10 ms control period, meeting the required minimum loop rate",
+      "written_by": "control"
+     },
+     "torque_peak": {
+      "value": 0.145,
+      "unit": "N*m",
+      "source": "derived: [R1.07] * [R1.25]",
+      "written_by": "control"
+     },
+     "no_load_speed": {
+      "value": 68.1,
+      "unit": "rad/s",
+      "source": "https://www.pololu.com/product/3073/specs",
+      "written_by": "control"
+     },
+     "gear_ratio": {
+      "value": 2.88,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_loop_rate"
+    ],
+    "constrains": [
+     "firmware.balance_task"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.balance_task",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: task period set equal to the balance-loop period",
+      "written_by": "firmware"
+     },
+     "clock_frequency": {
+      "value": 16,
+      "unit": "MHz",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "firmware.imu_driver",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "control.balance_loop": "Only the plant mass was dropped from the loop; the loop rate, and with it the task period and clock, are unchanged."
+    }
+   }
+  ]
+ },
+ "injected": {
+  "nodes": [
+   {
+    "id": "electrical.battery_cell",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "rated_voltage": {
+      "value": 1.5,
+      "unit": "V",
+      "source": "derived: [R5.04] / [R5.10]",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.battery_pack"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "electrical.battery_pack",
+    "kind": "module",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 9,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "motor_current_draw": {
+      "value": 2.0,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.04] * [R4.19] / [R5.04]",
+      "written_by": "electrical"
+     },
+     "motor_power_draw": {
+      "value": 18.0,
+      "unit": "W",
+      "source": "derived: [R1.02] * [R1.04] * [R4.19]",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.assembly",
+     "firmware.motor_output",
+     "electrical.driver_left",
+     "electrical.driver_right"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "electrical.driver_left",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "current_limit": {
+      "value": 1.8,
+      "unit": "A",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     },
+     "output_current": {
+      "value": 1.5,
+      "unit": "A",
+      "source": "https://www.pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-2.pdf",
+      "written_by": "electrical"
+     },
+     "current_draw": {
+      "value": 1.0,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.04] / [R5.04]",
+      "written_by": "electrical"
+     },
+     "thermal_resistance": {
+      "value": 60.9,
+      "unit": "K/W",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.battery_pack"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "electrical.driver_right",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "current_limit": {
+      "value": 1.8,
+      "unit": "A",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     },
+     "output_current": {
+      "value": 1.5,
+      "unit": "A",
+      "source": "https://www.pololu.com/file/0J1487/pololu-micro-metal-gearmotors-rev-6-2.pdf",
+      "written_by": "electrical"
+     },
+     "current_draw": {
+      "value": 1.0,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.04] / [R5.04]",
+      "written_by": "electrical"
+     },
+     "thermal_resistance": {
+      "value": 60.9,
+      "unit": "K/W",
+      "source": "https://www.ti.com/lit/ds/symlink/drv8838.pdf",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.battery_pack"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.motor_output",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "pwm_duty_limit": {
+      "value": 0.833,
+      "unit": "dimensionless",
+      "source": "derived: [R1.02] / [R5.03]",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.driver_left",
+     "electrical.driver_right"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.assembly",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "unladen_mass": {
+      "value": 165,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "control.balance_loop",
+    "kind": "module",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: 10 ms control period, meeting the required minimum loop rate",
+      "written_by": "control"
+     },
+     "torque_peak": {
+      "value": 0.145,
+      "unit": "N*m",
+      "source": "derived: [R1.07] * [R1.25]",
+      "written_by": "control"
+     },
+     "no_load_speed": {
+      "value": 68.1,
+      "unit": "rad/s",
+      "source": "https://www.pololu.com/product/3073/specs",
+      "written_by": "control"
+     },
+     "gear_ratio": {
+      "value": 2.88,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_loop_rate"
+    ],
+    "constrains": [
+     "firmware.balance_task"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.balance_task",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: task period set equal to the balance-loop period",
+      "written_by": "firmware"
+     },
+     "clock_frequency": {
+      "value": 16,
+      "unit": "MHz",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "firmware.imu_driver",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "control.balance_loop": "Only the plant mass was dropped from the loop; the loop rate, and with it the task period and clock, are unchanged."
+    }
+   }
+  ]
+ }
+}

@@ -26,6 +26,7 @@ session is started with them.
 | `graph.py`, `journal_view.py` | A graph node reaches the store only as a proposal file, checked for owner, kind, schema and quantity names that shadow none a relation reads, as it is written; the journal is read without ever opening a store |
 | `reading.py` | No tool but Read until the required reading is done (ARCH-020) |
 | `token_ceiling.py` | Every tool refused while the always-loaded set is over its ceiling (ARCH-023) |
+| `survivors.py` | A shell command the survivor reaper stopped processes of (or could not check) is refused after it |
 | `sentinel.py`, `snapshot.py` | The second layer: every protected path compared at every hook, and put back when it moved |
 | `state.py`, `reasons.py`, `exceptions.py` | The hook layer's own records, the shared refusal reasons, the domain exceptions |
 
@@ -191,7 +192,19 @@ protected:
   what arrives.
 - **Reads** are denied for the held-out tier, the answer keys, review material,
   the harness checkout, every session's own files (its credentials and these
-  hooks' records), and the queue's decisions file.
+  hooks' records), the queue's decisions file, and the series outbox: whole on
+  macOS; on Linux every record an earlier command wrote, unless the command that
+  wrote it kept a copy (it can read it back, and link or copy it elsewhere).
+- **Nothing a command starts outlives it.** On Linux bubblewrap runs each command
+  in a process namespace of its own, which the kernel empties when the command
+  ends. On macOS the survivor reaper (`physgate.oslayer.reaper`), named by
+  `CLAUDE_CODE_SHELL_PREFIX`, runs as each command's first process inside the
+  command's own Seatbelt sandbox. When the command ends it stops what the
+  command left running. The profile lets it signal only processes of that same
+  sandbox, and it signals nothing unless it is sandboxed, the session's Claude
+  Code (the canary) refuses its signal, and the target started after it.
+  `survivors.py` turns its word into a refusal. A command that kills its own
+  reaper is not caught.
 - **The file tools stay these hooks'**: no permission rule is written, because
   Claude Code applies one before any hook runs, without the reason or the log
   line a refusal here gives.

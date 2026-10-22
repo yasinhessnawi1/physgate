@@ -61,8 +61,8 @@ from physgate.orchestrator.credentials import (
     write_key_helper,
     write_login,
 )
-from physgate.orchestrator.decompose import binary_version, read_stream
-from physgate.orchestrator.events import SessionSpawned, read_events
+from physgate.orchestrator.decompose import binary_version, interface_contracts, read_stream
+from physgate.orchestrator.events import Decomposed, SessionSpawned, read_events
 from physgate.orchestrator.exceptions import (
     AccountingError,
     InvocationError,
@@ -98,6 +98,7 @@ from physgate.oslayer import placeholders
 from physgate.oslayer.abort import aborted_tool_uses
 from physgate.oslayer.placement import machine_writable, placement_refusal
 from physgate.oslayer.probe import Absent, Present, judge_here
+from physgate.oslayer.reaper_install import CANARY_EXPORT
 from physgate.reviewers.ending import SWEEPS, SessionEnd, await_session, group, stop_all
 from physgate.reviewers.packet import issued_spec_sha256
 from physgate.reviewers.places import SESSION_DIRNAME
@@ -115,7 +116,14 @@ OWNER_NAME = "owner.json"
 #: (a pipe only the orchestrator writes), then replaces itself with the binary, its standard
 #: input then ``/dev/null``. Its pid and start time are the session's from the first moment;
 #: if the orchestrator dies before the release, the pipe closes and nothing of the session runs.
-HELD = ("/bin/sh", "-c", 'IFS= read -r _ || exit 70; exec "$@" </dev/null', "physgate-held")
+#: The shell exports its own pid, which the binary keeps, as the survivor reaper's canary
+#: (:mod:`physgate.oslayer.reaper_install`): a process outside every command's sandbox.
+HELD = (
+    "/bin/sh",
+    "-c",
+    "IFS= read -r _ || exit 70; " + CANARY_EXPORT + 'exec "$@" </dev/null',
+    "physgate-held",
+)
 
 
 def spawn_held(
@@ -1041,6 +1049,39 @@ class ClaudeDispatcher:
         """
         return review_material_seen(stream, frozenset(self._config.held_out_canaries))
 
+    def _contracts(self, request: SessionRequest) -> tuple[str, ...]:
+        """The interface contracts ``request``'s session must read, from its specification commit.
+
+        Fails closed: a request without a specification commit, in a run whose decomposition
+        recorded interface nodes, would install a session that reads none of them.
+
+        Raises:
+            InvocationError: the run recorded interface nodes and the request names no
+                specification commit, or the event log that says so cannot be read.
+        """
+        if request.spec_commit is not None:
+            return interface_contracts(self._run.repo, request.spec_commit)
+        log = self._run.run_dir / "events.jsonl"
+        try:
+            recorded = [
+                node
+                for e in (read_events(log) if log.exists() else [])
+                if isinstance(e, Decomposed)
+                for node in e.interface_nodes
+            ]
+        except (OSError, ValueError, OrchestratorError) as exc:
+            msg = "the event log could not be read, so the run's interface contracts are unknown"
+            raise InvocationError(msg, error=repr(exc)) from exc
+        if recorded:
+            msg = (
+                "the run recorded interface contracts, and the session names no "
+                "specification commit to read them from"
+            )
+            raise InvocationError(
+                msg, subtask_id=request.subtask_id, interface_nodes=",".join(recorded)
+            )
+        return ()
+
     def _install(
         self, request: SessionRequest, worktree: Path, sdir: Path, temp: Path | None
     ) -> Installed:
@@ -1062,11 +1103,18 @@ class ClaudeDispatcher:
         # from the role session like the library's reviewer tree.
         protect += ["--review-material", str(self._review_root)]
         # The always-loaded set (cross's standards, the role's own standards and
-        # skill) is a subset of required reading, which adds the module spec.
-        # loader.py names both relative to the worktree being dispatched to, never
+        # skill) is a subset of required reading, which adds the module spec and every
+        # interface contract the specification commit issued (a superset of the ones
+        # touching the module, until the plan names each interface's consumers).
+        # loader.py names them relative to the worktree being dispatched to, never
         # the orchestrator's own checkout — that is where this session's Read
         # tool actually operates.
-        reading_paths = loader.required_reading(request.assigned_role, Path(request.spec_path))
+        contracts = self._contracts(request)
+        reading_paths = loader.required_reading(
+            request.assigned_role,
+            Path(request.spec_path),
+            interfaces=tuple(Path(path) for path in contracts),
+        )
         always_loaded_paths = loader.always_loaded(request.assigned_role)
         reading_args = [
             arg for path in reading_paths for arg in ("--reading", str(worktree / path))
@@ -1105,6 +1153,8 @@ class ClaudeDispatcher:
             # The held-out tier: no role session reads or writes it (ARCH-141).
             *(arg for root in self._config.held_out for arg in ("--held-out", root)),
             *(["--os-layer-temp", str(temp)] if temp is not None else []),
+            # The held spawn exports the session's pid as the survivor reaper's canary.
+            "--spawns-with-canary",
             # No remote host where the run asks for it; only the OS layer can enforce that.
             *(
                 ["--os-layer-network", self._config.network]
@@ -1362,6 +1412,7 @@ class ClaudeDispatcher:
                 msg = "the session was answered by a model other than the pinned one"
                 raise InvocationError(msg, asked=request.model, answered=",".join(echoed))
         halted, appends = self._hook_log(sdir / "state", session_id)
+        unverified = self._reaper_unverified(sdir / "state", session_id)
         # The session has ended: its series records leave the worktree before anything is
         # committed, sealed if they hold, so no record is ever in git or in a review's diff.
         series = collect(
@@ -1423,6 +1474,7 @@ class ClaudeDispatcher:
             placeholders_refused=placeholders_refused,
             withheld_problems=withheld_problems,
             os_layer_aborted=aborted,
+            reaper_unverified=unverified,
         )
 
     @staticmethod
@@ -1716,6 +1768,21 @@ class ClaudeDispatcher:
     @staticmethod
     def _read_in_full(config_path: Path, session_id: str) -> bool:
         return read_in_full(config_path, session_id)
+
+    @staticmethod
+    def _reaper_unverified(state: Path, session_id: str) -> tuple[str, ...]:
+        """The shell commands whose reaper's word the hook layer logged as cut off."""
+        log = state / "hooks.log.jsonl"
+        if not log.exists():
+            return ()
+        found = []
+        for line in read_session_file(log).decode(errors="replace").splitlines():
+            record = json.loads(line)
+            if record.get("session") == session_id and record.get("decision") == (
+                "reaper_unverified"
+            ):
+                found.append(json.dumps(record.get("tool_input"))[:200])
+        return tuple(found)
 
     @staticmethod
     def _hook_log(state: Path, session_id: str) -> tuple[bool, tuple[str, ...]]:

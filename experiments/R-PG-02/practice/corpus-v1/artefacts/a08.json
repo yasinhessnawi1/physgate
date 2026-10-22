@@ -1,0 +1,187 @@
+{
+ "id": "a08",
+ "error_class": "propagation",
+ "expected_check": "propagation",
+ "assigned_role": "control",
+ "description": "control.balance_loop raises loop_gain from 2.5 to 3.0, but firmware.balance_task is left as in the base with loop_gain 2.5. It should be 3.0. The firmware that runs the loop would apply a gain 17 per cent below the designed one, so the tilt response the control design relies on is not what runs on the robot. It has no no_change_justified entry for control.balance_loop.",
+ "edge": {
+  "source": "control.balance_loop",
+  "target": "firmware.balance_task"
+ },
+ "clean": {
+  "nodes": [
+   {
+    "id": "control.balance_loop",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: inner tilt loop rate, meets control.req_sample_rate",
+      "written_by": "control"
+     },
+     "loop_gain": {
+      "value": 3.0,
+      "unit": "dimensionless",
+      "source": "design: proportional gain from normalised tilt error to normalised motor command, raised for a stiffer tilt response",
+      "written_by": "control"
+     },
+     "mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "control"
+     },
+     "torque_peak": {
+      "value": 110,
+      "unit": "kgf*cm",
+      "source": "derived: [R1.07] * [R2.11]",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.balance_task"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.balance_task",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: runs control.balance_loop at its rate",
+      "written_by": "firmware"
+     },
+     "loop_gain": {
+      "value": 3.0,
+      "unit": "dimensionless",
+      "source": "design: gain of control.balance_loop",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.main",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.main",
+    "kind": "module",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "clock_frequency": {
+      "value": 16,
+      "unit": "MHz",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     },
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: scheduler tick at the fastest task rate",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "firmware.balance_task": "A new gain constant leaves the task at 100 Hz, so the scheduler tick and the clock stay."
+    }
+   }
+  ]
+ },
+ "injected": {
+  "nodes": [
+   {
+    "id": "control.balance_loop",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: inner tilt loop rate, meets control.req_sample_rate",
+      "written_by": "control"
+     },
+     "loop_gain": {
+      "value": 3.0,
+      "unit": "dimensionless",
+      "source": "design: proportional gain from normalised tilt error to normalised motor command, raised for a stiffer tilt response",
+      "written_by": "control"
+     },
+     "mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "control"
+     },
+     "torque_peak": {
+      "value": 110,
+      "unit": "kgf*cm",
+      "source": "derived: [R1.07] * [R2.11]",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_sample_rate"
+    ],
+    "constrains": [
+     "firmware.balance_task"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.main",
+    "kind": "module",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "clock_frequency": {
+      "value": 16,
+      "unit": "MHz",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     },
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: scheduler tick at the fastest task rate",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "firmware.balance_task": "A new gain constant leaves the task at 100 Hz, so the scheduler tick and the clock stay."
+    }
+   }
+  ]
+ }
+}

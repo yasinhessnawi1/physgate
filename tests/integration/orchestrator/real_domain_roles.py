@@ -605,6 +605,7 @@ def dry_script(api: Any) -> None:  # noqa: ANN401
             for relative in loader.always_loaded("firmware")
         ),
         tool("Read", file_path="{cwd}/.physgate/specs/{cwd_name}.md"),
+        tool("Read", file_path=f"{{cwd}}/.physgate/interfaces/{INTERFACE['id']}.json"),
         tool(
             "Write",
             file_path="{cwd}/.physgate/proposals/firmware.main_loop.json",
@@ -618,6 +619,7 @@ def dry_script(api: Any) -> None:  # noqa: ANN401
             for relative in loader.always_loaded("control")
         ),
         tool("Read", file_path="{cwd}/.physgate/specs/{cwd_name}.md"),
+        tool("Read", file_path=f"{{cwd}}/.physgate/interfaces/{INTERFACE['id']}.json"),
         tool(
             "Write",
             file_path="{cwd}/.physgate/proposals/control.loop_gain.json",

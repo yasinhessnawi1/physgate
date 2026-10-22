@@ -540,6 +540,7 @@ def dry_fixture_session() -> list[dict[str, Any]]:
             for relative in loader.always_loaded("control")
         ),
         tool("Read", file_path="{cwd}/.physgate/specs/{cwd_name}.md"),
+        tool("Read", file_path=f"{{cwd}}/.physgate/interfaces/{INTERFACE['id']}.json"),
         tool("Write", file_path=f"{mod}/controller.py", content=DRY_CONTROLLER),
         tool("Write", file_path=f"{mod}/analysis.py", content=DRY_ANALYSIS),
         tool("Bash", command=run),

@@ -1,0 +1,158 @@
+{
+ "id": "a13",
+ "error_class": "equilibrium",
+ "expected_check": "equilibrium",
+ "assigned_role": "control",
+ "description": "The balance loop's torque_peak should be 0.145 N*m, the stall torque of both gearmotors together, equal and opposite to the 0.145 N*m reaction the chassis clamps carry. It is written as 0.0726 N*m, one gearmotor's stall torque. The torque the loop applies to the wheels no longer matches the reaction on the body, so the body-wheel moment balance is out by 0.0726 N*m.",
+ "edge": null,
+ "clean": {
+  "nodes": [
+   {
+    "id": "control.angle_controller",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "loop_gain": {
+      "value": 25,
+      "unit": "dimensionless",
+      "source": "design: tilt-angle gain, normalised motor command per normalised tilt error, raised for a stiffer recovery from a lean",
+      "written_by": "control"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "control.balance_loop",
+    "kind": "module",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: 10 ms control period, meeting the required minimum loop rate",
+      "written_by": "control"
+     },
+     "plant_mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "control"
+     },
+     "torque_peak": {
+      "value": 0.145,
+      "unit": "N*m",
+      "source": "derived: [R1.07] * [R1.25]",
+      "written_by": "control"
+     },
+     "no_load_speed": {
+      "value": 68.1,
+      "unit": "rad/s",
+      "source": "https://www.pololu.com/product/3073/specs",
+      "written_by": "control"
+     },
+     "gear_ratio": {
+      "value": 2.88,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_loop_rate"
+    ],
+    "constrains": [
+     "firmware.balance_task"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "control.angle_controller": "A gain inside the loop does not change its sample rate, the plant mass or the actuator torque and speed limits the motors and gearboxes set."
+    }
+   }
+  ]
+ },
+ "injected": {
+  "nodes": [
+   {
+    "id": "control.angle_controller",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "loop_gain": {
+      "value": 25,
+      "unit": "dimensionless",
+      "source": "design: tilt-angle gain, normalised motor command per normalised tilt error, raised for a stiffer recovery from a lean",
+      "written_by": "control"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "control.balance_loop",
+    "kind": "module",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: 10 ms control period, meeting the required minimum loop rate",
+      "written_by": "control"
+     },
+     "plant_mass": {
+      "value": 330,
+      "unit": "g",
+      "source": "derived: [R11.01] - [R10.03] + [R5.07] * [R5.10]",
+      "written_by": "control"
+     },
+     "torque_peak": {
+      "value": 0.0726,
+      "unit": "N*m",
+      "source": "https://www.pololu.com/product/3073/specs",
+      "written_by": "control"
+     },
+     "no_load_speed": {
+      "value": 68.1,
+      "unit": "rad/s",
+      "source": "https://www.pololu.com/product/3073/specs",
+      "written_by": "control"
+     },
+     "gear_ratio": {
+      "value": 2.88,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_loop_rate"
+    ],
+    "constrains": [
+     "firmware.balance_task"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "control.angle_controller": "A gain inside the loop does not change its sample rate, the plant mass or the actuator torque and speed limits the motors and gearboxes set."
+    }
+   }
+  ]
+ }
+}

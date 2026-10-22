@@ -17,6 +17,7 @@ from physgate.hooks import (
     reading,
     sentinel,
     shell_paths,
+    survivors,
     token_ceiling,
     tools,
     verdict_shape,
@@ -40,5 +41,6 @@ REGISTRY: Mapping[str, HookSpec] = {
         token_ceiling.HOOK,
         verdict_shape.HOOK,
         os_abort.HOOK,
+        survivors.HOOK,
     )
 }
