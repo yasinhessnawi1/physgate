@@ -38,6 +38,10 @@ DUMMY_KEY = "sk-ant-test-dummy-not-a-credential"
 #: Shaped like the long-lived token ``claude setup-token`` prints; not one.
 DUMMY_OAUTH_TOKEN = "sk-ant-oat01-test-dummy-not-a-credential"
 SUBAGENT_MARKER = "SUBAGENT-MARKER"
+#: A tool input given as exactly this is served as the last line of the latest tool result
+#: that is a whole JSON object: a session writing what its own script printed, as a model
+#: copies a result into its next call.
+LAST_JSON_LINE = "<<the last JSON line the previous tool printed>>"
 #: What the binary's compaction request tells the model (measured on 2.1.272).
 COMPACTION_MARKER = "CRITICAL: Respond with TEXT ONLY"
 
@@ -334,6 +338,44 @@ def _fill(step: dict[str, Any], cwd: str) -> dict[str, Any]:
     return filled
 
 
+def _last_json_line(messages: list[dict[str, Any]]) -> str:
+    """The last line of the latest tool result that parses as a JSON object, or ``""``."""
+    for message in reversed(messages):
+        content = message.get("content")
+        if message.get("role") != "user" or not isinstance(content, list):
+            continue
+        for block in reversed(content):
+            if block.get("type") != "tool_result":
+                continue
+            inner = block.get("content")
+            lines = (inner if isinstance(inner, str) else _text_of(inner)).splitlines()
+            for line in reversed(lines):
+                try:
+                    if isinstance(json.loads(line), dict):
+                        return line
+                except ValueError:
+                    continue
+            return ""
+    return ""
+
+
+def _with_last_result(step: dict[str, Any], messages: list[dict[str, Any]]) -> dict[str, Any]:
+    """``step`` with each input given as :data:`LAST_JSON_LINE` filled in from ``messages``.
+
+    Raises:
+        EmptySubstitutionError: the latest tool result printed no JSON object; the step
+            is not sent, as a placeholder with nothing to take is not.
+    """
+    inputs = step.get("input")
+    if "tool" not in step or not isinstance(inputs, dict) or LAST_JSON_LINE not in inputs.values():
+        return step
+    line = _last_json_line(messages)
+    if not line:
+        msg = "the latest tool result printed no JSON object to fill the step with; it is not sent"
+        raise EmptySubstitutionError(msg)
+    return {**step, "input": {k: line if v == LAST_JSON_LINE else v for k, v in inputs.items()}}
+
+
 class FakeMessagesApi:
     """The server, its script and its record of every request."""
 
@@ -387,7 +429,7 @@ class FakeMessagesApi:
                 swapped = self.on_request(thread, cwd, done)
                 if swapped is not None:
                     step = swapped
-            reply = _fill(step, cwd)
+            reply = _with_last_result(_fill(step, cwd), messages)
         with self._lock:
             self._n += 1
             n = self._n
