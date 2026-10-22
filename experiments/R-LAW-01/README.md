@@ -100,6 +100,9 @@ was drawn and before any model session. None changes a frozen number, seed or th
      without a whole token count) fails closed: `STOPPED` with its cause, logged as a stop, and no
      session starts. It is never `VOID`, which is the §12 result and is never resumed. Each ledger
      line is counted by `law_verify.py` and written in one append.
+   - The projection check after calibration round 1 (§12, step 6) reads the ledger through the
+     same reader. A ledger it cannot read is a stop of the run, resumable once the ledger is
+     repaired; the projection deviation is only the check failing on a ledger it has read.
 6. **Smaller readings.**
    - A line with an empty locus is not eligible for the rejection control.
    - A section 1 line absorbed at step A joins its target's flaw but adds nothing to its locus (the
@@ -150,3 +153,20 @@ number, seed or threshold, and none depends on the slice.
     - "For each coder, the share of G-caught lines it claimed G" (§7) is taken over the G-caught
       lines that coder was given, from its own rows: the adjudicator's over the disputed lines it
       saw, the audit's over its 20 % (its rows are step `audit`).
+
+Reading 12, and the projection check's addition to reading 5, were fixed on 23.10.2026, after a
+live capture of the binary's structured-output exhaustion and before any session of the
+experiment. Neither changes a frozen number, seed or threshold, and reading 12 only ever counts
+more toward the 60 M guard, never less.
+
+12. **A call that reports no usage (§12).** The binary's structured-output exhaustion reports no
+    usage although the model ran (captured live: two turns, every count 0, `modelUsage` empty),
+    and a call with no result reports none either. So a try or failed call whose output has no
+    result, or a result whose `modelUsage` is empty, is charged ceil(turns / 2), at least 1, times
+    the largest token count any completed try has reported in the ledger when its line is
+    written; while no try has reported one, the unit is §12's 50,000 per session. With no result,
+    the turns are 1. An estimate is not a report, and a failed call is not a try, so neither sets
+    the unit. A failed call refused before any model work (a usage limit, a rate limit, a refused
+    credential) is charged nothing. A charge is never less than what the output reports, the row
+    carries `tokens_estimated: true` with `models_used` as the output gives it (empty), and the
+    tally prints the count and the summed charge of such rows beside the token total.
