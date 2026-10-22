@@ -13,7 +13,11 @@
 #   - A call that completes (a result with is_error false, no other terminal reason, exit 0) is a
 #     try. A try whose output lacks a valid form for some finding is retried once (law_verify.py
 #     valid): the §5.5 retry, which is for an invalid form only.
-#   - A call that fails is not a try: an error result of any kind (a usage limit, a rate limit, a
+#   - So is the binary's own report that the model's output never fit --json-schema (subtype
+#     error_max_structured_output_retries, or terminal reason structured_output_retry_exhausted),
+#     an error result with exit 1: a completed try with no form, which gets the same one retry; a
+#     second one leaves the line without that coder's form.
+#   - A call that fails is not a try: any other error result (a usage limit, a rate limit, a
 #     refused credential, a server error after the binary's own retries, an API error), no result
 #     at all (a network failure, a crash, output that is not the binary's), another terminal
 #     reason, or a non-zero exit. Its output is kept as <packet>.try<n>.failed-<time>.json, it is
@@ -129,6 +133,11 @@ if not res:
     print("no_result"); sys.exit(0)
 r = res[-1]
 status, term = r.get("api_error_status"), r.get("terminal_reason")
+if (r.get("subtype") == "error_max_structured_output_retries"
+        or term == "structured_output_retry_exhausted"):
+    # the binary could not make the model's output fit --json-schema: a completed try with no
+    # form, so §5.5's one retry applies (whatever the exit; the binary exits 1 on it)
+    sys.exit(0)
 if r.get("is_error") is not False:
     if status in (401, 403):
         print(f"credential_refused ({status})")
@@ -277,7 +286,7 @@ case "${1:-}" in
   watch) shift; watch_phase "$@"; exit 0 ;;
   smoke) shift; smoke "$@"; exit $? ;;
   run) shift ;;
-  *) sed -n '2,66p' "$0" >&2; exit 2 ;;
+  *) sed -n '2,70p' "$0" >&2; exit 2 ;;
 esac
 
 [ $# -ge 6 ] || { echo "run needs: step kind packets out model lanes [ids]" >&2; exit 2; }

@@ -513,6 +513,13 @@ FAILED_CALLS = {
     "network failure": ("", "TypeError: fetch failed (ECONNRESET)", 1, "no_result"),
     "not json": ("Error: something broke", "", 0, "no_result"),
     "an error result of another kind": ('{"type":"result","is_error":true}', "", 0, "error"),
+    "the binary's own error of another kind than the schema's": (
+        '{"type":"result","subtype":"error_max_turns","is_error":true,'
+        '"terminal_reason":"max_turns","errors":["Reached maximum number of turns (1)"]}',
+        "",
+        1,
+        "error",
+    ),
     "a form, but a non-zero exit": (
         json.dumps(
             {"type": "result", "is_error": False, "structured_output": {"findings": [GOOD]}}
@@ -587,6 +594,58 @@ def test_an_invalid_form_is_a_try_and_gets_the_one_retry(tmp_path: Path, packets
     ]
     assert not (tmp_path / "led" / "STOPPED").exists()
     assert not (tmp_path / "led" / "interruptions.jsonl").exists()
+
+
+def _exhausted(variant: str) -> str:
+    """The binary's structured-output exhaustion result, or one of its two marks alone."""
+    r = json.loads((DATA / "retry_exhausted_out.json").read_text())
+    if variant == "the subtype alone":  # the retraction path keeps an aborted terminal reason
+        r["terminal_reason"] = "aborted_tools"
+    elif variant == "the terminal reason alone":
+        del r["subtype"]
+    return json.dumps(r)
+
+
+@pytest.mark.parametrize(
+    "variant", ["both marks", "the subtype alone", "the terminal reason alone"]
+)
+def test_the_binary_s_structured_output_exhaustion_is_a_try_with_no_form(
+    tmp_path: Path, packets: Path, variant: str
+) -> None:
+    # the binary gave up fitting the model's output to --json-schema: is_error true, exit 1
+    exe = fake(tmp_path, "exhausted", _exhausted(variant), "Error: Failed to provide valid", 1)
+    env = env_for(tmp_path, RLAW_STANDIN=str(exe))
+    out = tmp_path / "out"
+    done = run("run", "s", "reality", str(packets), str(out), "claude-opus-5-5", "1", env=env)
+    assert done.returncode == 0, done.stderr
+    rows = rows_of(Path(env["RLAW_LEDGER"]))
+    # §5.5: a try with no valid form, retried once; the second leaves the line without a form
+    assert [(r["try"], r["valid"], r["infrastructure"]) for r in rows] == [
+        (1, False, None),
+        (2, False, None),
+    ]
+    assert {r["tokens"] for r in rows} == {10 + 533 + 4042 + 1696}
+    assert not (tmp_path / "led" / "STOPPED").exists()
+    assert not (tmp_path / "led" / "interruptions.jsonl").exists()
+    assert not list(out.glob("*.failed-*"))
+    for t in (1, 2):
+        assert V.valid_forms(out / f"P0001.try{t}.json", ["F1"], "reality") == {}
+
+
+def test_a_session_whose_model_gave_up_on_the_schema_is_a_try(
+    tmp_path: Path, packets: Path
+) -> None:
+    probe = (DATA / "schema_fail_probe_out.json").read_text()
+    env = env_for(tmp_path, RLAW_STANDIN=str(fake(tmp_path, "probe", probe)))
+    out = tmp_path / "out"
+    done = run("run", "s", "reality", str(packets), str(out), "claude-opus-5-5", "1", env=env)
+    assert done.returncode == 0, done.stderr
+    rows = rows_of(Path(env["RLAW_LEDGER"]))
+    assert [(r["try"], r["valid"], r["infrastructure"]) for r in rows] == [
+        (1, False, None),
+        (2, False, None),
+    ]
+    assert V.structured(out / "P0001.try1.json") is None
 
 
 def test_a_session_cut_off_mid_call_counts_as_a_try(tmp_path: Path, packets: Path) -> None:
@@ -797,6 +856,16 @@ def test_the_smoke_check_reads_one_session_s_output(tmp_path: Path) -> None:
     assert not out["checks"]["no_claude_md"]
     assert not out["checks"]["usage_is_the_model_usage_sum"]
     assert out["checks"]["json_schema_with_no_tools"]
+
+
+def test_the_smoke_check_holds_on_the_real_smoke_session(tmp_path: Path) -> None:
+    code, out = _smoke(tmp_path, json.loads((DATA / "smoke_out.json").read_text()), "real")
+    assert code == 0 and out["holds"] and out["failed_call"] is None
+    assert out["usage"] == out["model_usage_sum"] and out["models_used"] == ["claude-opus-5-5"]
+    # the binary's exhaustion is no failed call, and no form either
+    code, out = _smoke(tmp_path, json.loads(_exhausted("both marks")), "exhausted")
+    assert code == 1 and out["failed_call"] is None
+    assert not out["checks"]["json_schema_with_no_tools"]
 
 
 # ---------------------------------------------------------------- the launcher's preflight
