@@ -1,0 +1,21 @@
+{
+ "base_flaws_spanning_slice_and_measured": 1,
+ "flaws_spanning_slice_and_measured": 1,
+ "flaws_touching_slice": 52,
+ "measured_flaws": 297,
+ "measured_lines": 864,
+ "pairs": {
+  "fresh": [
+   "a14",
+   "a06",
+   "a03",
+   "a35"
+  ],
+  "practice": [
+   "a08",
+   "a20"
+  ]
+ },
+ "seed": 23,
+ "slice_lines": 129
+}
