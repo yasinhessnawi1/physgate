@@ -9,12 +9,14 @@ import hashlib
 import json
 import math
 import random
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import law_extract as X
 import law_fixture as F
 import law_packets as P
+import law_reality as R
 import law_slice as SL
 import law_verify as V
 import pytest
@@ -110,18 +112,119 @@ def test_a_coder_packet_shows_the_design_without_updated_or_written_by(fx: dict[
     assert P.blind_counts(fx["out"] / "c1")["blind"]
 
 
-def test_the_blind_check_finds_a_planted_field(tmp_path: Path) -> None:
-    good = (
-        "# Packet P0001\n\nintro\n\n## Findings (x)\n\n### F1\nthe twin is fine\n\n"
-        "## The design, all nodes\n\n[]\n" + V.SHEET_MARK + "sheet\n"
-    )
-    (tmp_path / "P0001.md").write_text(good)
-    res = P.blind_counts(tmp_path)
+def _one_packet(src: Path, dst: Path, edit: Callable[[str], str] | None = None) -> Path:
+    """A packet dir holding the first packet of ``src`` and its key, the packet edited."""
+    dst.mkdir()
+    key = json.loads((src / "key.json").read_text())
+    pid = sorted(key)[0]
+    text = (src / f"{pid}.md").read_text()
+    (dst / f"{pid}.md").write_text(edit(text) if edit else text)
+    (dst / "key.json").write_text(json.dumps({pid: key[pid]}))
+    return dst
+
+
+def _role_and_class(fx: dict[str, Any], src: Path) -> tuple[str, str]:
+    key = json.loads((src / "key.json").read_text())
+    k = key[sorted(key)[0]]
+    art = fx["setdata"][k["set"]].artefacts[k["pair"]]
+    return str(art["assigned_role"]), str(art["error_class"])
+
+
+def test_the_blind_check_passes_built_packets_and_finds_a_planted_word(
+    fx: dict[str, Any], tmp_path: Path
+) -> None:
+    sets = fx["setdata"]
+    c1 = tmp_path / "c1"
+    P.build_coder_packets(fx["lines"], sets, P.SEED_C1, c1)
+    assert P.blind_counts(c1, sets)["blind"]
+    head = "## Findings (the reviewers'"
+    planted = _one_packet(c1, tmp_path / "a", lambda t: t.replace(head, "arm a-fresh\n\n" + head))
+    assert not P.blind_counts(planted, sets)["blind"]
+    item = _one_packet(c1, tmp_path / "b", lambda t: t.replace("### F1\n", "### F1\nES-3 says ", 1))
+    assert not P.blind_counts(item, sets)["blind"]
+    word = _one_packet(c1, tmp_path / "c", lambda t: t.replace("### F1\n", "### F1\nthe twin ", 1))
+    res = P.blind_counts(word, sets)
     assert res["blind"] and res["hits"]["findings_words"] == 1
-    (tmp_path / "P0002.md").write_text(good.replace("intro", "arm a-fresh, injected"))
-    assert not P.blind_counts(tmp_path)["blind"]
-    (tmp_path / "P0002.md").write_text(good.replace("the twin", "ES-3 says"))
-    assert not P.blind_counts(tmp_path)["blind"]
+
+
+def test_the_blind_check_catches_the_role_and_class_of_a_coder_packet(
+    fx: dict[str, Any], tmp_path: Path
+) -> None:
+    sets = fx["setdata"]
+    c1 = tmp_path / "c1"
+    P.build_coder_packets(fx["lines"], sets, P.SEED_C1, c1)
+    role, cls = _role_and_class(fx, c1)
+    head = "## Findings (the reviewers'"
+    said = f"A reviewer of the {role} domain, class {cls}.\n\n"
+    bad = _one_packet(c1, tmp_path / "a", lambda t: t.replace(head, said + head, 1))
+    res = P.blind_counts(bad, sets)
+    assert not res["blind"]
+    assert any(w.endswith(f"role:{role}") for w in res["where"])
+    assert any(w.endswith(f"class:{cls}") for w in res["where"])
+    # a field the design never holds, planted in a node
+    field = _one_packet(
+        c1, tmp_path / "b", lambda t: t.replace('"id": ', f'"error_class": "{cls}",\n  "id": ', 1)
+    )
+    assert not P.blind_counts(field, sets)["blind"]
+    # a value planted where the design holds another: the design must be the version's, exactly
+    node = _one_packet(
+        c1, tmp_path / "c", lambda t: t.replace('"domain": "', f'"domain": "{cls} ', 1)
+    )
+    assert not P.blind_counts(node, sets)["blind"]
+
+
+def test_the_blind_check_reads_adjudicator_packets_and_their_forms(
+    fx: dict[str, Any], tmp_path: Path
+) -> None:
+    sets = fx["setdata"]
+    lines = fx["lines"][:3]
+    codes = []
+    for x in lines:
+        for who, code, extra in (
+            ("c1", "N", {"n_kind": "wording"}),
+            ("c2", "D", {"d_kind": "table"}),
+        ):
+            form = {"id": "F1", "code": code, "defect": "d", "reason": "r", **extra}
+            codes.append(
+                {"step": "s", "who": who, "line_id": x["line_id"], "code": code, "form": form}
+            )
+    codes[0]["form"]["who_wrote_it"] = "c1"  # a key outside the schema never reaches a packet
+    adj = tmp_path / "adj"
+    P.build_adjudicator_packets(lines, codes, "s", sets, adj)
+    assert P.blind_counts(adj, sets)["blind"]
+    assert "who_wrote_it" not in "".join(p.read_text() for p in adj.glob("P*.md"))
+    role, cls = _role_and_class(fx, adj)
+    head = "## Findings and the two forms"
+    said = f"A reviewer of the {role} domain, class {cls}.\n\n"
+    bad = _one_packet(adj, tmp_path / "a", lambda t: t.replace(head, said + head, 1))
+    assert not P.blind_counts(bad, sets)["blind"]
+    keyed = _one_packet(
+        adj, tmp_path / "b", lambda t: t.replace('{"code"', '{"who": "c1", "code"', 1)
+    )
+    assert not P.blind_counts(keyed, sets)["blind"]
+
+
+def test_the_blind_check_lets_a_reality_packet_name_its_role_and_nothing_more(
+    fx: dict[str, Any], tmp_path: Path
+) -> None:
+    sets = fx["setdata"]
+    rp = tmp_path / "reality"
+    R.build_packets(fx["lines"], sets, rp)
+    assert P.blind_counts(rp, sets)["blind"]
+    role, cls = _role_and_class(fx, rp)
+    said = f"A reviewer of the {role} domain"
+    bad = _one_packet(rp, tmp_path / "a", lambda t: t.replace(said, f"{said} (class {cls})", 1))
+    res = P.blind_counts(bad, sets)
+    assert not res["blind"] and any(w.endswith(f"class:{cls}") for w in res["where"])
+    other = next(r for r in X.ROLES if r != role)
+    wrong = _one_packet(
+        rp, tmp_path / "b", lambda t: t.replace(said, f"A reviewer of the {other} domain", 1)
+    )
+    assert not P.blind_counts(wrong, sets)["blind"]
+    field = _one_packet(
+        rp, tmp_path / "c", lambda t: t.replace('"id":', f'"expected_check":"{cls}","id":', 1)
+    )
+    assert not P.blind_counts(field, sets)["blind"]
 
 
 def test_adjudicator_packets_label_forms_by_a_seeded_draw(fx: dict[str, Any]) -> None:

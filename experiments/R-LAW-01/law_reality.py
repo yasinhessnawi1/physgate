@@ -41,6 +41,20 @@ SEED_CONTROL = 43
 BAR = 0.70
 TRUE = "true_flaw"
 ARM_RUN = {"paired": "a-fresh", "generalist": "b-fresh"}
+#: The prior adjudication's packet text around the findings, word for word.
+INTRO = (
+    "A proposed revision of a design graph for a small two-wheeled self-balancing robot (a "
+    "stand-in design built only from the parts sheet below). Each node holds quantities as "
+    "{value, unit, source}; a source `derived: [R1.02] * [R5.03]` is arithmetic over the "
+    "parts-sheet rows it names. Numbers are written to three significant figures. The revision "
+    'is a change to the graph alone: it wrote the nodes listed under "What the revision wrote" '
+    "(each replaces the base node of the same id, or adds a node); every other node is as in "
+    "the base."
+)
+ROLE_SENTENCE = (
+    "A reviewer of the {role} domain rejected this revision with the findings below (the "
+    "reviewer's own words; rule numbers are replaced by [rule])."
+)
 
 
 def reality_packet(
@@ -52,16 +66,9 @@ def reality_packet(
     body = [
         f"# Packet {pid}",
         "",
-        "A proposed revision of a design graph for a small two-wheeled self-balancing robot (a "
-        "stand-in design built only from the parts sheet below). Each node holds quantities as "
-        "{value, unit, source}; a source `derived: [R1.02] * [R5.03]` is arithmetic over the "
-        "parts-sheet rows it names. Numbers are written to three significant figures. The revision "
-        'is a change to the graph alone: it wrote the nodes listed under "What the revision wrote" '
-        "(each replaces the base node of the same id, or adds a node); every other node is as in "
-        "the base.",
+        INTRO,
         "",
-        f"A reviewer of the {role} domain rejected this revision with the findings below (the "
-        "reviewer's own words; rule numbers are replaced by [rule]).",
+        ROLE_SENTENCE.format(role=role),
         "",
         "## Findings",
         "",

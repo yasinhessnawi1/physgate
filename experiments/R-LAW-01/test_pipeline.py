@@ -215,13 +215,14 @@ def test_the_slice_never_reaches_a_measured_packet(pipeline: dict[str, Any]) -> 
 
 def test_coder_packets_are_blind(pipeline: dict[str, Any]) -> None:
     for sub in ("c1", "c2", "adj", "audit"):
-        res = P.blind_counts(pipeline["work"] / "packets" / sub)
+        res = P.blind_counts(pipeline["work"] / "packets" / sub, pipeline["sets"])
         assert res["blind"], (sub, res)
+        assert res["hits"]["findings_item_ids"] == 0
 
 
 def test_reality_packets_name_no_side_arm_or_run(pipeline: dict[str, Any]) -> None:
     for sub in ("reality", "controls"):
-        res = P.blind_counts(pipeline["work"] / "packets" / sub)
+        res = P.blind_counts(pipeline["work"] / "packets" / sub, pipeline["sets"])
         assert res["blind"], (sub, res)
 
 

@@ -37,6 +37,7 @@ import random
 import re
 import shutil
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -335,13 +336,25 @@ def design_json(nodes: dict[str, dict[str, Any]]) -> str:
     return json.dumps(out, indent=1, sort_keys=True)
 
 
+CODER_FINDINGS = "## Findings (the reviewers' own words; rule numbers are replaced by [rule])\n\n"
+ADJ_FINDINGS = (
+    "## Findings and the two forms (the reviewers' own words; rule numbers are replaced by "
+    "[rule])\n\n"
+)
+DESIGN_MARK = "\n## The design, all nodes\n\n"
+
+
+def form_keys() -> frozenset[str]:
+    """The fields of a coder's form (Appendix A's schema): all an adjudicator is shown of one."""
+    return frozenset(coder_schema()["properties"]["findings"]["items"]["properties"])
+
+
 def coder_packet(pid: str, texts: list[str], nodes: dict[str, Any], sheet: bytes) -> str:
     findings = "\n".join(f"### F{i}\n{t}\n" for i, t in enumerate(texts, 1))
     return (
         f"# Packet {pid}\n\n{intro()}\n\n"
-        "## Findings (the reviewers' own words; rule numbers are replaced by [rule])\n\n"
-        f"{findings}\n"
-        f"## The design, all nodes\n\n{design_json(nodes)}\n"
+        f"{CODER_FINDINGS}"
+        f"{findings}{DESIGN_MARK}{design_json(nodes)}\n"
         f"{V.SHEET_MARK}{sheet.decode()}"
     )
 
@@ -352,16 +365,21 @@ def adjudicator_packet(
     nodes: dict[str, Any],
     sheet: bytes,
 ) -> str:
+    """The disputed findings with the two forms, each cut to the schema's fields (anything else a
+    session wrote beside them is not part of the form)."""
+    keys = form_keys()
     parts = []
     for i, (text, a, b) in enumerate(items, 1):
-        fa = json.dumps({**a, "id": f"F{i}"}, sort_keys=True)
-        fb = json.dumps({**b, "id": f"F{i}"}, sort_keys=True)
+        fa = json.dumps(
+            {**{k: v for k, v in a.items() if k in keys}, "id": f"F{i}"}, sort_keys=True
+        )
+        fb = json.dumps(
+            {**{k: v for k, v in b.items() if k in keys}, "id": f"F{i}"}, sort_keys=True
+        )
         parts.append(f"### F{i}\n{text}\n\nForm A:\n{fa}\n\nForm B:\n{fb}\n")
     return (
         f"# Packet {pid}\n\n{intro()}\n\n"
-        "## Findings and the two forms (the reviewers' own words; rule numbers are replaced by "
-        "[rule])\n\n" + "\n".join(parts) + "\n"
-        f"## The design, all nodes\n\n{design_json(nodes)}\n"
+        f"{ADJ_FINDINGS}" + "\n".join(parts) + f"{DESIGN_MARK}{design_json(nodes)}\n"
         f"{V.SHEET_MARK}{sheet.decode()}"
     )
 
@@ -514,39 +532,237 @@ FORBIDDEN = (
     "arm",
 )
 ITEM_ID = re.compile(r"(?<![\w.-])(?:[A-Z]{2}-\d{1,2}|[ADSR]\d{1,2})(?![\w]|\.\d)")
+#: Keys no node shown to a session holds: what the artefact says about itself. A coder's design
+#: also never shows a node's ``updated`` or a quantity's ``written_by`` (§4).
+ARTEFACT_KEYS = frozenset({"assigned_role", "error_class", "expected_check"})
+CODER_HIDDEN_KEYS = ARTEFACT_KEYS | {"updated", "written_by"}
+REALITY_TAIL = re.compile(
+    r"\n## What the revision wrote\n\n```json\n(?P<patch>.*)\n```\n\n"
+    r"## The base design \(before the revision\), all nodes\n\n```json\n(?P<base>.*)\n```\n",
+    re.S,
+)
 
 
-def blind_counts(packets: Path) -> dict[str, Any]:
-    """Per packet part, the number of forbidden-word hits and item-id hits. The findings are
-    the reviewers' own words: a forbidden word there is counted apart, an item id is a leak."""
-    hits = {"structure": 0, "sheet": 0, "findings_words": 0, "findings_item_ids": 0}
-    words: dict[str, int] = {}
-    n = 0
+def _count(part: str, words: Iterable[str]) -> dict[str, int]:
+    out = {}
+    for w in words:
+        c = len(re.findall(rf"(?<![\w-]){re.escape(w)}(?![\w-])", part, re.I))
+        if c:
+            out[w] = c
+    return out
 
-    def count(part: str) -> dict[str, int]:
-        out = {}
-        for w in FORBIDDEN:
-            c = len(re.findall(rf"(?<![\w-]){re.escape(w)}(?![\w-])", part, re.I))
-            if c:
-                out[w] = c
+
+def _keys(obj: Any) -> set[str]:  # noqa: ANN401 - any JSON value
+    if isinstance(obj, dict):
+        return set(obj) | {k for v in obj.values() for k in _keys(v)}
+    if isinstance(obj, list):
+        return {k for v in obj for k in _keys(v)}
+    return set()
+
+
+def shown_design(version: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    """What §4 lets a coder see of a version, written out apart from :func:`design_json`."""
+    out = []
+    for nid in sorted(version):
+        n = {k: v for k, v in version[nid].items() if k != "updated"}
+        n["quantities"] = {
+            q: {k: v for k, v in body.items() if k != "written_by"}
+            for q, body in (version[nid].get("quantities") or {}).items()
+        }
+        out.append(n)
+    return out
+
+
+class _Blind:
+    """One packet dir's blind check; see :func:`blind_counts`."""
+
+    def __init__(self, packets: Path, sets: dict[str, X.SetData] | None) -> None:
+        kp = packets / "key.json"
+        self.keys: dict[str, Any] = json.loads(kp.read_text()) if kp.exists() else {}
+        self.sets = sets
+        self.roles = set(X.ROLES)
+        self.classes: set[str] = set()
+        for sd in (sets or {}).values():
+            for a in sd.artefacts.values():
+                self.roles.add(str(a["assigned_role"]))
+                self.classes |= {str(a["error_class"]), str(a["expected_check"])}
+        self.hits = {
+            "structure": 0,
+            "sheet": 0,
+            "findings_words": 0,
+            "findings_item_ids": 0,
+            "findings_values": 0,
+            "forms_words": 0,
+        }
+        self.where: dict[str, int] = {}
+
+    def add(self, hit: str, label: str, n: int = 1) -> None:
+        self.hits[hit] += n
+        self.where[label] = self.where.get(label, 0) + n
+
+    def values(self, part: str) -> dict[str, int]:
+        out = {f"role:{w}": c for w, c in _count(part, sorted(self.roles)).items()}
+        out.update({f"class:{w}": c for w, c in _count(part, sorted(self.classes)).items()})
         return out
 
+    def residue(self, label: str, text: str) -> None:
+        """Text the template does not hold: a leak, with every value and word in it named."""
+        if not text.strip():
+            return
+        self.add("structure", f"{label}:extra_text")
+        for w, c in (self.values(text) | _count(text, FORBIDDEN)).items():
+            self.add("structure", f"{label}:{w}", c)
+
+    def version(self, pid: str) -> tuple[X.SetData, dict[str, Any]] | None:
+        k = self.keys.get(pid)
+        if k is None or self.sets is None or k.get("set") not in self.sets:
+            return None
+        return self.sets[k["set"]], k
+
+    def free(self, text: str, forms: bool = False) -> None:
+        """The reviewers' own words (or a coder's form): words and values counted apart; an item
+        id in a finding is a leak, since every rubric item id was stripped."""
+        if forms:
+            self.hits["forms_words"] += sum(_count(text, FORBIDDEN).values())
+            return
+        self.hits["findings_words"] += sum(_count(text, FORBIDDEN).values())
+        self.hits["findings_values"] += sum(self.values(text).values())
+        ids = len(ITEM_ID.findall(text))
+        if ids:
+            self.add("findings_item_ids", "findings:item_id", ids)
+
+    def json_part(self, label: str, text: str, hidden: frozenset[str]) -> Any:  # noqa: ANN401
+        for w, c in _count(text, FORBIDDEN).items():
+            self.add("structure", f"{label}:{w}", c)
+        try:
+            obj = json.loads(text)
+        except ValueError:
+            self.add("structure", f"{label}:not_json")
+            return None
+        for k in sorted(_keys(obj) & hidden):
+            self.add("structure", f"{label}:key:{k}")
+        return obj
+
+    def labels(self, label: str, region: str, sep: str) -> list[str]:
+        parts = re.split(rf"(?m)^### F(\d+)\n{sep}", region)
+        self.residue(f"{label}:before_F1", parts[0])
+        nums = parts[1::2]
+        if not nums or nums != [str(i) for i in range(1, len(nums) + 1)]:
+            self.add("structure", f"{label}:labels")
+        return parts[2::2]
+
+    def coder(self, pid: str, body: str) -> None:
+        head = f"# Packet {pid}\n\n{intro()}\n\n"
+        adj = body.startswith(head + ADJ_FINDINGS)
+        if body.startswith(head + (ADJ_FINDINGS if adj else CODER_FINDINGS)):
+            rest = body[len(head + (ADJ_FINDINGS if adj else CODER_FINDINGS)) :]
+        else:
+            cut = body.find("\n### F1\n")
+            top = body[: cut + 1] if cut >= 0 else body
+            for fixed in (f"# Packet {pid}", intro(), CODER_FINDINGS, ADJ_FINDINGS):
+                top = top.replace(fixed, "", 1)
+            self.residue("head", top)
+            adj = "## Findings and the two forms" in body
+            rest = body[cut + 1 :] if cut >= 0 else ""
+        d = rest.rfind(DESIGN_MARK)
+        if d < 0 or not rest.endswith("\n"):
+            self.add("structure", "design:missing")
+            return
+        found = rest[:d]
+        nodes = self.json_part("design", rest[d + len(DESIGN_MARK) : -1], CODER_HIDDEN_KEYS)
+        v = self.version(pid)
+        if v is not None and nodes is not None:
+            sd, k = v
+            if nodes != shown_design(sd.version(k["pair"], k["side"])):
+                self.add("structure", "design:not_the_version")
+        allowed = form_keys()
+        for item in self.labels("findings", found, ""):
+            if not adj:
+                self.free(item)
+                continue
+            m = re.fullmatch(r"(.*)\n\nForm A:\n([^\n]*)\n\nForm B:\n([^\n]*)\n*", item, re.S)
+            if m is None:
+                self.add("structure", "forms:shape")
+                self.free(item)
+                continue
+            self.free(m.group(1))
+            for f in (m.group(2), m.group(3)):
+                self.free(f, forms=True)
+                try:
+                    obj = json.loads(f)
+                except ValueError:
+                    self.add("structure", "forms:not_json")
+                    continue
+                if not isinstance(obj, dict):
+                    self.add("structure", "forms:not_an_object")
+                    continue
+                for key in sorted(set(obj) - allowed):
+                    self.add("structure", f"forms:key:{key}")
+
+    def reality(self, pid: str, body: str) -> None:
+        import law_reality as R  # the reality module builds on this one
+
+        v = self.version(pid)
+        roles = [v[0].artefacts[v[1]["pair"]]["assigned_role"]] if v else sorted(self.roles)
+        heads = [
+            f"# Packet {pid}\n\n{R.INTRO}\n\n{R.ROLE_SENTENCE.format(role=r)}\n\n## Findings\n\n"
+            for r in roles
+        ]
+        head = next((h for h in heads if body.startswith(h)), None)
+        if head is not None:
+            rest = body[len(head) :]
+        else:
+            cut = body.find("\n### F1\n")
+            top = body[: cut + 1] if cut >= 0 else body
+            for fixed in (f"# Packet {pid}", R.INTRO, "## Findings"):
+                top = top.replace(fixed, "", 1)
+            said = next((s for r in roles if (s := R.ROLE_SENTENCE.format(role=r)) in top), "")
+            self.residue("head", top.replace(said, "", 1) if said else top)
+            rest = body[cut + 1 :] if cut >= 0 else ""
+        d = rest.rfind("\n## What the revision wrote\n")
+        m = REALITY_TAIL.fullmatch(rest[d:]) if d >= 0 else None
+        if m is None:
+            self.add("structure", "design:missing")
+            return
+        patch = self.json_part("revision", m.group("patch"), ARTEFACT_KEYS)
+        base = self.json_part("base", m.group("base"), ARTEFACT_KEYS)
+        if v is not None:
+            sd, k = v
+            if patch != sd.patch(k["pair"], k["side"]) or base != sd.base:
+                self.add("structure", "design:not_the_version")
+        for item in self.labels("findings", rest[:d], "\n"):
+            self.free(item)
+
+
+def blind_counts(packets: Path, sets: dict[str, X.SetData] | None = None) -> dict[str, Any]:
+    """The blind check of every packet of a dir, by part (§4, §2.3).
+
+    The packet must be its template's text exactly, outside the findings' own words, the design
+    and the sheet: anything else is a leak, and every role, error class, expected check or
+    forbidden word in it is named. A coder or adjudicator packet names no role at all; a reality
+    packet names its own reviewer's role in the prior adjudication's one sentence. No node shows
+    an artefact's own fields, and with ``sets`` (and the dir's ``key.json``) the design is the
+    packet's version exactly. An adjudicator's forms hold only the schema's fields. In the
+    findings, a forbidden word, a role or a class is the reviewers' own and counted apart; an
+    item id is a leak. A forbidden word in the sheet is a leak.
+    """
+    b = _Blind(packets, sets)
+    n = 0
     for p in sorted(packets.glob("[PQ]*.md")):
         n += 1
         text = p.read_text()
+        if text.count(V.SHEET_MARK) != 1:
+            b.add("structure", "sheet:mark")
+            continue
         body, sheet = text.split(V.SHEET_MARK, 1)
-        start = body.index("\n## Findings")
-        nxt = body.index("\n## ", start + 1)
-        findings = body[start:nxt]
-        structure = body[:start] + body[nxt:]
-        for name, part in (("structure", structure), ("sheet", sheet)):
-            for w, c in count(part).items():
-                hits[name] += c
-                words[f"{name}:{w}"] = words.get(f"{name}:{w}", 0) + c
-        hits["findings_words"] += sum(count(findings).values())
-        hits["findings_item_ids"] += len(ITEM_ID.findall(findings))
-    leak = hits["structure"] + hits["sheet"] + hits["findings_item_ids"]
-    return {"packets": n, "hits": hits, "where": words, "blind": leak == 0}
+        for w, c in _count(sheet, FORBIDDEN).items():
+            b.add("sheet", f"sheet:{w}", c)
+        if p.name.startswith("Q"):
+            b.reality(p.stem, body)
+        else:
+            b.coder(p.stem, body)
+    leak = b.hits["structure"] + b.hits["sheet"] + b.hits["findings_item_ids"]
+    return {"packets": n, "hits": b.hits, "where": b.where, "blind": leak == 0}
 
 
 def main(argv: list[str]) -> int:
@@ -555,7 +771,8 @@ def main(argv: list[str]) -> int:
             print(json.dumps(write_prompts(Path(argv[1]), tuple(argv[2:])), sort_keys=True))
             return 0
         if argv[:1] == ["blind"] and len(argv) == 2:
-            res = blind_counts(Path(argv[1]))
+            sets = {n: X.load_set(X.FROZEN, n) for n in X.SETS}
+            res = blind_counts(Path(argv[1]), sets)
             print(json.dumps(res, sort_keys=True))
             return 0 if res["blind"] else 1
         if argv[:1] == ["audit"] and len(argv) == 3:
