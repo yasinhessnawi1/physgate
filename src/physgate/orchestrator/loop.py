@@ -1267,7 +1267,7 @@ class Loop:
         """Write the attempt's proposals into the canonical store, each behind an intent."""
         now = self.state.subtasks[subtask_id].attempts[-1]
         try:
-            proposals = self._graph.proposals(subtask_id, commit)
+            proposals = self._graph.proposals(subtask_id, commit, role)
         except ProposalRefusedError as exc:
             self._incident(subtask_id, "store_refusal", f"after a clean pre-check: {exc}")
             return False

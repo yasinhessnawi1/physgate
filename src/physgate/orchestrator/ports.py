@@ -291,8 +291,8 @@ class GraphPort(Protocol):
         """Commit the store's files, so the graph is committed (ARCH-010)."""
         ...
 
-    def proposals(self, subtask_id: str, attempt_commit: str) -> list[Payload]:
-        """The node proposals the attempt commit added or changed, validated."""
+    def proposals(self, subtask_id: str, attempt_commit: str, role: str) -> list[Payload]:
+        """The node proposals the attempt commit added or changed, validated under ``role``."""
         ...
 
     def write(self, payload: Payload, role: str) -> int:
@@ -304,7 +304,12 @@ class GraphPort(Protocol):
         ...
 
     def divergences(self, since: int, acting_role: str) -> tuple[str, ...]:
-        """Every node changed after ``since`` by a role that does not own it."""
+        """Every node changed after ``since`` by a role that does not own it, or against a duty.
+
+        A duty is one the role register gives a cross-cutting role: the cross nodes, which
+        only their owner writes, and completion, whose owner writes no node. An interface
+        node created after ``since`` is named too.
+        """
         ...
 
     def reopen(self) -> tuple[int, tuple[str, ...]]:

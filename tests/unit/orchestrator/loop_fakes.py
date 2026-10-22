@@ -345,7 +345,7 @@ class FakeGraph:
     def commit(self, message: str) -> None:
         return None
 
-    def proposals(self, subtask_id: str, attempt_commit: str) -> list[dict[str, Any]]:
+    def proposals(self, subtask_id: str, attempt_commit: str, role: str) -> list[dict[str, Any]]:
         return []
 
     def write(self, payload: dict[str, Any], role: str) -> int:

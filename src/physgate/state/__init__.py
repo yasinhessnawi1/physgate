@@ -10,7 +10,7 @@ answering inconsistently. ``README.md`` in this directory says why that matters
 and what else this package deliberately does not own.
 """
 
-from physgate.state.divergence import Divergence, divergence
+from physgate.state.divergence import Divergence, Duties, divergence
 from physgate.state.exceptions import (
     CorruptRecordError,
     CrossRoleWriteError,
@@ -78,6 +78,7 @@ __all__ = [
     "DesignStateError",
     "DesignStateStore",
     "Divergence",
+    "Duties",
     "InterfaceImmutableError",
     "JournalLine",
     "MalformedNodeIdError",

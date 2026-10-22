@@ -120,7 +120,7 @@ def test_a_proposal_is_read_from_the_store(tmp_path: Path, monkeypatch: pytest.M
     (tmp_path / "graph").mkdir()
     calls = _recording(monkeypatch)
     with pytest.raises(ProposalRefusedError, match="is not JSON"):
-        read_proposals(repo, base, commit, tmp_path / "graph")
+        read_proposals(repo, base, commit, tmp_path / "graph", role="mechanical")
     _ran_in_store(calls, "show", f"{commit}:{path}")
 
 

@@ -11,13 +11,20 @@ guard and visible here.
 That is why this is a separate function over a change list and not a method on
 the store. It answers a question about a step, and it must be able to answer it
 about changes the store did not make.
+
+It also names a change that breaks a cross-cutting duty (ARCH-051): a cross node
+by a role that does not own the cross nodes, a domain node by the role that does,
+an interface node created during a step, any node by the role that owns
+completion. The store holds none of these rules, so recorded runs and corpora
+written straight into a store replay as they were; whoever checks a step asks the
+role register who owns each duty and passes the answer in.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from physgate.state.protocol import NodeChange
+from physgate.state.protocol import REJECT_CROSS_ROLE, NodeChange
 from physgate.state.schema import validate_node_id
 from physgate.state.store import Store
 
@@ -30,21 +37,59 @@ def _owner_the_guard_would_have_checked(store: Store, change: NodeChange) -> str
     return owner
 
 
+#: Not the store's reasons: a cross node written by a role that does not own the cross
+#: nodes, or a node of a domain by the role that does; an interface node created during a
+#: step; a node written by the role that owns completion. The hook and the apply step give
+#: the same names when they refuse the same writes.
+CROSS_NODE = "cross_node"
+INTERFACE_CREATION = "interface_creation"
+COMPLETION_OWNER_NODE = "completion_owner_node"
+
+#: The domain of the quantities that tie domains together, and the kind of node a plan fixes
+#: between modules (``schema.DomainKind``, ``schema.NodeKind``).
+_CROSS = "cross"
+_INTERFACE = "interface"
+
+
+@dataclass(frozen=True)
+class Duties:
+    """Who the role register says owns each cross-cutting duty, when a step is checked.
+
+    Each field is the sorted names of the registered roles that own the duty: one, none,
+    or more than one. The register refuses a second owner when it is built, but it is a
+    mapping that can be changed afterwards, so the answer may still name two. This package
+    reads no register; whoever checks a step asks it and passes the answer here.
+    """
+
+    cross_nodes: tuple[str, ...]
+    completion: tuple[str, ...]
+
+
 @dataclass(frozen=True)
 class Divergence:
-    """One node changed during a step by a role that does not own it."""
+    """One node changed during a step by a role that does not own it, or against a duty."""
 
     node_id: str
     revision: int
     owner_role: str
     acting_role: str
+    #: Why it is named: the store's ``cross_role_write`` for a node the acting role did not
+    #: own, or one of the duties' reasons above.
+    reason: str = REJECT_CROSS_ROLE
+    #: What the duty's reason means for this change; empty for a node the role did not own.
+    detail: str = ""
 
     def __str__(self) -> str:
         """A one-line description, for a log or a failure message."""
+        if self.reason == REJECT_CROSS_ROLE:
+            return (
+                f"{self.node_id} at revision {self.revision} is owned by "
+                f"{self.owner_role!r} but changed during a step assigned to "
+                f"{self.acting_role!r}"
+            )
         return (
-            f"{self.node_id} at revision {self.revision} is owned by "
-            f"{self.owner_role!r} but changed during a step assigned to "
-            f"{self.acting_role!r}"
+            f"{self.node_id} at revision {self.revision}, changed during a step assigned to "
+            f"{self.acting_role!r}, breaks a duty ({self.reason}): {self.detail}"
         )
 
 
@@ -52,6 +97,7 @@ def divergence(
     store: Store,
     changes: list[NodeChange],
     acting_role: str,
+    duties: Duties | None = None,
 ) -> list[Divergence]:
     """Return every change in ``changes`` to a node ``acting_role`` does not own.
 
@@ -77,10 +123,20 @@ def divergence(
     reason — the interface cannot answer a question about a past revision, and
     widening it was refused.
 
+    **Given the duties, a change to a node the acting role owned is also held to them**:
+    a node of the cross domain written by a role that does not own the cross nodes, or a
+    node of a domain by the role that does; an interface node created during the step;
+    any node written by the role that owns completion. The store holds none of these, so
+    a write that bypassed the hook and the apply step reaches the record, and is named
+    here. A change already named for its owner is not named again.
+
     Args:
         store: the store the changed nodes are read from.
         changes: the changes since the revision the step started at.
         acting_role: the role the step was dispatched to.
+        duties: who the role register says owns each cross-cutting duty, asked by the
+            caller when the step is checked. ``None`` checks ownership alone, as for a
+            store no register stands behind.
 
     Returns:
         One entry per offending change, in the order the changes arrived. A node
@@ -119,4 +175,75 @@ def divergence(
                     acting_role=acting_role,
                 )
             )
+            continue
+        broken = None if duties is None else _duty_broken(store, change, acting_role, duties)
+        if broken is not None:
+            reason, detail = broken
+            found.append(
+                Divergence(
+                    node_id=change.node_id,
+                    revision=change.revision,
+                    owner_role=owner,
+                    acting_role=acting_role,
+                    reason=reason,
+                    detail=detail,
+                )
+            )
     return found
+
+
+def _duty_broken(
+    store: Store, change: NodeChange, acting_role: str, duties: Duties
+) -> tuple[str, str] | None:
+    """The first cross-cutting duty ``change`` breaks, as (reason, what it means), or ``None``.
+
+    In the order the hook and the apply step hold a proposal to them: the cross nodes, no
+    interface created in a step, the owner of completion. The writer is the role the step
+    was dispatched to, which by now owned the node before the change. An interface is
+    exempt from the cross rule only if the node was created as one and is one still: a node
+    turned into an interface after its creation was never one of decomposition's.
+    """
+    payload = store.payload_at(change.revision)
+    first = min(store.history(change.node_id))
+    node_id, kind, domain = change.node_id, payload.get("kind"), payload.get("domain")
+    if not (kind == _INTERFACE and store.payload_at(first).get("kind") == _INTERFACE):
+        cross = domain == _CROSS
+        owners = duties.cross_nodes
+        if len(owners) > 1:
+            return CROSS_NODE, (
+                f"the role register named more than one owner of the cross nodes "
+                f"({','.join(owners)}), so whose they are cannot be told, and no node but an "
+                "interface is written while it does"
+            )
+        if not owners and cross:
+            return CROSS_NODE, (
+                f"{node_id} is of the cross domain, and no registered role owns the cross "
+                "nodes, so no step writes one"
+            )
+        if owners and cross and acting_role != owners[0]:
+            return CROSS_NODE, (
+                f"{node_id} is of the cross domain, whose quantities tie domains together; only "
+                f"the {owners[0]} role writes them, and the step was the {acting_role} role's"
+            )
+        if owners and not cross and acting_role == owners[0]:
+            return CROSS_NODE, (
+                f"{node_id} is of the {domain} domain; the {owners[0]} role owns the cross "
+                "nodes and writes no node of a domain"
+            )
+    if change.revision == first and kind == _INTERFACE:
+        return INTERFACE_CREATION, (
+            f"{node_id} was created as an interface node during the step; interface nodes are "
+            "written from the plan when the task is decomposed, never by a session"
+        )
+    owners = duties.completion
+    if len(owners) > 1:
+        return COMPLETION_OWNER_NODE, (
+            f"the role register named more than one owner of completion ({','.join(owners)}), "
+            "so which role may write no node cannot be told, and no node is written while it does"
+        )
+    if owners and acting_role == owners[0]:
+        return COMPLETION_OWNER_NODE, (
+            f"the {owners[0]} role owns the completion declaration, which is its one write; it "
+            "writes no node of the graph"
+        )
+    return None

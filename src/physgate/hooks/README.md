@@ -37,7 +37,11 @@ session is started with them.
   enforces a list and a ceiling it is given; the ceiling has no default.
 - **Applying proposals.** The orchestrator applies them at merge, from the
   subtask's commit, under the role it recorded at dispatch, all of a subtask's
-  proposals or none. The store's guards run then as the second line.
+  proposals or none. It holds every proposal to this hook's rules again, in this
+  hook's order and with this hook's reasons, so a proposal that reached the commit
+  by a route the hook does not see is refused for the same reason. The store's
+  guards run then as the last line, and the check after each step names, off the
+  durable record, any write that broke a rule anyway.
 - **Anything that needs a model, or the network.** A hook is deterministic and
   makes no network call; a test runs every generated command with every socket
   operation and every process start blocked.

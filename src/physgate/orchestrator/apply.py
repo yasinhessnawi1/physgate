@@ -7,12 +7,24 @@ the file as it is written. Here the orchestrator:
 - reads proposals **from the attempt commit**, never the working tree, and only
   the ones the attempt added or changed, as regular files;
 - takes the acting role from the subtask's own plan line, never from the proposal;
+- holds every proposal to the hook's rules, in the hook's order, so one the hook
+  refused that reached the commit by a route the hook does not see (where the OS
+  layer is absent, a shell command can still reach the proposals directory) is
+  refused here for the reason the hook gave;
 - refuses an owner change, which the store alone would accept from the current
   owner, because owners are assigned at decomposition and not by roles;
 - refuses a kind change, for the same reason: a node's kind is fixed when it is
   created, and the relations the physics gate holds a node to follow from it (a
   module's declared mass is the sum of its parts), so rewriting the kind would
   let a node step out of a relation it failed;
+- refuses a node of the ``cross`` domain from any role but the one the role
+  register names as owning the cross nodes, and a node of a domain from that role
+  (ARCH-051); a new interface node from any attempt, since interface nodes are
+  written from the plan; and any node from the role that owns completion, whose
+  one write is its declaration. Each owner is asked of the register on every read,
+  through the lookup that counts the owners: with none, no cross node is written,
+  and with two, no node but an interface. The store holds none of these rules, so
+  recorded runs and corpora written straight into a store replay as they were;
 - refuses a quantity name that shadows one a relation reads, as the hook did when
   the file was written: a name the catalogue lacks that is a misspelling of a
   relation's quantity (within two insertions or deletions of a long quantity, one
@@ -38,9 +50,24 @@ import shutil
 from collections.abc import Iterable
 from pathlib import Path
 
+from physgate import roles
 from physgate.gate.catalogue import shadowing_names
+from physgate.hooks.graph import (
+    COMPLETION_OWNER_NODE,
+    CROSS_DOMAIN,
+    CROSS_NODE,
+    INTERFACE_CREATION,
+    INTERFACE_KIND,
+    KIND_CHANGE,
+    OWNER_CHANGE,
+    SHADOWED_QUANTITY,
+)
 from physgate.orchestrator.events import SessionEnded, read_events
-from physgate.orchestrator.exceptions import StoreRefusalError
+from physgate.orchestrator.exceptions import (
+    DutyUnownedError,
+    RoleRegisterError,
+    StoreRefusalError,
+)
 from physgate.orchestrator.git import (
     GitDir,
     changes_between,
@@ -52,12 +79,18 @@ from physgate.orchestrator.git import (
 )
 from physgate.orchestrator.merge import RunGit, write_scope_violations
 from physgate.orchestrator.ports import ChangeCheck
+from physgate.roles import CrossCuttingDuty
 from physgate.series.consistency import check_proposals
 from physgate.series.reader import SealedEntry, attempt_records
 from physgate.series.seal import FORMAT, MAX_FILE_BYTES, SealedRecord, SessionSeries
-from physgate.state.divergence import divergence
+from physgate.state.divergence import Duties, divergence
 from physgate.state.exceptions import DesignStateError
-from physgate.state.schema import validate_node
+from physgate.state.protocol import (
+    REJECT_CROSS_ROLE,
+    REJECT_INTERFACE_IMMUTABLE,
+    REJECT_MISSING_UNIT,
+)
+from physgate.state.schema import quantities_are_valid, validate_node, validate_node_id
 
 # A node payload is typed as the store's frozen interface types it: a plain JSON
 # object, given its structure by the node schema, which validates it here.
@@ -70,16 +103,25 @@ from physgate.state.store import (
 )
 from physgate.state.vocabulary import nearest_quantity_names
 
+#: The hook's name for a proposal that is not a whole, valid node named for its file.
+INVALID = "invalid"
+
 _PROPOSAL = re.compile(r"^\.physgate/proposals/(?P<id>[a-z][a-z0-9_]*(\.[a-z0-9_]+)+)\.json$")
 
 
 class ProposalRefusedError(Exception):
     """A proposal cannot be applied; the message is the reason an agent reads."""
 
-    def __init__(self, message: str, subject: str) -> None:
-        """Say why, and name the offending path or node."""
+    def __init__(self, message: str, subject: str, reason: str) -> None:
+        """Say why, name the offending path or node, and name the reason.
+
+        ``reason`` is the name the hook gives the same refusal when the proposal is
+        written (``invalid``, ``kind_change``, ``cross_node``...), or the store's own
+        reason for a refusal its guards make.
+        """
         super().__init__(message)
         self.subject = subject
+        self.reason = reason
 
 
 def _fixed(store_root: Path) -> dict[str, tuple[str, str]]:
@@ -90,16 +132,219 @@ def _fixed(store_root: Path) -> dict[str, tuple[str, str]]:
     }
 
 
+#: A node's owner and kind as the graph fixed them when it was created; ``None`` for a node
+#: the proposal would create.
+_Fixed = tuple[str, str] | None
+#: A refusal's reason, and what it says after the proposal's path; ``None`` for no refusal.
+_Refusal = tuple[str, str] | None
+
+
+def _owner_is_the_attempt_s_role(payload: Payload, fixed: _Fixed, role: str) -> _Refusal:
+    """The store's rule: a new node names the attempt's role as owner, an existing one is its."""
+    owner = fixed[0] if fixed is not None else payload.get("owner_role")
+    if owner == role:
+        return None
+    node_id = payload.get("id")
+    if fixed is None:
+        said = f"names {owner!r} as its owner, and a new node names the attempt's role, {role}"
+    else:
+        said = (
+            f"would write {node_id}, which the {owner} role owns, in an attempt of the {role} role"
+        )
+    return REJECT_CROSS_ROLE, f"is refused ({REJECT_CROSS_ROLE}): it {said}"
+
+
+def _owner_does_not_change(payload: Payload, fixed: _Fixed, role: str) -> _Refusal:
+    """A role does not hand its node to another: owners are assigned at decomposition."""
+    if fixed is None or payload.get("owner_role") == fixed[0]:
+        return None
+    return OWNER_CHANGE, (
+        f"changes the owner of {payload.get('id')} from {fixed[0]!r}; owners are assigned at "
+        "decomposition"
+    )
+
+
+def _kind_does_not_change(payload: Payload, fixed: _Fixed, role: str) -> _Refusal:
+    """A node keeps the kind it was created with: the relations the gate holds follow from it."""
+    if fixed is None or payload.get("kind") == fixed[1]:
+        return None
+    return KIND_CHANGE, (
+        f"changes the kind of {payload.get('id')} from {fixed[1]!r} to {payload.get('kind')!r}; "
+        "a node's kind is fixed when it is created, like its owner"
+    )
+
+
+def _cross_nodes_are_their_owner_s_alone(payload: Payload, fixed: _Fixed, role: str) -> _Refusal:
+    """A cross node is written by the owner of the cross nodes, and that owner writes no other.
+
+    The owner is the role the register names as owning the cross nodes, asked on every
+    read through the lookup that counts the owners itself. With no owner, no cross node is
+    written; with two, no node is, since whose the cross nodes are cannot be told. Interface
+    nodes are left to the rules that fix them. The rules before this one have made the
+    node's owner the attempt's role and kept its kind.
+    """
+    if payload.get("kind") == INTERFACE_KIND:
+        return None
+    node_id, writer = payload.get("id"), payload.get("owner_role")
+    cross = payload.get("domain") == CROSS_DOMAIN
+    try:
+        owner = roles.owner_of("cross_nodes")
+    except DutyUnownedError:
+        if not cross:
+            return None
+        return CROSS_NODE, (
+            f"is refused ({CROSS_NODE}): {node_id} is of the cross domain, and no registered "
+            "role owns the cross nodes, so no attempt writes one"
+        )
+    except RoleRegisterError as exc:
+        return CROSS_NODE, (
+            f"is refused ({CROSS_NODE}): the role register names more than one owner of the "
+            f"cross nodes ({exc.context.get('owners')}), so whose they are cannot be told, and "
+            f"{node_id} is not written while it does"
+        )
+    if cross and writer != owner:
+        return CROSS_NODE, (
+            f"is refused ({CROSS_NODE}): {node_id} is of the cross domain, whose quantities tie "
+            f"domains together; only the {owner} role writes them, and this node is the "
+            f"{writer} role's"
+        )
+    if not cross and writer == owner:
+        return CROSS_NODE, (
+            f"is refused ({CROSS_NODE}): {node_id} is of the {payload.get('domain')} domain; "
+            f"the {owner} role owns the cross nodes and writes no node of a domain"
+        )
+    return None
+
+
+def _no_attempt_creates_an_interface(payload: Payload, fixed: _Fixed, role: str) -> _Refusal:
+    """No attempt creates an interface node: interface nodes are written from the plan."""
+    if fixed is not None or payload.get("kind") != INTERFACE_KIND:
+        return None
+    return INTERFACE_CREATION, (
+        f"is refused ({INTERFACE_CREATION}): {payload.get('id')} would be a new interface node; "
+        "interface nodes are written from the plan when the task is decomposed, never by an "
+        "attempt"
+    )
+
+
+def _the_completion_owner_writes_no_node(payload: Payload, fixed: _Fixed, role: str) -> _Refusal:
+    """The role that owns completion writes no node: its one write is the declaration.
+
+    Found in the register by what it owns, on every read. With two owners no node is
+    written, as with the cross nodes; with none, no role is held by this rule.
+    """
+    node_id, writer = payload.get("id"), payload.get("owner_role")
+    try:
+        owner = roles.owner_of("completion")
+    except DutyUnownedError:
+        return None
+    except RoleRegisterError as exc:
+        return COMPLETION_OWNER_NODE, (
+            f"is refused ({COMPLETION_OWNER_NODE}): the role register names more than one owner "
+            f"of completion ({exc.context.get('owners')}), so which role may write no node "
+            f"cannot be told, and {node_id} is not written while it does"
+        )
+    if writer != owner:
+        return None
+    return COMPLETION_OWNER_NODE, (
+        f"is refused ({COMPLETION_OWNER_NODE}): the {owner} role owns the completion "
+        f"declaration, which is its one write; it writes no node of the graph, and {node_id} "
+        "would be one"
+    )
+
+
+def _an_interface_is_not_rewritten(payload: Payload, fixed: _Fixed, role: str) -> _Refusal:
+    """The store's own rule: an interface node is fixed at decomposition."""
+    if fixed is None or fixed[1] != INTERFACE_KIND:
+        return None
+    return REJECT_INTERFACE_IMMUTABLE, (
+        f"is refused ({REJECT_INTERFACE_IMMUTABLE}): {payload.get('id')} is an interface node, "
+        "fixed at decomposition"
+    )
+
+
+#: Checked in the order the hook checks a proposal as it is written, so a proposal with
+#: two faults is refused here for the reason the hook gave the session: the store's
+#: ownership, the owner and the kind kept, the cross nodes, no new interface, the owner of
+#: completion, and an existing interface left alone.
+_OWNERSHIP_RULES = (
+    _owner_is_the_attempt_s_role,
+    _owner_does_not_change,
+    _kind_does_not_change,
+    _cross_nodes_are_their_owner_s_alone,
+    _no_attempt_creates_an_interface,
+    _the_completion_owner_writes_no_node,
+    _an_interface_is_not_rewritten,
+)
+
+
+def _ownership_refusal(payload: Payload, fixed: _Fixed, role: str) -> _Refusal:
+    """The first ownership rule ``payload`` breaks in a ``role`` attempt, or ``None``."""
+    for rule in _OWNERSHIP_RULES:
+        refused = rule(payload, fixed, role)
+        if refused is not None:
+            return refused
+    return None
+
+
+def _content_refusal(payload: Payload, path: str) -> None:
+    """Refuse a malformed quantity, then a shadowing name, then any other invalid field.
+
+    The hook's order after ownership: a quantity that is not a value with a unit, a source
+    and a writer; a name that shadows a relation's quantity; the node as a whole.
+
+    Raises:
+        ProposalRefusedError: the first of these ``payload`` breaks.
+    """
+    try:
+        validate_node(payload)
+        problem = None
+    except (DesignStateError, ValueError) as exc:
+        problem = f"{path} is not a valid node: {exc}"
+    if problem is not None and not quantities_are_valid(payload):
+        raise ProposalRefusedError(problem, path, REJECT_MISSING_UNIT)
+    shadowed = shadowing_names(payload.get("quantities") or {})
+    if shadowed:
+        told = "; ".join(
+            f"{name} shadows {relation} (nearest {', '.join(nearest_quantity_names(name))})"
+            for name, relation in shadowed
+        )
+        raise ProposalRefusedError(
+            f"{path} names a quantity the gate's catalogue does not know under a name a "
+            f"relation reads ({told}); a quantity a relation reads is written under the "
+            "catalogue's name, so that the relation applies to it",
+            str(payload["id"]),
+            SHADOWED_QUANTITY,
+        )
+    if problem is not None:
+        raise ProposalRefusedError(problem, path, INVALID)
+
+
 def read_proposals(
-    repo: Path, base: str, commit: str, store_root: Path, *, git_dir: GitDir | None = None
+    repo: Path,
+    base: str,
+    commit: str,
+    store_root: Path,
+    *,
+    role: str,
+    git_dir: GitDir | None = None,
 ) -> list[Payload]:
     """The whole-node proposals ``commit`` added or changed since ``base``, validated.
 
-    ``git_dir`` is the repository's verified git directory, if the caller has one.
+    ``role`` is the role the plan gave the subtask whose attempt made ``commit``, never
+    one a proposal names. ``git_dir`` is the repository's verified git directory, if the
+    caller has one.
+
+    Each proposal is held to the hook's rules, in the hook's order, so a proposal the
+    hook refused, and that reached the commit by a route the hook does not see, is
+    refused here for the same reason.
 
     Raises:
         ProposalRefusedError: a proposal is not a regular file, not JSON, not a whole
-            node, named for another node, or changes a node's owner or kind.
+            node, named for another node, written for another role, changes a node's
+            owner or kind, is a cross node not written by the owner of the cross nodes or
+            a domain node written by it, creates an interface node, is written by the
+            owner of completion, rewrites an interface node, or is not a valid node.
     """
     fixed = _fixed(store_root)
     found: list[Payload] = []
@@ -108,49 +353,29 @@ def read_proposals(
         if named is None or change.status == "D":
             continue
         if change.new_mode != "100644":
-            raise ProposalRefusedError(f"{change.path} is not a regular file", change.path)
+            raise ProposalRefusedError(f"{change.path} is not a regular file", change.path, INVALID)
         # Read through the clean object store: the bytes the commit holds, whatever the
         # repository's own settings say.
         raw = git(repo, "show", f"{commit}:{change.path}", objects_only=True, git_dir=git_dir)
         try:
             payload = json.loads(raw)
         except json.JSONDecodeError:
-            raise ProposalRefusedError(f"{change.path} is not JSON", change.path) from None
+            raise ProposalRefusedError(f"{change.path} is not JSON", change.path, INVALID) from None
         if not isinstance(payload, dict) or payload.get("id") != named["id"]:
             raise ProposalRefusedError(
-                f"{change.path} is not one whole node named for its file", change.path
+                f"{change.path} is not one whole node named for its file", change.path, INVALID
             )
         try:
-            validate_node(payload)
-        except (DesignStateError, ValueError) as exc:
+            validate_node_id(payload["id"])
+        except DesignStateError as exc:
             raise ProposalRefusedError(
-                f"{change.path} is not a valid node: {exc}", change.path
+                f"{change.path} is not a valid node: {exc}", change.path, INVALID
             ) from None
-        shadowed = shadowing_names(payload.get("quantities") or {})
-        if shadowed:
-            told = "; ".join(
-                f"{name} shadows {relation} (nearest {', '.join(nearest_quantity_names(name))})"
-                for name, relation in shadowed
-            )
-            raise ProposalRefusedError(
-                f"{change.path} names a quantity the gate's catalogue does not know under a "
-                f"name a relation reads ({told}); a quantity a relation reads is written under "
-                "the catalogue's name, so that the relation applies to it",
-                named["id"],
-            )
-        owner, kind = fixed.get(named["id"], (None, None))
-        if owner is not None and payload["owner_role"] != owner:
-            raise ProposalRefusedError(
-                f"{change.path} changes the owner of {named['id']} from {owner!r}; owners are "
-                "assigned at decomposition",
-                named["id"],
-            )
-        if kind is not None and payload["kind"] != kind:
-            raise ProposalRefusedError(
-                f"{change.path} changes the kind of {named['id']} from {kind!r} to "
-                f"{payload['kind']!r}; a node's kind is fixed when it is created, like its owner",
-                named["id"],
-            )
+        refused = _ownership_refusal(payload, fixed.get(named["id"]), role)
+        if refused is not None:
+            reason, said = refused
+            raise ProposalRefusedError(f"{change.path} {said}", named["id"], reason)
+        _content_refusal(payload, change.path)
         found.append(payload)
     return sorted(found, key=lambda p: str(p["id"]))
 
@@ -324,7 +549,9 @@ class GitChangeChecker:
             )
         proposed: tuple[str, ...] = ()
         try:
-            proposals = read_proposals(repo, base, attempt_commit, self._store_root, git_dir=pinned)
+            proposals = read_proposals(
+                repo, base, attempt_commit, self._store_root, role=role, git_dir=pinned
+            )
             proposed = tuple(str(p["id"]) for p in proposals)
             self._precheck(scratch, proposals, role)
         except ProposalRefusedError as exc:
@@ -397,9 +624,28 @@ class GitChangeChecker:
                 result = store.write_node(payload, role)
                 if not result.accepted:
                     msg = f"the store refused the proposal for {payload['id']}: {result.reason}"
-                    raise ProposalRefusedError(msg, str(payload["id"]))
+                    raise ProposalRefusedError(msg, str(payload["id"]), str(result.reason))
         finally:
             store.close()
+
+
+def _owners(duty: CrossCuttingDuty) -> tuple[str, ...]:
+    """The roles the register names as owning ``duty``: one, none, or every one of two or more.
+
+    Asked through the lookup that counts the owners itself and raises on none or on more
+    than one; each answer is passed on as it is, never settled here.
+    """
+    try:
+        return (roles.owner_of(duty),)
+    except DutyUnownedError:
+        return ()
+    except RoleRegisterError as exc:
+        return tuple(str(exc.context.get("owners", "")).split(","))
+
+
+def _duties() -> Duties:
+    """Who owns each cross-cutting duty, as the role register answers now."""
+    return Duties(cross_nodes=_owners("cross_nodes"), completion=_owners("completion"))
 
 
 class StoreKeeper:
@@ -434,12 +680,12 @@ class StoreKeeper:
         init_repo(self._root)
         commit_all(self._root, message)
 
-    def proposals(self, subtask_id: str, attempt_commit: str) -> list[Payload]:
-        """The attempt's validated proposals, read from its commit."""
+    def proposals(self, subtask_id: str, attempt_commit: str, role: str) -> list[Payload]:
+        """The attempt's validated proposals, read from its commit under the plan's ``role``."""
         repo = self._run.repo
         pinned = verified_git_dir(repo, linked=False)
         base = merge_base(repo, self._run.run_branch, attempt_commit, git_dir=pinned)
-        return read_proposals(repo, base, attempt_commit, self._root, git_dir=pinned)
+        return read_proposals(repo, base, attempt_commit, self._root, role=role, git_dir=pinned)
 
     def write(self, payload: Payload, role: str) -> int:
         """Write one node; a refusal after a clean pre-check raises."""
@@ -450,9 +696,14 @@ class StoreKeeper:
         return result.revision
 
     def divergences(self, since: int, acting_role: str) -> tuple[str, ...]:
-        """Every node changed after ``since`` by a role that does not own it."""
+        """Every node changed after ``since`` by a role that does not own it, or against a duty.
+
+        The duties' owners are asked of the role register now, as the hook and the apply
+        step ask it.
+        """
         store = self._handle()
-        return tuple(str(d) for d in divergence(store, store.diff(since), acting_role))
+        found = divergence(store, store.diff(since), acting_role, _duties())
+        return tuple(str(d) for d in found)
 
     def reopen(self) -> tuple[int, tuple[str, ...]]:
         """Reopen the store so recovery repairs node files from the journal."""

@@ -132,7 +132,7 @@ def _flow(
     assert (
         GitChangeChecker(run, graph, {"m1": "m1"}).check("m1", attempt, "role").refused_by is None
     )
-    assert StoreKeeper(run, graph).proposals("m1", attempt) == []
+    assert StoreKeeper(run, graph).proposals("m1", attempt, "role") == []
     merger = GitMerger(run, removal_timeout_s=60)
     before = merger.review_base(attempt)
     assert "+1" in merger.artefact_diff(attempt)
@@ -229,5 +229,5 @@ def test_the_change_check_reads_through_the_pointer_it_verified(
     found = GitChangeChecker(run, graph, {"m1": "m1"}).check("m1", attempt, "role")
     assert (found.refused_by, found.subject) == ("write_scope", "out.txt")
     (repo / ".git").write_text(f"gitdir: {real_admin}\n")
-    proposals = StoreKeeper(run, graph).proposals("m1", attempt)
+    proposals = StoreKeeper(run, graph).proposals("m1", attempt, "role")
     assert proposals == []

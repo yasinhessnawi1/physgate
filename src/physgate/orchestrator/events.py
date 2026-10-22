@@ -428,8 +428,10 @@ class Merged(_Event):
 class DiffChecked(_Event):
     """The graph was diffed off the durable record after the subtask's step.
 
-    Any divergence (a node written by a role that does not own it) is a blocking
-    failure caught before the next dispatch (ARCH-013).
+    Any divergence (a node written by a role that does not own it, or a write that
+    breaks a cross-cutting duty: a cross node by another role than their owner, a domain
+    node by that owner, a new interface node, a node by the owner of completion) is a
+    blocking failure caught before the next dispatch (ARCH-013, ARCH-051).
     """
 
     kind: Literal["diff_checked"] = "diff_checked"
