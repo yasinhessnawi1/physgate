@@ -1,5 +1,25 @@
 # R-PG-01 — result
 
+> **Preface, 22 October 2026: the reviewers' parts sheet was incomplete. It changes no
+> number; everything below it is as first committed.**
+>
+> - **What happened.** From PR #26 (17 October 2026) on, the parts sheet in every review
+>   packet was the corpus's `sources.json`, copied byte for byte. Its format lets a row hold
+>   one number or nothing and has no note field, so every row whose value is a range, a list,
+>   a min/typ/max or text reached the reviewers empty, and no notes reached them. On the
+>   reference design's sheet that is 62 of 163 rows (44 with two or more numbers, 11 with one
+>   number plus qualifying words, 7 text only) and all 130 notes. The designs' authors worked
+>   from the complete sheet. The physics gate never reads the parts sheet and was unaffected.
+> - **What it means here.** This experiment's corpus has the identical `sources.json`
+>   (confirmed by comparing sha256 fingerprints). Reviewers were handicapped wherever a check
+>   needed a range, a limit or a note: on clean designs that can only add false rejects, and
+>   on injected designs a planted error on an empty row was harder to locate. Comparisons
+>   of the gate against the reviewers below therefore lean towards the gate, by an amount
+>   not known.
+> - **What follows.** The sheet format is being fixed, and a new pre-registered experiment,
+>   R-PG-01b, will re-run the reviewer arm on the same corpus with the complete sheet. No
+>   number in this file changes.
+
 **Pre-registration:** `CRITERIA.md` frozen at commit `8bc03fc` (2026-10-18), sha256
 `c7a7da47505988fd06ca7b613b7ecacd4395d87aa67052272464d774936f53a4`. Nothing under this
 directory changed after the freeze; this file is added beside it.
