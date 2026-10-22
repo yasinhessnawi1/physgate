@@ -310,7 +310,12 @@ def test_an_unexpected_error_in_the_owner_lookup_is_a_refusal(
     # reaches the hook's runtime, which refuses the call, as it refuses any failure.
     from physgate.hooks import runtime
 
+    real = roles.owner_of
+
     def broken(duty: str) -> str:
+        # Only the cross rule's lookup fails, so no later rule can raise in its place.
+        if duty != "cross_nodes":
+            return real(duty)  # type: ignore[arg-type]
         msg = "the register could not be read"
         raise RuntimeError(msg)
 
