@@ -21,10 +21,11 @@ the file as it is written. Here the orchestrator:
   register names as owning the cross nodes, and a node of a domain from that role
   (ARCH-051); a new interface node from any attempt, since interface nodes are
   written from the plan; and any node from the role that owns completion, whose
-  one write is its declaration. Each owner is asked of the register on every read,
-  through the lookup that counts the owners: with none, no cross node is written,
-  and with two, no node but an interface. The store holds none of these rules, so
-  recorded runs and corpora written straight into a store replay as they were;
+  one write is its declaration. The owners of each duty are counted in the register
+  on every read: with no owner of the cross nodes no cross node is written, with two
+  no node but an interface is, and with two owners of completion no node at all.
+  The store holds none of these rules, so recorded runs and corpora written straight
+  into a store replay as they were;
 - refuses a quantity name that shadows one a relation reads, as the hook did when
   the file was written: a name the catalogue lacks that is a misspelling of a
   relation's quantity (within two insertions or deletions of a long quantity, one
@@ -63,11 +64,7 @@ from physgate.hooks.graph import (
     SHADOWED_QUANTITY,
 )
 from physgate.orchestrator.events import SessionEnded, read_events
-from physgate.orchestrator.exceptions import (
-    DutyUnownedError,
-    RoleRegisterError,
-    StoreRefusalError,
-)
+from physgate.orchestrator.exceptions import StoreRefusalError
 from physgate.orchestrator.git import (
     GitDir,
     changes_between,
@@ -79,7 +76,6 @@ from physgate.orchestrator.git import (
 )
 from physgate.orchestrator.merge import RunGit, write_scope_violations
 from physgate.orchestrator.ports import ChangeCheck
-from physgate.roles import CrossCuttingDuty
 from physgate.series.consistency import check_proposals
 from physgate.series.reader import SealedEntry, attempt_records
 from physgate.series.seal import FORMAT, MAX_FILE_BYTES, SealedRecord, SessionSeries
@@ -177,31 +173,31 @@ def _kind_does_not_change(payload: Payload, fixed: _Fixed, role: str) -> _Refusa
 def _cross_nodes_are_their_owner_s_alone(payload: Payload, fixed: _Fixed, role: str) -> _Refusal:
     """A cross node is written by the owner of the cross nodes, and that owner writes no other.
 
-    The owner is the role the register names as owning the cross nodes, asked on every
-    read through the lookup that counts the owners itself. With no owner, no cross node is
-    written; with two, no node is, since whose the cross nodes are cannot be told. Interface
-    nodes are left to the rules that fix them. The rules before this one have made the
-    node's owner the attempt's role and kept its kind.
+    The owners are the roles the register names as owning the cross nodes, counted on every
+    read. With no owner, no cross node is written; with two, no node is, since whose the
+    cross nodes are cannot be told. Interface nodes are left to the rules that fix them.
+    The rules before this one have made the node's owner the attempt's role and kept its
+    kind.
     """
     if payload.get("kind") == INTERFACE_KIND:
         return None
     node_id, writer = payload.get("id"), payload.get("owner_role")
     cross = payload.get("domain") == CROSS_DOMAIN
-    try:
-        owner = roles.owner_of("cross_nodes")
-    except DutyUnownedError:
+    owners = roles.owners_of("cross_nodes")
+    if len(owners) > 1:
+        return CROSS_NODE, (
+            f"is refused ({CROSS_NODE}): the role register names more than one owner of the "
+            f"cross nodes ({','.join(owners)}), so whose they are cannot be told, and "
+            f"{node_id} is not written while it does"
+        )
+    if not owners:
         if not cross:
             return None
         return CROSS_NODE, (
             f"is refused ({CROSS_NODE}): {node_id} is of the cross domain, and no registered "
             "role owns the cross nodes, so no attempt writes one"
         )
-    except RoleRegisterError as exc:
-        return CROSS_NODE, (
-            f"is refused ({CROSS_NODE}): the role register names more than one owner of the "
-            f"cross nodes ({exc.context.get('owners')}), so whose they are cannot be told, and "
-            f"{node_id} is not written while it does"
-        )
+    (owner,) = owners
     if cross and writer != owner:
         return CROSS_NODE, (
             f"is refused ({CROSS_NODE}): {node_id} is of the cross domain, whose quantities tie "
@@ -230,24 +226,21 @@ def _no_attempt_creates_an_interface(payload: Payload, fixed: _Fixed, role: str)
 def _the_completion_owner_writes_no_node(payload: Payload, fixed: _Fixed, role: str) -> _Refusal:
     """The role that owns completion writes no node: its one write is the declaration.
 
-    Found in the register by what it owns, on every read. With two owners no node is
-    written, as with the cross nodes; with none, no role is held by this rule.
+    Found in the register by what it owns, counted on every read. With two owners no node
+    is written, as with the cross nodes; with none, no role is held by this rule.
     """
     node_id, writer = payload.get("id"), payload.get("owner_role")
-    try:
-        owner = roles.owner_of("completion")
-    except DutyUnownedError:
-        return None
-    except RoleRegisterError as exc:
+    owners = roles.owners_of("completion")
+    if len(owners) > 1:
         return COMPLETION_OWNER_NODE, (
             f"is refused ({COMPLETION_OWNER_NODE}): the role register names more than one owner "
-            f"of completion ({exc.context.get('owners')}), so which role may write no node "
-            f"cannot be told, and {node_id} is not written while it does"
+            f"of completion ({','.join(owners)}), so which role may write no node cannot be "
+            f"told, and {node_id} is not written while it does"
         )
-    if writer != owner:
+    if writer not in owners:
         return None
     return COMPLETION_OWNER_NODE, (
-        f"is refused ({COMPLETION_OWNER_NODE}): the {owner} role owns the completion "
+        f"is refused ({COMPLETION_OWNER_NODE}): the {writer} role owns the completion "
         f"declaration, which is its one write; it writes no node of the graph, and {node_id} "
         "would be one"
     )
@@ -629,23 +622,11 @@ class GitChangeChecker:
             store.close()
 
 
-def _owners(duty: CrossCuttingDuty) -> tuple[str, ...]:
-    """The roles the register names as owning ``duty``: one, none, or every one of two or more.
-
-    Asked through the lookup that counts the owners itself and raises on none or on more
-    than one; each answer is passed on as it is, never settled here.
-    """
-    try:
-        return (roles.owner_of(duty),)
-    except DutyUnownedError:
-        return ()
-    except RoleRegisterError as exc:
-        return tuple(str(exc.context.get("owners", "")).split(","))
-
-
 def _duties() -> Duties:
     """Who owns each cross-cutting duty, as the role register answers now."""
-    return Duties(cross_nodes=_owners("cross_nodes"), completion=_owners("completion"))
+    return Duties(
+        cross_nodes=roles.owners_of("cross_nodes"), completion=roles.owners_of("completion")
+    )
 
 
 class StoreKeeper:

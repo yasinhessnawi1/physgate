@@ -139,10 +139,26 @@ def test_a_register_with_two_owners_of_completion_names_every_write(
 def test_an_unexpected_error_in_the_owner_lookup_is_never_a_clean_step(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def broken(duty: str) -> str:
+    def broken(duty: str) -> tuple[str, ...]:
         msg = "the register could not be read"
         raise RuntimeError(msg)
 
-    monkeypatch.setattr(roles, "owner_of", broken)
+    monkeypatch.setattr(roles, "owners_of", broken)
     with pytest.raises(RuntimeError, match="could not be read"):
         _after_a_step(tmp_path, "control", node("control.gain", "control", "control"))
+
+
+def test_the_check_counts_the_owners_itself_and_reads_no_error_s_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The keeper asks the register for the list of owners; it never asks the one-owner
+    # lookup and reads the owners back out of the error that raises.
+    def one_owner(duty: str) -> str:
+        msg = "the check asked the one-owner lookup"
+        raise AssertionError(msg)
+
+    monkeypatch.setitem(roles.ROLES, roles.SIZING.name, roles.SIZING)
+    monkeypatch.setitem(roles.ROLES, BALLAST.name, BALLAST)
+    monkeypatch.setattr(roles, "owner_of", one_owner)
+    (found,) = _after_a_step(tmp_path, "control", node("control.gain", "control", "control"))
+    assert CROSS_NODE in found and "(ballast,sizing)" in found

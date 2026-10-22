@@ -13,9 +13,9 @@ always-loaded reading and its reviewer's promoted rubric exist.
 The register holds both kinds of role: domain roles (ARCH-050) and the cross-cutting
 roles (ARCH-051), sizing and integration, which have no domain. Each cross-cutting
 duty has one owner at most; the register refuses a second (:func:`register_of`).
-Whoever enforces a duty finds its owner through :func:`owner_of`, by the duty and never
-by a role's name, and that lookup counts the owners again rather than trust the
-register's earlier check.
+Whoever enforces a duty finds its owners through :func:`owners_of`, or its one owner
+through :func:`owner_of`, by the duty and never by a role's name, and both count the
+owners again rather than trust the register's earlier check.
 It also refuses every other way of handing a domain role what a cross-cutting role
 holds: a domain role of the ``cross`` domain or name, and any row under a cross-cutting
 role's name that is not that role as defined here.
@@ -88,25 +88,38 @@ SHIPPED: tuple[RegisteredRole, ...] = (CONTROL, FIRMWARE, INTEGRATION)
 ROLES: dict[str, RegisteredRole] = register_of(SHIPPED)
 
 
+def owners_of(duty: CrossCuttingDuty) -> tuple[str, ...]:
+    """The names of every registered role that owns ``duty``, sorted, read from :data:`ROLES` now.
+
+    None, one, or more than one: :func:`register_of` refuses a second owner when the register
+    is built, but :data:`ROLES` is a mapping that anything in the process can change
+    afterwards, as a stand-in role is added to it, so the count is taken again on every
+    call. This answers what the register holds and settles nothing: whoever enforces the
+    duty decides what no owner and two owners mean for it.
+    """
+    return tuple(
+        sorted(
+            role.name
+            for role in ROLES.values()
+            if isinstance(role, CrossCuttingRole) and role.owns == duty
+        )
+    )
+
+
 def owner_of(duty: CrossCuttingDuty) -> str:
     """The name of the one registered role that owns ``duty``, read from :data:`ROLES` now.
 
-    Whoever enforces a duty asks here, so the register stays the one place that says
-    which role holds it, and no rule names that role itself. The owners are counted
-    again on every call: :func:`register_of` refuses a second owner when the register
-    is built, but :data:`ROLES` is a mapping that anything in the process can change
-    afterwards, as a stand-in role is added to it, and a rule that trusted the earlier
-    check would hand the duty to whichever owner it met first.
+    Whoever enforces a duty asks here or :func:`owners_of`, so the register stays the one
+    place that says which role holds it, and no rule names that role itself. The owners are
+    the ones :func:`owners_of` counts on this call, never an earlier count: a rule that
+    trusted the register's check at build time would hand the duty to whichever owner it
+    met first.
 
     Raises:
         DutyUnownedError: no registered role owns ``duty``.
         RoleRegisterError: more than one registered role owns it.
     """
-    owners = sorted(
-        role.name
-        for role in ROLES.values()
-        if isinstance(role, CrossCuttingRole) and role.owns == duty
-    )
+    owners = owners_of(duty)
     if not owners:
         msg = "no registered role owns this duty"
         raise DutyUnownedError(msg, owns=duty, registered=",".join(sorted(ROLES)))
@@ -143,6 +156,7 @@ __all__ = [
     "RegisteredRole",
     "Role",
     "owner_of",
+    "owners_of",
     "register_of",
     "require_registered",
 ]

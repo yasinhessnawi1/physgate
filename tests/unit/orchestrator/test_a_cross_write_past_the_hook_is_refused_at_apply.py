@@ -626,18 +626,49 @@ def test_an_unexpected_error_in_the_owner_lookup_is_never_an_acceptance_at_apply
 ) -> None:
     # Not a register error: apply must not turn it into an answer of its own. It reaches the
     # change check's caller, so nothing is applied, as the hook's runtime refuses the call.
-    real = roles.owner_of
+    real = roles.owners_of
 
-    def broken(duty: str) -> str:
+    def broken(duty: str) -> tuple[str, ...]:
         if duty != "cross_nodes":
             return real(duty)  # type: ignore[arg-type]
         msg = "the register could not be read"
         raise RuntimeError(msg)
 
-    monkeypatch.setattr(roles, "owner_of", broken)
+    monkeypatch.setattr(roles, "owners_of", broken)
     store = _store(tmp_path / "store")
     with pytest.raises(RuntimeError, match="could not be read"):
         through_apply(tmp_path, store, "control", node("control.gain", "control"))
+
+
+@pytest.mark.parametrize(
+    ("register", "reason", "owners"),
+    [
+        (_two_cross_owners, graph.CROSS_NODE, "(ballast,sizing)"),
+        (_two_completion_owners, graph.COMPLETION_OWNER_NODE, "(closer,integration)"),
+    ],
+    ids=["the cross nodes", "completion"],
+)
+def test_apply_counts_the_owners_itself_and_reads_no_error_s_text(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    register: Register,
+    reason: str,
+    owners: str,
+) -> None:
+    # Apply asks the register for the list of owners and decides what two mean; it never
+    # asks the one-owner lookup and reads the owners back out of the error that raises.
+    def one_owner(duty: str) -> str:
+        msg = "apply asked the one-owner lookup"
+        raise AssertionError(msg)
+
+    register(monkeypatch)
+    monkeypatch.setattr(roles, "owner_of", one_owner)
+    store = _store(tmp_path / "store")
+    proposed = {"control.gain": node("control.gain", "control")}
+    repo, base, commit = _attempt(tmp_path / "apply", proposed)
+    with pytest.raises(ProposalRefusedError) as refused:
+        read_proposals(repo, base, commit, store, role="control")
+    assert refused.value.reason == reason and owners in str(refused.value)
 
 
 # --- where apply runs: the change check and the merge ------------------------------------------

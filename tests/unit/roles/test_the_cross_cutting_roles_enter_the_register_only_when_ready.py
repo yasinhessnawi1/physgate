@@ -239,3 +239,38 @@ def test_the_register_holds_both_kinds_of_role_by_name() -> None:
         "sizing": roles.SIZING,
         "integration": roles.INTEGRATION,
     }
+
+
+# --- who owns a duty, as the register holds it now ------------------------------------------
+
+
+def test_the_owners_of_a_duty_are_every_registered_role_that_owns_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # None, one or two, as the mapping holds them now: two can be there because the mapping
+    # can be changed after the register refused a second owner, as a stand-in role is added.
+    ballast = roles.CrossCuttingRole(name="ballast", architecture="ARCH-051", owns="cross_nodes")
+    assert roles.owners_of("completion") == ("integration",)
+    assert roles.owners_of("cross_nodes") == ()
+    monkeypatch.setitem(roles.ROLES, roles.SIZING.name, roles.SIZING)
+    assert roles.owners_of("cross_nodes") == ("sizing",)
+    monkeypatch.setitem(roles.ROLES, ballast.name, ballast)
+    assert roles.owners_of("cross_nodes") == ("ballast", "sizing")
+    monkeypatch.delitem(roles.ROLES, roles.INTEGRATION.name)
+    assert roles.owners_of("completion") == ()
+
+
+@pytest.mark.parametrize(
+    ("owners", "raised"),
+    [((), exceptions.DutyUnownedError), (("ballast", "sizing"), exceptions.RoleRegisterError)],
+)
+def test_the_one_owner_lookup_raises_on_the_count_owners_of_gives(
+    monkeypatch: pytest.MonkeyPatch, owners: tuple[str, ...], raised: type[Exception]
+) -> None:
+    # One count of the owners, read by both: the lookup that settles on one owner, which
+    # the hook uses, raises on none or on two of the very answer the list gives.
+    monkeypatch.setattr(roles, "owners_of", lambda duty: owners)
+    with pytest.raises(raised):
+        roles.owner_of("cross_nodes")
+    monkeypatch.setattr(roles, "owners_of", lambda duty: ("ballast",))
+    assert roles.owner_of("cross_nodes") == "ballast"
