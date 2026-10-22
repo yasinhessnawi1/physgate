@@ -20,7 +20,9 @@
 #
 # A watcher (abort_on_limit's pattern) stops the whole phase at the first usage limit, the third
 # rate-limit error or the void marker. Nothing is resumed without being told: a stopped phase is
-# reported, never restarted by this script.
+# resumed only by running the same phase again with RLAW_RESUME=1, which keeps every built packet
+# dir, every finished session and every computed code, and logs the resume in
+# ledger/interruptions.jsonl (each stop and resume is a deviation the RESULT counts).
 #
 # Environment: RLAW_CLAUDE_BIN, the pinned binary (on this laptop ~/pinned/claude-2.1.301-macos).
 # The sessions use the account this machine's Claude Code is logged in to, which must be the
@@ -52,7 +54,7 @@ preflight() {
     [ -s "$WORK/$f" ] || die "work dir lacks $f"
   done
   [ ! -e "$WORK/ledger/VOID" ] || die "VOID: the result is void"
-  [ ! -e "$WORK/ledger/STOPPED" ] || die "STOPPED: resolve before going on"
+  [ ! -e "$WORK/ledger/STOPPED" ] || [ "${RLAW_RESUME:-0}" = 1 ] || die "STOPPED: resume only with RLAW_RESUME=1"
   : "${RLAW_CLAUDE_BIN:?set RLAW_CLAUDE_BIN}"
   "$RLAW_CLAUDE_BIN" --version | grep -q '^2\.1\.301 ' || die "binary is not 2.1.301"
   "$PY" -I -c "import json,sys; c=json.load(open('$WORK/group_counts.json')); e=json.load(open('$WORK/extract_counts.json')); sys.exit(0 if (e['lines'],c['after_c'],c['after_d'])==(993,367,348) else 1)" \
@@ -68,6 +70,8 @@ watch() { # pid: stop the phase at a usage limit, a third 429, or VOID
     if [ "$lim" -gt 0 ] || [ "$r429" -ge 3 ] || [ -e "$WORK/ledger/VOID" ]; then
       say "ABORT: usage-limit files $lim, 429s $r429, void $( [ -e "$WORK/ledger/VOID" ] && echo yes || echo no)"
       echo "aborted by the watcher" >> "$WORK/ledger/STOPPED"
+      printf '{"event": "stop", "reason": "the watcher stopped phase %s", "step": "launch", "utc": "%s"}\n' \
+        "$PHASE" "$(date -u +%FT%TZ)" >> "$WORK/ledger/interruptions.jsonl"
       kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid"
       return 0
     fi
@@ -79,14 +83,26 @@ sessions() { # step kind packets out model lanes [ids]
   bash "$SESS" run "$@" | tee -a "$LOG"
 }
 
-codes() { # step who packets out
+codes() { # step who packets out; on a resume, a step whose codes exist is kept
+  if [ -f "$WORK/codes.jsonl" ] && "$PY" -I -c "import json,sys; sys.exit(0 if any(json.loads(l)['step']=='$1' and json.loads(l)['who']=='$2' for l in open('$WORK/codes.jsonl') if l.strip()) else 1)"; then
+    say "codes for $1/$2 exist; kept"; return 0
+  fi
   "$PY" -I "$HERE/law_verify.py" codes "$WORK" "$1" "$2" "$3" "$4" | tee -a "$LOG"
+}
+
+build() { # dir command...: build packets once; on a resume an existing dir is kept as built
+  local d="$1"; shift
+  if [ -e "$d" ]; then
+    [ "${RLAW_RESUME:-0}" = 1 ] || die "$d exists; a phase is never re-run (RLAW_RESUME=1 resumes)"
+    say "$d exists; kept"; return 0
+  fi
+  "$@" | tee -a "$LOG"
 }
 
 round() { # n prompts-dir
   local n="$1" pr="$2" pk="$WORK/packets/slice-r$1" se="$WORK/sessions/slice-r$1"
   export RLAW_PROMPTS="$pr"
-  "$PY" -I "$HERE/law_packets.py" coders "$WORK" slice "$pk" | tee -a "$LOG"
+  build "$pk/c1" "$PY" -I "$HERE/law_packets.py" coders "$WORK" slice "$pk"
   sessions "slice-r$n-c1" coder "$pk/c1" "$se/c1" "$OPUS" 2 &
   local a=$!
   sessions "slice-r$n-c2" coder "$pk/c2" "$se/c2" "$OPUS" 2 &
@@ -94,7 +110,7 @@ round() { # n prompts-dir
   wait "$a" && wait "$b" || die "a coder step of round $n stopped"
   codes "slice-r$n" c1 "$pk/c1" "$se/c1"
   codes "slice-r$n" c2 "$pk/c2" "$se/c2"
-  "$PY" -I "$HERE/law_packets.py" adjudicator "$WORK" "slice-r$n" "$pk/adj" | tee -a "$LOG"
+  build "$pk/adj" "$PY" -I "$HERE/law_packets.py" adjudicator "$WORK" "slice-r$n" "$pk/adj"
   if ls "$pk/adj"/P*.md >/dev/null 2>&1; then
     sessions "slice-r$n-adj" adjudicator "$pk/adj" "$se/adj" "$OPUS" 4 || die "the adjudicator of round $n stopped"
     codes "slice-r$n" adj "$pk/adj" "$se/adj"
@@ -103,10 +119,9 @@ round() { # n prompts-dir
 
 calibrate() {
   preflight
-  [ ! -e "$WORK/packets/slice-r1" ] || die "round 1 exists; a round is never re-run"
-  "$PY" -I "$HERE/law_packets.py" prompts "$WORK/prompts/v0" | tee -a "$LOG"
+  build "$WORK/prompts/v0" "$PY" -I "$HERE/law_packets.py" prompts "$WORK/prompts/v0"
   round 1 "$WORK/prompts/v0"
-  "$PY" -I "$HERE/law_slice.py" bank "$WORK" "$WORK/prompts/v1" | tee -a "$LOG"
+  build "$WORK/bank.json" "$PY" -I "$HERE/law_slice.py" bank "$WORK" "$WORK/prompts/v1"
   bash "$SESS" projection "$RLAW_LEDGER" slice-r1-c1 slice-r1-c2 slice-r1-adj | tee -a "$LOG" \
     || { echo '["the projection check after calibration round 1 failed"]' > "$WORK/deviations.json"; die "projection check failed: a deviation before any measured session"; }
   if "$PY" -I -c "import json,sys; sys.exit(0 if json.load(open('$WORK/bank.json'))['round_2'] else 1)"; then
@@ -131,9 +146,8 @@ sys.exit(1 if bad else 0)
 PY
   export RLAW_PROMPTS="$fin"
   local pk="$WORK/packets" se="$WORK/sessions"
-  [ ! -e "$pk/reality" ] || die "the measured packets exist; a phase is never re-run"
-  "$PY" -I "$HERE/law_reality.py" packets "$WORK" "$pk/reality" | tee -a "$LOG"
-  "$PY" -I "$HERE/law_packets.py" coders "$WORK" measured "$pk/measured" | tee -a "$LOG"
+  build "$pk/reality" "$PY" -I "$HERE/law_reality.py" packets "$WORK" "$pk/reality"
+  build "$pk/measured" "$PY" -I "$HERE/law_packets.py" coders "$WORK" measured "$pk/measured"
   for d in "$pk/reality" "$pk/measured/c1" "$pk/measured/c2"; do
     "$PY" -I "$HERE/law_packets.py" blind "$d" >> "$LOG" || die "a packet in $d is not blind"
   done
@@ -144,20 +158,20 @@ PY
     wait "$a" && wait "$b" ) &
   local c=$!
   wait "$r" || die "reality on the injected versions stopped"
-  "$PY" -I "$HERE/law_reality.py" controls "$WORK" "$pk/reality" "$se/reality" "$pk/controls" | tee -a "$LOG"
-  RLAW_RESUME=1 sessions reality-twin reality "$pk/reality" "$se/reality" "$OPUS" 1 "$pk/reality/twin.txt" &
+  build "$pk/controls" "$PY" -I "$HERE/law_reality.py" controls "$WORK" "$pk/reality" "$se/reality" "$pk/controls"
+  RLAW_SHARED_OUT=1 sessions reality-twin reality "$pk/reality" "$se/reality" "$OPUS" 1 "$pk/reality/twin.txt" &
   local t=$!
   sessions controls reality "$pk/controls" "$se/controls" "$OPUS" 1 || die "the controls stopped"
   wait "$t" || die "reality on the twin versions stopped"
   wait "$c" || die "the measured coding stopped"
   codes measured c1 "$pk/measured/c1" "$se/measured/c1"
   codes measured c2 "$pk/measured/c2" "$se/measured/c2"
-  "$PY" -I "$HERE/law_packets.py" adjudicator "$WORK" measured "$pk/adj" | tee -a "$LOG"
+  build "$pk/adj" "$PY" -I "$HERE/law_packets.py" adjudicator "$WORK" measured "$pk/adj"
   if ls "$pk/adj"/P*.md >/dev/null 2>&1; then
     sessions measured-adj adjudicator "$pk/adj" "$se/adj" "$OPUS" 4 || die "the adjudication stopped"
     codes measured adj "$pk/adj" "$se/adj"
   fi
-  "$PY" -I "$HERE/law_packets.py" audit "$pk/measured/c1" "$pk/audit" | tee -a "$LOG"
+  build "$pk/audit" "$PY" -I "$HERE/law_packets.py" audit "$pk/measured/c1" "$pk/audit"
   sessions audit coder "$pk/audit" "$se/audit" "$FABLE" 4 || die "the audit stopped"
   codes audit audit "$pk/audit" "$se/audit"
   "$PY" -I "$HERE/law_reality.py" score "$WORK" "$pk/reality" "$se/reality" "$pk/controls" "$se/controls" "${RLAW_PRIOR:?set RLAW_PRIOR to the prior adjudication output}" | tee -a "$LOG"
@@ -179,7 +193,14 @@ case "$PHASE" in
     kill "$W" 2>/dev/null || true
     say "phase $PHASE ended, exit $CODE"
     exit "$CODE" ;;
-  _calibrate) calibrate ;;
-  _measure) measure ;;
+  _calibrate|_measure)
+    if [ "${RLAW_RESUME:-0}" = 1 ]; then
+      why="$( [ -e "$WORK/ledger/STOPPED" ] && tr '\n' ' ' < "$WORK/ledger/STOPPED" || echo "no STOPPED marker" )"
+      printf '{"event": "resume", "reason": "phase %s resumed after: %s", "step": "launch", "utc": "%s"}\n' \
+        "${PHASE#_}" "$why" "$(date -u +%FT%TZ)" >> "$WORK/ledger/interruptions.jsonl"
+      [ -e "$WORK/ledger/STOPPED" ] && mv "$WORK/ledger/STOPPED" "$WORK/ledger/STOPPED.$(date -u +%Y%m%dT%H%M%SZ)"
+      say "resuming phase ${PHASE#_}"
+    fi
+    "${PHASE#_}" ;;
   *) die "unknown phase $PHASE" ;;
 esac

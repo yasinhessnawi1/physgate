@@ -701,6 +701,7 @@ class Tally:
             "base_flaws_spanning_slice": self.slice.get("base_flaws_spanning_slice_and_measured"),
             "excluded_records": self.ecounts.get("excluded"),
         }
+        out["interruptions"] = self.interruptions()
         out["per_coder"] = self.per_coder()
         out["kappa_flaw_level"] = self.kappa_flaw_level()
         out["audit"] = self.audit()
@@ -755,8 +756,21 @@ class Tally:
             "below_kappa_floor": not k["meets_floor"],
             "unreliable_label": None if k["meets_floor"] else "unreliable, not a ceiling",
             "deviations": self.deviations,
+            "interruptions_counted_as_deviations": out["interruptions"]["events"],
         }
         return out
+
+    def interruptions(self) -> dict[str, Any]:
+        """Every logged stop and resume, with its time: each a deviation RESULT counts. They do
+        not void the result: a resumed packet is an independent session on fixed inputs."""
+        p = self.work / "ledger" / "interruptions.jsonl"
+        rows = X.read_jsonl(p) if p.exists() else []
+        return {
+            "events": len(rows),
+            "stops": sum(1 for r in rows if r["event"] == "stop"),
+            "resumes": sum(1 for r in rows if r["event"] == "resume"),
+            "log": rows,
+        }
 
     def ledger_models(self, step: str) -> list[str]:
         led = self.work / "ledger" / "ledger.jsonl"

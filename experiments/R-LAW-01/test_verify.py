@@ -9,10 +9,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 import law_extract as X
 import law_verify as V
+import pytest
 
 NODES: dict[str, dict[str, Any]] = {
     "e.heater": {

@@ -13,8 +13,6 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 import law_extract as X
 import law_fixture as F
 import law_group as GR
@@ -23,6 +21,7 @@ import law_reality as R
 import law_regate as G
 import law_tally as TL
 import law_verify as V
+import pytest
 
 HERE = Path(__file__).resolve().parent
 SLICE = {"practice": ["u1"], "fresh": ["e1"]}

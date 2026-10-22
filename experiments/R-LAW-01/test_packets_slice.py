@@ -12,13 +12,12 @@ import random
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 import law_extract as X
 import law_fixture as F
 import law_packets as P
 import law_slice as SL
 import law_verify as V
+import pytest
 
 
 @pytest.fixture(scope="module")

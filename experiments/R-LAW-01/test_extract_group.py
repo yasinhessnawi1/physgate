@@ -11,11 +11,10 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 import law_extract as X
 import law_fixture as F
 import law_group as GR
+import pytest
 
 
 @pytest.fixture(scope="module")

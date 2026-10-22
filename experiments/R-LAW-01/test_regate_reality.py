@@ -7,11 +7,10 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
 import law_extract as X
 import law_reality as R
 import law_regate as G
+import pytest
 
 NODE_IDS = {"e.reg", "e.board_a", "e.board_b", "m.frame"}
 

@@ -27,7 +27,16 @@
 #   RLAW_STANDIN  a scripted stand-in executable, for dry runs and tests only: every output and
 #                 ledger line is then marked, and the tally refuses marked outputs
 #   RLAW_SHEET_SHA256  with a stand-in only: the fixture sheet's digest
-#   RLAW_RESUME=1 skip packets whose first try exists (otherwise a non-empty out dir is refused)
+#   RLAW_RESUME=1 resume after a stop (a usage limit, the watcher, a killed process). Allowed
+#                 because each packet is an independent session on fixed inputs. The resume is
+#                 logged with its time in interruptions.jsonl beside the ledger, as every stop is,
+#                 and each is a deviation the RESULT counts. A finished packet (a valid first
+#                 try, or a second try) is never run again; a first try cut off mid-session counts
+#                 as a try and gets the frozen retry. No output file is ever overwritten.
+#   RLAW_SHARED_OUT=1 a later step writing new packets into an out dir that holds an earlier
+#                 step's outputs (the twin versions after the injected ones); not a resume
+#
+# Without either, a non-empty out dir is refused. VOID is never resumed.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -98,7 +107,22 @@ case "$MODEL" in claude-opus-5-5|claude-fable-5-1) ;; *) echo "model is not a pi
 [ -f "$SYS" ] && [ -f "$SCHEMA" ] || { echo "prompt or schema missing" >&2; exit 2; }
 LEDGER_DIR="$(dirname "$RLAW_LEDGER")"
 [ -e "$LEDGER_DIR/VOID" ] && { echo "VOID exists: the result is void; nothing runs" >&2; exit 3; }
-[ -e "$LEDGER_DIR/STOPPED" ] && { echo "STOPPED exists: resolve it first" >&2; exit 4; }
+event() { # kind reason: one timed line in interruptions.jsonl
+  python3 -I - "$1" "$STEP" "$2" <<'PY' >> "$LEDGER_DIR/interruptions.jsonl"
+import json, sys, datetime
+print(json.dumps({"event": sys.argv[1], "step": sys.argv[2], "reason": sys.argv[3],
+                  "utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")},
+                 sort_keys=True))
+PY
+}
+stop() { # reason: write STOPPED and log the stop
+  echo "$1" >> "$LEDGER_DIR/STOPPED"; event stop "$1"
+}
+if [ "${RLAW_RESUME:-0}" = 1 ] && [ -e "$LEDGER_DIR/STOPPED" ]; then
+  event resume "after: $(tr '\n' ' ' < "$LEDGER_DIR/STOPPED")"
+  mv "$LEDGER_DIR/STOPPED" "$LEDGER_DIR/STOPPED.$(date -u +%Y%m%dT%H%M%SZ)"
+fi
+[ -e "$LEDGER_DIR/STOPPED" ] && { echo "STOPPED exists: resume only with RLAW_RESUME=1" >&2; exit 4; }
 
 STANDIN=0
 SHEET_ARG=""
@@ -116,10 +140,16 @@ else
 fi
 
 mkdir -p "$OUT"
-if [ -n "$(ls -A "$OUT" 2>/dev/null)" ] && [ "${RLAW_RESUME:-0}" != 1 ]; then
-  echo "out dir is not empty; set RLAW_RESUME=1 only when told to resume" >&2; exit 2
-fi
 if [ -n "$IDS" ]; then mapfile_ids=$(cat "$IDS"); else mapfile_ids=$(cd "$PACKETS" && ls [PQ]*.md | sed 's/\.md$//'); fi
+if [ -n "$(ls -A "$OUT" 2>/dev/null)" ] && [ "${RLAW_RESUME:-0}" != 1 ]; then
+  if [ "${RLAW_SHARED_OUT:-0}" = 1 ]; then
+    for pid in $mapfile_ids; do
+      [ -e "$OUT/$pid.try1.json" ] && { echo "shared out dir already holds $pid" >&2; exit 2; }
+    done
+  else
+    echo "out dir is not empty; set RLAW_RESUME=1 only when told to resume" >&2; exit 2
+  fi
+fi
 
 ledger_line() { # pid try exit valid
   python3 -I - "$STEP" "$1" "$2" "$MODEL" "$OUT/$1.try$2.json" "$3" "$4" "$STANDIN" <<'PY' >> "$RLAW_LEDGER"
@@ -147,8 +177,22 @@ limited() { # pid try -> 0 if this try hit a usage limit, or this step has three
   [ "$(cat "$OUT"/*.json 2>/dev/null | grep -o '"api_error_status": *429' | wc -l)" -ge 3 ]
 }
 
+valid_try() { # pid try -> 0 if that try's output has every form
+  "$PY" -I "$HERE/law_verify.py" valid "$KIND" "$PACKETS/$1.md" "$PACKETS/key.json" "$OUT/$1.try$2.json" $SHEET_ARG >/dev/null
+}
+
+logged() { # pid try -> 0 if the ledger holds that try of this step
+  python3 -I - "$RLAW_LEDGER" "$STEP" "$1" "$2" <<'PY'
+import json, sys, os
+led, step, pid, tr = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
+rows = [json.loads(x) for x in open(led) if x.strip()] if os.path.exists(led) else []
+sys.exit(0 if any(r["step"] == step and r["packet"] == pid and r["try"] == tr for r in rows) else 1)
+PY
+}
+
 one_try() { # pid try
   local pid="$1" tr="$2" w rc valid=0
+  if [ -e "$OUT/$pid.try$tr.json" ]; then echo "refused: $pid try$tr exists and is never overwritten" >&2; return 1; fi
   w="$(mktemp -d "${TMPDIR:-/tmp}/rlaw.XXXXXX")"
   ( cd "$w" && "$BIN" -p --model "$MODEL" --effort "$EFFORT" --tools "" --setting-sources "" \
       --strict-mcp-config --no-session-persistence --output-format json \
@@ -157,10 +201,10 @@ one_try() { # pid try
   rc=$?
   rmdir "$w" 2>/dev/null || rm -rf "$w"
   [ "$STANDIN" = 1 ] && : > "$OUT/$pid.try$tr.standin"
-  "$PY" -I "$HERE/law_verify.py" valid "$KIND" "$PACKETS/$pid.md" "$PACKETS/key.json" "$OUT/$pid.try$tr.json" $SHEET_ARG >/dev/null
-  case $? in 0) valid=1 ;; 3) echo "REFUSED $pid: the packet lacks the full parts sheet" >&2; touch "$LEDGER_DIR/STOPPED"; valid=0 ;; esac
+  valid_try "$pid" "$tr"
+  case $? in 0) valid=1 ;; 3) echo "REFUSED $pid: the packet lacks the full parts sheet" >&2; stop "packet $pid lacks the full parts sheet"; valid=0 ;; esac
   ledger_line "$pid" "$tr" "$rc" "$valid"
-  if limited "$pid" "$tr"; then echo "usage limit or rate limit at $pid try$tr" > "$LEDGER_DIR/STOPPED"; fi
+  if limited "$pid" "$tr"; then stop "usage limit or rate limit at $pid try$tr"; fi
   [ "$valid" = 1 ]
 }
 
@@ -175,9 +219,19 @@ guard() {
 
 session() {
   local pid="$1"
-  if [ "${RLAW_RESUME:-0}" = 1 ] && [ -e "$OUT/$pid.try1.json" ]; then return 0; fi
-  guard || return 0
-  one_try "$pid" 1 && return 0
+  [ -e "$OUT/$pid.try2.json" ] && return 0   # finished: never run again
+  if [ -e "$OUT/$pid.try1.json" ]; then
+    # a first try from before a stop: if it was cut off before its ledger line, it is logged
+    # now (marked), since it counts as a try; a valid one finishes the packet
+    if ! logged "$pid" 1; then
+      valid_try "$pid" 1 && v=1 || v=0
+      ledger_line "$pid" 1 -1 "$v"
+    fi
+    valid_try "$pid" 1 && return 0
+  else
+    guard || return 0
+    one_try "$pid" 1 && return 0
+  fi
   guard || return 0
   one_try "$pid" 2 || true
 }

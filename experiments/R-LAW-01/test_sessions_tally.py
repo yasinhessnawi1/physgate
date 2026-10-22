@@ -11,10 +11,9 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 import law_fixture as F
 import law_tally as TL
+import pytest
 
 HERE = Path(__file__).resolve().parent
 SH = HERE / "law_sessions.sh"
@@ -214,3 +213,101 @@ def test_rule_1_rule_2_and_the_majority_reading() -> None:
     assert TL.majority(["L", "L", "N"]) == "L"
     assert TL.majority(["G", "L"]) == "G"
     assert TL.majority(["uncoded", "uncoded"]) == "uncoded"
+
+
+# ---------------------------------------------------------------- stops and resumes
+
+
+def test_a_cut_off_first_try_counts_and_gets_the_retry(tmp_path: Path, packets: Path) -> None:
+    env = env_for(tmp_path)
+    out = tmp_path / "out"
+    # the first try is cut off and the process is gone before its ledger line: simulate by
+    # writing only the cut output, as a killed session leaves it
+    out.mkdir()
+    (out / "P0001.try1.json").write_text("{")
+    (tmp_path / "led" / "STOPPED").write_text("usage limit at P0001 try1\n")
+    done = run(
+        "run",
+        "s",
+        "reality",
+        str(packets),
+        str(out),
+        "claude-opus-5-5",
+        "1",
+        env={**env, "RLAW_RESUME": "1"},
+    )
+    assert done.returncode == 0, done.stderr
+    rows = [json.loads(x) for x in Path(env["RLAW_LEDGER"]).read_text().splitlines()]
+    assert [(r["try"], r["exit"], r["valid"]) for r in rows] == [(1, -1, False), (2, 0, True)]
+    assert (out / "P0001.try1.json").read_text() == "{"  # never overwritten
+    ev = [
+        json.loads(x) for x in (tmp_path / "led" / "interruptions.jsonl").read_text().splitlines()
+    ]
+    assert [e["event"] for e in ev] == ["resume"] and "usage limit" in ev[0]["reason"]
+    assert not (tmp_path / "led" / "STOPPED").exists()
+    assert list((tmp_path / "led").glob("STOPPED.*"))
+
+
+def test_a_finished_packet_is_never_run_again(tmp_path: Path, packets: Path) -> None:
+    env = env_for(tmp_path)
+    out = tmp_path / "out"
+    assert (
+        run(
+            "run", "s", "reality", str(packets), str(out), "claude-opus-5-5", "1", env=env
+        ).returncode
+        == 0
+    )
+    before = (out / "P0001.try1.json").read_bytes()
+    again = run(
+        "run",
+        "s",
+        "reality",
+        str(packets),
+        str(out),
+        "claude-opus-5-5",
+        "1",
+        env={**env, "RLAW_RESUME": "1"},
+    )
+    assert again.returncode == 0
+    assert (out / "P0001.try1.json").read_bytes() == before
+    rows = Path(env["RLAW_LEDGER"]).read_text().splitlines()
+    assert len(rows) == 1
+    # no STOPPED marker was there, so the driver logged no resume of its own
+    assert not (tmp_path / "led" / "interruptions.jsonl").exists()
+
+
+def test_a_shared_out_dir_takes_only_new_packets(tmp_path: Path, packets: Path) -> None:
+    env = env_for(tmp_path)
+    out = tmp_path / "out"
+    assert (
+        run(
+            "run", "s", "reality", str(packets), str(out), "claude-opus-5-5", "1", env=env
+        ).returncode
+        == 0
+    )
+    again = run(
+        "run",
+        "s2",
+        "reality",
+        str(packets),
+        str(out),
+        "claude-opus-5-5",
+        "1",
+        env={**env, "RLAW_SHARED_OUT": "1"},
+    )
+    assert again.returncode == 2 and "already holds" in again.stderr
+
+
+def test_a_usage_stop_is_logged_with_its_time(tmp_path: Path, packets: Path) -> None:
+    exe = tmp_path / "limited"
+    exe.write_text(
+        '#!/usr/bin/env bash\necho \'[{"type":"result","is_error":true,'
+        '"result":"usage_limit_reached"}]\'\n'
+    )
+    exe.chmod(0o755)
+    env = env_for(tmp_path, RLAW_STANDIN=str(exe))
+    run("run", "s", "reality", str(packets), str(tmp_path / "out"), "claude-opus-5-5", "1", env=env)
+    ev = [
+        json.loads(x) for x in (tmp_path / "led" / "interruptions.jsonl").read_text().splitlines()
+    ]
+    assert ev and ev[0]["event"] == "stop" and ev[0]["utc"].endswith("Z")
