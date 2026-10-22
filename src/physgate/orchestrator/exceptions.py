@@ -89,6 +89,10 @@ class RoleRegisterError(OrchestratorError):
     """The role register would hold two roles of one name, or two owning one duty."""
 
 
+class DutyUnownedError(RoleRegisterError):
+    """No registered role owns a cross-cutting duty, so nothing done under it has a doer."""
+
+
 class RunStateError(OrchestratorError):
     """The run is not in a state that allows what was asked: started twice, or interrupted."""
 

@@ -15,11 +15,20 @@ order, so a refused proposal is refused for the reason the store would give:
 2. the session's role may write the node: a new node must name the session's
    role as its owner, and an existing node must already be owned by it and keep
    that owner. The store would let the owner hand a node on; this hook does
-   not, because owners are assigned at decomposition, not by roles;
-3. an existing interface node is not written at all;
-4. every quantity is a value with a unit, a source and a writer — a bare number
+   not, because owners are assigned at decomposition, not by roles. A node
+   keeps its kind as it keeps its owner;
+3. a node of the ``cross`` domain is written by the role that owns the cross
+   nodes, and that role writes no node of a domain. These are the quantities
+   that tie domains together, and ARCH-051 gives them one writer. Interface
+   nodes are not held to this: they are of the cross domain and owned by the
+   role that produces them;
+4. no session creates an interface node. Interface nodes are written from the
+   plan when the task is decomposed; a session that could create one could put
+   a shared quantity on a node of its own that the rule before exempts;
+5. an existing interface node is not written at all;
+6. every quantity is a value with a unit, a source and a writer — a bare number
    is refused here, with the schema's own message;
-5. no quantity's name shadows one a relation reads: a name the catalogue lacks
+7. no quantity's name shadows one a relation reads: a name the catalogue lacks
    that is a misspelling of a relation's quantity (``stall_currnt``,
    ``currentlimit``, ``supported_mas``: within two insertions or deletions of a
    quantity longer than five characters, underscores ignored; ``mess``, ``moss``,
@@ -30,11 +39,13 @@ order, so a refused proposal is refused for the reason the store would give:
    uncatalogued name is written, and the gate records it as unchecked. This rule
    is the hook's and the orchestrator's, not the store's: a corpus written
    straight into a store is unaffected;
-6. the node as a whole is valid.
+8. the node as a whole is valid.
 
 The current owner and kind come from the journal, read without opening the
-store. The ownership rules are a list, so a rule the architecture adds later is
-one more entry rather than a new branch.
+store. The ownership rules (2 to 4) are a list, so a rule the architecture adds
+later is one more entry rather than a new branch. Rules 3 and 4 are the hook's
+and the orchestrator's, not the store's: recorded runs and corpora written
+straight into a store replay as they were.
 
 Only the Write and Edit tools carry a proposal's content, so only they can be
 checked before the file exists. A command that names the proposals directory, or
@@ -102,6 +113,16 @@ OWNER_CHANGE = "owner_change"
 KIND_CHANGE = "kind_change"
 #: Not one of the store's reasons: a quantity name that shadows one a relation reads.
 SHADOWED_QUANTITY = "shadowed_quantity"
+#: Not one of the store's reasons: a cross node by a role that does not own the cross
+#: nodes, or a domain node by the role that does (see ``_cross_nodes_are_their_owners_alone``).
+CROSS_NODE = "cross_node"
+#: Not one of the store's reasons: a session creating an interface node.
+INTERFACE_CREATION = "interface_creation"
+
+#: The domain of the quantities that tie domains together (``state.schema.DomainKind``).
+CROSS_DOMAIN = "cross"
+#: The kind of node a plan fixes between modules (``state.schema.NodeKind``).
+INTERFACE_KIND = "interface"
 
 
 def _owner_is_the_session(
@@ -168,11 +189,80 @@ def _kind_does_not_change(
     )
 
 
+def _cross_nodes_are_their_owners_alone(
+    proposal: dict[str, Any], current: Head | None, config: ConfigView
+) -> tuple[str, str] | None:
+    """A cross node is written by the owner of the cross nodes, and that owner writes no other.
+
+    The owner is the role the register names as owning the cross nodes, found by
+    what it owns and never by its name. While the register names none, a cross node
+    has no writer and every session is refused one. While it names two, whose the
+    cross nodes are cannot be told, so no node but an interface is written: the
+    check fails closed rather than pick one. Interface nodes are left to the rules
+    that fix them. By the time this runs the node's owner is the session's role and
+    its kind is the one it was created with, so a node's owner and the domain it
+    would have decide.
+    """
+    if proposal.get("kind") == INTERFACE_KIND:
+        return None
+    from physgate.orchestrator.exceptions import DutyUnownedError, RoleRegisterError
+    from physgate.roles import owner_of
+
+    node_id, role = proposal.get("id"), proposal.get("owner_role")
+    cross = proposal.get("domain") == CROSS_DOMAIN
+    try:
+        owner = owner_of("cross_nodes")
+    except DutyUnownedError:
+        if not cross:
+            return None
+        return CROSS_NODE, (
+            f"{node_id} is of the cross domain, and no registered role owns the cross nodes, "
+            "so no session writes one"
+        )
+    except RoleRegisterError as exc:
+        return CROSS_NODE, (
+            f"the role register names more than one owner of the cross nodes "
+            f"({exc.context.get('owners')}), so whose they are cannot be told, and {node_id} "
+            "is not written while it does"
+        )
+    if cross and role != owner:
+        return CROSS_NODE, (
+            f"{node_id} is of the cross domain, whose quantities tie domains together; only "
+            f"the {owner} role writes them, and this node is the {role} role's"
+        )
+    if not cross and role == owner:
+        return CROSS_NODE, (
+            f"{node_id} is of the {proposal.get('domain')} domain; the {owner} role owns the "
+            "cross nodes and writes no node of a domain"
+        )
+    return None
+
+
+def _no_session_creates_an_interface(
+    proposal: dict[str, Any], current: Head | None, config: ConfigView
+) -> tuple[str, str] | None:
+    """A session does not create an interface node, whatever its role.
+
+    Interface nodes are written from the plan when the task is decomposed, and are
+    fixed from then on. One a session created would be a node of its own that the
+    cross rule exempts, on which it could write a quantity other domains depend on.
+    An existing node turned into an interface is a kind change, refused before this.
+    """
+    if current is not None or proposal.get("kind") != INTERFACE_KIND:
+        return None
+    return INTERFACE_CREATION, (
+        f"{proposal.get('id')} would be a new interface node; interface nodes are written "
+        "from the plan when the task is decomposed, never by a session"
+    )
+
+
 #: Checked in order; the first to object refuses the proposal.
 OWNERSHIP_RULES: tuple[OwnershipRule, ...] = (
     _owner_is_the_session,
     _owner_does_not_change,
     _kind_does_not_change,
+    _cross_nodes_are_their_owners_alone,
+    _no_session_creates_an_interface,
 )
 
 

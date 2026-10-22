@@ -141,15 +141,18 @@ def _frozen_experiment_paths(config: ConfigView) -> list[str]:
     return out
 
 
-#: What the two rare paths import beyond an ordinary hook: the validation library
-#: and the state package, and the standard library they bring with them. An
-#: ordinary hook no longer loads any of it, so the halt record would never see it;
-#: the first hook finds these files without importing them instead. A test runs
+#: What the two rare paths import beyond an ordinary hook: the validation library,
+#: the state package, the role register a proposal's owner is looked up in (with the
+#: reading loader and the exceptions it brings), and the standard library they bring
+#: with them. An ordinary hook no longer loads any of it, so the halt record would
+#: never see it; the first hook finds these files without importing them instead
+#: (finding the exceptions' file imports their package, whose initialiser imports
+#: nothing). A test runs
 #: both rare paths and fails if either loads a file under the installation that
 #: this list leaves out, so a new import upstream cannot slip past it.
 LAZY_MODULES = (
     "pydantic", "pydantic_core", "annotated_types", "typing_extensions", "typing_inspection",
-    "physgate.state",
+    "physgate.state", "physgate.roles", "physgate.knowledge", "physgate.orchestrator.exceptions",
     "_bisect", "_bz2", "_compression", "_contextvars", "_csv", "_datetime", "_decimal",
     "_lzma", "_opcode", "_osx_support", "_random", "_sha2", "_socket", "_struct", "_uuid",
     "_weakrefset", "_zoneinfo", "array", "ast", "base64", "binascii", "bisect", "bz2", "calendar",

@@ -3,8 +3,10 @@
 Criterion 4: a proposal for a node another role owns is refused before anything
 changes, with the store's cross-role reason, and the owner's legal proposal
 lands. Criterion 5: a bare-number quantity is refused with the schema's error in
-the hook's message. The store, a real one built before the session, is
-byte-identical afterwards in every case.
+the hook's message. A domain role's cross node and a session's new interface
+node are refused the same way, by the Write, the Edit and the shell routes. The
+store, a real one built before the session, is byte-identical afterwards in
+every case.
 """
 
 from __future__ import annotations
@@ -136,6 +138,86 @@ def test_a_proposal_written_through_the_shell_is_refused(tmp_path: Path) -> None
     command = (
         f"mkdir -p {graph.PROPOSALS_DIR} && cat > {graph.PROPOSALS_DIR}/control.loop.json <<'EOF'\n"
         + json.dumps(_node("control.loop", "electrical"))
+        + "\nEOF\n"
+    )
+    run, store = _run(tmp_path, tool("Bash", command=command, description="x"))
+    assert _graph_refusals(run) == [graph.SHELL_WRITE]
+    assert not (run.worktree / graph.PROPOSALS_DIR).exists()
+    _unchanged(tmp_path, store)
+
+
+# --- the cross nodes and the interface nodes, through the real tool path -------------------
+# The hook process reads the register as the harness ships it, where no role owns the cross
+# nodes yet, so a cross node has no writer at all in these sessions.
+
+
+def test_a_domain_roles_cross_node_is_refused_and_nothing_changes(tmp_path: Path) -> None:
+    payload = _node("electrical.supply", "electrical", domain="cross")
+    run, store = _run(tmp_path, _proposal("electrical.supply.json", payload))
+    (reason,) = _graph_refusals(run)
+    assert graph.CROSS_NODE in reason and "electrical.supply" in reason
+    assert graph.CROSS_NODE in run.told_after(1)
+    assert not (run.worktree / graph.PROPOSALS_DIR / "electrical.supply.json").exists()
+    _unchanged(tmp_path, store)
+
+
+def test_turning_ones_own_node_cross_is_refused_and_nothing_changes(tmp_path: Path) -> None:
+    payload = _node("electrical.motor", "electrical", domain="cross")
+    run, store = _run(tmp_path, _proposal("electrical.motor.json", payload))
+    (reason,) = _graph_refusals(run)
+    assert graph.CROSS_NODE in reason
+    assert not (run.worktree / graph.PROPOSALS_DIR / "electrical.motor.json").exists()
+    _unchanged(tmp_path, store)
+
+
+def test_an_edit_that_turns_a_written_proposal_cross_is_refused(tmp_path: Path) -> None:
+    legal = _node("electrical.driver", "electrical")
+    path = f"@W/{graph.PROPOSALS_DIR}/electrical.driver.json"
+    run, store = _run(
+        tmp_path,
+        _proposal("electrical.driver.json", legal),
+        tool("Read", file_path=path),
+        tool(
+            "Edit",
+            file_path=path,
+            old_string='"domain": "electrical"',
+            new_string='"domain": "cross"',
+        ),
+    )
+    (reason,) = _graph_refusals(run)
+    assert graph.CROSS_NODE in reason
+    written = run.worktree / graph.PROPOSALS_DIR / "electrical.driver.json"
+    assert json.loads(written.read_text()) == legal
+    _unchanged(tmp_path, store)
+
+
+def test_a_session_creating_an_interface_node_is_refused_and_nothing_changes(
+    tmp_path: Path,
+) -> None:
+    payload = _node("iface.electrical.p09", "electrical", kind="interface", domain="cross")
+    run, store = _run(tmp_path, _proposal("iface.electrical.p09.json", payload))
+    (reason,) = _graph_refusals(run)
+    assert graph.INTERFACE_CREATION in reason and "iface.electrical.p09" in reason
+    assert graph.INTERFACE_CREATION in run.told_after(1)
+    assert not (run.worktree / graph.PROPOSALS_DIR / "iface.electrical.p09.json").exists()
+    _unchanged(tmp_path, store)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        _node("electrical.supply", "electrical", domain="cross"),
+        _node("iface.electrical.p09", "electrical", kind="interface", domain="cross"),
+    ],
+    ids=["cross", "interface"],
+)
+def test_either_written_through_the_shell_is_refused(
+    tmp_path: Path, payload: dict[str, Any]
+) -> None:
+    name = f"{payload['id']}.json"
+    command = (
+        f"mkdir -p {graph.PROPOSALS_DIR} && cat > {graph.PROPOSALS_DIR}/{name} <<'EOF'\n"
+        + json.dumps(payload)
         + "\nEOF\n"
     )
     run, store = _run(tmp_path, tool("Bash", command=command, description="x"))

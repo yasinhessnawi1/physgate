@@ -13,6 +13,9 @@ always-loaded reading and its reviewer's promoted rubric exist.
 The register holds both kinds of role: domain roles (ARCH-050) and the cross-cutting
 roles (ARCH-051), sizing and integration, which have no domain. Each cross-cutting
 duty has one owner at most; the register refuses a second (:func:`register_of`).
+Whoever enforces a duty finds its owner through :func:`owner_of`, by the duty and never
+by a role's name, and that lookup counts the owners again rather than trust the
+register's earlier check.
 It also refuses every other way of handing a domain role what a cross-cutting role
 holds: a domain role of the ``cross`` domain or name, and any row under a cross-cutting
 role's name that is not that role as defined here.
@@ -23,7 +26,11 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from physgate.knowledge import loader
-from physgate.orchestrator.exceptions import RoleNotRegisteredError, RoleRegisterError
+from physgate.orchestrator.exceptions import (
+    DutyUnownedError,
+    RoleNotRegisteredError,
+    RoleRegisterError,
+)
 from physgate.roles.control import CONTROL
 from physgate.roles.firmware import FIRMWARE
 from physgate.roles.integration import INTEGRATION
@@ -81,6 +88,34 @@ SHIPPED: tuple[RegisteredRole, ...] = (CONTROL, FIRMWARE, INTEGRATION)
 ROLES: dict[str, RegisteredRole] = register_of(SHIPPED)
 
 
+def owner_of(duty: CrossCuttingDuty) -> str:
+    """The name of the one registered role that owns ``duty``, read from :data:`ROLES` now.
+
+    Whoever enforces a duty asks here, so the register stays the one place that says
+    which role holds it, and no rule names that role itself. The owners are counted
+    again on every call: :func:`register_of` refuses a second owner when the register
+    is built, but :data:`ROLES` is a mapping that anything in the process can change
+    afterwards, as a stand-in role is added to it, and a rule that trusted the earlier
+    check would hand the duty to whichever owner it met first.
+
+    Raises:
+        DutyUnownedError: no registered role owns ``duty``.
+        RoleRegisterError: more than one registered role owns it.
+    """
+    owners = sorted(
+        role.name
+        for role in ROLES.values()
+        if isinstance(role, CrossCuttingRole) and role.owns == duty
+    )
+    if not owners:
+        msg = "no registered role owns this duty"
+        raise DutyUnownedError(msg, owns=duty, registered=",".join(sorted(ROLES)))
+    if len(owners) > 1:
+        msg = "more than one registered role owns this duty, which has one owner"
+        raise RoleRegisterError(msg, owns=duty, owners=",".join(owners))
+    return owners[0]
+
+
 def require_registered(roles: Iterable[str]) -> None:
     """Refuse a run that names a role the register does not hold.
 
@@ -107,6 +142,7 @@ __all__ = [
     "CrossCuttingRole",
     "RegisteredRole",
     "Role",
+    "owner_of",
     "register_of",
     "require_registered",
 ]
