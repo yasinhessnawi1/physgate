@@ -1,5 +1,23 @@
 # R-PG-02 — result
 
+> **Preface, 22 October 2026: the reviewers' parts sheet was incomplete. It changes no
+> number; everything below it is as first committed.**
+>
+> - **What happened.** From PR #26 (17 October 2026) on, the parts sheet in every review
+>   packet was the corpus's `sources.json`, copied byte for byte. Its format lets a row hold
+>   one number or nothing and has no note field, so every row whose value is a range, a list,
+>   a min/typ/max or text reached the reviewers empty, and no notes reached them. On the
+>   reference design's sheet that is 62 of 163 rows (44 with two or more numbers, 11 with one
+>   number plus qualifying words, 7 text only) and all 130 notes. The designs' authors worked
+>   from the complete sheet. The physics gate never reads the parts sheet and was unaffected.
+> - **What it means here.** Both arms received identical sheets, so the comparison of arm
+>   against arm below is not biased by this. Reviewers in both arms were handicapped wherever
+>   a check needed a range, a limit or a note, and that handicap may weigh differently on
+>   different reviewer roles, so per-role figures should be read with it in mind.
+> - **What follows.** The sheet format is being fixed, and a new pre-registered experiment,
+>   R-PG-01b, will re-run R-PG-01's reviewer arm with the complete sheet. No number in this
+>   file changes.
+
 **Pre-registration:** `CRITERIA.md`, frozen at commit `254a2ff` (19.10.2026); its facts filled
 by `4fe482a` (the pick: K) and `841e6d4` (the fresh set's manifest digest), both 19.10.2026,
 before the first review; R7 item 11 added with `ac40cff` and amended with `73c492c`, `8a690d7`
