@@ -4,9 +4,10 @@ Criterion 4: a proposal for a node another role owns is refused before anything
 changes, with the store's cross-role reason, and the owner's legal proposal
 lands. Criterion 5: a bare-number quantity is refused with the schema's error in
 the hook's message. A domain role's cross node and a session's new interface
-node are refused the same way, by the Write, the Edit and the shell routes. The
-store, a real one built before the session, is byte-identical afterwards in
-every case.
+node are refused the same way, by the Write and Edit tools, and so is a command
+that names the proposals. A command that reaches them without naming them is the
+OS layer's to refuse, and has a test of its own. The store, a real one built
+before the session, is byte-identical afterwards in every case.
 """
 
 from __future__ import annotations

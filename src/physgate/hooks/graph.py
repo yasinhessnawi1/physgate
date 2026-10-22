@@ -25,10 +25,12 @@ order, so a refused proposal is refused for the reason the store would give:
 4. no session creates an interface node. Interface nodes are written from the
    plan when the task is decomposed; a session that could create one could put
    a shared quantity on a node of its own that the rule before exempts;
-5. an existing interface node is not written at all;
-6. every quantity is a value with a unit, a source and a writer — a bare number
+5. the role that owns completion writes no node: its one write is the
+   completion declaration;
+6. an existing interface node is not written at all;
+7. every quantity is a value with a unit, a source and a writer — a bare number
    is refused here, with the schema's own message;
-7. no quantity's name shadows one a relation reads: a name the catalogue lacks
+8. no quantity's name shadows one a relation reads: a name the catalogue lacks
    that is a misspelling of a relation's quantity (``stall_currnt``,
    ``currentlimit``, ``supported_mas``: within two insertions or deletions of a
    quantity longer than five characters, underscores ignored; ``mess``, ``moss``,
@@ -39,11 +41,11 @@ order, so a refused proposal is refused for the reason the store would give:
    uncatalogued name is written, and the gate records it as unchecked. This rule
    is the hook's and the orchestrator's, not the store's: a corpus written
    straight into a store is unaffected;
-8. the node as a whole is valid.
+9. the node as a whole is valid.
 
 The current owner and kind come from the journal, read without opening the
-store. The ownership rules (2 to 4) are a list, so a rule the architecture adds
-later is one more entry rather than a new branch. Rules 3 and 4 are the hook's
+store. The ownership rules (2 to 5) are a list, so a rule the architecture adds
+later is one more entry rather than a new branch. Rules 3 to 5 are the hook's
 and the orchestrator's, not the store's: recorded runs and corpora written
 straight into a store replay as they were.
 
@@ -118,6 +120,8 @@ SHADOWED_QUANTITY = "shadowed_quantity"
 CROSS_NODE = "cross_node"
 #: Not one of the store's reasons: a session creating an interface node.
 INTERFACE_CREATION = "interface_creation"
+#: Not one of the store's reasons: a node proposed by the role that owns completion.
+COMPLETION_OWNER_NODE = "completion_owner_node"
 
 #: The domain of the quantities that tie domains together (``state.schema.DomainKind``).
 CROSS_DOMAIN = "cross"
@@ -256,6 +260,39 @@ def _no_session_creates_an_interface(
     )
 
 
+def _the_completion_owner_writes_no_node(
+    proposal: dict[str, Any], current: Head | None, config: ConfigView
+) -> tuple[str, str] | None:
+    """The role that may declare a module complete writes no node of the graph.
+
+    It checks the modules' work against their interfaces and the system as a whole; a
+    node of its own would be design it judged itself. Its one write is the completion
+    declaration. The role is the one the register names as owning completion, found by
+    that and never by its name; while the register names two, no node is written, as
+    with the cross nodes, and while it names none, no role is held by this rule.
+    """
+    from physgate.orchestrator.exceptions import DutyUnownedError, RoleRegisterError
+    from physgate.roles import owner_of
+
+    node_id, role = proposal.get("id"), proposal.get("owner_role")
+    try:
+        owner = owner_of("completion")
+    except DutyUnownedError:
+        return None
+    except RoleRegisterError as exc:
+        return COMPLETION_OWNER_NODE, (
+            f"the role register names more than one owner of completion "
+            f"({exc.context.get('owners')}), so which role may write no node cannot be told, "
+            f"and {node_id} is not written while it does"
+        )
+    if role != owner:
+        return None
+    return COMPLETION_OWNER_NODE, (
+        f"the {owner} role owns the completion declaration, which is its one write; it "
+        f"writes no node of the graph, and {node_id} would be one"
+    )
+
+
 #: Checked in order; the first to object refuses the proposal.
 OWNERSHIP_RULES: tuple[OwnershipRule, ...] = (
     _owner_is_the_session,
@@ -263,6 +300,7 @@ OWNERSHIP_RULES: tuple[OwnershipRule, ...] = (
     _kind_does_not_change,
     _cross_nodes_are_their_owners_alone,
     _no_session_creates_an_interface,
+    _the_completion_owner_writes_no_node,
 )
 
 
