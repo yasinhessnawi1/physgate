@@ -69,18 +69,53 @@ was drawn and before any model session. None changes a frozen number, seed or th
 4. **Appendix B's span** "from THE DESIGN DATA to WORKED EXAMPLES" is read inclusively: the
    adjudicator's prompt holds the coder's prompt from THE DESIGN DATA through the worked examples
    (and any taken examples) up to OUTPUT.
-5. **After a usage-limit stop**, a run resumes with `RLAW_RESUME=1`, because each packet is an
-   independent session on fixed inputs. Every stop and every resume is logged with its time
-   (`ledger/interruptions.jsonl`) and is counted as a deviation in `RESULT.md`. No finished packet is
-   run again and no output file is overwritten. A first try cut off mid-session counts as a try and
-   gets the frozen retry.
+5. **After a stop**, a run resumes with `RLAW_RESUME=1`, because each packet is an independent
+   session on fixed inputs. Every stop, every failed call and every resume is logged with its time
+   (`ledger/interruptions.jsonl`) and is reported in `RESULT.md` as an interruption. An interruption
+   is not a deviation and does not change whether the decision is taken. No finished packet is run
+   again and no output file is overwritten.
+   - A call that fails is not a try: the frozen retry (§5.5) is for an invalid form. A failed call
+     is an error result of any kind (a usage limit, a rate limit, a refused credential, a server
+     error after the binary's own retries, an API error), no result at all (a network failure, a
+     crash), another terminal reason, or a non-zero exit. Its output is kept under its own name, the
+     run stops, and on resume the packet runs the same try again.
+   - A stop writes `STOPPED`: no new session starts, and the sessions in flight end on their own,
+     each settled as a try or a failed call. Only the token guard kills them. A session cut off
+     mid-call (its process killed) counts as a try and gets the frozen retry.
+   - The driver reads only the call that just ended, and the watcher only the files written since
+     the phase began, so a resume is never stopped by the evidence of the stop it resumes from.
 6. **Smaller readings.**
    - A line with an empty locus is not eligible for the rejection control.
    - A section 1 line absorbed at step A joins its target's flaw but adds nothing to its locus (the
      drafting count's rule; the frozen counts reproduce this way).
    - A line keeps the first try's form if it is valid, else the retry's.
    - The projection check's "sessions remaining" are the table's 590 less the sessions run so far.
-   - Tokens are input, output, cache-read and cache-creation tokens, every try.
+   - Tokens are input, output, cache-read and cache-creation tokens, of every try and every failed
+     call.
    - In reading S5, an L line whose relation is a `limit` takes its form's fallback code.
-   - PABAK uses six categories for κ₅ (five codes and a missing form) and two for κ_L.
    - The audit's L share is counted per line, over the audited real lines.
+
+Readings 7 to 10 were fixed on 22.10.2026 after a review of the scripts: after the slice was drawn
+and before any model session. None changes a frozen number, seed or threshold, and none depends on
+the slice.
+
+7. **A relation's inputs (§5.5).** A G or L relation lists at least one input, and every input it
+   lists appears in the relation; otherwise the form fails (`no_input`, `unused_input`) and its
+   fallback code is used. A requirement's unit must be a whole unit token of the requirement (a
+   number may stand right before it), so `h` is not found in "heater", nor `W` in "Wh".
+8. **A missing form (§7)** is the category `none`, which agrees with nothing, another missing form
+   included. κ₅ has six categories and κ_L three (G or L, the rest, none); chance agreement runs
+   over the codes only, and PABAK uses six and three. At the flaw level, a coder with no form on
+   any of a flaw's real lines is `none`.
+9. **The literals and the scope note (§8.2 item 8, §10).** The literals are listed for every
+   distinct relation of every measured line whose final code is L, with the lines that state it,
+   not for one line per flaw. L + L-if-data beside the decision, and the scope note, are computed
+   on the flaws the deciding share is computed on: every real flaw, or the real flaws elsewhere
+   when the decision is mix-dependent.
+10. **The blind check (§4).** Before its sessions start, every coder, adjudicator, audit, control
+    and reality packet is held to its template's text outside the findings' own words, the design
+    and the sheet; no node shows an artefact's own fields; and the design shown is the packet's
+    version exactly. A coder or adjudicator packet names no role, error class or expected check
+    outside the findings; a reality packet names its own reviewer's role in the prior
+    adjudication's one sentence and nothing more. An adjudicator is shown each coder's form cut to
+    the schema's fields.
