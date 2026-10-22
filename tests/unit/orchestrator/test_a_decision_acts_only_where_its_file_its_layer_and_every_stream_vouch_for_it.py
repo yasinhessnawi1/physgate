@@ -25,10 +25,12 @@ from pathlib import Path
 from typing import Any, Literal
 
 import pytest
+from escalation_states import STAND_IN, register_stand_in
 from loop_fakes import FakeDispatcher, FakeGate, FakeReviewer, plan
 from orch_helpers import CLEAN_HARNESS, make_config
 from test_a_blocked_review_is_a_review_that_goes_to_a_person import BLOCKING, blocked_review
 from test_a_queue_decision_acts_at_a_boundary import (
+    ACT,
     NO_VERDICT,
     MarkingDispatcher,
     _layer,
@@ -39,6 +41,7 @@ from test_a_queue_decision_acts_at_a_boundary import (
     decide,
 )
 
+from physgate.orchestrator.escalation import BackendAnswer, EscalationInterface
 from physgate.orchestrator.events import (
     DecisionTaken,
     Incident,
@@ -509,3 +512,46 @@ def test_a_confirmation_is_judged_on_a_decisions_file_its_seals_hold(tmp_path: P
         _resume(rig, confirm=("run-1-s2",), confirmed_by="operator")
     assert [i.cause for i in _of(run_dir, Incident)] == ["decisions_rewritten"]
     assert ("run-1-s2", True) not in [(t.item_id, t.acts) for t in _of(run_dir, DecisionTaken)]
+
+
+class _YesOnTheSecondEnd:
+    """An escalation backend that sends the subtask to a person at its second attempt's end."""
+
+    def __init__(self) -> None:
+        self.asked = 0
+
+    def decide(self, question: object, state: object) -> BackendAnswer:
+        self.asked += 1
+        return BackendAnswer(answer="yes" if self.asked == 2 else "no", confidence=1.0)
+
+
+@pytest.mark.parametrize("marked", [True, False], ids=["marked", "clean"])
+def test_an_escalation_decisions_unreviewed_attempt_is_scanned_before_an_approve(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, marked: bool
+) -> None:
+    # Attempt 1 failed at the gate, so no review judged its stream; attempt 2 was rejected by the
+    # reviewer and the escalation decision sent it to a person with attempts left. The commit an
+    # approve would merge holds attempt 1's work.
+    register_stand_in(monkeypatch)
+    run_dir = tmp_path / "run"
+    kind = MarkingDispatcher if marked else FakeDispatcher
+    rig = _rig(
+        run_dir,
+        dispatcher=kind(trajectories=run_dir / "sessions"),
+        gate=FakeGate(verdicts=["fail", "pass"]),
+        reviewer=FakeReviewer(verdicts=["fail"]),
+        escalation=EscalationInterface(_YesOnTheSecondEnd(), STAND_IN),
+        config_overrides={**ACT, "escalation_backend": "stand_in"},
+    )
+    loop = _start(rig, "s1")
+    loop.run()
+    loop.close()
+    (item,) = read_queue(run_dir).open_items()
+    assert item.source == "escalation_decision" and item.consequence is not None
+    if marked:
+        assert (item.consequence.on_approve, item.consequence.why_record_only) == (
+            "record_only",
+            "scan_hit",
+        )
+    else:
+        assert item.consequence.on_approve == "merge_attempt"
