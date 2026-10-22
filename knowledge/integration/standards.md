@@ -142,10 +142,8 @@ with all system interactions identified and properly balanced" with "identificat
 for both hardware and software" [NASA SE Handbook, §5.2.1.3, p. 101]. A precondition that is open
 withholds the declaration for that module; it is not waived by a narrative.
 
-**To be enforced** once the harness's completion code lands; it does not exist yet. Then only
-integration's accepted attempt is to cause a module's completion, and code is to withhold it while
-a registered precondition is open. Until then the whole of this rule is judgement, and whether the
-evidence listed supports each precondition stays judgement after.
+**Judgement-only** — no completion code exists yet; enforcement arrives with the harness's completion
+code, and whether the evidence listed supports each precondition stays judgement after.
 
 ## 10. Interface records carry their decisions and changes
 
