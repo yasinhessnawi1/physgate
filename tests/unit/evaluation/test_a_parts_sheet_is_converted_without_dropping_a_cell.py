@@ -115,6 +115,15 @@ def test_every_row_of_the_table_has_a_number_or_a_given_value_and_keeps_its_orde
     assert all(r["value"] is not None or r.get("given") for r in rows.values())
 
 
+def test_rows_keep_the_table_s_order_even_where_it_is_not_sorted() -> None:
+    lines = SHEET.splitlines(keepends=True)
+    six, seven = (
+        next(n for n, x in enumerate(lines) if x.startswith(f"| {r} |")) for r in ("R1.06", "R1.07")
+    )
+    lines[six], lines[seven] = lines[seven], lines[six]
+    assert list(_rows("".join(lines)))[5:7] == ["R1.07", "R1.06"]
+
+
 def test_the_sheet_is_a_valid_parts_sheet_that_holds_no_telltale_word() -> None:
     written = converter.convert(SHEET, label=LABEL)
     sheet = Sources.model_validate_json(written)
