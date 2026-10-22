@@ -10,7 +10,8 @@ A corpus is one directory:
   it; and a description of the error in physics terms. A propagation artefact
   also names the one edge whose target the change did not reach.
 - ``sources.json``: the parts sheet the numbers cite, by row id, each row that
-  is one number with its unit and the URL it was read from. Every review is given
+  is one number with its unit and the URL it was read from, and, where its authors'
+  table gives more, the value as written there and their note. Every review is given
   it, byte for byte, so a source that cites a row can be checked.
 - ``MANIFEST.json``: the digest of every other file, the corpus's label and the
   model string of the sessions that wrote it.
@@ -387,13 +388,23 @@ RowId = Annotated[str, StringConstraints(pattern=rf"^{_ROW}$")]
 
 
 class SourceRow(_Frozen):
-    """One row of the parts sheet: a number with its unit where the row is one number."""
+    """One row of the parts sheet: a number with its unit where the row is one number.
+
+    ``value`` and ``unit`` are the one number a derived source may cite. ``given`` and
+    ``note`` are for the reader, never cited: what the authors' sheet writes in the value
+    cell, with its unit, and their note on the row. A sheet written before these two
+    existed has neither on any row, and loads as it did.
+    """
 
     quantity: NonEmptyStr
     #: ``None`` for a row that is not one number (a range, a text): it cannot be cited.
     value: float | int | None
     unit: NonEmptyStr | None
     url: NonEmptyStr
+    #: The value cell as the authors' sheet writes it, with its unit: a range, a list, a
+    #: text, or a number whose spelling ``value`` does not keep.
+    given: NonEmptyStr | None = None
+    note: NonEmptyStr | None = None
 
     @model_validator(mode="after")
     def _a_number_has_its_unit(self) -> SourceRow:
@@ -408,6 +419,17 @@ class Sources(_Frozen):
 
     label: NonEmptyStr
     rows: dict[RowId, SourceRow]
+
+    @model_validator(mode="after")
+    def _no_row_is_empty_once_values_are_given(self) -> Sources:
+        # A sheet written before ``given`` existed has it on no row; one that gives it on
+        # any row was written whole, and a row there with neither is a cell left out.
+        if any(r.given is not None for r in self.rows.values()):
+            empty = sorted(k for k, r in self.rows.items() if r.value is None and r.given is None)
+            if empty:
+                msg = f"a sheet that gives values gives one on every row with no number: {empty}"
+                raise ValueError(msg)
+        return self
 
 
 @dataclass(frozen=True)

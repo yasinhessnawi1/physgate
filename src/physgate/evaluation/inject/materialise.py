@@ -240,9 +240,12 @@ def neutral_trajectory(nodes: tuple[dict[str, object], ...], *, parts_sheet: boo
     if parts_sheet:
         parts.append(
             f"The parts sheet the design's numbers come from is `{PARTS_SHEET_NAME}` in the "
-            "worktree, given with the design: each row by its id, with its number, its unit "
-            "and the address it was read from. A source written as `derived: [R1.03] * "
-            "[R5.02]` is arithmetic over the rows it names.\n"
+            "worktree, given with the design: each row by its id, with its number and its "
+            "unit where the row is one number; under `given`, its value as the datasheet "
+            "writes it where that is not the number alone, such as a range, a list or a "
+            "text; under `note`, a note on the row where it has one; and the address it was "
+            "read from. A source written as `derived: [R1.03] * [R5.02]` is arithmetic over "
+            "the rows it names.\n"
         )
     # The revision's form, and with a sheet what it lacks and how its numbers are
     # written: fixed bytes, so no item is told more than another.
