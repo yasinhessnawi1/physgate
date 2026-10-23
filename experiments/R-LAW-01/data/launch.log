@@ -1,0 +1,60 @@
+2026-10-23T11:49:34Z preflight holds at 7c1ca73da765894a34d7fe31c992fd7923beb90d
+2026-10-23T11:50:03Z the binary runs with only this environment (names): DISABLE_AUTOUPDATER HOME LANG LOGNAME PATH TMPDIR USER
+2026-10-23T11:50:04Z preflight holds at 7c1ca73da765894a34d7fe31c992fd7923beb90d
+{"sha256": {"adjudicator_prompt.txt": "0d9b0d2bd581f149bca440f58006dbff5083c232b258b81e994d0139ae7b7f44", "adjudicator_schema.json": "f689ef6439310678b2f1eacd71069fe790144f48d9ee3b4bad3c9122b2d155ac", "coder_prompt.txt": "2a01ad791c0448dc2f21db042260fd6908e282064650b9f8b727d0a61c7c1c31", "coder_schema.json": "a79889a65c53fd30ed14b0180bef65940a4fcf3e47b2985a5badea435e3d12a1", "reality_prompt.txt": "41438ab78097d57a6e986b24f4f8071516fa36c1f0393f408874cd81adb23913", "reality_schema.json": "57c3852f8aa0adf9450de3504509b0bf95f85e78c55ff77b199a9c0998172324"}, "taken": []}
+{"lines": 129, "c1_packets": 17, "c2_packets": 17}
+{"blind": true, "hits": {"findings_item_ids": 0, "findings_values": 356, "findings_words": 4, "forms_words": 0, "sheet": 0, "structure": 0}, "packets": 17, "where": {}}
+{"blind": true, "hits": {"findings_item_ids": 0, "findings_values": 356, "findings_words": 4, "forms_words": 0, "sheet": 0, "structure": 0}, "packets": 17, "where": {}}
+{"failed_calls": 0, "invalid_tries": 0, "nonzero_exits": 0, "sessions": 17, "standin": false, "step": "slice-r1-c2", "tokens_all_steps": 1228525, "tokens_step": 629675, "tries": 17}
+{"failed_calls": 0, "invalid_tries": 1, "nonzero_exits": 0, "sessions": 17, "standin": false, "step": "slice-r1-c1", "tokens_all_steps": 1298294, "tokens_step": 668619, "tries": 18}
+{"failures": {"unparsed": 9}, "forms": 129, "inconsistent_l_if_data": 0, "retries_used": 1, "step": "slice-r1", "who": "c1", "without_form": 0}
+{"failures": {"dimension": 7, "unparsed": 2}, "forms": 129, "inconsistent_l_if_data": 0, "retries_used": 0, "step": "slice-r1", "who": "c2", "without_form": 0}
+{"adjudicator_packets": 6}
+{"blind": true, "hits": {"findings_item_ids": 0, "findings_values": 50, "findings_words": 0, "forms_words": 0, "sheet": 0, "structure": 0}, "packets": 6, "where": {}}
+{"failed_calls": 0, "invalid_tries": 0, "nonzero_exits": 0, "sessions": 6, "standin": false, "step": "slice-r1-adj", "tokens_all_steps": 1525410, "tokens_step": 227116, "tries": 6}
+{"failures": {}, "forms": 24, "inconsistent_l_if_data": 0, "retries_used": 0, "step": "slice-r1", "who": "adj", "without_form": 0}
+{"disagreements": {"D\u2013G": 2, "D\u2013L": 2, "D\u2013N": 15, "G\u2013L": 1, "G\u2013N": 1, "L\u2013N": 3}, "prompts": {"sha256": {"adjudicator_prompt.txt": "3d2aae2ff5747c48806e58eb5a5a03c61fb766afb225c73e3531c2fe55809a0a", "adjudicator_schema.json": "f689ef6439310678b2f1eacd71069fe790144f48d9ee3b4bad3c9122b2d155ac", "coder_prompt.txt": "e6380ca9cfc8c5c62be9ff07d5224a035a0093fd9da19221632fab28af0d2821", "coder_schema.json": "a79889a65c53fd30ed14b0180bef65940a4fcf3e47b2985a5badea435e3d12a1", "reality_prompt.txt": "41438ab78097d57a6e986b24f4f8071516fa36c1f0393f408874cd81adb23913", "reality_schema.json": "57c3852f8aa0adf9450de3504509b0bf95f85e78c55ff77b199a9c0998172324"}, "taken": ["W1", "W2", "W5", "W6", "W7", "W8", "X1", "X4", "X5", "X6", "X7", "X8"]}, "round_2": true, "taken": ["W1", "W2", "W5", "W6", "W7", "W8", "X1", "X4", "X5", "X6", "X7", "X8"]}
+{"spent": 1525410, "round_1_sessions": 40, "tokens_per_session": 38135, "sessions_remaining": 550, "projected": 22499798, "guard": 60000000, "holds": true}
+{"lines": 129, "c1_packets": 17, "c2_packets": 17}
+{"blind": true, "hits": {"findings_item_ids": 0, "findings_values": 356, "findings_words": 4, "forms_words": 0, "sheet": 0, "structure": 0}, "packets": 17, "where": {}}
+{"blind": true, "hits": {"findings_item_ids": 0, "findings_values": 356, "findings_words": 4, "forms_words": 0, "sheet": 0, "structure": 0}, "packets": 17, "where": {}}
+{"failed_calls": 0, "invalid_tries": 2, "nonzero_exits": 0, "sessions": 17, "standin": false, "step": "slice-r2-c1", "tokens_all_steps": 2774270, "tokens_step": 673662, "tries": 18}
+{"failed_calls": 0, "invalid_tries": 2, "nonzero_exits": 0, "sessions": 17, "standin": false, "step": "slice-r2-c2", "tokens_all_steps": 2920543, "tokens_step": 721471, "tries": 19}
+{"failures": {"no_form": 1, "unparsed": 8}, "forms": 129, "inconsistent_l_if_data": 0, "retries_used": 0, "step": "slice-r2", "who": "c1", "without_form": 1}
+{"failures": {"unparsed": 10}, "forms": 129, "inconsistent_l_if_data": 0, "retries_used": 2, "step": "slice-r2", "who": "c2", "without_form": 0}
+{"adjudicator_packets": 6}
+{"blind": true, "hits": {"findings_item_ids": 0, "findings_values": 76, "findings_words": 2, "forms_words": 0, "sheet": 0, "structure": 0}, "packets": 6, "where": {}}
+{"failed_calls": 0, "invalid_tries": 0, "nonzero_exits": 0, "sessions": 6, "standin": false, "step": "slice-r2-adj", "tokens_all_steps": 3154319, "tokens_step": 233776, "tries": 6}
+{"failures": {}, "forms": 22, "inconsistent_l_if_data": 0, "retries_used": 0, "step": "slice-r2", "who": "adj", "without_form": 0}
+2026-10-23T12:08:31Z calibration done; the final prompt is v1. For the "Prompt filled" commit copy:
+2026-10-23T12:08:31Z   /Users/yasinhessnawi/rlaw01-runs/work/prompts/v0 (and v1 if run) -> experiments/R-LAW-01/prompts/, /Users/yasinhessnawi/rlaw01-runs/work/prompts/v1 -> prompts/final, and bank.json
+2026-10-23T12:08:31Z phase calibrate ended, exit 0
+2026-10-23T12:11:17Z preflight holds at 672618e0359ab6e1a733899fee9cccb027c18fb6
+2026-10-23T12:11:28Z the binary runs with only this environment (names): DISABLE_AUTOUPDATER HOME LANG LOGNAME PATH TMPDIR USER
+2026-10-23T12:11:30Z preflight holds at 672618e0359ab6e1a733899fee9cccb027c18fb6
+{"packets": 116, "lines": 864}
+{"lines": 864, "c1_packets": 123, "c2_packets": 123}
+{"blind": true, "hits": {"findings_item_ids": 0, "findings_values": 2913, "findings_words": 21, "forms_words": 0, "sheet": 0, "structure": 0}, "packets": 116, "where": {}}
+{"blind": true, "hits": {"findings_item_ids": 0, "findings_values": 2913, "findings_words": 21, "forms_words": 0, "sheet": 0, "structure": 0}, "packets": 123, "where": {}}
+{"blind": true, "hits": {"findings_item_ids": 0, "findings_values": 2913, "findings_words": 21, "forms_words": 0, "sheet": 0, "structure": 0}, "packets": 123, "where": {}}
+{"failed_calls": 0, "invalid_tries": 0, "nonzero_exits": 0, "sessions": 77, "standin": false, "step": "reality-injected", "tokens_all_steps": 7695031, "tokens_step": 2516045, "tries": 77}
+{"control_packets": 34}
+{"blind": true, "hits": {"findings_item_ids": 0, "findings_values": 129, "findings_words": 0, "forms_words": 0, "sheet": 0, "structure": 0}, "packets": 34, "where": {}}
+{"failed_calls": 0, "invalid_tries": 0, "nonzero_exits": 0, "sessions": 34, "standin": false, "step": "controls", "tokens_all_steps": 10039519, "tokens_step": 977515, "tries": 34}
+{"failed_calls": 0, "invalid_tries": 0, "nonzero_exits": 0, "sessions": 39, "standin": false, "step": "reality-twin", "tokens_all_steps": 12765453, "tokens_step": 1281237, "tries": 39}
+{"failed_calls": 0, "invalid_tries": 2, "nonzero_exits": 0, "sessions": 123, "standin": false, "step": "measured-c1", "tokens_all_steps": 17732778, "tokens_step": 4889207, "tries": 125}
+{"failed_calls": 0, "invalid_tries": 11, "nonzero_exits": 0, "sessions": 123, "standin": false, "step": "measured-c2", "tokens_all_steps": 18075893, "tokens_step": 5257570, "tries": 131}
+{"failures": {"dimension": 7, "no_input": 11, "pairing": 22, "unparsed": 78}, "forms": 864, "inconsistent_l_if_data": 0, "retries_used": 7, "step": "measured", "who": "c1", "without_form": 0}
+{"failures": {"dimension": 10, "no_form": 10, "no_input": 14, "on_no_node": 2, "pairing": 12, "unparsed": 59}, "forms": 864, "inconsistent_l_if_data": 0, "retries_used": 22, "step": "measured", "who": "c2", "without_form": 10}
+{"adjudicator_packets": 40}
+{"blind": true, "hits": {"findings_item_ids": 0, "findings_values": 521, "findings_words": 3, "forms_words": 2, "sheet": 0, "structure": 0}, "packets": 40, "where": {}}
+{"failed_calls": 0, "invalid_tries": 0, "nonzero_exits": 0, "sessions": 40, "standin": false, "step": "measured-adj", "tokens_all_steps": 19705138, "tokens_step": 1629245, "tries": 40}
+{"failures": {"pairing": 8, "unparsed": 35}, "forms": 124, "inconsistent_l_if_data": 0, "retries_used": 0, "step": "measured", "who": "adj", "without_form": 0}
+{"audit_packets": 25}
+{"blind": true, "hits": {"findings_item_ids": 0, "findings_values": 557, "findings_words": 7, "forms_words": 0, "sheet": 0, "structure": 0}, "packets": 25, "where": {}}
+{"failed_calls": 0, "invalid_tries": 0, "nonzero_exits": 0, "sessions": 25, "standin": false, "step": "audit", "tokens_all_steps": 20731440, "tokens_step": 1026302, "tries": 25}
+{"failures": {"dimension": 6, "pairing": 3, "unparsed": 13}, "forms": 170, "inconsistent_l_if_data": 0, "retries_used": 0, "step": "audit", "who": "audit", "without_form": 0}
+{"lines": 864, "with_verdict": 864, "controls": 34, "retries_used": 0}
+{"lines": 993, "with_deciding_form": 854}
+2026-10-23T14:11:18Z measured sessions done; next: law_tally.py /Users/yasinhessnawi/rlaw01-runs/work
+2026-10-23T14:11:18Z phase measure ended, exit 0
