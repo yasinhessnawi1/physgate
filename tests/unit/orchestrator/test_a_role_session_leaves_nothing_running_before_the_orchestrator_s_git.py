@@ -427,6 +427,29 @@ def test_a_held_out_canary_a_session_displayed_reaches_its_report(
     assert report.held_out_seen == found
 
 
+@pytest.mark.parametrize("pinned", [True, False], ids=["pinned", "the-binary-s-own"])
+def test_a_session_s_record_names_the_shell_its_commands_run_in(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pinned: bool
+) -> None:
+    """Where the installer pins the shell (the reaper's, on macOS), the spawn record says which."""
+    from physgate.oslayer.reaper import SHELL
+
+    session = Session(tmp_path, "plain", pause=0.0, wall_clock_s=60.0)
+    dispatcher = session.dispatcher(monkeypatch)
+    installed = ClaudeDispatcher._install
+
+    def install(*args: Any) -> Installed:  # noqa: ANN401
+        done: Installed = installed(*args)
+        env = {**done.spawn_env, "CLAUDE_CODE_SHELL": SHELL} if pinned else done.spawn_env
+        return done.model_copy(update={"spawn_env": env})
+
+    monkeypatch.setattr(ClaudeDispatcher, "_install", install)
+    report = dispatcher.run(session.request(), session.spawned)
+    assert report.end.outcome == "completed", report
+    record = json.loads(_process_record(session).read_text())
+    assert record["command_shell"] == (SHELL if pinned else None)
+
+
 @pytest.mark.parametrize("gone_at", ["before_the_read", "after_the_read"])
 def test_a_session_whose_stream_is_gone_halts_and_is_never_scanned_as_clean(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gone_at: str
