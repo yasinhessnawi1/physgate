@@ -32,6 +32,7 @@ import argparse
 import contextlib
 import json
 import os
+import re
 import sys
 import time
 from collections.abc import Iterator
@@ -48,6 +49,8 @@ ARTEFACT = "e1"
 ROLE = "electrical"
 #: §10's three smokes, at most, before the check session.
 SMOKES = 3
+#: A session's label, held before any path or id is built from it.
+LABEL = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
 
 
 def _pilot() -> tuple[Any, Any, dict[str, Any]]:
@@ -87,11 +90,12 @@ def _prompt(fallback: bool) -> Iterator[None]:
         yield
 
 
-def _usage(stream: Path) -> dict[str, Any]:
+def _usage(root: Path, stream: Path) -> dict[str, Any]:
     """The binary's own totals from the stream's result line, and its wall clock and cost."""
     result: dict[str, Any] = {}
-    if stream.is_file():
-        for line in stream.read_text(errors="replace").splitlines():
+    data = C.read_inside(root, stream)
+    if data is not None:
+        for line in data.decode(errors="replace").splitlines():
             try:
                 event = json.loads(line)
             except json.JSONDecodeError:
@@ -125,6 +129,9 @@ def session(
     out: Path, root: Path, sheet: bytes, *, fallback: bool, install: Path, label: str
 ) -> dict[str, Any]:
     """One smoke or check session; what its stream shows, with its tokens and times."""
+    if not LABEL.fullmatch(label):
+        msg = f"a smoke's label is a plain name, not {label!r}"
+        raise ValueError(msg)
     from physgate.evaluation.inject.materialise import materialise, require_blind
     from physgate.evaluation.inject.runner import InstrumentParams, review_id
     from physgate.orchestrator import cli as orchestrator_cli
@@ -203,7 +210,7 @@ def session(
         session_id, ended_as = exc.session_id, f"review_unavailable:{exc.cause}"
     ended = utc()
     stream = review_root / str(session_id) / S.STREAM[0] / S.STREAM[1]
-    reads = S.session_reads(stream, C.SHEET_LINES["F"]) if session_id else {"missing": True}
+    reads = S.session_reads_in(review_root, session_id, C.SHEET_LINES["F"])
     found = {
         "kind": "check" if fallback else "smoke",
         "label": label,
@@ -215,7 +222,7 @@ def session(
         "binary_version": version,
         "sheet_sha256": C.sha256_bytes(sheet),
         "reads": {k: v for k, v in reads.items() if k != "classes"},
-        **_usage(stream),
+        **_usage(review_root, stream),
     }
     (out / f"{label}.json").write_text(json.dumps(found, indent=1, sort_keys=True) + "\n")
     return found

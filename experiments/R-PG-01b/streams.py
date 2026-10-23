@@ -61,7 +61,6 @@ import common as C  # noqa: E402
 SHEET_NAME = "parts_sheet.json"
 STREAM = ("session", "stdout.jsonl")
 _NUMBERED = re.compile(r"^(\d+)\t")
-_SESSION_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 #: The pinned binary's (2.1.301) own texts for a Read it did not repeat, as its own check of them
 #: reads them: a result that starts with one of these is a stub, not the file.
 UNCHANGED = (
@@ -271,6 +270,20 @@ def session_reads(stream_path: Path, total: int) -> dict[str, Any]:
     return session_reads_text(stream_path.read_text(errors="replace"), total)
 
 
+def session_reads_in(root: Path, sid: str | None, total: int) -> dict[str, Any]:
+    """One session's reads under a review root.
+
+    ``missing`` if its id is not of a session's form, or its stream is not a regular file under
+    the root reached through no symlink.
+    """
+    if not sid or not C.SESSION_ID.fullmatch(sid):
+        return {"missing": True}
+    data = C.read_inside(root, root / sid / STREAM[0] / STREAM[1])
+    if data is None:
+        return {"missing": True}
+    return session_reads_text(data.decode(errors="replace"), total)
+
+
 def _sessions(run: Path) -> dict[str, list[str | None]]:
     """Every review session a run's two logs name, by side: one per try."""
     found: dict[str, list[str | None]] = {}
@@ -293,18 +306,18 @@ def round_counts(run: Path, root: Path, arm: str) -> dict[str, Any]:
     total = C.SHEET_LINES[arm]
     logged = _sessions(run)
     named = {sid for ids in logged.values() for sid in ids if sid}
-    on_disk = (
-        sorted(p.name for p in root.iterdir() if p.is_dir() and _SESSION_ID.match(p.name))
-        if root.is_dir()
-        else []
-    )
-    out: dict[str, Any] = {"arm": arm, "numbered_lines": total, "sides": {}}
+    dirs, refused = C.session_dirs(root)
+    on_disk = [d.parent.name for d in dirs]
+    out: dict[str, Any] = {
+        "arm": arm,
+        "numbered_lines": total,
+        "sides": {},
+        # a session's directory that is a symlink is never followed, and never read
+        "symlinks_refused": refused,
+    }
     groups = {**logged, "not_in_a_log": [s for s in on_disk if s not in named]}
     for side, ids in groups.items():
-        rows = [
-            session_reads(root / sid / STREAM[0] / STREAM[1], total) if sid else {"missing": True}
-            for sid in ids
-        ]
+        rows = [session_reads_in(root, sid, total) for sid in ids]
         present = [r for r in rows if not r["missing"]]
         out["sides"][side] = {
             "reviews": len(rows),

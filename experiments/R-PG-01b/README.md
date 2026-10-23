@@ -102,9 +102,14 @@ rule, threshold, seed or decision of `CRITERIA.md`; each is how a sentence of it
 8. **On a usage limit the watcher stops what this run started, and nothing else.** It signals an
    arm's process group only while its leader is the process `launch.sh` started (the same start
    time), and a review session's group only where the session's own process record under the
-   review root proves it (the recorded start time, the session id on its command line, and the
-   group it leads). It then removes every session's credential directory under the review
-   roots. Off the run machine (Linux) it signals nothing.
+   review root proves it: a pid above 1, the directory's own session id, the recorded start
+   time, the session id on the process's command line, and the group it leads. It then removes
+   every session's credential directory under the review roots (`rpb-<slot>`). Off the run
+   machine (Linux) it signals nothing. Under a review root or a run directory nothing is ever
+   reached through a symlink, whether to signal, delete or read: a session directory, a
+   `session`, a `config`, a stream or a process record that is a symlink is refused and left as
+   it is, and every read stays inside the root's real path. A slot, a label and a records
+   directory are held to their forms before any path is built from them.
 9. **A crashed or killed process** (§12) is any arm whose exit is other than 0 or 1, or that has
    none, and any run that is not complete: each arm's `results.jsonl` with 40 rows, and in both
    logs 40 planned subtasks, each with a final review line (a verdict, or `review_unavailable`

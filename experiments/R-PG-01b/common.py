@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import stat
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -112,13 +114,48 @@ CASCADE = 3
 MAX_ATTEMPTS = 3
 
 
+#: A session's id, as the instrument names its directory under a review root.
+SESSION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+#: A review root's own name (§2.6): ``rpb-<slot>``.
+ROOT_NAME = re.compile(r"rpb-[0-9]{1,3}")
+#: A records directory a trial may name: an absolute path of plain names.
+_PLAIN_PATH = re.compile(r"/[A-Za-z0-9._+/-]*")
+
+
+def check_slot(slot: object) -> int:
+    """A slot, held to its form before any path is built from it: a whole number, 1 to 999.
+
+    Raises:
+        ValueError: anything else.
+    """
+    if isinstance(slot, bool) or not isinstance(slot, int) or not 1 <= slot <= 999:
+        msg = f"a slot is a whole number from 1 to 999, not {slot!r}"
+        raise ValueError(msg)
+    return slot
+
+
+def records_dir(value: str | None, home: Path) -> Path:
+    """The experiment's records: the run's, or the directory a check-only trial names.
+
+    Raises:
+        ValueError: the named directory is not an absolute path of plain names with no ``..``.
+    """
+    if not value:
+        return Path(home) / RUNS_NAME
+    if not _PLAIN_PATH.fullmatch(value) or os.path.normpath(value) != value:
+        msg = "the records directory is an absolute path of plain names, with no '..'"
+        raise ValueError(msg)
+    return Path(value)
+
+
 def run_id(slot: int) -> str:
     """The run id of a slot (§2.6): the same form for both arms."""
-    return f"rpb-{slot}"
+    return f"rpb-{check_slot(slot)}"
 
 
 def places(home: Path, slot: int, runs: Path | None = None) -> dict[str, Path]:
     """Every path of a slot (§2.6): its run directory, review root and installation."""
+    check_slot(slot)
     runs = Path(runs) if runs is not None else Path(home) / RUNS_NAME
     return {
         "run": runs / f"run-{slot}",
@@ -140,6 +177,74 @@ def sha256_file(path: Path) -> str:
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
     """A JSON-lines file, one value per non-blank line."""
     return [json.loads(x) for x in Path(path).read_text().splitlines() if x.strip()]
+
+
+# ---- under a review root or a run directory: nothing through a symlink, nothing outside ----
+
+
+def no_link_below(root: Path, path: Path) -> bool:
+    """Whether ``path`` lies under ``root`` with no symlink among its parts below the root.
+
+    Each part is held with ``lstat``, never followed; and the real path must stay inside the
+    root's real path. A part that is missing, a ``..``, or a symlink fails.
+    """
+    root, path = Path(root), Path(path)
+    try:
+        rel = path.relative_to(root)
+    except ValueError:
+        return False
+    if any(part in ("", ".", "..") for part in rel.parts):
+        return False
+    here = root
+    for part in rel.parts:
+        here = here / part
+        try:
+            if stat.S_ISLNK(os.lstat(here).st_mode):
+                return False
+        except OSError:
+            return False
+    return Path(os.path.realpath(path)).is_relative_to(Path(os.path.realpath(root)))
+
+
+def read_inside(root: Path, path: Path) -> bytes | None:
+    """A regular file's bytes under ``root``, reached through no symlink; else ``None``."""
+    if not no_link_below(root, path):
+        return None
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    except OSError:
+        return None
+    with os.fdopen(fd, "rb") as f:
+        if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+            return None
+        return f.read()
+
+
+def session_dirs(root: Path) -> tuple[list[Path], int]:
+    """Every ``<root>/<session id>/session`` directory, none through a symlink.
+
+    Also how many entries of a session's form were refused as symlinks.
+    """
+    found: list[Path] = []
+    refused = 0
+    try:
+        entries = sorted(os.scandir(root), key=lambda e: e.name)
+    except OSError:
+        return [], 0
+    for entry in entries:
+        if not SESSION_ID.fullmatch(entry.name):
+            continue
+        if entry.is_symlink():
+            refused += 1
+            continue
+        if not entry.is_dir(follow_symlinks=False):
+            continue
+        sdir = Path(entry.path) / "session"
+        if os.path.islink(sdir):
+            refused += 1
+        elif sdir.is_dir():
+            found.append(sdir)
+    return found, refused
 
 
 def read_log(path: Path) -> tuple[list[dict[str, Any]], int]:

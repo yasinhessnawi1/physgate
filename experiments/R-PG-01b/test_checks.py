@@ -934,7 +934,7 @@ def test_the_watcher_stops_every_arm_and_every_recorded_session_at_the_first_usa
     tmp_path: Path,
 ) -> None:
     a, b = _group(60), _group(60)
-    dirs = [tmp_path / n for n in ("ra", "sa", "rb", "sb")]
+    dirs = [tmp_path / n for n in ("run-1", "rpb-1", "run-2", "rpb-2")]
     for d in dirs:
         d.mkdir()
     session = _stand_in(dirs[1], 60)
@@ -958,7 +958,7 @@ def test_the_watcher_stops_every_arm_and_every_recorded_session_at_the_first_usa
 
 @signals
 def test_the_watcher_signals_no_session_whose_record_does_not_prove_it(tmp_path: Path) -> None:
-    root = tmp_path / "s"
+    root = tmp_path / "rpb-1"
     root.mkdir()
     session = _stand_in(root, 20)
     record = next(root.glob("*/session/process.json"))
@@ -986,6 +986,143 @@ def test_off_the_run_machine_nothing_is_signalled(tmp_path: Path) -> None:
     a.wait(timeout=30)
 
 
+# ---- nothing outside a root is touched, and no forged record is believed ----
+
+
+def _sid(n: int) -> str:
+    return f"00000000-0000-4000-8000-{n:012d}"
+
+
+def _kept(d: Path) -> Path:
+    """A directory holding a file nothing may delete."""
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "keep.txt").write_text("keep\n")
+    return d
+
+
+def test_the_credential_cleanup_never_follows_a_symlink_out_of_the_root(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    root = tmp_path / "review-scratch" / "rpb-3"
+    root.mkdir(parents=True)
+    # a session directory that is a symlink out of the root
+    _kept(outside / "a" / "session" / "config")
+    (root / _sid(1)).symlink_to(outside / "a")
+    # a session/ that is a symlink out of the root
+    _kept(outside / "b" / "config")
+    (root / _sid(2)).mkdir()
+    (root / _sid(2) / "session").symlink_to(outside / "b")
+    # a config that is a symlink out of the root
+    (root / _sid(3) / "session").mkdir(parents=True)
+    (root / _sid(3) / "session" / "config").symlink_to(_kept(outside / "c"))
+    # a credential directory of the run's own: it goes
+    _kept(root / _sid(4) / "session" / "config")
+    # a directory not named as a session is not one
+    _kept(root / "elsewhere" / "session" / "config")
+    found = checks.remove_credentials([root])
+    assert found == {"configs_removed": 1, "refused_symlinks": 3}
+    for kept in (outside / "a" / "session" / "config", outside / "b" / "config", outside / "c"):
+        assert (kept / "keep.txt").is_file()
+    assert not (root / _sid(4) / "session" / "config").exists()
+    assert (root / "elsewhere" / "session" / "config" / "keep.txt").is_file()
+
+
+@pytest.mark.parametrize("name", ["home", "rpb-x", "rpb-1000", "review-scratch"])
+def test_the_credential_cleanup_acts_on_a_review_root_of_the_run_s_form_alone(
+    tmp_path: Path, name: str
+) -> None:
+    _kept(tmp_path / name / _sid(1) / "session" / "config")
+    with pytest.raises(checks.Refused, match="review root"):
+        checks.remove_credentials([tmp_path / name])
+    assert (tmp_path / name / _sid(1) / "session" / "config" / "keep.txt").is_file()
+
+
+def _record(root: Path, sid: str, record: dict[str, Any]) -> Path:
+    sdir = root / sid / "session"
+    sdir.mkdir(parents=True, exist_ok=True)
+    (sdir / "process.json").write_text(json.dumps(record))
+    return sdir
+
+
+def test_a_process_record_proves_only_a_session_this_run_started(tmp_path: Path) -> None:
+    root = tmp_path / "rpb-3"
+    me, started = os.getpid(), _started(os.getpid())
+    # the test's own process, its true start time, but no such session id on its command line
+    assert checks.proven_session(root, _record(root, _sid(1), {
+        "pid": me, "started": started, "session_id": _sid(1)})) is None  # fmt: skip
+    for n, forged in enumerate(
+        [
+            {"pid": 1, "started": started, "session_id": _sid(2)},
+            {"pid": "1; rm -rf /", "started": started, "session_id": _sid(3)},
+            {"pid": me, "started": started, "session_id": _sid(99)},  # not its directory's id
+            {"pid": me, "started": started},
+            [me],
+        ],
+        start=2,
+    ):
+        sdir = root / _sid(n) / "session"
+        sdir.mkdir(parents=True)
+        (sdir / "process.json").write_text(json.dumps(forged))
+        assert checks.proven_session(root, sdir) is None, forged
+    # a stand-in that carries its id but does not lead its own group is not proven
+    sid = _sid(10)
+    loose = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(3)", "--session-id", sid]
+    )
+    time.sleep(0.3)
+    sdir = _record(root, sid, {"pid": loose.pid, "started": _started(loose.pid), "session_id": sid})
+    assert checks.proven_session(root, sdir) is None
+    # one that leads its group, with its start time and id: proven (and never signalled here)
+    sid = _sid(11)
+    led = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(3)", "--session-id", sid],
+        start_new_session=True,
+    )
+    time.sleep(0.3)
+    sdir = _record(root, sid, {"pid": led.pid, "started": _started(led.pid), "session_id": sid})
+    assert checks.proven_session(root, sdir) == (led.pid, _started(led.pid), sid)
+    # the same record read through a symlink is not believed
+    sid = _sid(12)
+    (root / sid / "session").mkdir(parents=True)
+    (root / sid / "session" / "process.json").symlink_to(sdir / "process.json")
+    assert checks.proven_session(root, root / sid / "session") is None
+    loose.wait(timeout=30)
+    led.wait(timeout=30)
+
+
+def test_the_usage_limit_search_never_follows_a_symlink_out_of_a_root(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    text = '{"error": "usage_limit_reached", "api_error_status": 429}\n'
+    (outside / "x.jsonl").write_text(text)
+    root = tmp_path / "rpb-3"
+    root.mkdir()
+    (root / "linked").symlink_to(outside)
+    (root / "linked.jsonl").symlink_to(outside / "x.jsonl")
+    assert checks.usage_limit_files([root]) == (0, 0)
+    (root / "own.jsonl").write_text(text)
+    assert checks.usage_limit_files([root]) == (1, 1)
+
+
+@pytest.mark.parametrize("slot", [0, -1, 1000, "3", "1/../../x", True, 2.0])
+def test_a_slot_is_a_whole_number_from_1_to_999(slot: Any) -> None:
+    with pytest.raises(ValueError, match="slot"):
+        C.places(Path("/h"), slot)
+
+
+@pytest.mark.parametrize(
+    "value", ["relative/runs", "/h/runs/../../etc", "/h/runs/x\n", "/h/run s", "/h/runs/"]
+)
+def test_the_records_directory_is_an_absolute_plain_path(value: str) -> None:
+    with pytest.raises(ValueError, match="records"):
+        C.records_dir(value, Path("/h"))
+
+
+def test_the_records_directory_is_the_run_s_unless_a_trial_names_one() -> None:
+    assert C.records_dir("", Path("/h")) == Path("/h/runs/rpg01b")
+    assert C.records_dir(None, Path("/h")) == Path("/h/runs/rpg01b")
+    assert C.records_dir("/h/rpb-trial/dry2", Path("/h")) == Path("/h/rpb-trial/dry2")
+
+
 def test_the_watcher_ends_when_every_arm_has_ended_and_stops_nothing(tmp_path: Path) -> None:
     a = _group(1)
     log = tmp_path / "watcher.log"
@@ -996,6 +1133,24 @@ def test_the_watcher_ends_when_every_arm_has_ended_and_stops_nothing(tmp_path: P
     text = log.read_text()
     assert "ABORT" not in text and "LIMIT" not in text
     assert "usage_limit_reached files 0" in text
+
+
+def test_the_watcher_never_follows_a_symlink_out_of_a_root(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "x.jsonl").write_text('{"error":"usage_limit_reached"}\n')
+    run, root = tmp_path / "run-1", tmp_path / "rpb-1"
+    run.mkdir()
+    root.mkdir()
+    (root / "linked").symlink_to(outside)
+    (root / "linked.jsonl").symlink_to(outside / "x.jsonl")
+    a = _group(2)
+    log = tmp_path / "watcher.log"
+    watcher = _watch(log, a.pid, run, root)
+    a.wait(timeout=10)
+    assert watcher.wait(timeout=30) == 0
+    text = log.read_text()
+    assert "ABORT" not in text and "LIMIT" not in text and "files 0" in text
 
 
 def test_the_watcher_looks_once_more_after_every_arm_has_ended(tmp_path: Path) -> None:

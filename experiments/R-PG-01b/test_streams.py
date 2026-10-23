@@ -247,6 +247,32 @@ def test_a_round_reads_a_session_under_the_root_that_no_log_names(tmp_path: Path
     assert found["sides"]["not_in_a_log"]["cut"] == 1 and found["cut"] >= 1
 
 
+def test_a_round_never_reads_a_stream_through_a_symlink(tmp_path: Path) -> None:
+    run, root, outside = tmp_path / "run", tmp_path / "rpb-3", tmp_path / "outside"
+    named, stray, inner = (f"00000000-0000-4000-8000-00000000000{n}" for n in (1, 2, 3))
+    T.write_jsonl(
+        run / "events.jsonl",
+        [T.ran("r1", "fail", [], session=named), T.ran("r2", "fail", [], session=inner)],
+    )
+    T.write_jsonl(run / "controls" / "events.jsonl", [])
+    whole = stream(({"file_path": SHEET}, numbered(1, C.SHEET_LINES["F"])))
+    for d in ("a", "b"):
+        (outside / d / "session").mkdir(parents=True)
+        (outside / d / "session" / "stdout.jsonl").write_text(whole)
+    root.mkdir()
+    (root / named).symlink_to(outside / "a")  # a session directory out of the root
+    (root / stray).symlink_to(outside / "b")  # and one no log names
+    (root / inner / "session").mkdir(parents=True)  # a stream that is a symlink
+    (root / inner / "session" / "stdout.jsonl").symlink_to(
+        outside / "a" / "session" / "stdout.jsonl"
+    )
+    found = S.round_counts(run, root, "F")
+    inj = found["sides"]["injected"]
+    assert inj["stream_missing_unknown"] == 2 and inj["whole"] == 0
+    assert found["sides"]["not_in_a_log"]["reviews"] == 0
+    assert found["symlinks_refused"] == 2
+
+
 def test_a_round_reports_unchanged_error_and_no_result_reads_and_is_not_void(
     tmp_path: Path,
 ) -> None:
@@ -467,6 +493,14 @@ def test_l10_fails_as_infrastructure_when_a_session_leaves_no_stream(
 ) -> None:
     code, _ = _l10(tmp_path, monkeypatch, [{"missing": True}])
     assert code == 1
+
+
+@pytest.mark.parametrize("label", ["../x", "a/b", "", "Smoke 1"])
+def test_a_smoke_s_label_is_a_plain_name(tmp_path: Path, label: str) -> None:
+    with pytest.raises(ValueError, match="label"):
+        smoke.session(
+            tmp_path, tmp_path / "r", b"{}", fallback=False, install=tmp_path / "i", label=label
+        )
 
 
 def test_the_check_session_s_prompt_is_one_line_asking_for_the_sheet() -> None:

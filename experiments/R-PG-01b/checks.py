@@ -57,7 +57,7 @@ import common as C  # noqa: E402
 HOME = Path(os.environ.get("HOME", "~")).expanduser()
 #: The experiment's records. ``launch.sh`` lets ``RPB_RUNS`` name another only for a check-only
 #: trial, so a trial never writes into the run's records.
-RUNS = Path(os.environ.get("RPB_RUNS") or HOME / C.RUNS_NAME)
+RUNS = C.records_dir(os.environ.get("RPB_RUNS"), HOME)
 SLOTS = RUNS / "slots.json"
 #: The run commit may differ from 8bc03fc in these paths alone (§2.4).
 ALLOWED_FILES = frozenset(
@@ -612,21 +612,25 @@ STATUS_429 = re.compile(rb'"api_error_status": *429')
 
 
 def usage_limit_files(paths: Iterable[Path]) -> tuple[int, int]:
-    """The files under ``paths`` that name a usage limit, and the 429 statuses in the streams."""
+    """The files under ``paths`` that name a usage limit, and the 429 statuses in the streams.
+
+    No symlink is followed, to a directory or a file: only what lies inside each path is read.
+    """
     files = statuses = 0
     for root in paths:
-        if not root.is_dir():
+        if os.path.islink(root) or not root.is_dir():
             continue
-        for f in root.rglob("*"):
-            if not f.is_file() or f.suffix not in LIMIT_SUFFIXES:
-                continue
-            try:
-                data = f.read_bytes()
-            except OSError:
-                continue
-            files += LIMIT_WORD in data
-            if f.suffix == ".jsonl":
-                statuses += len(STATUS_429.findall(data))
+        for here, _dirs, names in os.walk(root, followlinks=False):
+            for name in names:
+                f = Path(here) / name
+                if f.suffix not in LIMIT_SUFFIXES:
+                    continue
+                data = C.read_inside(root, f)
+                if data is None:
+                    continue
+                files += LIMIT_WORD in data
+                if f.suffix == ".jsonl":
+                    statuses += len(STATUS_429.findall(data))
     return files, statuses
 
 
@@ -803,51 +807,110 @@ def second_arm(launch: Path, since: float, now: float | None = None) -> float | 
 GRACE_S = 5.0
 
 
-def stop_sessions(roots: Iterable[Path]) -> dict[str, Any]:
-    """Stop every session the roots prove still running; remove every credential directory.
-
-    The credential directories are every ``*/session/config`` under the roots.
-
-    A session is signalled only if its own record (``process.json``, written by this run's
-    instrument when it spawned it, under the root, in the directory its session id names) proves
-    it: the process at that pid has the recorded start time, its command line carries the
-    recorded session id (the instrument's own test), and it leads its own process group. Its
-    group is sent SIGTERM, and SIGKILL after a grace if the same process is still there. Nothing
-    else is signalled. On the run machine (Linux) alone.
+def _review_roots(roots: Iterable[Path]) -> list[Path]:
+    """The roots, each held to a review root's own name (``rpb-<slot>``) and not a symlink.
 
     Raises:
-        Refused: not on the run machine.
+        Refused: a root is of another form.
+    """
+    out = []
+    for root in roots:
+        root = Path(root)
+        if not C.ROOT_NAME.fullmatch(root.name) or os.path.islink(root):
+            raise Refused(f"{root.name!r} is not a review root of the run's form (rpb-<slot>)")
+        out.append(root)
+    return out
+
+
+def proven_session(root: Path, sdir: Path) -> tuple[int, str, str] | None:
+    """The session a process record proves this run started and still running, or ``None``.
+
+    The record (``<root>/<session id>/session/process.json``, written by this run's instrument
+    when it spawned the session) is read through no symlink and trusted for nothing: its pid
+    must be a number above 1 and not this process; its session id the directory's own; and the
+    process at that pid must have the recorded start time, carry the recorded session id on its
+    command line (the instrument's own test), and lead its own process group.
+    """
+    from physgate.orchestrator.dispatch import process_group_of  # noqa: PLC0415
+    from physgate.orchestrator.processes import is_session  # noqa: PLC0415
+
+    raw = C.read_inside(root, sdir / "process.json")
+    if raw is None or sdir.name != "session":
+        return None
+    try:
+        record = json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(record, dict):
+        return None
+    pid, started, sid = record.get("pid"), record.get("started"), record.get("session_id")
+    if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 1 or pid == os.getpid():
+        return None
+    if not isinstance(started, str) or not isinstance(sid, str):
+        return None
+    if not C.SESSION_ID.fullmatch(sid) or sdir.parent.name != sid:
+        return None
+    if not is_session(pid, started, sid) or process_group_of(pid) != pid:
+        return None
+    return pid, started, sid
+
+
+def remove_credentials(roots: Iterable[Path]) -> dict[str, int]:
+    """Remove every session's credential directory under the review roots, following no symlink.
+
+    The directories are ``<session id>/session/config``. A session directory, a ``session`` or
+    a ``config`` that is a symlink is refused and left as it is: nothing outside a root is
+    touched.
+
+    Raises:
+        Refused: a root is not a review root of the run's form.
+    """
+    removed = refused = 0
+    for root in _review_roots(roots):
+        dirs, links = C.session_dirs(root)
+        refused += links
+        for sdir in dirs:
+            config = sdir / "config"
+            if os.path.islink(config):
+                refused += 1
+                continue
+            if not config.is_dir():
+                continue
+            if not C.no_link_below(root, config):
+                refused += 1
+                continue
+            shutil.rmtree(config)
+            removed += 1
+    return {"configs_removed": removed, "refused_symlinks": refused}
+
+
+def stop_sessions(roots: Iterable[Path]) -> dict[str, Any]:
+    """Stop every session the review roots prove still running; remove their credentials.
+
+    A session is signalled only if :func:`proven_session` proves it from the run's own record:
+    its group is sent SIGTERM, and SIGKILL after a grace if the same process still leads it.
+    Nothing else is signalled. Then :func:`remove_credentials`. On the run machine (Linux)
+    alone.
+
+    Raises:
+        Refused: not on the run machine, or a root not of the run's form.
     """
     if platform.system() != "Linux":
         raise Refused("sessions are stopped on the run machine alone: nothing signalled here")
     from physgate.orchestrator.dispatch import process_group_of  # noqa: PLC0415
     from physgate.orchestrator.processes import is_session  # noqa: PLC0415
 
-    roots = [Path(x) for x in roots]
+    checked = _review_roots(roots)
     proven: list[tuple[int, str, str]] = []
-    not_proven = ended = 0
-    for root in roots:
-        for record_path in sorted(root.glob("*/session/process.json")):
-            sdir = record_path.parent
-            if (sdir / "ended.json").exists():
+    not_proven = ended = no_record = 0
+    for root in checked:
+        for sdir in C.session_dirs(root)[0]:
+            if os.path.lexists(sdir / "ended.json"):
                 ended += 1
-                continue
-            try:
-                record = json.loads(record_path.read_text())
-                pid, started, sid = (
-                    int(record["pid"]),
-                    str(record["started"]),
-                    str(record["session_id"]),
-                )
-            except (OSError, ValueError, KeyError, TypeError):
-                not_proven += 1
-                continue
-            if (
-                sdir.parent.name == sid
-                and is_session(pid, started, sid)
-                and process_group_of(pid) == pid
-            ):
-                proven.append((pid, started, sid))
+            elif not os.path.lexists(sdir / "process.json"):
+                no_record += 1
+            elif (found := proven_session(root, sdir)) is not None:
+                proven.append(found)
             else:
                 not_proven += 1
     for pid, _, _ in proven:
@@ -859,24 +922,17 @@ def stop_sessions(roots: Iterable[Path]) -> dict[str, Any]:
     killed = 0
     for pid, started, sid in proven:
         if is_session(pid, started, sid) and process_group_of(pid) == pid:
-            try:
+            with contextlib.suppress(ProcessLookupError):
                 os.killpg(pid, signal.SIGKILL)
                 killed += 1
-            except ProcessLookupError:
-                pass
-    configs = 0
-    for root in roots:
-        for config in sorted(root.glob("*/session/config")):
-            if config.is_dir() and not config.is_symlink():
-                shutil.rmtree(config, ignore_errors=True)
-                configs += 1
     return {
         "check": "stop-sessions",
         "stopped": len(proven),
         "needed_sigkill": killed,
         "not_proven": not_proven,
+        "no_record": no_record,
         "already_ended": ended,
-        "configs_removed": configs,
+        **remove_credentials(checked),
     }
 
 

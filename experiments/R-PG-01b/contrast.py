@@ -211,20 +211,20 @@ def sessions(run: Path, root: Path | None) -> list[dict[str, Any]]:
                 if x["kind"] == "review_ran"
                 else x.get("session_id")
             )
+            # Read under the root through no symlink, and only for an id of a session's form.
+            ok = isinstance(sid, str) and C.SESSION_ID.fullmatch(sid) is not None
             d = root / str(sid) / "session"
             result: dict[str, Any] = {}
-            stream = d / "stdout.jsonl"
-            if sid and stream.is_file():
-                for line in stream.read_text(errors="replace").splitlines():
-                    try:
-                        e = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if isinstance(e, dict) and e.get("type") == "result":
-                        result = e
-            ended = (
-                json.loads((d / "ended.json").read_text()) if (d / "ended.json").is_file() else {}
-            )
+            data = C.read_inside(root, d / "stdout.jsonl") if ok else None
+            for line in (data or b"").decode(errors="replace").splitlines():
+                try:
+                    e = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(e, dict) and e.get("type") == "result":
+                    result = e
+            end = C.read_inside(root, d / "ended.json") if ok else None
+            ended = json.loads(end) if end else {}
             turns = result.get("num_turns")
             out.append(
                 {
@@ -548,11 +548,13 @@ def first_starts(run: Path, root: Path) -> dict[str, float]:
                 if x["kind"] == "review_ran"
                 else x.get("session_id")
             )
-            record = root / str(sid) / "session" / "process.json"
-            if sid and record.is_file():
-                spawned = json.loads(record.read_text()).get("spawned_at")
-                if isinstance(spawned, (int, float)):
-                    out[x["subtask_id"]] = float(spawned)
+            if not (isinstance(sid, str) and C.SESSION_ID.fullmatch(sid)):
+                continue
+            raw = C.read_inside(root, root / sid / "session" / "process.json")
+            record = json.loads(raw) if raw else {}
+            spawned = record.get("spawned_at") if isinstance(record, dict) else None
+            if isinstance(spawned, (int, float)) and not isinstance(spawned, bool):
+                out[x["subtask_id"]] = float(spawned)
     return out
 
 

@@ -30,22 +30,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import common as C  # noqa: E402
 
 HOME = Path(os.environ.get("HOME", "~")).expanduser()
-RUNS = Path(os.environ.get("RPB_RUNS") or HOME / C.RUNS_NAME)
+RUNS = C.records_dir(os.environ.get("RPB_RUNS"), HOME)
 _SESSION = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 KINDS = ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
 
 
-def result_tokens(stream: Path) -> int | None:
+def result_tokens(text: str | None) -> int | None:
     """The binary's own total for one session, from its stream's last ``result`` line."""
     found: dict[str, Any] | None = None
-    if stream.is_file():
-        for line in stream.read_text(errors="replace").splitlines():
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(event, dict) and event.get("type") == "result":
-                found = event
+    for line in (text or "").splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict) and event.get("type") == "result":
+            found = event
     if found is None:
         return None
     usage = found.get("usage") or {}
@@ -53,15 +52,22 @@ def result_tokens(stream: Path) -> int | None:
 
 
 def root_tokens(root: Path) -> tuple[int, int, int]:
-    """Every session under a review root: (sessions, tokens, sessions with no result line)."""
+    """Every session under a review root: (sessions, tokens, sessions with no result line).
+
+    No symlink is followed: a session is a real ``<session id>/session`` directory under the
+    root, and its stream a regular file in it.
+    """
     sessions = tokens = without = 0
-    if not root.is_dir():
+    if os.path.islink(root) or not root.is_dir():
         return 0, 0, 0
-    for d in sorted(root.rglob("session")):
-        if not d.is_dir() or not _SESSION.match(d.parent.name):
+    for here, dirs, _files in os.walk(root, followlinks=False):
+        dirs.sort()
+        d = Path(here)
+        if d.name != "session" or not _SESSION.match(d.parent.name):
             continue
         sessions += 1
-        t = result_tokens(d / "stdout.jsonl")
+        data = C.read_inside(root, d / "stdout.jsonl")
+        t = result_tokens(None if data is None else data.decode(errors="replace"))
         if t is None:
             without += 1
         else:
