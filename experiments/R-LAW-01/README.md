@@ -255,23 +255,22 @@ number, seed or threshold.
     - `RESULT.md` reports it as a disclosed threat to validity.
 
 Reading 17, and the corrections to readings 14 and 15, were written on 23.10.2026 after the third
-and fourth reviews of the scripts, before any session of the experiment. None changes a frozen number, seed or
+to fifth reviews of the scripts, before any session of the experiment. None changes a frozen number, seed or
 threshold.
 
-17. **A packet stuck on one cause (§12).** A packet whose call fails three times in a row for the
-    same try (the first failure and the two resumes after it), each time with the identical cause,
-    is a deviation under §12's "anything else impossible as specified": the decision is not taken.
-    - The cause is identical when classify's label and, where the output has them, the binary's
-      own `api_error_status` and error text (`errors`, or `result`) are the same in all three. Any
-      failed call counts except a usage limit, a rate limit (429) and a refused credential.
-    - The failures are the packet's, not an outage's: between each and the next, at least one
-      other packet's call completed as a try, as the ledger shows.
-    - The owner chose (23.10.2026) that the run also ends there. `RESULT.md` reports the packet and
-      its cause; any figures reached before the stop are descriptive only, never a result.
-    - The driver applies the rule, not a person, after every failed call (`law_verify.py stuck`).
-      It reads only the ledger and the kept failed-call files (each failed call's ledger row names
-      its file, `output`), so the count holds across resumes. When the rule fires, the driver
-      writes `deviations.json` naming the packet, the try, the cause and the three files, logs a
-      `deviation` interruption and stops; preflight then refuses the work dir.
+17. **A packet that fails on every resume (§12).** It stops the run each time, as every failed call
+    does (reading 5); the scripts never declare anything of it.
+    - If the owner judges that the packet cannot run as specified, that is §12's "anything else
+      impossible as specified": the decision is not taken, and the owner chose (23.10.2026) that
+      the run ends there. The owner records it in `deviations.json` and `interruptions.jsonl`,
+      citing the kept failed-call files and their ledger rows (each failed call's row names its
+      kept file, `output`).
+    - `RESULT.md` reports the packet, the cause and that evidence. Figures reached before the stop
+      are descriptive only, never a result.
+    - Declaring it and never declaring it both leave the decision not taken, so the timing of the
+      declaration cannot change a result.
+    - An earlier automatic trigger (a third identical failure with other packets' tries between)
+      was removed before any session, because it could fire on an outage (an overload, a flaky
+      network) and could never fire for a driver running alone.
 
     It changes no frozen number, seed or threshold.
