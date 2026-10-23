@@ -7,6 +7,11 @@ queue decisions. ``os_layer_absent: allow`` lets it go on, for development: a fl
 register, required in a new run's parameters, recorded in the run's configuration, and said on
 every run's and resume's line of the OS layer. It never lets a run that acts on decisions go on,
 and the evaluation refuses a reportable run that names it, whatever the layer.
+
+The same check is held again where a role session is made, whatever led there: the dispatcher
+spawns no role session without the layer's temporary directory, and ``physgate hooks install
+--profile role`` writes no role settings without the sandbox, unless the run's recorded
+configuration allows the absence.
 """
 
 from __future__ import annotations
@@ -330,6 +335,214 @@ def test_the_allowance_never_lets_a_run_that_acts_on_decisions_run_without_the_l
     with pytest.raises(RunStateError, match="acts on queue decisions"):
         loop.run()
     loop.close()
+
+
+# -- where a role session is made: the dispatcher and the installer -----------------------------
+
+
+def _dispatched(
+    monkeypatch: pytest.MonkeyPatch,
+    run_dir: Path,
+    layer: Present | Absent,
+    seen: tuple[list[Path | None], list[str]] | None = None,
+    **overrides: object,
+) -> tuple[list[Path | None], list[str]]:
+    """Dispatch one attempt where the layer measures ``layer``.
+
+    Returns, and fills ``seen`` with, the temporary directory each started session was given and
+    the subtasks whose worktree was opened. The session itself is stood in for at its start.
+    """
+    from types import SimpleNamespace
+
+    from orch_helpers import SCRIPTED_BOUNDS
+
+    from physgate.orchestrator import dispatch
+    from physgate.orchestrator.credentials import Credential
+    from physgate.orchestrator.dispatch import ClaudeDispatcher
+    from physgate.orchestrator.ports import SessionRequest
+
+    config = make_config(**overrides)
+    started, opened = seen if seen is not None else ([], [])
+
+    def run_session(  # noqa: PLR0913 - the stood-in method's own parameters
+        _self: object,
+        _request: object,
+        _worktree: Path,
+        _sdir: Path,
+        _session_id: str,
+        _issued: object,
+        temp: Path | None,
+        **_kw: object,
+    ) -> str:
+        started.append(temp)
+        return "started"
+
+    def open_subtask(subtask_id: str) -> Path:
+        opened.append(subtask_id)
+        return run_dir / "worktrees" / subtask_id
+
+    monkeypatch.setattr(dispatch, "binary_version", lambda _binary: config.claude_version)
+    monkeypatch.setattr(dispatch, "empty_outbox", lambda *_a: ())
+    monkeypatch.setattr(ClaudeDispatcher, "os_layer", lambda _self: layer)
+    monkeypatch.setattr(ClaudeDispatcher, "_run_session", run_session)
+    dispatcher = ClaudeDispatcher(
+        config=config,
+        run=SimpleNamespace(open_subtask=open_subtask, run_dir=run_dir),  # type: ignore[arg-type]
+        store_root=run_dir / "store",
+        install_bin=run_dir / "install" / "bin" / "physgate",
+        binary="claude",
+        base_url=None,
+        credential=Credential(mode="api_key", secret="not-a-key"),
+        review_root=run_dir / "reviews",
+    )
+    request = SessionRequest(
+        subtask_id="s1",
+        attempt=1,
+        assigned_role="electrical",
+        spec_path=".physgate/specs/s1.md",
+        module_dir="modules/power",
+        model=config.models.roles["electrical"],
+        repair_instruction=None,
+        bounds=SCRIPTED_BOUNDS,
+    )
+    dispatcher.run(request)
+    return started, opened
+
+
+def test_the_dispatcher_spawns_no_role_session_without_the_layer(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from physgate.orchestrator.exceptions import InvocationError
+
+    started: list[Path | None] = []
+    opened: list[str] = []
+    with pytest.raises(InvocationError, match="runs only inside the OS layer") as refused:
+        _dispatched(monkeypatch, tmp_path, ABSENT, (started, opened), os_layer_absent="refuse")
+    assert refused.value.context == {"subtask_id": "s1"}
+    # Refused before anything of the session exists: no worktree opened, no session started.
+    assert started == [] and opened == []
+
+
+def test_the_dispatcher_spawns_a_role_session_without_the_layer_where_the_run_allows_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    started, opened = _dispatched(monkeypatch, tmp_path, ABSENT, os_layer_absent="allow")
+    assert started == [None] and opened == ["s1"]
+
+
+def test_the_dispatcher_never_spawns_without_the_layer_for_a_run_that_acts_on_decisions(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from physgate.orchestrator.exceptions import InvocationError
+
+    with pytest.raises(InvocationError, match="acts on queue decisions"):
+        _dispatched(
+            monkeypatch,
+            tmp_path,
+            ABSENT,
+            os_layer_absent="allow",
+            queue_decisions="act",
+            os_layer=PRESENT,
+        )
+
+
+def test_the_dispatcher_spawns_a_role_session_inside_the_layer_with_its_temporary_directory(
+    monkeypatch: pytest.MonkeyPatch, outside_tmp: Path
+) -> None:
+    started, _ = _dispatched(monkeypatch, outside_tmp, PRESENT, os_layer_absent="refuse")
+    (temp,) = started
+    assert temp is not None and temp.name.startswith("pg-")
+
+
+def _role_install(tmp_path: Path, *extra: str) -> list[str]:
+    worktree = tmp_path / "wt"
+    worktree.mkdir(exist_ok=True)
+    return [
+        *("hooks", "install", "--profile", "role", "--role", "electrical"),
+        *("--worktree", str(worktree), "--state-dir", str(tmp_path / "state")),
+        *("--target", str(tmp_path / "session"), "--claude-config-dir", str(tmp_path / "cfg")),
+        *("--ceiling", "1000", *extra),
+    ]
+
+
+def _installer_error(capsys: pytest.CaptureFixture[str]) -> str:
+    said: str = json.loads(capsys.readouterr().err.strip().splitlines()[-1])["error"]
+    return said
+
+
+def test_the_installer_writes_no_role_settings_without_the_sandbox(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(_role_install(tmp_path)) == 2
+    said = _installer_error(capsys)
+    assert "--os-layer-temp" in said and "os_layer_absent" in said
+    assert not (tmp_path / "session").exists()
+
+
+@pytest.mark.parametrize(
+    ("overrides", "said"),
+    [
+        ({"os_layer_absent": "refuse"}, "runs only inside the OS layer"),
+        (
+            {"os_layer_absent": "allow", "queue_decisions": "act", "os_layer": PRESENT},
+            "acts on queue decisions",
+        ),
+    ],
+    ids=["a-run-that-refuses-the-absence", "a-run-that-acts-on-decisions"],
+)
+def test_the_installer_holds_the_run_s_recorded_configuration_to_the_one_check(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], overrides: dict[str, object], said: str
+) -> None:
+    write_run_config(tmp_path / "run.json", make_config(**overrides))
+    assert main(_role_install(tmp_path, "--run-config", str(tmp_path / "run.json"))) == 2
+    assert said in _installer_error(capsys)
+    assert not (tmp_path / "session").exists()
+
+
+def test_the_installer_writes_a_role_s_settings_without_the_sandbox_for_a_run_that_allows_it(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    write_run_config(tmp_path / "run.json", make_config(os_layer_absent="allow"))
+    assert main(_role_install(tmp_path, "--run-config", str(tmp_path / "run.json"))) == 0
+    settings = json.loads(Path(json.loads(capsys.readouterr().out)["settings"]).read_text())
+    assert "sandbox" not in settings
+
+
+def test_the_installer_writes_a_role_s_settings_with_the_sandbox_and_needs_no_run_configuration(
+    outside_tmp: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    temp = "/tmp/pg-0123456789ab"
+    home = str(outside_tmp / "home")
+    args = _role_install(
+        outside_tmp, "--os-layer-temp", temp, "--spawns-with-canary", "--user-home", home
+    )
+    assert main(args) == 0
+    settings = json.loads(Path(json.loads(capsys.readouterr().out)["settings"]).read_text())
+    assert settings["sandbox"]
+
+
+def test_a_run_configuration_that_cannot_be_read_lets_nothing_be_written(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "torn.json").write_text('{"run_id": ')
+    for path in (tmp_path / "none.json", tmp_path / "torn.json"):
+        assert main(_role_install(tmp_path, "--run-config", str(path))) == 2
+        assert "run configuration" in _installer_error(capsys)
+    assert not (tmp_path / "session").exists()
+
+
+def test_the_dispatcher_names_the_run_s_configuration_to_an_install_without_the_layer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from test_the_held_out_tier_and_the_network_reach_every_session import (  # noqa: PLC0415
+        _install_argv,
+        _values,
+    )
+
+    absent = _install_argv(tmp_path, monkeypatch, temp=None)
+    assert _values(absent, "--run-config") == [str(tmp_path / "run" / "run.json")]
+    inside = _install_argv(tmp_path, monkeypatch, temp=Path("/tmp/pg-0123456789ab"))
+    assert "--run-config" not in inside
 
 
 # -- never from the environment ---------------------------------------------------------------
