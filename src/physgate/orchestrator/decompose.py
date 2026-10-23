@@ -306,6 +306,13 @@ def plan_problems(plan: Plan, roles: Sequence[str], brief: str) -> list[str]:
             found.append(f"module {module.name!r} is assigned a role the run has no model for")
         if path.is_absolute() or ".." in path.parts or path.parts[:1] == (".physgate",):
             found.append(f"module {module.name!r} has a directory outside the modules' space")
+        # Git refuses to add any path with a component named .git, whatever its case, so
+        # what a session wrote there would be left out of its commit without a word.
+        if any(part.casefold() == ".git" for part in path.parts):
+            found.append(
+                f"module {module.name!r} has a directory with a .git component, beneath which "
+                "git records nothing a session writes"
+            )
         for root, allowed in protected:
             if _overlap(path, root) and not any(_within(path, a) for a in allowed):
                 found.append(

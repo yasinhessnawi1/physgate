@@ -205,6 +205,23 @@ def test_directories_that_differ_in_more_than_case_are_still_apart(first: str, s
     assert not any("overlap" in p for p in found), found
 
 
+@pytest.mark.parametrize(
+    "module_dir", ["modules/.git", "modules/x/.GIT", "modules/.Git/hooks", "modules/a/.git/b"]
+)
+def test_a_directory_with_a_git_component_is_refused(module_dir: str) -> None:
+    # Git records no path with a component named .git, in any case: what a session wrote
+    # there would never reach its commit, and the module's work would be lost unseen.
+    found = plan_problems(plan([module("a", module_dir)]), ["electrical"], BRIEF)
+    assert any(p.startswith("module 'a' ") and "a .git component" in p for p in found), found
+
+
+@pytest.mark.parametrize(
+    "module_dir", ["modules/.github", "modules/x.git", "modules/git", "modules/.gitkeep/a"]
+)
+def test_a_directory_whose_name_only_holds_git_is_not(module_dir: str) -> None:
+    assert plan_problems(plan([module("a", module_dir)]), ["electrical"], BRIEF) == []
+
+
 def test_usage_is_counted_once_per_message_and_garbage_lines_are_skipped() -> None:
     usage = {"input_tokens": 10, "output_tokens": 5}
     lines = [
