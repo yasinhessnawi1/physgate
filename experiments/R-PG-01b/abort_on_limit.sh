@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# R-PG-01b, CRITERIA.md §11 and §12: the usage-limit watcher, derived from the one the reviewer
+# calibration run of 22.10.2026 used (its diff is diffs/abort_on_limit.sh.diff). It stops every arm
+# of the round at the first session that ends on a usage limit, so no further session runs into
+# the limit; the attempt is void. It logs counts and causes only.
+# Usage: abort_on_limit.sh <log> <pid> <run dir> <review root> [<pid> <run dir> <review root> ...]
+# Each <pid> leads its own process group (the arm was started under setsid).
+LOG="$1"; shift
+PIDS=(); DIRS=()
+while [ $# -ge 3 ]; do PIDS+=("$1"); DIRS+=("$2" "$3"); shift 3; done
+alive() { local p; for p in "${PIDS[@]}"; do kill -0 "$p" 2>/dev/null && return 0; done; return 1; }
+while alive; do
+  lim=$(grep -rl --include='*.jsonl' --include='*.json' --include='*.err' --include='*.txt' 'usage_limit_reached' "${DIRS[@]}" 2>/dev/null | wc -l | tr -d ' ')
+  r429=$(grep -rho --include='*.jsonl' '"api_error_status": *429' "${DIRS[@]}" 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$lim" -gt 0 ]; then
+    echo "ABORT $(date -u +%FT%TZ): usage_limit_reached files $lim, 429s $r429; every arm stopped; attempt void" | tee -a "$LOG"
+    for p in "${PIDS[@]}"; do kill -TERM -- "-$p" 2>/dev/null || kill -TERM "$p" 2>/dev/null; done
+    exit 0
+  fi
+  sleep "${RPB_WATCH_SECONDS:-30}"
+done
+echo "WATCHER $(date -u +%FT%TZ): every arm ended; usage_limit_reached files 0, 429s ${r429:-0}" >> "$LOG"
