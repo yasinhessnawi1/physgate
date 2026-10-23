@@ -147,6 +147,65 @@ REQUIREMENTS: list[dict[str, Any]] = [
 #: read the other is caught.
 BUDGET, DRIVE, FW = module("budget", "sizing"), module("drive", "control"), module("fw", "firmware")
 
+#: A second interface node, produced by another role.
+TILT: dict[str, Any] = {
+    **NODE,
+    "id": "iface.tilt",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+        "rate": {"value": 100, "unit": "Hz", "source": "brief", "written_by": "firmware"}
+    },
+}
+#: A requirement in the brief's words at the longest a requirement may be, outside ASCII,
+#: an astral character among its own: each is quoted in integration's specification as a
+#: JSON escape, so the line is far longer than the words.
+LONG = ("Holds the mast within ±0,5° of vertical from −20 °C to 45 °C 🌡, … " * 10)[:500]
+#: Two interfaces, one of them read by two modules, and two requirements in the brief's
+#: words, one of them :data:`LONG`: every entry of each list is written where it belongs.
+WIDE: dict[str, Any] = {
+    "interface_nodes": [NODE, TILT],
+    "interface_consumers": [
+        {"interface": "iface.drive", "consumers": ["fw", "budget"]},
+        {"interface": "iface.tilt", "consumers": ["drive"]},
+    ],
+    "system_requirements": [
+        {
+            "requirement": "It recovers from a 5 N push.",
+            "contributing": [
+                {"module": "drive", "criterion": "1"},
+                {"module": "fw", "criterion": "2"},
+            ],
+        },
+        {
+            "requirement": LONG,
+            "contributing": [
+                {"module": "drive", "criterion": "2"},
+                {"module": "budget", "criterion": "1"},
+            ],
+        },
+    ],
+}
+
+
+def ascii_json(text: str) -> str:
+    """``text`` as a JSON string escaped to ASCII, written out here rather than by ``json``.
+
+    Only for words without a quote, a backslash or a control character, as the fixtures'
+    are: every character past ASCII is a backslash-u escape, an astral one a surrogate pair.
+    """
+    out = []
+    for char in text:
+        point = ord(char)
+        if point < 0x80:
+            out.append(char)
+        elif point < 0x10000:
+            out.append(f"\\u{point:04x}")
+        else:
+            high, low = divmod(point - 0x10000, 0x400)
+            out.append(f"\\u{0xD800 + high:04x}\\u{0xDC00 + low:04x}")
+    return '"' + "".join(out) + '"'
+
 
 def integrated(modules: list[dict[str, str]], **changes: Any) -> IntegratedPlan:  # noqa: ANN401
     answer = {
@@ -157,6 +216,11 @@ def integrated(modules: list[dict[str, str]], **changes: Any) -> IntegratedPlan:
         **changes,
     }
     return IntegratedPlan.model_validate_json(json.dumps(answer))
+
+
+def wide(modules: list[dict[str, str]]) -> IntegratedPlan:
+    """The plan of ``modules`` with the two lists of :data:`WIDE`."""
+    return integrated(modules, **WIDE)
 
 
 def base(modules: list[dict[str, str]]) -> Plan:
@@ -340,6 +404,47 @@ def test_the_closing_pass_is_sizing_s_module_again_under_a_specification_the_har
     assert issued_criteria(text) == ("1", "2", "3")
 
 
+def test_the_closing_pass_s_specification_reads_line_for_line_as_the_run_is_planned(
+    tmp_path: Path,
+) -> None:
+    # Every whole line. The domain modules that ran between the two passes are the plan's
+    # domain modules in the order they run, and the first pass is not among them: it is
+    # named once, as the pass whose specification says what the module owns.
+    run_dir, repo = started(tmp_path, wide([DRIVE, BUDGET, FW]), BOTH)
+    opening, drive, fw, closing, _ = planned(run_dir)
+    assert issued(repo, closing) == "\n".join(
+        [
+            '# Closing pass of the "sizing" role',
+            "",
+            "The harness wrote this specification from the recorded plan. It is the second "
+            'pass of the "sizing" role over module "budget", in `modules/budget`, placed '
+            "after every domain module below. The first pass, subtask "
+            f"`{opening.subtask_id}`, was issued `{opening.spec_path}`; read it for what "
+            "this module owns.",
+            "",
+            "The domain modules that ran between the two passes:",
+            "",
+            f'- `{drive.subtask_id}`: module "drive", role "control", directory `modules/drive`',
+            f'- `{fw.subtask_id}`: module "fw", role "firmware", directory `modules/fw`',
+            "",
+            "## Acceptance criteria",
+            "",
+            '1. Every node of the "sizing" role is read again, with every node it constrains '
+            "and every node that constrains it, as the design graph holds them now.",
+            "2. Where a node read under criterion 1 changed after the first pass, each node of "
+            'the "sizing" role joined to it is rewritten to agree with it, or keeps its values '
+            "and states why in its `no_change_justified`, under the changed node's id.",
+            "3. No node of another role is written.",
+            "",
+        ]
+    )
+    assert (opening.subtask_id, drive.subtask_id, fw.subtask_id) == (
+        mint_id(SEED, 1, "budget"),
+        mint_id(SEED, 0, "drive"),
+        mint_id(SEED, 2, "fw"),
+    )
+
+
 # --- integration's specification ----------------------------------------------------------
 
 
@@ -356,9 +461,15 @@ def test_integrations_spec_carries_the_requirements_list(tmp_path: Path) -> None
     run_dir, repo = started(tmp_path, integrated([BUDGET, DRIVE, FW]), BOTH)
     lines = planned(run_dir)
     text = issued(repo, lines[-1])
-    assert '- "2": criterion "1" of module "drive"; criterion "2" of module "fw"' in text
-    # The interfaces with their producing role and consumers, and every subtask it checks.
-    assert '- "iface.drive": produced by the "control" role; read by module "fw"' in text
+    assert (
+        '- "2": criterion "1" of module "drive"; criterion "2" of module "fw"' in text.splitlines()
+    )
+    # The interfaces with their producing role, consumers and contract, and every subtask
+    # it checks.
+    assert (
+        '- "iface.drive": produced by the "control" role; read by module "fw"; '
+        "contract `.physgate/interfaces/iface.drive.json`"
+    ) in text.splitlines()
     for line in lines[:-1]:
         assert line.subtask_id in text
         assert line.spec_path in text
@@ -369,6 +480,95 @@ def test_integrations_spec_carries_the_requirements_list(tmp_path: Path) -> None
         in text
     )
     assert issued_criteria(text) is not None
+
+
+@pytest.mark.parametrize("gate_mode", ["on", "observe", "off"])
+def test_integration_s_spec_reads_line_for_line_as_the_plan_gives_it(
+    tmp_path: Path, gate_mode: GateMode
+) -> None:
+    # Every whole line, from a plan with two interfaces, one read by two modules, and two
+    # requirements, one at the longest a requirement may be and outside ASCII: each entry
+    # of each list is written whole, in the plan's order, on a line of its own.
+    run_dir, repo = started(tmp_path, wide([DRIVE, BUDGET, FW]), BOTH, gate_mode)
+    lines = planned(run_dir)
+    checked = [
+        f"- `{line.subtask_id}`: module {module}, role {role}, directory `{line.module_dir}`, "
+        f"specification `.physgate/specs/{line.subtask_id}.md`"
+        for line, module, role in zip(
+            lines[:-1],
+            ['"budget"', '"drive"', '"fw"', '"budget"'],
+            ['"sizing"', '"control"', '"firmware"', '"sizing"'],
+            strict=True,
+        )
+    ]
+    assert [line.subtask_id for line in lines[:-1]] == [
+        mint_id(SEED, 1, "budget"),
+        mint_id(SEED, 0, "drive"),
+        mint_id(SEED, 2, "fw"),
+        mint_id(SEED, 3, "budget-closing"),
+    ]
+    assert issued(repo, lines[-1]) == "\n".join(
+        [
+            "# Integration",
+            "",
+            "The harness wrote this specification from the recorded plan. Integration checks "
+            "the modules below together, after each of them has merged: every quantity of "
+            "every interface node against its producer and each of its consumers, the "
+            "modules' analysis and test scripts run together on the merged design, and the "
+            "system requirements below. It writes no node and no file another role owns, and "
+            "it declares a module complete only when every precondition holds.",
+            "",
+            SENTENCES[gate_mode],
+            "",
+            "## Subtasks it checks",
+            "",
+            "Each subtask with its module, the module's role and directory, and the "
+            "specification it was issued.",
+            "",
+            *checked,
+            "",
+            "## Interfaces",
+            "",
+            "Each interface node with the role that produces it, the modules that read it, and "
+            "its contract.",
+            "",
+            '- "iface.drive": produced by the "control" role; read by modules "fw", "budget"; '
+            "contract `.physgate/interfaces/iface.drive.json`",
+            '- "iface.tilt": produced by the "firmware" role; read by module "drive"; '
+            "contract `.physgate/interfaces/iface.tilt.json`",
+            "",
+            "## System requirements",
+            "",
+            "Each requirement of the brief that only the assembled system can show, as the "
+            "plan gives it (the brief's criterion number, or the brief's words), with the "
+            "module criteria that contribute to it.",
+            "",
+            '- "It recovers from a 5 N push.": criterion "1" of module "drive"; '
+            'criterion "2" of module "fw"',
+            f'- {ascii_json(LONG)}: criterion "2" of module "drive"; '
+            'criterion "1" of module "budget"',
+            "",
+            "## Acceptance criteria",
+            "",
+            "1. Every quantity of every interface node above has a clause line for each of its "
+            "consumers, judged from the producer's and the consumer's own files and nodes.",
+            "2. Every module's analysis and test scripts are run together on the merged design, "
+            "and each run is recorded with its command, commit, exit status and output.",
+            "3. Each system requirement above is shown verified at system level, with its "
+            "evidence, or named as not verified.",
+            "4. The system-scope result is reported as recorded or, with the checks off, the "
+            "record says there is none.",
+            "5. A module is declared complete only when every precondition holds, each with its "
+            "evidence; a module with an open precondition is listed as not complete, with the "
+            "open item named.",
+            "6. The record states what was exercised and what was not.",
+            "7. No node and no file of another role is written.",
+            "",
+        ]
+    )
+    # The long requirement is written whole: 500 characters, the astral one a pair.
+    assert len(LONG) == 500 and any(ord(c) > 0xFFFF for c in LONG)
+    assert ascii_json(LONG) == json.dumps(LONG)
 
 
 def test_an_empty_requirements_list_is_said_to_be_empty(tmp_path: Path) -> None:
@@ -470,11 +670,22 @@ def test_a_run_without_integration_records_the_digest_and_no_lists(tmp_path: Pat
 def test_the_lists_are_recorded_and_read_back_through_the_plan_s_own_models(
     tmp_path: Path,
 ) -> None:
-    plan = integrated([BUDGET, DRIVE, FW])
+    # Two entries in each list: they are recorded whole and in the plan's order.
+    plan = wide([BUDGET, DRIVE, FW])
     run_dir, _ = started(tmp_path, plan, BOTH)
     line = decomposed(run_dir)
     assert line.interface_consumers == plan.interface_consumers
     assert line.system_requirements == plan.system_requirements
+    written = json.loads(
+        next(
+            raw
+            for raw in (run_dir / "events.jsonl").read_text().splitlines()
+            if '"decomposed"' in raw
+        )
+    )
+    assert written["interface_consumers"] == WIDE["interface_consumers"]
+    assert written["system_requirements"] == WIDE["system_requirements"]
+    assert written["interface_nodes"] == ["iface.drive", "iface.tilt"]
 
 
 def _rewritten(run_dir: Path, change: Any) -> Path:  # noqa: ANN401 - a line's own fields
@@ -498,6 +709,17 @@ def _rewritten(run_dir: Path, change: Any) -> Path:  # noqa: ANN401 - a line's o
         lambda e: e["system_requirements"][0].update(requirement=""),
         lambda e: e["interface_consumers"][0].update(extra="x"),
         lambda e: e.pop("system_requirements"),
+        # The second entry of each list is held to the models as the first is.
+        lambda e: e["interface_consumers"][1].update(consumers=[]),
+        lambda e: e["interface_consumers"][1].update(consumers=["Drive"]),
+        lambda e: e["system_requirements"][1].update(requirement="x" * 501),
+        lambda e: e["system_requirements"][1]["contributing"][1].update(criterion="1a"),
+        # The digest is a sha256's hex digest, or the line is not one this package wrote.
+        lambda e: e.update(plan_sha256=e["plan_sha256"].upper()),
+        lambda e: e.update(plan_sha256=e["plan_sha256"][:-1]),
+        lambda e: e.update(plan_sha256=e["plan_sha256"] + "\n"),
+        lambda e: e.update(plan_sha256="g" * 64),
+        lambda e: e.update(plan_sha256=""),
     ],
     ids=[
         "an empty consumers list",
@@ -505,13 +727,24 @@ def _rewritten(run_dir: Path, change: Any) -> Path:  # noqa: ANN401 - a line's o
         "an empty requirement",
         "a field the model does not have",
         "one list without the other",
+        "the second entry's empty consumers list",
+        "the second entry's consumer that is no module name",
+        "the second requirement past its length",
+        "a criterion of the second requirement that is no number",
+        "a digest in upper case",
+        "a digest one digit short",
+        "a digest with a line feed",
+        "a digest that is not hex",
+        "an empty digest",
     ],
 )
 def test_a_recorded_list_the_plan_s_models_refuse_is_refused_when_read_back(
     tmp_path: Path,
     change: Any,  # noqa: ANN401 - a line's own fields
 ) -> None:
-    run_dir, _ = started(tmp_path, integrated([BUDGET, DRIVE, FW]), BOTH)
+    run_dir, _ = started(tmp_path, wide([BUDGET, DRIVE, FW]), BOTH)
+    # The line as written reads back; the same line changed does not.
+    assert decomposed(run_dir).system_requirements is not None
     with pytest.raises(CorruptEventLogError):
         read_events(_rewritten(run_dir, change))
 
