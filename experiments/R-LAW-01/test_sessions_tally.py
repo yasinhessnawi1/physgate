@@ -378,6 +378,168 @@ def test_a_call_that_reports_no_usage_is_charged_unless_refused_before_any_work(
     assert row.get("tokens_estimated", False) is (charge > 0)
 
 
+def python_shim(tmp_path: Path, case: str) -> Path:
+    """A stand-in for $PY: this interpreter, except for the one call ``case`` names."""
+    py = tmp_path / f"py-{case}"
+    py.write_text(
+        "#!/usr/bin/env bash\n"
+        f'case "$*" in {case}) echo "shim: refused" >&2; exit 1 ;; esac\n'
+        f'exec {shlex.quote(sys.executable)} "$@"\n'
+    )
+    py.chmod(0o755)
+    return py
+
+
+def test_a_ledger_line_that_cannot_be_written_stops_the_run(tmp_path: Path, packets: Path) -> None:
+    py = python_shim(tmp_path, '*"law_verify.py ledger "*')
+    env = env_for(tmp_path, RLAW_PY=str(py))
+    done = run(
+        "run", "s", "reality", str(packets), str(tmp_path / "out"), "claude-opus-5-5", "1", env=env
+    )
+    # the try ran, but the guard would never count it: the run stops
+    assert done.returncode == 4, done.stderr
+    stop = "the ledger line of P0001 try1 could not be written"
+    assert (tmp_path / "led" / "STOPPED").read_text().splitlines() == [stop]
+    ev = rows_of(tmp_path / "led" / "interruptions.jsonl")
+    assert [(e["event"], e["reason"]) for e in ev] == [("stop", stop)]
+
+
+@pytest.mark.parametrize("case", ["missing", "older than 3.11"])
+def test_the_driver_refuses_to_start_without_its_python(
+    tmp_path: Path, packets: Path, case: str
+) -> None:
+    py = tmp_path / "no-such-python"
+    if case == "older than 3.11":
+        py = python_shim(tmp_path, "*version_info*")  # the version probe answers false
+    env = env_for(tmp_path, RLAW_PY=str(py))
+    out = tmp_path / "out"
+    done = run("run", "s", "reality", str(packets), str(out), "claude-opus-5-5", "1", env=env)
+    assert done.returncode == 2
+    assert "python" in done.stderr.lower()
+    assert not Path(env["RLAW_LEDGER"]).exists() and not out.exists()
+
+
+def test_a_failed_call_that_takes_the_total_past_the_guard_still_voids(
+    tmp_path: Path, packets: Path
+) -> None:
+    failed = json.dumps(
+        {
+            "type": "result",
+            "is_error": True,
+            "terminal_reason": "api_error",
+            "api_error_status": 500,
+            "num_turns": 1,
+            "usage": {"input_tokens": 100},
+            "modelUsage": {"claude-opus-5-5": {"inputTokens": 100}},
+        }
+    )
+    env = env_for(tmp_path, RLAW_STANDIN=str(fake(tmp_path, "failing", failed, "", 1)))
+    led = ledger(
+        Path(env["RLAW_LEDGER"]), [{"step": "x", "packet": "P", "try": 1, "tokens": 59_999_950}]
+    )
+    done = run(
+        "run", "s", "reality", str(packets), str(tmp_path / "out"), "claude-opus-5-5", "1", env=env
+    )
+    # the failed call wrote STOPPED; the last read of the total still finds the guard reached
+    assert [r["tokens"] for r in rows_of(led)] == [59_999_950, 100]
+    assert (tmp_path / "led" / "STOPPED").exists()
+    assert done.returncode == 3, done.stderr
+    assert "60000050" in (tmp_path / "led" / "VOID").read_text()
+
+
+#: What the binary may see of its caller's environment, and nothing else.
+ALLOWLIST = {"HOME", "USER", "LOGNAME", "PATH", "TMPDIR", "LANG", "DISABLE_AUTOUPDATER"}
+#: What the caller sets and the binary must never see.
+CALLER = {
+    "CLAUDECODE": "1",
+    "CLAUDE_EFFORT": "max",
+    "CLAUDE_CODE_SESSION_ID": "s-1",
+    "ANTHROPIC_API_KEY": "sk-never",
+    "MAX_STRUCTURED_OUTPUT_RETRIES": "1",
+}
+
+
+def env_dumper(tmp_path: Path) -> tuple[Path, Path]:
+    """A stand-in that writes the environment it was started with, and answers a valid form."""
+    dump = tmp_path / "env.json"
+    answer = {
+        "type": "result",
+        "is_error": False,
+        "terminal_reason": "completed",
+        "structured_output": {
+            "findings": [GOOD],
+            "sum": 5,
+            "tools": [],
+            "earlier_files": [],
+        },
+        "usage": {"input_tokens": 3},
+        "modelUsage": {"claude-opus-5-5": {"inputTokens": 3}},
+    }
+    exe = tmp_path / "envdump"
+    exe.write_text(
+        f"#!{sys.executable} -I\n"
+        "import json, os, sys\n"
+        "sys.stdin.read()\n"
+        f"open({str(dump)!r}, 'w').write(json.dumps(dict(os.environ)))\n"
+        f"print(json.dumps({answer!r}))\n"
+    )
+    exe.chmod(0o755)
+    return exe, dump
+
+
+def seen(dump: Path) -> dict[str, str]:
+    env = json.loads(dump.read_text())
+    env.pop("__CF_USER_TEXT_ENCODING", None)  # macOS adds it inside any Python process
+    return env
+
+
+def caller_env(tmp_path: Path, **kw: str) -> dict[str, str]:
+    return {
+        **CALLER,
+        "HOME": str(tmp_path / "home"),
+        "USER": "rlaw-user",
+        "LOGNAME": "rlaw-user",
+        "TMPDIR": str(tmp_path) + "/",
+        "LANG": "en_US.UTF-8",
+        **kw,
+    }
+
+
+def test_the_binary_sees_only_the_allowlisted_environment(tmp_path: Path, packets: Path) -> None:
+    exe, dump = env_dumper(tmp_path)
+    env = env_for(tmp_path, RLAW_STANDIN=str(exe), **caller_env(tmp_path))
+    out = tmp_path / "out"
+    done = run("run", "s", "reality", str(packets), str(out), "claude-opus-5-5", "1", env=env)
+    assert done.returncode == 0, done.stderr
+    got = seen(dump)
+    assert set(got) == ALLOWLIST, sorted(set(got) ^ ALLOWLIST)
+    assert got["PATH"] == "/usr/bin:/bin:/usr/sbin:/sbin" and got["DISABLE_AUTOUPDATER"] == "1"
+    assert (got["HOME"], got["USER"], got["TMPDIR"]) == (
+        env["HOME"],
+        "rlaw-user",
+        env["TMPDIR"],
+    )
+    assert (out / "P0001.try1.standin").exists()  # the stand-in path is marked, as before
+
+
+def test_the_smoke_session_sees_only_the_allowlisted_environment(tmp_path: Path) -> None:
+    exe, dump = env_dumper(tmp_path)
+    done = subprocess.run(
+        ["bash", str(SH), "smoke", str(tmp_path / "smoke")],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "RLAW_STANDIN": str(exe), **caller_env(tmp_path)},
+        check=False,
+    )
+    assert json.loads(done.stdout.strip().splitlines()[-1])["standin"] is True
+    assert set(seen(dump)) == ALLOWLIST
+
+
+def test_the_allowlist_is_named_by_the_driver(tmp_path: Path) -> None:
+    done = run("envnames")
+    assert done.returncode == 0 and set(done.stdout.split()) == ALLOWLIST
+
+
 def test_the_driver_and_the_tally_hold_one_guard() -> None:
     m = re.search(r"^GUARD=(\d+)$", SH.read_text(), re.M)
     assert m is not None and int(m.group(1)) == TL.GUARD == 60_000_000

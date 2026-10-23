@@ -8,7 +8,8 @@ lines whose evidence is written here, and gate lines the real gate wrote over th
 ``python -I law_fixture.py standin <claude arguments>`` is the stand-in: it reads a packet on
 standard input and answers in the CLI's JSON output, every answer a function of the packet's own
 text and a hash, never a model. ``RLAW_STANDIN_STATE`` names a directory for its memory across
-tries (an invalid first try for some packets, for the retry tests).
+tries (an invalid first try for some packets, for the retry tests); ``write_standin`` writes it
+into the stand-in, since the binary's environment is an allowlist.
 """
 
 from __future__ import annotations
@@ -485,12 +486,15 @@ def standin(argv: list[str], packet: str) -> dict[str, Any] | list[dict[str, Any
     ]
 
 
-def write_standin(where: Path) -> Path:
-    """An executable that runs the stand-in with this interpreter."""
+def write_standin(where: Path, state: Path | None = None) -> Path:
+    """An executable that runs the stand-in with this interpreter. The binary sees only an
+    allowlisted environment, so the stand-in's memory (``state``) is written into it."""
     exe = where / "standin"
+    keep = f'export RLAW_STANDIN_STATE="{state}"\n' if state is not None else ""
     exe.write_text(
         "#!/usr/bin/env bash\n"
-        f'exec "{sys.executable}" -I "{HERE / "law_fixture.py"}" standin "$@"\n'
+        + keep
+        + f'exec "{sys.executable}" -I "{HERE / "law_fixture.py"}" standin "$@"\n'
     )
     exe.chmod(0o755)
     return exe

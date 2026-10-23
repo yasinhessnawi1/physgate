@@ -43,7 +43,6 @@ def sessions(
         "RLAW_STANDIN": str(work / "standin"),
         "RLAW_PROMPTS": str(work / "prompts"),
         "RLAW_LEDGER": str(work / "ledger" / "ledger.jsonl"),
-        "RLAW_STANDIN_STATE": str(work / "state"),
         "RLAW_SHEET_SHA256": DIGEST,
         **(extra or {}),
     }
@@ -75,7 +74,8 @@ def pipeline(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     work.mkdir()
     (work / "ledger").mkdir()
     (work / "state").mkdir()
-    F.write_standin(work)
+    # the binary sees only an allowlisted environment, so the stand-in carries its own memory
+    F.write_standin(work, state=work / "state")
     lines, counts, sets = F.extract_fixture(fx)
     X.write_jsonl(work / "lines.jsonl", lines)
     (work / "extract_counts.json").write_text(json.dumps(counts))

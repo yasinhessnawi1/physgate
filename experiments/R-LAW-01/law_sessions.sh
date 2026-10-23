@@ -6,17 +6,21 @@
 #   law_sessions.sh projection <ledger> <round-1 step>...
 #   law_sessions.sh watch <work dir> <process group> <since file> <phase>
 #   law_sessions.sh smoke <out dir>
+#   law_sessions.sh envnames
 #
 # run: every packet of <packets dir> (or those listed in <ids file>), each a session of the pinned
 #   binary with the pinned model, effort high, no tools, no settings, no MCP, no session
-#   persistence, an empty working directory, the step's system prompt and JSON schema.
+#   persistence, an empty working directory, the step's system prompt and JSON schema, and only the
+#   allowlisted environment (envnames; env -i): nothing else of the caller's reaches the binary.
+#   Refused (exit 2) unless the driver's Python ($RLAW_PY, else the project's .venv) is 3.11 or
+#   later; there is no other Python to fall back on.
 #   - A call that completes (a result with is_error false, no other terminal reason, exit 0) is a
 #     try. A try whose output lacks a valid form for some finding is retried once (law_verify.py
 #     valid): the §5.5 retry, which is for an invalid form only.
 #   - So is the binary's own report that the model's output never fit --json-schema (subtype
 #     error_max_structured_output_retries, or terminal reason structured_output_retry_exhausted),
-#     an error result with exit 1: a completed try with no form, which gets the same one retry; a
-#     second one leaves the line without that coder's form.
+#     an error result: a completed try with no form, which gets the same one retry; a
+#     second one leaves the line without that coder's form (classify takes it at any exit).
 #   - A call that fails is not a try: any other error result (a usage limit, a rate limit, a
 #     refused credential, a server error after the binary's own retries, an API error), no result
 #     at all (a network failure, a crash, output that is not the binary's), another terminal
@@ -26,7 +30,8 @@
 #   - Every call appends one line to the ledger, counted and written in one append by
 #     law_verify.py ledger: step, packet, try, model asked for, models the output names, tokens
 #     (input, output, cache read and cache creation), exit code, validity, and the cause if the
-#     call failed (``infrastructure``).
+#     call failed (``infrastructure``). A line that cannot be written stops the run, since the
+#     guard would never count its call.
 #   - Before each session, and once more after the last one settles, the ledger's total is read:
 #     at 60,000,000 tokens every session stops and the file VOID is written beside the ledger (the
 #     result is void, CRITERIA.md §12). A total that cannot be read (a torn line, a row without a
@@ -49,6 +54,7 @@
 #   to check before launch that --json-schema works with --tools "", that --setting-sources ""
 #   keeps every CLAUDE.md out, and that the result's usage is the sum over its modelUsage. Not
 #   part of the experiment: it writes no ledger line. Prints one JSON line; exit 0 if it holds.
+# envnames: the names of the environment the binary runs with (never their values).
 #
 # Environment:
 #   RLAW_PROMPTS  the directory law_packets.py prompts wrote for the version in force (run)
@@ -76,14 +82,29 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
-PY="${RLAW_PY:-$REPO/.venv/bin/python}"
-[ -x "$PY" ] || PY=python3
+PY="${RLAW_PY:-$REPO/.venv/bin/python}"  # no fallback: run refuses to start without it (py_ok)
 GUARD=60000000
 TABLE_SESSIONS=590
 PIN_MAC=1f04c69e1c24e4d0a716a863af0aad8fc64d49a499334c29701f073700276b99
 PIN_LINUX=1e119036a802d359ba5f9886428e031586e8796f7a858d5a8ee179ac7b8604f0
 PIN_VERSION="2.1.301"
 EFFORT=high
+
+#: The binary's whole environment (env -i): these names, from the caller where it has them, with
+#: PATH fixed and the auto-updater off. Nothing else of the caller's reaches it.
+ENV_ALLOW="HOME USER LOGNAME PATH TMPDIR LANG DISABLE_AUTOUPDATER"
+
+binenv() { # command...: run it with exactly the allowlisted environment
+  local a=() n
+  for n in HOME USER LOGNAME TMPDIR LANG; do
+    [ -n "${!n+set}" ] && a+=("$n=${!n}")
+  done
+  env -i ${a[@]+"${a[@]}"} PATH=/usr/bin:/bin:/usr/sbin:/sbin DISABLE_AUTOUPDATER=1 "$@"
+}
+
+py_ok() { # the driver's Python exists and is 3.11 or later
+  [ -x "$PY" ] && "$PY" -I -c 'import sys; sys.exit(0 if sys.version_info[:2] >= (3, 11) else 1)' 2>/dev/null
+}
 
 sha() { if command -v sha256sum >/dev/null; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
 utc() { date -u +%FT%TZ; }
@@ -214,14 +235,15 @@ pinned_bin() { # -> the binary, held to its pin; exit 2 if it is not the pinned 
   local b="${RLAW_CLAUDE_BIN:?set RLAW_CLAUDE_BIN to the pinned binary}" d
   d="$(sha "$b")"
   [ "$d" = "$PIN_MAC" ] || [ "$d" = "$PIN_LINUX" ] || { echo "binary is not the pinned one" >&2; exit 2; }
-  "$b" --version 2>/dev/null | grep -q "^$PIN_VERSION " || { echo "binary version is not $PIN_VERSION" >&2; exit 2; }
+  binenv "$b" --version 2>/dev/null | grep -q "^$PIN_VERSION " || { echo "binary version is not $PIN_VERSION" >&2; exit 2; }
   echo "$b"
 }
 
 invoke() { # bin model schema system packet out err: one call, exactly as every session runs
+  # (the stand-in's too): an empty working directory and only the allowlisted environment
   local w rc
   w="$(mktemp -d "${TMPDIR:-/tmp}/rlaw.XXXXXX")"
-  ( cd "$w" && "$1" -p --model "$2" --effort "$EFFORT" --tools "" --setting-sources "" \
+  ( cd "$w" && binenv "$1" -p --model "$2" --effort "$EFFORT" --tools "" --setting-sources "" \
       --strict-mcp-config --no-session-persistence --output-format json \
       --json-schema "$(cat "$3")" --system-prompt "$(cat "$4")" \
       < "$5" > "$6" 2> "$7" )
@@ -238,9 +260,7 @@ smoke() { # out dir
     bin="$RLAW_STANDIN"; standin=1; version=standin
   else
     bin="$(pinned_bin)" || exit 2
-    version="$("$bin" --version 2>/dev/null | head -1)"
-    export DISABLE_AUTOUPDATER=1
-    unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL
+    version="$(binenv "$bin" --version 2>/dev/null | head -1)"
   fi
   printf '%s' 'You answer the questions of the packet you are given, exactly and briefly.' > "$out/system.txt"
   printf '%s' '{"type": "object", "properties": {"sum": {"type": "number"}, "tools": {"type": "array", "items": {"type": "string"}}, "earlier_files": {"type": "array", "items": {"type": "string"}}}, "required": ["sum", "tools", "earlier_files"]}' > "$out/schema.json"
@@ -297,11 +317,13 @@ case "${1:-}" in
   projection) shift; projection "$@"; exit $? ;;
   watch) shift; watch_phase "$@"; exit 0 ;;
   smoke) shift; smoke "$@"; exit $? ;;
+  envnames) echo "$ENV_ALLOW"; exit 0 ;;
   run) shift ;;
-  *) sed -n '2,73p' "$0" >&2; exit 2 ;;
+  *) sed -n '2,80p' "$0" >&2; exit 2 ;;
 esac
 
 [ $# -ge 6 ] || { echo "run needs: step kind packets out model lanes [ids]" >&2; exit 2; }
+py_ok || { echo "the driver's python $PY is missing or older than 3.11 (RLAW_PY names another)" >&2; exit 2; }
 STEP="$1"; KIND="$2"; PACKETS="$(cd "$3" && pwd)"; OUT="$4"; MODEL="$5"; LANES="$6"; IDS="${7:-}"
 : "${RLAW_PROMPTS:?set RLAW_PROMPTS}"; : "${RLAW_LEDGER:?set RLAW_LEDGER}"
 case "$KIND" in
@@ -360,8 +382,6 @@ if [ -n "${RLAW_STANDIN:-}" ]; then
   SHEET_ARG="${RLAW_SHEET_SHA256:-}"
 else
   BIN="$(pinned_bin)" || exit 2
-  export DISABLE_AUTOUPDATER=1
-  unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL
 fi
 
 mkdir -p "$OUT"
@@ -377,8 +397,9 @@ if [ -n "$(ls -A "$OUT" 2>/dev/null)" ] && [ "${RLAW_RESUME:-0}" != 1 ]; then
 fi
 
 ledger_line() { # pid try exit valid file cause: one line, counted by law_verify, in one append
+  # A line that cannot be written leaves its call uncounted by the guard: the run stops.
   "$PY" -I "$HERE/law_verify.py" ledger "$RLAW_LEDGER" "$STEP" "$1" "$2" "$MODEL" "$5" "$3" "$4" \
-    "$STANDIN" "$6"
+    "$STANDIN" "$6" || { stop "the ledger line of $1 try$2 could not be written"; return 1; }
 }
 
 valid_try() { # pid try -> 0 if that try's output has every form
