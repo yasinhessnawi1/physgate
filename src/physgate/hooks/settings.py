@@ -28,7 +28,7 @@ import shlex
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -497,6 +497,66 @@ def build_config(request: InstallRequest, installation: Installation) -> Session
         hook_timeout_seconds=HOOK_TIMEOUT_SECONDS,
         survivor_reaper=reaper_on,
     )
+
+
+#: Where :func:`protected_in_a_worktree` places the role session it asks about. Nothing is
+#: read from or written to it: the configuration is only built.
+_ASKED_ABOUT = PurePosixPath("/physgate-protected-roots")
+
+
+def protected_in_a_worktree() -> tuple[tuple[PurePosixPath, tuple[PurePosixPath, ...]], ...]:
+    """Every root the hook layer protects inside a role session's worktree, relative to it.
+
+    Each comes with the paths beneath it a session may still write. They are read from
+    the configuration :func:`build_config` gives a role session, never listed a second
+    time, so a root added there is one here too. The protected roots are counted (the
+    answer-carrying corpora among them), and the experiments directory, whose criteria
+    and results are frozen. What lies outside the worktree (the session's settings,
+    state and home, the hook installation) is left out. The orchestrator's own additions
+    are left out too: they are the run's records and git's files, outside the worktree
+    or its ``.git`` entry.
+    """
+    worktree = _ASKED_ABOUT / "worktree"
+    session = _ASKED_ABOUT / "session"
+    config = build_config(
+        InstallRequest(
+            profile="role",
+            role="asked",
+            worktree=str(worktree),
+            own_branch=None,
+            store_root=None,
+            state_dir=str(session / "state"),
+            target_dir=str(session / "settings"),
+            claude_config_dir=str(session / "config"),
+            user_home=str(session / "home"),
+            token_ceiling=1,
+        ),
+        Installation(
+            interpreter=str(session / "python"),
+            package_dir=str(session / "package"),
+            environment_root=str(session / "environment"),
+            base_prefix=str(session / "base"),
+        ),
+    )
+
+    def inside(path: str) -> PurePosixPath | None:
+        """``path`` relative to the worktree, if it lies beneath it."""
+        at = PurePosixPath(path)
+        if at == worktree or not at.is_relative_to(worktree):
+            return None
+        return at.relative_to(worktree)
+
+    found: dict[PurePosixPath, tuple[PurePosixPath, ...]] = {}
+    for root in config.protected_roots:
+        at = inside(root.path)
+        if at is not None:
+            allowed = (inside(exception) for exception in root.exceptions)
+            found[at] = tuple(sorted(a for a in allowed if a is not None))
+    for rule in config.experiments:
+        at = inside(rule.root)
+        if at is not None:
+            found.setdefault(at, ())
+    return tuple(sorted(found.items()))
 
 
 def render_settings(

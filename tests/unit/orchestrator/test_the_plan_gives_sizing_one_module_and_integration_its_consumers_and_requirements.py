@@ -42,6 +42,7 @@ from physgate.orchestrator.decompose import (
     plan_sha256,
     prompt_for,
 )
+from physgate.reviewers.contract import issued_criteria
 from physgate.roles import CrossCuttingRole
 
 #: The run's roles: two domain roles and both cross-cutting ones.
@@ -476,6 +477,24 @@ def test_the_prompt_carries_the_requirements_sentence_only_with_integration() ->
     assert prompt.endswith(f"Brief:\n{BRIEF}\n")
     for run_roles in (DOMAIN_ONLY, ("control", "firmware", "sizing")):
         assert "assembled system" not in prompt_for(BRIEF, run_roles)
+
+
+def test_with_integration_the_prompt_asks_for_criteria_numbered_as_they_are_read() -> None:
+    # The system requirements cite module criteria by number, and a number is read only
+    # under a heading that names acceptance criteria (the reviewers' own reading). The
+    # prompt says so in one sentence, only with integration: the spec it describes, built
+    # from the sentence's own heading and numeral, is read with its numbers.
+    paragraphs = prompt_for(BRIEF, ROLES).split("\n\n")
+    (sentence,) = [p for p in paragraphs if "number" in p and "Acceptance criteria" in p]
+    assert sentence.count(". ") == 0 and sentence.endswith(".")
+    quoted = sentence.split('"')[1::2]
+    (heading,) = [q for q in quoted if q.startswith("#")]
+    assert "acceptance criteria" in heading.casefold()
+    assert {"1.", "2."} <= set(quoted)
+    written = f"Do the work.\n\n{heading}\n\n1. The first holds.\n2. The second holds.\n"
+    assert issued_criteria(written) == ("1", "2")
+    for run_roles in (DOMAIN_ONLY, ("control", "firmware", "sizing")):
+        assert sentence not in prompt_for(BRIEF, run_roles)
 
 
 # --- the plan's digest --------------------------------------------------------------------

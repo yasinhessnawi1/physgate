@@ -30,6 +30,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 
 from physgate.gate.catalogue import shadowing_names
+from physgate.hooks.settings import protected_in_a_worktree
 from physgate.knowledge.library import LibraryError, put_into, read_library
 from physgate.orchestrator.accounting import require_matching_totals
 from physgate.orchestrator.budget import classify_session_end
@@ -297,6 +298,7 @@ def plan_problems(plan: Plan, roles: Sequence[str], brief: str) -> list[str]:
     found: list[str] = []
     names = [m.name for m in plan.modules]
     dirs = [PurePosixPath(m.module_dir) for m in plan.modules]
+    protected = protected_in_a_worktree()
     if len(set(names)) != len(names):
         found.append("two modules share a name")
     for module, path in zip(plan.modules, dirs, strict=True):
@@ -304,6 +306,12 @@ def plan_problems(plan: Plan, roles: Sequence[str], brief: str) -> list[str]:
             found.append(f"module {module.name!r} is assigned a role the run has no model for")
         if path.is_absolute() or ".." in path.parts or path.parts[:1] == (".physgate",):
             found.append(f"module {module.name!r} has a directory outside the modules' space")
+        for root, allowed in protected:
+            if _overlap(path, root) and not any(_within(path, a) for a in allowed):
+                found.append(
+                    f"module {module.name!r} has a directory that overlaps {root}, which the "
+                    "hooks protect from every session"
+                )
     for i, one in enumerate(dirs):
         for other in dirs[i + 1 :]:
             if _overlap(one, other):
@@ -343,6 +351,11 @@ def _overlap(one: PurePosixPath, other: PurePosixPath) -> bool:
     """
     a, b = PurePosixPath(str(one).casefold()), PurePosixPath(str(other).casefold())
     return a == b or a.is_relative_to(b) or b.is_relative_to(a)
+
+
+def _within(path: PurePosixPath, root: PurePosixPath) -> bool:
+    """Whether ``path`` is ``root`` or lies beneath it, with case folded as in :func:`_overlap`."""
+    return PurePosixPath(str(path).casefold()).is_relative_to(str(root).casefold())
 
 
 def _cross_cutting_problems(plan: Plan, roles: Sequence[str]) -> list[str]:
@@ -462,10 +475,17 @@ def _requirement_problems(plan: IntegratedPlan, brief: str) -> list[str]:
     return found
 
 
-#: The one sentence the prompt gains in a run with the integration role.
+#: The sentences the prompt gains in a run with the integration role: the system
+#: requirements, and how the module criteria they cite are numbered, which is the form
+#: the plan check and the reviewers read a criterion's number in.
 REQUIREMENTS_SENTENCE = (
     "List each requirement of the brief that only the assembled system can show, with the "
     "module criteria that contribute to it."
+)
+NUMBERING_SENTENCE = (
+    'Number each module\'s acceptance criteria "1.", "2." and so on under a '
+    '"## Acceptance criteria" heading in its specification, since the system requirements '
+    "cite them by number."
 )
 
 
@@ -481,16 +501,17 @@ def _one_module_sentence(role: str) -> str:
 def prompt_for(brief: str, roles: Sequence[str]) -> str:
     """The decomposition prompt: a fixed template around the brief.
 
-    A cross-cutting role of the run adds one sentence: sizing's, that it has one module
-    at most; integration's, which asks for the system requirements. Integration is not
-    offered as a module's role, since the harness writes its specification. A run with
-    neither is sent the template as it was before either was planned for.
+    A cross-cutting role of the run adds its sentences: sizing's, that it has one module
+    at most; integration's, which ask for the system requirements and for module criteria
+    numbered as they are read. Integration is not offered as a module's role, since the
+    harness writes its specification. A run with neither is sent the template as it was
+    before either was planned for.
     """
     completion = _in_run("completion", roles)
     offered = sorted(role for role in roles if role not in completion)
     added = "".join(f"{_one_module_sentence(role)}\n\n" for role in _in_run("cross_nodes", roles))
     if completion:
-        added += f"{REQUIREMENTS_SENTENCE}\n\n"
+        added += f"{REQUIREMENTS_SENTENCE}\n\n{NUMBERING_SENTENCE}\n\n"
     return (
         "Decompose the design brief below into modules, one per role that has work to do, "
         "and the interface nodes between them.\n\n"
