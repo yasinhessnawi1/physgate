@@ -653,6 +653,9 @@ def test_an_outage_is_not_a_stuck_packet(tmp_path: Path, between: list[bool]) ->
 
 def test_differing_causes_or_texts_are_not_a_stuck_packet(tmp_path: Path) -> None:
     assert _stuck_case(tmp_path, ["api_error (404)", "api_error (404)", "api_error (400)"]) is None
+    # the label alone differs (no status, the same text)
+    assert _stuck_case(tmp_path, ["exit 2", "exit 2", "exit 3"]) is None
+    assert _stuck_case(tmp_path, ["exit 2"] * 3) is not None
     texts = ["claude-opus-5-5 is not found", "claude-opus-5-5 is not found", "overloaded"]
     assert _stuck_case(tmp_path, ["api_error (404)"] * 3, texts=texts) is None
 
