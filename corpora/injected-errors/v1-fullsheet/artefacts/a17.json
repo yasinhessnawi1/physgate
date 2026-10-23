@@ -1,0 +1,423 @@
+{
+ "id": "a17",
+ "error_class": "propagation",
+ "expected_check": "propagation",
+ "assigned_role": "electrical",
+ "description": "The IMU's output data rate is raised from 208 to 416 Hz, with its current and power moved to high-performance mode. The IMU driver keeps the base's sample_rate of 208 Hz, with no no_change_justified entry for electrical.imu. It should be 416 Hz, the rate the sensor is configured at. As written, firmware programs 208 Hz into the LSM6DS33 while the electrical budget is for 416 Hz in high-performance mode.",
+ "edge": {
+  "source": "electrical.imu",
+  "target": "firmware.imu_driver"
+ },
+ "clean": {
+  "nodes": [
+   {
+    "id": "electrical.imu",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 3.3,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "sample_rate": {
+      "value": 416,
+      "unit": "Hz",
+      "source": "design: accelerometer and gyroscope output data rate chosen from the LSM6DS33 options, at or above the estimator rate",
+      "written_by": "electrical"
+     },
+     "current_draw": {
+      "value": 1.25,
+      "unit": "mA",
+      "source": "https://www.pololu.com/file/0J1087/LSM6DS33.pdf",
+      "written_by": "electrical"
+     },
+     "power_draw": {
+      "value": 4.13,
+      "unit": "mW",
+      "source": "derived: [R8.03] * [R8.04]",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.regulator_5v",
+     "electrical.power_module",
+     "control.tilt_estimator",
+     "firmware.imu_driver"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.imu_driver",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 416,
+      "unit": "Hz",
+      "source": "design: configured LSM6DS33 output data rate, equal to the rate the IMU is run at",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "firmware.main_loop",
+     "electrical.imu"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "electrical.regulator_5v",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 5,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "current_limit": {
+      "value": 2,
+      "unit": "A",
+      "source": "https://www.pololu.com/product/3575",
+      "written_by": "electrical"
+     },
+     "max_input_voltage": {
+      "value": 36,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.battery_pack",
+     "electrical.power_module"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.imu": "The regulator's output voltage and rating do not depend on the IMU's operating mode; the higher IMU current stays far inside the 2 A rating."
+    }
+   },
+   {
+    "id": "electrical.power_module",
+    "kind": "module",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 7.2,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "current_draw": {
+      "value": 2.5,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.04] * [R1.25] / [R5.03]",
+      "written_by": "electrical"
+     },
+     "power_draw": {
+      "value": 18.0,
+      "unit": "W",
+      "source": "derived: [R1.02] * [R1.04] * [R1.25]",
+      "written_by": "electrical"
+     },
+     "energy_capacity": {
+      "value": 15.8,
+      "unit": "W*h",
+      "source": "derived: [R5.03] * [R5.06]",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [
+     "electrical.req_board_input_voltage"
+    ],
+    "constrains": [],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.imu": "The module records the drive's stall current and power and the pack energy; none of these depends on the IMU's operating mode."
+    }
+   },
+   {
+    "id": "control.tilt_estimator",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: estimator update rate, equal to the balance loop rate",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_loop_rate"
+    ],
+    "constrains": [
+     "control.balance_loop",
+     "firmware.imu_driver"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.imu": "The estimator still updates at the balance loop rate and reads the latest sample; a faster output data rate only means fresher samples."
+    }
+   },
+   {
+    "id": "firmware.main_loop",
+    "kind": "module",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: scheduler rate of the balance task, equal to the required loop rate",
+      "written_by": "firmware"
+     },
+     "clock_frequency": {
+      "value": 16,
+      "unit": "MHz",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [
+     "control.req_loop_rate"
+    ],
+    "constrains": [
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "firmware.imu_driver": "The IMU register setting changes, not the scheduler rate of the balance task or the clock."
+    }
+   }
+  ]
+ },
+ "injected": {
+  "nodes": [
+   {
+    "id": "electrical.imu",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 3.3,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "sample_rate": {
+      "value": 416,
+      "unit": "Hz",
+      "source": "design: accelerometer and gyroscope output data rate chosen from the LSM6DS33 options, at or above the estimator rate",
+      "written_by": "electrical"
+     },
+     "current_draw": {
+      "value": 1.25,
+      "unit": "mA",
+      "source": "https://www.pololu.com/file/0J1087/LSM6DS33.pdf",
+      "written_by": "electrical"
+     },
+     "power_draw": {
+      "value": 4.13,
+      "unit": "mW",
+      "source": "derived: [R8.03] * [R8.04]",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.regulator_5v",
+     "electrical.power_module",
+     "control.tilt_estimator",
+     "firmware.imu_driver"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.imu_driver",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 208,
+      "unit": "Hz",
+      "source": "design: configured LSM6DS33 output data rate, equal to the rate the IMU is run at",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "firmware.main_loop",
+     "electrical.imu"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "electrical.regulator_5v",
+    "kind": "component",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 5,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "current_limit": {
+      "value": 2,
+      "unit": "A",
+      "source": "https://www.pololu.com/product/3575",
+      "written_by": "electrical"
+     },
+     "max_input_voltage": {
+      "value": 36,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "electrical.battery_pack",
+     "electrical.power_module"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.imu": "The regulator's output voltage and rating do not depend on the IMU's operating mode; the higher IMU current stays far inside the 2 A rating."
+    }
+   },
+   {
+    "id": "electrical.power_module",
+    "kind": "module",
+    "domain": "electrical",
+    "owner_role": "electrical",
+    "quantities": {
+     "supply_voltage": {
+      "value": 7.2,
+      "unit": "V",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "electrical"
+     },
+     "current_draw": {
+      "value": 2.5,
+      "unit": "A",
+      "source": "derived: [R1.02] * [R1.04] * [R1.25] / [R5.03]",
+      "written_by": "electrical"
+     },
+     "power_draw": {
+      "value": 18.0,
+      "unit": "W",
+      "source": "derived: [R1.02] * [R1.04] * [R1.25]",
+      "written_by": "electrical"
+     },
+     "energy_capacity": {
+      "value": 15.8,
+      "unit": "W*h",
+      "source": "derived: [R5.03] * [R5.06]",
+      "written_by": "electrical"
+     }
+    },
+    "requirements": [
+     "electrical.req_board_input_voltage"
+    ],
+    "constrains": [],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.imu": "The module records the drive's stall current and power and the pack energy; none of these depends on the IMU's operating mode."
+    }
+   },
+   {
+    "id": "control.tilt_estimator",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: estimator update rate, equal to the balance loop rate",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_loop_rate"
+    ],
+    "constrains": [
+     "control.balance_loop",
+     "firmware.imu_driver"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "electrical.imu": "The estimator still updates at the balance loop rate and reads the latest sample; a faster output data rate only means fresher samples."
+    }
+   },
+   {
+    "id": "firmware.main_loop",
+    "kind": "module",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: scheduler rate of the balance task, equal to the required loop rate",
+      "written_by": "firmware"
+     },
+     "clock_frequency": {
+      "value": 16,
+      "unit": "MHz",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [
+     "control.req_loop_rate"
+    ],
+    "constrains": [
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "firmware.imu_driver": "The IMU register setting changes, not the scheduler rate of the balance task or the clock."
+    }
+   }
+  ]
+ }
+}

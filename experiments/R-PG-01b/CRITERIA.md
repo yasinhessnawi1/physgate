@@ -168,8 +168,8 @@ The launch script checks every row below (L3 and L4).
 commit adds it, and the run branch does not carry it. Its digests are in §2.5.
 
 **Facts for the run commit:**
-- **Instrument tree at the run commit:** `[FILL at "run commit filled"]`. **Run commit:** `[FILL at
-  "run commit filled"]`. Both are filled by the dated "run commit filled" commit on `master`, after
+- **Instrument tree at the run commit:** `dcb84fdbcc036de47e3f8aa96afc5b789ae1dd42`. **Run commit:**
+  `4c98383f96a020abc60bd75a060f38028ceb4849`. Both are filled by the dated "run commit filled" commit on `master`, after
   the run branch is tagged and pushed; that commit changes nothing else in this file.
 - **Measured on 23.10.2026 with the same backport in a scratch copy of `8bc03fc`** (nothing
   committed; counts and digests only):
@@ -231,9 +231,11 @@ corpora/injected-errors/v1/sources.json --prose drop`.
 - `base.json`, `artefacts/*.json`, `README.md` and `parts_sheet.md` (the unedited table) are copied
   byte for byte from `v1`.
 - `sources.json` is the converted sheet.
-- `MANIFEST.json` is new: format 1, author model `claude-opus-5-5`, label `[FILL at "sheet
-  filled"]`.
-- Its manifest digest is `[FILL at "sheet filled"]`.
+- `MANIFEST.json` is new: format 1, author model `claude-opus-5-5`, label `injected-errors
+  v1-fullsheet: v1's base design and 40 artefacts, byte for byte, with the complete parts sheet
+  converted from the authors' table`.
+- Its manifest digest is
+  `8c9ceb11ffe91afd28b79dd1d206507b463bb1bf8bb8bb8f33a0a27b84e3ba57`.
 - Both are filled by the dated "sheet filled" commit on `master`, after the "sheet" commit; that
   commit changes nothing else in this file.
 - The "sheet" commit on `master` adds this corpus, and the edited table copy in

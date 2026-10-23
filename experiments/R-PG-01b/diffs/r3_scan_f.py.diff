@@ -1,0 +1,11 @@
+--- experiments/R-PG-01/r3_scan.py (8bc03fc, blob dfcddf2c)
++++ experiments/R-PG-01b/r3_scan_f.py
+@@ -7,7 +7,7 @@
+ from physgate.reviewers.places import require_review_root
+ 
+ checkout, root, run, install = (Path(a).expanduser().resolve() for a in sys.argv[1:5])
+-corpus_dir = checkout / "corpora" / "injected-errors" / "v1"
++corpus_dir = checkout / "corpora" / "injected-errors" / "v1-fullsheet"
+ corpus = load_corpus(corpus_dir)
+ problems = []
+ require_review_root(root)  # raises: telltale word in the path, or inside a git checkout
