@@ -312,7 +312,9 @@ class Session:
         )
 
     def dispatcher(self, monkeypatch: pytest.MonkeyPatch, **overrides: Any) -> ClaudeDispatcher:
-        config = make_config(bounds=self.bounds(), **overrides)
+        # A stand-in binary, older than the OS layer's pin: its sessions run without the layer,
+        # which the run allows, as a development run does.
+        config = make_config(bounds=self.bounds(), **{"os_layer_absent": "allow", **overrides})
         root, store_root = self.root, self.store_root
 
         def _install(  # noqa: ANN401

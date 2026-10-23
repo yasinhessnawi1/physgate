@@ -10,10 +10,16 @@ import json
 import os
 import shlex
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
+
+# A role session's settings without the OS layer are written only for a run whose recorded
+# configuration allows that; the orchestrator's test helpers build one.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "orchestrator"))
+from orch_helpers import make_config  # noqa: E402
 
 from physgate.hooks.config import digest
 from physgate.hooks.lean import load_config
@@ -182,6 +188,16 @@ def test_each_profile_gets_its_closed_tool_list(tmp_path: Path, profile: str) ->
         assert refused not in config.tools_allowed
 
 
+def _allowing_run(tmp_path: Path) -> str:
+    """A run configuration that allows role sessions without the OS layer, for development."""
+    from physgate.orchestrator.run_config import write_run_config  # noqa: PLC0415
+
+    path = tmp_path / "run.json"
+    if not path.exists():
+        write_run_config(path, make_config(os_layer_absent="allow"))
+    return f"--run-config={path}"
+
+
 def test_the_command_line_writes_the_files_and_prints_the_spawn_arguments(tmp_path: Path) -> None:
     (tmp_path / "worktree").mkdir()
     proc = subprocess.run(
@@ -200,6 +216,7 @@ def test_the_command_line_writes_the_files_and_prints_the_spawn_arguments(tmp_pa
             f"--claude-config-dir={tmp_path / 'cfg'}",
             f"--user-home={tmp_path / 'home'}",
             "--ceiling=8000",
+            _allowing_run(tmp_path),
         ],
         capture_output=True,
         text=True,
@@ -238,6 +255,7 @@ def test_two_processes_with_different_hash_seeds_write_the_same_bytes(tmp_path: 
                 f"--protect={tmp_path / 'p1'}",
                 f"--protect={tmp_path / 'p2'}",
                 "--ceiling=8000",
+                _allowing_run(tmp_path),
             ],
             capture_output=True,
             text=True,
