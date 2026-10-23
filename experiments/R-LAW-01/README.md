@@ -259,8 +259,9 @@ threshold.
 17. **A packet that fails the same way on every resume (§12).** If a packet's call fails with the
     same non-transient cause (an `api_error` with a 4xx status other than 401, 403 and 429, or the
     same `error_result`) on 3 consecutive resumes, it is recorded as a deviation under §12's
-    "anything else impossible as specified", scored by the frozen deviation rule, and the run
-    continues without it. It is the operator's decision at that point, logged in
-    `interruptions.jsonl` and in `deviations.json`. The scripts do not yet carry the last part
-    out: preflight refuses a work dir that holds `deviations.json`, and no step can leave one
-    packet out, so until they can, such a packet stops the run where it fails.
+    "anything else impossible as specified", which is "a deviation of the same kind" as the
+    counts, the guard and the re-gate: the run stops for good and the decision is not taken.
+    `RESULT.md` reports the packet, its cause and the figures reached before the stop. It is the
+    operator's decision at that point, logged in `interruptions.jsonl` and in `deviations.json`;
+    preflight then refuses the work dir, so nothing runs after it. No packet is ever left out of a
+    step. (The owner chose this over continuing without the packet, 23.10.2026.)
