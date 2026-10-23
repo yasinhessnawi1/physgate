@@ -1,0 +1,718 @@
+{
+ "id": "a05",
+ "error_class": "equilibrium",
+ "expected_check": "equilibrium",
+ "assigned_role": "mechanical",
+ "description": "The balance loop's plant_mass is written as 200 g, the assembled-robot row R11.01, which the sheet says excludes batteries. It should be 365 g: 200 g plus the six-cell pack of 6 x 0.97 oz = 165 g. The pack rides in the body above the axle, so leaving it out drops 45 per cent of the mass whose gravity moment about the axle the motor torque must balance. The statics of the inverted pendulum no longer add up.",
+ "edge": null,
+ "clean": {
+  "nodes": [
+   {
+    "id": "mechanical.gearbox_left",
+    "kind": "component",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "gear_ratio": {
+      "value": 1.87,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "overall_gear_ratio": {
+      "value": 96.2,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "torque_peak": {
+      "value": 0.74,
+      "unit": "kgf*cm",
+      "source": "https://www.pololu.com/product/3073/specs",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.chassis",
+     "mechanical.wheel_left",
+     "control.wheel_odometry",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.gearbox_right",
+    "kind": "component",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "gear_ratio": {
+      "value": 1.87,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "overall_gear_ratio": {
+      "value": 96.2,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "torque_peak": {
+      "value": 0.74,
+      "unit": "kgf*cm",
+      "source": "https://www.pololu.com/product/3073/specs",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.chassis",
+     "mechanical.wheel_right",
+     "control.wheel_odometry",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "control.balance_loop",
+    "kind": "module",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: balance loop update rate",
+      "written_by": "control"
+     },
+     "loop_gain": {
+      "value": 1.2,
+      "unit": "dimensionless",
+      "source": "design: proportional gain from normalised tilt to normalised motor command",
+      "written_by": "control"
+     },
+     "actuator_stall_torque": {
+      "value": 0.74,
+      "unit": "kgf*cm",
+      "source": "https://www.pololu.com/product/3073/specs",
+      "written_by": "control"
+     },
+     "overall_gear_ratio": {
+      "value": 96.2,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "control"
+     },
+     "plant_mass": {
+      "value": 365,
+      "unit": "g",
+      "source": "derived: [R11.01] + [R5.07] * [R5.10]",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_loop_rate"
+    ],
+    "constrains": [
+     "firmware.main_loop",
+     "firmware.motor_pwm"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "control.wheel_odometry",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: odometry update rate, equal to the balance loop rate",
+      "written_by": "control"
+     },
+     "encoder_counts_per_revolution": {
+      "value": 12,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "control"
+     },
+     "overall_gear_ratio": {
+      "value": 96.2,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "control"
+     },
+     "wheel_diameter": {
+      "value": 80,
+      "unit": "mm",
+      "source": "https://www.pololu.com/product/1430",
+      "written_by": "control"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "control.balance_loop",
+     "firmware.encoder_counter"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.encoder_counter",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "encoder_counts_per_revolution": {
+      "value": 12,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     },
+     "overall_gear_ratio": {
+      "value": 96.2,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "firmware.main_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.chassis",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "mass": {
+      "value": 205,
+      "unit": "g",
+      "source": "derived: [R10.01] + [R10.03] + [R9.03] * [R9.06]",
+      "written_by": "mechanical"
+     },
+     "wheel_track": {
+      "value": 102,
+      "unit": "mm",
+      "source": "derived: [R10.08] + [R10.09]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "mechanical.gearbox_left": "Only the gear pair changes; the chassis mass row covers the chassis with its gearboxes and gives no other mass for another pair, and the wheel track is set by the wheels.",
+     "mechanical.gearbox_right": "Only the gear pair changes; the chassis mass row covers the chassis with its gearboxes and gives no other mass for another pair, and the wheel track is set by the wheels."
+    }
+   },
+   {
+    "id": "mechanical.wheel_left",
+    "kind": "component",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "wheel_diameter": {
+      "value": 80,
+      "unit": "mm",
+      "source": "https://www.pololu.com/product/1430",
+      "written_by": "mechanical"
+     },
+     "bore_diameter": {
+      "value": 3,
+      "unit": "mm",
+      "source": "https://www.pololu.com/product/1430/specs",
+      "written_by": "mechanical"
+     },
+     "mass": {
+      "value": 0.7,
+      "unit": "oz",
+      "source": "https://www.pololu.com/product/1430/specs",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.chassis",
+     "control.wheel_odometry"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "mechanical.gearbox_left": "Wheel diameter, bore and mass are properties of the 80x10 mm wheel and do not depend on the gear ratio."
+    }
+   },
+   {
+    "id": "mechanical.wheel_right",
+    "kind": "component",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "wheel_diameter": {
+      "value": 80,
+      "unit": "mm",
+      "source": "https://www.pololu.com/product/1430",
+      "written_by": "mechanical"
+     },
+     "bore_diameter": {
+      "value": 3,
+      "unit": "mm",
+      "source": "https://www.pololu.com/product/1430/specs",
+      "written_by": "mechanical"
+     },
+     "mass": {
+      "value": 0.7,
+      "unit": "oz",
+      "source": "https://www.pololu.com/product/1430/specs",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.chassis",
+     "control.wheel_odometry"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "mechanical.gearbox_right": "Wheel diameter, bore and mass are properties of the 80x10 mm wheel and do not depend on the gear ratio."
+    }
+   },
+   {
+    "id": "firmware.main_loop",
+    "kind": "module",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: scheduler rate of the balance task, equal to the required loop rate",
+      "written_by": "firmware"
+     },
+     "clock_frequency": {
+      "value": 16,
+      "unit": "MHz",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [
+     "control.req_loop_rate"
+    ],
+    "constrains": [
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "control.balance_loop": "The scheduler rate and clock do not depend on the loop's gear-ratio parameter.",
+     "firmware.encoder_counter": "Encoder edges are counted in interrupts; the scheduler rate and clock are unchanged by the gear ratio."
+    }
+   },
+   {
+    "id": "firmware.motor_pwm",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "pwm_duty_limit": {
+      "value": 0.833,
+      "unit": "dimensionless",
+      "source": "derived: [R1.02] / [R5.03]",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "firmware.main_loop",
+     "electrical.driver_left",
+     "electrical.driver_right"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "control.balance_loop": "The duty limit is set by motor rating and pack voltage, not by the gear ratio the loop uses."
+    }
+   }
+  ]
+ },
+ "injected": {
+  "nodes": [
+   {
+    "id": "mechanical.gearbox_left",
+    "kind": "component",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "gear_ratio": {
+      "value": 1.87,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "overall_gear_ratio": {
+      "value": 96.2,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "torque_peak": {
+      "value": 0.74,
+      "unit": "kgf*cm",
+      "source": "https://www.pololu.com/product/3073/specs",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.chassis",
+     "mechanical.wheel_left",
+     "control.wheel_odometry",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.gearbox_right",
+    "kind": "component",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "gear_ratio": {
+      "value": 1.87,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "overall_gear_ratio": {
+      "value": 96.2,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "mechanical"
+     },
+     "torque_peak": {
+      "value": 0.74,
+      "unit": "kgf*cm",
+      "source": "https://www.pololu.com/product/3073/specs",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.chassis",
+     "mechanical.wheel_right",
+     "control.wheel_odometry",
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "control.balance_loop",
+    "kind": "module",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: balance loop update rate",
+      "written_by": "control"
+     },
+     "loop_gain": {
+      "value": 1.2,
+      "unit": "dimensionless",
+      "source": "design: proportional gain from normalised tilt to normalised motor command",
+      "written_by": "control"
+     },
+     "actuator_stall_torque": {
+      "value": 0.74,
+      "unit": "kgf*cm",
+      "source": "https://www.pololu.com/product/3073/specs",
+      "written_by": "control"
+     },
+     "overall_gear_ratio": {
+      "value": 96.2,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "control"
+     },
+     "plant_mass": {
+      "value": 200,
+      "unit": "g",
+      "source": "https://www.pololu.com/product/3575/specs",
+      "written_by": "control"
+     }
+    },
+    "requirements": [
+     "control.req_loop_rate"
+    ],
+    "constrains": [
+     "firmware.main_loop",
+     "firmware.motor_pwm"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "control.wheel_odometry",
+    "kind": "component",
+    "domain": "control",
+    "owner_role": "control",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: odometry update rate, equal to the balance loop rate",
+      "written_by": "control"
+     },
+     "encoder_counts_per_revolution": {
+      "value": 12,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "control"
+     },
+     "overall_gear_ratio": {
+      "value": 96.2,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "control"
+     },
+     "wheel_diameter": {
+      "value": 80,
+      "unit": "mm",
+      "source": "https://www.pololu.com/product/1430",
+      "written_by": "control"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "control.balance_loop",
+     "firmware.encoder_counter"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "firmware.encoder_counter",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "encoder_counts_per_revolution": {
+      "value": 12,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     },
+     "overall_gear_ratio": {
+      "value": 96.2,
+      "unit": "dimensionless",
+      "source": "https://www.pololu.com/file/0J1266/balboa-kit-gear-ratio-chart.pdf",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "firmware.main_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z"
+   },
+   {
+    "id": "mechanical.chassis",
+    "kind": "module",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "mass": {
+      "value": 205,
+      "unit": "g",
+      "source": "derived: [R10.01] + [R10.03] + [R9.03] * [R9.06]",
+      "written_by": "mechanical"
+     },
+     "wheel_track": {
+      "value": 102,
+      "unit": "mm",
+      "source": "derived: [R10.08] + [R10.09]",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "mechanical.gearbox_left": "Only the gear pair changes; the chassis mass row covers the chassis with its gearboxes and gives no other mass for another pair, and the wheel track is set by the wheels.",
+     "mechanical.gearbox_right": "Only the gear pair changes; the chassis mass row covers the chassis with its gearboxes and gives no other mass for another pair, and the wheel track is set by the wheels."
+    }
+   },
+   {
+    "id": "mechanical.wheel_left",
+    "kind": "component",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "wheel_diameter": {
+      "value": 80,
+      "unit": "mm",
+      "source": "https://www.pololu.com/product/1430",
+      "written_by": "mechanical"
+     },
+     "bore_diameter": {
+      "value": 3,
+      "unit": "mm",
+      "source": "https://www.pololu.com/product/1430/specs",
+      "written_by": "mechanical"
+     },
+     "mass": {
+      "value": 0.7,
+      "unit": "oz",
+      "source": "https://www.pololu.com/product/1430/specs",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.chassis",
+     "control.wheel_odometry"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "mechanical.gearbox_left": "Wheel diameter, bore and mass are properties of the 80x10 mm wheel and do not depend on the gear ratio."
+    }
+   },
+   {
+    "id": "mechanical.wheel_right",
+    "kind": "component",
+    "domain": "mechanical",
+    "owner_role": "mechanical",
+    "quantities": {
+     "wheel_diameter": {
+      "value": 80,
+      "unit": "mm",
+      "source": "https://www.pololu.com/product/1430",
+      "written_by": "mechanical"
+     },
+     "bore_diameter": {
+      "value": 3,
+      "unit": "mm",
+      "source": "https://www.pololu.com/product/1430/specs",
+      "written_by": "mechanical"
+     },
+     "mass": {
+      "value": 0.7,
+      "unit": "oz",
+      "source": "https://www.pololu.com/product/1430/specs",
+      "written_by": "mechanical"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "mechanical.chassis",
+     "control.wheel_odometry"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "mechanical.gearbox_right": "Wheel diameter, bore and mass are properties of the 80x10 mm wheel and do not depend on the gear ratio."
+    }
+   },
+   {
+    "id": "firmware.main_loop",
+    "kind": "module",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "sample_rate": {
+      "value": 100,
+      "unit": "Hz",
+      "source": "design: scheduler rate of the balance task, equal to the required loop rate",
+      "written_by": "firmware"
+     },
+     "clock_frequency": {
+      "value": 16,
+      "unit": "MHz",
+      "source": "https://www.pololu.com/docs/0J70/all",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [
+     "control.req_loop_rate"
+    ],
+    "constrains": [
+     "control.balance_loop"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "control.balance_loop": "The scheduler rate and clock do not depend on the loop's gear-ratio parameter.",
+     "firmware.encoder_counter": "Encoder edges are counted in interrupts; the scheduler rate and clock are unchanged by the gear ratio."
+    }
+   },
+   {
+    "id": "firmware.motor_pwm",
+    "kind": "component",
+    "domain": "firmware",
+    "owner_role": "firmware",
+    "quantities": {
+     "pwm_duty_limit": {
+      "value": 0.833,
+      "unit": "dimensionless",
+      "source": "derived: [R1.02] / [R5.03]",
+      "written_by": "firmware"
+     }
+    },
+    "requirements": [],
+    "constrains": [
+     "firmware.main_loop",
+     "electrical.driver_left",
+     "electrical.driver_right"
+    ],
+    "model": null,
+    "geometry_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "updated": "2026-09-28T10:00:00Z",
+    "no_change_justified": {
+     "control.balance_loop": "The duty limit is set by motor rating and pack voltage, not by the gear ratio the loop uses."
+    }
+   }
+  ]
+ }
+}
