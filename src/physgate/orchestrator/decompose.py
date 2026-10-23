@@ -22,6 +22,7 @@ import hashlib
 import json
 import subprocess
 import uuid
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Any, Literal
@@ -65,9 +66,11 @@ from physgate.orchestrator.record import (
     RunRecord,
 )
 from physgate.orchestrator.run_config import RunConfig
+from physgate.reviewers.contract import issued_criteria
+from physgate.roles import CrossCuttingDuty, owners_of
 from physgate.series.collect import series_library
 from physgate.state.exceptions import MalformedNodeIdError
-from physgate.state.schema import Node, validate_node_id
+from physgate.state.schema import NODE_ID_MAX_LENGTH, Node, validate_node_id
 from physgate.state.store import Store
 
 #: Where the run branch holds each interface node the decomposition planned, one JSON file
@@ -136,11 +139,14 @@ class _Frozen(BaseModel):
 #: The longest specification the decomposition may issue a module, in characters.
 SPEC_MAX_CHARS = 32_768
 
+#: A module's name in the plan.
+_ModuleName = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9-]{0,31}$")]
+
 
 class PlannedModule(_Frozen):
     """One module of the design, as the decomposition proposes it."""
 
-    name: Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9-]{0,31}$")]
+    name: _ModuleName
     role: NonEmptyStr
     module_dir: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_][A-Za-z0-9_./-]{0,127}$")]
     #: Long enough for a specification that states its plant, sensors, timing and numbered
@@ -155,15 +161,96 @@ class Plan(_Frozen):
     interface_nodes: Annotated[tuple[Node, ...], Field(min_length=1)]
 
 
+# The docstrings of the three models below are sent with the schema, as their
+# descriptions: they are what the decomposition is told each entry means.
+
+
+class Contribution(_Frozen):
+    """A module criterion that contributes to a system requirement.
+
+    The module by its name in the plan, and the number of one acceptance criterion
+    that module's specification numbers under a heading that names acceptance criteria.
+    """
+
+    module: _ModuleName
+    criterion: Annotated[str, StringConstraints(pattern=r"^[0-9]{1,6}$")]
+
+
+#: The longest system requirement, in characters: a criterion's number, or a requirement
+#: in the brief's own words where the brief numbers none.
+REQUIREMENT_MAX_CHARS = 500
+
+
+class SystemRequirement(_Frozen):
+    """A requirement of the brief that only the assembled system can show.
+
+    Given as the brief's acceptance-criterion number where the brief numbers its
+    criteria under a heading that names acceptance criteria, and in the brief's own words
+    otherwise; with every module criterion that contributes to it.
+    """
+
+    requirement: Annotated[str, StringConstraints(min_length=1, max_length=REQUIREMENT_MAX_CHARS)]
+    contributing: Annotated[tuple[Contribution, ...], Field(min_length=1)]
+
+
+class InterfaceConsumers(_Frozen):
+    """The modules that read one interface node's quantities, by their names in the plan.
+
+    The interface by its node's id. The module that produces the node is not among them.
+    """
+
+    interface: Annotated[str, StringConstraints(min_length=1, max_length=NODE_ID_MAX_LENGTH)]
+    consumers: Annotated[tuple[_ModuleName, ...], Field(min_length=1)]
+
+
+class IntegratedPlan(Plan):
+    """The plan of a run with the integration role (ARCH-051).
+
+    Integration has no module in the plan: the harness writes its specification from the
+    recorded plan. What it checks is fixed here, before any module runs: the consumers of
+    every interface node, from which the module pairs whose contract is tested are read,
+    and the system requirements allocated to it.
+    """
+
+    interface_consumers: tuple[InterfaceConsumers, ...]
+    system_requirements: tuple[SystemRequirement, ...]
+
+
+def _in_run(duty: CrossCuttingDuty, roles: Sequence[str]) -> tuple[str, ...]:
+    """The run's roles that the register names as owning ``duty``, asked of it now.
+
+    Found by what they own, never by a name, as the hook and the apply step find them.
+    """
+    owners = owners_of(duty)
+    return tuple(role for role in sorted(set(roles)) if role in owners)
+
+
+def plan_model(roles: Sequence[str]) -> type[Plan]:
+    """The plan's form for a run of ``roles``: integration's, where the run has that role."""
+    return IntegratedPlan if _in_run("completion", roles) else Plan
+
+
+def plan_sha256(plan: Plan) -> str:
+    """The plan's digest: sha256 of its canonical JSON, every field of its own form in it."""
+    canonical = json.dumps(plan.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
 #: Root-level keys that name the schema rather than shape the answer. Left in, they
 #: invite a wrapper: measured on the real API, the model answered with the whole
 #: plan inside a ``"Plan"`` key, which the root's title names.
 _ROOT_NAMING = ("title", "description", "$id", "$comment")
 
 
-def plan_schema() -> str:
-    """The JSON schema the structured answer is held to by the binary, unnamed at its root."""
-    schema = {k: v for k, v in Plan.model_json_schema().items() if k not in _ROOT_NAMING}
+def plan_schema(roles: Sequence[str]) -> str:
+    """The JSON schema the structured answer is held to by the binary, unnamed at its root.
+
+    The schema of the plan's form for a run of ``roles`` (:func:`plan_model`). A run
+    without the integration role is sent the base plan's, byte for byte as before that
+    role was planned for.
+    """
+    model = plan_model(roles)
+    schema = {k: v for k, v in model.model_json_schema().items() if k not in _ROOT_NAMING}
     return json.dumps(schema, sort_keys=True, separators=(",", ":"))
 
 
@@ -195,8 +282,18 @@ def schema_refusal(stdout: str) -> str | None:
     return None
 
 
-def plan_problems(plan: Plan, roles: Sequence[str]) -> list[str]:
-    """Everything wrong with a schema-valid plan that the schema cannot say."""
+#: Where the harness puts the integration subtask in a run with the integration role. The
+#: harness writes that subtask's specification from the recorded plan, so no planned module
+#: may sit in this directory, above it or below it.
+INTEGRATION_MODULE_DIR = "modules/integration"
+
+
+def plan_problems(plan: Plan, roles: Sequence[str], brief: str) -> list[str]:
+    """Everything wrong with a schema-valid plan that the schema cannot say.
+
+    ``roles`` are the run's, and ``brief`` the brief the plan was made from: a system
+    requirement is held to the criteria the brief numbers.
+    """
     found: list[str] = []
     names = [m.name for m in plan.modules]
     dirs = [PurePosixPath(m.module_dir) for m in plan.modules]
@@ -233,6 +330,35 @@ def plan_problems(plan: Plan, roles: Sequence[str]) -> list[str]:
                 f"interface node {node.id!r} names {name!r}, which shadows {relation!r}, a "
                 "quantity a relation reads; it is written under the catalogue's name"
             )
+    return found + _cross_cutting_problems(plan, roles) + _integration_problems(plan, roles, brief)
+
+
+def _cross_cutting_problems(plan: Plan, roles: Sequence[str]) -> list[str]:
+    """What the plan gives a cross-cutting role of the run that it may not give it."""
+    found: list[str] = []
+    for owner in _in_run("cross_nodes", roles):
+        count = sum(module.role == owner for module in plan.modules)
+        if count > 1:
+            found.append(
+                f"the plan has {count} modules of the {owner} role; at most one is allowed, "
+                "since that one module opens and closes the domain work"
+            )
+    completion = _in_run("completion", roles)
+    if not completion:
+        return found
+    reserved = PurePosixPath(INTEGRATION_MODULE_DIR)
+    for module in plan.modules:
+        if module.role in completion:
+            found.append(
+                f"module {module.name!r} is assigned the {module.role} role, whose "
+                "specification the harness writes from the plan"
+            )
+        path = PurePosixPath(module.module_dir)
+        if path == reserved or path.is_relative_to(reserved) or reserved.is_relative_to(path):
+            found.append(
+                f"module {module.name!r} has a directory that overlaps {INTEGRATION_MODULE_DIR}, "
+                "which the harness keeps for the integration subtask"
+            )
     return found
 
 
@@ -249,17 +375,134 @@ def _overlap(one: PurePosixPath, other: PurePosixPath) -> bool:
     return a == b or a.is_relative_to(b) or b.is_relative_to(a)
 
 
+def _integration_problems(plan: Plan, roles: Sequence[str], brief: str) -> list[str]:
+    """What is wrong with the lists of what integration checks, or with their absence."""
+    completion = _in_run("completion", roles)
+    if not isinstance(plan, IntegratedPlan):
+        if completion:
+            return [
+                f"the run has the {', '.join(completion)} role, and the plan has no list of "
+                "the consumers and system requirements it checks"
+            ]
+        return []
+    if not completion:
+        return [
+            "the plan lists consumers and system requirements, and the run has no "
+            "integration role to check them"
+        ]
+    return _consumer_problems(plan) + _requirement_problems(plan, brief)
+
+
+def _consumer_problems(plan: IntegratedPlan) -> list[str]:
+    """Every consumers entry the plan cannot back, and every interface node with none or two.
+
+    A module of the node's producing role is never its consumer: the producer is the
+    module of the role that owns the node.
+    """
+    found: list[str] = []
+    role_of = {module.name: module.role for module in plan.modules}
+    producer_of = {node.id: node.owner_role for node in plan.interface_nodes}
+    entries = Counter(entry.interface for entry in plan.interface_consumers)
+    for entry in plan.interface_consumers:
+        if entry.interface not in producer_of:
+            found.append(
+                f"interface_consumers names {entry.interface!r}, which is no interface node "
+                "of the plan"
+            )
+            continue
+        for consumer in entry.consumers:
+            role = role_of.get(consumer)
+            if role is None:
+                found.append(
+                    f"interface node {entry.interface!r} names {consumer!r} as a consumer, "
+                    "which is no module of the plan"
+                )
+            elif role == producer_of[entry.interface]:
+                found.append(
+                    f"interface node {entry.interface!r} names {consumer!r} as a consumer, "
+                    f"which is a module of its producing role {role!r}"
+                )
+    for node_id in producer_of:
+        if entries[node_id] == 0:
+            found.append(f"interface node {node_id!r} has no consumers entry")
+        elif entries[node_id] > 1:
+            found.append(f"interface node {node_id!r} has more than one consumers entry")
+    return found
+
+
+def _requirement_problems(plan: IntegratedPlan, brief: str) -> list[str]:
+    """Every system requirement the plan or the brief cannot back.
+
+    A contributing criterion is one the module's specification numbers under its
+    acceptance criteria, the same reading its reviewer is held to. Where the brief
+    numbers its own acceptance criteria, a requirement is one of those numbers.
+    """
+    found: list[str] = []
+    numbered = issued_criteria(brief)
+    criteria_of = {module.name: issued_criteria(module.spec) or () for module in plan.modules}
+    for requirement, count in Counter(r.requirement for r in plan.system_requirements).items():
+        if count > 1:
+            found.append(f"system requirement {requirement!r} is listed more than once")
+    for entry in plan.system_requirements:
+        if numbered is not None and entry.requirement not in numbered:
+            found.append(
+                f"system requirement {entry.requirement!r} is not one of the brief's numbered "
+                f"acceptance criteria ({', '.join(numbered)})"
+            )
+        for part in entry.contributing:
+            if part.module not in criteria_of:
+                found.append(
+                    f"system requirement {entry.requirement!r} names {part.module!r}, which is "
+                    "no module of the plan"
+                )
+            elif part.criterion not in criteria_of[part.module]:
+                found.append(
+                    f"system requirement {entry.requirement!r} names criterion "
+                    f"{part.criterion!r} of {part.module!r}, which that module's specification "
+                    "does not number under its acceptance criteria"
+                )
+    return found
+
+
+#: The one sentence the prompt gains in a run with the integration role.
+REQUIREMENTS_SENTENCE = (
+    "List each requirement of the brief that only the assembled system can show, with the "
+    "module criteria that contribute to it."
+)
+
+
+def _one_module_sentence(role: str) -> str:
+    """The one sentence the prompt gains for the role that owns the cross nodes."""
+    return (
+        f"At most one module may have the {role} role: it alone writes the quantities more "
+        "than one domain depends on, such as a motor's torque and current or a battery's "
+        "capacity, and the other modules read them."
+    )
+
+
 def prompt_for(brief: str, roles: Sequence[str]) -> str:
-    """The decomposition prompt: a fixed template around the brief."""
+    """The decomposition prompt: a fixed template around the brief.
+
+    A cross-cutting role of the run adds one sentence: sizing's, that it has one module
+    at most; integration's, which asks for the system requirements. Integration is not
+    offered as a module's role, since the harness writes its specification. A run with
+    neither is sent the template as it was before either was planned for.
+    """
+    completion = _in_run("completion", roles)
+    offered = sorted(role for role in roles if role not in completion)
+    added = "".join(f"{_one_module_sentence(role)}\n\n" for role in _in_run("cross_nodes", roles))
+    if completion:
+        added += f"{REQUIREMENTS_SENTENCE}\n\n"
     return (
         "Decompose the design brief below into modules, one per role that has work to do, "
         "and the interface nodes between them.\n\n"
-        f"Roles available: {', '.join(sorted(roles))}.\n\n"
+        f"Roles available: {', '.join(offered)}.\n\n"
         "For each module give a short lowercase name, its role, a directory of its own "
         "under modules/ that no other module's directory contains, and a specification "
         "an implementer can work from. For each interface give one graph node of kind "
         '"interface", owned by the role that produces it, with every quantity as a value, a '
         "unit, a source and the role that wrote it.\n\n"
+        f"{added}"
         "Answer by calling StructuredOutput once.\n\n"
         f"Brief:\n{brief}\n"
     )
@@ -365,12 +608,15 @@ def judge(
     model: str,
     roles: Sequence[str],
     answered: frozenset[str],
+    brief: str,
     refused: str | None = None,
 ) -> tuple[FailureCause | None, str, Plan | None, str | None, int]:
     """Decide from the result object whether the call produced a usable plan.
 
-    ``refused`` is the binary's schema refusal from the stream, if any: a call
-    that ran out of turns after one is ``schema_refused``, not ``turn_limit``.
+    The answer is read as the plan's form for a run of ``roles`` and held to the
+    ``brief`` it was planned from. ``refused`` is the binary's schema refusal from the
+    stream, if any: a call that ran out of turns after one is ``schema_refused``, not
+    ``turn_limit``.
     """
     end = classify_session_end(result, exit_code=exit_code, stopped_at_wall_clock=timed_out)
     turns = int((result or {}).get("num_turns") or 0)
@@ -386,10 +632,10 @@ def judge(
     if answer is None:
         return "no_structured_output", "the call succeeded with no plan", None, seen_model, turns
     try:
-        plan = Plan.model_validate_json(json.dumps(answer))
+        plan = plan_model(roles).model_validate_json(json.dumps(answer))
     except ValidationError as exc:
         return "invalid_plan", first_problem(exc), None, seen_model, turns
-    problems = plan_problems(plan, roles)
+    problems = plan_problems(plan, roles, brief)
     if problems:
         return "invalid_plan", "; ".join(problems), None, seen_model, turns
     return None, "a plan", plan, seen_model, turns
@@ -440,7 +686,7 @@ def call(
     argv = decomposition_argv(
         binary,
         prompt=prompt_for(brief, roles),
-        schema=plan_schema(),
+        schema=plan_schema(roles),
         model=config.models.decomposition,
         session_id=session_id,
         settings=settings,
@@ -491,6 +737,7 @@ def call(
         model=config.models.decomposition,
         roles=roles,
         answered=answered,
+        brief=brief,
         refused=schema_refusal(stdout),
     )
     changed = drift(workdir / "config", system_before)

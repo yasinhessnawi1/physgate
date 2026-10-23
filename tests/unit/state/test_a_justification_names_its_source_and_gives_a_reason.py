@@ -121,4 +121,4 @@ def test_the_decomposition_plan_schema_carries_the_field() -> None:
     """Interface nodes the one model call writes are held to the same shape."""
     from physgate.orchestrator.decompose import plan_schema
 
-    assert "no_change_justified" in plan_schema()
+    assert "no_change_justified" in plan_schema(["electrical"])
