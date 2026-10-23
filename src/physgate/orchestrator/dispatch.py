@@ -1314,6 +1314,10 @@ class ClaudeDispatcher:
                 # layer's installer printed. It carries no key: the key is in a helper.
                 "argv": argv,
                 "installer_spawn_args": list(installed.spawn_args),
+                # The shell the session's commands are written for and run with, where the
+                # installer pins it (the survivor reaper's, on macOS); none where the binary
+                # picks its own.
+                "command_shell": installed.spawn_env.get("CLAUDE_CODE_SHELL"),
             }
             write_record(sdir.parent, sdir.name, record, "process.json")
 
