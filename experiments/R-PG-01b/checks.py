@@ -13,6 +13,7 @@ Usage, in the run checkout, as ``launch.sh`` calls it (``uv run --frozen python 
     checks.py stop --round <r> --reason <text>          §12: the experiment stops, for the owner
     checks.py second-arm --launch <dir> --since <utc>   §11's fallback: when the second arm starts
     checks.py stop-sessions --root <dir> [--root ...]   the watcher's abort: the run's sessions
+    checks.py credentials --round <r> --launch <dir>    no login file of a session is left
 
 L5 to L7 are ``packets_identity.py``, L9's scans are R-PG-01's ``r3_scan.py`` and ``r3_scan_f.py``,
 L10 is ``smoke.py``; ``launch.sh`` runs them. Every check prints one JSON line of counts, digests
@@ -215,8 +216,11 @@ def own_processes() -> list[tuple[int, list[str]]]:
             if d.stat().st_uid != uid:
                 continue
             argv = [a.decode(errors="replace") for a in (d / "cmdline").read_bytes().split(b"\0")]
-        except OSError:
-            continue
+        except (FileNotFoundError, ProcessLookupError):
+            continue  # it ended since it was listed
+        except OSError as exc:
+            msg = f"process {d.name}'s arguments could not be read ({exc.strerror})"
+            raise C.FailClosed(msg) from exc
         if argv and argv[-1] == "":
             argv.pop()
         if argv:
@@ -246,6 +250,7 @@ def l1(r: int, checkout: Path, master_ref: str, dry: bool) -> dict[str, Any]:
     if alive:
         raise Refused(f"{len(alive)} claude or inject process(es) of the run account are alive")
     found["claude_or_inject_processes_alive"] = 0
+    found["login_files_left"] = refuse_login_files(HOME)["left"]
     C.git(checkout, "fetch", "-q", "--tags", "origin")
     head = C.git(checkout, "rev-parse", "HEAD")
     tag = C.git(checkout, "rev-parse", f"refs/tags/{C.RUN_TAG}^{{commit}}")
@@ -623,7 +628,8 @@ def usage_limit_files(paths: Iterable[Path]) -> tuple[int, int]:
                 continue
             data = C.read_inside(root, root.joinpath(*parts))
             if data is None:
-                continue
+                msg = f"{'/'.join(parts)} could not be read: a usage limit is not ruled out"
+                raise C.FailClosed(msg)
             files += LIMIT_WORD in data
             if parts[-1].endswith(".jsonl"):
                 statuses += len(STATUS_429.findall(data))
@@ -791,7 +797,8 @@ def second_arm(launch: Path, since: float, now: float | None = None) -> float | 
     first smoke), at or after now.
     """
     log = C.read_own(launch / "watcher.log")
-    if log is not None and b"ABORT" in log:
+    # The watcher always ends its log; with none, or an abort, the second arm does not start.
+    if log is None or b"ABORT" in log:
         return None
     now = time.time() if now is None else now
     k = max(1, math.ceil((now - since) / WINDOW_S - 1e-9))
@@ -864,14 +871,77 @@ def remove_credentials(roots: Iterable[Path]) -> dict[str, int]:
         Refused: a root is not a review root of the run's form.
     """
     removed = refused = 0
-    for root in _review_roots(roots):
+    checked = _review_roots(roots)
+    for root in checked:
         sids, links = C.session_dirs(root)
         refused += links
         for sid in sids:
             done = C.remove_inside(root, (sid, "session", "config"))
             removed += done == "removed"
             refused += done == "refused"
-    return {"configs_removed": removed, "refused_symlinks": refused}
+            for name in C.LOGIN_FILES["state"]:
+                refused += C.unlink_inside(root, (sid, "session", "state", name)) == "refused"
+    # What is left is confirmed by a walk of its own, never taken from the removal's word.
+    left = [C.login_files(root) for root in checked]
+    return {
+        "configs_removed": removed,
+        "refused_symlinks": refused,
+        "login_files_left": sum(x["left"] for x in left),
+        "unconfirmed": sum(x["unconfirmed"] for x in left),
+    }
+
+
+#: The review roots this experiment makes under ~/review-scratch: a slot's, a smoke's, packets'.
+RUN_ROOT = re.compile(r"rpb-([0-9]{1,3}|smoke-[12]-[0-9]{1,3}|packets-[12]-[0-9]{1,3})")
+
+
+def run_login_files(home: Path) -> dict[str, int]:
+    """Every login file of this experiment's sessions still under its review roots.
+
+    Found by a bounded walk through no symlink; a root of the experiment's form that is not a
+    directory (a symlink) is unconfirmed.
+    """
+    scratch = Path(home) / C.SCRATCH_NAME
+    left = unconfirmed = roots = 0
+    for name, mode in C.list_inside(scratch):
+        if not RUN_ROOT.fullmatch(name):
+            continue
+        roots += 1
+        if not stat.S_ISDIR(mode):
+            unconfirmed += 1
+            continue
+        found = C.login_files(scratch / name)
+        left += found["left"]
+        unconfirmed += found["unconfirmed"]
+    return {"roots": roots, "left": left, "unconfirmed": unconfirmed}
+
+
+def refuse_login_files(home: Path) -> dict[str, int]:
+    """§11 and the abort: no login file of the run's sessions may outlive them.
+
+    Raises:
+        Refused: one remains, or its removal cannot be confirmed.
+    """
+    found = run_login_files(home)
+    n = found["left"] + found["unconfirmed"]
+    if n:
+        raise Refused(
+            f"{n} login file(s) of the run's sessions remain, or are not confirmed removed, under"
+            " the review roots: the credential cleanup is not confirmed"
+        )
+    return found
+
+
+def credentials(r: int, launch: Path) -> dict[str, Any]:
+    """The round's end, after the token scan's inputs are written: every login file is gone."""
+    found = refuse_login_files(HOME)
+    return {
+        "check": "credentials",
+        "round": r,
+        "launch": str(launch),
+        "login_files_left": 0,
+        **found,
+    }
 
 
 def stop_sessions(roots: Iterable[Path]) -> dict[str, Any]:
@@ -934,7 +1004,7 @@ def main(argv: list[str] | None = None) -> int:
         "check",
         choices=(
             "L1", "L2", "L3", "L4", "L8", "L11", "start", "after", "stop", "second-arm",
-            "stop-sessions",
+            "stop-sessions", "credentials",
         ),
     )  # fmt: skip
     parser.add_argument("--round", type=int, choices=C.ROUNDS)
@@ -974,9 +1044,15 @@ def main(argv: list[str] | None = None) -> int:
             found = {"check": "second-arm", "wait_s": None if wait is None else round(wait)}
         elif args.check == "stop-sessions":
             found = stop_sessions(args.root)
+            if found["login_files_left"] or found["unconfirmed"]:
+                cause = "login files of the stopped sessions are not confirmed removed"
+                print(json.dumps({**found, "refused": cause}, sort_keys=True))
+                return 1
+        elif args.check == "credentials":
+            found = credentials(args.round, args.launch)
         else:
             found = after(args.round, args.launch, checkout)
-    except Refused as exc:
+    except (Refused, C.FailClosed) as exc:
         print(json.dumps({"check": args.check, "refused": str(exc)}, sort_keys=True))
         return 1
     print(json.dumps(found, sort_keys=True))

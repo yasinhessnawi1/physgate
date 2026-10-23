@@ -670,6 +670,9 @@ def test_the_second_arm_s_command_reads_its_start_as_utc(tmp_path: Path) -> None
 # ---- L1 ----
 
 
+_SID_L1 = "00000000-0000-4000-8000-000000000042"
+
+
 def _proc(*argv: str) -> tuple[int, list[str]]:
     return (4242, list(argv))
 
@@ -745,6 +748,7 @@ def _l1(
     procs: list[tuple[int, list[str]]] | None = None,
     stopped: bool = False,
     dry: bool = True,
+    login: list[str] | None = None,
 ) -> dict[str, Any]:
     home = tmp / "home"
     checkout = _checkout(tmp, home, filled_commit=filled_commit)
@@ -763,6 +767,9 @@ def _l1(
     monkeypatch.setattr(platform, "system", lambda: "Linux")
     monkeypatch.setattr(platform, "machine", lambda: "aarch64")
     monkeypatch.setattr(checks, "own_processes", lambda: procs or [])
+    for rel in login or []:
+        (home / C.SCRATCH_NAME / rel).parent.mkdir(parents=True, exist_ok=True)
+        (home / C.SCRATCH_NAME / rel).write_text("{}\n")
     return checks.l1(1, checkout, "origin/master", dry)
 
 
@@ -789,6 +796,30 @@ def test_l1_refuses_while_a_claude_or_inject_process_of_the_account_is_alive(
     alive = [_proc("/home/u/pinned/claude-2.1.301", "-p")]
     with pytest.raises(checks.Refused, match="1 claude or inject process"):
         _l1(tmp_path, monkeypatch, procs=alive)
+
+
+@pytest.mark.parametrize(
+    "rel",
+    [
+        f"rpb-4/{_SID_L1}/session/config/.credentials.json",
+        f"rpb-smoke-1-2/s1/{_SID_L1}/session/config/.credentials.json",
+        f"rpb-7/{_SID_L1}/session/state/key",
+    ],
+)
+def test_l1_refuses_while_a_login_file_of_the_run_s_sessions_remains(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rel: str
+) -> None:
+    with pytest.raises(checks.Refused, match="login file"):
+        _l1(tmp_path, monkeypatch, login=[rel])
+
+
+def test_l1_reads_no_other_experiment_s_review_roots(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    found = _l1(
+        tmp_path, monkeypatch, login=[f"rp2-1-1/{_SID_L1}/session/config/.credentials.json"]
+    )
+    assert found["login_files_left"] == 0
 
 
 def test_l1_refuses_after_the_experiment_has_stopped(
@@ -1019,7 +1050,10 @@ def test_the_credential_cleanup_never_follows_a_symlink_out_of_the_root(tmp_path
     # a directory not named as a session is not one
     _kept(root / "elsewhere" / "session" / "config")
     found = checks.remove_credentials([root])
-    assert found == {"configs_removed": 1, "refused_symlinks": 3}
+    assert found["configs_removed"] == 1 and found["refused_symlinks"] == 3
+    # a symlink standing where a session's directory, session/ or config/ belongs leaves the
+    # removal of whatever lies behind it unconfirmed: the cleanup fails closed
+    assert found["login_files_left"] == 0 and found["unconfirmed"] == 3
     for kept in (outside / "a" / "session" / "config", outside / "b" / "config", outside / "c"):
         assert (kept / "keep.txt").is_file()
     assert not (root / _sid(4) / "session" / "config").exists()
@@ -1088,7 +1122,10 @@ def test_the_usage_limit_search_reads_nothing_through_a_directory_swapped_mid_wa
     (tmp_path / "outside").mkdir()
     (tmp_path / "outside" / "x.jsonl").write_text('{"error": "usage_limit_reached"}\n')
     swapped = _swap_on_open(monkeypatch, root, ("sub",), tmp_path / "outside", tmp_path / "moved")
-    assert checks.usage_limit_files([root]) == (0, 0)
+    # the file it listed now lies behind a symlink: it is not read there, and the search
+    # cannot rule a limit out, so it fails closed
+    with pytest.raises(C.FailClosed, match="could not be read"):
+        checks.usage_limit_files([root])
     assert swapped
 
 
@@ -1110,6 +1147,143 @@ def test_a_run_log_or_launch_record_that_is_a_symlink_is_never_read(
     found = checks.after(1, launch, C.REPO)
     assert "a crashed or killed process" in found["void_causes"]
     assert found["per_slot"]["slot 1"]["arm_exit"] is None
+
+
+# ---- the credential cleanup fails closed; every walk and read is bounded ----
+
+
+def test_a_login_file_that_cannot_be_removed_is_reported_and_stops_the_launch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home, runs, launch = _records(tmp_path, monkeypatch)
+    root = C.places(home, SLOTS_I_F["F"], runs)["scratch"]
+    config = root / _sid(1) / "session" / "config"
+    config.mkdir(parents=True)
+    (config / ".credentials.json").write_text("{}\n")
+    config.chmod(0o500)  # the file cannot be unlinked
+    try:
+        found = checks.remove_credentials([root])
+        assert found["login_files_left"] == 1 and found["configs_removed"] == 0
+        with pytest.raises(checks.Refused, match="1 login file"):
+            checks.credentials(1, launch)
+    finally:
+        config.chmod(0o700)
+    checks.remove_credentials([root])
+    assert checks.credentials(1, launch)["login_files_left"] == 0
+
+
+def test_the_round_s_credential_check_counts_every_login_file_of_its_roots(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home, runs, launch = _records(tmp_path, monkeypatch)
+    root = C.places(home, SLOTS_I_F["I"], runs)["scratch"]
+    (root / _sid(1) / "session" / "config").mkdir(parents=True)
+    (root / _sid(1) / "session" / "config" / "settings.json").write_text("{}\n")
+    assert checks.credentials(1, launch)["login_files_left"] == 0  # no login file: clean
+    (root / _sid(1) / "session" / "state").mkdir()
+    (root / _sid(1) / "session" / "state" / "key-helper.sh").write_text("x\n")
+    (root / _sid(2) / "session").mkdir(parents=True)
+    (root / _sid(2) / "session" / "config").symlink_to(tmp_path)
+    with pytest.raises(checks.Refused, match="2 login file"):
+        checks.credentials(1, launch)
+
+
+def test_review_roots_that_cannot_be_opened_fail_the_login_check_closed(tmp_path: Path) -> None:
+    scratch = tmp_path / C.SCRATCH_NAME
+    (scratch / "rpb-1").mkdir(parents=True)
+    for locked in (scratch / "rpb-1", scratch):
+        locked.chmod(0)
+        try:
+            with pytest.raises(C.FailClosed, match="could not be opened"):
+                checks.run_login_files(tmp_path)
+        finally:
+            locked.chmod(0o700)
+    assert checks.run_login_files(tmp_path) == {"roots": 1, "left": 0, "unconfirmed": 0}
+    assert checks.run_login_files(tmp_path / "nowhere") == {"roots": 0, "left": 0, "unconfirmed": 0}
+
+
+def test_the_second_arm_does_not_start_without_the_watcher_s_last_line(tmp_path: Path) -> None:
+    assert checks.second_arm(tmp_path, since=0.0, now=10.0) is None
+
+
+def test_a_records_file_that_is_a_symlink_or_a_fifo_is_not_read(tmp_path: Path) -> None:
+    (tmp_path / "real.jsonl").write_text("{}\n")
+    (tmp_path / "link.jsonl").symlink_to(tmp_path / "real.jsonl")
+    with pytest.raises(C.FailClosed, match="not a regular file"):
+        C.read_jsonl(tmp_path / "link.jsonl")
+    assert C.read_jsonl(tmp_path / "real.jsonl") == [{}]
+
+
+def test_an_unreadable_directory_under_a_root_fails_the_search_closed(tmp_path: Path) -> None:
+    root = tmp_path / "rpb-3"
+    (root / "locked").mkdir(parents=True)
+    (root / "locked").chmod(0)
+    try:
+        with pytest.raises(C.FailClosed, match="could not be opened"):
+            checks.usage_limit_files([root])
+    finally:
+        (root / "locked").chmod(0o700)
+
+
+def _no_block(call: Any, fifo: Path) -> Any:
+    """Run ``call`` in a thread; if it blocks on the FIFO, release it, and fail."""
+    import threading
+
+    out: list[Any] = []
+    t = threading.Thread(target=lambda: out.append(call()), daemon=True)
+    t.start()
+    t.join(timeout=10)
+    if t.is_alive():
+        fd = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)
+        os.close(fd)
+        t.join(timeout=10)
+        pytest.fail("a FIFO under a root was opened for reading and blocked")
+    return out[0]
+
+
+def test_a_fifo_under_a_root_is_never_opened_for_reading(tmp_path: Path) -> None:
+    root = tmp_path / "rpb-3"
+    (root / _sid(1) / "session").mkdir(parents=True)
+    fifo = root / _sid(1) / "session" / "stdout.jsonl"
+    os.mkfifo(fifo)
+    assert _no_block(lambda: C.read_inside(root, fifo), fifo) is None
+    assert _no_block(lambda: C.read_own(fifo), fifo) is None
+    assert _no_block(lambda: checks.usage_limit_files([root]), fifo) == (0, 0)
+
+
+def test_a_read_past_its_size_bound_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "rpb-3"
+    root.mkdir()
+    (root / "x.jsonl").write_text("0123456789A")
+    monkeypatch.setattr(C, "MAX_FILE_BYTES", 10)
+    with pytest.raises(C.FailClosed, match="bound"):
+        C.read_inside(root, root / "x.jsonl")
+    with pytest.raises(C.FailClosed, match="bound"):
+        C.read_own(root / "x.jsonl")
+    with pytest.raises(C.FailClosed, match="bound"):
+        checks.usage_limit_files([root])
+
+
+def test_a_walk_past_its_depth_or_entry_bound_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "rpb-3"
+    (root / "a" / "b" / "c" / "d" / "e").mkdir(parents=True)
+    monkeypatch.setattr(C, "MAX_DEPTH", 3)
+    with pytest.raises(C.FailClosed, match="depth"):
+        list(C.walk_inside(root))
+    monkeypatch.setattr(C, "MAX_DEPTH", 32)
+    wide = tmp_path / "rpb-4"
+    wide.mkdir()
+    for n in range(10):
+        (wide / f"f{n}.json").write_text("{}")
+    monkeypatch.setattr(C, "MAX_ENTRIES", 5)
+    with pytest.raises(C.FailClosed, match="entries"):
+        list(C.walk_inside(wide))
+    with pytest.raises(C.FailClosed, match="entries"):
+        C.list_inside(wide)
 
 
 @pytest.mark.parametrize("name", ["home", "rpb-x", "rpb-1000", "review-scratch"])

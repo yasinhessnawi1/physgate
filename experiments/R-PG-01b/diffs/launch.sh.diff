@@ -187,6 +187,22 @@
 -  git merge-base --is-ancestor HEAD origin/master || refuse "HEAD $HEAD_SHA is not on origin/master"
 -  [ -z "$(git status --porcelain)" ] || refuse "the checkout is not clean"
 -  say "ok  run commit $HEAD_SHA, clean, on origin/master"
+-fi
+-
+-# ---- 2. the pinned hashes ----
+-equal "gate tree" "$(git rev-parse HEAD:src/physgate/gate)" "$GATE_TREE"
+-equal "bounds blob" "$(git rev-parse HEAD:knowledge/electrical/bounds.toml)" "$BOUNDS_BLOB"
+-equal "bounds sha256" "$(sha knowledge/electrical/bounds.toml)" "$BOUNDS_SHA256"
+-equal "spelling blob" "$(git rev-parse HEAD:src/physgate/unit_spelling.py)" "$SPELLING_BLOB"
+-equal "instrument tree" "$(git rev-parse HEAD:src/physgate/evaluation/inject)" "$INJECT_TREE"
+-equal "reviewers tree" "$(git rev-parse HEAD:src/physgate/reviewers)" "$REVIEWERS_TREE"
+-equal "rubrics tree" "$(git rev-parse HEAD:knowledge/reviewers)" "$RUBRICS_TREE"
+-equal "control rubric" "$(sha knowledge/reviewers/control/rubric.md)" "$RUBRIC_CONTROL"
+-equal "electrical rubric" "$(sha knowledge/reviewers/electrical/rubric.md)" "$RUBRIC_ELECTRICAL"
+-equal "firmware rubric" "$(sha knowledge/reviewers/firmware/rubric.md)" "$RUBRIC_FIRMWARE"
+-equal "mechanical rubric" "$(sha knowledge/reviewers/mechanical/rubric.md)" "$RUBRIC_MECHANICAL"
+-equal "corpus tree" "$(git rev-parse HEAD:corpora/injected-errors/v1)" "$CORPUS_TREE"
+-equal "corpus manifest sha256" "$(sha "$CORPUS/MANIFEST.json")" "$MANIFEST_SHA256"
 +unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL CLAUDE_CODE_OAUTH_TOKEN
 +# The run account's token (token.sh): loaded for L10 into one unexported variable, given to the
 +# smoke and to each arm's process alone through rpb_exec_with_token, never an argument, never
@@ -195,8 +211,23 @@
 +export DISABLE_AUTOUPDATER=1 PHYSGATE_CLAUDE_BIN="$BIN"
 +say "== R-PG-01b launch, round $ROUND, launch $N, $(date -u +%Y-%m-%dT%H:%M:%SZ), stop after: $STOP_AFTER"
 +[ "$STOP_AFTER" = run ] || say "CHECKS ONLY: master ref $MASTER_REF, records $RUNS; no review runs"
-+uv sync --frozen -q
-+
+ uv sync --frozen -q
+-equal "catalogue digest" \
+-  "$(py -c 'from physgate.gate.catalogue import catalogue_digest; print(catalogue_digest())')" \
+-  "$CATALOGUE_SHA256"
+-[ -x "$BIN" ] || refuse "no binary at $BIN"
+-equal "binary sha256" "$(sha "$BIN")" "$BINARY_SHA256"
+-equal "binary version" "$("$BIN" --version | cut -d' ' -f1)" "$BINARY_VERSION"
+-py -c 'import sys; from pathlib import Path
+-from physgate.evaluation.inject.runner import InstrumentParams
+-InstrumentParams.model_validate_json(Path(sys.argv[1]).read_bytes())' "$HERE/params.json" \
+-  || refuse "params.json does not validate against the instrument's schema"
+-say "ok  params.json $(sha "$HERE/params.json")"
+-export PHYSGATE_CLAUDE_BIN="$BIN"
+ 
+-# ---- 3. R3: nothing reachable ----
+-for p in "$RUN" "$INSTALL" "$DRY" "$R4" "$REVIEW_ROOT"; do
+-  [ ! -e "$p" ] || refuse "$p already exists: a run is never resumed (set R_PG_01_ATTEMPT)"
 +# ---- L1: the host, the checkout, the account, the slots ----
 +FLAGS=(--round "$ROUND" --master-ref "$MASTER_REF")
 +[ "$STOP_AFTER" = checks ] && FLAGS+=(--checks-only)
@@ -214,7 +245,7 @@
 +# ---- L5 to L7: every packet of both arms, and arm I's at 8bc03fc ----
 +if [ ! -e "$CODE_8BC03FC" ]; then
 +  git worktree add -q --detach "$CODE_8BC03FC" 8bc03fc65f3a555f8f4f737eb5eeea1c6f179670
- fi
++fi
 +[ "$(git -C "$CODE_8BC03FC" rev-parse HEAD)" = 8bc03fc65f3a555f8f4f737eb5eeea1c6f179670 ] \
 +  && [ -z "$(git -C "$CODE_8BC03FC" status --porcelain)" ] || refuse "$CODE_8BC03FC is not 8bc03fc, clean"
 +(cd "$CODE_8BC03FC" && uv sync --frozen -q)
@@ -230,40 +261,10 @@
 +check packets-8bc03fc build I corpora/injected-errors/v1 packets-8bc03fc.record "$CODE_8BC03FC"
 +check L5-L7 py "$HERE/packets_identity.py" compare --i "$LAUNCH/packets-I.record" \
 +  --f "$LAUNCH/packets-F.record" --r-pg-01 "$LAUNCH/packets-8bc03fc.record"
- 
--# ---- 2. the pinned hashes ----
--equal "gate tree" "$(git rev-parse HEAD:src/physgate/gate)" "$GATE_TREE"
--equal "bounds blob" "$(git rev-parse HEAD:knowledge/electrical/bounds.toml)" "$BOUNDS_BLOB"
--equal "bounds sha256" "$(sha knowledge/electrical/bounds.toml)" "$BOUNDS_SHA256"
--equal "spelling blob" "$(git rev-parse HEAD:src/physgate/unit_spelling.py)" "$SPELLING_BLOB"
--equal "instrument tree" "$(git rev-parse HEAD:src/physgate/evaluation/inject)" "$INJECT_TREE"
--equal "reviewers tree" "$(git rev-parse HEAD:src/physgate/reviewers)" "$REVIEWERS_TREE"
--equal "rubrics tree" "$(git rev-parse HEAD:knowledge/reviewers)" "$RUBRICS_TREE"
--equal "control rubric" "$(sha knowledge/reviewers/control/rubric.md)" "$RUBRIC_CONTROL"
--equal "electrical rubric" "$(sha knowledge/reviewers/electrical/rubric.md)" "$RUBRIC_ELECTRICAL"
--equal "firmware rubric" "$(sha knowledge/reviewers/firmware/rubric.md)" "$RUBRIC_FIRMWARE"
--equal "mechanical rubric" "$(sha knowledge/reviewers/mechanical/rubric.md)" "$RUBRIC_MECHANICAL"
--equal "corpus tree" "$(git rev-parse HEAD:corpora/injected-errors/v1)" "$CORPUS_TREE"
--equal "corpus manifest sha256" "$(sha "$CORPUS/MANIFEST.json")" "$MANIFEST_SHA256"
--uv sync --frozen -q
--equal "catalogue digest" \
--  "$(py -c 'from physgate.gate.catalogue import catalogue_digest; print(catalogue_digest())')" \
--  "$CATALOGUE_SHA256"
--[ -x "$BIN" ] || refuse "no binary at $BIN"
--equal "binary sha256" "$(sha "$BIN")" "$BINARY_SHA256"
--equal "binary version" "$("$BIN" --version | cut -d' ' -f1)" "$BINARY_VERSION"
--py -c 'import sys; from pathlib import Path
--from physgate.evaluation.inject.runner import InstrumentParams
--InstrumentParams.model_validate_json(Path(sys.argv[1]).read_bytes())' "$HERE/params.json" \
--  || refuse "params.json does not validate against the instrument's schema"
--say "ok  params.json $(sha "$HERE/params.json")"
--export PHYSGATE_CLAUDE_BIN="$BIN"
++
 +# ---- L8: R4, the twins alone, at the run commit ----
 +check L8 py "$HERE/checks.py" L8 --into "$LAUNCH/r4"
- 
--# ---- 3. R3: nothing reachable ----
--for p in "$RUN" "$INSTALL" "$DRY" "$R4" "$REVIEW_ROOT"; do
--  [ ! -e "$p" ] || refuse "$p already exists: a run is never resumed (set R_PG_01_ATTEMPT)"
++
 +# ---- L9: R3 for each arm's run, the read allowance, the request defaults ----
 +for slot in "$SLOT_I" "$SLOT_F"; do
 +  slot_paths "$slot"
@@ -303,7 +304,7 @@
  import json, sys
  from pathlib import Path
  result, head, version, binary, into = sys.argv[1:6]
-@@ -166,43 +197,107 @@
+@@ -166,43 +197,121 @@
                    "requests": defaults.get("requests"), "distinct": len(defaults.get("distinct", []))}))
  sys.exit(1 if problems else 0)
  EOF
@@ -430,8 +431,20 @@
 +say "== the round ended $(date -u +%Y-%m-%dT%H:%M:%SZ), exits $(cat "$LAUNCH/exits.json")"
 +
 +# ---- the round's end: §5.5, the rubric digests, R6, the void rules; then the ledger line ----
-+check after py "$HERE/checks.py" after --round "$ROUND" --launch "$LAUNCH"
-+py "$HERE/ledger.py" round --round "$ROUND" | tee -a "$LOG"
++# Each step runs whatever the one before found, so the token's scan always runs; the launcher
++# then stops on the first failure, in this order: a login file left, a hit of the scan, the
++# round's end, the ledger.
++soft() { # name, then the command: like check, but its failure is recorded, not yet a refusal
++  local name="$1" out status=0; shift
++  out="$("$@")" || status=$?
++  printf '%s\n' "$out" > "$LAUNCH/$name.json"
++  if [ "$status" = 0 ]; then say "ok  $name $(printf '%s' "$out" | cut -c1-400)"; else say "FAILED $name: $out"; fi
++  return "$status"
++}
++AFTER_OK=1; soft after py "$HERE/checks.py" after --round "$ROUND" --launch "$LAUNCH" || AFTER_OK=0
++LEDGER_OK=1; py "$HERE/ledger.py" round --round "$ROUND" | tee -a "$LOG" || LEDGER_OK=0
++# No login file of a session outlives the round, whether the instrument or the watcher ended it.
++CREDENTIALS_OK=1; soft credentials py "$HERE/checks.py" credentials --round "$ROUND" --launch "$LAUNCH" || CREDENTIALS_OK=0
 +# The token never belongs in what the run wrote: counts only, never a match; a hit is no success.
 +WRITTEN=("$SMOKE_ROOT" "$LAUNCH/smoke" "$LAUNCH"/arm-*.log "$RUNS/slots.json" "$RUNS"/ledger-round-*)
 +for slot in "$SLOT_I" "$SLOT_F"; do
@@ -442,9 +455,11 @@
 -say "== the run ended $(date -u +%Y-%m-%dT%H:%M:%SZ), exit $CODE; last line:"
 -tail -n 1 "$LOGS/run.log" | tee -a "$LOG"
 -exit "$CODE"
-+if ! { scan_written rpb_scan "${WRITTEN[@]}" && scan_written rpb_scan_token "$LAUNCH"; }; then
-+  rpb_drop_token
-+  refuse "the token's scan found a hit in what the round wrote"
-+fi
++SCAN_OK=1
++{ scan_written rpb_scan "${WRITTEN[@]}" && scan_written rpb_scan_token "$LAUNCH"; } || SCAN_OK=0
 +rpb_drop_token
++[ "$CREDENTIALS_OK" = 1 ] || refuse "a login file of the run's sessions remains, or its removal is not confirmed ($LAUNCH/credentials.json); the next L1 refuses until it is gone"
++[ "$SCAN_OK" = 1 ] || refuse "the token's scan found a hit in what the round wrote"
++[ "$AFTER_OK" = 1 ] || refuse "the round's end ($LAUNCH/after.json)"
++[ "$LEDGER_OK" = 1 ] || refuse "the ledger line"
 +say "== done $(date -u +%Y-%m-%dT%H:%M:%SZ)"

@@ -172,13 +172,25 @@ def sha256_bytes(data: bytes) -> str:
 
 
 def sha256_file(path: Path) -> str:
-    """The sha256 of a file's bytes."""
-    return sha256_bytes(Path(path).read_bytes())
+    """The sha256 of a file's bytes, read in pieces (a pinned binary is a quarter gigabyte)."""
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as f:
+        for piece in iter(lambda: f.read(1 << 20), b""):
+            digest.update(piece)
+    return digest.hexdigest()
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
-    """A JSON-lines file, one value per non-blank line."""
-    return [json.loads(x) for x in Path(path).read_text().splitlines() if x.strip()]
+    """A JSON-lines file, one value per non-blank line; read as :func:`read_own` reads.
+
+    Raises:
+        FailClosed: it is not a regular file that can be read, or it passes the read's bound.
+    """
+    data = read_own(path)
+    if data is None:
+        msg = f"{Path(path).name} is not a regular file that can be read"
+        raise FailClosed(msg)
+    return [json.loads(x) for x in data.decode().splitlines() if x.strip()]
 
 
 # ---- under a review root or a run directory: nothing through a symlink, nothing outside ----
@@ -186,9 +198,25 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
 # Every read, listing and removal under a root walks from the root's own descriptor, opening each
 # directory relative to its parent's descriptor with O_NOFOLLOW, and acts on what it holds open:
 # no path string is used again after a check, so a part swapped for a symlink between the two is
-# never followed. Anything that is neither a regular file nor a directory is refused.
+# never followed. Nothing that is not a regular file is ever opened for reading (O_NONBLOCK, so a
+# FIFO cannot hold the open), and every walk and read is bounded. A bound that is hit, or a
+# directory that cannot be opened, raises :class:`FailClosed` with its cause: nothing is passed
+# over as if it were not there.
 
-_DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+#: The bounds of every walk and read under a root.
+MAX_DEPTH = 32
+MAX_ENTRIES = 250_000
+MAX_FILE_BYTES = 256 * 1024 * 1024
+
+_DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_NONBLOCK
+_FILE_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+
+
+class FailClosed(Exception):
+    """A walk or read hit a bound, or could not confirm what lies under a root.
+
+    The caller stops with this cause.
+    """
 
 
 def _after_open(parts: tuple[str, ...]) -> None:
@@ -217,7 +245,7 @@ def _plain_parts(root: Path, path: Path) -> tuple[str, ...] | None:
         parts = Path(path).relative_to(root).parts
     except ValueError:
         return None
-    if not parts or any(x in ("", ".", "..") or "/" in x for x in parts):
+    if not parts or len(parts) > MAX_DEPTH or any(x in ("", ".", "..") or "/" in x for x in parts):
         return None
     return parts
 
@@ -249,12 +277,40 @@ def _mode(name: str, parent: int) -> int | None:
     """An entry's own type (``lstat``), relative to ``parent``; ``None`` if it is not there."""
     try:
         return os.stat(name, dir_fd=parent, follow_symlinks=False).st_mode
-    except OSError:
+    except FileNotFoundError:
         return None
 
 
+def _names(fd: int, where: str) -> list[str]:
+    """The names in the directory held at ``fd``, sorted, at most :data:`MAX_ENTRIES`."""
+    names: list[str] = []
+    with os.scandir(fd) as entries:
+        for entry in entries:
+            names.append(entry.name)
+            if len(names) > MAX_ENTRIES:
+                msg = f"{where} holds more than {MAX_ENTRIES} entries: the bound of a walk"
+                raise FailClosed(msg)
+    return sorted(names)
+
+
+def _read_fd(fd: int, where: str) -> bytes | None:
+    """A held file's bytes if it is a regular file, at most :data:`MAX_FILE_BYTES`."""
+    with os.fdopen(fd, "rb") as f:
+        if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+            return None
+        data = f.read(MAX_FILE_BYTES + 1)
+    if len(data) > MAX_FILE_BYTES:
+        msg = f"{where} is larger than {MAX_FILE_BYTES} bytes: the bound of a read"
+        raise FailClosed(msg)
+    return data
+
+
 def read_inside(root: Path, path: Path) -> bytes | None:
-    """A regular file's bytes under ``root``, reached through no symlink; else ``None``."""
+    """A regular file's bytes under ``root``, reached through no symlink; else ``None``.
+
+    Raises:
+        FailClosed: the file is larger than the bound of a read.
+    """
     parts = _plain_parts(root, path)
     if parts is None:
         return None
@@ -262,13 +318,10 @@ def read_inside(root: Path, path: Path) -> bytes | None:
         if parent is None:
             return None
         try:
-            fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
+            fd = os.open(parts[-1], _FILE_FLAGS, dir_fd=parent)
         except OSError:
             return None
-        with os.fdopen(fd, "rb") as f:
-            if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
-                return None
-            return f.read()
+        return _read_fd(fd, "/".join(parts))
 
 
 def exists_inside(root: Path, path: Path) -> bool:
@@ -281,12 +334,20 @@ def exists_inside(root: Path, path: Path) -> bool:
 
 
 def list_inside(root: Path, parts: tuple[str, ...] = ()) -> list[tuple[str, int]]:
-    """The names and own types in the directory ``parts`` below ``root``, in name order."""
+    """The names and own types in the directory ``parts`` below ``root``, in name order.
+
+    Raises:
+        FailClosed: the directory holds more entries than the bound of a walk.
+    """
     with _dir_inside(root, parts) as fd:
         if fd is None:
+            if os.path.lexists(Path(root).joinpath(*parts)):
+                where = "/".join(parts) or Path(root).name
+                msg = f"{where} could not be opened as a directory: what it holds is not confirmed"
+                raise FailClosed(msg)
             return []
         found = []
-        for name in sorted(os.listdir(fd)):
+        for name in _names(fd, "/".join(parts) or "the root"):
             mode = _mode(name, fd)
             if mode is not None:
                 found.append((name, mode))
@@ -294,34 +355,48 @@ def list_inside(root: Path, parts: tuple[str, ...] = ()) -> list[tuple[str, int]
 
 
 def walk_inside(root: Path) -> Iterator[tuple[tuple[str, ...], int]]:
-    """Every directory and regular file below ``root``, as its parts and type, in name order.
+    """Every entry below ``root``, as its parts and own type, in name order; none followed.
 
-    Each directory is opened from its parent's descriptor with no symlink followed; a symlink
-    or anything else is skipped.
+    Each directory is opened from its parent's descriptor with no symlink followed, and the
+    walk descends into directories alone; a symlink and any other entry are given as they are,
+    never opened. Nothing under a root that does not exist is given.
+
+    Raises:
+        FailClosed: a directory could not be opened, or the walk passed its depth or entry bound.
     """
+    count = [0]
 
     def below(fd: int, prefix: tuple[str, ...]) -> Iterator[tuple[tuple[str, ...], int]]:
-        for name in sorted(os.listdir(fd)):
+        if len(prefix) >= MAX_DEPTH:
+            msg = f"{'/'.join(prefix)} lies deeper than {MAX_DEPTH}: the depth bound of a walk"
+            raise FailClosed(msg)
+        for name in _names(fd, "/".join(prefix) or "the root"):
             mode = _mode(name, fd)
-            parts = (*prefix, name)
             if mode is None:
                 continue
+            count[0] += 1
+            if count[0] > MAX_ENTRIES:
+                msg = f"the walk passed {MAX_ENTRIES} entries: the bound of a walk"
+                raise FailClosed(msg)
+            parts = (*prefix, name)
+            yield parts, mode
             if stat.S_ISDIR(mode):
                 child = _open_dir(name, fd)
                 if child is None:
-                    continue
+                    msg = f"{'/'.join(parts)} could not be opened: what it holds is not confirmed"
+                    raise FailClosed(msg)
                 try:
                     _after_open(parts)
-                    yield parts, mode
                     yield from below(child, parts)
                 finally:
                     os.close(child)
-            elif stat.S_ISREG(mode):
-                yield parts, mode
 
+    if not os.path.lexists(root):
+        return
     top = _open_dir(root)
     if top is None:
-        return
+        msg = f"{Path(root).name} could not be opened: what it holds is not confirmed"
+        raise FailClosed(msg)
     try:
         yield from below(top, ())
     finally:
@@ -351,24 +426,62 @@ def session_dirs(root: Path) -> tuple[list[str], int]:
     return found, refused
 
 
-def _empty(fd: int) -> bool:
+#: Where a session's login is put, by the instrument's own credential code: the binary's login
+#: file in its config directory, or an API key and its helper in its state directory.
+LOGIN_FILES = {"config": (".credentials.json",), "state": ("key", "key-helper.sh")}
+
+
+def login_files(root: Path) -> dict[str, int]:
+    """What may still hold a session's login under ``root``, by a bounded walk through no symlink.
+
+    ``left``: entries at a login file's name in a session's ``config`` or ``state`` (whatever
+    their type). ``unconfirmed``: a symlink standing where a session's directory, its
+    ``session``, ``config`` or ``state`` belongs, behind which nothing can be confirmed.
+
+    Raises:
+        FailClosed: a directory could not be opened, or the walk passed a bound.
+    """
+    left = unconfirmed = 0
+    for parts, mode in walk_inside(root):
+        name = parts[-1]
+        in_session = len(parts) >= 3 and parts[-3] == "session"
+        if in_session and name in LOGIN_FILES.get(parts[-2], ()):
+            left += 1
+        elif stat.S_ISLNK(mode) and (
+            SESSION_ID.fullmatch(name)
+            or name == "session"
+            or (name in LOGIN_FILES and len(parts) >= 2 and parts[-2] == "session")
+        ):
+            unconfirmed += 1
+    return {"left": left, "unconfirmed": unconfirmed}
+
+
+def _empty(fd: int, depth: int = 0) -> bool:
     """Remove everything in the directory held at ``fd``, or say it could not.
 
     Regular files and directories alone are removed, each by name relative to its held parent;
-    anything else is refused and left.
+    anything else is refused and left, as is anything whose removal fails: the caller confirms
+    what is left (:func:`login_files`).
     """
+    if depth >= MAX_DEPTH:
+        return False
     clean = True
-    for name in os.listdir(fd):
+    for name in _names(fd, "a directory being removed"):
         mode = _mode(name, fd)
         if mode is not None and stat.S_ISREG(mode):
-            os.unlink(name, dir_fd=fd)  # a name swapped since is unlinked itself, never followed
+            try:
+                os.unlink(
+                    name, dir_fd=fd
+                )  # a name swapped since is unlinked itself, never followed
+            except OSError:
+                clean = False
         elif mode is not None and stat.S_ISDIR(mode):
             child = _open_dir(name, fd)
             if child is None:
                 clean = False
                 continue
             try:
-                inner = _empty(child)
+                inner = _empty(child, depth + 1)
             finally:
                 os.close(child)
             try:
@@ -377,16 +490,48 @@ def _empty(fd: int) -> bool:
             except OSError:
                 inner = False
             clean = clean and inner
-        else:
+        elif mode is not None:
             clean = False
     return clean
+
+
+def unlink_inside(root: Path, parts: tuple[str, ...]) -> str:
+    """Unlink the entry ``parts`` below ``root``, through no symlink on the way.
+
+    A symlink there is itself unlinked, never followed. It returns ``removed``, ``absent`` or
+    ``refused``.
+    """
+    with _dir_inside(root, parts[:-2]) as grand:
+        if grand is None:
+            return "refused"
+        held = _mode(parts[-2], grand)
+        if held is None:
+            return "absent"  # no directory to hold it
+        parent = _open_dir(parts[-2], grand) if stat.S_ISDIR(held) else None
+        if parent is None:
+            return "refused"
+        try:
+            mode = _mode(parts[-1], parent)
+            if mode is None:
+                return "absent"
+            if stat.S_ISDIR(mode):
+                return "refused"
+            os.unlink(parts[-1], dir_fd=parent)
+        except FileNotFoundError:
+            return "absent"
+        except OSError:
+            return "refused"
+        finally:
+            os.close(parent)
+        return "removed"
 
 
 def remove_inside(root: Path, parts: tuple[str, ...]) -> str:
     """Remove the directory ``parts`` below ``root`` and what it holds, through no symlink.
 
     It returns ``removed``, ``absent``, or ``refused`` (a part or an entry that is a symlink or
-    neither a file nor a directory, which is left as it is).
+    neither a file nor a directory, or a removal that failed; what is left stays). The caller
+    confirms what is left with :func:`login_files`.
     """
     with _dir_inside(root, parts[:-1]) as parent:
         if parent is None:
@@ -414,15 +559,16 @@ def remove_inside(root: Path, parts: tuple[str, ...]) -> str:
 
 
 def read_own(path: Path) -> bytes | None:
-    """A regular file the run wrote, opened once and never through a symlink; else ``None``."""
+    """A regular file the run wrote, opened once and never through a symlink; else ``None``.
+
+    Raises:
+        FailClosed: the file is larger than the bound of a read.
+    """
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        fd = os.open(path, _FILE_FLAGS)
     except OSError:
         return None
-    with os.fdopen(fd, "rb") as f:
-        if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
-            return None
-        return f.read()
+    return _read_fd(fd, Path(path).name)
 
 
 def read_log(path: Path) -> tuple[list[dict[str, Any]], int]:

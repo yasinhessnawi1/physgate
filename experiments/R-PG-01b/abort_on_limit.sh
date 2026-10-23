@@ -18,8 +18,9 @@ while [ $# -ge 3 ]; do PIDS+=("$1"); DIRS+=("$2" "$3"); ROOTS+=("$3"); STARTS+=(
 same() { [ -n "${STARTS[$1]}" ] && [ "$(started "${PIDS[$1]}")" = "${STARTS[$1]}" ]; }
 alive() { local i; for i in "${!PIDS[@]}"; do kill -0 "${PIDS[$i]}" 2>/dev/null && same "$i" && return 0; done; return 1; }
 count() {
-  lim=$(grep -rl --include='*.jsonl' --include='*.json' --include='*.err' --include='*.txt' 'usage_limit_reached' "${DIRS[@]}" 2>/dev/null | wc -l | tr -d ' ')
-  r429=$(grep -rho --include='*.jsonl' '"api_error_status": *429' "${DIRS[@]}" 2>/dev/null | wc -l | tr -d ' ')
+  # -r follows no symlink below the roots; -D skip never opens a FIFO, socket or device
+  lim=$(grep -rl -D skip --include='*.jsonl' --include='*.json' --include='*.err' --include='*.txt' 'usage_limit_reached' "${DIRS[@]}" 2>/dev/null | wc -l | tr -d ' ')
+  r429=$(grep -rho -D skip --include='*.jsonl' '"api_error_status": *429' "${DIRS[@]}" 2>/dev/null | wc -l | tr -d ' ')
 }
 while alive; do
   count
@@ -37,7 +38,11 @@ while alive; do
     done
     sleep 2
     args=(); for r in "${ROOTS[@]}"; do args+=(--root "$r"); done
-    echo "SESSIONS $(uv run --frozen --project "$HERE/../.." python -I "$HERE/checks.py" stop-sessions "${args[@]}" 2>&1 | tail -n 1)" | tee -a "$LOG"
+    # A login file not confirmed removed is logged here, and stops the launcher at the round's end.
+    status=0
+    out="$(uv run --frozen --project "$HERE/../.." python -I "$HERE/checks.py" stop-sessions "${args[@]}" 2>&1)" || status=$?
+    echo "SESSIONS $(printf '%s' "$out" | tail -n 1)" | tee -a "$LOG"
+    [ "$status" = 0 ] || echo "CREDENTIALS NOT CONFIRMED REMOVED (stop-sessions exit $status)" | tee -a "$LOG"
     exit 0
   fi
   sleep "${RPB_WATCH_SECONDS:-30}"

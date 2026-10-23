@@ -108,8 +108,17 @@ rule, threshold, seed or decision of `CRITERIA.md`; each is how a sentence of it
    machine (Linux) it signals nothing. Under a review root or a run directory nothing is ever
    reached through a symlink, whether to signal, delete or read: a session directory, a
    `session`, a `config`, a stream or a process record that is a symlink is refused and left as
-   it is, and every read stays inside the root's real path. A slot, a label and a records
-   directory are held to their forms before any path is built from them.
+   it is. Every walk and read under a root goes from the root's own descriptor, each directory
+   opened from its parent's with `O_NOFOLLOW`, and acts on what it holds, so nothing swapped in
+   between is followed. Nothing that is not a regular file is opened for reading; a walk is
+   bounded in depth (32) and entries (250,000) and a read in size (256 MiB), and a bound hit,
+   or a directory that cannot be opened, stops the check with its cause. A slot, a label and a
+   records directory are held to their forms before any path is built from them.
+   **No login file outlives the round.** Whatever ended the sessions, the round's end walks
+   every review root of the experiment (`rpb-*`) for a session's login file (`.credentials.json`
+   in its `config`, or an API key in its `state`), and for a symlink where one could hide. Any
+   such file left, or not confirmed removed, stops the launcher with that cause after the
+   token's scan has run, and every later L1 refuses while it remains.
 9. **A crashed or killed process** (§12) is any arm whose exit is other than 0 or 1, or that has
    none, and any run that is not complete: each arm's `results.jsonl` with 40 rows, and in both
    logs 40 planned subtasks, each with a final review line (a verdict, or `review_unavailable`

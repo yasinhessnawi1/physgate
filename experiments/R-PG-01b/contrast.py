@@ -775,7 +775,7 @@ def main(argv: list[str] | None = None) -> int:
         corpora = {"I": None, "F": None}
     try:
         found = analyse(specs, corpora, args.any_count)
-    except TallyStop as exc:
+    except (TallyStop, C.FailClosed) as exc:
         print(json.dumps({"tally_stopped": str(exc)}))
         return 1
     text = json.dumps(found, indent=1, sort_keys=True) + "\n"

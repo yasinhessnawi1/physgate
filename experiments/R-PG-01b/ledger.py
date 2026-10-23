@@ -142,7 +142,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("cmd", choices=("round",))
     parser.add_argument("--round", type=int, choices=C.ROUNDS, required=True)
     args = parser.parse_args(argv)
-    found = round_line(args.round)
+    try:
+        found = round_line(args.round)
+    except C.FailClosed as exc:
+        print(json.dumps({"refused": str(exc)}))
+        return 1
     (RUNS / f"ledger-round-{args.round}.json").write_text(
         json.dumps(found, indent=1, sort_keys=True) + "\n"
     )

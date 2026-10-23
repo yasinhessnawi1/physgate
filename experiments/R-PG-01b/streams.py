@@ -264,10 +264,14 @@ def session_reads_text(text: str, total: int, last_row_id: str = C.LAST_ROW_ID) 
 
 
 def session_reads(stream_path: Path, total: int) -> dict[str, Any]:
-    """One session's reads of the sheet, classed; ``missing`` if its stream is not there."""
-    if not stream_path.is_file():
+    """One session's reads of the sheet, classed; ``missing`` if its stream is not there.
+
+    The stream is opened once, never through a symlink, and read within its bound.
+    """
+    data = C.read_own(stream_path)
+    if data is None:
         return {"missing": True}
-    return session_reads_text(stream_path.read_text(errors="replace"), total)
+    return session_reads_text(data.decode(errors="replace"), total)
 
 
 def session_reads_in(root: Path, sid: str | None, total: int) -> dict[str, Any]:
@@ -345,11 +349,17 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("stream", type=Path)
     s.add_argument("--out", type=Path)
     args = parser.parse_args(argv)
+    try:
+        if args.cmd == "round":
+            found = round_counts(args.run.resolve(), args.root.resolve(), args.arm)
+        else:
+            found = session_reads(args.stream.resolve(), C.SHEET_LINES[args.arm])
+    except C.FailClosed as exc:
+        print(json.dumps({"refused": str(exc)}))
+        return 1
     if args.cmd == "round":
-        found = round_counts(args.run.resolve(), args.root.resolve(), args.arm)
         cut = found["cut"]
     else:
-        found = session_reads(args.stream.resolve(), C.SHEET_LINES[args.arm])
         found.pop("classes", None)
         cut = found.get("cut", 0)
     text = json.dumps(found, sort_keys=True)

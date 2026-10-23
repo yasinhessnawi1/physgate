@@ -287,17 +287,31 @@ python3 -I -c 'import json,sys; a = sys.argv[1:]; print(json.dumps({a[k]: None i
 say "== the round ended $(date -u +%Y-%m-%dT%H:%M:%SZ), exits $(cat "$LAUNCH/exits.json")"
 
 # ---- the round's end: §5.5, the rubric digests, R6, the void rules; then the ledger line ----
-check after py "$HERE/checks.py" after --round "$ROUND" --launch "$LAUNCH"
-py "$HERE/ledger.py" round --round "$ROUND" | tee -a "$LOG"
+# Each step runs whatever the one before found, so the token's scan always runs; the launcher
+# then stops on the first failure, in this order: a login file left, a hit of the scan, the
+# round's end, the ledger.
+soft() { # name, then the command: like check, but its failure is recorded, not yet a refusal
+  local name="$1" out status=0; shift
+  out="$("$@")" || status=$?
+  printf '%s\n' "$out" > "$LAUNCH/$name.json"
+  if [ "$status" = 0 ]; then say "ok  $name $(printf '%s' "$out" | cut -c1-400)"; else say "FAILED $name: $out"; fi
+  return "$status"
+}
+AFTER_OK=1; soft after py "$HERE/checks.py" after --round "$ROUND" --launch "$LAUNCH" || AFTER_OK=0
+LEDGER_OK=1; py "$HERE/ledger.py" round --round "$ROUND" | tee -a "$LOG" || LEDGER_OK=0
+# No login file of a session outlives the round, whether the instrument or the watcher ended it.
+CREDENTIALS_OK=1; soft credentials py "$HERE/checks.py" credentials --round "$ROUND" --launch "$LAUNCH" || CREDENTIALS_OK=0
 # The token never belongs in what the run wrote: counts only, never a match; a hit is no success.
 WRITTEN=("$SMOKE_ROOT" "$LAUNCH/smoke" "$LAUNCH"/arm-*.log "$RUNS/slots.json" "$RUNS"/ledger-round-*)
 for slot in "$SLOT_I" "$SLOT_F"; do
   slot_paths "$slot"
   WRITTEN+=("$RUN" "$INSTALL" "$SCRATCH")
 done
-if ! { scan_written rpb_scan "${WRITTEN[@]}" && scan_written rpb_scan_token "$LAUNCH"; }; then
-  rpb_drop_token
-  refuse "the token's scan found a hit in what the round wrote"
-fi
+SCAN_OK=1
+{ scan_written rpb_scan "${WRITTEN[@]}" && scan_written rpb_scan_token "$LAUNCH"; } || SCAN_OK=0
 rpb_drop_token
+[ "$CREDENTIALS_OK" = 1 ] || refuse "a login file of the run's sessions remains, or its removal is not confirmed ($LAUNCH/credentials.json); the next L1 refuses until it is gone"
+[ "$SCAN_OK" = 1 ] || refuse "the token's scan found a hit in what the round wrote"
+[ "$AFTER_OK" = 1 ] || refuse "the round's end ($LAUNCH/after.json)"
+[ "$LEDGER_OK" = 1 ] || refuse "the ledger line"
 say "== done $(date -u +%Y-%m-%dT%H:%M:%SZ)"
