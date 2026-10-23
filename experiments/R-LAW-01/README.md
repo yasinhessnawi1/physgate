@@ -189,26 +189,49 @@ number, seed or threshold.
     in `ledger/projection.json`, and a resume of calibration reuses it and never recomputes it
     with round 2's rows; an exit 1 kept there is the deviation already recorded.
 14. **Repairing a torn ledger line.** A ledger line cut short (a driver killed mid-append) stops
-    the run. The operator repairs it: finds the call the line belongs to (its packet and try,
-    from the session files and the lines around it), re-derives the row from that call's kept
-    output with `law_verify.py ledger` into a scratch file, replaces the torn line with that row,
-    and logs an `interruptions.jsonl` event `repair` with the time and the cause. The tally counts
-    and prints the repairs beside the other interruptions. Deleting a torn line without a
-    re-derived row is never a repair: the guard would lose that call's tokens.
+    the run. The operator repairs it:
+    - finds the call the line belongs to (its packet and try, from the session files and the lines
+      around it);
+    - copies the ledger truncated just before the torn line, and re-derives the call's row from its
+      kept output with `law_verify.py ledger <that copy> …`, so that an output without usage is
+      charged from the ledger as it stood when the call ended (reading 12), not the 50,000 unit a
+      scratch ledger would give;
+    - sets the row's `utc` to the original call's time: for a failed call, the time in its file
+      name (`<packet>.try<n>.failed-<time>.json`); for a try, the modification time of
+      `<packet>.try<n>.json`, written as the call was settled; the repair's own time only where
+      neither exists, and the event says which;
+    - replaces the torn line with that row, and logs an `interruptions.jsonl` event `repair` with
+      the time and the cause.
+
+    The tally counts and prints the repairs beside the other interruptions. Deleting a torn line
+    without a re-derived row is never a repair: the guard would lose that call's tokens.
 15. **The binary's environment, one launcher per work dir, and the dry run.**
     - Every call of the binary (each session, the smoke session, `--version`) runs under
       `env -i` with only `HOME`, `USER`, `LOGNAME` and `TMPDIR` and `LANG` from the caller where
       it has them, `PATH=/usr/bin:/bin:/usr/sbin:/sbin` and `DISABLE_AUTOUPDATER=1`. Nothing else
       of the caller's (a Claude Code session's variables, `ANTHROPIC_*`,
-      `MAX_STRUCTURED_OUTPUT_RETRIES`) reaches it. The launch log records the names, never the
-      values.
-    - A launcher holds `ledger/launch.lock` for the whole phase and refuses to start while any
-      process of the locked phase's group lives, so a launcher whose terminal closed cannot leave
-      two drivers on one work dir. A lock whose processes are all dead is taken over, and the
-      takeover is logged as an interruption.
-    - The launcher runs end to end on the synthetic fixture with the stand-in (`RLAW_STANDIN`
-      and `RLAW_DRY_PINS`), as a test. Every output of such a run is marked a stand-in's, and the
-      tally refuses it outside `--dry-run`.
+      `MAX_STRUCTURED_OUTPUT_RETRIES`) reaches it. The launch log records the names as `env -i`
+      hands them over (`law_sessions.sh envnames`), never the values.
+    - A launcher holds an flock on `ledger/launch.lock` for the whole phase, through a file
+      descriptor that every process of the phase inherits. The kernel holds it while any of them
+      lives and frees it when the last one ends, also across a reboot, so a reused pid never
+      keeps it held. Of launchers started together exactly one takes it, and a second launcher
+      is refused, so a launcher whose terminal closed cannot leave two drivers on one work dir.
+      The file records the launcher's pid and the phase's process group, for the log only; a
+      record left by a phase that did not end cleanly is logged as a `takeover` interruption by
+      the next launcher that takes the lock.
+    - A dead phase's lock is never cleared by hand: nothing of it is left to clear. If a launcher
+      is refused although no phase should be running, a process of the old phase still holds the
+      lock. The operator lists the holders (`lsof <work dir>/ledger/launch.lock`), checks that
+      they are R-LAW-01 processes of that phase, ends them (their calls are settled on the
+      resume, as reading 5 says), and logs a `stop` interruption with the cause. The lock file is
+      never deleted or moved while a holder lives.
+    - The launcher runs end to end on the synthetic fixture with the stand-in, as a test, and
+      only there: `RLAW_STANDIN` and `RLAW_DRY_PINS` are each refused without the other, a
+      stand-in that is the pinned binary is refused, and a real preflight refuses a work dir that
+      holds any stand-in's output (a marked ledger, codes or reality row, or a `.standin` session
+      file). Every output of a dry run is marked a stand-in's, and the tally refuses it outside
+      `--dry-run`.
 
 Reading 16 was written on 23.10.2026, before any session of the experiment. It changes no frozen
 number, seed or threshold.
@@ -228,3 +251,16 @@ number, seed or threshold.
       prior adjudication's packets did not carry these lines, which may shift the agreement with
       the prior adjudication.
     - `RESULT.md` reports it as a disclosed threat to validity.
+
+Reading 17, and the corrections to readings 14 and 15, were written on 23.10.2026 after a third
+review of the scripts, before any session of the experiment. None changes a frozen number, seed or
+threshold.
+
+17. **A packet that fails the same way on every resume (§12).** If a packet's call fails with the
+    same non-transient cause (an `api_error` with a 4xx status other than 401, 403 and 429, or the
+    same `error_result`) on 3 consecutive resumes, it is recorded as a deviation under §12's
+    "anything else impossible as specified", scored by the frozen deviation rule, and the run
+    continues without it. It is the operator's decision at that point, logged in
+    `interruptions.jsonl` and in `deviations.json`. The scripts do not yet carry the last part
+    out: preflight refuses a work dir that holds `deviations.json`, and no step can leave one
+    packet out, so until they can, such a packet stops the run where it fails.
