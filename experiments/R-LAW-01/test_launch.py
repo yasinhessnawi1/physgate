@@ -342,10 +342,26 @@ def launch_to_file(phase: str, work: Path, env: dict[str, str]) -> tuple[int, fl
 
 
 def test_the_lock_is_free_as_soon_as_its_launcher_ends(tmp_path: Path) -> None:
-    work = _ledger_dir(tmp_path)
-    # a watcher that sleeps 30 s between its looks must not keep the lock that long
-    code, _ = launch_to_file("calibrate", work, dry_env(tmp_path, RLAW_WATCH_SECONDS="30"))
-    assert code == 1
+    work = tmp_path / "work"
+    (work / "ledger").mkdir(parents=True)
+    standin = tmp_path / "standin"
+    standin.write_text("#!/usr/bin/env bash\nexit 0\n")
+    standin.chmod(0o755)
+    pins = {"sets": {}, "parts_sheet": "0" * 64, "repo": str(tmp_path), "prior_adjudication": "0"}
+    (tmp_path / "pins.json").write_text(json.dumps(pins))
+    # the prior is a FIFO: the phase waits at its preflight's prior check until it is written,
+    # so the watcher (looking every 20 s) is asleep, with its tee, when the phase ends
+    prior = tmp_path / "prior.fifo"
+    os.mkfifo(prior)
+    env = dry_env(tmp_path, RLAW_WATCH_SECONDS="20", RLAW_PRIOR=str(prior))
+    with (work / "calibrate.out").open("w") as fh:
+        p = subprocess.Popen(
+            ["bash", str(LAUNCH), "calibrate", str(work)], stdout=fh, stderr=fh, env=env
+        )
+        time.sleep(2)
+        with prior.open("w") as w:
+            w.write("not the prior\n")
+        assert p.wait(timeout=60) == 1
     free = subprocess.run(
         [
             sys.executable,
@@ -359,6 +375,7 @@ def test_the_lock_is_free_as_soon_as_its_launcher_ends(tmp_path: Path) -> None:
         check=False,
     )
     assert free.returncode == 0, free.stderr
+    assert "RLAW_PRIOR is not the prior adjudication" in (work / "calibrate.out").read_text()
 
 
 def test_the_lock_hold_is_a_dry_run_s_only(tmp_path: Path) -> None:

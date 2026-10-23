@@ -336,8 +336,10 @@ case "$PHASE" in
     PID=$!
     set +m
     echo "launcher $$ group $PID" > "$LOCK"
-    # the watcher is no part of the phase: neither it nor its tee keeps the lock's descriptor
-    bash "$SESS" watch "$WORK" "$PID" "$WORK/ledger/phase-start" "$PHASE" 9>&- > >(exec 9>&-; tee -a "$LOG") 2>&1 &
+    # the watcher is no part of the phase: neither it nor its tee keeps the lock's descriptor.
+    # Redirections apply left to right, so 9>&- must stay before >(...): the tee is then spawned
+    # without fd 9 too.
+    bash "$SESS" watch "$WORK" "$PID" "$WORK/ledger/phase-start" "$PHASE" 9>&- > >(tee -a "$LOG") 2>&1 &
     W=$!
     wait "$PID"; CODE=$?
     # sessions the phase left in flight end on their own (none starts once STOPPED is written):
