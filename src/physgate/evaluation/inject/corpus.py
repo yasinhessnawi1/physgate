@@ -44,6 +44,7 @@ import ast
 import hashlib
 import json
 import re
+import unicodedata
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -52,10 +53,12 @@ from typing import Annotated, Any, Literal, cast
 from pydantic import (
     AfterValidator,
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     StringConstraints,
     ValidationError,
+    field_validator,
     model_validator,
 )
 
@@ -388,8 +391,46 @@ class Manifest(_Frozen):
 RowId = Annotated[str, StringConstraints(pattern=rf"^{_ROW}$")]
 
 
-#: Words, read without the whitespace around them, so a cell of spaces is no value.
-_Words = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+def visible(text: str) -> str:
+    """``text`` without the whitespace, or the characters that print as nothing, around it.
+
+    A zero-width space, a joiner, a byte-order mark: format characters (Unicode category Cf),
+    which no reader sees. A field of them and whitespace holds no words.
+    """
+    start, end = 0, len(text)
+    while start < end and _unseen(text[start]):
+        start += 1
+    while end > start and _unseen(text[end - 1]):
+        end -= 1
+    return text[start:end]
+
+
+def _unseen(char: str) -> bool:
+    return char.isspace() or unicodedata.category(char) == "Cf"
+
+
+def _visible_words(value: object) -> object:
+    return visible(value) if isinstance(value, str) else value
+
+
+#: Words, read without the whitespace or the characters that print as nothing around them, so a
+#: cell of spaces, or of zero-width characters, is no value.
+_Words = Annotated[
+    str, BeforeValidator(_visible_words), StringConstraints(strip_whitespace=True, min_length=1)
+]
+
+
+def _left_out_not_null(value: object) -> object:
+    """Refuse an optional field written as null: a sheet without it leaves the key out.
+
+    Run only on a field the bytes hold, never on its default. The account a review is given
+    names these fields exactly where the sheet holds one, and a null key in the bytes would be
+    a field the account does not name.
+    """
+    if value is None:
+        msg = "written as null; a sheet without the field leaves the key out"
+        raise ValueError(msg)
+    return value
 
 
 class SourceRow(_Frozen):
@@ -411,6 +452,8 @@ class SourceRow(_Frozen):
     given: _Words | None = None
     note: _Words | None = None
 
+    _given_and_note_left_out = field_validator("given", "note")(_left_out_not_null)
+
     @model_validator(mode="after")
     def _a_number_has_its_unit(self) -> SourceRow:
         if (self.value is None) != (self.unit is None):
@@ -426,6 +469,8 @@ class Sources(_Frozen):
     rows: dict[RowId, SourceRow]
     #: Lines the authors wrote beside the sheet's tables, each as they wrote it.
     remarks: Annotated[tuple[_Words, ...], Field(min_length=1)] | None = None
+
+    _remarks_left_out = field_validator("remarks")(_left_out_not_null)
 
     @model_validator(mode="after")
     def _no_row_is_empty_once_values_are_given(self) -> Sources:
