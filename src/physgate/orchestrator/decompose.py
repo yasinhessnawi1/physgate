@@ -209,7 +209,7 @@ def plan_problems(plan: Plan, roles: Sequence[str]) -> list[str]:
             found.append(f"module {module.name!r} has a directory outside the modules' space")
     for i, one in enumerate(dirs):
         for other in dirs[i + 1 :]:
-            if one == other or one.is_relative_to(other) or other.is_relative_to(one):
+            if _overlap(one, other):
                 found.append(f"module directories {one} and {other} overlap")
     ids = [n.id for n in plan.interface_nodes]
     if len(ids) > MAX_INTERFACE_NODES:
@@ -234,6 +234,19 @@ def plan_problems(plan: Plan, roles: Sequence[str]) -> list[str]:
                 "quantity a relation reads; it is written under the catalogue's name"
             )
     return found
+
+
+def _overlap(one: PurePosixPath, other: PurePosixPath) -> bool:
+    """Whether two module directories are one directory, or one holds the other.
+
+    Compared with case folded, as a file system that ignores case (macOS's default, where
+    runs are made) resolves them: there ``modules/Power`` and ``modules/power`` are one
+    directory, and two modules given them would share it. A directory's name may hold
+    upper case, so the comparison cannot be left to the names as written. The paths are
+    already normalised by their own type, and the fold is made on that.
+    """
+    a, b = PurePosixPath(str(one).casefold()), PurePosixPath(str(other).casefold())
+    return a == b or a.is_relative_to(b) or b.is_relative_to(a)
 
 
 def prompt_for(brief: str, roles: Sequence[str]) -> str:

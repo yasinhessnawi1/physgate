@@ -148,6 +148,9 @@ def test_no_result_and_the_wall_clock_are_failures_with_their_cause() -> None:
         ([module("a", "modules/a", role="control")], None, "no model for"),
         ([module("a", "modules/../../outside")], None, "outside"),
         ([module("a", "modules/a"), module("b", "modules/a/b")], None, "overlap"),
+        ([module("a", "modules/power"), module("b", "modules/Power")], None, "overlap"),
+        ([module("a", "modules/a"), module("b", "MODULES/a/b")], None, "overlap"),
+        ([module("a", "modules/a"), module("b", "modules/./a/")], None, "overlap"),
         ([module("a", "modules/a")], [NODE, NODE], "share an id"),
         ([module("a", "modules/a")], [{**NODE, "kind": "component"}], "not an interface"),
         ([module("a", "modules/a")], [{**NODE, "owner_role": "control"}], "no module has"),
@@ -157,6 +160,9 @@ def test_no_result_and_the_wall_clock_are_failures_with_their_cause() -> None:
         "a role with no model",
         "a directory leaving the repository",
         "nested module directories",
+        "two directories that differ only in case",
+        "a directory nested in one that differs only in case",
+        "one directory spelled two ways",
         "two nodes, one id",
         "a node that is no interface",
         "an interface owned by nobody's role",
@@ -167,6 +173,26 @@ def test_what_the_schema_cannot_say_is_checked_by_code(
 ) -> None:
     found = plan_problems(plan(modules, nodes), ["electrical"])
     assert any(problem in p for p in found), found
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        ("modules/Power", "modules/Brake"),
+        ("modules/a/x", "modules/A/y"),
+        ("modules/power", "modules/power_stage"),
+        ("modules/Power", "modules/power-stage"),
+    ],
+    ids=[
+        "different names",
+        "siblings under one directory spelled two ways",
+        "one name beginning with the other",
+        "one name beginning with the other, in other case",
+    ],
+)
+def test_directories_that_differ_in_more_than_case_are_still_apart(first: str, second: str) -> None:
+    found = plan_problems(plan([module("a", first), module("b", second)]), ["electrical"])
+    assert not any("overlap" in p for p in found), found
 
 
 def test_usage_is_counted_once_per_message_and_garbage_lines_are_skipped() -> None:
