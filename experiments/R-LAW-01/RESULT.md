@@ -33,7 +33,9 @@ re-gate records.
 error output. Its full output is `data/tally.json`, sha256
 `79190e7b8abfb6e698db8d8ad1beb2864d0b271e0694773fba9fd5580f71d350`. **Every figure below is copied
 from it**, unless the line names another file the tally read. Percentages are its shares to one
-decimal.
+decimal. The exceptions are the section "Figures added after the run" and the lines that point to
+it. Their figures come from `data/report_extra.json`, which `law_report.py` computed after the run;
+that script was itself added after the run.
 
 ---
 
@@ -187,8 +189,9 @@ On the audited subset's 146 real lines, the L share is **27.4 %** by the audit's
 | injected | 552 | 65 | 20 |
 | twin | 179 | 41 | 7 |
 
-**Flaws:** 250 real, 34 not real, 13 undecided. tally.json does not split the flaw verdicts by side
-(see "What tally.json does not hold", below). Each flaw's verdict is in `data/reality_summary.json`.
+**Flaws:** 250 real, 34 not real, 13 undecided. tally.json does not split the flaw verdicts by side.
+That split, computed after the run, is in "Figures added after the run". Each flaw's verdict is in
+`data/reality_summary.json`.
 
 **Agreement with the prior adjudication** on its 51 lines (all 51 matched and adjudicated here):
 43 agree, Cohen's κ **0.407**.
@@ -213,7 +216,8 @@ On the audited subset's 146 real lines, the L share is **27.4 %** by the audit's
 | N | 20.8 % | 52 |
 | uncoded | 0.4 % | 1 |
 
-tally.json gives the parts and kinds below as counts of flaws, not as shares.
+tally.json gives the parts and kinds below as counts of flaws, not as shares. The shares, computed
+after the run, are in "Figures added after the run".
 - **G's two parts** (§5.7 rule 3): caught where the coders also claimed G, **13**; caught where they
   coded L or L-if-data, **9**.
 - **D by kind:** record 54, source 31, table 3, and `fallback` 25 (the deciding form of the flaw's
@@ -246,8 +250,8 @@ then aggregates each flaw's lines again (README reading 6).
 ### 4. The L share by role, class, set, reviewer kind and origin
 
 Each row has its own cluster bootstrap. A base flaw counts under role and class "base". A flaw
-counts under each reviewer kind that found it. tally.json gives the L share per group only (see
-"What tally.json does not hold").
+counts under each reviewer kind that found it. tally.json gives the L share per group only. Every
+code's share per group, computed after the run, is in "Figures added after the run".
 
 | By role | L share | Flaws | Wilson 95 % (%) | Cluster 95 % (%) | Clusters |
 |---|--:|--:|---|---|--:|
@@ -339,7 +343,9 @@ So the decision is **not robust**, and the reading that crosses is **S3**.
    against 19.2 % by the final codes.
 3. **The checks as implemented against as described.** Of the 50 L flaws, 8 are an existing gate
    relation the gate did not form, all 8 unformed by name; 42 are new relations. tally.json does
-   not split L by the family field.
+   not split L by the family field. Computed after the run: family 4 (power balance) 18, family 5
+   (energy and mass conservation) 12, family 3 (static equilibrium) 11, family 7 (propagation) 4,
+   and none 5.
 4. **Only what reviewers found.** The run cannot measure flaws no reviewer found. By reviewer kind
    the L share is 19.8 % for the paired reviewers (48 of 242) and 35.1 % for the generalist (13 of
    37).
@@ -429,8 +435,13 @@ token estimate was used.
   `0d9b0d2b…`, v1 `3d2aae2f…`; coder schema `a79889a6…` and adjudicator schema `f689ef64…` in both
   versions; reality prompt `41438ab7…` and schema `57c3852f…`, the frozen digests (`prompts/`,
   each version's `prompts.json`).
-- §6 also asks for the slice's κ and L share under each version. No frozen script computes them,
-  and they are not reported here (see "What tally.json does not hold").
+- §6 also asks for the slice's κ and L share under each version. No frozen script computes them.
+  They were computed after the run and are in "Figures added after the run".
+- **The bank's lean toward L, answered.** Under v1 the slice's L share was 13.5 % (7 of 52 flaws),
+  against 11.5 % (6 of 52) under v0. Per line it was 20.2 % (26 of 129) against 17.1 % (22 of 129).
+  So v1 coded one more slice flaw and four more slice lines L. The two rounds are separate
+  sessions, so the difference mixes the prompt change with session-to-session variation, and the
+  slice has only 7 clusters.
 
 **4. The account.**
 - Every session ran on the **development account**. The owner confirmed on 22.10.2026 that the
@@ -480,27 +491,31 @@ The figures the tally gives beside it:
   0.407. The 8 that differ went from the prior's `true_flaw` (7) or `undecidable` (1) to
   `not_a_flaw` here.
 
-**7. Pre-launch checks, not part of the experiment.** All ran on the pinned binary, on synthetic
-packets that hold no finding line, and wrote no ledger line: **about 15,000 tokens in all**.
+**7. Pre-launch checks, not part of the experiment.** None was an experiment session. All ran on
+the pinned binary, on the development account, on synthetic packets that hold no finding line, and
+none wrote a ledger line. **The binary reported 12,107 tokens in all**, for five calls: smokes of
+1,572, 1,579 and 1,500, the unsatisfiable-schema probe at 6,281 and the clean-environment probe at
+1,175. Two more calls, the retry-exhaustion probes, ran tokens the binary does not report.
 - **The smoke session** (22.10.2026, at `d642c06`; 1,572 tokens). Why: to confirm that the run's
   flags work before the first session. It held: `--json-schema` works with `--tools ""` (the only
   tool the session reports is `StructuredOutput`); `--setting-sources ""` keeps every CLAUDE.md out;
   the result's usage equals the sum over `modelUsage`, which names only `claude-opus-5-5`; and
   `terminal_reason` is present. It was re-run after the fixes that changed how the binary is
   called: at `ad87e7d` (23.10.2026, 1,579 tokens) and at `958b46c` under the clean environment
-  (23.10.2026). It held each time. Output: `testdata/smoke_out.json`.
+  (23.10.2026, 1,500 tokens). It held each time. Output: `testdata/smoke_out.json`.
 - **Probe 1, an unsatisfiable schema** (22.10.2026). Why: to see how the binary reports a model
   that cannot fit the schema. The binary returned a success with no structured output, which is a
-  try. Output: `testdata/schema_fail_probe_out.json`.
-- **Probe 2, the structured-output retry exhaustion** (23.10.2026). Why: the binary's own strings,
-  and the ultrareview, showed a second path. Run with one allowed retry, it gave exit 1,
-  `error_max_structured_output_retries` and `structured_output_retry_exhausted`, and reported 0
-  tokens although two turns ran. It confirmed the path that README reading 5 counts as a try with
+  try. 6,281 tokens. Output: `testdata/schema_fail_probe_out.json`.
+- **Probe 2, the structured-output retry exhaustion** (23.10.2026), run twice, once with
+  `--verbose`. Why: the binary's own strings, and the ultrareview, showed a second path. Run with
+  one allowed retry, it gave exit 1, `error_max_structured_output_retries` and
+  `structured_output_retry_exhausted`. Both runs reported 0 tokens although two turns ran, as the
+  binary's exhaustion path does. It confirmed the path that README reading 5 counts as a try with
   no form, and its missing usage led to reading 12 (a call that reports no usage is charged an
   estimate). Output: `testdata/retry_exhausted_probe_out.json`.
 - **Probe 3, the clean environment** (23.10.2026). Why: to confirm the pinned binary
   authenticates under the `env -i` allowlist before making that the rule (README reading 15). It
-  did: exit 0, success.
+  did: exit 0, success. 1,175 tokens.
 
 **8. The tooling's review history.** Before any session, the scripts went through six review rounds,
 each finding fixed test-first: a first review, an ultrareview, three independent delta reviews and a
@@ -533,21 +548,148 @@ and nothing was declared.**
 `672618e` at 12:11:28Z. PR #75 merged at 12:35:38Z with the merge commit `579ac99`, which keeps
 `672618e` on master unchanged. `672618e` differs from `7c1ca73` only in `prompts/` and `bank.json`.
 
-### What tally.json does not hold
+**11. The false-positive audit blocks every clean twin.** The 56 relations block 60 distinct clean
+twins, and the two sets hold 60 clean twins between them (§2.1). Seven fresh-set relations each
+block all 40 fresh twins: `I_d == I_st * V_s / V_r`, `I_d == V_p * I_s / V_r`,
+`I_draw == V_pack * I_stall / V_rated`, `I_draw >= V_pack * I_stall / V_rated`,
+`I_out == I_s * V_p / V_r`, `I_pk == 2 * V_p * I_s / V_r` and `R_ch == 2 * r * tau_s`. Three
+practice-set relations each block all 20 practice twins: `T_out <= r * T_in`,
+`tau_bl <= 2 * r_ext * tau_m` and `w_g == w_m / r_ext`. Nine more block 19 of the 20 (Appendix C).
+Clean twins can carry real flaws, so a block is not proven false. §8.2 item 5 reports it only.
 
-The pre-registration asks for these, and the frozen tally does not compute them. They are not
-computed here.
-- **§6:** the slice's κ under each version, round 2's disagreement counts, and the slice's L share
-  under each version. Round 1's disagreement counts are in `bank.json`. The slice's forms, both
-  rounds, are in `data/codes.jsonl` (steps `slice-r1` and `slice-r2`).
-- **§8.2 item 1:** G's two parts and the kinds of D and N, as shares. tally.json gives them as
-  counts.
-- **§8.2 item 4:** the shares other than L (G, L-if-data, D, N, uncoded) by role, class, set,
-  reviewer kind and origin. tally.json gives the L share per group only.
-- **§8.2 item 6:** the flaw verdicts by side. tally.json gives the line verdicts by side and the flaw
-  verdicts in total.
-- **§9 threat 3:** L split by the family field. tally.json splits L by `relation_origin` and
-  `unformed_by`, not by family.
+**12. The kind split and S5.** Four L flaws have a `limit` representative line: W0080, W0146,
+W0260 and W0261. S5 drops three of them. W0260 stays L, because its line L0794 is coded L by a
+`law` relation (`I_nl <= I_stall`). W0264 has a `limit` line (L0795) but a `law` representative,
+and stays L too. So S5 gives 47 L flaws, not 46. This follows README reading 6.
+
+**13. The two relation lists cover different lines.** Appendix B, the literals, lists 60 relations
+from every measured line whose final code is L, real or not (README reading 9). Appendix C, the
+false-positive audit, lists 56 relation signatures from the `true_flaw` lines of real L flaws. Five
+relations are only in Appendix B: `I_motors >= 2 * V_pack * I_stall / V_rated`,
+`T_gb <= r_ext * T_m`, `r_gb == r_m * r_ext`, `tau_g <= r_ext * tau_m` and `w_gb == w_m / r_ext`.
+`M == r * tau_s` appears twice in Appendix C, as two signatures with different inputs.
+
+**14. Fewer real flaws than planned.** §10's resolution estimate assumed about 310 real flaws in the
+measured set. There are 250: of the 297 measured flaws, 34 are not real and 13 undecided.
+
+## Figures added after the run
+
+**Reported, never a result.** `CRITERIA.md` asks for these figures, and the frozen tally does not
+compute them. They were computed on 23.10.2026, after the run and after the tally, by
+`law_report.py`, **code added after the run**.
+- It reuses the tally's own classes and functions.
+- It reads only the published data: `data/`, the committed `slice.json` and the frozen corpora the
+  tally reads too.
+- It first re-runs the tally on the same files, and refuses unless that reproduces `tally.json`
+  byte for byte. It did.
+- Its full output is `data/report_extra.json`. Its test, on the synthetic fixture, is
+  `test_report.py`.
+- None of these figures changes a code, a share, a label or the decision.
+
+### §6: the slice under each prompt version
+
+The slice has no reality verdicts, so every slice line is taken as real. Its lines are coded by
+§5.7 rule 1 from that round's forms. §5.6 then turns them into G, with that round's deciding forms
+and the published re-gate records; 14 slice lines matched in each round. Its flaws are the flaws of
+`flaws.jsonl` cut to their slice lines: 52 flaws in 7 clusters, aggregated by §5.7 rule 2.
+
+| | v0 (round 1) | v1 (round 2) |
+|---|---|---|
+| Lines; flaws | 129; 52 | 129; 52 |
+| κ₅, weighted [95 % cluster interval] | 0.713 [0.543, 0.960] | 0.751 [0.598, 0.821] |
+| κ₅, unweighted | 0.709 | 0.736 |
+| κ_L, weighted [95 % cluster interval] | 0.860 [0.612, 0.981] | 0.881 [0.668, 0.990] |
+| κ_L, unweighted | 0.813 | 0.857 |
+| Disagreements after §5.5 | D–N 15, L–N 3, D–G 2, D–L 2, G–L 1, G–N 1 | D–N 14, L–N 4, G–L 2, D–L 1, G–N 1 |
+| **L share, flaws** | **11.5 %** (6 of 52); Wilson [5.4, 23.0] %; cluster [1.0, 53.6] % | **13.5 %** (7 of 52); Wilson [6.7, 25.3] %; cluster [1.0, 64.7] % |
+| L share, lines | 17.1 % (22 of 129) | 20.2 % (26 of 129) |
+| Final line codes | D 64, N 36, L 22, G 7 | D 55, N 40, L 26, G 7, uncoded 1 |
+
+Round 1's disagreement counts equal `bank.json`'s. **The bank's lean toward L** (Appendix D, and
+disclosure 3): v1 coded one more slice flaw L than v0 (7 against 6 of 52) and four more slice lines
+(26 against 22 of 129). The two rounds are separate sessions, so this mixes the prompt change with
+session-to-session variation.
+
+### §8.2 item 1: G's parts and the kinds of D and N, as shares
+
+Of the 250 real flaws.
+
+| Part or kind | Share | Flaws |
+|---|--:|--:|
+| G, caught where the coders also claimed G | 5.2 % | 13 |
+| G, caught where they coded L or L-if-data | 3.6 % | 9 |
+| D, record | 21.6 % | 54 |
+| D, source | 12.4 % | 31 |
+| D, table | 1.2 % | 3 |
+| D, `fallback` | 10.0 % | 25 |
+| N, traceability | 18.0 % | 45 |
+| N, judgement | 1.2 % | 3 |
+| N, process | 0.8 % | 2 |
+| N, `fallback` | 0.8 % | 2 |
+
+### §8.2 item 4: every code's share by role, class, set, reviewer kind and origin
+
+Each cell gives the share, the flaws in brackets, and its own 95 % cluster-bootstrap interval in
+per cent (`random.Random(13)`, 10,000 draws, as §8.1). The Wilson intervals are in
+`data/report_extra.json`. The L column equals tally.json's breakdowns.
+
+| By role (flaws) | G | L | L-if-data | D | N | uncoded |
+|---|---|---|---|---|---|---|
+| base (15) | 0.0 % (0) [0.0, 0.0] | 46.7 % (7) [20.0, 73.3] | 20.0 % (3) [0.0, 40.0] | 26.7 % (4) [6.7, 53.3] | 6.7 % (1) [0.0, 20.0] | 0.0 % (0) [0.0, 0.0] |
+| control (79) | 2.5 % (2) [0.0, 7.5] | 11.4 % (9) [3.1, 25.9] | 0.0 % (0) [0.0, 0.0] | 55.7 % (44) [41.5, 72.4] | 29.1 % (23) [12.2, 41.1] | 1.3 % (1) [0.0, 4.9] |
+| electrical (80) | 5.0 % (4) [0.0, 10.5] | 23.8 % (19) [13.3, 37.1] | 10.0 % (8) [3.5, 16.3] | 42.5 % (34) [32.5, 54.0] | 18.8 % (15) [10.2, 25.0] | 0.0 % (0) [0.0, 0.0] |
+| firmware (27) | 7.4 % (2) [0.0, 20.7] | 18.5 % (5) [5.0, 30.0] | 0.0 % (0) [0.0, 0.0] | 59.3 % (16) [33.3, 85.0] | 14.8 % (4) [2.9, 33.3] | 0.0 % (0) [0.0, 0.0] |
+| mechanical (49) | 28.6 % (14) [13.7, 44.4] | 20.4 % (10) [6.1, 37.3] | 2.0 % (1) [0.0, 6.8] | 30.6 % (15) [14.0, 47.8] | 18.4 % (9) [9.3, 27.5] | 0.0 % (0) [0.0, 0.0] |
+
+| By error class (flaws) | G | L | L-if-data | D | N | uncoded |
+|---|---|---|---|---|---|---|
+| base (15) | 0.0 % (0) [0.0, 0.0] | 46.7 % (7) [20.0, 73.3] | 20.0 % (3) [0.0, 40.0] | 26.7 % (4) [6.7, 53.3] | 6.7 % (1) [0.0, 20.0] | 0.0 % (0) [0.0, 0.0] |
+| equilibrium (65) | 29.2 % (19) [17.9, 43.4] | 23.1 % (15) [10.0, 40.0] | 9.2 % (6) [0.0, 16.7] | 21.5 % (14) [13.0, 30.6] | 16.9 % (11) [8.6, 23.7] | 0.0 % (0) [0.0, 0.0] |
+| magnitude (45) | 0.0 % (0) [0.0, 0.0] | 8.9 % (4) [0.0, 20.0] | 0.0 % (0) [0.0, 0.0] | 73.3 % (33) [55.6, 87.9] | 17.8 % (8) [3.8, 35.6] | 0.0 % (0) [0.0, 0.0] |
+| propagation (60) | 5.0 % (3) [0.0, 11.1] | 18.3 % (11) [8.2, 27.9] | 3.3 % (2) [0.0, 6.1] | 48.3 % (29) [33.9, 64.9] | 23.3 % (14) [14.3, 30.8] | 1.7 % (1) [0.0, 6.3] |
+| unit (65) | 0.0 % (0) [0.0, 0.0] | 20.0 % (13) [7.5, 42.1] | 1.5 % (1) [0.0, 5.9] | 50.8 % (33) [39.6, 64.1] | 27.7 % (18) [8.1, 40.0] | 0.0 % (0) [0.0, 0.0] |
+
+| By set (flaws) | G | L | L-if-data | D | N | uncoded |
+|---|---|---|---|---|---|---|
+| fresh (132) | 7.6 % (10) [2.3, 14.1] | 26.5 % (35) [16.8, 37.4] | 4.5 % (6) [1.0, 8.3] | 42.4 % (56) [32.1, 52.5] | 18.2 % (24) [11.6, 24.5] | 0.8 % (1) [0.0, 2.5] |
+| practice (118) | 10.2 % (12) [3.5, 19.4] | 12.7 % (15) [6.8, 21.1] | 5.1 % (6) [0.8, 11.1] | 48.3 % (57) [36.1, 62.0] | 23.7 % (28) [11.3, 33.8] | 0.0 % (0) [0.0, 0.0] |
+
+| By reviewer kind (flaws) | G | L | L-if-data | D | N | uncoded |
+|---|---|---|---|---|---|---|
+| paired (242) | 8.7 % (21) [4.4, 13.9] | 19.8 % (48) [13.7, 27.3] | 5.0 % (12) [2.0, 8.5] | 45.0 % (109) [37.1, 53.1] | 21.1 % (51) [14.2, 27.6] | 0.4 % (1) [0.0, 1.4] |
+| generalist (37) | 13.5 % (5) [2.8, 25.7] | 35.1 % (13) [19.4, 51.4] | 0.0 % (0) [0.0, 0.0] | 40.5 % (15) [25.7, 55.6] | 10.8 % (4) [2.7, 21.1] | 0.0 % (0) [0.0, 0.0] |
+
+| By origin (flaws) | G | L | L-if-data | D | N | uncoded |
+|---|---|---|---|---|---|---|
+| on the injection (87) | 18.4 % (16) [9.2, 28.0] | 24.1 % (21) [12.9, 36.0] | 1.1 % (1) [0.0, 3.7] | 43.7 % (38) [30.5, 57.3] | 12.6 % (11) [6.0, 19.8] | 0.0 % (0) [0.0, 0.0] |
+| elsewhere (163) | 3.7 % (6) [0.8, 7.8] | 17.8 % (29) [10.9, 26.0] | 6.7 % (11) [2.5, 11.9] | 46.0 % (75) [37.3, 54.8] | 25.2 % (41) [16.2, 33.3] | 0.6 % (1) [0.0, 2.2] |
+
+### §8.2 item 6: the flaw verdicts by side
+
+A measured flaw's side is the side of its measured lines. Its verdict is §2.3's: real if any line is
+`true_flaw`, not real if every line is `not_a_flaw`, otherwise undecided.
+
+| The flaw's measured lines | Real | Not real | Undecided |
+|---|--:|--:|--:|
+| injected side only | 135 | 23 | 9 |
+| twin side only | 33 | 10 | 4 |
+| both sides | 82 | 1 | 0 |
+
+### §9 threat 3: L by family
+
+§9 names "the family field". §5.1 defines it: the ARCH-080 check whose purpose the relation falls
+under, or none. It is read from each L flaw's representative line, as the tally reads the other L
+fields.
+
+| Family | L flaws | Existing relation the gate did not form | New relation |
+|---|--:|--:|--:|
+| 3, static equilibrium and load path | 11 | 4 | 7 |
+| 4, power balance | 18 | 0 | 18 |
+| 5, energy and mass conservation | 12 | 4 | 8 |
+| 7, cross-domain propagation | 4 | 0 | 4 |
+| none | 5 | 0 | 5 |
+
+No L flaw falls under family 1 (units), 2 (magnitude) or 6 (thermal).
 
 ## Deviations
 
@@ -573,10 +715,12 @@ the run's work dir file of the same name (the ledger from `ledger/`), except `re
 | Every coder, adjudicator and audit form, with §5.5's outcome: the code claimed (`code_raw`), the code after §5.5 (`code`), the failure, the relation's facts, and the adjudicator's A/B labels | `codes.jsonl` | 2,573,547 |
 | Every reality verdict and origin, per measured line | `reality.jsonl` | 104,309 |
 | The 34 control verdicts, each flaw's reality, both bars and the prior agreement | `reality_summary.json` | 10,902 |
+| Every reality and control form: the schema's four fields (`id`, `verdict`, `origin`, `reason`) of the form the scoring used, with the line, packet, finding id and try | `reality_forms.jsonl` | 368,019 |
 | The re-gate records, 120 design versions (gzip) | `regate.jsonl.gz` | 290,793 |
 | The re-gate's check against `a-fresh` | `regate_check.json` | 168 |
 | Each line's gate match (§5.6) | `matches.jsonl` | 73,369 |
 | The tally's full output, sha256 `79190e7b…0f71d350` | `tally.json` | 31,824 |
+| The figures added after the run (`law_report.py`) | `report_extra.json` | 27,693 |
 | The ledger, one line per try (exit, model asked and used, packet, step, tokens, try, time, validity) | `ledger.jsonl` | 132,937 |
 | The launch log (both phases; every line of the two launch outputs is in it) | `launch.log` | 9,142 |
 | The slice | `../slice.json` (committed at "Slice filled") | 312 |
@@ -590,9 +734,12 @@ the run's work dir file of the same name (the ledger from `ledger/`), except `re
   published compressed with `gzip -n -9` (no name, no time stamp, so the same bytes every time):
   `regate.jsonl.gz`, sha256 `f26cd2cd2eb3f07adedc61c4e97e815f5ee1ca063f01fac7aa1b7377f08a0a21`.
   `gunzip -c regate.jsonl.gz` gives the work dir's file byte for byte.
-- **The reality forms** are published as each line's verdict and origin, as the scoring read them.
-  The judges' one- or two-sentence reasons are only in the raw session outputs, which are not
-  published.
+- **The reality forms** (`reality_forms.jsonl`, 898 rows: 864 reality lines and 34 controls) were
+  extracted after the run from each reality and control session's structured output. They take the
+  form the scoring used (the first try's valid form, else the retry's, as `law_reality.py` reads
+  it), and only the schema's four fields. Never the transcript, the result text or the usage. Every
+  row's verdict and origin equal those in `reality.jsonl` or `reality_summary.json`. No form held a
+  field beyond the schema.
 - **The ledger** carries no field that identifies the account.
 - **Not published:** the session transcripts and raw outputs, and the account files (§11); the
   packets, which the scripts build from committed inputs; and the prior adjudication's output,
@@ -610,6 +757,9 @@ the run's work dir file of the same name (the ledger from `ledger/`), except `re
   from master at `fc28f32`, whose R-LAW-01 scripts, `src/`, `knowledge/` and two corpora are
   identical to `672618e`'s. It gave a `tally.json` byte-identical to the published one (sha256
   `79190e7b…0f71d350`) in about 16 seconds.
+- **The figures added after the run.** `uv run python -I experiments/R-LAW-01/law_report.py
+  experiments/R-LAW-01/data` re-runs the tally on the published files, refuses unless it reproduces
+  `tally.json`, and writes `data/report_extra.json`. It takes about 18 seconds.
 - **The run.** `law_launch.sh preflight`, `calibrate` and `measure` on a work dir made by
   `law_extract.py`, `law_group.py`, `law_slice.py` and `law_regate.py`, at the commits above, with the
   pinned binary and `RLAW_PRIOR` set to the prior adjudication's output at its digest (header of
