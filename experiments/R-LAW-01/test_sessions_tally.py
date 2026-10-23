@@ -1067,6 +1067,63 @@ def test_a_stop_with_no_phase_start_is_a_stop(tmp_path: Path, packets: Path) -> 
     assert not Path(env["RLAW_LEDGER"]).exists()
 
 
+STUCK = json.dumps(
+    {
+        "type": "result",
+        "is_error": True,
+        "terminal_reason": "api_error",
+        "api_error_status": 404,
+        "errors": ["claude-opus-5-5 is not found for this packet"],
+    }
+)
+
+
+@pytest.mark.parametrize("other_between", [True, False])
+def test_a_packet_stuck_on_one_cause_ends_the_run_as_a_deviation(
+    tmp_path: Path, packets: Path, other_between: bool
+) -> None:
+    led = tmp_path / "led"
+    out = tmp_path / "out"
+    out.mkdir()
+    # two earlier failures of P0001 try1, each kept, with other packets' tries between
+    rows: list[dict[str, Any]] = []
+    for k in range(2):
+        name = f"P0001.try1.failed-2026102{k}T100000Z.json"
+        (out / name).write_text(STUCK)
+        (out / name.replace(".json", ".err")).write_text("")
+        if k:
+            rows.append({"step": "s", "packet": "P0101", "try": 1, "tokens": 9})
+        rows.append(
+            {
+                "step": "s",
+                "packet": "P0001",
+                "try": 1,
+                "tokens": 0,
+                "infrastructure": "api_error (404)",
+                "output": name,
+            }
+        )
+    if other_between:  # a session in flight at the second stop ended as a try
+        rows.append({"step": "s", "packet": "P0102", "try": 1, "tokens": 9})
+    env = env_for(
+        tmp_path, RLAW_STANDIN=str(fake(tmp_path, "stuck", STUCK, "", 1)), RLAW_RESUME="1"
+    )
+    ledger(Path(env["RLAW_LEDGER"]), rows)
+    (led / "STOPPED").write_text("a failed call at P0001 try1: api_error (404)\n")
+    new_phase(led)
+    done = run("run", "s", "reality", str(packets), str(out), "claude-opus-5-5", "1", env=env)
+    assert done.returncode == 4, done.stderr
+    deviations = tmp_path / "deviations.json"
+    events = [e["event"] for e in rows_of(led / "interruptions.jsonl")]
+    if other_between:
+        (why,) = json.loads(deviations.read_text())
+        assert "P0001" in why and "try1" in why and "api_error (404)" in why
+        assert all(f"P0001.try1.failed-2026102{k}T100000Z.json" in why for k in range(2))
+        assert "deviation" in events
+    else:  # the last two failures had nothing between them: an outage, not the packet
+        assert not deviations.exists() and "deviation" not in events
+
+
 def _watch(work: Path, group: int, since: Path) -> subprocess.Popen[str]:
     return subprocess.Popen(
         ["bash", str(SH), "watch", str(work), str(group), str(since), "measure"],

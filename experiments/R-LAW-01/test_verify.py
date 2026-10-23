@@ -594,6 +594,82 @@ def test_a_ledger_that_cannot_be_read_charges_one_session_unit(tmp_path: Path) -
     assert (tokens, estimated) == (50_000, True)
 
 
+# ---------------------------------------------------------------- a packet stuck on one cause
+
+
+def _stuck_case(
+    tmp: Path,
+    causes: list[str],
+    *,
+    texts: list[str] | None = None,
+    between: list[bool] | None = None,
+    same_try_between: bool = False,
+) -> dict[str, Any] | None:
+    """A ledger of one packet's failed calls of try 1, each with its kept output, and between
+    each and the next (where ``between`` says so) another packet's completed try."""
+    texts = texts or ["claude-opus-5-5 is not found"] * len(causes)
+    between = between if between is not None else [True] * (len(causes) - 1)
+    rows: list[dict[str, Any]] = []
+    for k, cause in enumerate(causes):
+        if k and between[k - 1]:
+            rows.append({"step": "s", "packet": f"P01{k:02d}", "try": 1, "tokens": 9})
+        if k and same_try_between:
+            rows.append({"step": "s", "packet": "P0001", "try": 1, "tokens": 9})
+        name = f"P0001.try1.failed-2026102{k}T100000Z.json"
+        status = int(cause.split("(")[1].rstrip(")")) if "(" in cause else None
+        res = {"type": "result", "is_error": True, "api_error_status": status, "errors": [texts[k]]}
+        (tmp / name).write_text(json.dumps(res))
+        rows.append(
+            {
+                "step": "s",
+                "packet": "P0001",
+                "try": 1,
+                "tokens": 0,
+                "infrastructure": cause,
+                "output": name,
+            }
+        )
+    return V.stuck(rows, "s", "P0001", 1, tmp)
+
+
+def test_a_packet_stuck_on_one_cause_is_found_at_its_third_failure(tmp_path: Path) -> None:
+    got = _stuck_case(tmp_path, ["api_error (404)"] * 3)
+    assert got is not None
+    assert (got["packet"], got["try"], got["cause"]) == ("P0001", 1, "api_error (404)")
+    assert len(got["files"]) == 3 and all(f.startswith("P0001.try1.failed-") for f in got["files"])
+    # a deterministic failure without any result counts the same way
+    assert _stuck_case(tmp_path, ["no_result"] * 3) is not None
+
+
+def test_two_failures_are_not_a_stuck_packet(tmp_path: Path) -> None:
+    assert _stuck_case(tmp_path, ["api_error (404)"] * 2) is None
+
+
+@pytest.mark.parametrize("between", [[True, False], [False, True], [False, False]])
+def test_an_outage_is_not_a_stuck_packet(tmp_path: Path, between: list[bool]) -> None:
+    # no other packet's call completed between two of the failures: it may be everyone's
+    assert _stuck_case(tmp_path, ["api_error (404)"] * 3, between=between) is None
+
+
+def test_differing_causes_or_texts_are_not_a_stuck_packet(tmp_path: Path) -> None:
+    assert _stuck_case(tmp_path, ["api_error (404)", "api_error (404)", "api_error (400)"]) is None
+    texts = ["claude-opus-5-5 is not found", "claude-opus-5-5 is not found", "overloaded"]
+    assert _stuck_case(tmp_path, ["api_error (404)"] * 3, texts=texts) is None
+
+
+@pytest.mark.parametrize(
+    "cause",
+    ["usage_limit", "rate_limit (429)", "credential_refused (401)", "credential_refused (403)"],
+)
+def test_a_refusal_is_never_a_stuck_packet(tmp_path: Path, cause: str) -> None:
+    assert _stuck_case(tmp_path, [cause] * 3) is None
+
+
+def test_failures_not_in_a_row_are_not_a_stuck_packet(tmp_path: Path) -> None:
+    # a completed try of the same packet and try between them ends the run of failures
+    assert _stuck_case(tmp_path, ["api_error (404)"] * 3, same_try_between=True) is None
+
+
 def test_the_ledger_total_refuses_a_ledger_it_cannot_read(tmp_path: Path) -> None:
     led = tmp_path / "ledger.jsonl"
     assert V.ledger_total(led) == 0  # no ledger yet: nothing spent
