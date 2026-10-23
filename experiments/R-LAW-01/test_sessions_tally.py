@@ -211,6 +211,24 @@ def test_the_projection_check_refuses_a_ledger_it_cannot_read(tmp_path: Path) ->
     assert "refused" in json.loads(done.stdout.strip().splitlines()[-1])
 
 
+@pytest.mark.parametrize(
+    "case", ["no ledger", "no round-1 session", "a row its arithmetic cannot take"]
+)
+def test_a_projection_that_cannot_be_computed_is_exit_2_never_the_deviation(
+    tmp_path: Path, case: str
+) -> None:
+    led = tmp_path / "l.jsonl"
+    rows = [{"step": "slice-r1-c1", "packet": f"P{i}", "tokens": 50_000} for i in range(30)]
+    if case == "no round-1 session":
+        ledger(led, [{"step": "smoke", "packet": "S0001", "tokens": 1_572}])
+    elif case == "a row its arithmetic cannot take":
+        ledger(led, [*rows, {"step": ["slice-r1-c1"], "packet": "P99", "tokens": 5}])
+    done = run("projection", str(led), "slice-r1-c1")
+    # exit 1 is only a projection over the guard, computed on a ledger read in full
+    assert done.returncode == 2, done.stdout + done.stderr
+    assert "refused" in json.loads(done.stdout.strip().splitlines()[-1])
+
+
 #: Ledger lines no total can be read past: a driver killed mid-append, and rows that are not one
 #: call's whole line with a token count that is a non-negative integer.
 UNREADABLE = {
@@ -1200,6 +1218,7 @@ def test_an_unreadable_ledger_at_the_projection_is_a_stop_not_a_deviation(tmp_pa
     assert (tmp_path / "ledger" / "STOPPED").exists()  # resumable, logged as a stop
     ev = rows_of(tmp_path / "ledger" / "interruptions.jsonl")
     assert [e["event"] for e in ev] == ["stop"] and "projection" in ev[0]["reason"]
+    assert not (tmp_path / "ledger" / "projection.json").exists()  # recomputed on the resume
 
 
 def test_a_projection_past_the_guard_is_the_frozen_deviation(tmp_path: Path) -> None:
@@ -1211,13 +1230,44 @@ def test_a_projection_past_the_guard_is_the_frozen_deviation(tmp_path: Path) -> 
     assert json.loads((tmp_path / "deviations.json").read_text()) == [
         "the projection check after calibration round 1 failed"
     ]
-    # and a ledger that holds passes
-    (tmp_path / "deviations.json").unlink()
-    (tmp_path / "ledger" / "STOPPED").unlink()
+    # and, in another work dir, a ledger that holds passes
+    other = tmp_path / "other"
+    (other / "ledger").mkdir(parents=True)
     light = [{"step": "slice-r1-c1", "packet": f"P{i}", "tokens": 50_000} for i in range(30)]
-    ledger(tmp_path / "ledger" / "ledger.jsonl", light)
+    ledger(other / "ledger" / "ledger.jsonl", light)
+    assert projection_check(other).returncode == 0
+    assert not (other / "deviations.json").exists()
+
+
+def test_the_projection_is_kept_and_never_recomputed_on_a_resume(tmp_path: Path) -> None:
+    (tmp_path / "ledger").mkdir()
+    light = [{"step": "slice-r1-c1", "packet": f"P{i}", "tokens": 50_000} for i in range(30)]
+    led = ledger(tmp_path / "ledger" / "ledger.jsonl", light)
+    assert projection_check(tmp_path).returncode == 0
+    kept = json.loads((tmp_path / "ledger" / "projection.json").read_text())
+    assert kept["exit"] == 0 and json.loads(kept["line"])["holds"] is True
+    # round 2 ran; a resume reaches the projection again, whose rows would now fail it
+    with led.open("a") as fh:
+        for i in range(30):
+            row = {"step": "slice-r2-c1", "packet": f"P{i}", "tokens": 2_000_000}
+            fh.write(json.dumps(row) + "\n")
     assert projection_check(tmp_path).returncode == 0
     assert not (tmp_path / "deviations.json").exists()
+    assert json.loads((tmp_path / "ledger" / "projection.json").read_text()) == kept
+
+
+def test_a_kept_projection_deviation_is_never_recomputed(tmp_path: Path) -> None:
+    (tmp_path / "ledger").mkdir()
+    heavy = [{"step": "slice-r1-c1", "packet": f"P{i}", "tokens": 120_000} for i in range(30)]
+    led = ledger(tmp_path / "ledger" / "ledger.jsonl", heavy)
+    assert projection_check(tmp_path).returncode == 1
+    assert json.loads((tmp_path / "ledger" / "projection.json").read_text())["exit"] == 1
+    # the ledger changes; the deviation recorded once stays the deviation
+    (tmp_path / "deviations.json").unlink()
+    (tmp_path / "ledger" / "STOPPED").unlink()
+    ledger(led, [{"step": "slice-r1-c1", "packet": f"P{i}", "tokens": 5} for i in range(30)])
+    assert projection_check(tmp_path).returncode == 1
+    assert (tmp_path / "deviations.json").exists()
 
 
 def test_the_preflight_refuses_a_work_dir_with_a_recorded_deviation(tmp_path: Path) -> None:

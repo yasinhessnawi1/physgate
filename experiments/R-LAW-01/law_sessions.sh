@@ -43,7 +43,9 @@
 # projection: after calibration round 1, spent + (tokens per session measured in the named
 #   round-1 steps) x (the table's 590 sessions less the sessions already run) must be at most
 #   60,000,000; exit 1 otherwise (a deviation before any measured session). It reads the ledger
-#   as spent does: a ledger it cannot read is exit 2, a stop, never the deviation.
+#   as spent does. Exit 1 is only a projection over the guard on a ledger read in full; a missing
+#   ledger, one it cannot read, no round-1 session, or any failure to compute is exit 2, a stop,
+#   never the deviation.
 # watch: the launch script's watcher over one phase (its process group). It reads only evidence
 #   newer than <since file>, which the launcher touches as the phase starts, so a resumed phase is
 #   never stopped by the files of the stop it resumes from. At a usage-limit file or a third
@@ -113,29 +115,35 @@ spent() { # ledger -> its token total, or a refusal and exit 1 if any line canno
   "$PY" -I "$HERE/law_verify.py" spent "$1"
 }
 
-projection() { # exit 0 holds, 1 fails (the frozen deviation), 2 the ledger cannot be read
+projection() { # exit 0 holds; 1 over the guard (the frozen deviation); 2 cannot be computed
   local ledger="$1"; shift
   "$PY" -I - "$HERE" "$ledger" "$GUARD" "$TABLE_SESSIONS" "$@" <<'PY'
-import json, sys
-sys.path.insert(0, sys.argv[1])
-import law_verify as V
-ledger, guard, table = sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
-steps = set(sys.argv[5:])
-try:
-    # the reader spent uses; a row without its step or packet cannot be read either
-    rows = V.ledger_rows(ledger)
-    keys = [(str(r["step"]), str(r["packet"])) for r in rows]
-except (V.LedgerUnreadable, KeyError) as exc:
-    print(json.dumps({"refused": f"the ledger cannot be read: {exc}"}))
+import json, os, sys
+def refuse(why):
+    print(json.dumps({"refused": why}))
     sys.exit(2)
-spent = sum(r["tokens"] for r in rows)
-r1 = [r for r in rows if r["step"] in steps]
-sessions_r1 = len({(r["step"], r["packet"]) for r in r1})
-sessions_all = len({(r["step"], r["packet"]) for r in rows})
-per = (sum(int(r.get("tokens") or 0) for r in r1) / sessions_r1) if sessions_r1 else 0.0
-remaining = max(table - sessions_all, 0)
-projected = spent + per * remaining
-ok = sessions_r1 > 0 and projected <= guard
+try:
+    sys.path.insert(0, sys.argv[1])
+    import law_verify as V
+    ledger, guard, table = sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
+    steps = set(sys.argv[5:])
+    if not os.path.exists(ledger):
+        refuse("no ledger: there is nothing to project from")
+    rows = V.ledger_rows(ledger)  # the reader spent uses
+    spent = sum(r["tokens"] for r in rows)
+    r1 = [r for r in rows if r["step"] in steps]
+    sessions_r1 = len({(r["step"], r["packet"]) for r in r1})
+    sessions_all = len({(r["step"], r["packet"]) for r in rows})
+    if not sessions_r1:
+        refuse("no session of the round-1 steps is in the ledger")
+    per = sum(r["tokens"] for r in r1) / sessions_r1
+    remaining = max(table - sessions_all, 0)
+    projected = spent + per * remaining
+except SystemExit:
+    raise
+except Exception as exc:  # whatever stops the computation is no projection, never the deviation
+    refuse(f"the projection cannot be computed: {type(exc).__name__}: {exc}")
+ok = projected <= guard  # exit 1 only here: over the guard, on a ledger read in full
 print(json.dumps({"spent": spent, "round_1_sessions": sessions_r1, "tokens_per_session": round(per),
                   "sessions_remaining": remaining, "projected": round(projected), "guard": guard,
                   "holds": ok}))
@@ -319,7 +327,7 @@ case "${1:-}" in
   smoke) shift; smoke "$@"; exit $? ;;
   envnames) echo "$ENV_ALLOW"; exit 0 ;;
   run) shift ;;
-  *) sed -n '2,80p' "$0" >&2; exit 2 ;;
+  *) sed -n '2,82p' "$0" >&2; exit 2 ;;
 esac
 
 [ $# -ge 6 ] || { echo "run needs: step kind packets out model lanes [ids]" >&2; exit 2; }

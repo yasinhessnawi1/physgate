@@ -143,16 +143,27 @@ round() { # n prompts-dir
   fi
 }
 
-projection_check() { # §12's projection after round 1: exit 1 is the frozen deviation; exit 2
-  # (a ledger it cannot read) or any other failure is a stop of the run, resumable, not a deviation
-  local out pc=0
-  out="$(bash "$SESS" projection "$RLAW_LEDGER" slice-r1-c1 slice-r1-c2 slice-r1-adj)" || pc=$?
-  printf '%s\n' "$out" | tee -a "$LOG"
+projection_check() { # §12's projection after round 1, once: exit 1 is the frozen deviation;
+  # exit 2 (no projection could be computed) or any other failure is a stop, resumable, not a
+  # deviation. The first projection (exit 0 or 1) is kept with its line, and a resume reuses it.
+  local kept="$WORK/ledger/projection.json" out pc=0
+  if [ -f "$kept" ]; then
+    pc="$("$PY" -I -c 'import json, sys; print(int(json.load(open(sys.argv[1]))["exit"]))' "$kept")" \
+      || die "the kept projection $kept cannot be read"
+    say "the projection check after round 1 is kept (exit $pc); it is never recomputed"
+  else
+    out="$(bash "$SESS" projection "$RLAW_LEDGER" slice-r1-c1 slice-r1-c2 slice-r1-adj)" || pc=$?
+    printf '%s\n' "$out" | tee -a "$LOG"
+    if [ "$pc" = 0 ] || [ "$pc" = 1 ]; then
+      "$PY" -I -c 'import json, sys; open(sys.argv[1], "w").write(json.dumps({"exit": int(sys.argv[2]), "line": sys.argv[3]}, sort_keys=True) + "\n")' \
+        "$kept" "$pc" "$out"
+    fi
+  fi
   case "$pc" in
     0) ;;
-    1) echo '["the projection check after calibration round 1 failed"]' > "$WORK/deviations.json"
+    1) [ -e "$WORK/deviations.json" ] || echo '["the projection check after calibration round 1 failed"]' > "$WORK/deviations.json"
        die "projection check failed: a deviation before any measured session" ;;
-    *) die "the projection check could not read the ledger (exit $pc): a stop, not a deviation" ;;
+    *) die "the projection check could not be computed (exit $pc): a stop, not a deviation" ;;
   esac
 }
 
