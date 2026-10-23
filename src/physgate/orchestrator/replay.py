@@ -89,6 +89,7 @@ from physgate.orchestrator.exceptions import (
 from physgate.orchestrator.queue import item_id_for
 from physgate.orchestrator.repair import FindingSource
 from physgate.orchestrator.run_config import load_run_config
+from physgate.roles import owners_of
 from physgate.state.task_ledger import TaskLedger, TaskLine, read_ledger
 
 
@@ -234,10 +235,15 @@ class RunState:
         #: Subtasks whose worktree removal was tried, whatever came of it: a refused
         #: removal is left, not retried or forced.
         self.worktrees_handled: set[str] = set()
-        #: The integration call's line, once every planned subtask is resolved, and
-        #: the escalation a blocking failure there led to.
+        #: The integration call's line, once every planned subtask but integration's own is
+        #: resolved, and the escalation a blocking failure there led to.
         self.integration: IntegrationGateRan | IntegrationGateSkipped | None = None
         self.integration_escalated: IntegrationEscalated | None = None
+        #: Integration's subtask, if the plan has one: the one subtask of the role that owns
+        #: completion, found in the role register by that duty when it is planned, never by a
+        #: role's name. It reads the system-scope result, so it runs after the integration call,
+        #: and its lines are the only lines about a subtask that may follow that call.
+        self.completion_subtask: str | None = None
         #: Every person's decision the run took, by item, and the held ones since confirmed.
         self.taken: dict[str, DecisionTaken] = {}
         self.confirmed: set[str] = set()
@@ -255,11 +261,17 @@ class RunState:
         a subtask may follow, except a worktree removal or a person's decision. The rule is
         applied after the line's own rules, so a line that breaks one of those is refused for
         it. A decision that acts on a design integration skipped as incomplete reopens it.
+
+        One subtask is exempt: integration's own, whose lines follow the call wherever the call
+        lets it run (:meth:`integration_may_run`). Every other subtask's line is refused as
+        before, whatever its role is named.
         """
+        subtask_id = getattr(event, "subtask_id", None)
         closed = (
             self.integration is not None
-            and getattr(event, "subtask_id", None) is not None
+            and subtask_id is not None
             and not isinstance(event, WorktreeRemoved | DecisionTaken)
+            and not (subtask_id == self.completion_subtask and self.integration_may_run())
         )
         self._record(event)
         if closed:
@@ -301,9 +313,7 @@ class RunState:
         if self.halted is not None and not isinstance(event, Resumed | Incident):
             _refuse("the run is halted; only a resume, or an incident found at one, may follow")
         if isinstance(event, SubtaskPlanned):
-            self.order.append(event.subtask_id)
-            self.subtasks[event.subtask_id] = SubtaskState(plan=event)
-            self._ledger(event.subtask_id, attempt_count=0)
+            self._plan(event)
             return
         if isinstance(event, Decomposed):
             self.journal_head = event.head_revision
@@ -433,6 +443,53 @@ class RunState:
         elif isinstance(event, Resumed):
             self._resume(sub, now, event.point)
 
+    def _plan(self, event: SubtaskPlanned) -> None:
+        """Take a planned subtask, and note it if it is integration's.
+
+        The role is looked up in the register by the duty it owns. With two owners of
+        completion neither's subtask is planned: which of them may follow the integration call
+        cannot be told. A second subtask of the one owner is refused too: it would run before
+        the call as an ordinary subtask, or after it as a second exception.
+        """
+        owners = owners_of("completion")
+        if event.assigned_role in owners:
+            if len(owners) > 1:
+                _refuse(
+                    "more than one role owns completion, so no subtask of either is planned: "
+                    f"{', '.join(owners)}"
+                )
+            if self.completion_subtask is not None:
+                _refuse(
+                    "one subtask at most is planned for the role that owns completion; "
+                    f"{self.completion_subtask!r} is planned already"
+                )
+            self.completion_subtask = event.subtask_id
+        self.order.append(event.subtask_id)
+        self.subtasks[event.subtask_id] = SubtaskState(plan=event)
+        self._ledger(event.subtask_id, attempt_count=0)
+
+    def integrated(self) -> list[str]:
+        """The planned subtasks the integration call waits for and judges: all but integration's."""
+        return [s for s in self.order if s != self.completion_subtask]
+
+    def integration_may_run(self) -> bool:
+        """Whether the integration call on the record lets integration's subtask be dispatched.
+
+        Integration's session reads the system-scope result, so its subtask runs only after a
+        result that passed, or one that failed where the gate only observes; or after the call
+        was skipped because the gate is off, once every other subtask merged. Under ``off`` the
+        call is skipped as off whether or not they did, so the subtasks' own states say whether
+        the design is complete. Never before the call, after a blocking failure, after a design
+        found incomplete, or with nothing else planned.
+        """
+        ran = self.integration
+        if isinstance(ran, IntegrationGateRan):
+            return ran.result.verdict == "pass" or ran.result.mode == "observe"
+        if isinstance(ran, IntegrationGateSkipped) and ran.reason == "gate_mode=off":
+            others = self.integrated()
+            return bool(others) and all(self.subtasks[s].status == "done" for s in others)
+        return False
+
     @staticmethod
     def _ended_without_merge(now: AttemptState) -> bool:
         return (
@@ -540,7 +597,7 @@ class RunState:
     def _integrate(
         self, event: IntegrationGateRan | IntegrationGateSkipped | IntegrationEscalated
     ) -> None:
-        """The integration call: once, after every planned subtask is resolved."""
+        """The integration call: once, after every planned subtask but integration's is resolved."""
         if isinstance(event, IntegrationEscalated):
             ran = self.integration
             blocked = (
@@ -554,18 +611,19 @@ class RunState:
             return
         if self.integration is not None:
             _refuse("the integration call is made once")
-        unresolved = [s for s in self.order if self.subtasks[s].status in ("planned", "active")]
+        order = self.integrated()
+        unresolved = [s for s in order if self.subtasks[s].status in ("planned", "active")]
         if unresolved:
             _refuse(f"integration before every planned subtask is merged or queued: {unresolved}")
-        not_merged = tuple(s for s in self.order if self.subtasks[s].status != "done")
+        not_merged = tuple(s for s in order if self.subtasks[s].status != "done")
         if isinstance(event, IntegrationGateRan) and not_merged:
             _refuse("the integration gate ran on a design with subtasks that did not merge")
-        if isinstance(event, IntegrationGateRan) and not self.order:
+        if isinstance(event, IntegrationGateRan) and not order:
             _refuse("the integration gate ran on a run that planned nothing")
         if isinstance(event, IntegrationGateSkipped):
             if event.reason == "not_all_merged" and event.subtasks != not_merged:
                 _refuse("an incomplete design names exactly the subtasks that did not merge")
-            if event.reason == "nothing_planned" and self.order:
+            if event.reason == "nothing_planned" and order:
                 _refuse("integration skipped as nothing planned in a run that planned subtasks")
         self.integration = event
 
@@ -574,6 +632,11 @@ class RunState:
             _refuse(f"{what} cannot come at this point of the attempt")
 
     def _resolve(self, sub: SubtaskState, attempt: int) -> None:
+        if sub.plan.subtask_id == self.completion_subtask and not self.integration_may_run():
+            _refuse(
+                "integration's subtask is dispatched only after the system gate passed or "
+                "observed, or after the gate was off and every other subtask merged"
+            )
         if sub.status not in ("planned", "active") or sub.next_resolve != attempt:
             _refuse(f"attempt {attempt} of {sub.plan.subtask_id!r} cannot start now")
         if not sub.attempts or sub.attempts[-1].number != attempt:
@@ -702,36 +765,17 @@ class RunState:
     # -- deciding what happens next ------------------------------------------------
 
     def next_step(self) -> Step:
-        """What the loop does next, from the state alone."""
+        """What the loop does next, from the state alone.
+
+        Every planned subtask in order, then the integration call, then integration's own
+        subtask where the call lets it run.
+        """
         if self.halted is not None:
             return Step(kind="halted")
-        for subtask_id in self.order:
-            sub = self.subtasks[subtask_id]
-            if sub.status in ("removed", "done", "escalated", "rejected"):
-                continue
-            if sub.status == "planned":
-                return Step("attempt", subtask_id, 1, "resolve")
-            now = sub.attempts[-1]
-            if sub.ending is not None:
-                return Step("end_subtask", subtask_id, now.number)
-            if now.approved is not None:
-                # A person's approve: merge exactly the attempt it names, then diff.
-                point: Literal["merge", "diff"] = "merge" if now.merged is None else "diff"
-                return Step("attempt", subtask_id, now.number, point)
-            if now.person_rejected is not None and sub.next_resolve is not None:
-                return Step("attempt", subtask_id, sub.next_resolve, "resolve")
-            if self._ended_without_merge(now):
-                # Asked once at every attempt end that did not merge; then the queue, or
-                # the next attempt.
-                if now.routed is None:
-                    return Step("decide", subtask_id, now.number)
-                if now.routed:
-                    return Step("escalate", subtask_id, now.number)
-                return Step("attempt", subtask_id, sub.next_resolve, "resolve")
-            failed = now.session is not None and now.session.outcome == "infrastructure"
-            if failed and sub.next_resolve is None:
-                return Step("infra_failed", subtask_id, now.number)
-            return Step("attempt", subtask_id, now.number, self.resume_point(now))
+        for subtask_id in self.integrated():
+            step = self._step_of(subtask_id)
+            if step is not None:
+                return step
         ran = self.integration
         if ran is None:
             return Step(kind="integrate")
@@ -742,7 +786,42 @@ class RunState:
         )
         if blocked and self.integration_escalated is None:
             return Step(kind="integrate")
-        return Step(kind="escalated" if blocked else "done")
+        if blocked:
+            return Step(kind="escalated")
+        if self.completion_subtask is not None and self.integration_may_run():
+            step = self._step_of(self.completion_subtask)
+            if step is not None:
+                return step
+        return Step(kind="done")
+
+    def _step_of(self, subtask_id: str) -> Step | None:
+        """What the loop does next for ``subtask_id``; ``None`` once the subtask is resolved."""
+        sub = self.subtasks[subtask_id]
+        if sub.status in ("removed", "done", "escalated", "rejected"):
+            return None
+        if sub.status == "planned":
+            return Step("attempt", subtask_id, 1, "resolve")
+        now = sub.attempts[-1]
+        if sub.ending is not None:
+            return Step("end_subtask", subtask_id, now.number)
+        if now.approved is not None:
+            # A person's approve: merge exactly the attempt it names, then diff.
+            point: Literal["merge", "diff"] = "merge" if now.merged is None else "diff"
+            return Step("attempt", subtask_id, now.number, point)
+        if now.person_rejected is not None and sub.next_resolve is not None:
+            return Step("attempt", subtask_id, sub.next_resolve, "resolve")
+        if self._ended_without_merge(now):
+            # Asked once at every attempt end that did not merge; then the queue, or
+            # the next attempt.
+            if now.routed is None:
+                return Step("decide", subtask_id, now.number)
+            if now.routed:
+                return Step("escalate", subtask_id, now.number)
+            return Step("attempt", subtask_id, sub.next_resolve, "resolve")
+        failed = now.session is not None and now.session.outcome == "infrastructure"
+        if failed and sub.next_resolve is None:
+            return Step("infra_failed", subtask_id, now.number)
+        return Step("attempt", subtask_id, now.number, self.resume_point(now))
 
     def interrupted(self) -> SubtaskState | None:
         """The subtask a previous process left mid-attempt, if any.

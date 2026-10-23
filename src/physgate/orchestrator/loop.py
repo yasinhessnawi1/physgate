@@ -622,9 +622,15 @@ class Loop:
             )
 
     def _drive(self) -> Step:
-        # The environment is recorded for a step that spawns a session; the
-        # integration call and a finished run spawn none.
-        if self.state.next_step().kind not in ("done", "halted", "escalated", "integrate"):
+        # The environment is recorded for a step that spawns a session; the integration
+        # call and a finished run spawn none, unless integration's own subtask waits on
+        # that call, whose session comes next if the call lets it run.
+        first = self.state.next_step().kind
+        integration = self.state.completion_subtask
+        waiting = integration is not None and self.state.subtasks[integration].status == "planned"
+        if first not in ("done", "halted", "escalated", "integrate") or (
+            first == "integrate" and waiting
+        ):
             facts = self._dispatcher.environment()
             if facts is not None:
                 self._emit(EnvironmentRecorded(**self._env(), facts=facts))
@@ -1563,10 +1569,13 @@ class Loop:
         subtask that never merged, the log says integration was not gated, and why.
         A killed process that recorded a blocking failure but not its escalation
         escalates on its next pass, and adds the queue item at most once.
+
+        Integration's own subtask is neither waited for nor judged here: it runs after this
+        call, whose result its session reads, wherever the call lets it run.
         """
         if self.state.integration is None:
             mode = self.config.gate_mode
-            order = self.state.order
+            order = self.state.integrated()
             not_merged = tuple(s for s in order if self.state.subtasks[s].status != "done")
             if mode == "off" or not_merged or not order:
                 reason: Literal["gate_mode=off", "not_all_merged", "nothing_planned"] = (

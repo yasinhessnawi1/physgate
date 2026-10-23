@@ -395,7 +395,9 @@ class Rig:
             config=config,
             run_dir=self.run_dir,
             gate=self.gate,
-            reviewers={"electrical": self.reviewer},
+            # One reviewer for every role the run names: ``electrical`` alone, unless a test's
+            # own model strings name more.
+            reviewers=dict.fromkeys(config.models.roles, self.reviewer),
             dispatcher=self.dispatcher,
             changes=self.changes,
             merger=self.merger,
