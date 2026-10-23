@@ -40,6 +40,7 @@ from physgate.orchestrator.exceptions import CorruptEventLogError, Decomposition
 from physgate.orchestrator.git import head_of
 from physgate.orchestrator.run_config import ModelStrings, RunBounds, RunConfig, endpoint_of
 from physgate.reviewers.contract import issued_criteria
+from physgate.roles import CrossCuttingRole
 
 #: The run's roles: two domain roles and both cross-cutting ones.
 BOTH = ("control", "firmware", "integration", "sizing")
@@ -181,7 +182,7 @@ def started(
     """Start a run of ``run_roles`` from ``plan``; its run directory and target."""
     repo = target_repo(root)
     library = root / "library"
-    write_fixture(library, (*FIXTURE_ROLES, "sizing", "integration"))
+    write_fixture(library, (*FIXTURE_ROLES, *run_roles))
     run_dir = root / "run"
     start_run(
         outcome(plan),
@@ -271,6 +272,35 @@ def test_each_cross_cutting_role_adds_only_its_own_subtasks(
     plan = integrated(modules) if "integration" in run_roles else base(modules)
     run_dir, _ = started(tmp_path, plan, run_roles)
     assert [e.assigned_role for e in planned(run_dir)] == expected
+
+
+def test_both_roles_are_found_by_what_they_own_never_by_their_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The register's owners of the cross nodes and of completion, under other names.
+    monkeypatch.delitem(roles.ROLES, roles.SIZING.name)
+    monkeypatch.delitem(roles.ROLES, roles.INTEGRATION.name)
+    for row in (
+        CrossCuttingRole(name="ballast", architecture="ARCH-051", owns="cross_nodes"),
+        CrossCuttingRole(name="closer", architecture="ARCH-051", owns="completion"),
+    ):
+        monkeypatch.setitem(roles.ROLES, row.name, row)
+    weight = module("weight", "ballast")
+    run_dir, _ = started(
+        tmp_path, integrated([DRIVE, weight, FW]), ("ballast", "closer", "control", "firmware")
+    )
+    lines = planned(run_dir)
+    assert [(e.assigned_role, e.module_dir) for e in lines] == [
+        ("ballast", "modules/weight"),
+        ("control", "modules/drive"),
+        ("firmware", "modules/fw"),
+        ("ballast", "modules/weight"),
+        ("closer", "modules/integration"),
+    ]
+    assert [e.subtask_id for e in lines[-2:]] == [
+        mint_id(SEED, 3, "weight-closing"),
+        mint_id(SEED, 4, "closer"),
+    ]
 
 
 @pytest.mark.parametrize("modules", [[DRIVE, FW], [FW, DRIVE]], ids=["as listed", "swapped"])
