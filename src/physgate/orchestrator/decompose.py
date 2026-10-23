@@ -333,6 +333,18 @@ def plan_problems(plan: Plan, roles: Sequence[str], brief: str) -> list[str]:
     return found + _cross_cutting_problems(plan, roles) + _integration_problems(plan, roles, brief)
 
 
+def _overlap(one: PurePosixPath, other: PurePosixPath) -> bool:
+    """Whether two module directories are one directory, or one holds the other.
+
+    Compared with case folded, as a file system that ignores case (macOS's default, where
+    runs are made) resolves them: there ``modules/Power`` and ``modules/power`` are one
+    directory, and two modules given them would share it. A directory's name may hold
+    upper case, so the comparison cannot be left to the names as written.
+    """
+    a, b = PurePosixPath(str(one).casefold()), PurePosixPath(str(other).casefold())
+    return a == b or a.is_relative_to(b) or b.is_relative_to(a)
+
+
 def _cross_cutting_problems(plan: Plan, roles: Sequence[str]) -> list[str]:
     """What the plan gives a cross-cutting role of the run that it may not give it."""
     found: list[str] = []
@@ -353,26 +365,12 @@ def _cross_cutting_problems(plan: Plan, roles: Sequence[str]) -> list[str]:
                 f"module {module.name!r} is assigned the {module.role} role, whose "
                 "specification the harness writes from the plan"
             )
-        path = PurePosixPath(module.module_dir)
-        if path == reserved or path.is_relative_to(reserved) or reserved.is_relative_to(path):
+        if _overlap(PurePosixPath(module.module_dir), reserved):
             found.append(
                 f"module {module.name!r} has a directory that overlaps {INTEGRATION_MODULE_DIR}, "
                 "which the harness keeps for the integration subtask"
             )
     return found
-
-
-def _overlap(one: PurePosixPath, other: PurePosixPath) -> bool:
-    """Whether two module directories are one directory, or one holds the other.
-
-    Compared with case folded, as a file system that ignores case (macOS's default, where
-    runs are made) resolves them: there ``modules/Power`` and ``modules/power`` are one
-    directory, and two modules given them would share it. A directory's name may hold
-    upper case, so the comparison cannot be left to the names as written. The paths are
-    already normalised by their own type, and the fold is made on that.
-    """
-    a, b = PurePosixPath(str(one).casefold()), PurePosixPath(str(other).casefold())
-    return a == b or a.is_relative_to(b) or b.is_relative_to(a)
 
 
 def _integration_problems(plan: Plan, roles: Sequence[str], brief: str) -> list[str]:

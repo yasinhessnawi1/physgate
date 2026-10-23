@@ -407,7 +407,16 @@ def test_a_plan_with_an_integration_module_is_refused() -> None:
 
 
 @pytest.mark.parametrize(
-    "module_dir", ["modules/integration", "modules/integration/checks", "modules"]
+    "module_dir",
+    [
+        "modules/integration",
+        "modules/integration/checks",
+        "modules",
+        # One directory on a file system that ignores case, as the laptop's does.
+        "Modules/Integration",
+        "modules/INTEGRATION/checks",
+        "MODULES",
+    ],
 )
 def test_a_module_overlapping_integration_s_directory_is_refused(module_dir: str) -> None:
     modules = [*GOOD["modules"][:2], module("firmware", "firmware", module_dir=module_dir)]

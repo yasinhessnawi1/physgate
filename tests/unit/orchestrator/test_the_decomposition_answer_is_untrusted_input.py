@@ -158,6 +158,7 @@ def test_no_result_and_the_wall_clock_are_failures_with_their_cause() -> None:
         ([module("a", "modules/a"), module("b", "modules/a/b")], None, "overlap"),
         ([module("a", "modules/power"), module("b", "modules/Power")], None, "overlap"),
         ([module("a", "modules/a"), module("b", "MODULES/a/b")], None, "overlap"),
+        ([module("a", "Modules/A"), module("b", "modules/a/b")], None, "overlap"),
         ([module("a", "modules/a"), module("b", "modules/./a/")], None, "overlap"),
         ([module("a", "modules/a")], [NODE, NODE], "share an id"),
         ([module("a", "modules/a")], [{**NODE, "kind": "component"}], "not an interface"),
@@ -170,6 +171,7 @@ def test_no_result_and_the_wall_clock_are_failures_with_their_cause() -> None:
         "nested module directories",
         "two directories that differ only in case",
         "a directory nested in one that differs only in case",
+        "a directory in capitals holding one in lower case",
         "one directory spelled two ways",
         "two nodes, one id",
         "a node that is no interface",
@@ -199,7 +201,7 @@ def test_what_the_schema_cannot_say_is_checked_by_code(
     ],
 )
 def test_directories_that_differ_in_more_than_case_are_still_apart(first: str, second: str) -> None:
-    found = plan_problems(plan([module("a", first), module("b", second)]), ["electrical"])
+    found = plan_problems(plan([module("a", first), module("b", second)]), ["electrical"], BRIEF)
     assert not any("overlap" in p for p in found), found
 
 
