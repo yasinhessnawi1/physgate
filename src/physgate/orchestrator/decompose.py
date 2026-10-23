@@ -408,7 +408,8 @@ def _consumer_problems(plan: IntegratedPlan) -> list[str]:
     """Every consumers entry the plan cannot back, and every interface node with none or two.
 
     A module of the node's producing role is never its consumer: the producer is the
-    module of the role that owns the node.
+    module of the role that owns the node. An entry names each consumer once, since the
+    module pairs whose contract is tested are read from it.
     """
     found: list[str] = []
     role_of = {module.name: module.role for module in plan.modules}
@@ -432,6 +433,12 @@ def _consumer_problems(plan: IntegratedPlan) -> list[str]:
                 found.append(
                     f"interface node {entry.interface!r} names {consumer!r} as a consumer, "
                     f"which is a module of its producing role {role!r}"
+                )
+        for consumer, count in Counter(entry.consumers).items():
+            if count > 1:
+                found.append(
+                    f"interface node {entry.interface!r} names {consumer!r} as a consumer "
+                    "more than once"
                 )
     for node_id in producer_of:
         if entries[node_id] == 0:

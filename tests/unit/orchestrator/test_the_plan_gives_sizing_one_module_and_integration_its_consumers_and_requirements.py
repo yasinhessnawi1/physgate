@@ -15,8 +15,8 @@ in the one model call:
 
 Both are untrusted input, held by code to the plan they sit in and to the brief: a
 module, an interface or a criterion that does not exist, an entry given twice, a
-requirement the brief does not number, or a producer named as its own consumer is a
-problem, and the plan is refused.
+consumer named twice in one entry, a requirement the brief does not number, or a
+producer named as its own consumer is a problem, and the plan is refused.
 
 Both roles are found in the register by what they own, never by their names.
 """
@@ -372,6 +372,10 @@ def test_a_requirement_and_a_criterion_are_bounded_by_the_schema() -> None:
             "'iface.drive' has more than one consumers entry",
         ),
         (
+            {"interface_consumers": [{"interface": "iface.drive", "consumers": ["fw", "fw"]}]},
+            "'iface.drive' names 'fw' as a consumer more than once",
+        ),
+        (
             # Control's module drive produces iface.drive, and names itself its consumer.
             {"interface_consumers": [{"interface": "iface.drive", "consumers": ["drive"]}]},
             "'drive' as a consumer, which is a module of its producing role 'control'",
@@ -383,6 +387,7 @@ def test_a_requirement_and_a_criterion_are_bounded_by_the_schema() -> None:
         "an unknown interface",
         "a missing entry",
         "a duplicate entry",
+        "a consumer listed twice in one entry",
         "a producer listed as its own consumer",
     ],
 )
