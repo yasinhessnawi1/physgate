@@ -443,6 +443,23 @@ def test_interruptions_are_reported_and_leave_the_decision_taken(tmp_path: Path)
     assert out["interruptions"]["stops"] == 1 and out["interruptions"]["resumes"] == 1
 
 
+def test_repairs_are_counted_beside_the_interruptions(tmp_path: Path) -> None:
+    events = [
+        {"event": "stop", "step": "s", "reason": "the token guard cannot read", "utc": "x"},
+        {
+            "event": "repair",
+            "step": "operator",
+            "reason": "ledger line 12, torn by a killed driver, re-derived from P0007.try1.json",
+            "utc": "y",
+        },
+        {"event": "resume", "step": "launch", "reason": "after the repair", "utc": "z"},
+    ]
+    out = build(tmp_path, [flaw([ln("a1", "L", "L")])], events).run()
+    assert out["interruptions"]["repairs"] == 1
+    assert out["interruptions"]["stops"] == 1 and out["interruptions"]["resumes"] == 1
+    assert out["decision"]["taken"] is True  # a repair is an interruption, not a deviation
+
+
 # ---------------------------------------------------------------- §12, the token guard
 
 

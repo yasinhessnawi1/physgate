@@ -814,9 +814,10 @@ class Tally:
         return [by[r] for r in sorted(by)]
 
     def interruptions(self) -> dict[str, Any]:
-        """Every logged stop, failed call and resume, with its time: each an interruption RESULT
-        reports, never a deviation. None changes whether the decision is taken: a resumed packet
-        is an independent session on fixed inputs, and a failed call is not a try."""
+        """Every logged stop, failed call, resume and repair, with its time: each an interruption
+        RESULT reports, never a deviation. None changes whether the decision is taken: a resumed
+        packet is an independent session on fixed inputs, a failed call is not a try, and a repair
+        re-derives a torn ledger line from its call's kept output."""
         p = self.work / "ledger" / "interruptions.jsonl"
         rows = X.read_jsonl(p) if p.exists() else []
         return {
@@ -824,6 +825,8 @@ class Tally:
             "stops": sum(1 for r in rows if r["event"] == "stop"),
             "failed_calls": sum(1 for r in rows if r["event"] == "failed_call"),
             "resumes": sum(1 for r in rows if r["event"] == "resume"),
+            # an operator's repair of a torn ledger line (README reading 14)
+            "repairs": sum(1 for r in rows if r["event"] == "repair"),
             "log": rows,
         }
 

@@ -315,6 +315,13 @@ def test_the_slice_refuses_classes_other_than_the_frozen_four(fx: dict[str, Any]
         SL.draw(fx["lines"], sets)
 
 
+def test_the_slice_refuses_sets_lacking_one_of_the_four_classes(fx: dict[str, Any]) -> None:
+    # p1 (propagation) relabelled magnitude: three classes, every one with an eligible pair
+    sets = _reclassed(fx["setdata"], "p1", "magnitude")
+    with pytest.raises(X.Refused, match="classes"):
+        SL.draw(fx["lines"], sets)
+
+
 def test_the_slice_refuses_a_draw_it_does_not_implement(
     fx: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
