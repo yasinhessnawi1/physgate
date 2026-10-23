@@ -8,6 +8,7 @@
 #   law_sessions.sh smoke <out dir>
 #   law_sessions.sh envnames
 #   law_sessions.sh pinned
+#   law_sessions.sh standin
 #
 # run: every packet of <packets dir> (or those listed in <ids file>), each a session of the pinned
 #   binary with the pinned model, effort high, no tools, no settings, no MCP, no session
@@ -57,7 +58,9 @@
 #   to check before launch that --json-schema works with --tools "", that --setting-sources ""
 #   keeps every CLAUDE.md out, and that the result's usage is the sum over its modelUsage. Not
 #   part of the experiment: it writes no ledger line. Prints one JSON line; exit 0 if it holds.
-# envnames: the names of the environment the binary runs with (never their values).
+# envnames: the names of the environment the binary receives, as env -i hands it over (sorted;
+#   never the values).
+# standin: RLAW_STANDIN held to be an executable that is not the pinned binary; exit 2 otherwise.
 # pinned: RLAW_CLAUDE_BIN held to its sha256 and, run with that environment, its version; prints
 #   its path, or exits 2. The launcher's preflight checks the binary through this.
 #
@@ -95,16 +98,27 @@ PIN_LINUX=1e119036a802d359ba5f9886428e031586e8796f7a858d5a8ee179ac7b8604f0
 PIN_VERSION="2.1.301"
 EFFORT=high
 
-#: The binary's whole environment (env -i): these names, from the caller where it has them, with
-#: PATH fixed and the auto-updater off. Nothing else of the caller's reaches it.
-ENV_ALLOW="HOME USER LOGNAME PATH TMPDIR LANG DISABLE_AUTOUPDATER"
-
+#: The binary's whole environment (env -i): HOME, USER, LOGNAME, TMPDIR and LANG from the caller
+#: where it has them, PATH fixed and the auto-updater off. Nothing else of the caller's reaches it.
 binenv() { # command...: run it with exactly the allowlisted environment
   local a=() n
   for n in HOME USER LOGNAME TMPDIR LANG; do
     [ -n "${!n+set}" ] && a+=("$n=${!n}")
   done
   env -i ${a[@]+"${a[@]}"} PATH=/usr/bin:/bin:/usr/sbin:/sbin DISABLE_AUTOUPDATER=1 "$@"
+}
+
+standin_ok() { # RLAW_STANDIN: an executable, and never the pinned binary, so that no real session
+  # runs with the pin's checks skipped (RLAW_REFUSE_STANDIN_SHA256 adds digests to refuse, for tests)
+  local d p
+  [ -x "$RLAW_STANDIN" ] || { echo "the stand-in $RLAW_STANDIN is not an executable" >&2; return 2; }
+  d="$(sha "$RLAW_STANDIN")"
+  for p in "$PIN_MAC" "$PIN_LINUX" ${RLAW_REFUSE_STANDIN_SHA256:-}; do
+    if [ "$d" = "$p" ]; then
+      echo "the stand-in is the pinned binary (sha256 $d): a real session never runs as a stand-in's" >&2
+      return 2
+    fi
+  done
 }
 
 py_ok() { # the driver's Python exists and is 3.11 or later
@@ -268,6 +282,7 @@ smoke() { # out dir
   [ ! -e "$out" ] || { echo "smoke: $out exists; give a new dir" >&2; exit 2; }
   mkdir -p "$out"
   if [ -n "${RLAW_STANDIN:-}" ]; then
+    standin_ok || exit 2
     bin="$RLAW_STANDIN"; standin=1; version=standin
   else
     bin="$(pinned_bin)" || exit 2
@@ -328,10 +343,12 @@ case "${1:-}" in
   projection) shift; projection "$@"; exit $? ;;
   watch) shift; watch_phase "$@"; exit 0 ;;
   smoke) shift; smoke "$@"; exit $? ;;
-  envnames) echo "$ENV_ALLOW"; exit 0 ;;
+  envnames) binenv /usr/bin/env | sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' | sort | tr '\n' ' ' | sed 's/ $//'
+    echo; exit 0 ;;
+  standin) standin_ok; exit $? ;;
   pinned) pinned_bin; exit 0 ;;
   run) shift ;;
-  *) sed -n '2,85p' "$0" >&2; exit 2 ;;
+  *) sed -n '2,88p' "$0" >&2; exit 2 ;;
 esac
 
 [ $# -ge 6 ] || { echo "run needs: step kind packets out model lanes [ids]" >&2; exit 2; }
@@ -389,6 +406,7 @@ fi
 STANDIN=0
 SHEET_ARG=""
 if [ -n "${RLAW_STANDIN:-}" ]; then
+  standin_ok || exit 2
   BIN="$RLAW_STANDIN"; STANDIN=1
   # a fixture's own parts sheet, for a stand-in only; a real session is held to the pinned one
   SHEET_ARG="${RLAW_SHEET_SHA256:-}"

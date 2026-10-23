@@ -568,9 +568,39 @@ def test_the_launcher_s_binary_check_is_the_driver_s(tmp_path: Path) -> None:
     assert '"$SESS" pinned' in (HERE / "law_launch.sh").read_text()
 
 
-def test_the_allowlist_is_named_by_the_driver(tmp_path: Path) -> None:
-    done = run("envnames")
-    assert done.returncode == 0 and set(done.stdout.split()) == ALLOWLIST
+@pytest.mark.parametrize("tmpdir", [True, False])
+def test_the_driver_names_the_environment_the_binary_receives(tmp_path: Path, tmpdir: bool) -> None:
+    env = {k: v for k, v in caller_env(tmp_path).items() if tmpdir or k != "TMPDIR"}
+    clean = {k: v for k, v in os.environ.items() if k != "TMPDIR"}
+    done = subprocess.run(
+        ["bash", str(SH), "envnames"],
+        capture_output=True,
+        text=True,
+        env={**clean, **env},
+        check=False,
+    )
+    # read from what env -i hands over, not from the list it is given
+    want = ALLOWLIST if tmpdir else ALLOWLIST - {"TMPDIR"}
+    assert done.returncode == 0 and done.stdout.split() == sorted(want)
+
+
+def test_a_stand_in_with_a_pinned_digest_never_runs(tmp_path: Path, packets: Path) -> None:
+    exe, dump = env_dumper(tmp_path)
+    digest = __import__("law_extract").sha256_file(exe)
+    # the digest is refused as the pins are (this test cannot hold the pinned binary itself)
+    env = env_for(tmp_path, RLAW_STANDIN=str(exe), RLAW_REFUSE_STANDIN_SHA256=digest)
+    out = tmp_path / "out"
+    done = run("run", "s", "reality", str(packets), str(out), "claude-opus-5-5", "1", env=env)
+    assert done.returncode == 2 and "pinned" in done.stderr
+    assert not dump.exists() and not Path(env["RLAW_LEDGER"]).exists()
+    smoke = subprocess.run(
+        ["bash", str(SH), "smoke", str(tmp_path / "smoke")],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "RLAW_STANDIN": str(exe), "RLAW_REFUSE_STANDIN_SHA256": digest},
+        check=False,
+    )
+    assert smoke.returncode == 2 and not dump.exists()
 
 
 def test_the_driver_and_the_tally_hold_one_guard() -> None:

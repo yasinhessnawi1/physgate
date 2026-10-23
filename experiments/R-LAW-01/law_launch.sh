@@ -35,19 +35,24 @@
 # resume is an interruption RESULT reports; none is a deviation or changes whether the decision is
 # taken.
 #
-# One launcher per work dir: calibrate and measure take ledger/launch.lock for the whole phase,
-# recording the launcher's pid and the phase's process group, and refuse to start while any process
-# of that group (or that launcher) lives. A lock whose processes are all dead (its launcher killed,
-# its phase ended) is taken over, and the takeover is logged in interruptions.jsonl.
+# One launcher per work dir: calibrate and measure take an flock on ledger/launch.lock through
+# file descriptor 9, which every process of the phase inherits, so the kernel holds the lock while
+# any of them lives and frees it when the last one ends; a second launcher is refused, and of
+# launchers started together exactly one takes it. The file records the launcher's pid and the
+# phase's process group, for the log only. A record left by a phase that did not end cleanly (its
+# launcher killed) is logged as a takeover in interruptions.jsonl when the next launcher takes the
+# lock.
 #
 # The projection check after round 1 runs once: its first result that is a projection (exit 0, or
 # exit 1, the deviation) is kept in ledger/projection.json, and a resume reuses it.
 #
-# A dry run (RLAW_STANDIN, the driver's scripted stand-in, for tests only): no binary is needed, the
-# checkout need not be clean, and every output is marked a stand-in's, so the tally refuses it
-# outside --dry-run. With RLAW_DRY_PINS as well, the scripts read the synthetic fixture's sets in
-# place of the frozen ones (law_extract.py), the work dir's slice and counts are the fixture's, and
-# the final prompt is read from <work dir>/prompts/final.
+# A dry run, on the synthetic fixture only (RLAW_STANDIN, the driver's scripted stand-in, and
+# RLAW_DRY_PINS, for tests): no binary is needed, the checkout need not be clean, the scripts read
+# the fixture's sets in place of the frozen ones (law_extract.py), the work dir's slice and counts
+# are the fixture's, the final prompt is read from <work dir>/prompts/final, and every output is
+# marked a stand-in's, so the tally refuses it outside --dry-run. Either variable without the other
+# is refused, as is a stand-in that is the pinned binary; and a real run refuses a work dir that
+# holds any stand-in's output. RLAW_LOCK_HOLD_SECONDS holds a dry run's lock that long, for tests.
 #
 # Environment: RLAW_CLAUDE_BIN, the pinned binary (on this laptop ~/pinned/claude-2.1.301-macos);
 # RLAW_PRIOR, the prior adjudication's output (measure). The binary itself sees only the driver's
@@ -103,8 +108,40 @@ sys.exit(0 if have == want else 1)
 PRIOR
 }
 
+standin_marks() { # -> where the work dir holds a stand-in's output, or nothing
+  "$PY" -I - "$WORK" <<'MARKS'
+import json, sys
+from pathlib import Path
+w = Path(sys.argv[1])
+for name in ("ledger/ledger.jsonl", "codes.jsonl", "reality.jsonl"):
+    p = w / name
+    if p.exists():
+        for n, line in enumerate(p.read_text(errors="replace").splitlines(), 1):
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(row, dict) and row.get("standin"):
+                print(f"{name} line {n}")
+                sys.exit(0)
+if (w / "sessions").exists():
+    for p in sorted((w / "sessions").rglob("*.standin")):
+        print(p.relative_to(w))
+        sys.exit(0)
+MARKS
+}
+
 preflight() {
   [ "$FIXTURE" = 0 ] || [ "$DRY" = 1 ] || die "RLAW_DRY_PINS is for a dry run with a stand-in only"
+  [ "$DRY" = 0 ] || [ "$FIXTURE" = 1 ] \
+    || die "RLAW_STANDIN is for a dry run on the fixture only (with RLAW_DRY_PINS): a real work dir is never run by a stand-in"
+  if [ "$DRY" = 1 ]; then
+    bash "$SESS" standin || die "the stand-in $RLAW_STANDIN is refused"
+  else
+    local marked
+    marked="$(standin_marks)" || die "the work dir cannot be checked for a stand-in's outputs"
+    [ -z "$marked" ] || die "the work dir holds a stand-in's outputs ($marked): a real run never reads them"
+  fi
   [ ! -e "$WORK/ledger/VOID" ] || die "VOID: the result is void"
   [ ! -e "$WORK/deviations.json" ] || die "a deviation is recorded in deviations.json: nothing runs"
   [ ! -e "$WORK/ledger/STOPPED" ] || [ "${RLAW_RESUME:-0}" = 1 ] || die "STOPPED: resume only with RLAW_RESUME=1"
@@ -137,22 +174,24 @@ preflight() {
   say "preflight holds at $(git -C "$REPO" rev-parse HEAD)"
 }
 
-lock_alive() { # -> 0 while a process of the locked phase's group, or its launcher, lives
-  local g l
-  g="$(cat "$LOCK/group" 2>/dev/null || true)"; l="$(cat "$LOCK/launcher" 2>/dev/null || true)"
-  { [ -n "$g" ] && kill -0 -- "-$g" 2>/dev/null; } || { [ -n "$l" ] && kill -0 "$l" 2>/dev/null; }
-}
-
-take_lock() { # this work dir's lock for the whole phase; another launcher's live phase refuses it
-  local held
-  if ! mkdir "$LOCK" 2>/dev/null; then
-    held="$(cat "$LOCK/group" 2>/dev/null || echo "not yet recorded")"
-    lock_alive && die "another launcher's phase is running on this work dir (process group $held): nothing starts"
-    event takeover "the work dir's lock of process group $held was taken over: none of its processes is alive"
-    rm -rf "$LOCK"
-    mkdir "$LOCK" 2>/dev/null || die "another launcher took the work dir's lock meanwhile"
+take_lock() { # this work dir's lock for the whole phase: an flock through fd 9, which the phase's
+  # every process inherits; held while any of them lives, freed by the kernel when the last ends
+  local prev
+  [ ! -d "$LOCK" ] || die "$LOCK is a directory, an earlier version's lock: remove it once no process of its phase is left"
+  exec 9>>"$LOCK" || die "the work dir's lock $LOCK cannot be opened"
+  "$PY" -I -c '
+import fcntl, sys
+try:
+    fcntl.flock(9, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except OSError:
+    sys.exit(1)' \
+    || die "another launcher's phase is running on this work dir ($(head -1 "$LOCK" 2>/dev/null)): nothing starts"
+  prev="$(head -1 "$LOCK" 2>/dev/null || true)"
+  if [ -n "$prev" ]; then
+    event takeover "the work dir's lock, left by $prev, was taken over: no process of that phase holds it"
   fi
-  echo "$$" > "$LOCK/launcher"
+  echo "launcher $$" > "$LOCK"
+  if [ "$DRY" = 1 ] && [ -n "${RLAW_LOCK_HOLD_SECONDS:-}" ]; then sleep "$RLAW_LOCK_HOLD_SECONDS"; fi
 }
 
 sessions() { # step kind packets out model lanes [ids]
@@ -294,7 +333,7 @@ case "$PHASE" in
     bash "$0" "_$PHASE" "$WORK" &
     PID=$!
     set +m
-    echo "$PID" > "$LOCK/group"
+    echo "launcher $$ group $PID" > "$LOCK"
     bash "$SESS" watch "$WORK" "$PID" "$WORK/ledger/phase-start" "$PHASE" > >(tee -a "$LOG") 2>&1 &
     W=$!
     wait "$PID"; CODE=$?
@@ -302,7 +341,7 @@ case "$PHASE" in
     # the phase is over when the last of them is settled
     while kill -0 -- "-$PID" 2>/dev/null; do sleep 5; done
     { kill "$W" && wait "$W"; } 2>/dev/null
-    rm -rf "$LOCK"
+    : > "$LOCK"  # the phase ended cleanly: no record is left for a takeover
     say "phase $PHASE ended, exit $CODE"
     exit "$CODE" ;;
   _calibrate|_measure)
