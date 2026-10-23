@@ -127,7 +127,8 @@ preflight() {
   done
   if [ "$DRY" = 0 ]; then
     : "${RLAW_CLAUDE_BIN:?set RLAW_CLAUDE_BIN}"
-    "$RLAW_CLAUDE_BIN" --version | grep -q '^2\.1\.301 ' || die "binary is not 2.1.301"
+    # its sha256, and its version run with the sessions' environment only
+    bash "$SESS" pinned >/dev/null || die "the binary is not the pinned 2.1.301 (its sha256 or its version)"
   fi
   if [ "$FIXTURE" = 0 ]; then
     "$PY" -I -c "import json,sys; c=json.load(open('$WORK/group_counts.json')); e=json.load(open('$WORK/extract_counts.json')); sys.exit(0 if (e['lines'],c['after_c'],c['after_d'])==(993,367,348) else 1)" \

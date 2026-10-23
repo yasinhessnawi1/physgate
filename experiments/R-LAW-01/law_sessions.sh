@@ -7,6 +7,7 @@
 #   law_sessions.sh watch <work dir> <process group> <since file> <phase>
 #   law_sessions.sh smoke <out dir>
 #   law_sessions.sh envnames
+#   law_sessions.sh pinned
 #
 # run: every packet of <packets dir> (or those listed in <ids file>), each a session of the pinned
 #   binary with the pinned model, effort high, no tools, no settings, no MCP, no session
@@ -57,6 +58,8 @@
 #   keeps every CLAUDE.md out, and that the result's usage is the sum over its modelUsage. Not
 #   part of the experiment: it writes no ledger line. Prints one JSON line; exit 0 if it holds.
 # envnames: the names of the environment the binary runs with (never their values).
+# pinned: RLAW_CLAUDE_BIN held to its sha256 and, run with that environment, its version; prints
+#   its path, or exits 2. The launcher's preflight checks the binary through this.
 #
 # Environment:
 #   RLAW_PROMPTS  the directory law_packets.py prompts wrote for the version in force (run)
@@ -326,8 +329,9 @@ case "${1:-}" in
   watch) shift; watch_phase "$@"; exit 0 ;;
   smoke) shift; smoke "$@"; exit $? ;;
   envnames) echo "$ENV_ALLOW"; exit 0 ;;
+  pinned) pinned_bin; exit 0 ;;
   run) shift ;;
-  *) sed -n '2,82p' "$0" >&2; exit 2 ;;
+  *) sed -n '2,85p' "$0" >&2; exit 2 ;;
 esac
 
 [ $# -ge 6 ] || { echo "run needs: step kind packets out model lanes [ids]" >&2; exit 2; }

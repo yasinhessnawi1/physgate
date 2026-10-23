@@ -553,6 +553,16 @@ def test_the_smoke_session_sees_only_the_allowlisted_environment(tmp_path: Path)
     assert set(seen(dump)) == ALLOWLIST
 
 
+def test_the_launcher_s_binary_check_is_the_driver_s(tmp_path: Path) -> None:
+    fake_bin = tmp_path / "claude"
+    fake_bin.write_text("#!/usr/bin/env bash\necho 2.1.301 '(Claude Code)'\n")
+    fake_bin.chmod(0o755)
+    done = run("pinned", env={"RLAW_CLAUDE_BIN": str(fake_bin)})
+    # the right version string is not enough: the binary is held to its sha256
+    assert done.returncode == 2 and "not the pinned one" in done.stderr
+    assert '"$SESS" pinned' in (HERE / "law_launch.sh").read_text()
+
+
 def test_the_allowlist_is_named_by_the_driver(tmp_path: Path) -> None:
     done = run("envnames")
     assert done.returncode == 0 and set(done.stdout.split()) == ALLOWLIST
