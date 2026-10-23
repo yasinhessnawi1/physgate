@@ -125,7 +125,7 @@ class LedgerUnreadable(Exception):
 
 #: CRITERIA §12's tokens per session: the charge's unit while no completed try has reported usage.
 SESSION_TOKENS = 50_000
-#: Failed calls refused before any model work; one whose output reports no usage costs nothing.
+#: Failed calls that are refusals: charged nothing when no model turn completed before them.
 REFUSED_BEFORE_WORK = ("usage_limit", "rate_limit", "credential_refused")
 
 
@@ -158,13 +158,15 @@ def charged(out: Path, cause: str | None, ledger: Path) -> tuple[int, bool]:
 
     An output that reports no usage (no result, or a result whose ``modelUsage`` is empty, as the
     binary's structured-output exhaustion reports it) is charged ceil(turns / 2), at least 1,
-    times :func:`charge_unit`, unless it is a failed call refused before any model work. A charge
+    times :func:`charge_unit`, unless it is a refusal (a usage limit, a rate limit, a refused
+    credential) before any model turn completed: no result, or ``num_turns`` at most 1. A charge
     never counts less than the output reports.
     """
     reported = tokens_of(out)
     if reports_usage(out):
         return reported, False
-    if cause and cause.split(" ", 1)[0] in REFUSED_BEFORE_WORK:
+    refusal = bool(cause) and str(cause).split(" ", 1)[0] in REFUSED_BEFORE_WORK
+    if refusal and (not result_message(out) or turns_of(out) <= 1):
         return reported, False
     return max(reported, max(1, math.ceil(turns_of(out) / 2)) * charge_unit(ledger)), True
 

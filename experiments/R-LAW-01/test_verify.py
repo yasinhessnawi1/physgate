@@ -539,6 +539,61 @@ def test_a_call_refused_before_any_work_is_charged_nothing(
     assert r["tokens"] == charge and r.get("tokens_estimated", False) is (charge > 0)
 
 
+@pytest.mark.parametrize(
+    ("cause", "turns", "charge"),
+    [
+        ("usage_limit", None, 0),  # no result: no model turn completed
+        ("usage_limit", 1, 0),
+        ("usage_limit", 2, 7_000),
+        ("rate_limit (429)", 3, 2 * 7_000),
+        ("credential_refused (401)", 1, 0),
+        ("credential_refused (403)", 4, 2 * 7_000),
+    ],
+)
+def test_a_refusal_after_model_turns_ran_is_charged(
+    tmp_path: Path, cause: str, turns: int | None, charge: int
+) -> None:
+    led = tmp_path / "ledger.jsonl"
+    _ledger_rows(led, [{"step": "s", "packet": "P0001", "try": 1, "tokens": 7_000}])
+    out = tmp_path / "out.json"
+    if turns is None:
+        out.write_text("Error: You've hit your usage limit")
+    else:
+        out.write_text(json.dumps({"type": "result", "is_error": True, "num_turns": turns}))
+    r = _charged(led, out, cause)
+    assert r["tokens"] == charge and r.get("tokens_estimated", False) is (charge > 0)
+
+
+def test_a_charge_never_falls_below_what_the_output_reports(tmp_path: Path) -> None:
+    led = tmp_path / "ledger.jsonl"
+    _ledger_rows(led, [{"step": "s", "packet": "P0001", "try": 1, "tokens": 7_000}])
+    out = tmp_path / "out.json"
+    big = {"type": "result", "num_turns": 2, "usage": {"input_tokens": 100_000}, "modelUsage": {}}
+    out.write_text(json.dumps(big))
+    r = _charged(led, out)
+    assert (r["tokens"], r["tokens_estimated"]) == (100_000, True)
+
+
+def test_no_usage_is_an_empty_model_usage_not_a_count_of_zero(tmp_path: Path) -> None:
+    led = tmp_path / "ledger.jsonl"
+    _ledger_rows(led, [{"step": "s", "packet": "P0001", "try": 1, "tokens": 7_000}])
+    out = tmp_path / "out.json"
+    named = {"type": "result", "num_turns": 2, "usage": {}, "modelUsage": {"claude-opus-5-5": {}}}
+    out.write_text(json.dumps(named))
+    r = _charged(led, out)
+    assert r["tokens"] == 0 and "tokens_estimated" not in r
+
+
+def test_a_ledger_that_cannot_be_read_charges_one_session_unit(tmp_path: Path) -> None:
+    led = tmp_path / "ledger.jsonl"
+    led.write_text(
+        '{"step": "s", "packet": "P0001", "try": 1, "tokens": 7_000}\n{"step": "s", "tok'
+    )
+    assert V.charge_unit(led) == 50_000
+    tokens, estimated = V.charged(DATA / "retry_exhausted_probe_out.json", "", led)
+    assert (tokens, estimated) == (50_000, True)
+
+
 def test_the_ledger_total_refuses_a_ledger_it_cannot_read(tmp_path: Path) -> None:
     led = tmp_path / "ledger.jsonl"
     assert V.ledger_total(led) == 0  # no ledger yet: nothing spent
