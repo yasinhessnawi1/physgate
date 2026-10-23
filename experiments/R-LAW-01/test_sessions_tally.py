@@ -584,6 +584,13 @@ def test_the_driver_names_the_environment_the_binary_receives(tmp_path: Path, tm
     assert done.returncode == 0 and done.stdout.split() == sorted(want)
 
 
+def test_the_pins_themselves_are_refused_as_a_stand_in() -> None:
+    text = SH.read_text()
+    pins = {m.group(1) for m in re.finditer(r"^PIN_(?:MAC|LINUX)=([0-9a-f]{64})$", text, re.M)}
+    done = run("refused-standins")
+    assert len(pins) == 2 and pins <= set(done.stdout.split())
+
+
 def test_a_stand_in_with_a_pinned_digest_never_runs(tmp_path: Path, packets: Path) -> None:
     exe, dump = env_dumper(tmp_path)
     digest = __import__("law_extract").sha256_file(exe)

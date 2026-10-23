@@ -137,6 +137,8 @@ preflight() {
     || die "RLAW_STANDIN is for a dry run on the fixture only (with RLAW_DRY_PINS): a real work dir is never run by a stand-in"
   if [ "$DRY" = 1 ]; then
     bash "$SESS" standin || die "the stand-in $RLAW_STANDIN is refused"
+    ! cmp -s "$HERE/slice.json" "$WORK/slice.json" \
+      || die "a dry run on a work dir holding the committed slice: that is the real work dir, never a fixture's"
   else
     local marked
     marked="$(standin_marks)" || die "the work dir cannot be checked for a stand-in's outputs"
@@ -334,7 +336,8 @@ case "$PHASE" in
     PID=$!
     set +m
     echo "launcher $$ group $PID" > "$LOCK"
-    bash "$SESS" watch "$WORK" "$PID" "$WORK/ledger/phase-start" "$PHASE" > >(tee -a "$LOG") 2>&1 &
+    # the watcher is no part of the phase: neither it nor its tee keeps the lock's descriptor
+    bash "$SESS" watch "$WORK" "$PID" "$WORK/ledger/phase-start" "$PHASE" 9>&- > >(exec 9>&-; tee -a "$LOG") 2>&1 &
     W=$!
     wait "$PID"; CODE=$?
     # sessions the phase left in flight end on their own (none starts once STOPPED is written):

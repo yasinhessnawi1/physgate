@@ -9,6 +9,7 @@
 #   law_sessions.sh envnames
 #   law_sessions.sh pinned
 #   law_sessions.sh standin
+#   law_sessions.sh refused-standins
 #
 # run: every packet of <packets dir> (or those listed in <ids file>), each a session of the pinned
 #   binary with the pinned model, effort high, no tools, no settings, no MCP, no session
@@ -64,6 +65,7 @@
 # envnames: the names of the environment the binary receives, as env -i hands it over (sorted;
 #   never the values).
 # standin: RLAW_STANDIN held to be an executable that is not the pinned binary; exit 2 otherwise.
+# refused-standins: the digests a stand-in may never have (the pins, and any a test adds).
 # pinned: RLAW_CLAUDE_BIN held to its sha256 and, run with that environment, its version; prints
 #   its path, or exits 2. The launcher's preflight checks the binary through this.
 #
@@ -111,12 +113,16 @@ binenv() { # command...: run it with exactly the allowlisted environment
   env -i ${a[@]+"${a[@]}"} PATH=/usr/bin:/bin:/usr/sbin:/sbin DISABLE_AUTOUPDATER=1 "$@"
 }
 
+refused_standins() { # the digests a stand-in may never have: the pins, and any a test adds
+  echo "$PIN_MAC" "$PIN_LINUX" ${RLAW_REFUSE_STANDIN_SHA256:-}
+}
+
 standin_ok() { # RLAW_STANDIN: an executable, and never the pinned binary, so that no real session
   # runs with the pin's checks skipped (RLAW_REFUSE_STANDIN_SHA256 adds digests to refuse, for tests)
   local d p
   [ -x "$RLAW_STANDIN" ] || { echo "the stand-in $RLAW_STANDIN is not an executable" >&2; return 2; }
   d="$(sha "$RLAW_STANDIN")"
-  for p in "$PIN_MAC" "$PIN_LINUX" ${RLAW_REFUSE_STANDIN_SHA256:-}; do
+  for p in $(refused_standins); do
     if [ "$d" = "$p" ]; then
       echo "the stand-in is the pinned binary (sha256 $d): a real session never runs as a stand-in's" >&2
       return 2
@@ -349,9 +355,10 @@ case "${1:-}" in
   envnames) binenv /usr/bin/env | sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' | sort | tr '\n' ' ' | sed 's/ $//'
     echo; exit 0 ;;
   standin) standin_ok; exit $? ;;
+  refused-standins) refused_standins; exit 0 ;;
   pinned) pinned_bin; exit 0 ;;
   run) shift ;;
-  *) sed -n '2,91p' "$0" >&2; exit 2 ;;
+  *) sed -n '2,93p' "$0" >&2; exit 2 ;;
 esac
 
 [ $# -ge 6 ] || { echo "run needs: step kind packets out model lanes [ids]" >&2; exit 2; }

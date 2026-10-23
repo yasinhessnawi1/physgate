@@ -16,6 +16,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -216,7 +217,7 @@ def test_a_stand_in_without_the_fixture_s_pins_is_refused(tmp_path: Path) -> Non
     assert done.returncode == 1 and "RLAW_STANDIN is for a dry run" in done.stdout
 
 
-@pytest.mark.parametrize("where", ["ledger", "codes", "session"])
+@pytest.mark.parametrize("where", ["ledger", "codes", "reality", "session"])
 def test_a_real_preflight_refuses_a_work_dir_with_a_stand_in_s_outputs(
     tmp_path: Path, where: str
 ) -> None:
@@ -228,6 +229,9 @@ def test_a_real_preflight_refuses_a_work_dir_with_a_stand_in_s_outputs(
     elif where == "codes":
         row = {"step": "measured", "who": "c1", "line_id": "L0001", "standin": True}
         (work / "codes.jsonl").write_text(json.dumps(row) + "\n")
+    elif where == "reality":
+        row = {"line_id": "L0001", "verdict": "true_flaw", "standin": True}
+        (work / "reality.jsonl").write_text(json.dumps(row) + "\n")
     else:
         (work / "sessions" / "measured" / "c1").mkdir(parents=True)
         (work / "sessions" / "measured" / "c1" / "P0001.try1.standin").write_text("")
@@ -316,3 +320,60 @@ def test_contenders_for_a_stale_lock_let_exactly_one_launcher_through(tmp_path: 
         through = [o for o in outs if "the binary runs with only this environment" in o]
         assert len(through) == 1, (trial, outs)
         assert [e["event"] for e in _events(work)] == ["takeover"], trial
+
+
+def test_a_clean_record_is_no_takeover(tmp_path: Path) -> None:
+    for name, record in (("empty", ""), ("absent", None)):
+        work = _ledger_dir(tmp_path, name)
+        if record is not None:
+            (work / "ledger" / "launch.lock").write_text(record)  # the last phase ended cleanly
+        assert launch("calibrate", work, dry_env(tmp_path)).returncode == 1
+        assert _events(work) == [], name
+
+
+def launch_to_file(phase: str, work: Path, env: dict[str, str]) -> tuple[int, float]:
+    """The launcher, its output to a file (not a pipe a lingering child could hold open): its exit
+    code, and the seconds it took to exit."""
+    start = time.monotonic()
+    with (work / f"{phase}.out").open("w") as fh:
+        p = subprocess.Popen(["bash", str(LAUNCH), phase, str(work)], stdout=fh, stderr=fh, env=env)
+        code = p.wait(timeout=120)
+    return code, time.monotonic() - start
+
+
+def test_the_lock_is_free_as_soon_as_its_launcher_ends(tmp_path: Path) -> None:
+    work = _ledger_dir(tmp_path)
+    # a watcher that sleeps 30 s between its looks must not keep the lock that long
+    code, _ = launch_to_file("calibrate", work, dry_env(tmp_path, RLAW_WATCH_SECONDS="30"))
+    assert code == 1
+    free = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-c",
+            HOLDER.replace("time.sleep(120)", "sys.exit(0)"),
+            str(work / "ledger" / "launch.lock"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert free.returncode == 0, free.stderr
+
+
+def test_the_lock_hold_is_a_dry_run_s_only(tmp_path: Path) -> None:
+    work = _ledger_dir(tmp_path)
+    env = _bare_env(RLAW_LOCK_HOLD_SECONDS="30", RLAW_WATCH_SECONDS="1")
+    code, took = launch_to_file("calibrate", work, env)
+    assert code == 1 and took < 20
+
+
+def test_a_dry_run_is_refused_on_a_work_dir_holding_the_committed_slice(tmp_path: Path) -> None:
+    # both variables stray on the real work dir: its slice is the committed one
+    work = tmp_path / "work"
+    (work / "ledger").mkdir(parents=True)
+    shutil.copy(HERE / "slice.json", work / "slice.json")
+    (tmp_path / "standin").write_text("#!/usr/bin/env bash\nexit 0\n")
+    (tmp_path / "standin").chmod(0o755)
+    done = launch("preflight", work, dry_env(tmp_path))
+    assert done.returncode == 1 and "committed slice" in done.stdout, done.stdout
