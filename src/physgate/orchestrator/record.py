@@ -28,6 +28,7 @@ from physgate.orchestrator.events import (
 )
 from physgate.orchestrator.exceptions import RunConfigError, RunStateError
 from physgate.orchestrator.managed import ObservedTraffic
+from physgate.orchestrator.plan import InterfaceConsumers, SystemRequirement
 from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.queue import ApprovalQueue
 from physgate.orchestrator.replay import RunState, project_ledger
@@ -69,6 +70,11 @@ class DecompositionSummary(BaseModel):
     head_revision: int
     policy_limits_sha256: str | None = None
     observed_traffic: ObservedTraffic | None = None
+    #: The plan's digest, taken from the plan itself; ``None`` for a run started without one.
+    plan_sha256: str | None = None
+    #: The two lists the integration role checks; ``None`` in a run without that role.
+    interface_consumers: tuple[InterfaceConsumers, ...] | None = None
+    system_requirements: tuple[SystemRequirement, ...] | None = None
 
 
 class RunRecord:
@@ -181,6 +187,9 @@ class RunRecord:
                     head_revision=decomposed.head_revision,
                     policy_limits_sha256=decomposed.policy_limits_sha256,
                     observed_traffic=decomposed.observed_traffic,
+                    plan_sha256=decomposed.plan_sha256,
+                    interface_consumers=decomposed.interface_consumers,
+                    system_requirements=decomposed.system_requirements,
                 )
             )
         for entry in plan:

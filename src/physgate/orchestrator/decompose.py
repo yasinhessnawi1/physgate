@@ -24,17 +24,18 @@ import subprocess
 import uuid
 from collections import Counter
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Annotated, Any, Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from physgate.gate.catalogue import shadowing_names
 from physgate.hooks.settings import protected_in_a_worktree
 from physgate.knowledge.library import LibraryError, put_into, read_library
 from physgate.orchestrator.accounting import require_matching_totals
 from physgate.orchestrator.budget import classify_session_end
-from physgate.orchestrator.common import NonEmptyStr, first_problem
+from physgate.orchestrator.common import GateMode, NonEmptyStr, first_problem
 from physgate.orchestrator.credentials import (
     REDACTED_TEXT,
     Credential,
@@ -59,6 +60,15 @@ from physgate.orchestrator.managed import (
     system_managed_facts,
 )
 from physgate.orchestrator.merge import RunGit
+from physgate.orchestrator.plan import REQUIREMENT_MAX_CHARS as REQUIREMENT_MAX_CHARS
+from physgate.orchestrator.plan import SPEC_MAX_CHARS as SPEC_MAX_CHARS
+from physgate.orchestrator.plan import Contribution as Contribution
+from physgate.orchestrator.plan import IntegratedPlan as IntegratedPlan
+from physgate.orchestrator.plan import InterfaceConsumers as InterfaceConsumers
+from physgate.orchestrator.plan import Plan as Plan
+from physgate.orchestrator.plan import PlannedModule as PlannedModule
+from physgate.orchestrator.plan import SystemRequirement as SystemRequirement
+from physgate.orchestrator.plan import plan_sha256 as plan_sha256
 from physgate.orchestrator.protocols import MessageUsage, Usage
 from physgate.orchestrator.record import (
     DecompositionCall,
@@ -71,7 +81,7 @@ from physgate.reviewers.contract import issued_criteria
 from physgate.roles import CrossCuttingDuty, owners_of
 from physgate.series.collect import series_library
 from physgate.state.exceptions import MalformedNodeIdError
-from physgate.state.schema import NODE_ID_MAX_LENGTH, Node, validate_node_id
+from physgate.state.schema import Node, validate_node_id
 from physgate.state.store import Store
 
 #: Where the run branch holds each interface node the decomposition planned, one JSON file
@@ -137,86 +147,6 @@ class _Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
 
-#: The longest specification the decomposition may issue a module, in characters.
-SPEC_MAX_CHARS = 32_768
-
-#: A module's name in the plan.
-_ModuleName = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9-]{0,31}$")]
-
-
-class PlannedModule(_Frozen):
-    """One module of the design, as the decomposition proposes it."""
-
-    name: _ModuleName
-    role: NonEmptyStr
-    module_dir: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_][A-Za-z0-9_./-]{0,127}$")]
-    #: Long enough for a specification that states its plant, sensors, timing and numbered
-    #: criteria in full (a reviewable one runs past 20,000 characters), and still bounded.
-    spec: Annotated[str, StringConstraints(min_length=1, max_length=SPEC_MAX_CHARS)]
-
-
-class Plan(_Frozen):
-    """The decomposition's answer: modules with their specifications, and interfaces."""
-
-    modules: Annotated[tuple[PlannedModule, ...], Field(min_length=1, max_length=50)]
-    interface_nodes: Annotated[tuple[Node, ...], Field(min_length=1)]
-
-
-# The docstrings of the three models below are sent with the schema, as their
-# descriptions: they are what the decomposition is told each entry means.
-
-
-class Contribution(_Frozen):
-    """A module criterion that contributes to a system requirement.
-
-    The module by its name in the plan, and the number of one acceptance criterion
-    that module's specification numbers under a heading that names acceptance criteria.
-    """
-
-    module: _ModuleName
-    criterion: Annotated[str, StringConstraints(pattern=r"^[0-9]{1,6}$")]
-
-
-#: The longest system requirement, in characters: a criterion's number, or a requirement
-#: in the brief's own words where the brief numbers none.
-REQUIREMENT_MAX_CHARS = 500
-
-
-class SystemRequirement(_Frozen):
-    """A requirement of the brief that only the assembled system can show.
-
-    Given as the brief's acceptance-criterion number where the brief numbers its
-    criteria under a heading that names acceptance criteria, and in the brief's own words
-    otherwise; with every module criterion that contributes to it.
-    """
-
-    requirement: Annotated[str, StringConstraints(min_length=1, max_length=REQUIREMENT_MAX_CHARS)]
-    contributing: Annotated[tuple[Contribution, ...], Field(min_length=1)]
-
-
-class InterfaceConsumers(_Frozen):
-    """The modules that read one interface node's quantities, by their names in the plan.
-
-    The interface by its node's id. The module that produces the node is not among them.
-    """
-
-    interface: Annotated[str, StringConstraints(min_length=1, max_length=NODE_ID_MAX_LENGTH)]
-    consumers: Annotated[tuple[_ModuleName, ...], Field(min_length=1)]
-
-
-class IntegratedPlan(Plan):
-    """The plan of a run with the integration role (ARCH-051).
-
-    Integration has no module in the plan: the harness writes its specification from the
-    recorded plan. What it checks is fixed here, before any module runs: the consumers of
-    every interface node, from which the module pairs whose contract is tested are read,
-    and the system requirements allocated to it.
-    """
-
-    interface_consumers: tuple[InterfaceConsumers, ...]
-    system_requirements: tuple[SystemRequirement, ...]
-
-
 def _in_run(duty: CrossCuttingDuty, roles: Sequence[str]) -> tuple[str, ...]:
     """The run's roles that the register names as owning ``duty``, asked of it now.
 
@@ -229,12 +159,6 @@ def _in_run(duty: CrossCuttingDuty, roles: Sequence[str]) -> tuple[str, ...]:
 def plan_model(roles: Sequence[str]) -> type[Plan]:
     """The plan's form for a run of ``roles``: integration's, where the run has that role."""
     return IntegratedPlan if _in_run("completion", roles) else Plan
-
-
-def plan_sha256(plan: Plan) -> str:
-    """The plan's digest: sha256 of its canonical JSON, every field of its own form in it."""
-    canonical = json.dumps(plan.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 #: Root-level keys that name the schema rather than shape the answer. Left in, they
@@ -874,6 +798,253 @@ def _require_library_fits(repo: Path, commit: str, curated: Mapping[Path, bytes]
                 raise DecompositionError(msg, path=name)
 
 
+#: The sentence integration's specification states the run's gate mode in, one per mode. The
+#: checks are the gate's: with them off there is no system-scope result to read, by design.
+GATE_MODE_SENTENCES: Mapping[GateMode, str] = {
+    "on": "The run's automated design-quantity checks are on.",
+    "observe": "The run's automated design-quantity checks are on, and they block nothing.",
+    "off": "The run's automated design-quantity checks are off: there is no system-scope result.",
+}
+
+#: What the closing pass's subtask is named after: the sizing module's own name, then this.
+CLOSING_SUFFIX = "-closing"
+
+
+@dataclass(frozen=True)
+class _Issued:
+    """One subtask as the run plans it: its ledger entry, its module and its specification."""
+
+    entry: PlanEntry
+    module: str
+    spec: str
+
+
+def _quoted(text: str) -> str:
+    """``text`` as one JSON string: untrusted words, kept on one line, whatever they hold.
+
+    Escaped to ASCII, so no character the specification's readers split lines on (a
+    line or paragraph separator among them) survives to start a heading or a numbered
+    criterion of its own.
+    """
+    return json.dumps(text)
+
+
+def _issued(
+    seed: int, index: int, *, minted: str, module: str, role: str, module_dir: str, spec: str
+) -> _Issued:
+    """The subtask whose id is minted from ``minted`` at ``index``, working on ``module``."""
+    subtask_id = mint_id(seed, index, minted)
+    entry = PlanEntry(
+        subtask_id=subtask_id,
+        spec_path=f".physgate/specs/{subtask_id}.md",
+        assigned_role=role,
+        module_dir=module_dir,
+    )
+    return _Issued(entry=entry, module=module, spec=spec)
+
+
+def _line_of(issued: _Issued) -> str:
+    entry = issued.entry
+    return (
+        f"- `{entry.subtask_id}`: module {_quoted(issued.module)}, role "
+        f"{_quoted(entry.assigned_role)}, directory `{entry.module_dir}`"
+    )
+
+
+def _closing_spec(opening: _Issued, domains: Sequence[_Issued]) -> str:
+    """The closing pass's specification: revisit what the domain work changed (ARCH-051).
+
+    Written from the recorded plan before any module runs, so it names the subtasks and
+    never what they will write; what changed is read from the design graph when it runs.
+    """
+    role = _quoted(opening.entry.assigned_role)
+    ran = [_line_of(one) for one in domains] or ["- none: the plan has no domain module"]
+    return "\n".join(
+        [
+            f"# Closing pass of the {role} role",
+            "",
+            "The harness wrote this specification from the recorded plan. It is the second "
+            f"pass of the {role} role over module {_quoted(opening.module)}, in "
+            f"`{opening.entry.module_dir}`, placed after every domain module below. The first "
+            f"pass, subtask `{opening.entry.subtask_id}`, was issued "
+            f"`{opening.entry.spec_path}`; read it for what this module owns.",
+            "",
+            "The domain modules that ran between the two passes:",
+            "",
+            *ran,
+            "",
+            "## Acceptance criteria",
+            "",
+            f"1. Every node of the {role} role is read again, with every node it constrains "
+            "and every node that constrains it, as the design graph holds them now.",
+            "2. Where a node read under criterion 1 changed after the first pass, each node of "
+            f"the {role} role joined to it is rewritten to agree with it, or keeps its values "
+            "and states why in its `no_change_justified`, under the changed node's id.",
+            "3. No node of another role is written.",
+            "",
+        ]
+    )
+
+
+def _integration_spec(plan: IntegratedPlan, checked: Sequence[_Issued], gate_mode: GateMode) -> str:
+    """Integration's specification: what it checks, fixed by the plan before any module runs.
+
+    The run's gate mode, every subtask it checks, each interface with its producing role
+    and consumers, and the system requirements the plan allocated to it (ARCH-051). Every
+    word the plan holds is quoted on one line (:func:`_quoted`).
+    """
+    consumers = {entry.interface: entry.consumers for entry in plan.interface_consumers}
+    interfaces = []
+    for node in plan.interface_nodes:
+        readers = consumers.get(node.id, ())
+        read = (
+            f"read by module{'s' if len(readers) > 1 else ''} "
+            + ", ".join(_quoted(name) for name in readers)
+            if readers
+            else "read by no module the plan names"
+        )
+        interfaces.append(
+            f"- {_quoted(node.id)}: produced by the {_quoted(node.owner_role)} role; {read}; "
+            f"contract `{interface_contract(node.id)}`"
+        )
+    requirements = [
+        f"- {_quoted(item.requirement)}: "
+        + "; ".join(
+            f"criterion {_quoted(part.criterion)} of module {_quoted(part.module)}"
+            for part in item.contributing
+        )
+        for item in plan.system_requirements
+    ] or ["The plan allocates no system requirement to integration."]
+    return "\n".join(
+        [
+            "# Integration",
+            "",
+            "The harness wrote this specification from the recorded plan. Integration checks "
+            "the modules below together, after each of them has merged: every quantity of "
+            "every interface node against its producer and each of its consumers, the "
+            "modules' analysis and test scripts run together on the merged design, and the "
+            "system requirements below. It writes no node and no file another role owns, and "
+            "it declares a module complete only when every precondition holds.",
+            "",
+            GATE_MODE_SENTENCES[gate_mode],
+            "",
+            "## Subtasks it checks",
+            "",
+            "Each subtask with its module, the module's role and directory, and the "
+            "specification it was issued.",
+            "",
+            *(f"{_line_of(one)}, specification `{one.entry.spec_path}`" for one in checked),
+            "",
+            "## Interfaces",
+            "",
+            "Each interface node with the role that produces it, the modules that read it, and "
+            "its contract.",
+            "",
+            *interfaces,
+            "",
+            "## System requirements",
+            "",
+            "Each requirement of the brief that only the assembled system can show, as the "
+            "plan gives it (the brief's criterion number, or the brief's words), with the "
+            "module criteria that contribute to it.",
+            "",
+            *requirements,
+            "",
+            "## Acceptance criteria",
+            "",
+            "1. Every quantity of every interface node above has a clause line for each of its "
+            "consumers, judged from the producer's and the consumer's own files and nodes.",
+            "2. Every module's analysis and test scripts are run together on the merged design, "
+            "and each run is recorded with its command, commit, exit status and output.",
+            "3. Each system requirement above is shown verified at system level, with its "
+            "evidence, or named as not verified.",
+            "4. The system-scope result is reported as recorded or, with the checks off, the "
+            "record says there is none.",
+            "5. A module is declared complete only when every precondition holds, each with its "
+            "evidence; a module with an open precondition is listed as not complete, with the "
+            "open item named.",
+            "6. The record states what was exercised and what was not.",
+            "7. No node and no file of another role is written.",
+            "",
+        ]
+    )
+
+
+def _planned_subtasks(plan: Plan, config: RunConfig) -> list[_Issued]:
+    """The run's subtasks in the order the harness runs them, each with its specification.
+
+    The order is the harness's, never the plan's (ARCH-051): the module of the role that
+    owns the cross nodes opens the domain work; the domain modules follow in the plan's
+    order; a second pass of that role over its own module and directory closes it; the
+    role that owns completion ends the run. The closing pass and integration are no
+    modules of the plan: the harness writes their specifications here. A plan module keeps
+    the id its place in the plan mints; the harness's own take the indices after the
+    plan's, in the order they run. A run with neither role is planned as before either
+    existed.
+
+    Raises:
+        DecompositionError: the plan is not of the form the run's roles call for, or two
+            subtasks were minted one id.
+    """
+    roles = sorted(config.models.roles)
+    sizing, completion = _in_run("cross_nodes", roles), _in_run("completion", roles)
+    if isinstance(plan, IntegratedPlan) != bool(completion):
+        msg = "the plan is not of the form the run's roles call for"
+        raise DecompositionError(
+            msg, integrated=str(isinstance(plan, IntegratedPlan)), completion=", ".join(completion)
+        )
+    ordered = sorted(enumerate(plan.modules), key=lambda pair: pair[1].role not in sizing)
+    planned = [
+        _issued(
+            config.seed,
+            i,
+            minted=m.name,
+            module=m.name,
+            role=m.role,
+            module_dir=m.module_dir,
+            spec=m.spec,
+        )
+        for i, m in ordered
+    ]
+    openings = [one for one in planned if one.entry.assigned_role in sizing]
+    domains = [one for one in planned if one.entry.assigned_role not in sizing]
+    index = len(plan.modules)
+    for opening in openings:
+        planned.append(
+            _issued(
+                config.seed,
+                index,
+                minted=f"{opening.module}{CLOSING_SUFFIX}",
+                module=opening.module,
+                role=opening.entry.assigned_role,
+                module_dir=opening.entry.module_dir,
+                spec=_closing_spec(opening, domains),
+            )
+        )
+        index += 1
+    if isinstance(plan, IntegratedPlan):
+        spec = _integration_spec(plan, tuple(planned), config.gate_mode)
+        for role in completion:
+            planned.append(
+                _issued(
+                    config.seed,
+                    index,
+                    minted=role,
+                    module=role,
+                    role=role,
+                    module_dir=INTEGRATION_MODULE_DIR,
+                    spec=spec,
+                )
+            )
+            index += 1
+    ids = Counter(one.entry.subtask_id for one in planned)
+    if len(ids) != len(planned):
+        msg = "two subtasks of the plan were minted one id"
+        repeated = sorted(i for i, n in ids.items() if n > 1)
+        raise DecompositionError(msg, ids=", ".join(repeated))
+    return planned
+
+
 def start_run(
     outcome: Outcome,
     *,
@@ -884,24 +1055,30 @@ def start_run(
 ) -> RunRecord:
     """Start the run from the call's outcome: record a failure, or write the plan.
 
-    With the module specifications, the run branch gets the curated library every
+    The subtasks are planned in the harness's order (:func:`_planned_subtasks`), each
+    with its specification. With them, the run branch gets the curated library every
     planned role reads, copied from ``library`` (the checkout the orchestrator runs
-    from) byte for byte, in the same commit.
+    from) byte for byte, in the same commit. The run records the plan's digest, taken
+    from the plan itself (an outcome's dump is of the base form and drops an integrated
+    plan's lists), and, in a run with the integration role, the two lists it checks.
 
     Raises:
         RunStateError: the run directory already holds a run.
-        DecompositionError: an interface node's id is not a node id, the store
-            refused an interface node the plan validated, or the curated library
+        DecompositionError: the plan is not of the form the run's roles call for, two
+            subtasks were minted one id, an interface node's id is not a node id, the
+            store refused an interface node the plan validated, or the curated library
             cannot be put into the target: a planned role's
             file missing or empty, or the target holding other bytes where it goes.
     """
     require_fresh(run_dir)
     curated: dict[Path, bytes] = {}
+    planned: list[_Issued] = []
     if outcome.ok and outcome.plan is not None:
         # Before anything is written: a refusal here leaves no run record, no run
         # branch and no worktree behind, so the same run directory can be used again.
+        planned = _planned_subtasks(outcome.plan, config)
         try:
-            curated = read_library(library, (module.role for module in outcome.plan.modules))
+            curated = read_library(library, (one.entry.assigned_role for one in planned))
         except LibraryError as exc:
             raise DecompositionError(str(exc), **exc.context) from None
         # The series writer goes with the library: a role's scripts import it from
@@ -924,26 +1101,16 @@ def start_run(
         record.fail_decomposition(spent, f"{outcome.cause}: {outcome.detail}")
         return record
     plan = outcome.plan
-    entries: list[PlanEntry] = []
+    entries = [one.entry for one in planned]
     run = RunGit(repo=target_repo, run_dir=run_dir, run_id=config.run_id)
     run.open_run_branch(config.target_head)
     try:
         put_into(run.integration, curated)
     except LibraryError as exc:
         raise DecompositionError(str(exc), **exc.context) from None
-    for index, module in enumerate(plan.modules):
-        subtask_id = mint_id(config.seed, index, module.name)
-        spec_path = f".physgate/specs/{subtask_id}.md"
+    for one in planned:
         (run.integration / ".physgate" / "specs").mkdir(parents=True, exist_ok=True)
-        (run.integration / spec_path).write_text(module.spec.rstrip("\n") + "\n")
-        entries.append(
-            PlanEntry(
-                subtask_id=subtask_id,
-                spec_path=spec_path,
-                assigned_role=module.role,
-                module_dir=module.module_dir,
-            )
-        )
+        (run.integration / one.entry.spec_path).write_text(one.spec.rstrip("\n") + "\n")
     # Beside the specifications and in the same commit: what each role designs against.
     for relative, contract in contracts_of(plan.interface_nodes).items():
         (run.integration / relative).parent.mkdir(parents=True, exist_ok=True)
@@ -968,6 +1135,7 @@ def start_run(
         store.close()
     init_repo(store_root)
     commit_all(store_root, f"Interface nodes of run {config.run_id}, written at decomposition\n")
+    consumers, requirements = _lists(plan)
     record.start(
         entries,
         call=spent,
@@ -981,6 +1149,18 @@ def start_run(
             head_revision=head,
             policy_limits_sha256=outcome.policy_limits_sha256,
             observed_traffic=outcome.observed_traffic,
+            plan_sha256=plan_sha256(plan),
+            interface_consumers=consumers,
+            system_requirements=requirements,
         ),
     )
     return record
+
+
+def _lists(
+    plan: Plan,
+) -> tuple[tuple[InterfaceConsumers, ...] | None, tuple[SystemRequirement, ...] | None]:
+    """The two lists integration checks, as the plan holds them; ``None`` for a base plan."""
+    if isinstance(plan, IntegratedPlan):
+        return plan.interface_consumers, plan.system_requirements
+    return None, None

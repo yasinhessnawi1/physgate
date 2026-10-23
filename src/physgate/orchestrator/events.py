@@ -27,9 +27,11 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    SerializerFunctionWrapHandler,
     StringConstraints,
     TypeAdapter,
     ValidationError,
+    model_serializer,
     model_validator,
 )
 
@@ -47,6 +49,7 @@ from physgate.orchestrator.escalation_state import EscalationState
 from physgate.orchestrator.exceptions import CorruptEventLogError, RunConfigError
 from physgate.orchestrator.install import InstallFacts
 from physgate.orchestrator.managed import ObservedTraffic
+from physgate.orchestrator.plan import InterfaceConsumers, SystemRequirement
 from physgate.orchestrator.protocols import (
     GateResult,
     RecordedUnavailableCause,
@@ -582,6 +585,30 @@ class Decomposed(_Event):
     #: The binary's served catalog and remote feature flags as the call's debug log
     #: showed them; ``None`` for a run started with no call.
     observed_traffic: ObservedTraffic | None = None
+    #: sha256 of the plan's canonical JSON, every field of its own form in it, taken from
+    #: the plan itself. ``None`` on a line written before the digest was recorded.
+    plan_sha256: Sha256 | None = None
+    #: The consumers of each interface node and the system requirements, as the plan of a
+    #: run with the integration role gives them; ``None`` in a run without that role. Typed
+    #: with the plan's own models, so a line read back is held to every bound the plan was.
+    interface_consumers: tuple[InterfaceConsumers, ...] | None = None
+    system_requirements: tuple[SystemRequirement, ...] | None = None
+
+    @model_validator(mode="after")
+    def _both_lists_or_neither(self) -> Decomposed:
+        if (self.interface_consumers is None) != (self.system_requirements is None):
+            msg = "a plan gives integration both of its lists, or neither"
+            raise ValueError(msg)
+        return self
+
+    @model_serializer(mode="wrap")
+    def _omit_absent(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        # Left out when absent, so a line without them is written exactly as before they existed.
+        data: dict[str, Any] = handler(self)
+        for name in ("plan_sha256", "interface_consumers", "system_requirements"):
+            if data.get(name) is None:
+                data.pop(name, None)
+        return data
 
 
 class WriteIntended(_Event):

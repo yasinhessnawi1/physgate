@@ -75,7 +75,12 @@ ADDED_WITHIN: dict[str, dict[str, dict[str, Any]]] = {
 #: default, so they are set aside whatever their value; their content is held by tests of
 #: their own. ``proposed`` on the change check names the nodes an attempt proposed, which
 #: the escalation decision's state reports (its tests check it against the proposals).
-SET_ASIDE: dict[str, frozenset[str]] = {"proposals_checked": frozenset({"proposed"})}
+#: ``plan_sha256`` on the decomposition line is the digest of the run's own plan, which
+#: decomposition's tests check against the plan.
+SET_ASIDE: dict[str, frozenset[str]] = {
+    "proposals_checked": frozenset({"proposed"}),
+    "decomposed": frozenset({"plan_sha256"}),
+}
 
 #: Every source the loop could put on an item before the interface: the golden file
 #: must show each of them, or it does not cover what it claims to.

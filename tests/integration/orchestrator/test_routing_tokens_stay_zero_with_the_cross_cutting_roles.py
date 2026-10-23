@@ -30,7 +30,7 @@ from physgate import roles
 from physgate.orchestrator import decompose
 from physgate.orchestrator.accounting import TokenAccount
 from physgate.orchestrator.credentials import Credential
-from physgate.orchestrator.events import read_events
+from physgate.orchestrator.events import Decomposed, SubtaskPlanned, read_events
 from physgate.orchestrator.git import head_of
 from physgate.orchestrator.run_config import ModelStrings, RunConfig
 
@@ -126,12 +126,20 @@ def test_routing_tokens_stay_zero_with_the_two_new_roles(
     assert {"interface_consumers", "system_requirements"} <= set(schema["properties"])
     assert "Roles available: control, firmware, sizing." in request.last_user
     library = tmp_path / "library"
-    write_fixture(library, (*FIXTURE_ROLES, "sizing"))
+    write_fixture(library, (*FIXTURE_ROLES, "sizing", "integration"))
     run_dir = tmp_path / "run"
     decompose.start_run(
         outcome, config=cfg, run_dir=run_dir, target_repo=repo, library=library
     ).close()
-    account = TokenAccount.from_events(read_events(run_dir / "events.jsonl"))
+    events = read_events(run_dir / "events.jsonl")
+    # The harness places sizing's two passes and integration, and writes the specifications
+    # it owns, with no further call.
+    planned = [e.assigned_role for e in events if isinstance(e, SubtaskPlanned)]
+    assert planned == ["sizing", "control", "firmware", "sizing", "integration"]
+    (decomposed,) = [e for e in events if isinstance(e, Decomposed)]
+    assert decomposed.plan_sha256 == decompose.plan_sha256(outcome.plan)
+    assert decomposed.system_requirements == outcome.plan.system_requirements
+    account = TokenAccount.from_events(events)
     assert account.decomposition_invocations() == 1
     spent = {kind for kind, usage in account.by_kind().items() if usage.total()}
     assert spent == {"decomposition"}
