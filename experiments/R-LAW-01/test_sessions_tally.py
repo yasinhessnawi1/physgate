@@ -1085,50 +1085,40 @@ STUCK = json.dumps(
 )
 
 
-@pytest.mark.parametrize("other_between", [True, False])
-def test_a_packet_stuck_on_one_cause_ends_the_run_as_a_deviation(
-    tmp_path: Path, packets: Path, other_between: bool
+def test_a_packet_that_fails_on_every_resume_stops_the_run_and_is_no_deviation(
+    tmp_path: Path, packets: Path
 ) -> None:
+    env = env_for(tmp_path, RLAW_STANDIN=str(fake(tmp_path, "stuck", STUCK, "", 1)))
     led = tmp_path / "led"
     out = tmp_path / "out"
-    out.mkdir()
-    # two earlier failures of P0001 try1, each kept, with other packets' tries between
-    rows: list[dict[str, Any]] = []
-    for k in range(2):
-        name = f"P0001.try1.failed-2026102{k}T100000Z.json"
-        (out / name).write_text(STUCK)
-        (out / name.replace(".json", ".err")).write_text("")
-        if k:
-            rows.append({"step": "s", "packet": "P0101", "try": 1, "tokens": 9})
-        rows.append(
-            {
-                "step": "s",
-                "packet": "P0001",
-                "try": 1,
-                "tokens": 0,
-                "infrastructure": "api_error (404)",
-                "output": name,
-            }
+    first = run("run", "s", "reality", str(packets), str(out), "claude-opus-5-5", "1", env=env)
+    assert first.returncode == 4 and (led / "STOPPED").exists()
+    for k in range(4):
+        # another driver's packet completed as a try in between, as in a phase that runs several
+        with (led / "ledger.jsonl").open("a") as fh:
+            fh.write(json.dumps({"step": "s2", "packet": f"P02{k:02d}", "try": 1, "tokens": 9}))
+            fh.write("\n")
+        new_phase(led)
+        done = run(
+            "run",
+            "s",
+            "reality",
+            str(packets),
+            str(out),
+            "claude-opus-5-5",
+            "1",
+            env={**env, "RLAW_RESUME": "1"},
         )
-    if other_between:  # a session in flight at the second stop ended as a try
-        rows.append({"step": "s", "packet": "P0102", "try": 1, "tokens": 9})
-    env = env_for(
-        tmp_path, RLAW_STANDIN=str(fake(tmp_path, "stuck", STUCK, "", 1)), RLAW_RESUME="1"
-    )
-    ledger(Path(env["RLAW_LEDGER"]), rows)
-    (led / "STOPPED").write_text("a failed call at P0001 try1: api_error (404)\n")
-    new_phase(led)
-    done = run("run", "s", "reality", str(packets), str(out), "claude-opus-5-5", "1", env=env)
-    assert done.returncode == 4, done.stderr
-    deviations = tmp_path / "deviations.json"
+        # the same failure each time: a stop, as every failed call is; never a deviation
+        assert done.returncode == 4, (k, done.stderr)
+        assert (led / "STOPPED").exists()
+        assert not (tmp_path / "deviations.json").exists(), k
+    failed = [r for r in rows_of(led / "ledger.jsonl") if r.get("infrastructure")]
+    assert [r["infrastructure"] for r in failed] == ["api_error (404)"] * 5
+    # each failed call's row names its kept output, the evidence the owner reads
+    assert all((out / r["output"]).read_text() == STUCK for r in failed)
     events = [e["event"] for e in rows_of(led / "interruptions.jsonl")]
-    if other_between:
-        (why,) = json.loads(deviations.read_text())
-        assert "P0001" in why and "try1" in why and "api_error (404)" in why
-        assert all(f"P0001.try1.failed-2026102{k}T100000Z.json" in why for k in range(2))
-        assert "deviation" in events
-    else:  # the last two failures had nothing between them: an outage, not the packet
-        assert not deviations.exists() and "deviation" not in events
+    assert "deviation" not in events and events.count("failed_call") == 5
 
 
 def _watch(work: Path, group: int, since: Path) -> subprocess.Popen[str]:

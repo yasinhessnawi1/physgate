@@ -7,8 +7,6 @@ Usage (from the repository root, with the project environment):
     uv run python -I experiments/R-LAW-01/law_verify.py ledger <ledger> <step> <packet> <try>
         <model asked> <out.json> <exit> <valid 0|1> <stand-in 0|1> <cause, or "">
     uv run python -I experiments/R-LAW-01/law_verify.py spent <ledger>
-    uv run python -I experiments/R-LAW-01/law_verify.py stuck <ledger> <step> <packet> <try>
-        <out dir> <deviations.json>
 
 (``<kind>`` is coder, adjudicator or reality; ``<out>`` the step's sessions directory.)
 
@@ -29,8 +27,6 @@ Usage (from the repository root, with the project environment):
   ``tokens_estimated``.
 - ``spent``: the ledger's token total (exit 0), or a refusal (exit 1) if any line is not a whole
   row whose token count is a non-negative integer; the 60 M guard reads nothing else (§12).
-- ``stuck``: README reading 17's rule for one packet's try, from the ledger and the kept failed-call
-  files: exit 0 and the deviation appended to ``<deviations.json>`` if it fires, exit 1 if not.
 """
 
 from __future__ import annotations
@@ -205,63 +201,9 @@ def ledger_row(
     }
     if estimated:
         row["tokens_estimated"] = True
-    if cause:  # a failed call's kept output, which reading 17's rule reads back
+    if cause:  # a failed call's kept output: the evidence the owner reads (README reading 17)
         row["output"] = Path(out).name
     return row
-
-
-def _cause_of(row: dict[str, Any], out_dir: Path) -> tuple[Any, ...] | None:
-    """A failed call's identity of cause: classify's label, and the binary's own status and
-    error text where its kept output has them; None if the row names no kept output."""
-    name = row.get("output")
-    if not name or not (Path(out_dir) / name).exists():
-        return None
-    r = result_message(Path(out_dir) / name)
-    text = r.get("errors") if r.get("errors") is not None else r.get("result")
-    return (
-        str(row.get("infrastructure")),
-        r.get("api_error_status"),
-        json.dumps(text, sort_keys=True) if text is not None else None,
-    )
-
-
-def stuck(
-    rows: list[dict[str, Any]], step: str, packet: str, tr: int, out_dir: Path
-) -> dict[str, Any] | None:
-    """README reading 17: a packet stuck on one cause. Its try's last three ledger rows are
-    failed calls in a row, each with the identical cause (not a refusal), and between each and the
-    next another packet's call completed as a try, so that it is the packet's and not an outage.
-    Read from the ledger and the kept failed-call files only, so that it holds across resumes."""
-    mine = [
-        (i, r)
-        for i, r in enumerate(rows)
-        if r.get("step") == step and r.get("packet") == packet and r.get("try") == tr
-    ]
-    last = mine[-3:]
-    if len(last) < 3 or any(not r.get("infrastructure") for _, r in last):
-        return None
-    label = str(last[-1][1]["infrastructure"])
-    if label.split(" ", 1)[0] in REFUSED_BEFORE_WORK:
-        return None
-    causes = [_cause_of(r, out_dir) for _, r in last]
-    if any(c is None for c in causes) or len(set(causes)) != 1:
-        return None
-    for (a, _), (b, _) in zip(last, last[1:], strict=False):
-        if not any(
-            not x.get("infrastructure") and (x.get("step"), x.get("packet")) != (step, packet)
-            for x in rows[a + 1 : b]
-        ):
-            return None
-    _, status, text = causes[0]
-    return {
-        "step": step,
-        "packet": packet,
-        "try": tr,
-        "cause": label,
-        "status": status,
-        "text": text,
-        "files": [r["output"] for _, r in last],
-    }
 
 
 def append_row(ledger: Path, row: dict[str, Any]) -> None:
@@ -849,26 +791,6 @@ def main(argv: list[str]) -> int:
             Path(led),
         )
         append_row(Path(led), row)
-        return 0
-    if argv[:1] == ["stuck"] and len(argv) == 7:
-        led, step, packet, tr, out_dir, dev = argv[1:]
-        try:
-            found = stuck(ledger_rows(Path(led)), step, packet, int(tr), Path(out_dir))
-        except LedgerUnreadable as exc:
-            print(json.dumps({"refused": str(exc)}))
-            return 2
-        if found is None:
-            return 1
-        why = (
-            f"packet {packet} try{tr} of step {step} failed three times in a row with the same "
-            f"cause, {found['cause']} (status {found['status']}, text {found['text']}), with "
-            f"other packets' tries between: {', '.join(found['files'])}. Under §12, anything else "
-            "impossible as specified (README reading 17)"
-        )
-        d = Path(dev)
-        prior = json.loads(d.read_text()) if d.exists() else []
-        d.write_text(json.dumps([*prior, why], indent=1) + "\n")
-        print(json.dumps(found, sort_keys=True))
         return 0
     if argv[:1] == ["spent"] and len(argv) == 2:
         try:

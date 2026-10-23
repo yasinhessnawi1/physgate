@@ -30,9 +30,8 @@
 #     reason, or a non-zero exit. Its output is kept as <packet>.try<n>.failed-<time>.json, it is
 #     logged in the ledger with its cause and in interruptions.jsonl, and STOPPED is written:
 #     every session of the experiment stops starting, and the ones in flight end on their own.
-#     A packet's third failed call in a row for one try, with the identical cause each time and
-#     another packet's try completed between each (README reading 17, law_verify.py stuck), is a
-#     deviation: it is written to deviations.json and logged, and the run stops for good.
+#     A packet that fails on every resume stops the run each time; the driver never writes
+#     deviations.json (README reading 17). Each failed call's ledger row names its kept output.
 #   - Every call appends one line to the ledger, counted and written in one append by
 #     law_verify.py ledger: step, packet, try, model asked for, models the output names, tokens
 #     (input, output, cache read and cache creation), exit code, validity, and the cause if the
@@ -358,7 +357,7 @@ case "${1:-}" in
   refused-standins) refused_standins; exit 0 ;;
   pinned) pinned_bin; exit 0 ;;
   run) shift ;;
-  *) sed -n '2,93p' "$0" >&2; exit 2 ;;
+  *) sed -n '2,92p' "$0" >&2; exit 2 ;;
 esac
 
 [ $# -ge 6 ] || { echo "run needs: step kind packets out model lanes [ids]" >&2; exit 2; }
@@ -374,7 +373,6 @@ esac
 case "$MODEL" in claude-opus-5-5|claude-fable-5-1) ;; *) echo "model is not a pinned one" >&2; exit 2 ;; esac
 [ -f "$SYS" ] && [ -f "$SCHEMA" ] || { echo "prompt or schema missing" >&2; exit 2; }
 LEDGER_DIR="$(dirname "$RLAW_LEDGER")"
-WORK_DIR="$(dirname "$LEDGER_DIR")"  # deviations.json lives beside the ledger's directory
 [ -e "$LEDGER_DIR/VOID" ] && { echo "VOID exists: the result is void; nothing runs" >&2; exit 3; }
 event() { # kind reason [packet try cause]: one timed line in interruptions.jsonl
   python3 -I - "$1" "$STEP" "$2" "${3:-}" "${4:-}" "${5:-}" <<'PY' >> "$LEDGER_DIR/interruptions.jsonl"
@@ -473,16 +471,9 @@ settle() { # pid try exit how: a call that ended becomes a try or a failed call
     ledger_line "$pid" "$tr" "$rc" 0 "$dest.json" "$cause"
     if [ "$how" = live ]; then
       event failed_call "$pid try$tr: $cause" "$pid" "$tr" "$cause"
+      stop "a failed call at $pid try$tr: $cause"
     else
       event failed_call "$pid try$tr: $cause, found on resume" "$pid" "$tr" "$cause"
-    fi
-    # README reading 17: the third identical, packet-specific failure in a row is a deviation
-    if "$PY" -I "$HERE/law_verify.py" stuck "$RLAW_LEDGER" "$STEP" "$pid" "$tr" "$OUT" \
-        "$WORK_DIR/deviations.json" >/dev/null; then
-      event deviation "$pid try$tr failed three times in a row with the same cause, $cause: a deviation (README reading 17)" "$pid" "$tr" "$cause"
-      stop "a deviation: $pid try$tr is stuck on one cause, $cause"
-    elif [ "$how" = live ]; then
-      stop "a failed call at $pid try$tr: $cause"
     fi
     return 2
   fi
