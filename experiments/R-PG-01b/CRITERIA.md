@@ -231,9 +231,11 @@ corpora/injected-errors/v1/sources.json --prose drop`.
 - `base.json`, `artefacts/*.json`, `README.md` and `parts_sheet.md` (the unedited table) are copied
   byte for byte from `v1`.
 - `sources.json` is the converted sheet.
-- `MANIFEST.json` is new: format 1, author model `claude-opus-5-5`, label `[FILL at "sheet
-  filled"]`.
-- Its manifest digest is `[FILL at "sheet filled"]`.
+- `MANIFEST.json` is new: format 1, author model `claude-opus-5-5`, label `injected-errors
+  v1-fullsheet: v1's base design and 40 artefacts, byte for byte, with the complete parts sheet
+  converted from the authors' table`.
+- Its manifest digest is
+  `8c9ceb11ffe91afd28b79dd1d206507b463bb1bf8bb8bb8f33a0a27b84e3ba57`.
 - Both are filled by the dated "sheet filled" commit on `master`, after the "sheet" commit; that
   commit changes nothing else in this file.
 - The "sheet" commit on `master` adds this corpus, and the edited table copy in
