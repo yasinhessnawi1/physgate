@@ -26,6 +26,7 @@ from physgate.state.divergence import (
     COMPLETION_OWNER_NODE,
     CROSS_NODE,
     INTERFACE_CREATION,
+    OWNERSHIP_ONLY,
     Divergence,
     Duties,
     divergence,
@@ -265,13 +266,33 @@ def test_a_change_named_for_ownership_is_named_once_and_for_that(
     ]
 
 
-def test_without_the_duties_only_ownership_is_checked(graph_before: Store) -> None:
-    # What a store with no register behind it is checked for, as before the duties existed.
+def test_ownership_alone_is_checked_only_when_asked_for_by_name(graph_before: Store) -> None:
+    # What a store with no register behind it is checked for, as before the duties existed;
+    # a caller that leaves the duties out is refused, so none is dropped by forgetting them.
     cursor = graph_before.head_revision()
     assert graph_before.write_node(
         node("control.motor_current", "control", "cross"), "control"
     ).accepted
-    assert divergence(graph_before, graph_before.diff(cursor), "control") == []
+    changes = graph_before.diff(cursor)
+    with pytest.raises(TypeError):
+        divergence(graph_before, changes, "control")  # type: ignore[call-arg]
+    assert divergence(graph_before, changes, "control", OWNERSHIP_ONLY) == []
+
+
+def test_a_register_with_no_owners_is_not_ownership_alone(graph_before: Store) -> None:
+    # Duties with no owner of anything still hold the duties: with nobody owning the cross
+    # nodes, a cross write is named, and an interface created in the step is named.
+    cursor = graph_before.head_revision()
+    for payload in (
+        node("control.motor_current", "control", "cross"),
+        node("iface.control.p09", "control", "cross", kind="interface", quantities={}),
+    ):
+        assert graph_before.write_node(payload, "control").accepted
+    nobody = Duties(cross_nodes=(), completion=())
+    assert _reasons(divergence(graph_before, graph_before.diff(cursor), "control", nobody)) == [
+        ("control.motor_current", CROSS_NODE),
+        ("iface.control.p09", INTERFACE_CREATION),
+    ]
 
 
 def test_every_offending_change_is_named_in_the_order_it_arrived(graph_before: Store) -> None:

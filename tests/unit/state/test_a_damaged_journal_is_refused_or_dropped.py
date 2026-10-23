@@ -25,7 +25,7 @@ import pytest
 from helpers import node
 from pydantic import ValidationError
 
-from physgate.state.divergence import divergence
+from physgate.state.divergence import OWNERSHIP_ONLY, divergence
 from physgate.state.exceptions import CorruptRecordError
 from physgate.state.store import JournalLine, Store, payload_digest
 
@@ -215,7 +215,9 @@ def test_a_consecutive_foreign_write_is_kept_and_named(one_node: Path) -> None:
     store = Store(one_node)
     assert store.head_revision() == 2
     assert [c.node_id for c in store.diff(0)] == ["control.loop", "electrical.motor"]
-    assert [d.node_id for d in divergence(store, store.diff(0), "control")] == ["electrical.motor"]
+    assert [d.node_id for d in divergence(store, store.diff(0), "control", OWNERSHIP_ONLY)] == [
+        "electrical.motor"
+    ]
     store.close()
 
 
@@ -234,7 +236,9 @@ def test_the_foreign_write_is_still_named_after_a_rewind_is_dropped(
 
     store = Store(one_node, on_corrupt="truncate")
     assert store.head_revision() == 2
-    assert [d.node_id for d in divergence(store, store.diff(0), "control")] == ["electrical.motor"]
+    assert [d.node_id for d in divergence(store, store.diff(0), "control", OWNERSHIP_ONLY)] == [
+        "electrical.motor"
+    ]
     store.close()
 
 
@@ -551,7 +555,9 @@ def test_a_legitimate_foreign_write_still_passes_every_coherence_rule(
 
     store = Store(one_node)
     assert store.head_revision() == 2
-    assert [d.node_id for d in divergence(store, store.diff(0), "control")] == ["electrical.motor"]
+    assert [d.node_id for d in divergence(store, store.diff(0), "control", OWNERSHIP_ONLY)] == [
+        "electrical.motor"
+    ]
     assert_chain_is_intact(one_node, "electrical.motor")
     store.close()
 

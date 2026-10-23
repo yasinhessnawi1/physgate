@@ -10,7 +10,7 @@ answering inconsistently. ``README.md`` in this directory says why that matters
 and what else this package deliberately does not own.
 """
 
-from physgate.state.divergence import Divergence, Duties, divergence
+from physgate.state.divergence import OWNERSHIP_ONLY, Divergence, Duties, OwnershipOnly, divergence
 from physgate.state.exceptions import (
     CorruptRecordError,
     CrossRoleWriteError,
@@ -63,6 +63,7 @@ from physgate.state.vocabulary import (
 )
 
 __all__ = [
+    "OWNERSHIP_ONLY",
     "QUANTITY_NAMES",
     "RELATION_QUANTITY_NAMES",
     "nearest_quantity_names",
@@ -86,6 +87,7 @@ __all__ = [
     "Node",
     "NodeChange",
     "NodeNotFoundError",
+    "OwnershipOnly",
     "Quantity",
     "SeriesRef",
     "RevisionNotFoundError",

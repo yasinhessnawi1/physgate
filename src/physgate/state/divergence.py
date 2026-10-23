@@ -17,7 +17,8 @@ by a role that does not own the cross nodes, a domain node by the role that does
 an interface node created during a step, any node by the role that owns
 completion. The store holds none of these rules, so recorded runs and corpora
 written straight into a store replay as they were; whoever checks a step asks the
-role register who owns each duty and passes the answer in.
+role register who owns each duty and passes the answer in, or says by name that it
+checks ownership alone.
 """
 
 from __future__ import annotations
@@ -66,6 +67,20 @@ class Duties:
 
 
 @dataclass(frozen=True)
+class OwnershipOnly:
+    """No cross-cutting duty is held: only ownership is checked.
+
+    For a store no role register stands behind, as every store was before the duties
+    existed. It is not :class:`Duties` with no owners: a register that names nobody as
+    owning the cross nodes still holds the duty, and every cross write is then named.
+    """
+
+
+#: The one value a caller passes to ask for ownership alone, by name.
+OWNERSHIP_ONLY = OwnershipOnly()
+
+
+@dataclass(frozen=True)
 class Divergence:
     """One node changed during a step by a role that does not own it, or against a duty."""
 
@@ -97,7 +112,7 @@ def divergence(
     store: Store,
     changes: list[NodeChange],
     acting_role: str,
-    duties: Duties | None = None,
+    duties: Duties | OwnershipOnly,
 ) -> list[Divergence]:
     """Return every change in ``changes`` to a node ``acting_role`` does not own.
 
@@ -135,8 +150,9 @@ def divergence(
         changes: the changes since the revision the step started at.
         acting_role: the role the step was dispatched to.
         duties: who the role register says owns each cross-cutting duty, asked by the
-            caller when the step is checked. ``None`` checks ownership alone, as for a
-            store no register stands behind.
+            caller when the step is checked; or :data:`OWNERSHIP_ONLY`, which checks
+            ownership alone, as for a store no register stands behind. Always passed, so
+            a caller cannot drop the duties by leaving them out.
 
     Returns:
         One entry per offending change, in the order the changes arrived. A node
@@ -176,7 +192,9 @@ def divergence(
                 )
             )
             continue
-        broken = None if duties is None else _duty_broken(store, change, acting_role, duties)
+        if isinstance(duties, OwnershipOnly):
+            continue
+        broken = _duty_broken(store, change, acting_role, duties)
         if broken is not None:
             reason, detail = broken
             found.append(
