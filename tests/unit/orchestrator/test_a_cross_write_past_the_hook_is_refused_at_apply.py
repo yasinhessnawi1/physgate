@@ -556,6 +556,38 @@ def test_apply_refuses_every_ownership_case_the_hook_refuses_for_the_same_reason
     assert (hook, applied) == (expected, expected)
 
 
+#: The reasons the ownership rules give, each named in its own refusal's message.
+OWNERSHIP_REASONS = frozenset(
+    {
+        REJECT_CROSS_ROLE,
+        graph.OWNER_CHANGE,
+        graph.KIND_CHANGE,
+        graph.CROSS_NODE,
+        graph.INTERFACE_CREATION,
+        graph.COMPLETION_OWNER_NODE,
+        REJECT_INTERFACE_IMMUTABLE,
+    }
+)
+
+
+@pytest.mark.parametrize(
+    "name", [name for name, case in EVERY_CASE.items() if case[3] in OWNERSHIP_REASONS]
+)
+def test_every_ownership_refusal_at_apply_names_its_reason_in_what_it_says(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    # The attempt reads the message, and the reason in it is the one the hook gave the
+    # session when it wrote the file, so the two read alike.
+    role, register, payload, expected = EVERY_CASE[name]
+    store = _store(tmp_path / "store")
+    register(monkeypatch)
+    repo, base, commit = _attempt(tmp_path / "apply", {str(payload["id"]): payload})
+    with pytest.raises(ProposalRefusedError) as refused:
+        read_proposals(repo, base, commit, store, role=role)
+    assert refused.value.reason == expected
+    assert f"is refused ({expected}): " in str(refused.value)
+
+
 def test_the_table_holds_every_rule_and_every_landing() -> None:
     # A table that lost a group would still pass case by case; so each reason is counted.
     reasons = {case[3] for case in EVERY_CASE.values()}

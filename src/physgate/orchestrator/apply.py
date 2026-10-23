@@ -155,8 +155,8 @@ def _owner_does_not_change(payload: Payload, fixed: _Fixed, role: str) -> _Refus
     if fixed is None or payload.get("owner_role") == fixed[0]:
         return None
     return OWNER_CHANGE, (
-        f"changes the owner of {payload.get('id')} from {fixed[0]!r}; owners are assigned at "
-        "decomposition"
+        f"is refused ({OWNER_CHANGE}): it changes the owner of {payload.get('id')} from "
+        f"{fixed[0]!r}; owners are assigned at decomposition"
     )
 
 
@@ -165,8 +165,9 @@ def _kind_does_not_change(payload: Payload, fixed: _Fixed, role: str) -> _Refusa
     if fixed is None or payload.get("kind") == fixed[1]:
         return None
     return KIND_CHANGE, (
-        f"changes the kind of {payload.get('id')} from {fixed[1]!r} to {payload.get('kind')!r}; "
-        "a node's kind is fixed when it is created, like its owner"
+        f"is refused ({KIND_CHANGE}): it changes the kind of {payload.get('id')} from "
+        f"{fixed[1]!r} to {payload.get('kind')!r}; a node's kind is fixed when it is created, "
+        "like its owner"
     )
 
 
