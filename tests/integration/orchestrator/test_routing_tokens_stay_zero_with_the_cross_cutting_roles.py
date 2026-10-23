@@ -162,3 +162,20 @@ def test_the_binary_is_offered_exactly_the_prompt_and_schema_of_the_run_s_roles(
     offered = json.dumps(request.structured_schema, sort_keys=True, separators=(",", ":"))
     assert offered == decompose.plan_schema(run_roles)
     assert request.last_user == decompose.prompt_for(BRIEF, run_roles)
+
+
+def test_the_call_holds_the_system_requirements_to_its_brief(
+    tmp_path: Path, sizing_registered: None
+) -> None:
+    # The brief numbers two acceptance criteria; a requirement numbered 3 is not one of
+    # them, and the call that made the plan is the one that refuses it.
+    unknown = {
+        **PLAN,
+        "system_requirements": [
+            {"requirement": "3", "contributing": [{"module": "control", "criterion": "1"}]}
+        ],
+    }
+    api, outcome, _, _ = _decompose(tmp_path, ROLES, unknown)
+    assert len(api.requests) == 1
+    assert not outcome.ok and outcome.cause == "invalid_plan"
+    assert "'3' is not one of the brief's numbered acceptance criteria (1, 2)" in outcome.detail
