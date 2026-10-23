@@ -1,0 +1,61 @@
+{
+ "manifests": {
+  "fresh": "e76a4904e7b42326a85a9a9267973518e6f79b510c8f2b8b3391e8b23d37620c",
+  "practice": "ddc255ab538f134c2983edfb71d29cbeba3c0dc3dd23cc01df9415120d9ddfb0"
+ },
+ "parts_sheet": "29f9568ce8465112ef0b0b164f05f3ba76f9702e3ccbc7a1dea96fbc3d057b3f",
+ "prior_adjudication": "0935517bc4821c05024b3292ad55b7632464b25433cfbc75feb6c11df9808cf3",
+ "run_ids": {
+  "a-fresh": "rp2-2-a-fresh",
+  "b-fresh": "rp2-2-b-fresh",
+  "practice-0": "practice-it0",
+  "practice-1": "practice-r1",
+  "practice-2": "practice-r2",
+  "repeat-K": "gr2-noise2",
+  "round-1": "gr2-r1"
+ },
+ "runs": {
+  "a-fresh": {
+   "controls/events.jsonl": "7c860d10c058c2915c168b6ad6e300f4c336939a791875c22dba1f31e503fb61",
+   "events.jsonl": "c1de07295e9db9beef18d9bddd9e7552fdee268b78125fb47da63c1b3985bd0e",
+   "instrument.json": "e802ecc1e38eec875467dc6d183af8daa8a64bfdb4665249669685565437601b",
+   "results.jsonl": "3bab69a3e38b5c98d062ad75d571854d532704da119a27d4313e2178370bc3d6"
+  },
+  "b-fresh": {
+   "controls/events.jsonl": "49e3b8b8bacc5f8489d5322ca614bd454a2e1854c2d766b06277bd72c7607829",
+   "events.jsonl": "cdac9b0999d3499803cee43c35240223f34b5454bfcd99d49c39fe4e690ab708",
+   "instrument.json": "b32bb6785d7e0c8469173906af4360d0189968eadb5904b7592a24ac0a058439",
+   "results.jsonl": "382f7228cc42c322dc3f97e4c7829fb0065d7524557be5ab4f313cab8df8da93"
+  },
+  "practice-0": {
+   "controls/events.jsonl": "b93f45ea1a51aa151a03e769392e0d65e35b64152768d3c9de1e165fc9eb14d4",
+   "events.jsonl": "621217fce056822100f8365c995fc38643f8d0c928eb43e7bc3a2846e3eac637",
+   "instrument.json": "e59b617908d5afec94baad996fd8f08f48e341b98f99d2178959a1586734a641",
+   "results.jsonl": "0395c47a20e4aba1a580a09dde9d3e81e1b76beebe44d72f5cf6b579fa3940a7"
+  },
+  "practice-1": {
+   "controls/events.jsonl": "62dcdb6e0534fd747db4bdc2c842a46740ce070c190e6e4a246891329b93643f",
+   "events.jsonl": "ee996f163efab72437c0adfc54ce2810be88efe38c6bd4ed3edaeee09b51120b",
+   "instrument.json": "5550c8bf764eebc68c337a6ce2a63fc69677779b50989f0e55d0e5e2f4c414f9",
+   "results.jsonl": "eb61a49e1cb4214b55e594ec631df79fb6f6f509afceb713c77bbda3d89aaa24"
+  },
+  "practice-2": {
+   "controls/events.jsonl": "bb47400030991a4ffec7f62dbecfc3153285ef253cea3bf3b0a37f51ab58271c",
+   "events.jsonl": "4deeaf7c5645e90087caf0728b2ef1d9f272966a40ad8d088816423460d89d4b",
+   "instrument.json": "6abf54d4938c587cc314a6f413e46e578e1627dff5f7ee1e4063c4919f8827e9",
+   "results.jsonl": "07ba32df5a442cc0777b8065d7d40ec46392a2766b77d3eef24fcf83d45439ec"
+  },
+  "repeat-K": {
+   "controls/events.jsonl": "f52c112711ba6a3f850d05a1103646a9c464f14a8a9d6c2b545f11ccaba8c17b",
+   "events.jsonl": "5620106cf4d7d6225c37730b709611569b018e04ab6d8552d2c0a335be242e8a",
+   "instrument.json": "7680712fc1d2b2dd46703096589405ddaae528f10c2c3357efe7369cb616ea9c",
+   "results.jsonl": "c06a234ec2aeb66c7cf6502254cc4512be5c6df9cbe110b5d6f2e474c3c38f3f"
+  },
+  "round-1": {
+   "controls/events.jsonl": "8ca9cc8fade5f44dd93677b29de73b1de998f3dc094b645d4a70204e4ab94491",
+   "events.jsonl": "c1e3758c914325ba86ae46fe8cd9e909e592972ac49f05449a1e01fa356ea23c",
+   "instrument.json": "0f704df9a89ee17c122a88736ae185f8e1b584f90925fcb74d64d9a9eedde423",
+   "results.jsonl": "f57c8660cd1c88d7cbc68a3245d08d5a9338c72528e0f3acc8184a133e00ad96"
+  }
+ }
+}
