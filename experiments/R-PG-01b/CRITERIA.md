@@ -168,8 +168,8 @@ The launch script checks every row below (L3 and L4).
 commit adds it, and the run branch does not carry it. Its digests are in §2.5.
 
 **Facts for the run commit:**
-- **Instrument tree at the run commit:** `[FILL at "run commit filled"]`. **Run commit:** `[FILL at
-  "run commit filled"]`. Both are filled by the dated "run commit filled" commit on `master`, after
+- **Instrument tree at the run commit:** `dcb84fdbcc036de47e3f8aa96afc5b789ae1dd42`. **Run commit:**
+  `0ef3caecceba55f0be6dac179f03b5d5bd265ce0`. Both are filled by the dated "run commit filled" commit on `master`, after
   the run branch is tagged and pushed; that commit changes nothing else in this file.
 - **Measured on 23.10.2026 with the same backport in a scratch copy of `8bc03fc`** (nothing
   committed; counts and digests only):
