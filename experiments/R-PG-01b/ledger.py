@@ -22,6 +22,7 @@ import argparse
 import json
 import os
 import re
+import stat
 import sys
 from pathlib import Path
 from typing import Any
@@ -58,15 +59,13 @@ def root_tokens(root: Path) -> tuple[int, int, int]:
     root, and its stream a regular file in it.
     """
     sessions = tokens = without = 0
-    if os.path.islink(root) or not root.is_dir():
-        return 0, 0, 0
-    for here, dirs, _files in os.walk(root, followlinks=False):
-        dirs.sort()
-        d = Path(here)
-        if d.name != "session" or not _SESSION.match(d.parent.name):
+    for parts, mode in C.walk_inside(root):
+        if not stat.S_ISDIR(mode) or parts[-1] != "session" or len(parts) < 2:
+            continue
+        if not _SESSION.match(parts[-2]):
             continue
         sessions += 1
-        data = C.read_inside(root, d / "stdout.jsonl")
+        data = C.read_inside(root, root.joinpath(*parts, "stdout.jsonl"))
         t = result_tokens(None if data is None else data.decode(errors="replace"))
         if t is None:
             without += 1

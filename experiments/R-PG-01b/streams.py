@@ -306,8 +306,7 @@ def round_counts(run: Path, root: Path, arm: str) -> dict[str, Any]:
     total = C.SHEET_LINES[arm]
     logged = _sessions(run)
     named = {sid for ids in logged.values() for sid in ids if sid}
-    dirs, refused = C.session_dirs(root)
-    on_disk = [d.parent.name for d in dirs]
+    on_disk, refused = C.session_dirs(root)
     out: dict[str, Any] = {
         "arm": arm,
         "numbered_lines": total,

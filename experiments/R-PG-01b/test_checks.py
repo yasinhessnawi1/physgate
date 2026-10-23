@@ -1026,6 +1026,92 @@ def test_the_credential_cleanup_never_follows_a_symlink_out_of_the_root(tmp_path
     assert (root / "elsewhere" / "session" / "config" / "keep.txt").is_file()
 
 
+def _swap_on_open(
+    monkeypatch: pytest.MonkeyPatch, root: Path, at: tuple[str, ...], target: Path, moved: Path
+) -> list[tuple[str, ...]]:
+    """Swap the directory at ``at`` for a symlink, between the walk's opening and its acting.
+
+    The symlink points to ``target``; the directory itself is moved to ``moved``.
+    """
+    swapped: list[tuple[str, ...]] = []
+
+    def hook(parts: tuple[str, ...]) -> None:
+        if parts == at and not swapped:
+            swapped.append(parts)
+            os.rename(root.joinpath(*parts), moved)
+            root.joinpath(*parts).symlink_to(target)
+
+    monkeypatch.setattr(C, "_after_open", hook)
+    return swapped
+
+
+@pytest.mark.parametrize("at", [("session",), ("session", "config")])
+def test_a_directory_swapped_for_a_symlink_after_it_is_opened_leads_nowhere_outside(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, at: tuple[str, ...]
+) -> None:
+    outside = _kept(tmp_path / "outside")
+    _kept(outside / "config")
+    root = tmp_path / "review-scratch" / "rpb-3"
+    sid = _sid(1)
+    _kept(root / sid / "session" / "config")
+    target = outside if at == ("session",) else outside / "config"
+    swapped = _swap_on_open(monkeypatch, root, (sid, *at), target, tmp_path / "moved")
+    checks.remove_credentials([root])
+    assert swapped
+    assert (outside / "keep.txt").is_file() and (outside / "config" / "keep.txt").is_file()
+
+
+def test_a_read_after_its_directory_is_swapped_for_a_symlink_reads_nothing_outside(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, sid = tmp_path / "rpb-3", _sid(1)
+    (root / sid / "session").mkdir(parents=True)
+    (root / sid / "session" / "stdout.jsonl").write_text("ours\n")
+    (tmp_path / "outside").mkdir()
+    (tmp_path / "outside" / "stdout.jsonl").write_text("outside\n")
+    swapped = _swap_on_open(
+        monkeypatch, root, (sid, "session"), tmp_path / "outside", tmp_path / "moved"
+    )
+    data = C.read_inside(root, root / sid / "session" / "stdout.jsonl")
+    assert swapped and data != b"outside\n"
+    # afterwards the symlink stands in the root: it is refused, never followed
+    monkeypatch.setattr(C, "_after_open", lambda parts: None)
+    assert C.read_inside(root, root / sid / "session" / "stdout.jsonl") is None
+
+
+def test_the_usage_limit_search_reads_nothing_through_a_directory_swapped_mid_walk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "rpb-3"
+    (root / "sub").mkdir(parents=True)
+    (root / "sub" / "x.jsonl").write_text("{}\n")
+    (tmp_path / "outside").mkdir()
+    (tmp_path / "outside" / "x.jsonl").write_text('{"error": "usage_limit_reached"}\n')
+    swapped = _swap_on_open(monkeypatch, root, ("sub",), tmp_path / "outside", tmp_path / "moved")
+    assert checks.usage_limit_files([root]) == (0, 0)
+    assert swapped
+
+
+def test_a_run_log_or_launch_record_that_is_a_symlink_is_never_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home, runs, launch = _records(tmp_path, monkeypatch)
+    for slot in SLOTS_I_F.values():
+        _arm(home, runs, slot)
+    # one arm's log is a symlink to a complete log elsewhere: it is not that arm's, and not read
+    run = C.places(home, SLOTS_I_F["F"], runs)["run"]
+    _log(tmp_path / "elsewhere.jsonl", "r")
+    (run / "events.jsonl").unlink()
+    (run / "events.jsonl").symlink_to(tmp_path / "elsewhere.jsonl")
+    assert C.read_log(run / "events.jsonl") == ([], 0)
+    (tmp_path / "exits.json").write_text(json.dumps({"3": 0, "1": 0}))
+    (launch / "exits.json").symlink_to(tmp_path / "exits.json")
+    monkeypatch.setattr(checks, "regate_count", lambda *_: 0)
+    found = checks.after(1, launch, C.REPO)
+    assert "a crashed or killed process" in found["void_causes"]
+    assert found["per_slot"]["slot 1"]["arm_exit"] is None
+
+
 @pytest.mark.parametrize("name", ["home", "rpb-x", "rpb-1000", "review-scratch"])
 def test_the_credential_cleanup_acts_on_a_review_root_of_the_run_s_form_alone(
     tmp_path: Path, name: str

@@ -42,8 +42,8 @@ import os
 import platform
 import random
 import re
-import shutil
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -618,19 +618,15 @@ def usage_limit_files(paths: Iterable[Path]) -> tuple[int, int]:
     """
     files = statuses = 0
     for root in paths:
-        if os.path.islink(root) or not root.is_dir():
-            continue
-        for here, _dirs, names in os.walk(root, followlinks=False):
-            for name in names:
-                f = Path(here) / name
-                if f.suffix not in LIMIT_SUFFIXES:
-                    continue
-                data = C.read_inside(root, f)
-                if data is None:
-                    continue
-                files += LIMIT_WORD in data
-                if f.suffix == ".jsonl":
-                    statuses += len(STATUS_429.findall(data))
+        for parts, mode in C.walk_inside(root):
+            if not stat.S_ISREG(mode) or Path(parts[-1]).suffix not in LIMIT_SUFFIXES:
+                continue
+            data = C.read_inside(root, root.joinpath(*parts))
+            if data is None:
+                continue
+            files += LIMIT_WORD in data
+            if parts[-1].endswith(".jsonl"):
+                statuses += len(STATUS_429.findall(data))
     return files, statuses
 
 
@@ -706,12 +702,12 @@ def after(r: int, launch: Path, checkout: Path) -> dict[str, Any]:
     attempt = next(
         a for a in reversed(records["attempts"]) if a["round"] == r and a["launch"] == str(launch)
     )
-    shown = (
-        json.loads((launch / "exits.json").read_text()) if (launch / "exits.json").is_file() else {}
-    )
+    raw_exits = C.read_own(launch / "exits.json")
+    shown = json.loads(raw_exits) if raw_exits else {}
     # An arm §11's fallback never started, after the first arm's abort, has no exit (null).
     exits = {k: v for k, v in shown.items() if v is not None}
-    watcher = (launch / "watcher.log").read_text() if (launch / "watcher.log").is_file() else ""
+    raw_watcher = C.read_own(launch / "watcher.log")
+    watcher = raw_watcher.decode(errors="replace") if raw_watcher else ""
     found: dict[str, Any] = {"check": "after", "round": r, "attempt": attempt["attempt"]}
     causes: list[str] = []
     places = {arm: C.places(HOME, slot, RUNS) for arm, slot in attempt["slots"].items()}
@@ -794,8 +790,8 @@ def second_arm(launch: Path, since: float, now: float | None = None) -> float | 
     until the first 5-hour boundary, counted from ``since`` (the round's first session, L10's
     first smoke), at or after now.
     """
-    log = launch / "watcher.log"
-    if log.is_file() and "ABORT" in log.read_text():
+    log = C.read_own(launch / "watcher.log")
+    if log is not None and b"ABORT" in log:
         return None
     now = time.time() if now is None else now
     k = max(1, math.ceil((now - since) / WINDOW_S - 1e-9))
@@ -834,8 +830,10 @@ def proven_session(root: Path, sdir: Path) -> tuple[int, str, str] | None:
     from physgate.orchestrator.dispatch import process_group_of  # noqa: PLC0415
     from physgate.orchestrator.processes import is_session  # noqa: PLC0415
 
+    if sdir.name != "session" or sdir.parent.parent != root:
+        return None
     raw = C.read_inside(root, sdir / "process.json")
-    if raw is None or sdir.name != "session":
+    if raw is None:
         return None
     try:
         record = json.loads(raw)
@@ -867,20 +865,12 @@ def remove_credentials(roots: Iterable[Path]) -> dict[str, int]:
     """
     removed = refused = 0
     for root in _review_roots(roots):
-        dirs, links = C.session_dirs(root)
+        sids, links = C.session_dirs(root)
         refused += links
-        for sdir in dirs:
-            config = sdir / "config"
-            if os.path.islink(config):
-                refused += 1
-                continue
-            if not config.is_dir():
-                continue
-            if not C.no_link_below(root, config):
-                refused += 1
-                continue
-            shutil.rmtree(config)
-            removed += 1
+        for sid in sids:
+            done = C.remove_inside(root, (sid, "session", "config"))
+            removed += done == "removed"
+            refused += done == "refused"
     return {"configs_removed": removed, "refused_symlinks": refused}
 
 
@@ -904,10 +894,11 @@ def stop_sessions(roots: Iterable[Path]) -> dict[str, Any]:
     proven: list[tuple[int, str, str]] = []
     not_proven = ended = no_record = 0
     for root in checked:
-        for sdir in C.session_dirs(root)[0]:
-            if os.path.lexists(sdir / "ended.json"):
+        for sid in C.session_dirs(root)[0]:
+            sdir = root / sid / "session"
+            if C.exists_inside(root, sdir / "ended.json"):
                 ended += 1
-            elif not os.path.lexists(sdir / "process.json"):
+            elif not C.exists_inside(root, sdir / "process.json"):
                 no_record += 1
             elif (found := proven_session(root, sdir)) is not None:
                 proven.append(found)

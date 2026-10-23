@@ -7,12 +7,14 @@ are read from the filled ``CRITERIA.md`` on ``master`` by :func:`filled`, never 
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
 import re
 import stat
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -180,38 +182,241 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 # ---- under a review root or a run directory: nothing through a symlink, nothing outside ----
+#
+# Every read, listing and removal under a root walks from the root's own descriptor, opening each
+# directory relative to its parent's descriptor with O_NOFOLLOW, and acts on what it holds open:
+# no path string is used again after a check, so a part swapped for a symlink between the two is
+# never followed. Anything that is neither a regular file nor a directory is refused.
+
+_DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 
 
-def no_link_below(root: Path, path: Path) -> bool:
-    """Whether ``path`` lies under ``root`` with no symlink among its parts below the root.
+def _after_open(parts: tuple[str, ...]) -> None:
+    """Called with each directory's parts below the root just after the walk opens it.
 
-    Each part is held with ``lstat``, never followed; and the real path must stay inside the
-    root's real path. A part that is missing, a ``..``, or a symlink fails.
+    Nothing by default; a test puts a swap here, between the walk's check and its act.
     """
-    root, path = Path(root), Path(path)
+    return None
+
+
+def _open_dir(name: str | Path, parent: int | None = None) -> int | None:
+    """A directory opened without following a symlink, relative to ``parent``; ``None`` if not."""
     try:
-        rel = path.relative_to(root)
+        fd = os.open(name, _DIR_FLAGS, dir_fd=parent)
+    except OSError:
+        return None
+    if not stat.S_ISDIR(os.fstat(fd).st_mode):
+        os.close(fd)
+        return None
+    return fd
+
+
+def _plain_parts(root: Path, path: Path) -> tuple[str, ...] | None:
+    """``path``'s parts below ``root``, each a plain name; ``None`` if it is not below it."""
+    try:
+        parts = Path(path).relative_to(root).parts
     except ValueError:
-        return False
-    if any(part in ("", ".", "..") for part in rel.parts):
-        return False
-    here = root
-    for part in rel.parts:
-        here = here / part
-        try:
-            if stat.S_ISLNK(os.lstat(here).st_mode):
-                return False
-        except OSError:
-            return False
-    return Path(os.path.realpath(path)).is_relative_to(Path(os.path.realpath(root)))
+        return None
+    if not parts or any(x in ("", ".", "..") or "/" in x for x in parts):
+        return None
+    return parts
+
+
+@contextlib.contextmanager
+def _dir_inside(root: Path, parts: tuple[str, ...]) -> Iterator[int | None]:
+    """The directory ``parts`` below ``root``, held open, each step taken with no symlink."""
+    held: list[int] = []
+    try:
+        fd = _open_dir(root)
+        if fd is None:
+            yield None
+            return
+        held.append(fd)
+        for k, name in enumerate(parts):
+            fd = _open_dir(name, held[-1])
+            if fd is None:
+                yield None
+                return
+            held.append(fd)
+            _after_open(parts[: k + 1])
+        yield held[-1]
+    finally:
+        for fd in held:
+            os.close(fd)
+
+
+def _mode(name: str, parent: int) -> int | None:
+    """An entry's own type (``lstat``), relative to ``parent``; ``None`` if it is not there."""
+    try:
+        return os.stat(name, dir_fd=parent, follow_symlinks=False).st_mode
+    except OSError:
+        return None
 
 
 def read_inside(root: Path, path: Path) -> bytes | None:
     """A regular file's bytes under ``root``, reached through no symlink; else ``None``."""
-    if not no_link_below(root, path):
+    parts = _plain_parts(root, path)
+    if parts is None:
         return None
+    with _dir_inside(root, parts[:-1]) as parent:
+        if parent is None:
+            return None
+        try:
+            fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
+        except OSError:
+            return None
+        with os.fdopen(fd, "rb") as f:
+            if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+                return None
+            return f.read()
+
+
+def exists_inside(root: Path, path: Path) -> bool:
+    """Whether anything stands at ``path`` under ``root``, reached through no symlink."""
+    parts = _plain_parts(root, path)
+    if parts is None:
+        return False
+    with _dir_inside(root, parts[:-1]) as parent:
+        return parent is not None and _mode(parts[-1], parent) is not None
+
+
+def list_inside(root: Path, parts: tuple[str, ...] = ()) -> list[tuple[str, int]]:
+    """The names and own types in the directory ``parts`` below ``root``, in name order."""
+    with _dir_inside(root, parts) as fd:
+        if fd is None:
+            return []
+        found = []
+        for name in sorted(os.listdir(fd)):
+            mode = _mode(name, fd)
+            if mode is not None:
+                found.append((name, mode))
+        return found
+
+
+def walk_inside(root: Path) -> Iterator[tuple[tuple[str, ...], int]]:
+    """Every directory and regular file below ``root``, as its parts and type, in name order.
+
+    Each directory is opened from its parent's descriptor with no symlink followed; a symlink
+    or anything else is skipped.
+    """
+
+    def below(fd: int, prefix: tuple[str, ...]) -> Iterator[tuple[tuple[str, ...], int]]:
+        for name in sorted(os.listdir(fd)):
+            mode = _mode(name, fd)
+            parts = (*prefix, name)
+            if mode is None:
+                continue
+            if stat.S_ISDIR(mode):
+                child = _open_dir(name, fd)
+                if child is None:
+                    continue
+                try:
+                    _after_open(parts)
+                    yield parts, mode
+                    yield from below(child, parts)
+                finally:
+                    os.close(child)
+            elif stat.S_ISREG(mode):
+                yield parts, mode
+
+    top = _open_dir(root)
+    if top is None:
+        return
     try:
-        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        yield from below(top, ())
+    finally:
+        os.close(top)
+
+
+def session_dirs(root: Path) -> tuple[list[str], int]:
+    """The ids of every ``<root>/<session id>/session`` directory reached through no symlink.
+
+    Also how many entries of a session's form were refused as symlinks.
+    """
+    found: list[str] = []
+    refused = 0
+    for name, mode in list_inside(root):
+        if not SESSION_ID.fullmatch(name):
+            continue
+        if stat.S_ISLNK(mode):
+            refused += 1
+            continue
+        if not stat.S_ISDIR(mode):
+            continue
+        inner = dict(list_inside(root, (name,))).get("session")
+        if inner is not None and stat.S_ISLNK(inner):
+            refused += 1
+        elif inner is not None and stat.S_ISDIR(inner):
+            found.append(name)
+    return found, refused
+
+
+def _empty(fd: int) -> bool:
+    """Remove everything in the directory held at ``fd``, or say it could not.
+
+    Regular files and directories alone are removed, each by name relative to its held parent;
+    anything else is refused and left.
+    """
+    clean = True
+    for name in os.listdir(fd):
+        mode = _mode(name, fd)
+        if mode is not None and stat.S_ISREG(mode):
+            os.unlink(name, dir_fd=fd)  # a name swapped since is unlinked itself, never followed
+        elif mode is not None and stat.S_ISDIR(mode):
+            child = _open_dir(name, fd)
+            if child is None:
+                clean = False
+                continue
+            try:
+                inner = _empty(child)
+            finally:
+                os.close(child)
+            try:
+                if inner:
+                    os.rmdir(name, dir_fd=fd)
+            except OSError:
+                inner = False
+            clean = clean and inner
+        else:
+            clean = False
+    return clean
+
+
+def remove_inside(root: Path, parts: tuple[str, ...]) -> str:
+    """Remove the directory ``parts`` below ``root`` and what it holds, through no symlink.
+
+    It returns ``removed``, ``absent``, or ``refused`` (a part or an entry that is a symlink or
+    neither a file nor a directory, which is left as it is).
+    """
+    with _dir_inside(root, parts[:-1]) as parent:
+        if parent is None:
+            return "refused"
+        mode = _mode(parts[-1], parent)
+        if mode is None:
+            return "absent"
+        if not stat.S_ISDIR(mode):
+            return "refused"
+        fd = _open_dir(parts[-1], parent)
+        if fd is None:
+            return "refused"
+        try:
+            _after_open(parts)
+            clean = _empty(fd)
+        finally:
+            os.close(fd)
+        if not clean:
+            return "refused"
+        try:
+            os.rmdir(parts[-1], dir_fd=parent)  # a symlink put here since is refused (ENOTDIR)
+        except OSError:
+            return "refused"
+        return "removed"
+
+
+def read_own(path: Path) -> bytes | None:
+    """A regular file the run wrote, opened once and never through a symlink; else ``None``."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     except OSError:
         return None
     with os.fdopen(fd, "rb") as f:
@@ -220,42 +425,16 @@ def read_inside(root: Path, path: Path) -> bytes | None:
         return f.read()
 
 
-def session_dirs(root: Path) -> tuple[list[Path], int]:
-    """Every ``<root>/<session id>/session`` directory, none through a symlink.
-
-    Also how many entries of a session's form were refused as symlinks.
-    """
-    found: list[Path] = []
-    refused = 0
-    try:
-        entries = sorted(os.scandir(root), key=lambda e: e.name)
-    except OSError:
-        return [], 0
-    for entry in entries:
-        if not SESSION_ID.fullmatch(entry.name):
-            continue
-        if entry.is_symlink():
-            refused += 1
-            continue
-        if not entry.is_dir(follow_symlinks=False):
-            continue
-        sdir = Path(entry.path) / "session"
-        if os.path.islink(sdir):
-            refused += 1
-        elif sdir.is_dir():
-            found.append(sdir)
-    return found, refused
-
-
 def read_log(path: Path) -> tuple[list[dict[str, Any]], int]:
     """A run log's lines, and how many did not parse.
 
     A killed process can leave half a line, and a crashed one no file at all (no lines, none
-    broken).
+    broken). A log that is a symlink is not read: it has no lines.
     """
     lines: list[dict[str, Any]] = []
     broken = 0
-    for raw in Path(path).read_text(errors="replace").splitlines() if Path(path).is_file() else []:
+    data = read_own(path)
+    for raw in data.decode(errors="replace").splitlines() if data is not None else []:
         if not raw.strip():
             continue
         try:
