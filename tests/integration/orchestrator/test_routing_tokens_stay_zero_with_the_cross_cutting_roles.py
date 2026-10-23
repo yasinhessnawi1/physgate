@@ -62,19 +62,21 @@ NODE: dict[str, Any] = {
     "geometry_hash": "sha256:0",
     "updated": "2026-10-23T00:00:00Z",
 }
+#: Each module's name differs from its role: the consumers and the contributing criteria
+#: name modules, and the interface node is owned by a role.
 PLAN: dict[str, Any] = {
     "modules": [
-        {"name": name, "role": name, "module_dir": f"modules/{name}", "spec": SPEC}
-        for name in ("sizing", "control", "firmware")
+        {"name": name, "role": role, "module_dir": f"modules/{name}", "spec": SPEC}
+        for name, role in (("budget", "sizing"), ("drive", "control"), ("fw", "firmware"))
     ],
     "interface_nodes": [NODE],
-    "interface_consumers": [{"interface": "iface.drive", "consumers": ["firmware"]}],
+    "interface_consumers": [{"interface": "iface.drive", "consumers": ["fw"]}],
     "system_requirements": [
         {
             "requirement": "2",
             "contributing": [
-                {"module": "control", "criterion": "1"},
-                {"module": "firmware", "criterion": "2"},
+                {"module": "drive", "criterion": "1"},
+                {"module": "fw", "criterion": "2"},
             ],
         }
     ],
@@ -172,7 +174,7 @@ def test_the_call_holds_the_system_requirements_to_its_brief(
     unknown = {
         **PLAN,
         "system_requirements": [
-            {"requirement": "3", "contributing": [{"module": "control", "criterion": "1"}]}
+            {"requirement": "3", "contributing": [{"module": "drive", "criterion": "1"}]}
         ],
     }
     api, outcome, _, _ = _decompose(tmp_path, ROLES, unknown)

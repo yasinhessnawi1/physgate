@@ -44,6 +44,7 @@ from physgate.orchestrator.decompose import (
 )
 from physgate.reviewers.contract import issued_criteria
 from physgate.roles import CrossCuttingRole
+from physgate.state.schema import NODE_ID_MAX_LENGTH
 
 #: The run's roles: two domain roles and both cross-cutting ones.
 ROLES = ("control", "firmware", "integration", "sizing")
@@ -98,20 +99,23 @@ def interface(node_id: str = "iface.drive", owner: str = "control") -> dict[str,
     }
 
 
+#: The good answer. Each module's name differs from its role, so a check that reads one
+#: where it should read the other is caught: the consumers and the contributing criteria
+#: name modules, and an interface node is owned by a role.
 GOOD: dict[str, Any] = {
     "modules": [
-        module("sizing", "sizing"),
-        module("control", "control"),
-        module("firmware", "firmware"),
+        module("budget", "sizing"),
+        module("drive", "control"),
+        module("fw", "firmware"),
     ],
     "interface_nodes": [interface()],
-    "interface_consumers": [{"interface": "iface.drive", "consumers": ["firmware"]}],
+    "interface_consumers": [{"interface": "iface.drive", "consumers": ["fw"]}],
     "system_requirements": [
         {
             "requirement": "2",
             "contributing": [
-                {"module": "control", "criterion": "1"},
-                {"module": "firmware", "criterion": "2"},
+                {"module": "drive", "criterion": "1"},
+                {"module": "fw", "criterion": "2"},
             ],
         }
     ],
@@ -170,7 +174,7 @@ def test_a_plan_that_carries_what_integration_needs_has_no_problem() -> None:
     cause, detail, plan, _, _ = judged(answer())
     assert cause is None, detail
     assert isinstance(plan, IntegratedPlan)
-    assert plan.interface_consumers[0].consumers == ("firmware",)
+    assert plan.interface_consumers[0].consumers == ("fw",)
     assert plan.system_requirements[0].contributing[1].criterion == "2"
 
 
@@ -238,43 +242,49 @@ def _requirement(requirement: str, *contributing: tuple[str, str]) -> dict[str, 
     ("changes", "problem"),
     [
         (
-            {"system_requirements": [_requirement("2", ("drive", "1"))]},
-            "'drive', which is no module of the plan",
+            {"system_requirements": [_requirement("2", ("motor", "1"))]},
+            "'motor', which is no module of the plan",
         ),
         (
-            {"system_requirements": [_requirement("2", ("control", "7"))]},
-            "criterion '7' of 'control'",
+            # The role of module drive, where the module's name belongs.
+            {"system_requirements": [_requirement("2", ("control", "1"))]},
+            "'control', which is no module of the plan",
+        ),
+        (
+            {"system_requirements": [_requirement("2", ("drive", "7"))]},
+            "criterion '7' of 'drive'",
         ),
         (
             {
                 "modules": [
-                    module("sizing", "sizing"),
-                    module("control", "control"),
-                    module("firmware", "firmware", criteria=0),
+                    module("budget", "sizing"),
+                    module("drive", "control"),
+                    module("fw", "firmware", criteria=0),
                 ],
             },
-            "criterion '2' of 'firmware'",
+            "criterion '2' of 'fw'",
         ),
         (
             {
                 "system_requirements": [
-                    _requirement("2", ("control", "1")),
-                    _requirement("2", ("firmware", "2")),
+                    _requirement("2", ("drive", "1")),
+                    _requirement("2", ("fw", "2")),
                 ]
             },
             "listed more than once",
         ),
         (
-            {"system_requirements": [_requirement("4", ("control", "1"))]},
+            {"system_requirements": [_requirement("4", ("drive", "1"))]},
             "'4' is not one of the brief's numbered acceptance criteria",
         ),
         (
-            {"system_requirements": [_requirement("It stands upright.", ("control", "1"))]},
+            {"system_requirements": [_requirement("It stands upright.", ("drive", "1"))]},
             "is not one of the brief's numbered acceptance criteria",
         ),
     ],
     ids=[
         "an unknown module",
+        "a module named by its role",
         "a criterion not in that module's spec",
         "a criterion of a module whose spec numbers none",
         "a duplicate requirement",
@@ -301,7 +311,7 @@ def test_an_empty_contributing_list_is_refused_by_the_schema() -> None:
 
 
 def test_with_an_unnumbered_brief_a_requirement_is_given_in_the_brief_s_words() -> None:
-    words = _requirement("It recovers from a 5 N push.", ("control", "1"))
+    words = _requirement("It recovers from a 5 N push.", ("drive", "1"))
     plan = integrated(system_requirements=[words])
     assert plan_problems(plan, ROLES, UNNUMBERED_BRIEF) == []
     # The same words against a brief that numbers its criteria are refused (above).
@@ -310,15 +320,15 @@ def test_with_an_unnumbered_brief_a_requirement_is_given_in_the_brief_s_words() 
 
 def test_a_requirement_and_a_criterion_are_bounded_by_the_schema() -> None:
     with pytest.raises(ValidationError):
-        integrated(system_requirements=[_requirement("x" * 501, ("control", "1"))])
+        integrated(system_requirements=[_requirement("x" * 501, ("drive", "1"))])
     with pytest.raises(ValidationError):
-        integrated(system_requirements=[_requirement("", ("control", "1"))])
+        integrated(system_requirements=[_requirement("", ("drive", "1"))])
     for criterion in ("one", "1a", "", "-1"):
         with pytest.raises(ValidationError):
-            integrated(system_requirements=[_requirement("2", ("control", criterion))])
+            integrated(system_requirements=[_requirement("2", ("drive", criterion))])
     assert (
         plan_problems(
-            integrated(system_requirements=[_requirement("2", ("control", "3"))]), ROLES, BRIEF
+            integrated(system_requirements=[_requirement("2", ("drive", "3"))]), ROLES, BRIEF
         )
         == []
     )
@@ -331,14 +341,19 @@ def test_a_requirement_and_a_criterion_are_bounded_by_the_schema() -> None:
     ("changes", "problem"),
     [
         (
-            {"interface_consumers": [{"interface": "iface.drive", "consumers": ["drive"]}]},
-            "'drive' as a consumer, which is no module of the plan",
+            {"interface_consumers": [{"interface": "iface.drive", "consumers": ["motor"]}]},
+            "'motor' as a consumer, which is no module of the plan",
+        ),
+        (
+            # The role of module fw, where the module's name belongs.
+            {"interface_consumers": [{"interface": "iface.drive", "consumers": ["firmware"]}]},
+            "'firmware' as a consumer, which is no module of the plan",
         ),
         (
             {
                 "interface_consumers": [
-                    {"interface": "iface.drive", "consumers": ["firmware"]},
-                    {"interface": "iface.other", "consumers": ["firmware"]},
+                    {"interface": "iface.drive", "consumers": ["fw"]},
+                    {"interface": "iface.other", "consumers": ["fw"]},
                 ]
             },
             "'iface.other', which is no interface node of the plan",
@@ -350,19 +365,21 @@ def test_a_requirement_and_a_criterion_are_bounded_by_the_schema() -> None:
         (
             {
                 "interface_consumers": [
-                    {"interface": "iface.drive", "consumers": ["firmware"]},
-                    {"interface": "iface.drive", "consumers": ["sizing"]},
+                    {"interface": "iface.drive", "consumers": ["fw"]},
+                    {"interface": "iface.drive", "consumers": ["budget"]},
                 ]
             },
             "'iface.drive' has more than one consumers entry",
         ),
         (
-            {"interface_consumers": [{"interface": "iface.drive", "consumers": ["control"]}]},
-            "'control' as a consumer, which is a module of its producing role 'control'",
+            # Control's module drive produces iface.drive, and names itself its consumer.
+            {"interface_consumers": [{"interface": "iface.drive", "consumers": ["drive"]}]},
+            "'drive' as a consumer, which is a module of its producing role 'control'",
         ),
     ],
     ids=[
         "an unknown module",
+        "a module named by its role",
         "an unknown interface",
         "a missing entry",
         "a duplicate entry",
@@ -386,11 +403,34 @@ def test_an_empty_consumers_list_is_refused_by_the_schema() -> None:
     assert entry["properties"]["consumers"]["minItems"] == 1
 
 
+def test_a_consumers_entry_is_bounded_by_the_schema() -> None:
+    # The interface is held to a node id's length, and each consumer to a module name's
+    # form, in the schema the binary holds the answer to as well as in the model.
+    for too_long_or_empty in ("i" * (NODE_ID_MAX_LENGTH + 1), ""):
+        entry = {"interface": too_long_or_empty, "consumers": ["fw"]}
+        with pytest.raises(ValidationError, match="interface"):
+            integrated(interface_consumers=[entry])
+    at_limit = integrated(
+        interface_consumers=[{"interface": "i" * NODE_ID_MAX_LENGTH, "consumers": ["fw"]}]
+    )
+    assert at_limit.interface_consumers[0].interface == "i" * NODE_ID_MAX_LENGTH
+    for not_a_name in ("Fw", "1fw", "fw_x", "f" * 33, ""):
+        entry = {"interface": "iface.drive", "consumers": [not_a_name]}
+        with pytest.raises(ValidationError, match="consumers"):
+            integrated(interface_consumers=[entry])
+    schema = json.loads(plan_schema(ROLES))["$defs"]
+    entry = schema["InterfaceConsumers"]["properties"]
+    assert entry["interface"]["minLength"] == 1
+    assert entry["interface"]["maxLength"] == NODE_ID_MAX_LENGTH
+    name = schema["PlannedModule"]["properties"]["name"]["pattern"]
+    assert entry["consumers"]["items"]["pattern"] == name == "^[a-z][a-z0-9-]{0,31}$"
+
+
 # --- sizing's module and integration's ----------------------------------------------------
 
 
 def test_a_plan_with_two_sizing_modules_is_refused() -> None:
-    modules = [*GOOD["modules"], module("sizing-two", "sizing")]
+    modules = [*GOOD["modules"], module("budget-two", "sizing")]
     found = plan_problems(integrated(modules=modules), ROLES, BRIEF)
     assert any("2 modules of the sizing role" in p for p in found), found
     # Without integration as well: the rule is sizing's own.
@@ -420,7 +460,7 @@ def test_a_plan_with_an_integration_module_is_refused() -> None:
     ],
 )
 def test_a_module_overlapping_integration_s_directory_is_refused(module_dir: str) -> None:
-    modules = [*GOOD["modules"][:2], module("firmware", "firmware", module_dir=module_dir)]
+    modules = [*GOOD["modules"][:2], module("fw", "firmware", module_dir=module_dir)]
     found = plan_problems(integrated(modules=modules), ROLES, BRIEF)
     assert any("modules/integration, which the harness keeps" in p for p in found), found
 
@@ -430,7 +470,7 @@ def test_without_integration_its_directory_and_name_are_any_module_s() -> None:
     base = Plan.model_validate_json(
         json.dumps(
             {
-                "modules": [module("control", "control", module_dir="modules/integration")],
+                "modules": [module("drive", "control", module_dir="modules/integration")],
                 "interface_nodes": [interface()],
             }
         )
@@ -507,10 +547,10 @@ def test_plan_sha256_covers_the_requirements_list() -> None:
     assert plan_sha256(integrated()) == plan_sha256(plan)
     changed = [
         integrated(system_requirements=[]),
-        integrated(system_requirements=[_requirement("1", ("control", "1"))]),
-        integrated(system_requirements=[_requirement("2", ("control", "1"))]),
-        integrated(system_requirements=[_requirement("2", ("control", "1"), ("firmware", "3"))]),
-        integrated(interface_consumers=[{"interface": "iface.drive", "consumers": ["sizing"]}]),
+        integrated(system_requirements=[_requirement("1", ("drive", "1"))]),
+        integrated(system_requirements=[_requirement("2", ("drive", "1"))]),
+        integrated(system_requirements=[_requirement("2", ("drive", "1"), ("fw", "3"))]),
+        integrated(interface_consumers=[{"interface": "iface.drive", "consumers": ["budget"]}]),
     ]
     digests = {plan_sha256(p) for p in changed}
     assert len(digests) == len(changed) and plan_sha256(plan) not in digests

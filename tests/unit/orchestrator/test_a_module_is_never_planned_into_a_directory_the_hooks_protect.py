@@ -92,6 +92,16 @@ def test_a_module_anywhere_else_or_where_the_hook_still_lets_a_session_write_is_
     assert plan_problems(plan_in(module_dir), ROLES, BRIEF) == []
 
 
+def test_every_module_is_held_to_the_roots_not_only_the_first() -> None:
+    modules = [
+        {"name": "power", "role": "electrical", "module_dir": "modules/power", "spec": "do it"},
+        {"name": "wiring", "role": "electrical", "module_dir": "knowledge/x", "spec": "do it"},
+    ]
+    plan = Plan.model_validate_json(json.dumps({"modules": modules, "interface_nodes": [NODE]}))
+    found = [p for p in plan_problems(plan, ROLES, BRIEF) if "the hooks protect" in p]
+    assert len(found) == 1 and found[0].startswith("module 'wiring' "), found
+
+
 def test_the_roots_are_the_ones_the_hook_layer_gives_a_role_session() -> None:
     roots = dict(settings.protected_in_a_worktree())
     for root in (
