@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -103,7 +104,33 @@ class Pins:
     repo: Path
 
 
-FROZEN = Pins(SETS, RUNS, PARTS_SHEET_SHA256, REPO)
+def _pins() -> Pins:
+    """The frozen pins. Only in a dry run with a stand-in (``RLAW_STANDIN`` and ``RLAW_DRY_PINS``
+    both set) are the sets and the sheet digest those of the synthetic fixture the pins file names,
+    so that the launcher can run end to end on it. Every session of such a run is a stand-in's and
+    marked so, and the tally refuses its outputs outside ``--dry-run``."""
+    path = os.environ.get("RLAW_DRY_PINS")
+    if not path:
+        return Pins(SETS, RUNS, PARTS_SHEET_SHA256, REPO)
+    if not os.environ.get("RLAW_STANDIN"):
+        raise Refused("RLAW_DRY_PINS is for a dry run with a stand-in (RLAW_STANDIN) only")
+    d = json.loads(Path(path).read_text())
+    sets = {n: SetPin(**p) for n, p in d["sets"].items()}
+    return Pins(sets, RUNS, d["parts_sheet"], Path(d["repo"]))
+
+
+FROZEN = _pins()
+#: The sheet digest every packet is held to: the frozen one, or a dry run's fixture's (above).
+PARTS_SHEET_SHA256 = FROZEN.parts_sheet
+
+
+def prior_digest() -> str:
+    """The prior adjudication's output's digest: the one ``inputs/digests.json`` records, or in a
+    dry run on the fixture the one its pins file names."""
+    path = os.environ.get("RLAW_DRY_PINS")
+    if path:
+        return str(json.loads(Path(path).read_text())["prior_adjudication"])
+    return str(json.loads(INPUTS.read_text())["prior_adjudication"])
 
 
 def sha256_bytes(data: bytes) -> str:

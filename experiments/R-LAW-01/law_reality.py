@@ -343,7 +343,6 @@ def main(argv: list[str]) -> int:
             return 0
         if argv[:1] == ["score"] and len(argv) == 7:
             work = Path(argv[1])
-            digests = json.loads(X.INPUTS.read_text())
             rows, summary = score(
                 work,
                 Path(argv[2]),
@@ -352,7 +351,7 @@ def main(argv: list[str]) -> int:
                 Path(argv[5]),
                 Path(argv[6]),
                 sets,
-                digests["prior_adjudication"],
+                X.prior_digest(),
             )
             X.write_jsonl(work / "reality.jsonl", rows)
             (work / "reality_summary.json").write_text(

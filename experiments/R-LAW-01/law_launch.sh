@@ -35,8 +35,23 @@
 # resume is an interruption RESULT reports; none is a deviation or changes whether the decision is
 # taken.
 #
+# One launcher per work dir: calibrate and measure take ledger/launch.lock for the whole phase,
+# recording the launcher's pid and the phase's process group, and refuse to start while any process
+# of that group (or that launcher) lives. A lock whose processes are all dead (its launcher killed,
+# its phase ended) is taken over, and the takeover is logged in interruptions.jsonl.
+#
+# The projection check after round 1 runs once: its first result that is a projection (exit 0, or
+# exit 1, the deviation) is kept in ledger/projection.json, and a resume reuses it.
+#
+# A dry run (RLAW_STANDIN, the driver's scripted stand-in, for tests only): no binary is needed, the
+# checkout need not be clean, and every output is marked a stand-in's, so the tally refuses it
+# outside --dry-run. With RLAW_DRY_PINS as well, the scripts read the synthetic fixture's sets in
+# place of the frozen ones (law_extract.py), the work dir's slice and counts are the fixture's, and
+# the final prompt is read from <work dir>/prompts/final.
+#
 # Environment: RLAW_CLAUDE_BIN, the pinned binary (on this laptop ~/pinned/claude-2.1.301-macos);
-# RLAW_PRIOR, the prior adjudication's output (measure).
+# RLAW_PRIOR, the prior adjudication's output (measure). The binary itself sees only the driver's
+# allowlisted environment (law_sessions.sh envnames), whose names the launch log records.
 # The sessions use the account this machine's Claude Code is logged in to, which must be the
 # development account; no token is read or printed here.
 set -euo pipefail
@@ -53,6 +68,10 @@ WORK="$(cd "${2:?work dir}" && pwd)"
 LOG="$WORK/launch.log"
 export RLAW_LEDGER="$WORK/ledger/ledger.jsonl"
 mkdir -p "$WORK/ledger"
+LOCK="$WORK/ledger/launch.lock"
+DRY=0; [ -n "${RLAW_STANDIN:-}" ] && DRY=1
+FIXTURE=0; [ -n "${RLAW_DRY_PINS:-}" ] && FIXTURE=1
+FINAL_DIR="$HERE/prompts/final"; [ "$DRY" = 1 ] && FINAL_DIR="$WORK/prompts/final"
 
 say() { echo "$(date -u +%FT%TZ) $*" | tee -a "$LOG"; }
 event() { # kind reason: one timed line in interruptions.jsonl
@@ -70,9 +89,12 @@ die() { # once sessions may run, a stop of the phase is a stop of the run: STOPP
 blind() { "$PY" -I "$HERE/law_packets.py" blind "$1" >> "$LOG" || die "a packet in $1 is not blind"; }
 
 prior_ok() { # file: the prior adjudication's output at the digest inputs/digests.json records
-  "$PY" -I - "$HERE/inputs/digests.json" "$1" <<'PRIOR' >/dev/null 2>&1
-import hashlib, json, sys
-want = json.load(open(sys.argv[1]))["prior_adjudication"]
+  # (in a dry run on the fixture, the digest its pins file names)
+  "$PY" -I - "$HERE" "$1" <<'PRIOR' >/dev/null 2>&1
+import hashlib, sys
+sys.path.insert(0, sys.argv[1])
+import law_extract as X
+want = X.prior_digest()
 try:
     have = hashlib.sha256(open(sys.argv[2], "rb").read()).hexdigest()
 except OSError:
@@ -82,6 +104,7 @@ PRIOR
 }
 
 preflight() {
+  [ "$FIXTURE" = 0 ] || [ "$DRY" = 1 ] || die "RLAW_DRY_PINS is for a dry run with a stand-in only"
   [ ! -e "$WORK/ledger/VOID" ] || die "VOID: the result is void"
   [ ! -e "$WORK/deviations.json" ] || die "a deviation is recorded in deviations.json: nothing runs"
   [ ! -e "$WORK/ledger/STOPPED" ] || [ "${RLAW_RESUME:-0}" = 1 ] || die "STOPPED: resume only with RLAW_RESUME=1"
@@ -89,18 +112,46 @@ preflight() {
     [ -n "${RLAW_PRIOR:-}" ] || die "set RLAW_PRIOR to the prior adjudication's output"
     prior_ok "$RLAW_PRIOR" || die "RLAW_PRIOR is not the prior adjudication at the digest inputs/digests.json records"
   fi
-  [ -z "$(git -C "$REPO" status --porcelain -- experiments/R-LAW-01 src knowledge)" ] || die "checkout not clean"
+  if [ "$DRY" = 1 ]; then
+    say "DRY RUN with the stand-in $RLAW_STANDIN: no binary and no clean checkout are needed; every output is marked a stand-in's, and the tally refuses it outside --dry-run"
+  else
+    [ -z "$(git -C "$REPO" status --porcelain -- experiments/R-LAW-01 src knowledge)" ] || die "checkout not clean"
+  fi
   [ -f "$HERE/inputs/digests.json" ] || die "inputs not filled"
   [ -f "$HERE/slice.json" ] || die "slice not filled"
-  cmp -s "$HERE/slice.json" "$WORK/slice.json" || die "work slice.json differs from the committed one"
-  for f in lines.jsonl flaws.jsonl units_s1.jsonl units_s6.jsonl regate.jsonl; do
+  if [ "$FIXTURE" = 0 ]; then
+    cmp -s "$HERE/slice.json" "$WORK/slice.json" || die "work slice.json differs from the committed one"
+  fi
+  for f in slice.json lines.jsonl flaws.jsonl units_s1.jsonl units_s6.jsonl regate.jsonl; do
     [ -s "$WORK/$f" ] || die "work dir lacks $f"
   done
-  : "${RLAW_CLAUDE_BIN:?set RLAW_CLAUDE_BIN}"
-  "$RLAW_CLAUDE_BIN" --version | grep -q '^2\.1\.301 ' || die "binary is not 2.1.301"
-  "$PY" -I -c "import json,sys; c=json.load(open('$WORK/group_counts.json')); e=json.load(open('$WORK/extract_counts.json')); sys.exit(0 if (e['lines'],c['after_c'],c['after_d'])==(993,367,348) else 1)" \
-    || die "the frozen counts do not hold (a deviation: nothing runs)"
+  if [ "$DRY" = 0 ]; then
+    : "${RLAW_CLAUDE_BIN:?set RLAW_CLAUDE_BIN}"
+    "$RLAW_CLAUDE_BIN" --version | grep -q '^2\.1\.301 ' || die "binary is not 2.1.301"
+  fi
+  if [ "$FIXTURE" = 0 ]; then
+    "$PY" -I -c "import json,sys; c=json.load(open('$WORK/group_counts.json')); e=json.load(open('$WORK/extract_counts.json')); sys.exit(0 if (e['lines'],c['after_c'],c['after_d'])==(993,367,348) else 1)" \
+      || die "the frozen counts do not hold (a deviation: nothing runs)"
+  fi
   say "preflight holds at $(git -C "$REPO" rev-parse HEAD)"
+}
+
+lock_alive() { # -> 0 while a process of the locked phase's group, or its launcher, lives
+  local g l
+  g="$(cat "$LOCK/group" 2>/dev/null || true)"; l="$(cat "$LOCK/launcher" 2>/dev/null || true)"
+  { [ -n "$g" ] && kill -0 -- "-$g" 2>/dev/null; } || { [ -n "$l" ] && kill -0 "$l" 2>/dev/null; }
+}
+
+take_lock() { # this work dir's lock for the whole phase; another launcher's live phase refuses it
+  local held
+  if ! mkdir "$LOCK" 2>/dev/null; then
+    held="$(cat "$LOCK/group" 2>/dev/null || echo "not yet recorded")"
+    lock_alive && die "another launcher's phase is running on this work dir (process group $held): nothing starts"
+    event takeover "the work dir's lock of process group $held was taken over: none of its processes is alive"
+    rm -rf "$LOCK"
+    mkdir "$LOCK" 2>/dev/null || die "another launcher took the work dir's lock meanwhile"
+  fi
+  echo "$$" > "$LOCK/launcher"
 }
 
 sessions() { # step kind packets out model lanes [ids]
@@ -183,7 +234,7 @@ calibrate() {
 }
 
 measure_ready() { # the committed final prompt, every file at its recorded sha256
-  local fin="$HERE/prompts/final"
+  local fin="$FINAL_DIR"
   [ -f "$fin/prompts.json" ] || die "no committed final prompt: the Prompt filled commit comes first"
   "$PY" -I - "$fin" <<'PY' || die "a committed prompt file differs from its recorded sha256"
 import hashlib, json, sys, pathlib
@@ -194,7 +245,7 @@ PY
 }
 
 measure() {
-  export RLAW_PROMPTS="$HERE/prompts/final"
+  export RLAW_PROMPTS="$FINAL_DIR"
   local pk="$WORK/packets" se="$WORK/sessions"
   build "$pk/reality" "$PY" -I "$HERE/law_reality.py" packets "$WORK" "$pk/reality"
   build "$pk/measured" "$PY" -I "$HERE/law_packets.py" coders "$WORK" measured "$pk/measured"
@@ -234,12 +285,15 @@ case "$PHASE" in
   preflight) preflight ;;
   calibrate|measure)
     set +e
+    take_lock
+    say "the binary runs with only this environment (names): $(bash "$SESS" envnames)"
     # evidence older than this is another phase's, or the stop this one resumes from
     touch "$WORK/ledger/phase-start"
     set -m  # the phase runs in a process group of its own, which the watcher watches
     bash "$0" "_$PHASE" "$WORK" &
     PID=$!
     set +m
+    echo "$PID" > "$LOCK/group"
     bash "$SESS" watch "$WORK" "$PID" "$WORK/ledger/phase-start" "$PHASE" > >(tee -a "$LOG") 2>&1 &
     W=$!
     wait "$PID"; CODE=$?
@@ -247,6 +301,7 @@ case "$PHASE" in
     # the phase is over when the last of them is settled
     while kill -0 -- "-$PID" 2>/dev/null; do sleep 5; done
     { kill "$W" && wait "$W"; } 2>/dev/null
+    rm -rf "$LOCK"
     say "phase $PHASE ended, exit $CODE"
     exit "$CODE" ;;
   _calibrate|_measure)
