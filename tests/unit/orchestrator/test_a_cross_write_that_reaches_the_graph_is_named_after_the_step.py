@@ -55,7 +55,7 @@ def _after_a_step(tmp_path: Path, role: str, *payloads: dict[str, Any]) -> tuple
     store.close()
     keeper = StoreKeeper(RunGit(repo=tmp_path, run_dir=tmp_path / "run", run_id="r1"), root)
     try:
-        return keeper.divergences(since, role)
+        return tuple(str(d) for d in keeper.divergences(since, role))
     finally:
         keeper.close()
 
@@ -183,15 +183,15 @@ def test_one_keeper_asks_the_register_again_on_every_check(
     store.close()
     keeper = StoreKeeper(RunGit(repo=tmp_path, run_dir=tmp_path / "run", run_id="r1"), root)
     try:
-        (unowned,) = keeper.divergences(since, "sizing")
+        (unowned,) = map(str, keeper.divergences(since, "sizing"))
         assert CROSS_NODE in unowned and "no registered role owns the cross nodes" in unowned
         monkeypatch.setitem(roles.ROLES, roles.SIZING.name, roles.SIZING)
         assert keeper.divergences(since, "sizing") == ()
         monkeypatch.setitem(roles.ROLES, BALLAST.name, BALLAST)
-        (contested,) = keeper.divergences(since, "sizing")
+        (contested,) = map(str, keeper.divergences(since, "sizing"))
         assert "(ballast,sizing)" in contested
         monkeypatch.delitem(roles.ROLES, roles.SIZING.name)
-        (other,) = keeper.divergences(since, "sizing")
+        (other,) = map(str, keeper.divergences(since, "sizing"))
         assert "only the ballast role writes" in other
     finally:
         keeper.close()

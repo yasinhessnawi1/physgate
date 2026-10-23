@@ -38,6 +38,7 @@ from physgate.orchestrator.protocols import (
 from physgate.orchestrator.record import PlanEntry
 from physgate.orchestrator.trajectory import seal
 from physgate.series.seal import SeriesCheck, SessionSeries
+from physgate.state.divergence import Divergence
 from physgate.state.task_ledger import TaskLedger
 
 
@@ -331,7 +332,7 @@ class FakeMaterial:
 class FakeGraph:
     """A graph port with an empty journal, reporting divergences on chosen diff calls."""
 
-    divergent: dict[int, tuple[str, ...]] = field(default_factory=dict)
+    divergent: dict[int, tuple[Divergence, ...]] = field(default_factory=dict)
     calls: list[tuple[int, str]] = field(default_factory=list)
     reopened: int = 0
     root: Path = Path("store")
@@ -351,7 +352,7 @@ class FakeGraph:
     def write(self, payload: dict[str, Any], role: str) -> int:
         raise AssertionError("no proposal, so nothing is written")
 
-    def divergences(self, since: int, acting_role: str) -> tuple[str, ...]:
+    def divergences(self, since: int, acting_role: str) -> tuple[Divergence, ...]:
         self.calls.append((since, acting_role))
         return self.divergent.get(len(self.calls), ())
 

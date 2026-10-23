@@ -24,6 +24,7 @@ from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.run_config import RunBounds
 from physgate.orchestrator.trajectory import Seal
 from physgate.series.seal import SeriesCheck, SessionSeries
+from physgate.state.divergence import Divergence
 from physgate.state.store import JournalLine, Payload
 
 SessionId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
@@ -303,12 +304,13 @@ class GraphPort(Protocol):
         """
         ...
 
-    def divergences(self, since: int, acting_role: str) -> tuple[str, ...]:
+    def divergences(self, since: int, acting_role: str) -> tuple[Divergence, ...]:
         """Every node changed after ``since`` by a role that does not own it, or against a duty.
 
         A duty is one the role register gives a cross-cutting role: the cross nodes, which
         only their owner writes, and completion, whose owner writes no node. An interface
-        node created after ``since`` is named too.
+        node made after ``since`` is named too. Each entry says which of these it is, so
+        the loop records a write past the store's own guard apart from a duty's breach.
         """
         ...
 

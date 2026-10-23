@@ -79,7 +79,7 @@ from physgate.orchestrator.ports import ChangeCheck
 from physgate.series.consistency import check_proposals
 from physgate.series.reader import SealedEntry, attempt_records
 from physgate.series.seal import FORMAT, MAX_FILE_BYTES, SealedRecord, SessionSeries
-from physgate.state.divergence import Duties, divergence
+from physgate.state.divergence import Divergence, Duties, divergence
 from physgate.state.exceptions import DesignStateError
 from physgate.state.protocol import (
     REJECT_CROSS_ROLE,
@@ -676,15 +676,14 @@ class StoreKeeper:
             raise StoreRefusalError(msg, node=str(payload.get("id")), reason=str(result.reason))
         return result.revision
 
-    def divergences(self, since: int, acting_role: str) -> tuple[str, ...]:
+    def divergences(self, since: int, acting_role: str) -> tuple[Divergence, ...]:
         """Every node changed after ``since`` by a role that does not own it, or against a duty.
 
         The duties' owners are asked of the role register now, as the hook and the apply
         step ask it.
         """
         store = self._handle()
-        found = divergence(store, store.diff(since), acting_role, _duties())
-        return tuple(str(d) for d in found)
+        return tuple(divergence(store, store.diff(since), acting_role, _duties()))
 
     def reopen(self) -> tuple[int, tuple[str, ...]]:
         """Reopen the store so recovery repairs node files from the journal."""

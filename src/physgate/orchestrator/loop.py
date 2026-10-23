@@ -154,6 +154,7 @@ from physgate.roles import require_registered
 from physgate.series.reader import attempt_records
 from physgate.series.seal import AttemptRecord, AttemptSeries, SeriesCheck
 from physgate.state.exceptions import DesignStateError, StoreStaleError
+from physgate.state.protocol import REJECT_CROSS_ROLE
 from physgate.state.store import payload_digest
 
 UNREAD = (
@@ -1638,11 +1639,16 @@ class Loop:
         since = min(now.applied.values()) - 1 if now.applied else self.state.journal_head
         role = self.state.subtasks[subtask_id].plan.assigned_role
         found = self._graph.divergences(since, role)
+        named = tuple(str(d) for d in found)
         self._emit(
-            DiffChecked(**self._env(), subtask_id=subtask_id, attempt=attempt, divergences=found)
+            DiffChecked(**self._env(), subtask_id=subtask_id, attempt=attempt, divergences=named)
         )
         if found:
-            self._incident(subtask_id, "cross_role_write", "; ".join(found))
+            # A write past the store's own guard is the graver of the two, and the cause a
+            # step that made one was always recorded under; duty breaches alone are a breach.
+            foreign = any(d.reason == REJECT_CROSS_ROLE for d in found)
+            cause: IncidentCause = "cross_role_write" if foreign else "duty_breach"
+            self._incident(subtask_id, cause, "; ".join(named))
 
     # -- what is not an attempt ---------------------------------------------------------
 

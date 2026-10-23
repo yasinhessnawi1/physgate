@@ -316,7 +316,7 @@ def test_the_diff_names_a_write_by_a_role_that_does_not_own_the_node(tmp_path: P
     store = Store(rig.store_root)
     assert store.write_node(node("control.loop", owner="control"), "control").accepted
     store.close()
-    found = rig.keeper.divergences(2, "electrical")
+    found = [str(d) for d in rig.keeper.divergences(2, "electrical")]
     rig.keeper.close()
     assert len(found) == 1 and "control.loop" in found[0] and "'control'" in found[0]
     assert (rig.store_root / JOURNAL_NAME).exists()

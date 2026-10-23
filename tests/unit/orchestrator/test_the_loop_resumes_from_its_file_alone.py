@@ -22,6 +22,7 @@ from physgate.orchestrator.events import (
 )
 from physgate.orchestrator.exceptions import CorruptEventLogError, RunStateError
 from physgate.orchestrator.replay import RunState
+from physgate.state.divergence import Divergence
 from physgate.state.task_ledger import TaskLedger
 
 EIGHT = ["resolve", "spawn", "verify_reading", "implement", "gate", "review", "decide", "diff"]
@@ -180,16 +181,17 @@ def test_an_exhausted_schedule_halts_the_run_and_resume_continues_the_same_attem
 
 
 def test_a_cross_role_write_halts_the_run_before_the_next_dispatch(tmp_path: Path) -> None:
-    rig = Rig(tmp_path, diff=FakeGraph(divergent={1: ("motor.left written by control",)}))
+    foreign = Divergence(
+        node_id="motor.left", revision=3, owner_role="electrical", acting_role="control"
+    )
+    rig = Rig(tmp_path, diff=FakeGraph(divergent={1: (foreign,)}))
     loop = rig.open()
     loop.start(plan("s1", "s2"))
     assert loop.run().kind == "halted"
     loop.close()
     assert {r.subtask_id for r in rig.dispatcher.requests} == {"s1"}
     events = read_events(tmp_path / "events.jsonl")
-    assert [e.divergences for e in events if isinstance(e, DiffChecked)] == [
-        ("motor.left written by control",)
-    ]
+    assert [e.divergences for e in events if isinstance(e, DiffChecked)] == [(str(foreign),)]
     (incident,) = [e for e in events if isinstance(e, Incident)]
     assert incident.cause == "cross_role_write"
     with pytest.raises(RunStateError, match="halted for incident"):

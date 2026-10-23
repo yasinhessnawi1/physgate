@@ -38,6 +38,7 @@ from physgate.orchestrator.protocols import (
 from physgate.orchestrator.record import PlanEntry
 from physgate.orchestrator.run_config import ModelStrings, RunBounds, RunConfig, harness_state
 from physgate.series.seal import SessionSeries
+from physgate.state.divergence import Divergence
 
 GITENV = {
     "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
@@ -285,7 +286,7 @@ class EmptyGraph:
     def write(self, payload: dict[str, Any], role: str) -> int:
         raise AssertionError("no proposal, so nothing is written")
 
-    def divergences(self, since: int, acting_role: str) -> tuple[str, ...]:
+    def divergences(self, since: int, acting_role: str) -> tuple[Divergence, ...]:
         return ()
 
     def reopen(self) -> tuple[int, tuple[str, ...]]:

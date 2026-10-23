@@ -71,6 +71,10 @@ Sha = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
 Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 
 #: What an incident is about. Each halts the run; none spends from the repair budget.
+#: ``cross_role_write`` is a node changed by a role that does not own it, a write the store's
+#: own guard refuses; ``duty_breach`` is a write the store accepts and a cross-cutting duty
+#: forbids (ARCH-051). A run recorded before ``duty_breach`` existed keeps the cause it was
+#: recorded with.
 IncidentCause = Literal[
     "cross_role_write",
     "merge_conflict",
@@ -91,6 +95,7 @@ IncidentCause = Literal[
     "stream_quarantined",
     "queue_item_mismatch",
     "decisions_rewritten",
+    "duty_breach",
 ]
 
 #: Why a run stopped short of the end of its plan.
