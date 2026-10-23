@@ -148,6 +148,55 @@ def test_an_unexpected_error_in_the_owner_lookup_is_never_a_clean_step(
         _after_a_step(tmp_path, "control", node("control.gain", "control", "control"))
 
 
+def test_an_unexpected_error_in_the_completion_owner_lookup_is_never_a_clean_step(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The completion side, reached: the cross nodes' owners are answered, and only the
+    # completion lookup fails. The check must not read the failure as "no owner".
+    real = roles.owners_of
+    asked: list[str] = []
+
+    def broken(duty: str) -> tuple[str, ...]:
+        asked.append(duty)
+        if duty != "completion":
+            return real(duty)  # type: ignore[arg-type]
+        msg = "the register could not be read"
+        raise RuntimeError(msg)
+
+    monkeypatch.setitem(roles.ROLES, roles.SIZING.name, roles.SIZING)
+    monkeypatch.setattr(roles, "owners_of", broken)
+    with pytest.raises(RuntimeError, match="could not be read"):
+        _after_a_step(tmp_path, "control", node("control.gain", "control", "control"))
+    assert "completion" in asked
+
+
+def test_one_keeper_asks_the_register_again_on_every_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # One keeper, held across steps as the loop holds it, and the register changed between
+    # two checks of the same step: each check answers the register as it stands then.
+    root = tmp_path / "graph"
+    store = Store(root)
+    assert store.write_node(node("control.loop", "control", "control"), "control").accepted
+    since = store.head_revision()
+    assert store.write_node(node("sizing.motor_right", "sizing", "cross"), "sizing").accepted
+    store.close()
+    keeper = StoreKeeper(RunGit(repo=tmp_path, run_dir=tmp_path / "run", run_id="r1"), root)
+    try:
+        (unowned,) = keeper.divergences(since, "sizing")
+        assert CROSS_NODE in unowned and "no registered role owns the cross nodes" in unowned
+        monkeypatch.setitem(roles.ROLES, roles.SIZING.name, roles.SIZING)
+        assert keeper.divergences(since, "sizing") == ()
+        monkeypatch.setitem(roles.ROLES, BALLAST.name, BALLAST)
+        (contested,) = keeper.divergences(since, "sizing")
+        assert "(ballast,sizing)" in contested
+        monkeypatch.delitem(roles.ROLES, roles.SIZING.name)
+        (other,) = keeper.divergences(since, "sizing")
+        assert "only the ballast role writes" in other
+    finally:
+        keeper.close()
+
+
 def test_the_check_counts_the_owners_itself_and_reads_no_error_s_text(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -12,11 +12,12 @@ subtask and never one the proposal names, and refuses everything the hook refuse
 - a new interface node from any session: interface nodes are written from the plan;
 - any node from the role that owns completion, whose one write is its declaration.
 
-Each owner is looked up in the register by what it owns, through the lookup that counts
-the owners itself. The rules run in the hook's order, so a proposal with two faults is
-refused for the earlier one, as the hook refuses it. The table below is every ownership
-case of the hook's own tests, and each is run through both: the hook's reason and the
-orchestrator's must both be the one the case names.
+Each duty's owners are counted in the register by what they own, on every read. The rules
+run in the hook's order, so a proposal with two faults is refused for the earlier one, as
+the hook refuses it. The table below is every ownership case of the hook's own tests, and
+each is run through both: the hook's reason and the orchestrator's must both be the one
+the case names. The two rule lists are also held to each other by name and order, so a
+rule added to the hook and not to apply fails here, with or without a case of its own.
 """
 
 from __future__ import annotations
@@ -39,6 +40,7 @@ from hook_helpers import node as hook_node  # noqa: E402
 from physgate import roles  # noqa: E402
 from physgate.hooks import graph  # noqa: E402
 from physgate.hooks.config import HookInput  # noqa: E402
+from physgate.orchestrator import apply as apply_step  # noqa: E402
 from physgate.orchestrator.apply import (  # noqa: E402
     GitChangeChecker,
     ProposalRefusedError,
@@ -339,6 +341,15 @@ ORDER_CASES: dict[str, Case] = {
         shadowing(node("control.motor_current", "control", domain="cross")),
         graph.CROSS_NODE,
     ),
+    **{
+        f"the completion owner's cross node, {said}": (
+            "integration",
+            register,
+            node("integration.mass", "integration", domain="cross"),
+            graph.CROSS_NODE,
+        )
+        for said, register in (("as shipped", _shipped), ("sizing registered", _sizing))
+    },
     "the completion owner's new interface": (
         "integration",
         _shipped,
@@ -563,6 +574,33 @@ def test_the_table_holds_every_rule_and_every_landing() -> None:
     )
 
 
+#: Every ownership rule of the hook, by name and in the hook's order, with the rule that
+#: mirrors it at apply. A rule the hook gains without a line here, or one apply lacks, fails.
+MIRRORS = {
+    "_owner_is_the_session": "_owner_is_the_attempt_s_role",
+    "_owner_does_not_change": "_owner_does_not_change",
+    "_kind_does_not_change": "_kind_does_not_change",
+    "_cross_nodes_are_their_owners_alone": "_cross_nodes_are_their_owner_s_alone",
+    "_no_session_creates_an_interface": "_no_attempt_creates_an_interface",
+    "_the_completion_owner_writes_no_node": "_the_completion_owner_writes_no_node",
+}
+#: Apply's rules after the mirrors: the hook asks the same question after its list (an
+#: existing interface node is not written at all), and apply asks it as one more rule.
+AFTER_THE_MIRRORS = ("_an_interface_is_not_rewritten",)
+
+
+def test_every_ownership_rule_of_the_hook_is_mirrored_at_apply_in_the_hook_s_order() -> None:
+    # The parity table holds what each rule answers today; this holds the two lists to each
+    # other, so a rule added to the hook alone, or moved in one list alone, fails here even
+    # before a case is written for it.
+    hook = [rule.__name__ for rule in graph.OWNERSHIP_RULES]
+    unmapped = [name for name in hook if name not in MIRRORS]
+    assert unmapped == [], f"hook ownership rules with no mirror at apply: {unmapped}"
+    assert hook == list(MIRRORS), "the hook's ownership rules are not in the mirrors' order"
+    applied = [rule.__name__ for rule in apply_step._OWNERSHIP_RULES]
+    assert applied == [MIRRORS[name] for name in hook] + list(AFTER_THE_MIRRORS)
+
+
 # --- each rule, at apply ------------------------------------------------------------------------
 
 
@@ -638,6 +676,29 @@ def test_an_unexpected_error_in_the_owner_lookup_is_never_an_acceptance_at_apply
     store = _store(tmp_path / "store")
     with pytest.raises(RuntimeError, match="could not be read"):
         through_apply(tmp_path, store, "control", node("control.gain", "control"))
+
+
+def test_an_unexpected_error_in_the_completion_owner_lookup_is_never_an_acceptance_at_apply(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The completion rule's own lookup, reached: the proposal passes every rule before it, and
+    # only the completion lookup fails. Apply must not read the failure as "no owner".
+    real = roles.owners_of
+    asked: list[str] = []
+
+    def broken(duty: str) -> tuple[str, ...]:
+        asked.append(duty)
+        if duty != "completion":
+            return real(duty)  # type: ignore[arg-type]
+        msg = "the register could not be read"
+        raise RuntimeError(msg)
+
+    _sizing(monkeypatch)
+    monkeypatch.setattr(roles, "owners_of", broken)
+    store = _store(tmp_path / "store")
+    with pytest.raises(RuntimeError, match="could not be read"):
+        through_apply(tmp_path, store, "control", node("control.gain", "control"))
+    assert asked == ["cross_nodes", "completion"]
 
 
 @pytest.mark.parametrize(
