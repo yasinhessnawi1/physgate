@@ -1,0 +1,1 @@
+{"type": "object", "properties": {"findings": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string"}, "verdict": {"enum": ["true_flaw", "not_a_flaw", "undecidable"]}, "origin": {"enum": ["introduced", "already_in_base", "both", "n/a"]}, "reason": {"type": "string"}}, "required": ["id", "verdict", "origin", "reason"]}}}, "required": ["findings"]}

@@ -1,0 +1,49 @@
+{
+ "disagreements": {
+  "D\u2013G": 2,
+  "D\u2013L": 2,
+  "D\u2013N": 15,
+  "G\u2013L": 1,
+  "G\u2013N": 1,
+  "L\u2013N": 3
+ },
+ "prompts": {
+  "sha256": {
+   "adjudicator_prompt.txt": "3d2aae2ff5747c48806e58eb5a5a03c61fb766afb225c73e3531c2fe55809a0a",
+   "adjudicator_schema.json": "f689ef6439310678b2f1eacd71069fe790144f48d9ee3b4bad3c9122b2d155ac",
+   "coder_prompt.txt": "e6380ca9cfc8c5c62be9ff07d5224a035a0093fd9da19221632fab28af0d2821",
+   "coder_schema.json": "a79889a65c53fd30ed14b0180bef65940a4fcf3e47b2985a5badea435e3d12a1",
+   "reality_prompt.txt": "41438ab78097d57a6e986b24f4f8071516fa36c1f0393f408874cd81adb23913",
+   "reality_schema.json": "57c3852f8aa0adf9450de3504509b0bf95f85e78c55ff77b199a9c0998172324"
+  },
+  "taken": [
+   "W1",
+   "W2",
+   "W5",
+   "W6",
+   "W7",
+   "W8",
+   "X1",
+   "X4",
+   "X5",
+   "X6",
+   "X7",
+   "X8"
+  ]
+ },
+ "round_2": true,
+ "taken": [
+  "W1",
+  "W2",
+  "W5",
+  "W6",
+  "W7",
+  "W8",
+  "X1",
+  "X4",
+  "X5",
+  "X6",
+  "X7",
+  "X8"
+ ]
+}
