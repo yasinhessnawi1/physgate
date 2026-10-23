@@ -1,0 +1,11 @@
+{
+ "sha256": {
+  "adjudicator_prompt.txt": "0d9b0d2bd581f149bca440f58006dbff5083c232b258b81e994d0139ae7b7f44",
+  "adjudicator_schema.json": "f689ef6439310678b2f1eacd71069fe790144f48d9ee3b4bad3c9122b2d155ac",
+  "coder_prompt.txt": "2a01ad791c0448dc2f21db042260fd6908e282064650b9f8b727d0a61c7c1c31",
+  "coder_schema.json": "a79889a65c53fd30ed14b0180bef65940a4fcf3e47b2985a5badea435e3d12a1",
+  "reality_prompt.txt": "41438ab78097d57a6e986b24f4f8071516fa36c1f0393f408874cd81adb23913",
+  "reality_schema.json": "57c3852f8aa0adf9450de3504509b0bf95f85e78c55ff77b199a9c0998172324"
+ },
+ "taken": []
+}
