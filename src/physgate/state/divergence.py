@@ -14,8 +14,8 @@ about changes the store did not make.
 
 It also names a change that breaks a cross-cutting duty (ARCH-051): a cross node
 by a role that does not own the cross nodes, a domain node by the role that does,
-an interface node created during a step, any node by the role that owns
-completion. The store holds none of these rules, so recorded runs and corpora
+an interface node created during a step or a node turned into one, any node by the
+role that owns completion. The store holds none of these rules, so recorded runs and corpora
 written straight into a store replay as they were; whoever checks a step asks the
 role register who owns each duty and passes the answer in, or says by name that it
 checks ownership alone.
@@ -140,10 +140,10 @@ def divergence(
 
     **Given the duties, a change to a node the acting role owned is also held to them**:
     a node of the cross domain written by a role that does not own the cross nodes, or a
-    node of a domain by the role that does; an interface node created during the step;
-    any node written by the role that owns completion. The store holds none of these, so
-    a write that bypassed the hook and the apply step reaches the record, and is named
-    here. A change already named for its owner is not named again.
+    node of a domain by the role that does; an interface node created during the step, or
+    a node turned into one; any node written by the role that owns completion. The store
+    holds none of these, so a write that bypassed the hook and the apply step reaches the
+    record, and is named here. A change already named for its owner is not named again.
 
     Args:
         store: the store the changed nodes are read from.
@@ -216,15 +216,18 @@ def _duty_broken(
     """The first cross-cutting duty ``change`` breaks, as (reason, what it means), or ``None``.
 
     In the order the hook and the apply step hold a proposal to them: the cross nodes, no
-    interface created in a step, the owner of completion. The writer is the role the step
+    interface made in a step, the owner of completion. The writer is the role the step
     was dispatched to, which by now owned the node before the change. An interface is
     exempt from the cross rule only if the node was created as one and is one still: a node
-    turned into an interface after its creation was never one of decomposition's.
+    turned into an interface after its creation was never one of decomposition's, and is
+    named as an interface made, whatever its domain. The hook and apply refuse that write
+    as a kind change, which the store accepts from the owner; this names it in the record.
     """
     payload = store.payload_at(change.revision)
     first = min(store.history(change.node_id))
     node_id, kind, domain = change.node_id, payload.get("kind"), payload.get("domain")
-    if not (kind == _INTERFACE and store.payload_at(first).get("kind") == _INTERFACE):
+    created_as_interface = store.payload_at(first).get("kind") == _INTERFACE
+    if not (kind == _INTERFACE and created_as_interface):
         cross = domain == _CROSS
         owners = duties.cross_nodes
         if len(owners) > 1:
@@ -252,6 +255,12 @@ def _duty_broken(
         return INTERFACE_CREATION, (
             f"{node_id} was created as an interface node during the step; interface nodes are "
             "written from the plan when the task is decomposed, never by a session"
+        )
+    if kind == _INTERFACE and not created_as_interface:
+        return INTERFACE_CREATION, (
+            f"{node_id} was turned into an interface node, of the {domain} domain, after it "
+            "was created as another kind; interface nodes are written from the plan when the "
+            "task is decomposed, never by a session"
         )
     owners = duties.completion
     if len(owners) > 1:

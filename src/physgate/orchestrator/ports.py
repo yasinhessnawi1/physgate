@@ -309,8 +309,9 @@ class GraphPort(Protocol):
 
         A duty is one the role register gives a cross-cutting role: the cross nodes, which
         only their owner writes, and completion, whose owner writes no node. An interface
-        node made after ``since`` is named too. Each entry says which of these it is, so
-        the loop records a write past the store's own guard apart from a duty's breach.
+        node made after ``since``, created as one or turned into one, is named too. Each
+        entry says which of these it is, so the loop records a write past the store's own
+        guard apart from a duty's breach.
         """
         ...
 

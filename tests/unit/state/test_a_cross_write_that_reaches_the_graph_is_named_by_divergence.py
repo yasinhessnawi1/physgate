@@ -162,6 +162,23 @@ def test_an_interface_node_created_in_a_step_is_named_by_divergence(
     assert _reasons(found) == [(f"iface.{role}.p09", INTERFACE_CREATION)]
 
 
+@pytest.mark.parametrize(
+    ("role", "node_id", "domain"),
+    [("control", "control.loop", "control"), ("sizing", "sizing.motor_left", "cross")],
+    ids=["a domain node, into an interface of its domain", "a cross node, by their owner"],
+)
+def test_a_node_turned_into_an_interface_in_a_step_is_named_as_an_interface_made(
+    graph_before: Store, role: str, node_id: str, domain: str
+) -> None:
+    # The store lets an owner change a node's kind, and the cross rule has nothing to say
+    # where the writer may write the node's domain. The hook and apply refuse the kind
+    # change first; past them, the record still shows an interface no plan wrote.
+    turned = node(node_id, role, domain, kind="interface", quantities={})
+    found = _step(graph_before, role, turned)
+    assert _reasons(found) == [(node_id, INTERFACE_CREATION)]
+    assert "turned into an interface" in found[0].detail
+
+
 def test_an_interface_written_before_the_step_is_not_a_creation_in_it(graph_before: Store) -> None:
     # Decomposition writes the interfaces before any step starts, and no step's check reads
     # them; read as if they were a step's, the same record would name the creation.
