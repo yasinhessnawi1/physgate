@@ -49,7 +49,7 @@ from physgate.orchestrator.escalation_state import EscalationState
 from physgate.orchestrator.exceptions import CorruptEventLogError, RunConfigError
 from physgate.orchestrator.install import InstallFacts
 from physgate.orchestrator.managed import ObservedTraffic
-from physgate.orchestrator.plan import InterfaceConsumers, SystemRequirement
+from physgate.orchestrator.plan import InterfaceConsumers, SystemRequirements, list_problems
 from physgate.orchestrator.protocols import (
     GateResult,
     RecordedUnavailableCause,
@@ -590,15 +590,28 @@ class Decomposed(_Event):
     plan_sha256: Sha256 | None = None
     #: The consumers of each interface node and the system requirements, as the plan of a
     #: run with the integration role gives them; ``None`` in a run without that role. Typed
-    #: with the plan's own models, so a line read back is held to every bound the plan was.
+    #: with the plan's own models, so a line read back is held to every bound the plan was,
+    #: and to the plan's rules across the two lists and the line's own interface nodes.
     interface_consumers: tuple[InterfaceConsumers, ...] | None = None
-    system_requirements: tuple[SystemRequirement, ...] | None = None
+    system_requirements: SystemRequirements | None = None
 
     @model_validator(mode="after")
     def _both_lists_or_neither(self) -> Decomposed:
         if (self.interface_consumers is None) != (self.system_requirements is None):
             msg = "a plan gives integration both of its lists, or neither"
             raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _the_lists_hold_the_plan_s_rules(self) -> Decomposed:
+        # The rules the plan check held the lists to that need no module and no brief: the
+        # line carries neither, but it carries the interface nodes the entries are for.
+        if self.interface_consumers is not None and self.system_requirements is not None:
+            problems = list_problems(
+                self.interface_nodes, self.interface_consumers, self.system_requirements
+            )
+            if problems:
+                raise ValueError("; ".join(problems))
         return self
 
     @model_serializer(mode="wrap")

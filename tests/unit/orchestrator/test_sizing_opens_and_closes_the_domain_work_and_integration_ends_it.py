@@ -5,11 +5,15 @@ Sizing's one planned module opens the domain work; the domain modules follow in 
 the plan lists them; a second pass of sizing, on the same module, closes it; integration
 comes last. Neither the closing pass nor integration is a module of the plan: the harness
 writes both specifications from the recorded plan. Integration's states whether the run's
-automated design-quantity checks are on, and carries the system requirements and the
-consumers the plan allocated to it. A run with neither role is planned exactly as before.
+automated design-quantity checks are on, and whether a failed system-scope result withholds
+completion, and carries every system requirement and every consumer the plan allocated to
+it, whole; it is held to the bound a module's specification is. A plan module may not take
+a name the harness mints its own subtasks from. A run with neither role is planned exactly
+as before.
 
 The run records the plan's digest, taken from the plan itself, and the two lists, which
-are read back from the log through the same models the plan was held to.
+are read back from the log through the same models the plan was held to, and the plan's
+rules across them.
 """
 
 from __future__ import annotations
@@ -28,10 +32,12 @@ from physgate import roles
 from physgate.knowledge import loader
 from physgate.orchestrator.common import GateMode
 from physgate.orchestrator.decompose import (
+    SPEC_MAX_CHARS,
     IntegratedPlan,
     Outcome,
     Plan,
     mint_id,
+    plan_problems,
     plan_sha256,
     start_run,
 )
@@ -46,11 +52,24 @@ from physgate.roles import CrossCuttingRole
 BOTH = ("control", "firmware", "integration", "sizing")
 DOMAIN_ONLY = ("control", "firmware")
 SEED = 7
+#: A brief that numbers the criterion the fixtures' system requirement names.
+NUMBERED_BRIEF = "Build a robot.\n\n## Acceptance criteria\n\n1. It stands.\n2. It recovers.\n"
 
-#: Integration's sentence for each gate mode, word for word.
-ON = "The run's automated design-quantity checks are on."
-OBSERVE = "The run's automated design-quantity checks are on, and they block nothing."
-OFF = "The run's automated design-quantity checks are off: there is no system-scope result."
+#: Integration's sentence for each gate mode, word for word. Observing blocks no merge, but a
+#: failed system-scope result still withholds completion, which is a declaration and not work;
+#: with the checks off, completion has no system-scope precondition.
+ON = (
+    "The run's automated design-quantity checks are on, and a failed system-scope result "
+    "withholds completion."
+)
+OBSERVE = (
+    "The run's automated design-quantity checks are on, and they block nothing; a failed "
+    "system-scope result still withholds completion."
+)
+OFF = (
+    "The run's automated design-quantity checks are off: there is no system-scope result, "
+    "and completion has no system-scope precondition."
+)
 SENTENCES = {"on": ON, "observe": OBSERVE, "off": OFF}
 
 
@@ -635,6 +654,76 @@ def test_two_subtasks_minted_one_id_are_refused_before_anything_is_written(
     assert not (tmp_path / "run" / "events.jsonl").exists()
 
 
+def test_integration_s_spec_is_held_to_the_bound_a_module_s_is(tmp_path: Path) -> None:
+    # Each requirement is at most 500 characters, but quoted to ASCII a character past it
+    # takes six: within the schema, the plan can make integration's specification longer
+    # than the decomposition may make any module's. It is held to the same bound, and a
+    # specification one character past it is refused before anything is written.
+    escaped = len(json.dumps("é")) - 2
+
+    def plan_of(bodies: list[str]) -> IntegratedPlan:
+        requirements = [
+            {
+                "requirement": f"{i:02d}{body}",
+                "contributing": [{"module": "drive", "criterion": "1"}],
+            }
+            for i, body in enumerate(bodies)
+        ]
+        return integrated([BUDGET, DRIVE, FW], system_requirements=requirements)
+
+    count = 12
+    run_dir, repo = started(tmp_path / "short", plan_of([""] * count), BOTH)
+    extra = SPEC_MAX_CHARS - len(issued(repo, planned(run_dir)[-1]))
+    bodies = []
+    for _ in range(count):
+        # At most 491 characters past ASCII and five within it: a body of 496 at most.
+        weight = min(extra, 491 * escaped + escaped - 1)
+        bodies.append("é" * (weight // escaped) + "x" * (weight % escaped))
+        extra -= weight
+    assert extra == 0
+    run_dir, repo = started(tmp_path / "at", plan_of(bodies), BOTH)
+    assert len(issued(repo, planned(run_dir)[-1])) == SPEC_MAX_CHARS == 32_768
+    with pytest.raises(DecompositionError, match="specification"):
+        started(tmp_path / "over", plan_of([*bodies[:-1], bodies[-1] + "x"]), BOTH)
+    assert not (tmp_path / "over" / "run" / "events.jsonl").exists()
+
+
+@pytest.mark.parametrize("register", ["as it ships", "under other names"])
+def test_the_names_the_harness_mints_its_own_subtasks_from_are_refused_to_a_plan_module(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, register: str
+) -> None:
+    # The names read back from the subtasks a run planned: the closing pass's, minted from
+    # the sizing module's name, and the completion owner's. A plan module named either, or
+    # named for either with more after a hyphen, is refused at the plan check.
+    run_roles, sizing, completion = BOTH, BUDGET, "integration"
+    if register == "under other names":
+        monkeypatch.delitem(roles.ROLES, roles.SIZING.name)
+        monkeypatch.delitem(roles.ROLES, roles.INTEGRATION.name)
+        for row in (
+            CrossCuttingRole(name="ballast", architecture="ARCH-051", owns="cross_nodes"),
+            CrossCuttingRole(name="closer", architecture="ARCH-051", owns="completion"),
+        ):
+            monkeypatch.setitem(roles.ROLES, row.name, row)
+        run_roles = ("ballast", "closer", "control", "firmware")
+        sizing, completion = module("weight", "ballast"), "closer"
+    plan = integrated([DRIVE, sizing, FW])
+    run_dir, _ = started(tmp_path, plan, run_roles)
+    minted = [line.subtask_id.rsplit("-", 1)[0] for line in planned(run_dir)[len(plan.modules) :]]
+    assert minted == [f"{sizing['name']}-closing", completion]
+    assert plan_problems(plan, run_roles, NUMBERED_BRIEF) == []
+    for name in minted:
+        for taken in (name, f"{name}-two"):
+            renamed = integrated(
+                [DRIVE, sizing, {**FW, "name": taken}],
+                interface_consumers=[{"interface": "iface.drive", "consumers": [taken]}],
+                system_requirements=[
+                    {"requirement": "2", "contributing": [{"module": taken, "criterion": "2"}]}
+                ],
+            )
+            found = plan_problems(renamed, run_roles, NUMBERED_BRIEF)
+            assert [p for p in found if repr(taken) in p and repr(name) in p], (taken, found)
+
+
 # --- what the run records -----------------------------------------------------------------
 
 
@@ -701,6 +790,17 @@ def _rewritten(run_dir: Path, change: Any) -> Path:  # noqa: ANN401 - a line's o
     return path
 
 
+def _more_requirements(event: dict[str, Any], count: int) -> None:
+    """Add ``count`` requirements to the line, each its own, so only their number is wrong."""
+    event["system_requirements"] += [
+        {
+            "requirement": f"Requirement {i} holds.",
+            "contributing": [{"module": "drive", "criterion": "1"}],
+        }
+        for i in range(count)
+    ]
+
+
 @pytest.mark.parametrize(
     "change",
     [
@@ -720,6 +820,19 @@ def _rewritten(run_dir: Path, change: Any) -> Path:  # noqa: ANN401 - a line's o
         lambda e: e.update(plan_sha256=e["plan_sha256"] + "\n"),
         lambda e: e.update(plan_sha256="g" * 64),
         lambda e: e.update(plan_sha256=""),
+        # The plan's rules across the lists and the line's own interface nodes.
+        lambda e: e["interface_consumers"].append(
+            {"interface": "iface.other", "consumers": ["fw"]}
+        ),
+        lambda e: e["interface_consumers"].append({"interface": "iface.tilt", "consumers": ["fw"]}),
+        lambda e: e["interface_consumers"].pop(),
+        lambda e: e["interface_nodes"].append("iface.more"),
+        lambda e: e["interface_consumers"][0]["consumers"].append("fw"),
+        lambda e: e["system_requirements"][1].update(
+            requirement=e["system_requirements"][0]["requirement"]
+        ),
+        # At most fifty requirements, as the plan's schema says.
+        lambda e: _more_requirements(e, 49),
     ],
     ids=[
         "an empty consumers list",
@@ -736,6 +849,13 @@ def _rewritten(run_dir: Path, change: Any) -> Path:  # noqa: ANN401 - a line's o
         "a digest with a line feed",
         "a digest that is not hex",
         "an empty digest",
+        "a consumers entry for an interface the line does not hold",
+        "an interface with two consumers entries",
+        "an interface with no consumers entry",
+        "an interface node no consumers entry is for",
+        "a consumer named twice in one entry",
+        "a requirement listed twice",
+        "fifty-one requirements",
     ],
 )
 def test_a_recorded_list_the_plan_s_models_refuse_is_refused_when_read_back(
@@ -747,6 +867,46 @@ def test_a_recorded_list_the_plan_s_models_refuse_is_refused_when_read_back(
     assert decomposed(run_dir).system_requirements is not None
     with pytest.raises(CorruptEventLogError):
         read_events(_rewritten(run_dir, change))
+
+
+def test_fifty_requirements_are_recorded_and_read_back(tmp_path: Path) -> None:
+    requirements = [
+        {
+            "requirement": f"Requirement {i} holds.",
+            "contributing": [{"module": "drive", "criterion": "1"}],
+        }
+        for i in range(50)
+    ]
+    plan = integrated([BUDGET, DRIVE, FW], system_requirements=requirements)
+    run_dir, _ = started(tmp_path, plan, BOTH)
+    assert decomposed(run_dir).system_requirements == plan.system_requirements
+
+
+@pytest.mark.parametrize(
+    "lists",
+    [
+        {
+            "interface_consumers": [
+                {"interface": "iface.drive", "consumers": ["fw"]},
+                {"interface": "iface.other", "consumers": ["fw"]},
+            ]
+        },
+        {"interface_consumers": []},
+        {"interface_consumers": [{"interface": "iface.drive", "consumers": ["fw", "fw"]}]},
+        {"system_requirements": REQUIREMENTS + REQUIREMENTS},
+    ],
+    ids=["an unknown interface", "a missing entry", "a consumer twice", "a requirement twice"],
+)
+def test_lists_the_plan_s_rules_refuse_are_refused_before_anything_is_written(
+    tmp_path: Path, lists: dict[str, Any]
+) -> None:
+    # A plan that reached the run without its check: the rules the log holds a line to are
+    # held before the run branch, the store or the log is written.
+    with pytest.raises(DecompositionError, match="interface|consumer|requirement"):
+        started(tmp_path, integrated([BUDGET, DRIVE, FW], **lists), BOTH)
+    assert not (tmp_path / "run" / "events.jsonl").exists()
+    held = git(tmp_path / "target", "branch", "--list", "physgate/*")
+    assert held == ""
 
 
 def test_a_decomposed_line_with_none_of_the_three_is_written_as_before() -> None:

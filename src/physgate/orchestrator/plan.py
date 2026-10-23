@@ -3,13 +3,16 @@
 The models live apart from the call that asks for them so that the run-event log can
 type what it records of a plan with the very models the plan was held to: a list read
 back from the log is parsed through them, with every bound they carry, and never through
-a looser shape of its own. Nothing here calls a model or reads the register.
+a looser shape of its own, and is held to the same rules across the two lists
+(:func:`list_problems`). Nothing here calls a model or reads the register.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+from collections import Counter
+from collections.abc import Sequence
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
@@ -79,6 +82,17 @@ class SystemRequirement(_Frozen):
     contributing: Annotated[tuple[Contribution, ...], Field(min_length=1)]
 
 
+#: The most system requirements a plan may allocate to integration, as many as it may plan
+#: modules. Each is written whole into integration's specification, which is held to
+#: :data:`SPEC_MAX_CHARS` as a module's is.
+MAX_SYSTEM_REQUIREMENTS = 50
+
+#: The system requirements, bounded in number; the run-event log reads them back with the bound.
+SystemRequirements = Annotated[
+    tuple[SystemRequirement, ...], Field(max_length=MAX_SYSTEM_REQUIREMENTS)
+]
+
+
 class InterfaceConsumers(_Frozen):
     """The modules that read one interface node's quantities, by their names in the plan.
 
@@ -99,7 +113,47 @@ class IntegratedPlan(Plan):
     """
 
     interface_consumers: tuple[InterfaceConsumers, ...]
-    system_requirements: tuple[SystemRequirement, ...]
+    system_requirements: SystemRequirements
+
+
+def list_problems(
+    interfaces: Sequence[str],
+    consumers: Sequence[InterfaceConsumers],
+    requirements: Sequence[SystemRequirement],
+) -> list[str]:
+    """What is wrong across integration's two lists, given only the interface nodes' ids.
+
+    The plan's rules that need nothing but the lists and ``interfaces``: every consumers
+    entry is for one of them, each of them has exactly one entry, an entry names each
+    consumer once, and each requirement is listed once. The plan check holds a plan to
+    them, beside the rules that need its modules and its brief; the run-event log holds a
+    recorded line to them, with the line's own interface nodes, on its way back in.
+    """
+    found: list[str] = []
+    known = set(interfaces)
+    for entry in consumers:
+        if entry.interface not in known:
+            found.append(
+                f"interface_consumers names {entry.interface!r}, which is no interface node "
+                "of the plan"
+            )
+            continue
+        for consumer, count in Counter(entry.consumers).items():
+            if count > 1:
+                found.append(
+                    f"interface node {entry.interface!r} names {consumer!r} as a consumer "
+                    "more than once"
+                )
+    entries = Counter(entry.interface for entry in consumers)
+    for node_id in dict.fromkeys(interfaces):
+        if entries[node_id] == 0:
+            found.append(f"interface node {node_id!r} has no consumers entry")
+        elif entries[node_id] > 1:
+            found.append(f"interface node {node_id!r} has more than one consumers entry")
+    for requirement, count in Counter(r.requirement for r in requirements).items():
+        if count > 1:
+            found.append(f"system requirement {requirement!r} is listed more than once")
+    return found
 
 
 def plan_sha256(plan: Plan) -> str:

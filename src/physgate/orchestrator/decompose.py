@@ -68,6 +68,7 @@ from physgate.orchestrator.plan import InterfaceConsumers as InterfaceConsumers
 from physgate.orchestrator.plan import Plan as Plan
 from physgate.orchestrator.plan import PlannedModule as PlannedModule
 from physgate.orchestrator.plan import SystemRequirement as SystemRequirement
+from physgate.orchestrator.plan import list_problems as list_problems
 from physgate.orchestrator.plan import plan_sha256 as plan_sha256
 from physgate.orchestrator.protocols import MessageUsage, Usage
 from physgate.orchestrator.record import (
@@ -299,6 +300,18 @@ def _cross_cutting_problems(plan: Plan, roles: Sequence[str]) -> list[str]:
                 f"the plan has {count} modules of the {owner} role; at most one is allowed, "
                 "since that one module opens and closes the domain work"
             )
+    for taken in _harness_names(plan, roles):
+        for module in plan.modules:
+            if module.name == taken:
+                found.append(
+                    f"module {module.name!r} is named {taken!r}, the name the harness gives a "
+                    "subtask of its own"
+                )
+            elif module.name.startswith(f"{taken}-"):
+                found.append(
+                    f"module {module.name!r} is named for {taken!r}, the name the harness gives "
+                    "a subtask of its own, with more after a hyphen"
+                )
     completion = _in_run("completion", roles)
     if not completion:
         return found
@@ -332,26 +345,27 @@ def _integration_problems(plan: Plan, roles: Sequence[str], brief: str) -> list[
             "the plan lists consumers and system requirements, and the run has no "
             "integration role to check them"
         ]
-    return _consumer_problems(plan) + _requirement_problems(plan, brief)
+    interfaces = [node.id for node in plan.interface_nodes]
+    return (
+        list_problems(interfaces, plan.interface_consumers, plan.system_requirements)
+        + _consumer_problems(plan)
+        + _requirement_problems(plan, brief)
+    )
 
 
 def _consumer_problems(plan: IntegratedPlan) -> list[str]:
-    """Every consumers entry the plan cannot back, and every interface node with none or two.
+    """Every consumer the plan's modules cannot back.
 
-    A module of the node's producing role is never its consumer: the producer is the
-    module of the role that owns the node. An entry names each consumer once, since the
-    module pairs whose contract is tested are read from it.
+    A consumer is a module of the plan, and a module of the node's producing role is never
+    its consumer: the producer is the module of the role that owns the node. What needs
+    only the lists and the nodes' ids (an entry for an unknown node, a node with none or
+    two, a consumer named twice) is :func:`list_problems`'s.
     """
     found: list[str] = []
     role_of = {module.name: module.role for module in plan.modules}
     producer_of = {node.id: node.owner_role for node in plan.interface_nodes}
-    entries = Counter(entry.interface for entry in plan.interface_consumers)
     for entry in plan.interface_consumers:
         if entry.interface not in producer_of:
-            found.append(
-                f"interface_consumers names {entry.interface!r}, which is no interface node "
-                "of the plan"
-            )
             continue
         for consumer in entry.consumers:
             role = role_of.get(consumer)
@@ -365,17 +379,6 @@ def _consumer_problems(plan: IntegratedPlan) -> list[str]:
                     f"interface node {entry.interface!r} names {consumer!r} as a consumer, "
                     f"which is a module of its producing role {role!r}"
                 )
-        for consumer, count in Counter(entry.consumers).items():
-            if count > 1:
-                found.append(
-                    f"interface node {entry.interface!r} names {consumer!r} as a consumer "
-                    "more than once"
-                )
-    for node_id in producer_of:
-        if entries[node_id] == 0:
-            found.append(f"interface node {node_id!r} has no consumers entry")
-        elif entries[node_id] > 1:
-            found.append(f"interface node {node_id!r} has more than one consumers entry")
     return found
 
 
@@ -384,14 +387,12 @@ def _requirement_problems(plan: IntegratedPlan, brief: str) -> list[str]:
 
     A contributing criterion is one the module's specification numbers under its
     acceptance criteria, the same reading its reviewer is held to. Where the brief
-    numbers its own acceptance criteria, a requirement is one of those numbers.
+    numbers its own acceptance criteria, a requirement is one of those numbers. A
+    requirement listed twice is :func:`list_problems`'s.
     """
     found: list[str] = []
     numbered = issued_criteria(brief)
     criteria_of = {module.name: issued_criteria(module.spec) or () for module in plan.modules}
-    for requirement, count in Counter(r.requirement for r in plan.system_requirements).items():
-        if count > 1:
-            found.append(f"system requirement {requirement!r} is listed more than once")
     for entry in plan.system_requirements:
         if numbered is not None and entry.requirement not in numbered:
             found.append(
@@ -800,14 +801,43 @@ def _require_library_fits(repo: Path, commit: str, curated: Mapping[Path, bytes]
 
 #: The sentence integration's specification states the run's gate mode in, one per mode. The
 #: checks are the gate's: with them off there is no system-scope result to read, by design.
+#: Observing blocks no merge, but completion is a declaration, not work: a failed
+#: system-scope result withholds it whether the checks block or only observe, and with them
+#: off completion has no system-scope precondition.
 GATE_MODE_SENTENCES: Mapping[GateMode, str] = {
-    "on": "The run's automated design-quantity checks are on.",
-    "observe": "The run's automated design-quantity checks are on, and they block nothing.",
-    "off": "The run's automated design-quantity checks are off: there is no system-scope result.",
+    "on": (
+        "The run's automated design-quantity checks are on, and a failed system-scope result "
+        "withholds completion."
+    ),
+    "observe": (
+        "The run's automated design-quantity checks are on, and they block nothing; a failed "
+        "system-scope result still withholds completion."
+    ),
+    "off": (
+        "The run's automated design-quantity checks are off: there is no system-scope result, "
+        "and completion has no system-scope precondition."
+    ),
 }
 
 #: What the closing pass's subtask is named after: the sizing module's own name, then this.
 CLOSING_SUFFIX = "-closing"
+
+
+def _closing_name(module: str) -> str:
+    """The name the closing pass over ``module`` is minted from."""
+    return f"{module}{CLOSING_SUFFIX}"
+
+
+def _harness_names(plan: Plan, roles: Sequence[str]) -> tuple[str, ...]:
+    """The names the harness mints its own subtasks from, in a run of ``roles``.
+
+    The closing pass's, after each module of the role that owns the cross nodes, and the
+    name of the role that owns completion, for integration's subtask: the names
+    :func:`_planned_subtasks` mints them from. A plan module may take none of them.
+    """
+    sizing = _in_run("cross_nodes", roles)
+    closing = tuple(_closing_name(m.name) for m in plan.modules if m.role in sizing)
+    return closing + _in_run("completion", roles)
 
 
 @dataclass(frozen=True)
@@ -832,8 +862,19 @@ def _quoted(text: str) -> str:
 def _issued(
     seed: int, index: int, *, minted: str, module: str, role: str, module_dir: str, spec: str
 ) -> _Issued:
-    """The subtask whose id is minted from ``minted`` at ``index``, working on ``module``."""
+    """The subtask whose id is minted from ``minted`` at ``index``, working on ``module``.
+
+    Raises:
+        DecompositionError: ``spec`` is longer than a module's may be. A plan module's is
+            held to it by the schema; one the harness writes is held to it here, since the
+            plan's words are quoted into it and can make it longer than they are.
+    """
     subtask_id = mint_id(seed, index, minted)
+    if len(spec) > SPEC_MAX_CHARS:
+        msg = "the specification of a subtask is longer than a module's may be"
+        raise DecompositionError(
+            msg, subtask=subtask_id, length=str(len(spec)), limit=str(SPEC_MAX_CHARS)
+        )
     entry = PlanEntry(
         subtask_id=subtask_id,
         spec_path=f".physgate/specs/{subtask_id}.md",
@@ -983,8 +1024,9 @@ def _planned_subtasks(plan: Plan, config: RunConfig) -> list[_Issued]:
     existed.
 
     Raises:
-        DecompositionError: the plan is not of the form the run's roles call for, or two
-            subtasks were minted one id.
+        DecompositionError: the plan is not of the form the run's roles call for, its lists
+            break the rules the run-event log holds them to, a specification is longer than
+            a module's may be, or two subtasks were minted one id.
     """
     roles = sorted(config.models.roles)
     sizing, completion = _in_run("cross_nodes", roles), _in_run("completion", roles)
@@ -993,6 +1035,19 @@ def _planned_subtasks(plan: Plan, config: RunConfig) -> list[_Issued]:
         raise DecompositionError(
             msg, integrated=str(isinstance(plan, IntegratedPlan)), completion=", ".join(completion)
         )
+    if isinstance(plan, IntegratedPlan):
+        # The plan check holds them first; held again here, before anything is written,
+        # since the line that records them is refused on these rules.
+        problems = list_problems(
+            [node.id for node in plan.interface_nodes],
+            plan.interface_consumers,
+            plan.system_requirements,
+        )
+        if problems:
+            msg = "the plan's lists of what integration checks break its rules: " + "; ".join(
+                problems
+            )
+            raise DecompositionError(msg)
     ordered = sorted(enumerate(plan.modules), key=lambda pair: pair[1].role not in sizing)
     planned = [
         _issued(
@@ -1014,7 +1069,7 @@ def _planned_subtasks(plan: Plan, config: RunConfig) -> list[_Issued]:
             _issued(
                 config.seed,
                 index,
-                minted=f"{opening.module}{CLOSING_SUFFIX}",
+                minted=_closing_name(opening.module),
                 module=opening.module,
                 role=opening.entry.assigned_role,
                 module_dir=opening.entry.module_dir,

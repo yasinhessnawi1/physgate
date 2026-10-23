@@ -15,8 +15,9 @@ in the one model call:
 
 Both are untrusted input, held by code to the plan they sit in and to the brief: a
 module, an interface or a criterion that does not exist, an entry given twice, a
-consumer named twice in one entry, a requirement the brief does not number, or a
-producer named as its own consumer is a problem, and the plan is refused.
+consumer named twice in one entry, a requirement the brief does not number, more than
+fifty requirements, or a producer named as its own consumer is a problem, and the plan
+is refused. So is a module named for a subtask the harness adds to the run.
 
 Both roles are found in the register by what they own, never by their names.
 """
@@ -510,6 +511,101 @@ def test_the_roles_are_found_in_the_register_by_what_they_own(
     assert any("'checks' is assigned the closer role" in p for p in found), found
     ordinary = [*GOOD["modules"], module("checks", "integration")]
     assert plan_problems(integrated(modules=ordinary), run_roles, BRIEF) == []
+
+
+# --- the names the harness gives its own subtasks -----------------------------------------
+
+
+def renamed(name: str) -> dict[str, Any]:
+    """The good answer with module fw, and every entry naming it, renamed ``name``.
+
+    Its directory stays ``modules/fw``: only the name can be what the plan check refuses.
+    """
+    return answer(
+        modules=[*GOOD["modules"][:2], module(name, "firmware", module_dir="modules/fw")],
+        interface_consumers=[{"interface": "iface.drive", "consumers": [name]}],
+        system_requirements=[_requirement("2", ("drive", "1"), (name, "2"))],
+    )
+
+
+@pytest.mark.parametrize(
+    ("name", "taken"),
+    [
+        ("budget-closing", "budget-closing"),
+        ("budget-closing-two", "budget-closing"),
+        ("integration", "integration"),
+        ("integration-checks", "integration"),
+    ],
+)
+def test_a_module_named_for_a_subtask_the_harness_adds_is_refused(name: str, taken: str) -> None:
+    # The harness names the closing pass after the sizing module, and integration's subtask
+    # after the role that owns completion. A plan module named either, or named for either
+    # with more after a hyphen, would read in the run's record as the harness's own.
+    found = plan_problems(
+        IntegratedPlan.model_validate_json(json.dumps(renamed(name))), ROLES, BRIEF
+    )
+    assert [p for p in found if f"module {name!r}" in p and repr(taken) in p], found
+    cause, detail, _, _, _ = judged(renamed(name))
+    assert cause == "invalid_plan" and repr(taken) in detail
+
+
+@pytest.mark.parametrize(
+    "name", ["budget-closer", "budget-closings", "closing", "fw-closing", "integrations", "integ"]
+)
+def test_a_name_that_only_resembles_one_the_harness_adds_is_any_module_s(name: str) -> None:
+    plan = IntegratedPlan.model_validate_json(json.dumps(renamed(name)))
+    assert plan_problems(plan, ROLES, BRIEF) == []
+
+
+def test_without_the_cross_cutting_roles_their_subtasks_names_are_any_module_s() -> None:
+    # Nothing is minted for a role the run does not have, so nothing is kept from the plan.
+    for name in ("budget-closing", "integration", "integration-checks"):
+        base = Plan.model_validate_json(
+            json.dumps(
+                {
+                    "modules": [module("budget", "control"), module(name, "firmware")],
+                    "interface_nodes": [interface()],
+                }
+            )
+        )
+        assert plan_problems(base, DOMAIN_ONLY, BRIEF) == [], name
+    # With sizing alone, the closing pass's name is kept; integration's is not.
+    sizing_alone = ("control", "firmware", "sizing")
+    for name, kept in (("budget-closing", True), ("integration", False)):
+        base = Plan.model_validate_json(
+            json.dumps(
+                {
+                    "modules": [
+                        module("budget", "sizing"),
+                        module("drive", "control"),
+                        module(name, "firmware"),
+                    ],
+                    "interface_nodes": [interface()],
+                }
+            )
+        )
+        assert bool(plan_problems(base, sizing_alone, BRIEF)) is kept, name
+
+
+# --- the number of system requirements ----------------------------------------------------
+
+
+def test_the_system_requirements_are_fifty_at_most() -> None:
+    # Each requirement is written whole into integration's specification, so the list is
+    # bounded in the schema the binary holds the answer to, as the modules are.
+    def many(count: int) -> list[dict[str, Any]]:
+        return [_requirement(f"Requirement {i} holds.", ("drive", "1")) for i in range(count)]
+
+    fifty = integrated(system_requirements=many(50))
+    assert len(fifty.system_requirements) == 50
+    assert plan_problems(fifty, ROLES, UNNUMBERED_BRIEF) == []
+    with pytest.raises(ValidationError, match="system_requirements"):
+        integrated(system_requirements=many(51))
+    cause, detail, _, _, _ = judged(answer(system_requirements=many(51)))
+    assert cause == "invalid_plan" and "system_requirements" in detail
+    schema = json.loads(plan_schema(ROLES))
+    assert schema["properties"]["system_requirements"]["maxItems"] == 50
+    assert schema["properties"]["modules"]["maxItems"] == 50
 
 
 # --- the prompt ---------------------------------------------------------------------------
