@@ -219,7 +219,8 @@ number, seed or threshold.
       is refused, so a launcher whose terminal closed cannot leave two drivers on one work dir.
       The file records the launcher's pid and the phase's process group, for the log only; a
       record left by a phase that did not end cleanly is logged as a `takeover` interruption by
-      the next launcher that takes the lock.
+      the next launcher that takes the lock. Only the phase holds it: the watcher, which is no
+      part of it, runs without the descriptor, so the lock is free the moment a launcher ends.
     - A dead phase's lock is never cleared by hand: nothing of it is left to clear. If a launcher
       is refused although no phase should be running, a process of the old phase still holds the
       lock. The operator lists the holders (`lsof <work dir>/ledger/launch.lock`), checks that
@@ -228,9 +229,10 @@ number, seed or threshold.
       never deleted or moved while a holder lives.
     - The launcher runs end to end on the synthetic fixture with the stand-in, as a test, and
       only there: `RLAW_STANDIN` and `RLAW_DRY_PINS` are each refused without the other, a
-      stand-in that is the pinned binary is refused, and a real preflight refuses a work dir that
-      holds any stand-in's output (a marked ledger, codes or reality row, or a `.standin` session
-      file). Every output of a dry run is marked a stand-in's, and the tally refuses it outside
+      stand-in that is the pinned binary is refused, a dry run refuses a work dir whose
+      `slice.json` is the committed one (the real work dir), and a real preflight refuses a work
+      dir that holds any stand-in's output (a marked ledger, codes or reality row, or a `.standin`
+      session file). Every output of a dry run is marked a stand-in's, and the tally refuses it outside
       `--dry-run`.
 
 Reading 16 was written on 23.10.2026, before any session of the experiment. It changes no frozen
@@ -252,16 +254,24 @@ number, seed or threshold.
       the prior adjudication.
     - `RESULT.md` reports it as a disclosed threat to validity.
 
-Reading 17, and the corrections to readings 14 and 15, were written on 23.10.2026 after a third
-review of the scripts, before any session of the experiment. None changes a frozen number, seed or
+Reading 17, and the corrections to readings 14 and 15, were written on 23.10.2026 after the third
+and fourth reviews of the scripts, before any session of the experiment. None changes a frozen number, seed or
 threshold.
 
-17. **A packet that fails the same way on every resume (§12).** If a packet's call fails with the
-    same non-transient cause (an `api_error` with a 4xx status other than 401, 403 and 429, or the
-    same `error_result`) on 3 consecutive resumes, it is recorded as a deviation under §12's
-    "anything else impossible as specified", which is "a deviation of the same kind" as the
-    counts, the guard and the re-gate: the run stops for good and the decision is not taken.
-    `RESULT.md` reports the packet, its cause and the figures reached before the stop. It is the
-    operator's decision at that point, logged in `interruptions.jsonl` and in `deviations.json`;
-    preflight then refuses the work dir, so nothing runs after it. No packet is ever left out of a
-    step. (The owner chose this over continuing without the packet, 23.10.2026.)
+17. **A packet stuck on one cause (§12).** A packet whose call fails three times in a row for the
+    same try (the first failure and the two resumes after it), each time with the identical cause,
+    is a deviation under §12's "anything else impossible as specified": the decision is not taken.
+    - The cause is identical when classify's label and, where the output has them, the binary's
+      own `api_error_status` and error text (`errors`, or `result`) are the same in all three. Any
+      failed call counts except a usage limit, a rate limit (429) and a refused credential.
+    - The failures are the packet's, not an outage's: between each and the next, at least one
+      other packet's call completed as a try, as the ledger shows.
+    - The owner chose (23.10.2026) that the run also ends there. `RESULT.md` reports the packet and
+      its cause; any figures reached before the stop are descriptive only, never a result.
+    - The driver applies the rule, not a person, after every failed call (`law_verify.py stuck`).
+      It reads only the ledger and the kept failed-call files (each failed call's ledger row names
+      its file, `output`), so the count holds across resumes. When the rule fires, the driver
+      writes `deviations.json` naming the packet, the try, the cause and the three files, logs a
+      `deviation` interruption and stops; preflight then refuses the work dir.
+
+    It changes no frozen number, seed or threshold.
