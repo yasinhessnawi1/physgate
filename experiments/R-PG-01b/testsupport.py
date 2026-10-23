@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import sys
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -114,8 +114,17 @@ def counting_endpoint(count: int) -> Iterator[tuple[Any, str, list[dict[str, Any
         server.server_close()
 
 
-def read_sheet_then_review(api: Any) -> None:  # noqa: ANN401 - the endpoint's own object
-    """The scripted reviewer: read the sheet whole, then every required file, then a verdict."""
+#: How the scripted reviewer reads the sheet: from its working directory, the Read calls' inputs.
+Reads = Callable[[str], list[dict[str, Any]]]
+
+
+def whole_read(cwd: str) -> list[dict[str, Any]]:
+    """One Read of the sheet, whole."""
+    return [{"file_path": f"{cwd}/parts_sheet.json"}]
+
+
+def read_sheet_then_review(api: Any, reads: Reads = whole_read) -> None:  # noqa: ANN401
+    """The scripted reviewer: read the sheet as ``reads`` says, every required file, a verdict."""
     sys.path.insert(0, str(C.REPO / "tests" / "integration" / "orchestrator"))
     sys.path.insert(0, str(C.REPO / "tests"))
     from real_domain_reviewers import scripted_verdict  # noqa: PLC0415
@@ -124,7 +133,7 @@ def read_sheet_then_review(api: Any) -> None:  # noqa: ANN401 - the endpoint's o
     def on_request(_thread: str, cwd: str, done: int) -> dict[str, Any]:
         read = Path(cwd).parent
         packet = json.loads((read.parent / "packet.json").read_text())
-        steps = [tool("Read", file_path=f"{cwd}/parts_sheet.json")]
+        steps = [tool("Read", **call) for call in reads(cwd)]
         steps += [tool("Read", file_path=p) for p in packet["required_reading"]]
         steps.append(tool("StructuredOutput", review=scripted_verdict(read, packet, "reject")))
         return steps[done] if done < len(steps) else text("done")

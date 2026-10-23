@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import random
 import signal
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -157,7 +159,7 @@ def test_the_filled_facts_are_read_and_a_placeholder_is_not_a_fact() -> None:
 # ---- L2's path rule ----
 
 
-def _repo(tmp_path: Path) -> Path:
+def _repo(tmp_path: Path) -> tuple[Path, Callable[..., str]]:
     repo = tmp_path / "repo"
     repo.mkdir()
     env = {
@@ -174,7 +176,7 @@ def _repo(tmp_path: Path) -> Path:
         ).stdout.strip()
 
     git("init", "-q", "-b", "main")
-    return repo, git  # type: ignore[return-value]
+    return repo, git
 
 
 def _write(repo: Path, files: dict[str, str]) -> None:
@@ -186,17 +188,19 @@ def _write(repo: Path, files: dict[str, str]) -> None:
 def test_l2_admits_only_the_backport_s_paths_and_master_s_blobs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    repo, git = _repo(tmp_path)  # type: ignore[misc]
+    repo, git = _repo(tmp_path)
     _write(repo, {"src/physgate/evaluation/inject/corpus.py": "old\n", "README.md": "r\n"})
     git("add", "-A")
     git("commit", "-q", "-m", "base")
     base = git("rev-parse", "HEAD")
     monkeypatch.setattr(C, "R_PG_01_COMMIT", base)
-    # master: the scripts, then the sheet
+    # master: the freeze, the scripts, the sheet, the fill, then scripts again after the fill
     git("checkout", "-q", "-b", "master")
-    _write(
-        repo, {"experiments/R-PG-01b/CRITERIA.md": "c\n", "experiments/R-PG-01b/launch.sh": "l\n"}
-    )
+    _write(repo, {"experiments/R-PG-01b/CRITERIA.md": "c [FILL]\n"})
+    git("add", "-A")
+    git("commit", "-q", "-m", "freeze")
+    monkeypatch.setattr(C, "FREEZE_COMMIT", git("rev-parse", "HEAD"))
+    _write(repo, {"experiments/R-PG-01b/launch.sh": "l\n"})
     git("add", "-A")
     git("commit", "-q", "-m", "scripts")
     _write(
@@ -204,31 +208,48 @@ def test_l2_admits_only_the_backport_s_paths_and_master_s_blobs(
     )
     git("add", "-A")
     git("commit", "-q", "-m", "sheet")
-    # the run branch: base plus the backport and master's files, no sheet copy
+    _write(repo, {"experiments/R-PG-01b/CRITERIA.md": "c filled\n"})
+    git("commit", "-qam", "filled")
+    _write(repo, {"experiments/R-PG-01b/launch.sh": "l2\n"})
+    git("commit", "-qam", "scripts again")
+    # the run branch: base plus the backport and master's files, the frozen CRITERIA.md
     git("checkout", "-q", "-b", "run", base)
     _write(repo, {"src/physgate/evaluation/inject/corpus.py": "new\n"})
     git(
         "checkout",
         "master",
         "--",
-        "experiments/R-PG-01b/CRITERIA.md",
         "experiments/R-PG-01b/launch.sh",
         f"{C.ARM_F_CORPUS}/sources.json",
     )
+    git("checkout", C.FREEZE_COMMIT, "--", "experiments/R-PG-01b/CRITERIA.md")
     git("add", "-A")
     git("commit", "-q", "-m", "run")
     found = checks.l2(repo, "master")
     assert found["paths outside §2.4"] == [] and found["paths_changed"] == 4
+    assert found["scripts_commit"] == git("rev-parse", "master")
     # a change outside §2.4 is refused
     _write(repo, {"README.md": "changed\n"})
     git("commit", "-qam", "outside")
     with pytest.raises(checks.Refused, match="outside"):
         checks.l2(repo, "master")
     git("reset", "-q", "--hard", "HEAD~1")
-    # a script blob that is not master's is refused
-    _write(repo, {"experiments/R-PG-01b/launch.sh": "other\n"})
+    # a script blob that is not master's last scripts commit's is refused
+    _write(repo, {"experiments/R-PG-01b/launch.sh": "l\n"})
     git("commit", "-qam", "drift")
-    with pytest.raises(checks.Refused, match="experiments/R-PG-01b tree"):
+    with pytest.raises(checks.Refused, match="experiments/R-PG-01b blobs"):
+        checks.l2(repo, "master")
+    git("reset", "-q", "--hard", "HEAD~1")
+    # a script the run branch lacks is refused
+    git("rm", "-q", "experiments/R-PG-01b/launch.sh")
+    git("commit", "-qm", "lacks")
+    with pytest.raises(checks.Refused, match="experiments/R-PG-01b blobs"):
+        checks.l2(repo, "master")
+    git("reset", "-q", "--hard", "HEAD~1")
+    # the filled CRITERIA.md on the run branch is refused: it carries the frozen one
+    git("checkout", "master", "--", "experiments/R-PG-01b/CRITERIA.md")
+    git("commit", "-qm", "filled on the run branch")
+    with pytest.raises(checks.Refused, match="frozen CRITERIA.md"):
         checks.l2(repo, "master")
     git("reset", "-q", "--hard", "HEAD~1")
     # the sheet copy on the run branch is refused
@@ -277,6 +298,509 @@ def test_every_review_line_is_held_to_its_role_s_rubric_digest(tmp_path: Path) -
 def test_gate_records_are_compared_by_subtask_and_side(tmp_path: Path) -> None:
     a, b = checks.gate_records(_run(tmp_path, "a")), checks.gate_records(_run(tmp_path, "b"))
     assert a == b and set(a) == {"i:r1", "t:t1"}
+
+
+# ---- the round's end, on invented attempts (§12) ----
+
+#: The invented attempt's slots: arm I in 3, arm F in 1.
+SLOTS_I_F = {"I": 3, "F": 1}
+SID = "00000000-0000-4000-8000-{:012d}"
+
+
+def _log(
+    path: Path,
+    prefix: str,
+    *,
+    infra: int = 0,
+    final: bool = True,
+    gates: bool = True,
+    rubric: str | None = None,
+    sessions: dict[int, str] | None = None,
+    gate_extra: bool = False,
+) -> None:
+    """One invented log of 40 subtasks, each planned, reviewed and gated.
+
+    As ``run_instrument`` writes them; ``infra`` reviews end unavailable for infrastructure
+    after their retry; with ``final`` false the last review's retry never came; with ``gates``
+    false no gate line.
+    """
+    ids = [f"{prefix}{k:03d}" for k in range(C.DENOMINATOR)]
+    rows: list[dict[str, Any]] = [T.planned(i, "electrical") for i in ids]
+    for k, i in enumerate(ids):
+        sid = (sessions or {}).get(k)
+        if k < infra:
+            rows += [
+                T.unavailable(i, "infrastructure", True),
+                T.unavailable(i, "infrastructure", False, session=sid),
+            ]
+        elif not final and k == len(ids) - 1:
+            rows.append(T.unavailable(i, "infrastructure", True, session=sid))
+        else:
+            digest = rubric or C.RUBRIC_SHA256["electrical"]
+            rows.append(T.ran(i, "pass", [], session=sid, rubric=digest))
+    if gates:
+        rows += [T.gate(i, ("units", "pass")) for i in ids]
+    if gate_extra:
+        rows[-1] = T.gate(ids[-1], ("units", "pass"), ("thermal", "unchecked"))
+    T.write_jsonl(path, rows)
+
+
+def _arm(home: Path, runs: Path, slot: int, *, rows: int = C.DENOMINATOR, **kw: Any) -> Path:
+    """One arm's run directory: both logs and its results file (``rows`` rows; none if -1)."""
+    run = C.places(home, slot, runs)["run"]
+    twin_kw = {k: v for k, v in kw.items() if k in ("rubric",)}
+    _log(run / "events.jsonl", "r", **kw)
+    _log(run / "controls" / "events.jsonl", "t", **twin_kw)
+    if rows >= 0:
+        T.write_jsonl(run / "results.jsonl", [{"artefact": f"a{k}"} for k in range(rows)])
+    return run
+
+
+def _stream_file(home: Path, slot: int, sid: str, text: str) -> None:
+    d = C.places(home, slot)["scratch"] / sid / "session"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "stdout.jsonl").write_text(text)
+
+
+def _records(
+    tmp: Path, monkeypatch: pytest.MonkeyPatch, prior: list[dict[str, Any]] | None = None
+) -> tuple[Path, Path, Path]:
+    """HOME, the records and this attempt's launch directory, as ``checks`` reads them."""
+    home, runs = tmp / "home", tmp / "home" / "runs"
+    launch = runs / "launch-1-9"
+    launch.mkdir(parents=True)
+    monkeypatch.setattr(checks, "HOME", home)
+    monkeypatch.setattr(checks, "RUNS", runs)
+    monkeypatch.setattr(checks, "SLOTS", runs / "slots.json")
+    attempts = list(prior or [])
+    attempts.append(
+        {
+            "round": 1,
+            "attempt": len(attempts) + 1,
+            "slots": SLOTS_I_F,
+            "launch": str(launch),
+            "started_utc": "T",
+        }
+    )
+    records = {"seed": C.SLOT_SEED, "draw": checks.draw_slots(), "attempts": attempts}
+    (runs / "slots.json").write_text(json.dumps(records))
+    return home, runs, launch
+
+
+def _after(
+    tmp: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    exits: dict[str, Any] | None = None,
+    watcher: str = "WATCHER: every arm ended\n",
+    arm: dict[str, dict[str, Any]] | None = None,
+    regate: dict[int, int | None] | None = None,
+    prior: list[dict[str, Any]] | None = None,
+    streams: dict[int, dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    """``checks.after`` on one invented attempt of round 1: a complete one unless told."""
+    home, runs, launch = _records(tmp, monkeypatch, prior)
+    for name, slot in SLOTS_I_F.items():
+        _arm(home, runs, slot, **(arm or {}).get(name, {}))
+        for sid, text in (streams or {}).get(slot, {}).items():
+            _stream_file(home, slot, sid, text)
+    shown = {str(s): 0 for s in SLOTS_I_F.values()} if exits is None else exits
+    (launch / "exits.json").write_text(json.dumps(shown))
+    (launch / "watcher.log").write_text(watcher)
+    counts = regate or {}
+    monkeypatch.setattr(
+        checks,
+        "regate_count",
+        lambda _checkout, _arm, run, _into: counts.get(int(run.name.split("-")[1]), 0),
+    )
+    found = checks.after(1, launch, C.REPO)
+    found["records"] = json.loads((runs / "slots.json").read_text())
+    return found
+
+
+def test_a_complete_attempt_is_valid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    found = _after(tmp_path, monkeypatch)
+    assert found["valid"] is True, found["void_causes"]
+    assert found["void_causes"] == [] and found["deviations"] == []
+    assert found["records"]["attempts"][-1]["valid"] is True
+
+
+@pytest.mark.parametrize(
+    ("exits", "arm"),
+    [
+        # Python's exit for an uncaught exception is 1, as inject's for a run with a review
+        # that gave no verdict: the run is held to its files, not to its exit
+        ({"3": 1, "1": 1}, {"I": {"rows": -1}}),
+        ({"3": 0, "1": 0}, {"F": {"rows": 39}}),
+        ({"3": 0, "1": 0}, {"I": {"final": False}}),
+        ({"3": 0, "1": 0}, {"F": {"gates": False}}),
+        ({"3": 2, "1": 0}, None),
+        ({"3": 143, "1": 0}, None),
+        ({"3": 0}, None),
+    ],
+    ids=[
+        "exit-1-no-results",
+        "39-rows",
+        "a-retry-never-came",
+        "no-gate-lines",
+        "exit-2",
+        "killed",
+        "an-exit-missing",
+    ],
+)
+def test_a_crashed_or_killed_process_voids_the_attempt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    exits: dict[str, int],
+    arm: dict[str, dict[str, Any]] | None,
+) -> None:
+    found = _after(tmp_path, monkeypatch, exits=exits, arm=arm)
+    assert "a crashed or killed process" in found["void_causes"]
+    assert found["valid"] is False and found["records"]["attempts"][-1]["valid"] is False
+
+
+def test_a_partial_last_line_of_a_killed_process_is_read_as_incomplete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home, runs, launch = _records(tmp_path, monkeypatch)
+    for slot in SLOTS_I_F.values():
+        run = _arm(home, runs, slot, rows=-1)
+        with (run / "events.jsonl").open("a") as f:
+            f.write('{"kind": "review_ran", "subtask_id": "r0')
+    (launch / "exits.json").write_text(json.dumps({"3": 1, "1": 1}))
+    monkeypatch.setattr(checks, "regate_count", lambda *_: None)
+    found = checks.after(1, launch, C.REPO)
+    assert "a crashed or killed process" in found["void_causes"]
+
+
+@pytest.mark.parametrize(
+    ("infra_i", "infra_f", "void"), [(1, 1, False), (2, 1, True), (0, 3, True)]
+)
+def test_three_infrastructure_ends_in_a_round_void_it_and_two_do_not(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, infra_i: int, infra_f: int, void: bool
+) -> None:
+    arm = {"I": {"infra": infra_i}, "F": {"infra": infra_f}}
+    found = _after(tmp_path, monkeypatch, arm=arm)
+    assert ("an infrastructure cascade" in found["void_causes"]) is void
+    assert found["valid"] is (not void)
+
+
+def _sheet_stream(lines: int, returned: int) -> str:
+    body = "\n".join(
+        f"{n}\t" + (f'"{C.LAST_ROW_ID}": {{' if n == lines else "x") for n in range(1, returned + 1)
+    )
+    events = [
+        {"type": "system", "subtype": "init", "cwd": "/r/read/worktree"},
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "t1",
+                        "name": "Read",
+                        "input": {"file_path": "/r/read/worktree/parts_sheet.json"},
+                    }
+                ]
+            },
+        },
+        {
+            "type": "user",
+            "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "content": body}]},
+        },
+    ]
+    return "".join(json.dumps(e) + "\n" for e in events)
+
+
+def test_a_cut_read_in_either_arm_voids_the_attempt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sid = SID.format(7)
+    lines = C.SHEET_LINES["F"]
+    found = _after(
+        tmp_path,
+        monkeypatch,
+        arm={"F": {"sessions": {0: sid}}},
+        streams={SLOTS_I_F["F"]: {sid: _sheet_stream(lines, lines - 10)}},
+    )
+    assert found["void_causes"] == ["a cut read"]
+    whole = _after(
+        tmp_path / "w",
+        monkeypatch,
+        arm={"F": {"sessions": {0: sid}}},
+        streams={SLOTS_I_F["F"]: {sid: _sheet_stream(lines, lines)}},
+    )
+    assert whole["valid"] is True
+
+
+def test_a_second_cut_in_the_same_round_stops_the_experiment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sid = SID.format(7)
+    lines = C.SHEET_LINES["I"]
+    prior = [
+        {
+            "round": 1,
+            "attempt": 1,
+            "slots": {"I": 4, "F": 2},
+            "launch": "elsewhere",
+            "void_causes": ["a cut read"],
+            "valid": False,
+        }
+    ]
+    found = _after(
+        tmp_path,
+        monkeypatch,
+        arm={"I": {"sessions": {3: sid}}},
+        streams={SLOTS_I_F["I"]: {sid: _sheet_stream(lines, 5)}},
+        prior=prior,
+    )
+    assert "a cut read" in found["void_causes"]
+    assert "a second cut read in round 1" in found["records"]["stopped"]["reason"]
+    with pytest.raises(checks.Refused, match="stopped"):
+        checks.refuse_if_stopped(found["records"])
+    # one cut alone does not stop it
+    first = _after(
+        tmp_path / "one",
+        monkeypatch,
+        arm={"I": {"sessions": {3: sid}}},
+        streams={SLOTS_I_F["I"]: {sid: _sheet_stream(lines, 5)}},
+    )
+    assert "stopped" not in first["records"]
+    checks.refuse_if_stopped(first["records"])
+
+
+def test_a_stop_is_recorded_and_refuses_every_later_launch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _records(tmp_path, monkeypatch)
+    found = checks.stop(1, "L10 found a cut read")
+    assert found["stopped"]["reason"] == "L10 found a cut read"
+    records = checks.read_slots()
+    with pytest.raises(checks.Refused, match="L10 found a cut read"):
+        checks.refuse_if_stopped(records)
+
+
+def test_a_usage_limit_voids_the_attempt_by_the_watcher_s_line_or_by_its_own_search(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    by_watcher = _after(
+        tmp_path / "a",
+        monkeypatch,
+        watcher="ABORT 2026-10-23T10:00:00Z: usage_limit_reached files 1\n",
+        exits={"3": 143, "1": 143},
+        arm={"I": {"rows": -1}, "F": {"rows": -1}},
+    )
+    assert "usage limit" in by_watcher["void_causes"]
+    # the watcher saw nothing (it ended first): the round's end searches the roots itself
+    sid = SID.format(9)
+    found = _after(
+        tmp_path / "b",
+        monkeypatch,
+        arm={"F": {"sessions": {0: sid}}},
+        streams={SLOTS_I_F["F"]: {sid: '{"type":"result","error":"usage_limit_reached"}\n'}},
+    )
+    assert found["void_causes"] == ["usage limit"]
+    assert found["usage_limit_files"] == 1
+    assert checks.usage_limit_voids(found["records"], 1) == 1
+
+
+def test_each_deviation_is_recorded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    rubric = _after(tmp_path / "a", monkeypatch, arm={"I": {"rubric": "0" * 64}})
+    assert rubric["deviations"] == ["a review line's rubric_sha256 is not its role's pinned digest"]
+    regate = _after(tmp_path / "b", monkeypatch, regate={3: 1})
+    assert regate["deviations"] == ["the gate's records differ"]
+    across = _after(tmp_path / "c", monkeypatch, arm={"F": {"gate_extra": True}})
+    assert across["deviations"] == ["the gate's records differ"]
+    assert across["gate_records_identical_across_arms"] is False
+    unrun = _after(tmp_path / "d", monkeypatch, regate={1: None})
+    assert unrun["deviations"] == ["regate_r6.py did not run on a complete run"]
+    for found in (rubric, regate, across, unrun):
+        assert found["valid"] is True  # a deviation is not a void cause
+
+
+def test_an_arm_the_fallback_never_started_is_recorded_as_not_started(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home, runs, launch = _records(tmp_path, monkeypatch)
+    _arm(home, runs, SLOTS_I_F["I"], rows=-1)
+    (launch / "exits.json").write_text(json.dumps({"3": 143, "1": None}))
+    (launch / "watcher.log").write_text("ABORT x: usage_limit_reached files 1\n")
+    monkeypatch.setattr(checks, "regate_count", lambda *_: None)
+    found = checks.after(1, launch, C.REPO)
+    assert "usage limit" in found["void_causes"]
+    assert found["per_slot"]["slot 1"]["started"] is False
+    assert found["per_slot"]["slot 3"]["started"] is True
+
+
+# ---- §11's fallback: the second arm, in the next window ----
+
+
+def test_the_second_arm_does_not_start_after_the_first_arm_s_watcher_stopped_it(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "watcher.log").write_text("ABORT x: usage_limit_reached files 1\n")
+    assert checks.second_arm(tmp_path, since=0.0, now=100.0) is None
+
+
+@pytest.mark.parametrize(
+    ("now_h", "wait_h"),
+    [(1.0, 4.0), (4.99, 0.01), (5.0, 0.0), (7.0, 3.0), (10.5, 4.5)],
+)
+def test_the_second_arm_starts_at_the_next_5_hour_boundary_after_the_first_arm_ends(
+    tmp_path: Path, now_h: float, wait_h: float
+) -> None:
+    (tmp_path / "watcher.log").write_text("WATCHER x: every arm ended\n")
+    wait = checks.second_arm(tmp_path, since=1000.0, now=1000.0 + now_h * 3600)
+    assert wait == pytest.approx(wait_h * 3600)
+
+
+def test_the_second_arm_s_command_reads_its_start_as_utc(tmp_path: Path) -> None:
+    (tmp_path / "watcher.log").write_text("WATCHER x: every arm ended\n")
+    since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 3600))
+    done = subprocess.run(
+        [sys.executable, str(HERE / "checks.py"), "second-arm", "--launch", str(tmp_path),
+         "--since", since],
+        capture_output=True, text=True, check=True,
+    )  # fmt: skip
+    wait = json.loads(done.stdout)["wait_s"]
+    assert 4 * 3600 - 5 <= wait <= 4 * 3600 + 5
+
+
+# ---- L1 ----
+
+
+def _proc(*argv: str) -> tuple[int, list[str]]:
+    return (4242, list(argv))
+
+
+@pytest.mark.parametrize(
+    ("argv", "alive"),
+    [
+        (("/home/u/pinned/claude-2.1.301", "-p", "--session-id", "x"), True),
+        (("claude",), True),
+        (("/usr/bin/python3", "-c", "held", "/home/u/pinned/claude-2.1.301", "-p"), True),
+        (("/r/.venv/bin/python", "/r/.venv/bin/physgate", "inject", "--corpus", "c"), True),
+        (("uv", "run", "--frozen", "physgate", "inject", "--corpus", "c"), True),
+        (("bash", "experiments/R-PG-01b/launch.sh", "--round", "1"), False),
+        (("/r/.venv/bin/physgate", "gate", "x"), False),
+        (("vim", "notes-on-claude.md"), False),
+        (("sshd: ubuntu@pts/0",), False),
+    ],
+)
+def test_l1_knows_a_claude_or_inject_process_by_its_arguments(
+    argv: tuple[str, ...], alive: bool
+) -> None:
+    assert bool(checks.live_sessions([_proc(*argv)])) is alive
+
+
+def _checkout(tmp: Path, home: Path, *, filled_commit: str | None = None) -> Path:
+    """A checkout at a pushed tag, and an origin whose master holds the filled CRITERIA.md."""
+    env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@e.invalid",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@e.invalid",
+    }
+
+    def git(repo: Path, *args: str) -> str:
+        return subprocess.run(
+            ["git", "-C", str(repo), *args], capture_output=True, text=True, check=True, env=env
+        ).stdout.strip()
+
+    origin = tmp / "origin.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True, env=env)
+    checkout = home / C.CHECKOUT_NAME
+    checkout.mkdir(parents=True)
+    git(checkout, "init", "-q", "-b", "run")
+    git(checkout, "remote", "add", "origin", str(origin))
+    (checkout / "x.txt").write_text("run\n")
+    git(checkout, "add", "-A")
+    git(checkout, "commit", "-q", "-m", "run")
+    head = git(checkout, "rev-parse", "HEAD")
+    git(checkout, "tag", C.RUN_TAG)
+    git(checkout, "push", "-q", "origin", f"refs/tags/{C.RUN_TAG}")
+    # master: the filled CRITERIA.md, on a branch of its own
+    master = tmp / "master"
+    git(tmp, "clone", "-q", str(origin), str(master))
+    git(master, "checkout", "-q", "--orphan", "master")
+    (master / "experiments" / "R-PG-01b").mkdir(parents=True)
+    commit = filled_commit or head
+    (master / "experiments" / "R-PG-01b" / "CRITERIA.md").write_text(
+        f"- **Instrument tree at the run commit:** `{'a' * 40}`. **Run commit:**\n  `{commit}`.\n"
+    )
+    git(master, "add", "-A")
+    git(master, "commit", "-q", "-m", "filled")
+    git(master, "push", "-q", "origin", "master")
+    git(checkout, "fetch", "-q", "origin")
+    return checkout
+
+
+def _l1(
+    tmp: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    filled_commit: str | None = None,
+    procs: list[tuple[int, list[str]]] | None = None,
+    stopped: bool = False,
+    dry: bool = True,
+) -> dict[str, Any]:
+    home = tmp / "home"
+    checkout = _checkout(tmp, home, filled_commit=filled_commit)
+    runs = tmp / "trial"
+    runs.mkdir()
+    (runs / "owner-1.json").write_text(
+        json.dumps({"account_label": "a trial", "no_other_session_during_round": True})
+    )
+    if stopped:
+        (runs / "slots.json").write_text(
+            json.dumps({"draw": checks.draw_slots(), "attempts": [], "stopped": {"reason": "x"}})
+        )
+    monkeypatch.setattr(checks, "HOME", home)
+    monkeypatch.setattr(checks, "RUNS", runs)
+    monkeypatch.setattr(checks, "SLOTS", runs / "slots.json")
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(platform, "machine", lambda: "aarch64")
+    monkeypatch.setattr(checks, "own_processes", lambda: procs or [])
+    return checks.l1(1, checkout, "origin/master", dry)
+
+
+def test_l1_holds_a_checkout_at_the_filled_run_commit_and_never_reads_the_token_in_a_trial(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # no env file at all: a check-only trial never reads the token
+    found = _l1(tmp_path, monkeypatch)
+    assert found["the filled run commit"] == found["head"]
+    assert found["token_sha256_prefix"] == "not read: checks only"
+    assert not (tmp_path / "trial" / "slots.json").exists()
+
+
+def test_l1_refuses_a_head_that_is_not_the_filled_run_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with pytest.raises(checks.Refused, match="filled run commit"):
+        _l1(tmp_path, monkeypatch, filled_commit="f" * 40)
+
+
+def test_l1_refuses_while_a_claude_or_inject_process_of_the_account_is_alive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    alive = [_proc("/home/u/pinned/claude-2.1.301", "-p")]
+    with pytest.raises(checks.Refused, match="1 claude or inject process"):
+        _l1(tmp_path, monkeypatch, procs=alive)
+
+
+def test_l1_refuses_after_the_experiment_has_stopped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with pytest.raises(checks.Refused, match="stopped"):
+        _l1(tmp_path, monkeypatch, stopped=True)
+
+
+def test_l1_reads_the_token_in_a_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(checks.Refused, match="env file"):
+        _l1(tmp_path, monkeypatch, dry=False)
 
 
 # ---- the ledger line ----
@@ -353,58 +877,165 @@ def test_the_ledger_line_sums_every_session_s_result_line_void_attempts_included
 
 # ---- the watcher ----
 
+#: Only the run machine is ever signalled: off Linux the watcher signals nothing, and these
+#: tests, which stop processes they started themselves, run there alone.
+ON_THE_RUN_MACHINE = sys.platform == "linux"
+signals = pytest.mark.skipif(not ON_THE_RUN_MACHINE, reason="signals are sent on Linux alone")
+
 
 def _group(seconds: int) -> subprocess.Popen[bytes]:
     return subprocess.Popen(["sleep", str(seconds)], start_new_session=True)
 
 
-def test_the_watcher_stops_every_arm_at_the_first_usage_limit(tmp_path: Path) -> None:
+def _watch(log: Path, *triples: Any) -> subprocess.Popen[bytes]:
+    return subprocess.Popen(
+        [str(HERE / "abort_on_limit.sh"), str(log), *(str(x) for x in triples)],
+        env={**os.environ, "RPB_WATCH_SECONDS": "1"},
+    )
+
+
+def _started(pid: int) -> str:
+    return " ".join(
+        subprocess.run(
+            ["ps", "-o", "lstart=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            check=True,
+            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+        ).stdout.split()
+    )
+
+
+def _stand_in(root: Path, seconds: int, *, record: bool = True) -> subprocess.Popen[bytes]:
+    """A stand-in session, as the instrument spawns and records one.
+
+    Its own group, its id on its command line, its process record and its credential directory
+    under the review root.
+    """
+    sid = f"00000000-0000-4000-8000-{random.randrange(10**12):012d}"
+    proc = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(int(__import__('sys').argv[3]))",
+         "--session-id", sid, str(seconds)],
+        start_new_session=True,
+    )  # fmt: skip
+    sdir = root / sid / "session"
+    (sdir / "config").mkdir(parents=True)
+    (sdir / "config" / "credential").write_text("x\n")
+    if record:
+        time.sleep(0.3)
+        (sdir / "process.json").write_text(
+            json.dumps({"pid": proc.pid, "started": _started(proc.pid), "session_id": sid})
+        )
+    return proc
+
+
+@signals
+def test_the_watcher_stops_every_arm_and_every_recorded_session_at_the_first_usage_limit(
+    tmp_path: Path,
+) -> None:
     a, b = _group(60), _group(60)
     dirs = [tmp_path / n for n in ("ra", "sa", "rb", "sb")]
     for d in dirs:
         d.mkdir()
+    session = _stand_in(dirs[1], 60)
+    unrecorded = _stand_in(dirs[3], 20, record=False)
     log = tmp_path / "watcher.log"
-    watcher = subprocess.Popen(
-        [
-            str(HERE / "abort_on_limit.sh"),
-            str(log),
-            str(a.pid),
-            str(dirs[0]),
-            str(dirs[1]),
-            str(b.pid),
-            str(dirs[2]),
-            str(dirs[3]),
-        ],
-        env={**os.environ, "RPB_WATCH_SECONDS": "1"},
-    )
+    watcher = _watch(log, a.pid, dirs[0], dirs[1], b.pid, dirs[2], dirs[3])
     time.sleep(1.5)
-    assert a.poll() is None and b.poll() is None
+    assert a.poll() is None and b.poll() is None and session.poll() is None
     (dirs[3] / "stdout.jsonl").write_text('{"type":"result","error":"usage_limit_reached"}\n')
-    assert watcher.wait(timeout=20) == 0
+    assert watcher.wait(timeout=60) == 0
     assert a.wait(timeout=10) == -signal.SIGTERM and b.wait(timeout=10) == -signal.SIGTERM
+    assert session.wait(timeout=10) == -signal.SIGTERM
+    # a process no record of this run names is never signalled
+    assert unrecorded.poll() is None
+    assert not list(tmp_path.glob("*/*/session/config"))
     text = log.read_text()
     assert "ABORT" in text and "usage_limit_reached files 1" in text
+    assert '"stopped": 1' in text and '"configs_removed": 2' in text
+    unrecorded.wait(timeout=30)
+
+
+@signals
+def test_the_watcher_signals_no_session_whose_record_does_not_prove_it(tmp_path: Path) -> None:
+    root = tmp_path / "s"
+    root.mkdir()
+    session = _stand_in(root, 20)
+    record = next(root.glob("*/session/process.json"))
+    forged = json.loads(record.read_text())
+    record.write_text(json.dumps({**forged, "started": "Thu Jan  1 00:00:00 1970"}))
+    found = checks.stop_sessions([root])
+    assert found["stopped"] == 0 and found["not_proven"] == 1
+    assert session.poll() is None
+    session.wait(timeout=30)
+
+
+def test_off_the_run_machine_nothing_is_signalled(tmp_path: Path) -> None:
+    if ON_THE_RUN_MACHINE:
+        pytest.skip("off the run machine only")
+    with pytest.raises(checks.Refused, match="run machine"):
+        checks.stop_sessions([tmp_path])
+    a = _group(4)
+    (tmp_path / "r").mkdir()
+    (tmp_path / "r" / "x.jsonl").write_text('{"error":"usage_limit_reached"}\n')
+    log = tmp_path / "watcher.log"
+    watcher = _watch(log, a.pid, tmp_path / "r", tmp_path / "r")
+    assert watcher.wait(timeout=30) == 1
+    assert a.poll() is None  # not signalled: it ends by itself
+    assert "ABORT" in log.read_text() and "nothing signalled" in log.read_text()
+    a.wait(timeout=30)
 
 
 def test_the_watcher_ends_when_every_arm_has_ended_and_stops_nothing(tmp_path: Path) -> None:
     a = _group(1)
     log = tmp_path / "watcher.log"
     (tmp_path / "r").mkdir()
-    watcher = subprocess.Popen(
-        [
-            str(HERE / "abort_on_limit.sh"),
-            str(log),
-            str(a.pid),
-            str(tmp_path / "r"),
-            str(tmp_path / "r"),
-        ],
-        env={**os.environ, "RPB_WATCH_SECONDS": "1"},
-    )
+    watcher = _watch(log, a.pid, tmp_path / "r", tmp_path / "r")
     a.wait(timeout=10)  # reaped, as launch.sh's wait reaps an arm that ends
-    assert watcher.wait(timeout=30) == 0 and "ABORT" not in log.read_text()
+    assert watcher.wait(timeout=30) == 0
+    text = log.read_text()
+    assert "ABORT" not in text and "LIMIT" not in text
+    assert "usage_limit_reached files 0" in text
+
+
+def test_the_watcher_looks_once_more_after_every_arm_has_ended(tmp_path: Path) -> None:
+    a = _group(0)
+    a.wait(timeout=10)
+    (tmp_path / "r").mkdir()
+    (tmp_path / "s").mkdir()
+    (tmp_path / "s" / "stdout.jsonl").write_text('{"error":"usage_limit_reached"}\n')
+    log = tmp_path / "watcher.log"
+    watcher = _watch(log, a.pid, tmp_path / "r", tmp_path / "s")
+    assert watcher.wait(timeout=30) == 0
+    text = log.read_text()
+    assert "LIMIT" in text and "usage_limit_reached files 1" in text
 
 
 # ---- launch.sh and the published diffs ----
+
+
+def test_a_check_only_trial_names_its_own_records_and_writes_nothing_of_the_run_s(
+    tmp_path: Path,
+) -> None:
+    env = {k: v for k, v in os.environ.items() if k not in ("RPB_RUNS", "RPB_MASTER_REF")}
+    env["HOME"] = str(tmp_path)
+    for runs in (None, str(tmp_path / C.RUNS_NAME), str(tmp_path / C.RUNS_NAME / "trial")):
+        if runs is not None:
+            env["RPB_RUNS"] = runs
+        done = subprocess.run(
+            [str(HERE / "launch.sh"), "--round", "1", "--checks-only"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+        )
+        assert done.returncode == 1 and "RPB_RUNS" in done.stderr, done.stderr
+        assert not (tmp_path / "runs").exists()
+
+
+def test_launch_sh_gives_the_arms_no_trial_variable() -> None:
+    text = (HERE / "launch.sh").read_text()
+    assert "export RPB_RUNS" not in text
 
 
 def test_launch_sh_parses_and_refuses_a_trial_s_overrides_in_a_run(tmp_path: Path) -> None:

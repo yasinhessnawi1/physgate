@@ -24,7 +24,11 @@ R-PG-01b number it uses is read from that committed output, never recomputed.
 2. The sheet's share of R-PG-01's advantage: −ΔC divided by R-PG-01's C, when that is at least 1
    and the floor (§7) does not hold.
 3. The gate across time: R-PG-01's gate records against R-PG-01b's, expected byte-identical.
-4. D1's sentence, from §7's table, read from the top, the first row that holds.
+4. D1's sentence, from §7's table, read from the top, the first row that holds; only where R6
+   held in the committed output (§7, §12), and not taken otherwise, as is step 2.
+
+It uses whichever rounds the committed output holds: with one valid round, round 1 or round 2,
+that round's figures and its Newcombe interval.
 
 R-PG-01's figures are read from its run directory by R-PG-01's own ``tally_rows.py``. It writes
 the output to ``--out`` (never over a file) and prints its sha256.
@@ -181,27 +185,33 @@ def compare(
         "twins": replication(prior_t, [approvals(f"I{r}", "T") for r in rounds], resamples),
     }
     prior_c = prior["C_caught_among_approved"]
-    primary = out.get("primary_delta_C") or {}
-    step2 = None
-    if prior_c >= 1 and not out["floor"] and "value" in primary:
-        step2 = {"share": -primary["value"] / prior_c, "r_pg_01_C": prior_c}
     prior_gate = K.gate_records(prior_run)
     step3 = {key: K.gate_records(run) == prior_gate for key, run in sorted(runs.items())}
-    arms = out["arms"]
-    a_i, c_i = arms["I"]["A_mean"]["value"], arms["I"]["C_mean"]["value"]
-    a_f, c_f = arms["F"]["A_mean"]["value"], arms["F"]["C_mean"]["value"]
-    deltas = {
-        "A": json.dumps(_with_interval(out["secondary"]["delta_A"])),
-        "C": json.dumps(_with_interval(primary)),
-    }
-    row, sentence = d1_sentence(
-        prior["kill_criterion_fires"],
-        kill(a_i, c_i),
-        kill(a_f, c_f),
-        arms["I"]["rounds_agree_on_kill"],
-        deltas,
-        legs(a_i, a_f, c_i, c_f),
-    )
+    step2: dict[str, Any] | None = None
+    step4: dict[str, Any]
+    if out["R6"]["holds"] is not True:
+        # §7 and §12: under R6's deviation the primary contrast is void, and D1 is not taken.
+        step4 = {"row": None, "sentence": K.NOT_TAKEN}
+    else:
+        primary = out["primary_delta_C"]
+        if prior_c >= 1 and not out["floor"]:
+            step2 = {"share": -primary["value"] / prior_c, "r_pg_01_C": prior_c}
+        arms = out["arms"]
+        a_i, c_i = arms["I"]["A_mean"]["value"], arms["I"]["C_mean"]["value"]
+        a_f, c_f = arms["F"]["A_mean"]["value"], arms["F"]["C_mean"]["value"]
+        deltas = {
+            "A": json.dumps(_with_interval(out["secondary"]["delta_A"], rounds)),
+            "C": json.dumps(_with_interval(primary, rounds)),
+        }
+        row, sentence = d1_sentence(
+            prior["kill_criterion_fires"],
+            kill(a_i, c_i),
+            kill(a_f, c_f),
+            arms["I"]["rounds_agree_on_kill"],
+            deltas,
+            legs(a_i, a_f, c_i, c_f),
+        )
+        step4 = {"row": row, "sentence": sentence}
     return {
         "numbers_final": {"commit": numbers["commit"], "sha256": numbers["sha256"]},
         "r_pg_01": {
@@ -212,12 +222,18 @@ def compare(
         "step_1_replication": step1,
         "step_2_share_of_r_pg_01_advantage": step2,
         "step_3_gate_records_identical_to_r_pg_01": step3,
-        "step_4_D1": {"row": row, "sentence": sentence},
+        "step_4_D1": step4,
     }
 
 
-def _with_interval(contrast: dict[str, Any]) -> dict[str, Any]:
-    interval = contrast.get("bootstrap") or contrast.get("newcombe_per_round", {}).get("1") or {}
+def _with_interval(contrast: dict[str, Any], rounds: list[int]) -> dict[str, Any]:
+    """A contrast's value and interval.
+
+    The bootstrap's, or with one valid round that round's Newcombe interval, whichever round it
+    is.
+    """
+    one = contrast.get("newcombe_per_round", {}).get(str(rounds[0])) if len(rounds) == 1 else None
+    interval = contrast.get("bootstrap") or one or {}
     return {
         "value": contrast.get("value"),
         "low": interval.get("low"),

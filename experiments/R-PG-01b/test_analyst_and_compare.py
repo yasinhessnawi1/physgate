@@ -165,6 +165,22 @@ def test_replication_needs_the_interval_at_or_below_zero_and_no_systematic_shift
     assert one["replicated"] and one["label"] == "without a noise floor"
 
 
+def test_replication_holds_when_the_interval_straddles_zero_and_no_shift_is_shown() -> None:
+    arts = [f"a{n}" for n in range(20)]
+    prior = {a: int(n < 10) for n, a in enumerate(arts)}
+    one, two = dict(prior), dict(prior)
+    # a0 differs from R-PG-01 in both rounds (+1 to D_cross - D_same); a1 and a12 in one round
+    # each (-1/2 each): the difference is 0, and its interval spans both sides of 0
+    one["a0"] = two["a0"] = 0
+    one["a1"] = 0
+    two["a12"] = 1
+    found = M.replication(prior, [one, two], K.draws(20, 2000))
+    interval = found["D_cross_minus_D_same"]
+    assert interval["value"] == 0
+    assert interval["low"] < 0 < interval["high"]
+    assert found["exact_p"] >= 0.05 and found["replicated"] is True
+
+
 S: Callable[..., tuple[int, str]] = M.d1_sentence
 D = {"A": "-2 (-4, 0)", "C": "-1 (-3, 1)"}
 

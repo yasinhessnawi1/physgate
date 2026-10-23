@@ -1,6 +1,6 @@
 --- experiments/R-PG-01/launch.sh (8bc03fc, blob 63efe5ac)
 +++ experiments/R-PG-01b/launch.sh
-@@ -1,152 +1,170 @@
+@@ -1,152 +1,183 @@
  #!/usr/bin/env bash
  #
 -# R-PG-01: the pre-flight refusals, then the run. Every check below holds the checkout to
@@ -54,10 +54,18 @@
 +# invocation; then, when both have ended, the round's end: §5.5's stream check, the rubric
 +# digests, R6, the void rules of §12 (counts and causes only) and the ledger line.
 +#
-+# --checks-only runs L1 to L9 and L11's recording, never L10 and never a review, and writes
-+# nothing into the run's records. Only with it may RPB_MASTER_REF name another ref than
-+# origin/master and RPB_RUNS another records directory: a trial before the master-side commits
-+# are merged. The log says so; the run itself never takes either.
++# --checks-only runs L1 to L9 and L11's recording, never L10 and never a review; it never reads
++# the token and writes nothing under ~/runs/rpg01b: it needs RPB_RUNS, a records directory of its
++# own outside it. Only with it may RPB_MASTER_REF name another ref than origin/master: a trial
++# before the master-side commits are merged. The log says so; the run itself never takes either.
++#
++# §12's stops: L10's cut read or inapplicability, and a second cut read in a round (the round's
++# end), are recorded in the slot records, and every later L1 refuses.
++#
++# §11's fallback, after two voids of a round by the 5-hour limit: the arms run one after the
++# other in the drawn order; the second starts at the first 5-hour boundary, counted from the
++# round's first session (L10's first smoke), after the first has ended, and never after the first
++# arm's watcher stopped it.
  
  set -euo pipefail
  
@@ -119,11 +127,15 @@
 +RUNS="$HOME/runs/rpg01b"
 +if [ "$STOP_AFTER" = checks ]; then
 +  MASTER_REF="${RPB_MASTER_REF:-$MASTER_REF}"
-+  RUNS="${RPB_RUNS:-$RUNS}"
++  real() { python3 -I -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"; }
++  [ -n "${RPB_RUNS:-}" ] || { echo "REFUSED: --checks-only needs RPB_RUNS, a records directory outside $RUNS" >&2; exit 1; }
++  case "$(real "$RPB_RUNS")/" in
++    "$(real "$RUNS")/"*) echo "REFUSED: RPB_RUNS lies under $RUNS, the run's records" >&2; exit 1 ;;
++  esac
++  RUNS="$RPB_RUNS"
 +elif [ -n "${RPB_MASTER_REF:-}${RPB_RUNS:-}" ]; then
 +  echo "REFUSED: RPB_MASTER_REF and RPB_RUNS are for --checks-only alone" >&2; exit 1
 +fi
-+export RPB_RUNS="$RUNS"
 +CODE_8BC03FC="$RUNS/code-8bc03fc"
 +mkdir -p "$RUNS"
 +N=1; while [ -e "$RUNS/launch-$ROUND-$N" ]; do N=$((N + 1)); done
@@ -138,8 +150,10 @@
  refuse() { say "REFUSED: $*"; exit 1; }
 -equal() { [ "$2" = "$3" ] || refuse "$1 is $2, not $3"; say "ok  $1 $3"; }
 -sha() { shasum -a 256 "$1" | cut -d' ' -f1; }
+-py() { uv run --frozen python -I "$@"; }
 +sha() { sha256sum "$1" | cut -d' ' -f1; }
- py() { uv run --frozen python -I "$@"; }
++# The records directory reaches the checks alone, never an arm's or a smoke's environment.
++py() { RPB_RUNS="$RUNS" uv run --frozen python -I "$@"; }
 +check() { # name, then the command: its JSON line is logged and kept as $LAUNCH/<name>.json
 +  local name="$1" out; shift
 +  out="$("$@")" || { say "$out"; refuse "$name"; }
@@ -289,7 +303,7 @@
  import json, sys
  from pathlib import Path
  result, head, version, binary, into = sys.argv[1:6]
-@@ -166,43 +184,93 @@
+@@ -166,43 +197,107 @@
                    "requests": defaults.get("requests"), "distinct": len(defaults.get("distinct", []))}))
  sys.exit(1 if problems else 0)
  EOF
@@ -319,8 +333,10 @@
 +    || { rpb_drop_token; refuse "the token's scan found a hit after L10"; }
 +  case "$CODE" in
 +    0) say "ok  L10" ;;
-+    3) refuse "L10 found a cut read: the round does not start, and the experiment stops (§12)" ;;
-+    4) refuse "L10 cannot be applied: the round does not start, and the experiment stops (§12)" ;;
++    3) py "$HERE/checks.py" stop --round "$ROUND" --reason "L10 found a cut read" | tee -a "$LOG"
++       refuse "L10 found a cut read: the round does not start, and the experiment stops (§12)" ;;
++    4) py "$HERE/checks.py" stop --round "$ROUND" --reason "L10 cannot be applied" | tee -a "$LOG"
++       refuse "L10 cannot be applied: the round does not start, and the experiment stops (§12)" ;;
 +    *) refuse "L10 failed (exit $CODE)" ;;
 +  esac
 +fi
@@ -389,16 +405,28 @@
 +  done
 +  wait "$watcher" || true
 +}
++slot_of() { if [ "$1" = I ]; then echo "$SLOT_I"; else echo "$SLOT_F"; fi; }
 +if [ "$SEQUENTIAL" = True ]; then
-+  # §11's fallback after two voids by the 5-hour limit: one arm after the other, in the drawn order.
-+  for arm in $(field L1 arm_order | tr -d '[]",'); do
-+    if [ "$arm" = I ]; then run_arms "$SLOT_I"; else run_arms "$SLOT_F"; fi
-+  done
++  # §11's fallback after two voids by the 5-hour limit: one arm after the other, in the drawn
++  # order, in consecutive windows; the second never starts after the first arm's abort.
++  read -r FIRST SECOND <<< "$(field L1 arm_order | tr -d '[]",')"
++  run_arms "$(slot_of "$FIRST")"
++  SINCE="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["first_started_utc"])' "$LAUNCH/smoke/smoke.json")"
++  py "$HERE/checks.py" second-arm --launch "$LAUNCH" --since "$SINCE" > "$LAUNCH/second-arm.json"
++  WAIT="$(field second-arm wait_s)"
++  if [ "$WAIT" = None ]; then
++    say "== the first arm was stopped at a usage limit: the second arm does not start (§11)"
++  else
++    say "== the second arm starts at the next 5-hour boundary from $SINCE: in ${WAIT}s"
++    sleep "$WAIT"
++    run_arms "$(slot_of "$SECOND")"
++  fi
 +else
 +  run_arms "$SLOT_I" "$SLOT_F"
 +fi
-+python3 -I -c 'import json,sys; print(json.dumps(dict(zip(sys.argv[1::2], map(int, sys.argv[2::2])))))' \
-+  "$SLOT_I" "${EXITS[$SLOT_I]:-255}" "$SLOT_F" "${EXITS[$SLOT_F]:-255}" > "$LAUNCH/exits.json"
++# An arm never started (the fallback's second, after an abort) has no exit: null.
++python3 -I -c 'import json,sys; a = sys.argv[1:]; print(json.dumps({a[k]: None if a[k + 1] == "none" else int(a[k + 1]) for k in range(0, len(a), 2)}))' \
++  "$SLOT_I" "${EXITS[$SLOT_I]:-none}" "$SLOT_F" "${EXITS[$SLOT_F]:-none}" > "$LAUNCH/exits.json"
 +say "== the round ended $(date -u +%Y-%m-%dT%H:%M:%SZ), exits $(cat "$LAUNCH/exits.json")"
 +
 +# ---- the round's end: §5.5, the rubric digests, R6, the void rules; then the ledger line ----

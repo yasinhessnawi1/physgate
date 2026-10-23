@@ -10,6 +10,9 @@ Usage, in the run checkout, as ``launch.sh`` calls it (``uv run --frozen python 
     checks.py L11 --round <r> --smoke <smoke.json> --into <file>
     checks.py start --round <r> --slots <I>,<F> --launch <dir>
     checks.py after --round <r> --launch <dir>          the round's end: §5.5, rubrics, R6, voids
+    checks.py stop --round <r> --reason <text>          §12: the experiment stops, for the owner
+    checks.py second-arm --launch <dir> --since <utc>   §11's fallback: when the second arm starts
+    checks.py stop-sessions --root <dir> [--root ...]   the watcher's abort: the run's sessions
 
 L5 to L7 are ``packets_identity.py``, L9's scans are R-PG-01's ``r3_scan.py`` and ``r3_scan_f.py``,
 L10 is ``smoke.py``; ``launch.sh`` runs them. Every check prints one JSON line of counts, digests
@@ -20,19 +23,31 @@ takes another only for a check-only trial (``--checks-only``).
 The records of the experiment's slots and attempts are ``~/runs/rpg01b/slots.json``; the owner's
 statement for a round (the account's label, and the confirmation that no other session runs on
 the run account during it) is ``~/runs/rpg01b/owner-<r>.json``, written by the owner before the
-round's launch. Nothing here reads a verdict: the round's end reads causes and counts only (R7).
+round's launch. When §12 stops the experiment (a second cut read in a round, or L10's cut or
+inapplicability), the records say so and every later L1 refuses. Nothing here reads a verdict:
+the round's end reads causes and counts only (R7).
+
+Only processes this run started are ever signalled, each proven from the run's own records, and
+on the run machine alone (Linux): off it, ``stop-sessions`` refuses and signals nothing.
 """
 
 from __future__ import annotations
 
 import argparse
+import calendar
+import contextlib
 import json
+import math
 import os
 import platform
 import random
+import re
+import shutil
+import signal
 import subprocess
 import sys
 import time
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -82,9 +97,37 @@ def draw_slots() -> dict[str, int]:
     return dict(zip(("I1", "F1", "I2", "F2"), slots, strict=True))
 
 
-def read_slots(path: Path = SLOTS) -> dict[str, Any]:
+def read_slots(path: Path | None = None) -> dict[str, Any]:
     """The slot records, or none yet."""
+    path = SLOTS if path is None else path
     return json.loads(path.read_text()) if path.is_file() else {}
+
+
+def write_slots(records: dict[str, Any]) -> None:
+    """The slot records, written whole."""
+    SLOTS.write_text(json.dumps(records, indent=1, sort_keys=True) + "\n")
+
+
+def refuse_if_stopped(records: dict[str, Any]) -> None:
+    """§12: once the experiment has stopped, no round starts; the owner decides.
+
+    Raises:
+        Refused: the records say the experiment stopped.
+    """
+    stopped = records.get("stopped")
+    if stopped:
+        raise Refused(
+            f"the experiment has stopped: {stopped.get('reason')} (§12); the owner decides"
+        )
+
+
+def stop(r: int, reason: str) -> dict[str, Any]:
+    """Record that §12 stops the experiment, in round ``r``, for ``reason``."""
+    records = read_slots()
+    records.setdefault("stopped", {"round": r, "reason": reason, "utc": utc()})
+    RUNS.mkdir(parents=True, exist_ok=True)
+    write_slots(records)
+    return {"check": "stop", "stopped": records["stopped"]}
 
 
 def slots_for(records: dict[str, Any], r: int) -> dict[str, int]:
@@ -142,8 +185,52 @@ def token_prefix(env_file: Path) -> str:
     return C.sha256_bytes(shaped[0].split("=", 1)[1].encode())[:8]
 
 
+#: A claude process: the pinned binary or any ``claude`` by its file name, wherever it stands
+#: among the first arguments (a holding wrapper puts it after its interpreter).
+_CLAUDE = re.compile(r"^claude(-[0-9][\w.]*)?$")
+
+
+def live_sessions(procs: Iterable[tuple[int, list[str]]]) -> list[int]:
+    """The pids among ``procs`` that are a claude process or a ``physgate inject``."""
+    found = []
+    for pid, argv in procs:
+        names = [os.path.basename(a) for a in argv]
+        claude = any(_CLAUDE.match(n) for n in names[:4])
+        inject = any(
+            n == "physgate" and argv[k + 1 : k + 2] == ["inject"] for k, n in enumerate(names)
+        )
+        if claude or inject:
+            found.append(pid)
+    return found
+
+
+def own_processes() -> list[tuple[int, list[str]]]:
+    """Every live process of this account on the run machine, with its arguments (``/proc``)."""
+    uid = os.getuid()
+    found = []
+    for d in Path("/proc").iterdir():
+        if not d.name.isdigit() or int(d.name) == os.getpid():
+            continue
+        try:
+            if d.stat().st_uid != uid:
+                continue
+            argv = [a.decode(errors="replace") for a in (d / "cmdline").read_bytes().split(b"\0")]
+        except OSError:
+            continue
+        if argv and argv[-1] == "":
+            argv.pop()
+        if argv:
+            found.append((int(d.name), argv))
+    return found
+
+
 def l1(r: int, checkout: Path, master_ref: str, dry: bool) -> dict[str, Any]:
-    """L1: the host, the checkout at the tag, clean; the account, the owner's word, the slots."""
+    """L1: the host, the checkout, the account, the owner's word, the slots.
+
+    The checkout is at the tag and at the filled run commit, clean; no claude or inject process
+    of the account is alive. A check-only trial (``dry``) never reads the token and writes no
+    record.
+    """
     found: dict[str, Any] = {"check": "L1", "round": r}
     found["machine"] = {
         "uname": " ".join(platform.uname()),
@@ -153,16 +240,27 @@ def l1(r: int, checkout: Path, master_ref: str, dry: bool) -> dict[str, Any]:
     if platform.system() != "Linux" or platform.machine() not in ("aarch64", "arm64"):
         raise Refused("the run machine is Oracle's ARM Linux VM (§10)")
     _equal(found, "checkout", str(checkout), str(HOME / C.CHECKOUT_NAME))
+    records = read_slots()
+    refuse_if_stopped(records)
+    alive = live_sessions(own_processes())
+    if alive:
+        raise Refused(f"{len(alive)} claude or inject process(es) of the run account are alive")
+    found["claude_or_inject_processes_alive"] = 0
     C.git(checkout, "fetch", "-q", "--tags", "origin")
     head = C.git(checkout, "rev-parse", "HEAD")
     tag = C.git(checkout, "rev-parse", f"refs/tags/{C.RUN_TAG}^{{commit}}")
     remote = C.git(checkout, "ls-remote", "origin", f"refs/tags/{C.RUN_TAG}").split()
     _equal(found, "head", head, tag)
     _equal(found, "the tag as pushed", remote[0] if remote else None, tag)
+    _equal(
+        found, "the filled run commit", C.filled_on(checkout, master_ref).get("run_commit"), head
+    )
     if C.git(checkout, "status", "--porcelain"):
         raise Refused("the checkout is not clean")
     found["clean"] = True
-    found["token_sha256_prefix"] = token_prefix(HOME / C.TOKEN_FILE)
+    found["token_sha256_prefix"] = (
+        "not read: checks only" if dry else token_prefix(HOME / C.TOKEN_FILE)
+    )
     owner = RUNS / f"owner-{r}.json"
     if not owner.is_file():
         raise Refused(f"no owner statement for round {r} at {owner}")
@@ -173,14 +271,13 @@ def l1(r: int, checkout: Path, master_ref: str, dry: bool) -> dict[str, Any]:
         raise Refused("the owner has not confirmed that no other session runs during the round")
     found["account_label"] = said["account_label"]
     found["owner_confirmed_no_other_session"] = True
-    records = read_slots()
     if not records:
         if r != 1:
             raise Refused("the slots are drawn and recorded before round 1")
         records = {"seed": C.SLOT_SEED, "draw": draw_slots(), "drawn_utc": utc(), "attempts": []}
         if not dry:
             RUNS.mkdir(parents=True, exist_ok=True)
-            SLOTS.write_text(json.dumps(records, indent=1, sort_keys=True) + "\n")
+            write_slots(records)
     found["slot_draw"] = records["draw"]
     done = [a for a in records.get("attempts", []) if a["round"] == r]
     if any(a.get("valid") is True for a in done):
@@ -221,6 +318,21 @@ def last_commit(checkout: Path, ref: str, *paths: str) -> str:
     return found
 
 
+CRITERIA = "experiments/R-PG-01b/CRITERIA.md"
+#: Under experiments/R-PG-01b/, what the "scripts" commit does not decide.
+NOT_SCRIPTS = (CRITERIA, "experiments/R-PG-01b/RESULT.md", SHEET_COPY)
+
+
+def _blobs(checkout: Path, ref: str) -> dict[str, str]:
+    """Every blob under experiments/R-PG-01b/ at ``ref`` but CRITERIA.md, RESULT.md and sheet/."""
+    out = {}
+    for line in C.git(checkout, "ls-tree", "-r", ref, "--", "experiments/R-PG-01b").splitlines():
+        meta, _, path = line.partition("\t")
+        if not path.startswith(NOT_SCRIPTS):
+            out[path] = meta.split()[2]
+    return out
+
+
 def l2(checkout: Path, master_ref: str) -> dict[str, Any]:
     """L2: the run commit differs from 8bc03fc only in §2.4's paths, and they are master's."""
     found: dict[str, Any] = {"check": "L2", "master_ref": master_ref}
@@ -248,11 +360,20 @@ def l2(checkout: Path, master_ref: str) -> dict[str, Any]:
     )
     sheet = last_commit(checkout, master_ref, C.ARM_F_CORPUS)
     found["scripts_commit"], found["sheet_commit"] = scripts, sheet
+    # Every blob but CRITERIA.md is the last "scripts" commit's; CRITERIA.md is the freeze's, its
+    # placeholders included, whatever fills master has had since (§2.4, the file's own preamble).
+    have, want = _blobs(checkout, "HEAD"), _blobs(checkout, scripts)
     _equal(
         found,
-        "experiments/R-PG-01b tree",
-        C.git(checkout, "rev-parse", "HEAD:experiments/R-PG-01b"),
-        C.git(checkout, "rev-parse", f"{scripts}:experiments/R-PG-01b"),
+        "experiments/R-PG-01b blobs that differ from the scripts commit",
+        sorted(k for k in have.keys() | want.keys() if have.get(k) != want.get(k)),
+        [],
+    )
+    _equal(
+        found,
+        "the frozen CRITERIA.md",
+        C.git(checkout, "rev-parse", f"HEAD:{CRITERIA}"),
+        C.git(checkout, "rev-parse", f"{C.FREEZE_COMMIT}:{CRITERIA}"),
     )
     _equal(
         found,
@@ -420,17 +541,110 @@ def start(r: int, slots: dict[str, int], launch: Path) -> dict[str, Any]:
         "started_utc": utc(),
     }
     records.setdefault("attempts", []).append(row)
-    SLOTS.write_text(json.dumps(records, indent=1, sort_keys=True) + "\n")
+    write_slots(records)
     return {"check": "start", **row}
+
+
+def log_lines(path: Path) -> tuple[list[dict[str, Any]], int]:
+    """A run log's lines, and how many did not parse (:func:`common.read_log`)."""
+    return C.read_log(path)
 
 
 def final_lines(path: Path) -> dict[str, dict[str, Any]]:
     """Each subtask's last review line in a run log (``review_ran`` or ``review_unavailable``)."""
     last: dict[str, dict[str, Any]] = {}
-    for line in C.read_jsonl(path) if path.is_file() else []:
+    for line in log_lines(path)[0]:
         if line.get("kind") in ("review_ran", "review_unavailable"):
             last[line["subtask_id"]] = line
     return last
+
+
+def _final(line: dict[str, Any] | None) -> bool:
+    """Whether a subtask's last review line ends its review: a verdict, or no retry to come."""
+    if line is None:
+        return False
+    return line["kind"] == "review_ran" or line.get("retry") is False
+
+
+def complete(run: Path) -> dict[str, Any]:
+    """§12's test of a finished run, whatever its exit.
+
+    Its results file holds 40 rows, and each log plans 40 subtasks and gives every one a final
+    review line and a gate line. Anything less is the trace of a crashed or killed process.
+    """
+    results = run / "results.jsonl"
+    rows, broken_rows = log_lines(results)
+    found: dict[str, Any] = {"results_rows": len(rows) if results.is_file() else None}
+    holds = results.is_file() and len(rows) == C.DENOMINATOR and not broken_rows
+    for side, log in (
+        ("injected", run / "events.jsonl"),
+        ("twin", run / "controls" / "events.jsonl"),
+    ):
+        lines, broken = log_lines(log)
+        planned = [x["subtask_id"] for x in lines if x.get("kind") == "subtask_planned"]
+        last = final_lines(log)
+        gated = {x["subtask_id"] for x in lines if x.get("kind") == "gate_ran"}
+        part = {
+            "planned": len(planned),
+            "without_a_final_review_line": sum(not _final(last.get(sid)) for sid in planned),
+            "without_a_gate_line": sum(sid not in gated for sid in planned),
+            "lines_unparsed": broken,
+        }
+        found[side] = part
+        holds = (
+            holds
+            and log.is_file()
+            and part["planned"] == C.DENOMINATOR
+            and not (
+                part["without_a_final_review_line"]
+                or part["without_a_gate_line"]
+                or part["lines_unparsed"]
+            )
+        )
+    found["holds"] = bool(holds)
+    return found
+
+
+#: The files the watcher searches for a usage limit, and the words it looks for (§11).
+LIMIT_SUFFIXES = (".jsonl", ".json", ".err", ".txt")
+LIMIT_WORD = b"usage_limit_reached"
+STATUS_429 = re.compile(rb'"api_error_status": *429')
+
+
+def usage_limit_files(paths: Iterable[Path]) -> tuple[int, int]:
+    """The files under ``paths`` that name a usage limit, and the 429 statuses in the streams."""
+    files = statuses = 0
+    for root in paths:
+        if not root.is_dir():
+            continue
+        for f in root.rglob("*"):
+            if not f.is_file() or f.suffix not in LIMIT_SUFFIXES:
+                continue
+            try:
+                data = f.read_bytes()
+            except OSError:
+                continue
+            files += LIMIT_WORD in data
+            if f.suffix == ".jsonl":
+                statuses += len(STATUS_429.findall(data))
+    return files, statuses
+
+
+def regate_count(checkout: Path, arm: str, run: Path, into: Path) -> int | None:
+    """``regate_r6.py``'s count of records that differ on a run, or ``None`` if it did not run."""
+    if not (run / "events.jsonl").is_file():
+        return None
+    done = subprocess.run(
+        [
+            sys.executable, "-I", str(checkout / "experiments/R-PG-01/regate_r6.py"),
+            str(checkout / (C.ARM_I_CORPUS if arm == "I" else C.ARM_F_CORPUS)),
+            str(run), str(C.SEED), str(into),
+        ],
+        capture_output=True, text=True, check=False,
+    )  # fmt: skip
+    if done.returncode != 0:
+        return None
+    return int(json.loads(done.stdout.strip().splitlines()[-1]).get("differ"))
 
 
 def cascade(run: Path) -> int:
@@ -438,7 +652,11 @@ def cascade(run: Path) -> int:
     n = 0
     for log in (run / "events.jsonl", run / "controls" / "events.jsonl"):
         for line in final_lines(log).values():
-            n += line["kind"] == "review_unavailable" and line.get("cause") == "infrastructure"
+            n += (
+                line["kind"] == "review_unavailable"
+                and line.get("cause") == "infrastructure"
+                and line.get("retry") is False
+            )
     return n
 
 
@@ -446,7 +664,7 @@ def rubric_mismatches(run: Path) -> tuple[int, int]:
     """Review lines whose ``rubric_sha256`` is not their role's pinned digest; and lines read."""
     bad = seen = 0
     for log in (run / "events.jsonl", run / "controls" / "events.jsonl"):
-        lines = C.read_jsonl(log) if log.is_file() else []
+        lines = log_lines(log)[0]
         role = {
             x["subtask_id"]: x["assigned_role"] for x in lines if x.get("kind") == "subtask_planned"
         }
@@ -463,27 +681,39 @@ def gate_records(run: Path) -> dict[str, str]:
     """Every gate line's result, as one canonical string per subtask, both logs."""
     out = {}
     for name, log in (("i", run / "events.jsonl"), ("t", run / "controls" / "events.jsonl")):
-        for x in C.read_jsonl(log) if log.is_file() else []:
+        for x in log_lines(log)[0]:
             if x.get("kind") == "gate_ran":
                 out[f"{name}:{x['subtask_id']}"] = json.dumps(x["result"], sort_keys=True)
     return out
 
 
 def after(r: int, launch: Path, checkout: Path) -> dict[str, Any]:
-    """The round's end (§12, after each round): causes and counts, and the attempt's validity."""
+    """The round's end (§12, after each round): causes and counts, and the attempt's validity.
+
+    Void causes: a usage limit (the watcher's abort, or this check's own search of both arms' run
+    directories and review roots); a crashed or killed process (an exit other than 0 or 1, an arm
+    with no exit, or a run that is not :func:`complete`); an infrastructure cascade (3 or more
+    reviews of the round); a cut read (§5.5). A second cut read in the same round stops the
+    experiment (§12). Deviations, which void nothing here: a rubric digest, and R6.
+    """
     import streams as S  # noqa: PLC0415
 
     records = read_slots()
     attempt = next(
         a for a in reversed(records["attempts"]) if a["round"] == r and a["launch"] == str(launch)
     )
-    exits = (
+    shown = (
         json.loads((launch / "exits.json").read_text()) if (launch / "exits.json").is_file() else {}
     )
+    # An arm §11's fallback never started, after the first arm's abort, has no exit (null).
+    exits = {k: v for k, v in shown.items() if v is not None}
     watcher = (launch / "watcher.log").read_text() if (launch / "watcher.log").is_file() else ""
     found: dict[str, Any] = {"check": "after", "round": r, "attempt": attempt["attempt"]}
     causes: list[str] = []
-    if "ABORT" in watcher:
+    places = {arm: C.places(HOME, slot, RUNS) for arm, slot in attempt["slots"].items()}
+    limits, statuses = usage_limit_files(p[k] for p in places.values() for k in ("run", "scratch"))
+    found["usage_limit_files"], found["status_429s"] = limits, statuses
+    if "ABORT" in watcher or limits:
         causes.append("usage limit")
     if any(int(code) not in (0, 1) for code in exits.values()) or len(exits) != 2:
         causes.append("a crashed or killed process")
@@ -491,30 +721,26 @@ def after(r: int, launch: Path, checkout: Path) -> dict[str, Any]:
     cuts = 0
     gates = {}
     for arm, slot in attempt["slots"].items():
-        p = C.places(HOME, slot, RUNS)
+        p = places[arm]
         reads = S.round_counts(p["run"], p["scratch"], arm) if p["run"].is_dir() else {"cut": 0}
         cuts += reads["cut"]
         bad, seen = rubric_mismatches(p["run"])
-        regate = subprocess.run(
-            [
-                sys.executable, "-I", str(checkout / "experiments/R-PG-01/regate_r6.py"),
-                str(checkout / (C.ARM_I_CORPUS if arm == "I" else C.ARM_F_CORPUS)),
-                str(p["run"]), str(C.SEED), str(launch / f"regate-{slot}"),
-            ],
-            capture_output=True, text=True, check=False,
-        ) if (p["run"] / "events.jsonl").is_file() else None  # fmt: skip
-        differ = None
-        if regate is not None and regate.returncode == 0:
-            differ = json.loads(regate.stdout.strip().splitlines()[-1]).get("differ")
+        done = complete(p["run"])
+        differ = regate_count(checkout, arm, p["run"], launch / f"regate-{slot}")
         gates[arm] = gate_records(p["run"])
         per_arm[f"slot {slot}"] = {
-            "exit": exits.get(str(slot)),
+            "arm_exit": exits.get(str(slot)),
+            "started": str(slot) in exits,
+            "complete": done,
             "reads": reads,
             "infrastructure_unavailable": cascade(p["run"]),
             "rubric_lines": seen,
             "rubric_mismatches": bad,
             "regate_differ": differ,
         }
+    incomplete = not all(v["complete"]["holds"] for v in per_arm.values())
+    if incomplete and "a crashed or killed process" not in causes:
+        causes.append("a crashed or killed process")
     infra = sum(v["infrastructure_unavailable"] for v in per_arm.values())
     if infra >= C.CASCADE:
         causes.append("an infrastructure cascade")
@@ -532,19 +758,138 @@ def after(r: int, launch: Path, checkout: Path) -> dict[str, Any]:
         found["valid"] and not found["gate_records_identical_across_arms"]
     ):
         deviations.append("the gate's records differ")
+    if any(v["complete"]["holds"] and v["regate_differ"] is None for v in per_arm.values()):
+        deviations.append("regate_r6.py did not run on a complete run")
     found["deviations"] = deviations
     attempt.update(
         {"ended_utc": utc(), "void_causes": causes, "valid": not causes, "deviations": deviations}
     )
-    SLOTS.write_text(json.dumps(records, indent=1, sort_keys=True) + "\n")
+    earlier_cut = any(
+        "a cut read" in (x.get("void_causes") or [])
+        for x in records["attempts"]
+        if x["round"] == r and x is not attempt
+    )
+    if cuts and earlier_cut:
+        reason = f"a second cut read in round {r} (§12)"
+        records.setdefault("stopped", {"round": r, "reason": reason, "utc": utc()})
+        found["experiment_stopped"] = reason
+    write_slots(records)
     (launch / "after.json").write_text(json.dumps(found, indent=1, sort_keys=True) + "\n")
     return found
+
+
+# ---- §11's fallback: the second arm, in the next window ----
+
+WINDOW_S = 5 * 3600.0
+
+
+def second_arm(launch: Path, since: float, now: float | None = None) -> float | None:
+    """§11's fallback: the seconds to wait before the second arm starts, or ``None``.
+
+    ``None`` if the first arm's watcher stopped it: the second arm does not start. Else the wait
+    until the first 5-hour boundary, counted from ``since`` (the round's first session, L10's
+    first smoke), at or after now.
+    """
+    log = launch / "watcher.log"
+    if log.is_file() and "ABORT" in log.read_text():
+        return None
+    now = time.time() if now is None else now
+    k = max(1, math.ceil((now - since) / WINDOW_S - 1e-9))
+    return max(0.0, since + k * WINDOW_S - now)
+
+
+# ---- the watcher's abort: every session this run started, proven from its own records ----
+
+GRACE_S = 5.0
+
+
+def stop_sessions(roots: Iterable[Path]) -> dict[str, Any]:
+    """Stop every session the roots prove still running; remove every credential directory.
+
+    The credential directories are every ``*/session/config`` under the roots.
+
+    A session is signalled only if its own record (``process.json``, written by this run's
+    instrument when it spawned it, under the root, in the directory its session id names) proves
+    it: the process at that pid has the recorded start time, its command line carries the
+    recorded session id (the instrument's own test), and it leads its own process group. Its
+    group is sent SIGTERM, and SIGKILL after a grace if the same process is still there. Nothing
+    else is signalled. On the run machine (Linux) alone.
+
+    Raises:
+        Refused: not on the run machine.
+    """
+    if platform.system() != "Linux":
+        raise Refused("sessions are stopped on the run machine alone: nothing signalled here")
+    from physgate.orchestrator.dispatch import process_group_of  # noqa: PLC0415
+    from physgate.orchestrator.processes import is_session  # noqa: PLC0415
+
+    roots = [Path(x) for x in roots]
+    proven: list[tuple[int, str, str]] = []
+    not_proven = ended = 0
+    for root in roots:
+        for record_path in sorted(root.glob("*/session/process.json")):
+            sdir = record_path.parent
+            if (sdir / "ended.json").exists():
+                ended += 1
+                continue
+            try:
+                record = json.loads(record_path.read_text())
+                pid, started, sid = (
+                    int(record["pid"]),
+                    str(record["started"]),
+                    str(record["session_id"]),
+                )
+            except (OSError, ValueError, KeyError, TypeError):
+                not_proven += 1
+                continue
+            if (
+                sdir.parent.name == sid
+                and is_session(pid, started, sid)
+                and process_group_of(pid) == pid
+            ):
+                proven.append((pid, started, sid))
+            else:
+                not_proven += 1
+    for pid, _, _ in proven:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(pid, signal.SIGTERM)
+    deadline = time.monotonic() + GRACE_S
+    while time.monotonic() < deadline and any(is_session(*x) for x in proven):
+        time.sleep(0.1)
+    killed = 0
+    for pid, started, sid in proven:
+        if is_session(pid, started, sid) and process_group_of(pid) == pid:
+            try:
+                os.killpg(pid, signal.SIGKILL)
+                killed += 1
+            except ProcessLookupError:
+                pass
+    configs = 0
+    for root in roots:
+        for config in sorted(root.glob("*/session/config")):
+            if config.is_dir() and not config.is_symlink():
+                shutil.rmtree(config, ignore_errors=True)
+                configs += 1
+    return {
+        "check": "stop-sessions",
+        "stopped": len(proven),
+        "needed_sigkill": killed,
+        "not_proven": not_proven,
+        "already_ended": ended,
+        "configs_removed": configs,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
     """Run one check; print its JSON line; exit 0 if it holds, 1 if not."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
-    parser.add_argument("check", choices=("L1", "L2", "L3", "L4", "L8", "L11", "start", "after"))
+    parser.add_argument(
+        "check",
+        choices=(
+            "L1", "L2", "L3", "L4", "L8", "L11", "start", "after", "stop", "second-arm",
+            "stop-sessions",
+        ),
+    )  # fmt: skip
     parser.add_argument("--round", type=int, choices=C.ROUNDS)
     parser.add_argument("--master-ref", default="origin/master")
     parser.add_argument("--checks-only", action="store_true")
@@ -552,6 +897,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--smoke", type=Path)
     parser.add_argument("--slots")
     parser.add_argument("--launch", type=Path)
+    parser.add_argument("--reason")
+    parser.add_argument("--since", help="UTC, as %%Y-%%m-%%dT%%H:%%M:%%SZ")
+    parser.add_argument("--root", type=Path, action="append", default=[])
     args = parser.parse_args(argv)
     checkout = C.REPO
     binary = Path(os.environ.get("PHYSGATE_CLAUDE_BIN", str(HOME / "pinned/claude-2.1.301")))
@@ -571,6 +919,14 @@ def main(argv: list[str] | None = None) -> int:
         elif args.check == "start":
             i, f = (int(x) for x in args.slots.split(","))
             found = start(args.round, {"I": i, "F": f}, args.launch)
+        elif args.check == "stop":
+            found = stop(args.round, args.reason)
+        elif args.check == "second-arm":
+            since = float(calendar.timegm(time.strptime(args.since, "%Y-%m-%dT%H:%M:%SZ")))
+            wait = second_arm(args.launch, since)
+            found = {"check": "second-arm", "wait_s": None if wait is None else round(wait)}
+        elif args.check == "stop-sessions":
+            found = stop_sessions(args.root)
         else:
             found = after(args.round, args.launch, checkout)
     except Refused as exc:

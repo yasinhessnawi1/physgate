@@ -242,6 +242,18 @@ def test_the_rejection_control_draws_one_eligible_line_per_injected_version(tmp_
     assert '"value": 1.6' in text and '"value": 16' not in text  # the clean twin's patch
 
 
+def test_a_line_is_eligible_for_the_control_only_if_every_locus_pair_is_changed() -> None:
+    changed = {("electrical.motor", "stall_current")}
+    line = {"side": "injected", "locus": [["electrical.motor", "stall_current"]]}
+    true = {"verdict": "true_flaw", "origin": "introduced"}
+    assert P.eligible(line, true, changed)
+    partly = {**line, "locus": [*line["locus"], ["control.loop", "sample_rate"]]}
+    assert not P.eligible(partly, true, changed)
+    assert not P.eligible({**line, "locus": []}, true, changed)
+    assert not P.eligible({**line, "side": "twin"}, true, changed)
+    assert not P.eligible(line, {**true, "origin": "both"}, changed)
+
+
 def test_a_retry_s_form_is_used_where_the_first_try_lacks_one(tmp_path: Path) -> None:
     w = work(tmp_path)
     key = P.build_packets(w, tmp_path / "packets", SHEET)

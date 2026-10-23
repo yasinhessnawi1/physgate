@@ -17,9 +17,11 @@ pinned digest; a difference stops the tally (§12).
 
 **R6.** The gate's records are compared across every run (each subtask's ``gate_ran`` result,
 both logs), and ``regate_r6.py``'s second pass is run on each into a fresh directory; its count
-of differing records must be 0. A difference is a deviation: C is not computed and the primary
-contrast is not taken (§12). Results 2, 3, 4 and 6 must be identical in every run, and are
-printed once.
+of differing records must be 0; and every run's gate catches must be the same artefacts. A
+difference is a deviation (§12): C is not computed, and the primary contrast, D1 and D2 are not
+taken. Everything that does not rest on the gate is still reported (every approval and twin
+contrast, naming, the noise floor, the sessions and the lag): the tally does not stop. Results 2,
+3, 4 and 6 must be identical in every run, and are printed once; where they differ, per run.
 
 **The contrasts** (§5.2 to §5.4), each paired per (artefact, round), arm F minus arm I:
 
@@ -31,7 +33,9 @@ printed once.
   turns and wall clock (median, maximum, and how many ended at the 80-turn or 4,500 s bound);
   the sensitivity reading without any pair holding a ``blocked`` or ``review_unavailable``
   review; the noise floor (counts and Cohen's κ, within each arm across rounds and between the
-  arms within each round, on the injected approval and on the twin's).
+  arms within each round, on the injected approval and on the twin's); and §9 threat 6's lag
+  between the arms, per artefact and side, from each review's start (its first session's spawn
+  time, from the session's own process record under the review root), arm F minus arm I.
 - **Intervals:** a 95 % percentile bootstrap over the 40 artefacts, 10,000 draws drawn once with
   ``random.Random(13)`` and used for every statistic (a resampled artefact carries all its
   reviews, twins' included); beside it, for each round alone, Newcombe's (1998) method 10
@@ -76,6 +80,11 @@ WALL_BOUND_S = 4500.0
 
 class TallyStop(Exception):
     """§12: the tally stops (a total differs, a rubric digest differs, an input is missing)."""
+
+
+#: §12: what R6's failure leaves out.
+NOT_COMPUTED = "not computed: the gate's records differ (§12)"
+NOT_TAKEN = "not taken: the gate's records differ (§12)"
 
 
 # ---- the frozen scripts, at their pins ----
@@ -350,10 +359,12 @@ class Design:
                 raise TallyStop(f"run {key} does not hold the same artefacts")
             self.row[(arm, r)] = rows
         self.g = [int(first_row["caught"]) for first_row in first]
-        for key in runs:
-            caught = [int(self.row[(key[0], int(key[1:]))][a]["caught"]) for a in self.artefacts]
-            if caught != self.g:
-                raise TallyStop("the gate's catches differ between runs (R6)")
+        #: R6: every run's gate catches are the same artefacts. Where they are not, nothing that
+        #: rests on ``g`` is computed (§12), and the rest is.
+        self.g_same = all(
+            [int(self.row[(key[0], int(key[1:]))][a]["caught"]) for a in self.artefacts] == self.g
+            for key in runs
+        )
 
     def ind(self, name: str, arm: str, r: int, i: int) -> int:
         """One indicator for artefact ``i`` in (arm, round)."""
@@ -508,16 +519,72 @@ def noise_floor(d: Design) -> dict[str, Any]:
     return out
 
 
-def by_group(d: Design, key: str, values: Sequence[str]) -> dict[str, Any]:
-    """Per class or per role: ΔA and ΔC as counts, with no interval."""
+def by_group(d: Design, key: str, values: Sequence[str], with_c: bool = True) -> dict[str, Any]:
+    """Per class or per role: ΔA and ΔC as counts, with no interval (ΔC only where R6 holds)."""
     out = {}
     for v in values:
         idx = [i for i in range(d.n) if d.row[("I", d.rounds[0])][d.artefacts[i]][key] == v]
-        out[v] = {
-            "artefacts": len(idx),
-            "delta_A": d.delta("A", idx),
-            "delta_C": d.delta("C", idx),
-        }
+        out[v] = {"artefacts": len(idx), "delta_A": d.delta("A", idx)}
+        if with_c:
+            out[v]["delta_C"] = d.delta("C", idx)
+    return out
+
+
+def first_starts(run: Path, root: Path) -> dict[str, float]:
+    """Each subtask's review start: its first session's spawn time.
+
+    It is read from the session's own process record under the review root (``spawned_at``); a
+    review with none is left out.
+    """
+    out: dict[str, float] = {}
+    for log in (run / "events.jsonl", run / "controls" / "events.jsonl"):
+        seen: set[str] = set()
+        for x in C.read_log(log)[0]:
+            if x.get("kind") not in ("review_ran", "review_unavailable") or x["subtask_id"] in seen:
+                continue
+            seen.add(x["subtask_id"])
+            sid = (
+                (x.get("result") or {}).get("session_id")
+                if x["kind"] == "review_ran"
+                else x.get("session_id")
+            )
+            record = root / str(sid) / "session" / "process.json"
+            if sid and record.is_file():
+                spawned = json.loads(record.read_text()).get("spawned_at")
+                if isinstance(spawned, (int, float)):
+                    out[x["subtask_id"]] = float(spawned)
+    return out
+
+
+def lag(specs: dict[str, tuple[Path, Path | None]]) -> dict[str, Any] | None:
+    """§9 threat 6: each artefact's review start in arm F minus arm I, in seconds.
+
+    Per round and side; ``None`` without the review roots.
+    """
+    if any(root is None for _, root in specs.values()):
+        return None
+    out: dict[str, Any] = {}
+    for r in sorted({int(k[1:]) for k in specs}):
+        (run_i, root_i), (run_f, root_f) = specs[f"I{r}"], specs[f"F{r}"]
+        assert root_i is not None and root_f is not None
+        si, sf = first_starts(run_i, root_i), first_starts(run_f, root_f)
+        rows = C.read_log(run_i / "results.jsonl")[0]
+        part: dict[str, Any] = {}
+        for side, id_key in (("injected", "review_id"), ("twin", "control_id")):
+            per = {
+                row["artefact"]: sf[row[id_key]] - si[row[id_key]]
+                for row in sorted(rows, key=lambda x: x["artefact"])
+                if row.get(id_key) in si and row.get(id_key) in sf
+            }
+            values = list(per.values())
+            part[side] = {
+                "pairs": len(values),
+                "median_s": statistics.median(values) if values else None,
+                "min_s": min(values) if values else None,
+                "max_s": max(values) if values else None,
+                "per_artefact": per,
+            }
+        out[f"round {r}"] = part
     return out
 
 
@@ -558,15 +625,15 @@ def analyse(
     regate_differ = sum(c["regate_differ"] or 0 for c in checks.values())
     gate_only = gate_parts(runs[next(iter(runs))])
     same_gate_only = all(gate_parts(figures) == gate_only for figures in runs.values())
-    r6_holds = r6_cross and regate_differ == 0 and same_gate_only
     d = Design(runs, rounds)
+    r6_holds = r6_cross and regate_differ == 0 and same_gate_only and d.g_same
     resamples = draws(d.n, resample_count) if d.R > 1 else None
     every = list(range(d.n))
     per_run = {
         key: {
             "A": figures["A_approved"],
-            "C": figures["C_caught_among_approved"],
-            "kill": figures["kill_criterion_fires"],
+            "C": figures["C_caught_among_approved"] if r6_holds else NOT_COMPUTED,
+            "kill": figures["kill_criterion_fires"] if r6_holds else NOT_TAKEN,
             "secondary": {
                 k: v for k, v in figures.items() if k.startswith("s6_") and k not in gate_only
             },
@@ -577,9 +644,15 @@ def analyse(
         }
         for key, figures in runs.items()
     }
-    arms = {}
+    if not same_gate_only:
+        for key, figures in runs.items():
+            per_run[key]["results_2_3_4_6"] = gate_parts(figures)
+    arms: dict[str, Any] = {}
     for arm in C.ARMS:
         a = level(d, "A", arm, resamples)
+        if not r6_holds:
+            arms[arm] = {"A_mean": a, "C_mean": NOT_COMPUTED, "kill_on_means": NOT_TAKEN}
+            continue
         c = level(d, "C", arm, resamples)
         rounds_kill = {str(r): per_run[f"{arm}{r}"]["kill"] for r in rounds}
         arms[arm] = {
@@ -589,8 +662,6 @@ def analyse(
             "kill_per_round": rounds_kill,
             "rounds_agree_on_kill": len(set(rounds_kill.values())) == 1,
         }
-    c_i, c_f = arms["I"]["C_mean"]["value"], arms["F"]["C_mean"]["value"]
-    floor = c_i < 3 and c_f < 3
     found: dict[str, Any] = {
         "R": d.R,
         "rounds": rounds,
@@ -598,19 +669,39 @@ def analyse(
         "artefacts": d.n,
         "R6": {
             "gate_records_identical_across_runs": r6_cross,
+            "gate_catches_identical_across_runs": d.g_same,
             "regate_differ_total": regate_differ,
             "results_2_3_4_6_identical": same_gate_only,
             "holds": r6_holds,
         },
         "per_run": per_run,
-        "results_2_3_4_6_printed_once": gate_only,
+        "results_2_3_4_6_printed_once": gate_only if same_gate_only else None,
         "checks": checks,
         "arms": arms,
-        "floor": floor,
     }
+    secondary: dict[str, Any] = {
+        "delta_A": contrast(d, "A", resamples),
+        "delta_T": contrast(d, "T", resamples),
+        "delta_named": contrast(d, "named", resamples),
+        "delta_cited_without_the_twin_condition": contrast(d, "cited", resamples),
+        "per_class": by_group(d, "class", tally.CLASSES, with_c=r6_holds),
+        "per_role": by_group(d, "role", tally.ROLES, with_c=r6_holds),
+        "blocked_and_unavailable": unjudged(runs),
+        "sessions": {key: _session_summary(c["sessions"]) for key, c in checks.items()},
+        "sensitivity": {"delta_A": contrast(d, "A", resamples, sensitivity=True)},
+        "noise_floor": noise_floor(d),
+        "lag_F_minus_I_s": lag(specs),
+    }
+    found["secondary"] = secondary
     if not r6_holds:
-        found["primary"] = "not taken: the gate's records differ (§12)"
+        found["primary"] = NOT_TAKEN
+        found["floor"] = NOT_TAKEN
+        found["D2_sentence"] = NOT_TAKEN
+        found["D1"] = NOT_TAKEN
         return found
+    c_i, c_f = arms["I"]["C_mean"]["value"], arms["F"]["C_mean"]["value"]
+    floor = c_i < 3 and c_f < 3
+    found["floor"] = floor
     primary = contrast(d, "C", resamples, caught_only=True)
     if c_i >= 1 and not floor:
 
@@ -623,23 +714,11 @@ def analyse(
             "bootstrap": boot(share, resamples) if resamples is not None else None,
         }
     found["primary_delta_C"] = primary
-    found["secondary"] = {
-        "delta_A": contrast(d, "A", resamples),
-        "delta_T": contrast(d, "T", resamples),
-        "delta_named": contrast(d, "named", resamples),
-        "delta_cited_without_the_twin_condition": contrast(d, "cited", resamples),
-        "delta_CNN": contrast(d, "CNN", resamples, caught_only=True),
-        "delta_C_among_rejected": contrast(d, "C_rejected", resamples),
-        "per_class": by_group(d, "class", tally.CLASSES),
-        "per_role": by_group(d, "role", tally.ROLES),
-        "blocked_and_unavailable": unjudged(runs),
-        "sessions": {key: _session_summary(c["sessions"]) for key, c in checks.items()},
-        "sensitivity": {
-            "delta_C": contrast(d, "C", resamples, caught_only=True, sensitivity=True),
-            "delta_A": contrast(d, "A", resamples, sensitivity=True),
-        },
-        "noise_floor": noise_floor(d),
-    }
+    secondary["delta_CNN"] = contrast(d, "CNN", resamples, caught_only=True)
+    secondary["delta_C_among_rejected"] = contrast(d, "C_rejected", resamples)
+    secondary["sensitivity"]["delta_C"] = contrast(
+        d, "C", resamples, caught_only=True, sensitivity=True
+    )
     if floor:
         d2 = "not measurable at this approval rate"
     elif primary["shown"]:

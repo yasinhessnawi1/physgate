@@ -28,6 +28,8 @@ CONTROL_SEED = 43
 
 # ---- the code (§2.2, §2.4) ----
 R_PG_01_COMMIT = "8bc03fc65f3a555f8f4f737eb5eeea1c6f179670"
+#: The freeze: the commit that added CRITERIA.md. The run branch carries this file as frozen.
+FREEZE_COMMIT = "e1262da3a85f659ff600036eaf68e8c57ea5c47b"
 RUN_BRANCH = "exp/r-pg-01b-run"
 RUN_TAG = "r-pg-01b-run"
 #: The converter's commit: ``make_sheet.sh`` runs on master at it or later (§14).
@@ -138,6 +140,29 @@ def sha256_file(path: Path) -> str:
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
     """A JSON-lines file, one value per non-blank line."""
     return [json.loads(x) for x in Path(path).read_text().splitlines() if x.strip()]
+
+
+def read_log(path: Path) -> tuple[list[dict[str, Any]], int]:
+    """A run log's lines, and how many did not parse.
+
+    A killed process can leave half a line, and a crashed one no file at all (no lines, none
+    broken).
+    """
+    lines: list[dict[str, Any]] = []
+    broken = 0
+    for raw in Path(path).read_text(errors="replace").splitlines() if Path(path).is_file() else []:
+        if not raw.strip():
+            continue
+        try:
+            line = json.loads(raw)
+        except json.JSONDecodeError:
+            broken += 1
+            continue
+        if isinstance(line, dict):
+            lines.append(line)
+        else:
+            broken += 1
+    return lines, broken
 
 
 def git(repo: Path, *args: str) -> str:
