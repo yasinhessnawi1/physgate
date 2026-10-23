@@ -226,7 +226,12 @@ def test_a_projection_that_cannot_be_computed_is_exit_2_never_the_deviation(
     done = run("projection", str(led), "slice-r1-c1")
     # exit 1 is only a projection over the guard, computed on a ledger read in full
     assert done.returncode == 2, done.stdout + done.stderr
-    assert "refused" in json.loads(done.stdout.strip().splitlines()[-1])
+    why = json.loads(done.stdout.strip().splitlines()[-1])["refused"]
+    assert {
+        "no ledger": "no ledger",
+        "no round-1 session": "no session of the round-1 steps",
+        "a row its arithmetic cannot take": "cannot be computed",
+    }[case] in why
 
 
 #: Ledger lines no total can be read past: a driver killed mid-append, and rows that are not one
