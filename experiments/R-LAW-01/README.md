@@ -83,9 +83,10 @@ was drawn and before any model session. None changes a frozen number, seed or th
      stops, and on resume the packet runs the same try again.
    - One error result is not a failed call: the binary's own report that the model's output never
      fit the schema (subtype `error_max_structured_output_retries`, or terminal reason
-     `structured_output_retry_exhausted`, with exit 1). The call completed, and the output has no
-     form: it is a try, §5.5's one retry applies, and a second one leaves the line without that
-     coder's form, as any invalid form does.
+     `structured_output_retry_exhausted`; the binary exits 1 on it, and either mark makes it a try
+     at any exit code). The call completed, and the output has no form: it is a try, §5.5's one
+     retry applies, and a second one leaves the line without that coder's form, as any invalid
+     form does.
    - A stop writes `STOPPED`: no new session starts, and the sessions in flight end on their own,
      each settled as a try or a failed call. Only the token guard kills them. A session cut off
      mid-call (its process killed) counts as a try and gets the frozen retry.
@@ -103,6 +104,8 @@ was drawn and before any model session. None changes a frozen number, seed or th
    - The projection check after calibration round 1 (§12, step 6) reads the ledger through the
      same reader. A ledger it cannot read is a stop of the run, resumable once the ledger is
      repaired; the projection deviation is only the check failing on a ledger it has read.
+   - A ledger line that cannot be written (its call would go uncounted by the guard) is a stop
+     with that cause. The driver refuses to start unless its Python is 3.11 or later.
 6. **Smaller readings.**
    - A line with an empty locus is not eligible for the rejection control.
    - A section 1 line absorbed at step A joins its target's flaw but adds nothing to its locus (the
@@ -167,6 +170,61 @@ more toward the 60 M guard, never less.
     written; while no try has reported one, the unit is §12's 50,000 per session. With no result,
     the turns are 1. An estimate is not a report, and a failed call is not a try, so neither sets
     the unit. A failed call refused before any model work (a usage limit, a rate limit, a refused
-    credential) is charged nothing. A charge is never less than what the output reports, the row
-    carries `tokens_estimated: true` with `models_used` as the output gives it (empty), and the
-    tally prints the count and the summed charge of such rows beside the token total.
+    credential) is charged nothing, but only when no model turn completed before it: no result,
+    or `num_turns` at most 1; after model turns it is charged like any other. A charge is never
+    less than what the output reports, the row carries `tokens_estimated: true` with
+    `models_used` as the output gives it (empty), and the tally prints the count and the summed
+    charge of such rows beside the token total. The charges also enter the projection check's
+    measured tokens per session; that makes the projection deviation slightly more likely, never
+    less, and is kept because it is conservative.
+
+Readings 13 to 15, and the additions to readings 5 and 12, were fixed on 23.10.2026 after a second
+independent review of the scripts, before any session of the experiment. None changes a frozen
+number, seed or threshold.
+
+13. **The projection check, once (§12, step 6).** Exit 1, the projection deviation, is only a
+    projection over the 60 M guard computed on a ledger read in full. A missing ledger, one it
+    cannot read, no round-1 session in it, or any failure to compute is exit 2: a stop of the
+    run, resumable, never the deviation. The first projection (exit 0 or 1) is kept with its line
+    in `ledger/projection.json`, and a resume of calibration reuses it and never recomputes it
+    with round 2's rows; an exit 1 kept there is the deviation already recorded.
+14. **Repairing a torn ledger line.** A ledger line cut short (a driver killed mid-append) stops
+    the run. The operator repairs it: finds the call the line belongs to (its packet and try,
+    from the session files and the lines around it), re-derives the row from that call's kept
+    output with `law_verify.py ledger` into a scratch file, replaces the torn line with that row,
+    and logs an `interruptions.jsonl` event `repair` with the time and the cause. The tally counts
+    and prints the repairs beside the other interruptions. Deleting a torn line without a
+    re-derived row is never a repair: the guard would lose that call's tokens.
+15. **The binary's environment, one launcher per work dir, and the dry run.**
+    - Every call of the binary (each session, the smoke session, `--version`) runs under
+      `env -i` with only `HOME`, `USER`, `LOGNAME` and `TMPDIR` and `LANG` from the caller where
+      it has them, `PATH=/usr/bin:/bin:/usr/sbin:/sbin` and `DISABLE_AUTOUPDATER=1`. Nothing else
+      of the caller's (a Claude Code session's variables, `ANTHROPIC_*`,
+      `MAX_STRUCTURED_OUTPUT_RETRIES`) reaches it. The launch log records the names, never the
+      values.
+    - A launcher holds `ledger/launch.lock` for the whole phase and refuses to start while any
+      process of the locked phase's group lives, so a launcher whose terminal closed cannot leave
+      two drivers on one work dir. A lock whose processes are all dead is taken over, and the
+      takeover is logged as an interruption.
+    - The launcher runs end to end on the synthetic fixture with the stand-in (`RLAW_STANDIN`
+      and `RLAW_DRY_PINS`), as a test. Every output of such a run is marked a stand-in's, and the
+      tally refuses it outside `--dry-run`.
+
+Reading 16 was written on 23.10.2026, before any session of the experiment. It changes no frozen
+number, seed or threshold.
+
+16. **The parts sheet's own words (§2.1, §2.5).** Every packet carries `parts_sheet.md` verbatim,
+    as §2.5 requires. Its line 1 reads "Stand-in design, not the reference solution. Kit: …", its
+    line 5 is the author's "Kit choice: I chose …", and the note of row R6.05 contains
+    "answered". The text is kept because §2.5 freezes the sheet verbatim at its digest, and §2.1
+    already labels the design a stand-in.
+    - It is identical in every packet of every step, arm and control, so it cannot tell an
+      injected version from a twin, or one reviewer, role or class from another; none of its
+      words is in the blind check's forbidden list (the check finds none in the whole sheet).
+    - The coders' question (could a law over the design's quantities catch this flaw?) does not
+      turn on it.
+    - Its one plausible effect is on the reality judge's prior that a finding is real. That is
+      measured by reality's calibration and rejection controls, which carry the same sheet. The
+      prior adjudication's packets did not carry these lines, which may shift the agreement with
+      the prior adjudication.
+    - `RESULT.md` reports it as a disclosed threat to validity.
