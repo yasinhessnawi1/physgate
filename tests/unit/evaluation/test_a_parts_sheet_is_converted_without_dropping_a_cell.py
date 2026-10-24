@@ -517,6 +517,8 @@ ROW_LIKE = [
     "See R1\u034f.08 for the voltage.",
     "See R1\ufe0f.08 for the voltage.",
     "See R1\u3164.08 for the voltage.",
+    "See R1\u0301.08 for the voltage.",
+    "See R1\u20dd.08 for the voltage.",
     "See R\u0661.\u0660\u0668 for the voltage.",
     "See row 1.08 for the voltage.",
     "See Row1.08 for the voltage.",
@@ -552,6 +554,8 @@ ROW_LIKE_IDS = [
     "a-combining-grapheme-joiner",
     "a-variation-selector",
     "a-hangul-filler",
+    "a-combining-accent",
+    "an-enclosing-mark",
     "arabic-indic-digits",
     "the-word-row",
     "the-word-row-joined",
@@ -1163,6 +1167,10 @@ REFUSALS: dict[str, tuple[str, list[str]]] = {
     "a-table-line-that-is-no-row": (SHEET + f"| {WORD} | b |\n", []),
     "a-row-with-no-quantity": (_row(_row(SHEET, "R1.03", 1, "-"), "R1.03", 6, WORD), []),
     "a-source-that-is-no-address": (_row(SHEET, "R1.03", 4, f"the {WORD} datasheet"), []),
+    "an-earlier-sheet-that-is-no-parts-sheet": (
+        SHEET,
+        _keeping(**{"R1.03": {**OLD["rows"]["R1.03"], "value": WORD}}),
+    ),
     "a-kept-number-the-cell-does-not-write": (
         _row(SHEET, "R1.03", 2, f"2.7–5.5 {WORD}"),
         _keeping(**{"R1.03": {**OLD["rows"]["R1.03"], "value": 4.0}}),
