@@ -244,3 +244,22 @@ def test_a_process_whose_first_step_spawns_records_its_environment_before_that_s
     events = read_events(run.rig.run_dir / "events.jsonl")
     first = next(i for i, e in enumerate(events) if isinstance(e, StageEntered))
     assert isinstance(events[first - 1], EnvironmentRecorded)
+
+
+def test_a_process_whose_first_step_asks_the_escalation_question_records_its_environment_first(
+    tmp_path: Path,
+) -> None:
+    # A process that takes over at an attempt's end records its environment at its start, as it
+    # always did, before the question's line, though its first session comes only after it.
+    run = Run(tmp_path / "run", reviewer=FakeReviewer(verdicts=["fail", "pass"]))
+    loop = run.process()
+    loop.start(plan("s1"))
+    loop._attempt("s1", 1, "resolve")  # noqa: SLF001 - the attempt ends rejected, unasked
+    assert loop.state.next_step().kind == "decide"
+    loop.close()
+    again = run.process()
+    assert again.resume().kind == "done"
+    again.close()
+    events = read_events(run.rig.run_dir / "events.jsonl")[run.starts[-1] :]
+    assert isinstance(events[0], EnvironmentRecorded)
+    assert [e for e in events if isinstance(e, EnvironmentRecorded)] == [events[0]]
