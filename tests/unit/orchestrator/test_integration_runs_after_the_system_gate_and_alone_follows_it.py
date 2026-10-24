@@ -52,6 +52,7 @@ from physgate.orchestrator.events import (
 from physgate.orchestrator.exceptions import (
     CorruptEventLogError,
     ReviewUnavailableError,
+    RunConfigError,
     RunStateError,
 )
 from physgate.orchestrator.install import InstallFacts
@@ -1104,3 +1105,18 @@ def test_a_recorded_off_run_without_integration_replays_unchanged(tmp_path: Path
     events = events_of(run_dir)
     assert isinstance(events[-1], DecisionTaken)
     assert replay(events).subtasks["s2"].status == "active"
+
+
+def test_a_plan_the_register_does_not_bear_out_leaves_nothing_of_itself_on_the_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Two owners of completion: which of them runs after the call cannot be told, so the plan
+    # is refused before its first line, not part way through it.
+    closer = CrossCuttingRole(name="closer", architecture="ARCH-051", owns="completion")
+    monkeypatch.setitem(roles.ROLES, closer.name, closer)
+    rig = integrated_rig(tmp_path)
+    loop = rig.open()
+    with pytest.raises(RunConfigError, match="more than one role owns completion"):
+        loop.start(with_integration("s1", "s2"))
+    loop.close()
+    assert not [e for e in events_of(tmp_path) if isinstance(e, SubtaskPlanned)]

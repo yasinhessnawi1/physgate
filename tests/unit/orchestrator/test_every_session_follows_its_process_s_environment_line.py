@@ -233,3 +233,14 @@ def test_every_spawn_follows_an_environment_line_of_its_own_process(
     for start, end in zip(bounds, bounds[1:], strict=False):
         lines = [e for e in events[start:end] if isinstance(e, EnvironmentRecorded)]
         assert len(lines) == 1, f"{scenario}: {len(lines)} environment lines from one process"
+
+
+def test_a_process_whose_first_step_spawns_records_its_environment_before_that_steps_lines(
+    tmp_path: Path,
+) -> None:
+    # Where it always was: before the first line about a subtask, so a run whose first step
+    # spawns writes its lines in the order it always wrote them.
+    run = _a_fresh_run_with_a_retry(tmp_path / "run")
+    events = read_events(run.rig.run_dir / "events.jsonl")
+    first = next(i for i, e in enumerate(events) if isinstance(e, StageEntered))
+    assert isinstance(events[first - 1], EnvironmentRecorded)
