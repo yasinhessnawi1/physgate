@@ -947,7 +947,8 @@ the work dir.
   every measured coder try, finds exactly the ledger's 13 invalid tries, and in each of them every
   finding has a form, so these rows are all that made them invalid. All 50 are G claims
   (`propagation`) with no `tolerance`. The 20 rows of the findings invalid on both tries are coder
-  2's 10 lines without a form, exactly the 10 `no_form` rows of `codes.jsonl` and the 10 lines
+  2's 10 lines without a form, exactly the 10 `no_form` rows of `codes.jsonl` with step `measured`
+  (the 11th, L0524, is coder 1's in the calibration slice, step `slice-r2`) and the 10 lines
   `report_extra.json` lists (`checks_1_and_7`). No form held a field beyond the schema.
 - **The ledger** carries no field that identifies the account.
 - **Not published:** the session transcripts and raw outputs, and the account files (§11); the
