@@ -59,6 +59,12 @@ the existing relations the gate did not form fixed first.
   each flaw the most frequent code among its lines, rather than the first of G, L, L-if-data, D, N
   that any of its lines has, and it gives 14.0 %. The other five give 17.2 % to 19.9 %.
 
+**One limit, disclosed.** Two of the gate's seven checks, 1 (units) and 7 (propagation), cannot be
+written in the coding scheme's relation grammar, so every claim that stated one of their rules fell
+back to D or N, as the frozen rules require; that understates G and overstates D. Counted after the
+fact, L moves from 20.0 % to 19.2 % (2 of the 50 L flaws become G) and no branch or label changes,
+though the Wilson interval then also reaches below 15 %.
+
 **The rest held.** The two coders agreed above the floor set before the run (weighted κ 0.777 over
 the five codes and 0.781 for "law or gate" against the rest; floor 0.60). The reality check met
 both of its control bars. No deviation occurred, so the decision is taken. The run had no
@@ -87,6 +93,7 @@ above 15 %, so the decision does not depend on that mix.
 | Deciding share (§8.1, §10) | L / real flaws, against T = 15 % | **20.0 %** (50 of 250) | **at or above T: a priority** |
 | Resolved (§10) | the wider of the Wilson and cluster intervals lies wholly on one side of T | the wider is the cluster interval, [13.9 %, 27.3 %] | **not resolved at this size** |
 | Robust (§10) | all six readings of §8.3 on the deciding share's side of T | S3 gives 14.0 % | **not robust**: S3 crosses |
+| Limit, disclosed (not a deviation) | §5.5's grammar cannot state checks 1 and 7, so their G claims fell back to D or N | after the fact, with those lines as G: L 19.2 % (48 of 250), Wilson [14.8 %, 24.5 %], cluster [13.3 %, 26.5 %] | **no branch or label changes**; the Wilson interval then also crosses 15 % |
 
 ### The decision, as §10 words it
 
@@ -95,6 +102,22 @@ above 15 %, so the decision does not depend on that mix.
 
 It is **not resolved at this size** (the cluster-bootstrap interval holds 15 %) and **not robust**
 (reading S3 crosses). §10: "It stands either way, labelled."
+
+**A limit beside these figures: disclosed, not a deviation** (the owner's ruling, 24.10.2026). Two
+of the gate's seven checks cannot be stated in §5.5's relation grammar: check 1 (`units_kind`, a
+unit's dimension or kind) and check 7 (`propagation`, a change owed along a `constrains` edge, or a
+justification record). So every G claim that stated their rule failed §5.5 and fell back to D or
+N, and frozen §5.6 never turns a D or N line into G. This understates G and overstates D. Counted
+after the fact (post-run, descriptive, never a result; `data/report_extra.json`), with the lines
+checks 1 and 7 caught set to G:
+- L is **19.2 %** (48 of 250), Wilson [14.8 %, 24.5 %], cluster [13.3 %, 26.5 %];
+- two of the 50 L flaws, W0205 and W0217, become G;
+- the branch stays **a priority**, it stays **not resolved at this size** and **not robust** (S3,
+  at 14.0 %, is still the only reading that crosses), and it is still not mix-dependent;
+- **the Wilson interval then also crosses 15 %**, so both intervals hold the threshold.
+
+The frozen figures above stand. The details are in disclosure 15 and in "Figures added after the
+run".
 
 **Printed beside it (§10)**, on every real flaw, since the decision is not mix-dependent:
 
@@ -207,14 +230,14 @@ That split, computed after the run, is in "Figures added after the run". Each fl
 
 ### 1. The codes of the real flaws
 
-| Code | Share | Flaws |
-|---|--:|--:|
-| G | 8.8 % | 22 |
-| **L** | **20.0 %** | **50** |
-| L-if-data | 4.8 % | 12 |
-| D | 45.2 % | 113 |
-| N | 20.8 % | 52 |
-| uncoded | 0.4 % | 1 |
+| Code | Share | Flaws | After the fact, with the lines checks 1 and 7 caught as G (post-run, descriptive) |
+|---|---|--:|---|
+| G | 8.8 %, which understates the gate (§5.5 cannot state checks 1 and 7); 16.8 % after the fact | 22 | 16.8 % (42) |
+| **L** | **20.0 %** | **50** | 19.2 % (48) |
+| L-if-data | 4.8 % | 12 | 4.8 % (12) |
+| D | 45.2 %, which overstates D and understates the gate (§5.5 cannot state checks 1 and 7); 38.4 % after the fact | 113 | 38.4 % (96) |
+| N | 20.8 % | 52 | 20.4 % (51) |
+| uncoded | 0.4 % | 1 | 0.4 % (1) |
 
 tally.json gives the parts and kinds below as counts of flaws, not as shares. The shares, computed
 after the run, are in "Figures added after the run".
@@ -337,15 +360,17 @@ So the decision is **not robust**, and the reading that crosses is **S3**.
    elsewhere's own cluster interval also holds 15 %.
 2. **Coder model bias.** Every G and L form was recomputed by script from the node data (§5.5); the
    failures per coder are in the agreement section. The coders against the gate: coder 1 and coder
-   2 each claimed G on 63.2 % of the G-caught lines they were given. The false-positive audit: 515 blocks over 60
-   clean twins. The cross-model audit: weighted κ₅ 0.626 [0.472, 0.784] and κ_L 0.683
-   [0.455, 0.910] against the final codes. On its 146 real lines it codes L 27.4 % of the time,
+   2 each claimed G on 63.2 % of the G-caught lines they were given. The false-positive audit: 515
+   blocks over 60 clean twins. The cross-model audit: weighted κ₅ 0.626 [0.472, 0.784] and κ_L
+   0.683 [0.455, 0.910] against the final codes. On its 146 real lines it codes L 27.4 % of the time,
    against 19.2 % by the final codes.
 3. **The checks as implemented against as described.** Of the 50 L flaws, 8 are an existing gate
    relation the gate did not form, all 8 unformed by name; 42 are new relations. tally.json does
    not split L by the family field. Computed after the run: family 4 (power balance) 18, family 5
    (energy and mass conservation) 12, family 3 (static equilibrium) 11, family 7 (propagation) 4,
-   and none 5.
+   and none 5. A further gap, between the gate and the coding scheme rather than between the
+   gate's code and ARCH-080: §5.5 cannot state checks 1 and 7, so G is understated and D
+   overstated (disclosure 15).
 4. **Only what reviewers found.** The run cannot measure flaws no reviewer found. By reviewer kind
    the L share is 19.8 % for the paired reviewers (48 of 242) and 35.1 % for the generalist (13 of
    37).
@@ -572,11 +597,55 @@ relations are only in Appendix B: `I_motors >= 2 * V_pack * I_stall / V_rated`,
 **14. Fewer real flaws than planned.** §10's resolution estimate assumed about 310 real flaws in the
 measured set. There are 250: of the 297 measured flaws, 34 are not real and 13 undecided.
 
+**15. §5.5's relation grammar cannot state checks 1 and 7.** A disclosed limitation, not a
+deviation (the owner's ruling, 24.10.2026). All figures here are from `data/report_extra.json`
+(post-run, descriptive, never a result).
+- **Why.** A G or L form must state one comparison over the values on the design's nodes, with
+  `+ - * / **`, `sqrt` and constants, both sides of one dimension (§5.5). Check 1 reads a unit's
+  dimension or kind. Check 7 reads whether a node changed against its base, a `constrains` edge
+  and a `no_change_justified` record. Neither rule is a relation over the values of one design
+  version.
+- **The claims.** In the measured step, 206 G claims named `propagation` or `units_kind`. 202
+  failed §5.5: coder 1's 89, coder 2's 78 and the adjudicator's 35, which is every G claim the
+  adjudicator made. By relation and failure: `propagation` unparsed 143, no input 25, on no node 2;
+  `units_kind` unparsed 29, dimension 3. The 4 that passed are coder 2's `c_odo == cpr * N_gb` on
+  L0025, L0300, L0386 and L0387: a value relation labelled `propagation`, not check 7's rule.
+- **Structural or writable.** Of the 202, 199 fail for a structural reason: 167 `propagation`
+  claims that do not parse as one comparison, with or without a trailing comment (each is a rule
+  over change and justification), and 32 `units_kind` claims that do not parse (29) or whose two
+  sides differ in dimension (3), the very defect check 1 reads. 3 are writable: coder 1's
+  `m_asm_new == m_plant (changed neighbour must follow or be justified)` on L0502, L0716 and
+  L0871. It parses once its trailing comment is cut, and then fails only on its comparator
+  (`==` under the `inequality` tolerance). It is a mass equality labelled `propagation`
+  (disclosure 16).
+- **What frozen §5.6 does with them.** A failed G claim takes its fallback code, D or N, and §5.6
+  never turns a D or N line into G. Of the measured lines a failing gate record matches
+  (`matches.jsonl`), 57 end G, 49 end D and 1 ends N.
+- **The adjudicator's share.** This is why the adjudicator's share of G-caught lines claimed G is
+  0.0 %: the tally reads each claim after §5.5 (README reading 11).
+- **Effect.** G is understated and D overstated: G 8.8 %, which understates the gate (§5.5 cannot
+  state checks 1 and 7), 16.8 % after the fact; D 45.2 %, which overstates D and understates the
+  gate (§5.5 cannot state checks 1 and 7), 38.4 % after the fact. L moves from 20.0 % to 19.2 %,
+  and no branch or label changes. The variant is in "Figures added after the run".
+
+**16. W0205's history.** W0205 (fresh pair a07) is the mass mismatch between `mechanical.assembly`
+and `control.balance_loop`. On its lines L0502, L0716 and L0871 both coders claimed G
+(`propagation`), and both claims failed §5.5. Coder 1's fell back to D and coder 2's to N, so the
+coders disagreed only through their fallbacks, and the lines went to the adjudicator. The
+adjudicator claimed G (`propagation`) too, and its claim failed as well, so the lines ended D. On
+L0869 coder 1 coded L (`m_plant == m_asm`), coder 2 claimed G (`propagation`), and the
+adjudicator's G failed, so L0869 also ended D. Coder 1's three G claims are the three writable ones
+of disclosure 15: a mass equality labelled `propagation`. The flaw is L through its other five
+lines, which state `m_plant == m_assy` or `m_plant == m_asm`. With the lines check 7 caught set to
+G, it becomes G.
+
 ## Figures added after the run
 
 **Reported, never a result.** `CRITERIA.md` asks for these figures, and the frozen tally does not
-compute them. They were computed on 23.10.2026, after the run and after the tally, by
-`law_report.py`, **code added after the run**.
+compute them. The last subsection, checks 1 and 7 counted as G, is not in `CRITERIA.md`; it was
+added on the owner's ruling of 24.10.2026, to size the limit of disclosure 15. The figures were
+computed after the run and after the tally (23 and 24.10.2026), by `law_report.py`, **code added
+after the run**.
 - It reuses the tally's own classes and functions.
 - It reads only the published data: `data/`, the committed `slice.json` and the frozen corpora the
   tally reads too.
@@ -631,7 +700,9 @@ Of the 250 real flaws.
 
 Each cell gives the share, the flaws in brackets, and its own 95 % cluster-bootstrap interval in
 per cent (`random.Random(13)`, 10,000 draws, as §8.1). The Wilson intervals are in
-`data/report_extra.json`. The L column equals tally.json's breakdowns.
+`data/report_extra.json`. The L column equals tally.json's breakdowns. The G and D columns carry
+the limit of disclosure 15: G is understated and D overstated, because §5.5 cannot state checks 1
+and 7. The after-the-fact variant is computed for all real flaws only, not per group.
 
 | By role (flaws) | G | L | L-if-data | D | N | uncoded |
 |---|---|---|---|---|---|---|
@@ -691,12 +762,60 @@ fields.
 
 No L flaw falls under family 1 (units), 2 (magnitude) or 6 (thermal).
 
+### Checks 1 and 7 counted as G, after the fact
+
+**Post-run, descriptive, never a result.** The whole frozen tally is re-run with one change. Every
+measured line that a failing check-1 or check-7 record catches (§5.6's locus condition), and that
+ended D or N because its deciding form failed §5.5, is set to G. That is 55 lines, 53 of them
+`true_flaw`. Nothing else changes.
+
+| | As frozen | After the fact |
+|---|---|---|
+| **L / real flaws** | **20.0 %** (50 of 250); Wilson [15.5, 25.4] %; cluster [13.9, 27.3] % | **19.2 %** (48 of 250); Wilson [14.8, 24.5] %; cluster [13.3, 26.5] % |
+| G | 8.8 % (22), which understates the gate (§5.5 cannot state checks 1 and 7); 16.8 % after the fact | 16.8 % (42) |
+| D | 45.2 % (113), which overstates D and understates the gate (§5.5 cannot state checks 1 and 7); 38.4 % after the fact | 38.4 % (96) |
+| N | 20.8 % (52) | 20.4 % (51) |
+| L-if-data; uncoded | 4.8 % (12); 0.4 % (1) | 4.8 % (12); 0.4 % (1) |
+| Branch | a priority | a priority |
+| Mix-dependent | no: 24.1 % on the injection, 17.8 % elsewhere | no: 21.8 % on the injection (19 of 87), 17.8 % elsewhere (29 of 163) |
+| Resolved | no: the cluster interval holds 15 % | no: both intervals hold 15 % |
+| Robust | no: S3 crosses | no: S3 crosses |
+| Strict-law share (S5) | 18.8 % | 18.0 % |
+| L + L-if-data | 24.8 % | 24.0 % |
+| L flaws with one input each side and a non-integer literal | 0 | 0 |
+
+The readings after the fact:
+
+| # | Reading | Share | Flaws | Wilson 95 % (%) | Cluster 95 % (%) | Clusters | Side |
+|---|---|--:|--:|---|---|--:|---|
+| S1 | Base flaws once per pair | 19.2 % | 51 of 266 | [14.9, 24.3] | [13.4, 25.9] | 83 | at or above |
+| S2 | Every line its own unit | 19.2 % | 140 of 731 | [16.5, 22.2] | [13.0, 25.5] | 52 | at or above |
+| S3 | Majority aggregation | 14.0 % | 35 of 250 | [10.2, 18.8] | [9.3, 19.4] | 67 | below: crosses |
+| S4 | Every line real | 16.5 % | 49 of 297 | [12.7, 21.1] | [10.9, 23.1] | 70 | at or above |
+| S5 | Strict law | 18.0 % | 45 of 250 | [13.7, 23.2] | [12.2, 25.0] | 67 | at or above |
+| S6 | Wider base merge | 18.8 % | 45 of 240 | [14.3, 24.2] | [12.4, 26.3] | 57 | at or above |
+
+The two L flaws that become G, each through check 7 (`propagation`, system scope), where every line
+listed also meets the full §5.6 match:
+
+| Flaw | Pair | Lines | Their deciding form | Ended, as frozen |
+|---|---|---|---|---|
+| W0205 | fresh `a07` | L0502, L0716, L0869, L0871 | the adjudicator's G (`propagation`), unparsed | D |
+| W0217 | fresh `a09` | L0720 | coder 2's G (`propagation`), unparsed | N |
+
+The split of the 202 failed G claims (199 structural, 3 writable) is in disclosure 15.
+
 ## Deviations
 
 **None.** The extraction and grouping counts held exactly, the re-gate equals the `a-fresh` gate
 lines, the token guard was never reached, the projection check held, and nothing else was impossible
 as specified. No `deviations.json` was written, and tally.json's `decision.deviations` is empty. The
-decision is taken.
+decision is taken. The owner ruled on 24.10.2026 that the limit of disclosure 15 is a disclosed
+limitation, not a deviation.
+
+**For a successor (R-LAW-02, by CRITERIA's amendment rule).** The relation grammar needs a
+non-numeric form for check 1 (`units_kind`) and check 7 (`propagation`), such as a dimension-kind
+assertion and a change-and-edge rule.
 
 ---
 
@@ -720,7 +839,7 @@ the run's work dir file of the same name (the ledger from `ledger/`), except `re
 | The re-gate's check against `a-fresh` | `regate_check.json` | 168 |
 | Each line's gate match (§5.6) | `matches.jsonl` | 73,369 |
 | The tally's full output, sha256 `79190e7b…0f71d350` | `tally.json` | 31,824 |
-| The figures added after the run (`law_report.py`) | `report_extra.json` | 27,693 |
+| The figures added after the run (`law_report.py`), checks 1 and 7 counted as G among them | `report_extra.json` | 35,508 |
 | The ledger, one line per try (exit, model asked and used, packet, step, tokens, try, time, validity) | `ledger.jsonl` | 132,937 |
 | The launch log (both phases; every line of the two launch outputs is in it) | `launch.log` | 9,142 |
 | The slice | `../slice.json` (committed at "Slice filled") | 312 |
@@ -759,7 +878,8 @@ the run's work dir file of the same name (the ledger from `ledger/`), except `re
   `79190e7b…0f71d350`) in about 16 seconds.
 - **The figures added after the run.** `uv run python -I experiments/R-LAW-01/law_report.py
   experiments/R-LAW-01/data` re-runs the tally on the published files, refuses unless it reproduces
-  `tally.json`, and writes `data/report_extra.json`. It takes about 18 seconds.
+  `tally.json`, and writes `data/report_extra.json`, the variant with checks 1 and 7 counted as G
+  among its figures. It takes about 20 seconds and gives the same bytes each time.
 - **The run.** `law_launch.sh preflight`, `calibrate` and `measure` on a work dir made by
   `law_extract.py`, `law_group.py`, `law_slice.py` and `law_regate.py`, at the commits above, with the
   pinned binary and `RLAW_PRIOR` set to the prior adjudication's output at its digest (header of

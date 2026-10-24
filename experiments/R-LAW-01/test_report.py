@@ -54,6 +54,8 @@ def test_the_report_is_computed_on_the_tally_it_reproduces(extra: dict[str, Any]
     assert extra["tally_reproduced"] is True
     assert extra["computed_after_the_run"] is True
     assert set(extra["slice"]) == {"v0", "v1"}
+    c = extra["checks_1_and_7"]
+    assert c["label"] == RP.LABEL and c["variant"]["label"] == RP.LABEL
 
 
 def test_the_l_row_of_every_group_is_the_tally_s_own(
@@ -85,6 +87,10 @@ def test_the_parts_the_reality_and_the_families_add_up(
         total.update(c)
     assert dict(total) == dict(Counter(pipeline["summary"]["flaw_reality"].values()))
     assert sum(extra["L_by_family"]["family"].values()) == sec["counts"].get("L", 0)
+    # the variant keeps the denominator, and only moves flaws to G
+    v = extra["checks_1_and_7"]["variant"]
+    assert v["primary"]["n"] == t["primary"]["n"] and v["primary"]["k"] <= t["primary"]["k"]
+    assert v["counts"].get("G", 0) >= sec["counts"].get("G", 0)
 
 
 def test_the_slice_has_no_round_here_and_is_reported_empty(extra: dict[str, Any]) -> None:
@@ -207,3 +213,102 @@ def test_every_code_s_share_by_group_and_the_flaws_by_side(invented: TL.Tally) -
         "family": {"4": 1},
         "family_by_relation_origin": {"4 | new relation": 1},
     }
+
+
+# ---------------------------------------------------------------- checks 1 and 7 after the fact
+
+
+def _quantity_node(qs: dict[str, tuple[float, str]]) -> dict[str, dict[str, Any]]:
+    return {"n": R.node("n", qs)}
+
+
+def _claim(
+    gate_relation: str, relation: str, inputs: list[tuple[str, str, float, str]]
+) -> dict[str, Any]:
+    return {
+        "code": "G",
+        "gate_relation": gate_relation,
+        "relation": relation,
+        "kind": "law",
+        "tolerance": "inequality",
+        "fallback_code": "D",
+        "inputs": [
+            {"symbol": s, "node": "n", "quantity": q, "value": v, "unit": u}
+            for s, q, v, u in inputs
+        ],
+    }
+
+
+def test_a_failed_g_claim_on_checks_1_and_7_is_structural_unless_it_could_be_written() -> None:
+    nodes = _quantity_node({"sample_rate": (5.0, "ms"), "rate": (200.0, "Hz"), "mass": (1.0, "kg")})
+    rule = _claim("propagation", "changed(n) => changed(m) or no_change_justified(m)", [])
+    assert RP.why_failed(rule, nodes)[0] == "structural"
+    unit_fn = _claim(
+        "units_kind", "dimension(f) == dimension(Hz)", [("f", "sample_rate", 5.0, "ms")]
+    )
+    assert RP.why_failed(unit_fn, nodes)[0] == "structural"
+    two_dims = _claim(
+        "units_kind", "f == g", [("f", "sample_rate", 5.0, "ms"), ("g", "rate", 200.0, "Hz")]
+    )
+    assert RP.why_failed(two_dims, nodes) == (
+        "structural",
+        "parses, and its two sides differ in dimension",
+    )
+    # a mass equality labelled propagation, unparsed only for its trailing comment
+    commented = _claim(
+        "propagation",
+        "m == k (a changed neighbour must follow)",
+        [("m", "mass", 1.0, "kg"), ("k", "mass", 1.0, "kg")],
+    )
+    kind, why = RP.why_failed(commented, nodes)
+    assert kind == "writable" and "comparator_class" in why
+    other = _claim("power_budget", "sum of draws <= supply", [])
+    assert RP.why_failed(other, nodes)[0] == "writable"
+
+
+def test_the_variant_counts_a_line_check_7_caught_as_g_and_its_l_flaw_moves(
+    tmp_path: Path,
+) -> None:
+    t = R.build(
+        tmp_path,
+        [
+            R.flaw(
+                [
+                    R.ln("a1", "L", "L"),
+                    # both coders claim G with a rule the grammar cannot parse: it falls back to N
+                    R.ln("a1", "G", "G", relation="changed(e.a) => changed(e.b)"),
+                ]
+            ),
+            R.flaw([R.ln("a2", "L", "L")]),
+        ],
+    )
+    assert t.final == {"L0001": "L", "L0002": "N", "L0003": "L"}
+    record = {
+        "check": 7,
+        "name": "propagation",
+        "outcome": "fail",
+        "node": "e.a",
+        "module": None,
+        "details": {},
+        "message": "e.a changed power_draw and owes e.b a change",
+        "scope": "system",
+    }
+    regate = [{"set": "fresh", "pair": "a1", "side": "injected", "result": {"checks": [record]}}]
+    as_tallied = t.run()
+    assert (as_tallied["primary"]["k"], as_tallied["primary"]["n"]) == (2, 2)
+    v = RP.gate_variant(TL.Tally(tmp_path, dry_run=True, sets=R.SETS), regate)
+    assert v["label"] == RP.LABEL
+    assert v["lines_set_to_G"] == 1 and v["lines_set_to_G_true_flaw"] == 1
+    assert (v["primary"]["k"], v["primary"]["n"]) == (1, 2)
+    assert v["counts"] == {"G": 1, "L": 1}
+    [moved] = v["L_flaws_that_become_G"]
+    assert moved["flaw"] == "F0001" and moved["code_after"] == "G"
+    assert [x["line"] for x in moved["lines"]] == ["L0002"]
+    assert moved["lines"][0]["records"] == [{"check": 7, "name": "propagation", "scope": "system"}]
+    # a record of another check, or one whose message names no locus quantity, catches nothing
+    for other in ({**record, "check": 4, "name": "power"}, {**record, "message": "e.a changed"}):
+        regate = [{"set": "fresh", "pair": "a1", "side": "injected", "result": {"checks": [other]}}]
+        v = RP.gate_variant(TL.Tally(tmp_path, dry_run=True, sets=R.SETS), regate)
+        assert v["lines_set_to_G"] == 0 and v["primary"]["k"] == 2
+    claims = RP.failed_g_claims(t)
+    assert claims["claims"] == 2 and claims["kind"] == {"writable": 2}

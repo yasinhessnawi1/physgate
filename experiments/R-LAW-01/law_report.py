@@ -24,6 +24,15 @@ published data: the files of ``<data dir>`` (``experiments/R-LAW-01/data/``), th
 - **§9 threat 3**: the L flaws by the ``family`` field §5.1 defines, read from each L flaw's
   representative line, as the tally reads its other L fields; beside it, family by
   ``relation_origin``.
+- **Checks 1 and 7 after the fact** (post-run, descriptive, never a result; the owner ruled on
+  24.10.2026 that this is a disclosed limitation, not a deviation). §5.5's relation grammar cannot
+  state check 1's rule (a unit's dimension or kind) or check 7's (a change owed along an edge, or a
+  justification record), so every G claim on them fell back to D or N, and frozen §5.6 never turns
+  a D or N line into G. This variant re-runs the whole tally with every measured line that a
+  failing check-1 or check-7 record catches (§5.6's locus condition) and that ended D or N because
+  its deciding form failed §5.5 set to G. It also sorts the measured step's failed G claims into
+  structural (checks 1 and 7, and the relation either does not parse once a trailing comment is
+  cut, or parses with two dimensions) and writable (any other).
 
 Outside ``--dry-run`` it refuses unless the tally, run on the same files, reproduces the published
 ``tally.json`` byte for byte, so every figure here is computed on exactly the data the result
@@ -34,6 +43,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import re
 import shutil
 import sys
 import tempfile
@@ -254,13 +264,201 @@ def l_by_family(t: TL.Tally) -> dict[str, Any]:
     }
 
 
+# ---------------------------------------------------------------- checks 1 and 7, after the fact
+
+#: The checks whose rule §5.5's relation grammar cannot state, by the gate relation that names it.
+UNSTATABLE = {1: "units_kind", 7: "propagation"}
+#: A trailing comment a coder wrote after a relation: a final parenthesis, or a "; …" or ", i.e. …".
+COMMENT = re.compile(r"\s*(?:;|,\s*i\.e\.).*$|\s*\([^()]*\)\s*$")
+LABEL = "post-run, descriptive, never a result"
+
+
+def caught_by_1_or_7(
+    t: TL.Tally,
+    lid: str,
+    by_version: dict[tuple[str, str, str], list[dict[str, Any]]],
+    table: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """The failing check-1 and check-7 records of the line's version that meet §5.6's locus
+    condition (a locus pair on a record's node, its quantity in the check's set and, for these two
+    checks, named in the record's message)."""
+    line = t.lines[lid]
+    ids = set(t.sets[line["set"]].version(line["pair"], line["side"]))
+    out = []
+    for rec in by_version.get((line["set"], line["pair"], line["side"]), []):
+        k = rec.get("check")
+        if rec.get("outcome") != "fail" or k not in UNSTATABLE:
+            continue
+        nodes = G.record_nodes(rec, ids)
+        msg = rec.get("message") or ""
+        if any(n in nodes and G.in_q(k, q, table) and G.word_in(q, msg) for n, q in line["locus"]):
+            out.append({"check": k, "name": rec.get("name"), "scope": rec.get("scope")})
+    return [dict(x) for x in sorted({tuple(sorted(r.items())) for r in out})]
+
+
+def fell_back(t: TL.Tally, lid: str) -> dict[str, Any] | None:
+    """The deciding form's verified row, if the form failed §5.5 and the line ended D or N."""
+    f = t.deciding.get(lid)
+    ver = (f or {}).get("_verified") or {}
+    if f is None or ver.get("failure") is None or t.final[lid] not in ("D", "N"):
+        return None
+    return dict(ver)
+
+
+def gate_variant(t: TL.Tally, regate: list[dict[str, Any]]) -> dict[str, Any]:
+    """The whole tally with the lines checks 1 and 7 caught, which fell back to D or N, as G.
+
+    Mutates ``t.final``; pass a Tally of its own."""
+    table = G.appendix_c()
+    by_version = {(r["set"], r["pair"], r["side"]): r["result"]["checks"] for r in regate}
+    caught: dict[str, dict[str, Any]] = {}
+    for lid in sorted(t.measured):
+        ver = fell_back(t, lid)
+        if ver is None:
+            continue
+        recs = caught_by_1_or_7(t, lid, by_version, table)
+        if recs:
+            caught[lid] = {
+                "who": ver.get("who"),
+                "claimed": ver.get("code_raw"),
+                "gate_relation": (t.deciding.get(lid) or {}).get("gate_relation"),
+                "failure": ver.get("failure"),
+                "final_as_tallied": t.final[lid],
+                "true_flaw": t.is_true(lid),
+                "full_match": bool(t.matches.get(lid, {}).get("matched")),
+                "records": recs,
+            }
+    er = not t.reliable
+    flaws = t.unit_rows(t.flaws)
+    before = {u["id"]: t.unit_code(u, er) for u in flaws if t.real(u, er)}
+    for lid in caught:
+        t.final[lid] = "G"
+    out = t.run()
+    moved = []
+    for u in flaws:
+        if u["id"] in before and before[u["id"]] == "L" and t.unit_code(u, er) != "L":
+            moved.append(
+                {
+                    "flaw": u["id"],
+                    "set": u["set"],
+                    "pairs": u["pairs"],
+                    "code_after": t.unit_code(u, er),
+                    "lines": [{"line": i, **caught[i]} for i in u["lines"] if i in caught],
+                }
+            )
+    p = out["primary"]
+    w = p["wilson"]
+    return {
+        "label": LABEL,
+        "lines_set_to_G": len(caught),
+        "lines_set_to_G_true_flaw": sum(1 for v in caught.values() if v["true_flaw"]),
+        "primary": p,
+        "wilson_holds_T": w is not None and w[0] < TL.T <= w[1],
+        "shares": out["secondary"]["shares"],
+        "counts": out["secondary"]["counts"],
+        "decision": out["decision"],
+        "readings": out["readings"],
+        "origin": out["breakdowns"]["origin"],
+        "L_flaws_that_become_G": moved,
+    }
+
+
+def why_failed(form: dict[str, Any], nodes: dict[str, dict[str, Any]]) -> tuple[str, str]:
+    """A failed G claim, structural or writable, and why.
+
+    Structural only for checks 1 and 7, whose rule the grammar cannot state: the relation does not
+    parse once a trailing comment is cut, or it parses and its two sides differ in dimension (a
+    unit's wrong dimension is the very defect check 1 reads). Anything else could have been
+    written in the grammar."""
+    if form.get("gate_relation") not in UNSTATABLE.values():
+        return "writable", "a gate relation other than checks 1 and 7"
+    rel = str(form.get("relation") or "")
+    for text in dict.fromkeys((rel, COMMENT.sub("", rel).strip())):
+        try:
+            V.parse_relation(text)
+        except V.Failure:
+            continue
+        break
+    else:
+        return "structural", "does not parse as one comparison, with or without a trailing comment"
+    try:
+        V.verify_relation({**form, "relation": text}, nodes)
+    except V.Failure as f:
+        if f.kind == "dimension":
+            return "structural", "parses, and its two sides differ in dimension"
+        return "writable", f"parses as one comparison, then fails on {f.kind}"
+    except (KeyError, TypeError, ValueError):
+        return "writable", "parses as one comparison; its form is incomplete"
+    return "writable", "parses as one comparison, and holds"
+
+
+def failed_g_claims(t: TL.Tally) -> dict[str, Any]:
+    """The measured step's G claims that failed §5.5, by coder, gate relation and kind."""
+    rows = [
+        r
+        for r in t.codes
+        if r["step"] == "measured" and r.get("code_raw") == "G" and r.get("failure")
+    ]
+    kinds: Counter[str] = Counter()
+    detail: Counter[str] = Counter()
+    writable = []
+    for r in rows:
+        x = t.lines[r["line_id"]]
+        nodes = t.sets[x["set"]].version(x["pair"], x["side"])
+        kind, why = why_failed(r["form"], nodes)
+        kinds[kind] += 1
+        detail[f"{kind} | {r['form'].get('gate_relation')} | {r['failure']} | {why}"] += 1
+        if kind == "writable":
+            writable.append(
+                {"line": r["line_id"], "who": r["who"], "relation": r["form"].get("relation")}
+            )
+    every = [r for r in t.codes if r["step"] == "measured" and r.get("code_raw") == "G"]
+    passed = [
+        {"line": r["line_id"], "who": r["who"], "relation": r["form"].get("relation")}
+        for r in every
+        if not r.get("failure") and r["form"].get("gate_relation") in UNSTATABLE.values()
+    ]
+    return {
+        "label": LABEL,
+        "every_G_claim_by_gate_relation": dict(
+            sorted(
+                Counter(
+                    f"{r['form'].get('gate_relation')} | {'failed' if r.get('failure') else 'passed'}"
+                    for r in every
+                ).items()
+            )
+        ),
+        "passed_on_checks_1_and_7": passed,
+        "claims": len(rows),
+        "by_coder": dict(sorted(Counter(r["who"] for r in rows).items())),
+        "by_gate_relation_and_failure": dict(
+            sorted(
+                Counter(f"{r['form'].get('gate_relation')} | {r['failure']}" for r in rows).items()
+            )
+        ),
+        "kind": dict(sorted(kinds.items())),
+        "kind_detail": dict(sorted(detail.items())),
+        "writable": writable,
+    }
+
+
+def gate_matched_by_final(t: TL.Tally) -> dict[str, int]:
+    """The measured lines a failing gate record matches (§5.6, ``matches.jsonl``), by final code."""
+    return dict(
+        sorted(
+            Counter(t.final[i] for i in t.measured if t.matches.get(i, {}).get("matched")).items()
+        )
+    )
+
+
 # ---------------------------------------------------------------- all
 
 
 def report(
     t: TL.Tally, tally: dict[str, Any], matched: dict[str, dict[str, bool]]
 ) -> dict[str, Any]:
-    """Every figure of this file; ``matched`` holds each slice round's §5.6 match per line."""
+    """Every figure of this file but the variant; ``matched`` holds each slice round's §5.6 match
+    per line."""
     return {
         "computed_after_the_run": True,
         "dry_run": t.dry_run,
@@ -269,6 +467,11 @@ def report(
         "shares_by_group": shares_by_group(t),
         "reality_by_side": reality_by_side(t),
         "L_by_family": l_by_family(t),
+        "checks_1_and_7": {
+            "label": LABEL,
+            "gate_matched_lines_by_final_code": gate_matched_by_final(t),
+            "failed_G_claims": failed_g_claims(t),
+        },
     }
 
 
@@ -299,6 +502,7 @@ def compute(
             regate = [json.loads(x) for x in fh]
         matched = {step: slice_matches(t, step, regate, ids) for _, step in VERSIONS}
         out = report(t, tally, matched)
+        out["checks_1_and_7"]["variant"] = gate_variant(TL.Tally(work, dry, sets), regate)
     out["tally_reproduced"] = same
     return out
 
