@@ -14,22 +14,34 @@ Row, Quantity, Value, Unit, Source URL, Retrieved and Note. A review is given
   or ``same driver URL as above``, which is the address of the nearest row above it;
 - the Retrieved column must hold one date for every row, because a row has no field for it.
 
-**Lines outside the tables.** A heading is the table's structure and is not carried, so one
-that holds a pipe or a row id is refused. A line that holds a pipe, or starts with a row id
-(after any indent, quote or list marker), is refused: a row written there, without its
-leading pipe or inside a quote or a list, would otherwise be lost. A code fence, of backticks
-or tildes, is refused, since a table written inside one is no table. Every other line is
-prose, a row id later in it naming a row in passing, and the command is told what to do with
-it by name: ``--prose carry`` writes each line, as written, to the sheet's ``remarks``;
-``--prose drop`` leaves them out and counts them, and refuses a line that holds a row id
-anywhere, however it is written (in code, brackets or HTML, misspelt, in another case, with
-a full-width digit, or behind a character that prints as nothing), since dropped, a row
-written there would be gone; such a text is carried, or each such line is named to be dropped
-all the same, by the sha256 of its UTF-8 bytes as written (``--drop-prose-line-sha256``,
-repeated; the refusal prints the digest, never the line). A name that matches no such line of
-the table refuses, so a stale one never passes; naming changes nothing that is kept. A text
-with prose and neither is refused. A line of whitespace and characters that print as nothing
-is blank, and every cell is read without them around it.
+**Lines.** The text is read as lines that a newline (``\n``) ends, a carriage return just
+before the newline being part of the line's end. A carriage return anywhere else is refused.
+A form feed, a vertical tab, or a Unicode line or paragraph separator ends no line: it is a
+character of the line it is in.
+
+**Lines outside the tables.** A heading (up to three spaces, one to six ``#``, then a space,
+a tab or the line's end) is the table's structure and is not carried, so one that holds a
+pipe or a row id is refused. A line that holds a pipe, or starts with a row id (after any
+indent, quote or list marker), is refused: a row written there, without its leading pipe or
+inside a quote or a list, would otherwise be lost. A code fence, of backticks or tildes, is
+refused, since a table written inside one is no table. Every other line is prose, a line led
+by a ``#`` that is no heading among them (``#tag``, seven ``#``, four spaces before it), a row
+id later in a line naming a row in passing, and the command is told what to do with it by
+name: ``--prose carry`` writes each line, as written, to the sheet's ``remarks``; ``--prose
+drop`` leaves them out and counts them, and refuses a line that holds a row id anywhere,
+since dropped, a row written there would be gone (what counts as a row id there is said at
+:func:`_names_a_row`). Such a text is carried, or each such line is named to be dropped all
+the same (``--drop-prose-line-sha256``, repeated) by its digest: the sha256 of the line's
+UTF-8 bytes, its line end left out. Each name must match exactly one such line of the table:
+a stale name, a name of a line that needs none, a name given twice, or one that two lines
+written alike share, refuses. Naming changes nothing that is kept. A text with prose and
+neither is refused. A line of whitespace and characters that print as nothing is blank, and
+every cell is read without them around it.
+
+**What a refusal prints.** A line by its number, and a line that may be named by its digest;
+a row by its id; a telltale by the list's own word; a name by its place among the names given.
+Never a name, and never any other text of the table, so a refusal can be read where the
+table may not be.
 
 **What a review is given holds no telltale word.** Every ``given``, ``note`` and remark the
 converter writes is held to the corpus's telltale words, the same list the instrument holds a
@@ -71,9 +83,8 @@ Usage::
         [--drop-prose-line-sha256 SHA256 ...]
 
 It prints counts only: rows, rows with a number, rows with a given value, rows with neither
-(always 0), notes, followed references, prose lines carried or dropped, and the lines named
-to be dropped; when keeping, the numbers kept and the rows whose earlier fields changed
-(always 0).
+(always 0), notes, followed references, prose lines carried or dropped, and the lines dropped
+by name; when keeping, the numbers kept and the rows whose earlier fields changed (always 0).
 """
 
 from __future__ import annotations
@@ -85,13 +96,16 @@ import math
 import re
 import sys
 import unicodedata
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from physgate.evaluation.inject.corpus import Sources, telltales, visible
 from physgate.gate.units import UnitRefusedError, parse
+from physgate.orchestrator.common import first_problem
 
 #: The table's columns, in order, as the authors' sheet heads them (case aside).
 COLUMNS = ("row", "quantity", "value", "unit", "source url", "retrieved", "note")
@@ -108,6 +122,9 @@ _ROW_ID = re.compile(r"R[0-9]+[a-z]?\.[0-9]{2}")
 #: written outside a table. A row id later in a line names a row in passing.
 _ROW_LEAD = re.compile(r"\s*(?:(?:[>*+-]|[0-9]+[.)])\s*)*R[0-9]+[a-z]?\.[0-9]{2}(?![0-9])")
 _FENCE = re.compile(r"\s*(```|~~~)")
+#: A heading, as CommonMark reads one: up to three spaces, one to six ``#``, then a space, a
+#: tab or the line's end. A line led by a ``#`` otherwise is a paragraph's.
+_HEADING = re.compile(r" {0,3}#{1,6}(?:[ \t]|$)")
 _NUMBER = re.compile(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
 _WHOLE = re.compile(r"[+-]?[0-9]+")
 _SEPARATOR = re.compile(r"\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?")
@@ -127,10 +144,26 @@ _DASH = "–—"
 _GROUPING = ",.   "
 _LETTERS = re.compile(r"[^\W\d_]+")
 _HYPHEN_AFTER = re.compile(r"\s*[-−]\s*[0-9.]")
-#: A row id however it is written: in another case, with one digit after the point, or with a
-#: letter on it. Searched for in a line read with full-width forms folded and the characters
-#: that print as nothing removed.
-_ROW_ID_LOOSE = re.compile(r"R[0-9]+[A-Z]?\.[0-9]+", re.IGNORECASE)
+#: What may stand between a row id's two numbers: a point, a comma, an underscore, a middle
+#: dot or another dot, a hyphen, a dash or a minus.
+_ROW_ID_SEPARATORS = (
+    ".,_\u00b7\u2022\u2027\u2219\u22c5\u3001\u3002-\u2010\u2011\u2012\u2013\u2014\u2015\u2212"
+)
+#: A row id however it is written (see :func:`_names_a_row`), in a line read as
+#: :func:`_plain` gives it.
+_ROW_ID_LOOSE = re.compile(
+    rf"(?:R|\bR\s+|\brow\s*)\d+[A-Z]?\s*[{re.escape(_ROW_ID_SEPARATORS)}]\s*\d+",
+    re.IGNORECASE,
+)
+#: Unicode's Default_Ignorable_Code_Point ranges (DerivedCoreProperties): characters a reader
+#: is shown as nothing, the Hangul fillers and the variation selectors among them.
+_IGNORABLE = (
+    (0x00AD, 0x00AD), (0x034F, 0x034F), (0x061C, 0x061C), (0x115F, 0x1160),
+    (0x17B4, 0x17B5), (0x180B, 0x180F), (0x200B, 0x200F), (0x202A, 0x202E),
+    (0x2060, 0x206F), (0x3164, 0x3164), (0xFE00, 0xFE0F), (0xFEFF, 0xFEFF),
+    (0xFFA0, 0xFFA0), (0xFFF0, 0xFFF8), (0x1BCA0, 0x1BCA3), (0x1D173, 0x1D17A),
+    (0xE0000, 0xE0FFF),
+)  # fmt: skip
 #: A line of prose named to be dropped, by its sha256.
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 #: A plain space between digits whose right-hand group is three digits: ``1 500``.
@@ -183,15 +216,37 @@ def _cells(line: str) -> list[str]:
     return [visible(c).replace("\\|", "|") for c in _UNESCAPED_PIPE.split(inner)]
 
 
+def _unprinted(char: str) -> bool:
+    """Whether ``char`` prints as nothing, or only as a mark on the character before it."""
+    point = ord(char)
+    return unicodedata.category(char) in {"Cf", "Mn", "Me"} or any(
+        low <= point <= high for low, high in _IGNORABLE
+    )
+
+
+def _plain(line: str) -> str:
+    """``line`` as a row id is looked for in: compatibility forms folded, nothing unprinted."""
+    return "".join(c for c in unicodedata.normalize("NFKD", line) if not _unprinted(c))
+
+
 def _names_a_row(line: str) -> bool:
     """Whether ``line`` holds a row id anywhere, however it is written.
 
-    Full-width forms are folded first (``Ｒ１.02``), and every character that prints as nothing
-    is removed, so a zero-width space cannot hide one.
+    The line is read with its compatibility forms folded (NFKD: full-width letters and digits,
+    a no-break space, a mathematical R) and with every character removed that prints as
+    nothing or only as a mark on another: format characters (a zero-width space, a joiner, a
+    byte-order mark), combining marks (the combining grapheme joiner, the variation selectors)
+    and every other default-ignorable code point (the Hangul fillers). In that, a row id is,
+    in any case: ``R`` (inside a word too, ``TR1.08``), or ``R`` standing as a word with spaces
+    after it, or the word ``row`` with or without spaces after it; then digits of any script,
+    an optional letter, one of ``. , _``, a middle or other dot, a hyphen, a dash or a minus,
+    with spaces on either side or none; then digits.
+
+    Not caught: a letter of another script that looks like R (a Cyrillic ``Р`` is the look-alike
+    of a Latin P, not of R), a separator other than those (``R1:02``, ``R1/02``), or none
+    (``R102``, ``R1 02``).
     """
-    folded = unicodedata.normalize("NFKC", line)
-    plain = "".join(c for c in folded if unicodedata.category(c) != "Cf")
-    return _ROW_ID_LOOSE.search(plain) is not None
+    return _ROW_ID_LOOSE.search(_plain(line)) is not None
 
 
 def _number(cell: str, unit: str) -> float | int | None:
@@ -240,6 +295,23 @@ def _row(cells: list[str], address: str | None) -> dict[str, object]:
     return row
 
 
+def lines(markdown: str) -> list[str]:
+    """``markdown``'s lines: what a newline ends, a carriage return just before it left out.
+
+    Raises:
+        SheetRefusedError: a carriage return stands anywhere else; the line is named.
+    """
+    split = [line.removesuffix("\r") for line in markdown.split("\n")]
+    for number, line in enumerate(split, start=1):
+        if "\r" in line:
+            msg = (
+                f"line {number} holds a carriage return that ends no line; a line is what a "
+                "newline ends, so write the table's line ends as newlines"
+            )
+            raise SheetRefusedError(msg)
+    return split
+
+
 def read_table(markdown: str) -> Table:
     """The authors' table in ``markdown``, every line accounted for.
 
@@ -252,14 +324,14 @@ def read_table(markdown: str) -> Table:
     dates: set[str] = set()
     address: str | None = None
     headed = False
-    for number, line in enumerate(markdown.splitlines(), start=1):
+    for number, line in enumerate(lines(markdown), start=1):
         if not visible(line):
             continue
         if _FENCE.match(line):
             msg = f"line {number}: a code fence; a table written inside one is not read as one"
             raise SheetRefusedError(msg)
         if not line.lstrip().startswith("|"):
-            if line.lstrip().startswith("#"):
+            if _HEADING.match(line):
                 if "|" in line or _names_a_row(line):
                     msg = (
                         f"line {number}: a heading holds a pipe or a row id; a heading is never "
@@ -425,8 +497,8 @@ def _kept(
         other = _other_quantity(unit, str(before["unit"]))
         if other:
             msg = (
-                f"row {row_id}: the table's unit {unit!r} is {other} than the earlier "
-                f"sheet's unit {before['unit']!r}"
+                f"row {row_id}: the table's unit cell is {other} than the earlier sheet's "
+                f"unit {before['unit']!r}"
             )
             raise SheetRefusedError(msg)
         if json.dumps(before["value"]) != value or unit != before["unit"]:
@@ -467,8 +539,8 @@ def _earlier(keep: bytes, ids: list[str]) -> dict[str, Any]:
         raise SheetRefusedError(msg)
     try:
         Sources.model_validate_json(keep)
-    except ValueError as exc:
-        msg = f"the earlier sheet is not a parts sheet: {exc}"
+    except ValidationError as exc:
+        msg = f"the earlier sheet is not a parts sheet: {first_problem(exc)}"
         raise SheetRefusedError(msg) from exc
     if set(rows) != set(ids):
         odd = sorted(set(rows) ^ set(ids))
@@ -489,44 +561,67 @@ def _held_blind(where: str, text: str) -> None:
 
 
 def prose_line_sha256(line: str) -> str:
-    """The digest a line of prose is named by: the sha256 of its UTF-8 bytes, as written."""
+    """The digest a line of prose is named by: the sha256 of its UTF-8 bytes, line end left out.
+
+    ``line`` is one of :func:`lines`: what a newline ends, without the newline or a carriage
+    return just before it.
+    """
     return hashlib.sha256(line.encode("utf-8")).hexdigest()
 
 
-def _drop_only_what_is_named(table: Table, named: Collection[str]) -> None:
-    """Refuse dropped prose that holds a row id on a line not named, and a name of no such line.
+def _dropped_by_name(table: Table, named: Sequence[str]) -> tuple[int, ...]:
+    """The numbers of the lines of prose dropped by name; refuse what may not be dropped so.
 
     Dropped, a line that holds a row id would be gone with whatever row it writes, so it is
-    dropped only where its digest is named. A name that matches no such line of this table (a
-    stale one, from another version of it, or a line that needs none) refuses, so a name
-    never passes silently. Naming changes nothing that is kept: it lets only those lines go.
+    dropped only where its digest is named. Each name must be a sha256, given once, and match
+    exactly one such line of this table: a stale name, from another version of it, a name of
+    a line that needs none, or one that two lines written alike share (a name lets one line
+    go) refuses, so a name never passes silently. Naming changes nothing that is kept.
+
+    No refusal prints a name: one that is not a sha256 may be the line itself, passed in place
+    of its digest. A name is told by its place among those given.
     """
-    wanted = set()
-    for digest in named:
+    given = len(named)
+    for place, digest in enumerate(named, start=1):
         if _SHA256.fullmatch(digest) is None:
-            msg = f"{digest!r} is no sha256 of a line of prose (64 lower-case hex digits)"
-            raise SheetRefusedError(msg)
-        wanted.add(digest)
-    holding = set()
-    for number, line in table.prose:
-        if not _names_a_row(line):
-            continue
-        digest = prose_line_sha256(line)
-        if digest not in wanted:
             msg = (
-                f"line {number}: a line of prose holds a row id, and dropped it would be gone "
-                "with whatever row it writes; carry the prose (--prose carry), or name the "
+                f"name {place} of {given} (--drop-prose-line-sha256) is not 64 lower-case hex "
+                "digits, a line's sha256; it is not printed, since it may be the line itself"
+            )
+            raise SheetRefusedError(msg)
+    for place, digest in enumerate(named, start=1):
+        first = named.index(digest) + 1
+        if first != place:
+            msg = f"name {place} of {given} is name {first} given again; a name lets one line go"
+            raise SheetRefusedError(msg)
+    holding: dict[str, list[int]] = {}
+    for number, line in table.prose:
+        if _names_a_row(line):
+            holding.setdefault(prose_line_sha256(line), []).append(number)
+    for digest, numbers in holding.items():
+        if digest not in named:
+            msg = (
+                f"line {numbers[0]}: a line of prose holds a row id, and dropped it would be "
+                "gone with whatever row it writes; carry the prose (--prose carry), or name the "
                 f"line to drop it all the same (--drop-prose-line-sha256 {digest})"
             )
             raise SheetRefusedError(msg)
-        holding.add(digest)
-    stale = sorted(wanted - holding)
-    if stale:
-        msg = (
-            f"{len(stale)} digest(s) named to be dropped match no line of prose of this table "
-            f"that holds a row id: {', '.join(stale)}"
-        )
-        raise SheetRefusedError(msg)
+    for place, digest in enumerate(named, start=1):
+        numbers = holding.get(digest, [])
+        if not numbers:
+            msg = (
+                f"name {place} of {given} matches no line of prose of this table that holds "
+                "a row id: a stale name, or one of a line that needs none"
+            )
+            raise SheetRefusedError(msg)
+        if len(numbers) > 1:
+            msg = (
+                f"name {place} of {given} matches {len(numbers)} lines of prose, lines "
+                f"{', '.join(map(str, numbers))}; a name lets one line go, and lines written "
+                "alike cannot be told apart, so carry the prose (--prose carry)"
+            )
+            raise SheetRefusedError(msg)
+    return tuple(sorted(n for numbers in holding.values() for n in numbers))
 
 
 def convert(
@@ -544,14 +639,14 @@ def convert(
     sheet's. ``prose`` says what to do with lines of prose beside the tables: ``carry`` or
     ``drop``; a text that has some needs it. ``drop_named`` are the digests
     (:func:`prose_line_sha256`) of the lines of prose that hold a row id and are dropped all
-    the same, with ``drop`` only; each must name such a line of this table.
+    the same, with ``drop`` only; each must name exactly one such line of this table, once.
 
     Raises:
         SheetRefusedError: the table holds something the sheet cannot carry whole; it and
             the earlier sheet disagree; prose is there and ``prose`` does not say what to do
-            with it; dropped prose holds a row id on a line not named, or a name is no such
-            line's; what would be written holds a telltale word; or no label is given and
-            none is kept.
+            with it; dropped prose holds a row id on a line not named, or a name is not one
+            such line's alone; what would be written holds a telltale word, or would not load
+            as a parts sheet; or no label is given and none is kept.
     """
     table = read_table(markdown)
     if prose is not None and prose not in PROSE:
@@ -570,7 +665,7 @@ def convert(
         )
         raise SheetRefusedError(msg)
     if prose == "drop":
-        _drop_only_what_is_named(table, drop_named)
+        _dropped_by_name(table, tuple(drop_named))
     sheet: dict[str, Any] = {"label": label, "rows": table.rows}
     earlier: dict[str, Any] | None = None
     if keep is not None:
@@ -598,7 +693,11 @@ def convert(
     if earlier is not None:
         _additive(earlier, sheet)
     written = (json.dumps(sheet, indent=1, ensure_ascii=False) + "\n").encode()
-    Sources.model_validate_json(written)  # the sheet the corpus loader will read
+    try:
+        Sources.model_validate_json(written)  # the sheet the corpus loader will read
+    except ValidationError as exc:
+        msg = f"the sheet would not load as a parts sheet: {first_problem(exc)}"
+        raise SheetRefusedError(msg) from exc
     return written
 
 
@@ -638,14 +737,21 @@ def main(argv: list[str] | None = None) -> int:
         default=[],
         metavar="SHA256",
         help="with --prose drop: a line of prose that holds a row id and is dropped all the "
-        "same, named by the sha256 of its UTF-8 bytes; repeat for each such line",
+        "same, named by the sha256 of its UTF-8 bytes, its line end left out; repeat for each "
+        "such line",
     )
     args = parser.parse_args(argv)
     named: list[str] = args.drop_prose_line_sha256
     out: Path = args.out
     earlier: Path | None = args.keep_values_from
     keep = earlier.read_bytes() if earlier is not None else None
-    text = args.table.read_text(encoding="utf-8")
+    try:
+        # The bytes as written: no newline is translated, so a line is what a newline ends.
+        text = args.table.read_bytes().decode("utf-8")
+    except UnicodeDecodeError as exc:
+        print(f"refused: the table is not UTF-8 text: {exc.reason} at byte {exc.start}",
+              file=sys.stderr)  # fmt: skip
+        return 1
     try:
         written = convert(text, label=args.label, keep=keep, prose=args.prose, drop_named=named)
     except SheetRefusedError as exc:
@@ -668,7 +774,7 @@ def main(argv: list[str] | None = None) -> int:
         f" notes {sum('note' in r for r in rows)}"
         f" references {table.references}"
         + (f" prose-{_DONE[args.prose]} {len(table.prose)}" if table.prose else "")
-        + (f" named-dropped {len(set(named))}" if named else "")
+        + (f" named-dropped {len(_dropped_by_name(table, named))}" if named else "")
     )
     if keep is not None:
         before = json.loads(keep)["rows"]
