@@ -16,8 +16,8 @@ Row, Quantity, Value, Unit, Source URL, Retrieved and Note. A review is given
 
 **Lines.** The text is read as lines that a newline (``\n``) ends, a carriage return just
 before the newline being part of the line's end. A carriage return anywhere else is refused.
-A form feed, a vertical tab, or a Unicode line or paragraph separator ends no line: it is a
-character of the line it is in.
+A vertical tab, a form feed, a file, group or record separator, a next line (U+0085), or a
+Unicode line or paragraph separator ends no line: it is a character of the line it is in.
 
 **Lines outside the tables.** A heading (up to three spaces, one to six ``#``, then a space,
 a tab or the line's end) is the table's structure and is not carried, so one that holds a
