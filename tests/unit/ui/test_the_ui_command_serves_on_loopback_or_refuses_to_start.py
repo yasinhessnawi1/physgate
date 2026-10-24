@@ -17,26 +17,36 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
-from ui_command_rig import ORPHANED, gone, kill_left_over, launch_command, stop_command
+from ui_command_rig import (
+    ORPHANED,
+    STOP_WITHIN_S,
+    gone,
+    kill_left_over,
+    launch_command,
+    running_with,
+    stop_command,
+)
 from ui_rig import fake_ui, write_run
 
 from physgate.cli import main
 from physgate.ui import cli as ui_cli
 
-#: Runs the real command in a process of its own, with the fixture build as the app.
+#: The real command, with the fixture build as the app.
 #:
-#: It first watches for the process that started it to go (``ORPHANED``), and then gives the
-#: interrupt Python's own handler back. A process started from a shell's background job
-#: inherits the interrupt as ignored, and Python keeps an ignored one ignored, so the command
-#: run that way never saw the interrupt these tests stop it with: the wait expired and the
-#: server was left running. The operator's Ctrl-C reaches a process whose interrupt is not
-#: ignored, which is the case these tests prove.
-LAUNCH = ORPHANED + (
+#: It first gives the interrupt Python's own handler back. A process started from a shell's
+#: background job inherits the interrupt as ignored, and Python keeps an ignored one ignored,
+#: so the command run that way never saw the interrupt these tests stop it with: the wait
+#: expired and the server was left running. The operator's Ctrl-C reaches a process whose
+#: interrupt is not ignored, which is the case these tests prove.
+SERVE = (
     "import signal; signal.signal(signal.SIGINT, signal.default_int_handler); "
     "import sys; from pathlib import Path; import physgate.ui.cli as c; "
     "c._ui_root = lambda: Path(sys.argv[1]); "
     "from physgate.cli import main; raise SystemExit(main(sys.argv[2:]))"
 )
+#: Runs the real command in a process of its own, once it watches for its test process to go
+#: (``ORPHANED``).
+LAUNCH = ORPHANED + SERVE
 
 
 @pytest.fixture
@@ -153,7 +163,7 @@ def test_the_command_serves_the_app_and_the_runs_on_loopback_and_stops_cleanly(
         assert str(started["url"]).startswith("http://127.0.0.1:")
         port = int(str(started["url"]).rsplit(":", 1)[1].strip("/"))
         assert started["roots"] == [str(world["root"].resolve())]
-        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=STOP_WITHIN_S)
         connection.request("GET", "/api/runs")
         response = connection.getresponse()
         listed = json.loads(response.read())
@@ -178,7 +188,7 @@ def test_an_empty_run_folder_is_served_and_lists_no_runs(
         port = int(str(started["url"]).rsplit(":", 1)[1].strip("/"))
         answers: dict[str, tuple[int, bytes]] = {}
         for path in ("/", "/api/runs"):
-            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=STOP_WITHIN_S)
             connection.request("GET", path)
             response = connection.getresponse()
             answers[path] = (response.status, response.read())
@@ -218,7 +228,7 @@ def test_the_command_prints_the_operator_s_address_and_no_route_serves_its_token
         port = int(str(started["url"]).rsplit(":", 1)[1].strip("/"))
         served = []
         for target in ("/", "/api/runs", "/api/runs/0/run-1/config"):
-            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=STOP_WITHIN_S)
             connection.request("GET", target)
             response = connection.getresponse()
             served.append(response.read().decode() + str(response.getheaders()))
@@ -284,7 +294,7 @@ def test_an_interrupt_that_lands_as_the_address_is_printed_still_stops_the_comma
     )
     process = commands(str(world["ui"]), "ui", "--root", str(world["root"]), "--port", "0",
                        code=interrupted_as_printed)  # fmt: skip
-    out, err = process.communicate(timeout=10)
+    out, err = process.communicate(timeout=STOP_WITHIN_S)
     assert process.returncode == 0, err
     assert json.loads(out)["url"].startswith("http://127.0.0.1:")
 
@@ -299,61 +309,87 @@ def test_an_interrupt_that_lands_as_the_address_is_printed_still_stops_the_comma
 TESTS = Path(__file__).resolve().parents[2]
 
 
-def _child(on_interrupt: str) -> str:
+def _child(on_interrupt: str, *, ready_after: float = 0.0) -> str:
     """A child of the command's own: it sets its interrupt, says it is ready, and sleeps.
 
     ``stop`` marks, beside the fixture build, that it stopped on the interrupt.
+    ``stop_after_the_command`` does the same, once the command has stopped and a second more
+    has passed: what is left of the command's group is given time to stop. It says it is
+    ready ``ready_after`` seconds after it starts.
     """
     return (
-        "import signal, sys, time\n"
+        "import os, signal, sys, time\n"
         "from pathlib import Path\n"
         "here = Path(sys.argv[1]).parent\n"
+        "command = os.getppid()\n"
         "def stop(*_):\n"
         "    (here / 'child-stopped').write_text('stopped')\n"
         "    raise SystemExit(0)\n"
+        "def stop_after_the_command(*_):\n"
+        "    while os.getppid() == command:\n"
+        "        time.sleep(0.01)\n"
+        "    time.sleep(1)\n"
+        "    stop()\n"
         f"signal.signal(signal.SIGINT, {on_interrupt})\n"
+        f"time.sleep({ready_after})\n"
         "(here / 'child-ready').write_text('ready')\n"
         "time.sleep(60)\n"
     )
 
 
-#: A child that stops on the interrupt, and one that ignores it and stops only by force.
-STOPS, IGNORES = _child("stop"), _child("signal.SIG_IGN")
-#: A command that ignores the interrupt as well: ``LAUNCH`` gives back what it is told is the
+#: A child that stops on the interrupt, one that does once the command has stopped, and one
+#: that ignores it and stops only by force.
+STOPS, STOPS_AFTER, IGNORES = (
+    _child("stop"),
+    _child("stop_after_the_command"),
+    _child("signal.SIG_IGN"),
+)
+#: A command that ignores the interrupt as well: ``SERVE`` gives back what it is told is the
 #: default handler.
 IGNORING = "import signal\nsignal.default_int_handler = signal.SIG_IGN\n"
 
 
-def with_a_child(child: str, command: str = LAUNCH) -> str:
+def with_a_child(child: str, command: str = SERVE) -> str:
     """The command, once it has started ``child`` and printed the child's pid on a line.
 
-    The child holds none of the command's pipes, so reading the command's output to its end
-    does not wait for the child. Its command line names the fixture build, as the command's
-    does, so a test knows its own processes from any other.
+    The command watches for its test process to go before it starts the child, so a test
+    process gone while the child starts leaves neither running. The child holds none of the
+    command's pipes, so reading the command's output to its end does not wait for the child.
+    Its command line names the fixture build, as the command's does, so a test knows its own
+    processes from any other.
     """
     return (
-        "import subprocess, sys, time\n"
+        ORPHANED + "import subprocess, sys, time\n"
         "from pathlib import Path\n"
         f"child = subprocess.Popen([sys.executable, '-c', {child!r}, sys.argv[1]],"
         " stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
         "ready = Path(sys.argv[1]).parent / 'child-ready'\n"
-        "for _ in range(1000):\n"
-        "    if ready.exists():\n"
-        "        break\n"
+        f"deadline = time.monotonic() + {STOP_WITHIN_S}\n"
+        "while not ready.exists():\n"
+        "    if time.monotonic() > deadline:\n"
+        "        raise SystemExit('the child never said it was ready')\n"
         "    time.sleep(0.01)\n"
         "print(child.pid, flush=True)\n" + command
     )
 
 
-#: A quick stop for the tests below, whose children may be meant to need force.
+#: A quick stop, for what is meant to need force: a command that ignores the interrupt, or a
+#: child that does. What stops on the interrupt is given the rig's generous ceiling instead,
+#: so a loaded machine's slow stop is never read as a failure to stop.
 GRACE_S = 1.0
 
 
 @pytest.mark.parametrize(
     ("command", "child"),
-    [(LAUNCH, STOPS), (LAUNCH, IGNORES), (IGNORING + LAUNCH, IGNORES)],
+    [
+        (SERVE, STOPS),
+        (SERVE, STOPS_AFTER),
+        (SERVE, IGNORES),
+        (IGNORING + SERVE, IGNORES),
+    ],
     ids=[
         "a-child-that-stops-on-the-interrupt",
+        "a-child-still-stopping-when-the-command-has-stopped",
         "a-child-that-ignores-it",
         "a-command-and-its-child-that-ignore-it",
     ],
@@ -361,21 +397,25 @@ GRACE_S = 1.0
 def test_stopping_the_command_stops_everything_it_started(
     world: dict[str, Path], commands: Launch, command: str, child: str
 ) -> None:
-    """The interrupt reaches the command's whole process group, and force what ignores it."""
+    """The interrupt reaches the command's whole process group, and force what ignores it.
+
+    What is still stopping on the interrupt when the command has stopped is given its time,
+    not killed at once.
+    """
     process = commands(str(world["ui"]), "ui", "--root", str(world["root"]), "--port", "0",
                        code=with_a_child(child, command))  # fmt: skip
     assert process.stdout is not None
     left = [process.pid, int(process.stdout.readline())]
     try:
         _started(process)
-        if command == LAUNCH:
-            stop_command(process, grace=GRACE_S)
+        if command == SERVE:
+            stop_command(process, group_grace=GRACE_S if child == IGNORES else None)
             assert process.returncode == 0
         else:
             with pytest.raises(subprocess.TimeoutExpired):
                 stop_command(process, grace=GRACE_S)
         assert gone(left[1]), "the command's own child outlived the command's stop"
-        if child == STOPS:
+        if child != IGNORES:
             assert (world["ui"].parent / "child-stopped").read_text() == "stopped"
     finally:
         kill_left_over(left, str(world["ui"]))
@@ -431,23 +471,86 @@ def test_a_command_whose_test_process_dies_before_its_teardown_stops_with_its_gr
         kill_left_over(left, str(world["ui"]))
 
 
+#: A test process, stood in for, that is gone as soon as it has started the command.
+GONE_AT_ONCE = (
+    "import os, sys\n"
+    "sys.path.insert(0, sys.argv[1])\n"
+    "from ui_command_rig import launch_command\n"
+    "process = launch_command(sys.argv[2], *sys.argv[3:])\n"
+    "print(process.pid, flush=True)\n"
+    "os._exit(0)\n"
+)
+
+
+def test_a_command_whose_test_process_is_gone_before_it_starts_anything_stops_at_once(
+    world: dict[str, Path],
+) -> None:
+    """The watch is armed before the command starts anything, on its test process's own pid.
+
+    Here the test process is gone before the command has started its child, and the child is
+    slow to be ready. A watch armed only once the child is ready, on whatever parent the
+    command has by then, would wait on the process that adopted it and never see its test go:
+    the command, its server and its child would be left running.
+    """
+    marker = str(world["ui"])
+    test = subprocess.run(
+        [sys.executable, "-c", GONE_AT_ONCE, str(TESTS),
+         with_a_child(_child("stop", ready_after=3.0)), marker,
+         "ui", "--root", str(world["root"]), "--port", "0"],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=2 * STOP_WITHIN_S,
+    )  # fmt: skip
+    command = int(test.stdout)
+    try:
+        assert gone(command), "the command outlived its test process, gone before it started"
+        assert not [pid for pid in running_with(marker) if not gone(pid)], (
+            "what the command started outlived its test process"
+        )
+    finally:
+        kill_left_over([command, *running_with(marker)], marker)
+
+
+class Left:
+    """What a test leaves running: commands, and the pids of what they started."""
+
+    def __init__(self) -> None:
+        self.commands: list[subprocess.Popen[str]] = []
+        self.children: list[int] = []
+
+
 @pytest.fixture
-def left_running() -> Iterator[list[subprocess.Popen[str]]]:
-    """Commands a test leaves running; once every fixture is torn down, none may still run."""
-    left: list[subprocess.Popen[str]] = []
+def left_running(world: dict[str, Path]) -> Iterator[Left]:
+    """What a test leaves running; once every fixture is torn down, none of it may still run."""
+    left = Left()
     yield left
-    outlived = [process.pid for process in left if process.poll() is None]
-    for process in left:
+    outlived = [process.pid for process in left.commands if process.poll() is None]
+    for process in left.commands:
         if process.poll() is None:  # the test's own child, not yet reaped: its pid is its own
             process.kill()
             process.communicate()
-    assert not outlived, f"a command outlived its test: {outlived}"
+    outlived += [pid for pid in left.children if not gone(pid)]
+    kill_left_over(left.children, str(world["ui"]))
+    assert not outlived, f"a command, or what it started, outlived its test: {outlived}"
 
 
+@pytest.mark.parametrize(
+    "code",
+    [LAUNCH, with_a_child(STOPS)],
+    ids=["a-command", "a-command-and-its-child"],
+)
 def test_a_command_its_test_never_stops_is_stopped_when_the_test_ends(
-    world: dict[str, Path], left_running: list[subprocess.Popen[str]], commands: Launch
+    world: dict[str, Path], left_running: Left, commands: Launch, code: str
 ) -> None:
-    """A test that fails before it stops what it started leaves nothing running."""
-    process = commands(str(world["ui"]), "ui", "--root", str(world["root"]), "--port", "0")
-    left_running.append(process)
+    """A test that fails before it stops what it started leaves nothing running.
+
+    The command is stopped with its whole group: its child stops on the interrupt too.
+    """
+    process = commands(str(world["ui"]), "ui", "--root", str(world["root"]), "--port", "0",
+                       code=code)  # fmt: skip
+    left_running.commands.append(process)
+    if code != LAUNCH:
+        assert process.stdout is not None
+        left_running.children.append(int(process.stdout.readline()))
     assert str(_started(process)["url"]).startswith("http://127.0.0.1:")

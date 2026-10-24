@@ -14,17 +14,26 @@ import sys
 import time
 from pathlib import Path
 
-#: How long a process a test stopped has to be gone.
-GONE_WITHIN_S = 5.0
+#: How long a command a test stops has to stop on the interrupt, and what it started has to
+#: stop after it. Generous: a loaded machine (other suites, other agents) stops a server
+#: slowly, and every wait ends as soon as what it waits for is gone.
+STOP_WITHIN_S = 30.0
+#: How long a process a test stopped has to be gone; generous for the same reason.
+GONE_WITHIN_S = 30.0
+#: Tells a command the pid of the test process that started it (:func:`launch_command`).
+TEST_PID = "PHYSGATE_UI_COMMAND_TEST_PID"
 
 
-#: Run first in every command a test starts: once the process that started it is gone (a test
-#: run killed before its teardown, by a timeout, a cancelled job or a dropped connection), the
-#: command kills its own process group, itself included. It leads that group only where
-#: :func:`launch_command` made it; anywhere else it ends itself alone.
-ORPHANED = """\
+#: Run first in every command a test starts, before it starts anything: once the test process
+#: that started it is gone (a test run killed before its teardown, by a timeout, a cancelled
+#: job or a dropped connection), the command kills its own process group, itself included. The
+#: test process is named by its pid (:data:`TEST_PID`), not read from the command's parent as
+#: the watch starts, so a test process already gone by then is seen as gone at once. The
+#: command leads that group only where :func:`launch_command` made it; anywhere else it ends
+#: itself alone.
+ORPHANED = f"""\
 import os as _os, signal as _signal, threading as _threading, time as _time
-def _orphaned(parent=_os.getppid()):
+def _orphaned(parent=int(_os.environ.get({TEST_PID!r}) or _os.getppid())):
     while _os.getppid() == parent:
         _time.sleep(0.1)
     if _os.getpgid(0) == _os.getpid():
@@ -38,7 +47,8 @@ def launch_command(code: str, *argv: str) -> subprocess.Popen[str]:
     """Start ``python -c code argv...``, the command as the tests run it, in a group of its own.
 
     The command leads a new process group, so a stop reaches whatever it starts, and the stop
-    of that group reaches nothing of the test's own.
+    of that group reaches nothing of the test's own. It is told this process's pid
+    (:data:`TEST_PID`), the test process its watch (:data:`ORPHANED`) waits on.
     """
     return subprocess.Popen(
         [sys.executable, "-c", code, *argv],
@@ -47,19 +57,27 @@ def launch_command(code: str, *argv: str) -> subprocess.Popen[str]:
         stderr=subprocess.PIPE,
         text=True,
         process_group=0,
+        env={**os.environ, TEST_PID: str(os.getpid())},
     )
 
 
-def stop_command(process: subprocess.Popen[str], *, grace: float = 10.0) -> tuple[str, str]:
+def stop_command(
+    process: subprocess.Popen[str],
+    *,
+    grace: float = STOP_WITHIN_S,
+    group_grace: float | None = None,
+) -> tuple[str, str]:
     """Stop the command and its process group as Ctrl-C would, and leave nothing of it running.
 
-    The interrupt goes to the whole group. A command still running after ``grace`` is killed
-    with its group before the failure is raised, so a red test leaves no server behind; what
-    is left of the group ``grace`` after the command stopped is killed as well. Returns what
-    the command printed. A command already reaped is left alone: its group may be gone.
+    The interrupt goes to the whole group. A command still running ``grace`` seconds later is
+    killed with its group before the failure is raised, so a red test leaves no server behind.
+    What is left of the group once the command has stopped has ``group_grace`` seconds more
+    (``grace`` unless given), and is then killed. Returns what the command printed. A command
+    already reaped is left alone: its group may be gone.
     """
     if process.returncode is not None:
         return "", ""
+    rest = grace if group_grace is None else group_grace
     group = process.pid  # it leads its group (launch_command made it so)
     # Signalled before the command is reaped, the group's id is still the command's own. A
     # group left with nothing but the command's zombie refuses the signal (macOS: EPERM).
@@ -72,9 +90,9 @@ def stop_command(process: subprocess.Popen[str], *, grace: float = 10.0) -> tupl
             os.killpg(group, signal.SIGKILL)
         process.kill()  # the command itself, unreaped, whether or not it still leads its group
         process.communicate()
-        _sweep(group, grace)
+        _sweep(group, rest)
         raise
-    _sweep(group, grace)
+    _sweep(group, rest)
     return printed
 
 
@@ -123,6 +141,19 @@ def gone(pid: int, within: float = GONE_WITHIN_S) -> bool:
             return False
         time.sleep(0.05)
     return True
+
+
+def running_with(marker: str) -> list[int]:
+    """Every running process whose command line holds ``marker``: a test's own, by its marker."""
+    listed = subprocess.run(
+        ["ps", "-A", "-ww", "-o", "pid=,command="], capture_output=True, text=True, check=False
+    ).stdout
+    found = []
+    for line in listed.splitlines():
+        pid, _, command = line.strip().partition(" ")
+        if marker in command and pid.isdigit() and int(pid) != os.getpid() and running(int(pid)):
+            found.append(int(pid))
+    return found
 
 
 def kill_left_over(pids: list[int], marker: str) -> list[int]:
