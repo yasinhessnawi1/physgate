@@ -60,6 +60,7 @@ from physgate.orchestrator.managed import (
     system_managed_facts,
 )
 from physgate.orchestrator.merge import RunGit
+from physgate.orchestrator.plan import INTEGRATION_MODULE_DIR as INTEGRATION_MODULE_DIR
 from physgate.orchestrator.plan import REQUIREMENT_MAX_CHARS as REQUIREMENT_MAX_CHARS
 from physgate.orchestrator.plan import SPEC_MAX_CHARS as SPEC_MAX_CHARS
 from physgate.orchestrator.plan import Contribution as Contribution
@@ -206,12 +207,6 @@ def schema_refusal(stdout: str) -> str | None:
             if isinstance(text, str) and text.startswith(_SCHEMA_REFUSAL):
                 return text
     return None
-
-
-#: Where the harness puts the integration subtask in a run with the integration role. The
-#: harness writes that subtask's specification from the recorded plan, so no planned module
-#: may sit in this directory, above it or below it.
-INTEGRATION_MODULE_DIR = "modules/integration"
 
 
 def plan_problems(plan: Plan, roles: Sequence[str], brief: str) -> list[str]:

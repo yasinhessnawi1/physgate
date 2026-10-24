@@ -60,6 +60,7 @@ from physgate.orchestrator.protocols import (
 from physgate.orchestrator.repair import Finding
 from physgate.orchestrator.trajectory import Seal
 from physgate.oslayer.probe import OsLayerState
+from physgate.roles import owners_of
 from physgate.series.seal import SeriesCheck, SessionSeries
 
 #: The eight stages of the per-subtask loop, in the architecture's order (ARCH-030).
@@ -167,6 +168,43 @@ class SubtaskPlanned(_Event):
     spec_path: NonEmptyStr
     assigned_role: NonEmptyStr
     module_dir: NonEmptyStr
+    #: Set on the one subtask of the role that owns completion, integration's, which runs after
+    #: the integration call; left out of every other line, so those keep their bytes. The writer
+    #: holds the mark to the role register when the line is written
+    #: (:func:`completion_mark_problem`). Replay reads the mark and never the register, so a
+    #: register changed later, a role renamed or an owner moved, cannot change how a recorded
+    #: run replays.
+    owns_completion: Literal[True] | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_absent(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if data.get("owns_completion") is None:
+            data.pop("owns_completion", None)
+        return data
+
+
+def completion_mark_problem(assigned_role: str, *, marked: bool) -> str | None:
+    """Why the role register, asked now, does not bear out a planning line's mark; or ``None``.
+
+    Asked when a line is written, never when one is read: the register says which role owns
+    completion today, and a recorded line keeps what it said then. A subtask of the owner
+    carries the mark and no other does; and with no owner, or two, no subtask is marked, nor
+    any subtask of either owner planned, since which of them runs after the call cannot be told.
+    """
+    owners = owners_of("completion")
+    if (marked or assigned_role in owners) and len(owners) > 1:
+        return (
+            "more than one role owns completion, so no subtask of either is planned: "
+            + ", ".join(owners)
+        )
+    if marked and not owners:
+        return "no role owns completion, so no subtask is marked as its owner's"
+    if marked and assigned_role not in owners:
+        return "only a subtask of the role that owns completion is marked as its owner's"
+    if not marked and assigned_role in owners:
+        return "a subtask of the role that owns completion carries the completion mark"
+    return None
 
 
 class SubtaskRemoved(_Event):
@@ -1081,6 +1119,13 @@ class EventLog:
             msg = "a blocked review is written as a review line, never as one with no verdict"
             raise ValueError(msg)
         self._context.check(event)
+        if isinstance(event, SubtaskPlanned):
+            # Held to the register as it is written, and only then: replay reads the mark.
+            why = completion_mark_problem(
+                event.assigned_role, marked=event.owns_completion is not None
+            )
+            if why is not None:
+                raise ValueError(why)
         admitted = cast("Event", event)
         if self._state is not None:
             self._state.check(admitted)

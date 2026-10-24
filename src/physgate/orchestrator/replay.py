@@ -86,10 +86,10 @@ from physgate.orchestrator.exceptions import (
     RunConfigError,
     RunStateError,
 )
+from physgate.orchestrator.plan import INTEGRATION_MODULE_DIR
 from physgate.orchestrator.queue import item_id_for
 from physgate.orchestrator.repair import FindingSource
 from physgate.orchestrator.run_config import load_run_config
-from physgate.roles import owners_of
 from physgate.state.task_ledger import TaskLedger, TaskLine, read_ledger
 
 
@@ -239,10 +239,10 @@ class RunState:
         #: resolved, and the escalation a blocking failure there led to.
         self.integration: IntegrationGateRan | IntegrationGateSkipped | None = None
         self.integration_escalated: IntegrationEscalated | None = None
-        #: Integration's subtask, if the plan has one: the one subtask of the role that owns
-        #: completion, found in the role register by that duty when it is planned, never by a
-        #: role's name. It reads the system-scope result, so it runs after the integration call,
-        #: and its lines are the only lines about a subtask that may follow that call.
+        #: Integration's subtask, if the plan has one: the one subtask whose planning line marks
+        #: it as the completion owner's, read from that line and never from the role register or
+        #: a role's name. It reads the system-scope result, so it runs after the integration
+        #: call, and its lines are the only lines about a subtask that may follow that call.
         self.completion_subtask: str | None = None
         #: Every person's decision the run took, by item, and the held ones since confirmed.
         self.taken: dict[str, DecisionTaken] = {}
@@ -260,11 +260,12 @@ class RunState:
         Once the integration call is on the record the plan is closed: no line about
         a subtask may follow, except a worktree removal or a person's decision. The rule is
         applied after the line's own rules, so a line that breaks one of those is refused for
-        it. A decision that acts on a design integration skipped as incomplete reopens it.
+        it. A decision that acts on a design the call skipped as incomplete reopens it, and so
+        does one under ``off`` while a subtask but integration's has not merged.
 
-        One subtask is exempt: integration's own, whose lines follow the call wherever the call
-        lets it run (:meth:`integration_may_run`). Every other subtask's line is refused as
-        before, whatever its role is named.
+        One subtask is exempt: integration's own, marked on its planning line, whose lines
+        follow the call wherever the call lets it run (:meth:`integration_may_run`). Every other
+        subtask's line is refused as before, whatever its role is named.
         """
         subtask_id = getattr(event, "subtask_id", None)
         closed = (
@@ -444,24 +445,38 @@ class RunState:
             self._resume(sub, now, event.point)
 
     def _plan(self, event: SubtaskPlanned) -> None:
-        """Take a planned subtask, and note it if it is integration's.
+        """Take a planned subtask, and note it if its line marks it as integration's.
 
-        The role is looked up in the register by the duty it owns. With two owners of
-        completion neither's subtask is planned: which of them may follow the integration call
-        cannot be told. A second subtask of the one owner is refused too: it would run before
-        the call as an ordinary subtask, or after it as a second exception.
+        The mark is read from the line, never from the role register: the writer held it to the
+        register when the line was written, and a register changed since cannot move it. The
+        marked subtask is planned last, in the integration module directory, as the one subtask
+        of its role. A second marked line, a line after it, or a second subtask of its role
+        would run before the call as an ordinary subtask or after it as a second exception.
         """
-        owners = owners_of("completion")
-        if event.assigned_role in owners:
-            if len(owners) > 1:
+        marked = self.completion_subtask
+        if event.owns_completion and marked is not None:
+            _refuse(
+                "two subtasks are marked as the completion owner's: "
+                f"{marked!r} and {event.subtask_id!r}"
+            )
+        if marked is not None:
+            _refuse(
+                f"nothing is planned after {marked!r}, the subtask of the role that owns "
+                "completion: it is planned last"
+            )
+        if event.owns_completion:
+            if event.module_dir != INTEGRATION_MODULE_DIR:
                 _refuse(
-                    "more than one role owns completion, so no subtask of either is planned: "
-                    f"{', '.join(owners)}"
+                    "the completion owner's subtask is planned in the integration module "
+                    f"directory, {INTEGRATION_MODULE_DIR}, not {event.module_dir}"
                 )
-            if self.completion_subtask is not None:
+            same = [
+                s for s in self.order if self.subtasks[s].plan.assigned_role == event.assigned_role
+            ]
+            if same:
                 _refuse(
-                    "one subtask at most is planned for the role that owns completion; "
-                    f"{self.completion_subtask!r} is planned already"
+                    f"a second subtask of the marked role {event.assigned_role!r}: {same[0]!r} "
+                    "is planned already, and one subtask at most is the completion owner's"
                 )
             self.completion_subtask = event.subtask_id
         self.order.append(event.subtask_id)
@@ -575,8 +590,7 @@ class RunState:
             return
         sub = self.subtasks[event.subtask_id]
         now = sub.attempts[-1]
-        skipped = self.integration
-        if isinstance(skipped, IntegrationGateSkipped) and skipped.reason == "not_all_merged":
+        if self._design_incomplete():
             # The design changes again: integration is judged once more when it is complete.
             self.integration = None
         sub.status = "active"
@@ -593,6 +607,23 @@ class RunState:
             sub.fix_next = True
         else:
             sub.ending = "person"
+
+    def _design_incomplete(self) -> bool:
+        """Whether the call on the record skipped a design a decision can still complete.
+
+        A design found incomplete; or, under ``off``, where the skip line is written whether or
+        not every subtask merged, a design with a subtask but integration's that did not. Never
+        a design every other subtask merged: a decision then acts on integration's own subtask,
+        and the design it reads is the one the call already let it run on.
+        """
+        skipped = self.integration
+        if not isinstance(skipped, IntegrationGateSkipped):
+            return False
+        if skipped.reason == "not_all_merged":
+            return True
+        return skipped.reason == "gate_mode=off" and any(
+            self.subtasks[s].status != "done" for s in self.integrated()
+        )
 
     def _integrate(
         self, event: IntegrationGateRan | IntegrationGateSkipped | IntegrationEscalated

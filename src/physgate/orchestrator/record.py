@@ -25,6 +25,7 @@ from physgate.orchestrator.events import (
     SubtaskPlanned,
     SubtaskRemoved,
     TokensUsed,
+    completion_mark_problem,
 )
 from physgate.orchestrator.exceptions import RunConfigError, RunStateError
 from physgate.orchestrator.managed import ObservedTraffic
@@ -33,6 +34,7 @@ from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.queue import ApprovalQueue
 from physgate.orchestrator.replay import RunState, project_ledger
 from physgate.orchestrator.run_config import RunConfig, require_recorded, write_run_config
+from physgate.roles import owners_of
 from physgate.state.task_ledger import TaskLedger
 
 
@@ -173,6 +175,15 @@ class RunRecord:
             if entry.assigned_role not in self.config.models.roles:
                 msg = "a planned subtask's role has no pinned model"
                 raise RunConfigError(msg, role=entry.assigned_role)
+        # The subtask of the role that owns completion is marked on its line, as the register
+        # says now; checked for every line before any is written, so a plan the register does
+        # not bear out leaves no part of itself on the record.
+        owners = owners_of("completion")
+        marks = {entry.subtask_id: entry.assigned_role in owners for entry in plan}
+        for entry in plan:
+            why = completion_mark_problem(entry.assigned_role, marked=marks[entry.subtask_id])
+            if why is not None:
+                raise RunConfigError(why, role=entry.assigned_role)
         self._begin(call)
         if decomposed is not None:
             self.emit(
@@ -200,6 +211,7 @@ class RunRecord:
                     spec_path=entry.spec_path,
                     assigned_role=entry.assigned_role,
                     module_dir=entry.module_dir,
+                    owns_completion=True if marks[entry.subtask_id] else None,
                 )
             )
 

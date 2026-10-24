@@ -293,6 +293,8 @@ class Loop:
         self._appends: tuple[str, ...] = ()
         #: The items the operator confirms on this resume, and who; none on a plain run.
         self._confirm: tuple[frozenset[str], str | None] = (frozenset(), None)
+        #: Whether this process has recorded the environment its sessions run in.
+        self._environment_recorded = False
         self.record = RunRecord(config, self.run_dir, clock=clock)
         self.state = self.record.state
         self.log = self.record.log
@@ -623,23 +625,11 @@ class Loop:
 
     def _drive(self) -> Step:
         # The environment is recorded for a step that spawns a session; the integration
-        # call and a finished run spawn none, unless the call is still to be made and
-        # integration's own subtask waits on it, whose session comes next if the call lets
-        # it run. A blocking result already on the record, whose escalation alone is left,
-        # lets no session follow.
-        first = self.state.next_step().kind
-        integration = self.state.completion_subtask
-        waiting = (
-            self.state.integration is None
-            and integration is not None
-            and self.state.subtasks[integration].status == "planned"
-        )
-        if first not in ("done", "halted", "escalated", "integrate") or (
-            first == "integrate" and waiting
-        ):
-            facts = self._dispatcher.environment()
-            if facts is not None:
-                self._emit(EnvironmentRecorded(**self._env(), facts=facts))
+        # call and a finished run spawn none. A process whose first step is one of those may
+        # still spawn one, after a decision it takes or the call it makes: that session's
+        # line is recorded before it, once (:meth:`_session`).
+        if self.state.next_step().kind not in ("done", "halted", "escalated", "integrate"):
+            self._record_environment()
         while True:
             step = self.state.next_step()
             if self._at_a_boundary(step) and self._take_decisions():
@@ -994,7 +984,16 @@ class Loop:
         self._incident(subtask_id, cause, detail)
         return False
 
+    def _record_environment(self) -> None:
+        facts = self._dispatcher.environment()
+        if facts is not None:
+            self._emit(EnvironmentRecorded(**self._env(), facts=facts))
+            self._environment_recorded = True
+
     def _session(self, subtask_id: str, attempt: int) -> bool:
+        # Every session follows an environment line of the process that spawns it.
+        if not self._environment_recorded:
+            self._record_environment()
         sub = self.state.subtasks[subtask_id]
         self._stage(subtask_id, attempt, "resolve")
         instruction, order = self._instruction(subtask_id, attempt)

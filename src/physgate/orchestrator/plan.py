@@ -25,6 +25,12 @@ class _Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
 
+#: Where the harness puts the integration subtask in a run with the integration role. The
+#: harness writes that subtask's specification from the recorded plan, so no planned module
+#: may sit in this directory, above it or below it; and the run-event log takes the completion
+#: owner's subtask in no other directory.
+INTEGRATION_MODULE_DIR = "modules/integration"
+
 #: The longest specification the decomposition may issue a module, in characters.
 SPEC_MAX_CHARS = 32_768
 
