@@ -92,7 +92,7 @@ from physgate.orchestrator.processes import (
 from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.queue import DECISIONS_NAME
 from physgate.orchestrator.role_python import PROBE, require_same, session_bin
-from physgate.orchestrator.run_config import RunConfig, harness_root
+from physgate.orchestrator.run_config import RunConfig, harness_root, os_layer_refusal
 from physgate.orchestrator.trajectory import Seal, forged_tail, seal, through_first_result
 from physgate.oslayer import placeholders
 from physgate.oslayer.abort import aborted_tool_uses
@@ -1154,6 +1154,9 @@ class ClaudeDispatcher:
             # The held-out tier: no role session reads or writes it (ARCH-141).
             *(arg for root in self._config.held_out for arg in ("--held-out", root)),
             *(["--os-layer-temp", str(temp)] if temp is not None else []),
+            # Without the layer the installer writes the settings only for a run whose recorded
+            # configuration allows that, and reads it there.
+            *(["--run-config", str(self._run.run_dir / "run.json")] if temp is None else []),
             # The held spawn exports the session's pid as the survivor reaper's canary.
             "--spawns-with-canary",
             # No remote host where the run asks for it; only the OS layer can enforce that.
@@ -1183,7 +1186,18 @@ class ClaudeDispatcher:
 
         ``on_spawn`` is told the session's id, pid and start time while its process is held,
         before it runs anything; the loop records them in the run's event log.
+
+        Raises:
+            InvocationError: among others, the OS layer is absent here and the run's recorded
+                configuration does not allow that; nothing of the session exists yet.
         """
+        # The check a run is held to at its configuration, run and resume, held again where a
+        # role session is made, whatever led here: without the layer the session gets no
+        # temporary directory of its own, its settings no sandbox, and its shell is bounded by
+        # the text hooks alone.
+        why = os_layer_refusal(self._config, self.os_layer())
+        if why is not None:
+            raise InvocationError(why, subtask_id=request.subtask_id)
         reported = binary_version(self._binary)
         if reported != self._config.claude_version:
             msg = "the binary is not the version this run recorded"
@@ -1300,6 +1314,10 @@ class ClaudeDispatcher:
                 # layer's installer printed. It carries no key: the key is in a helper.
                 "argv": argv,
                 "installer_spawn_args": list(installed.spawn_args),
+                # The shell the session's commands are written for and run with, where the
+                # installer pins it (the survivor reaper's, on macOS); none where the binary
+                # picks its own.
+                "command_shell": installed.spawn_env.get("CLAUDE_CODE_SHELL"),
             }
             write_record(sdir.parent, sdir.name, record, "process.json")
 
