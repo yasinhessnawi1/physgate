@@ -1,0 +1,113 @@
+{
+ "by_section": {
+  "acceptance_criteria": 258,
+  "antipatterns": 77,
+  "domain_standards": 494,
+  "reward_hacking": 164
+ },
+ "by_set_side": {
+  "fresh": {
+   "injected": 433,
+   "twin": 85
+  },
+  "practice": {
+   "injected": 297,
+   "twin": 178
+  }
+ },
+ "empty_locus": 219,
+ "excluded": {
+  "a-fresh": {
+   "criteria": 78,
+   "finding": 78,
+   "indicators": 212,
+   "spec_defects": 805,
+   "subject": 78
+  },
+  "b-fresh": {
+   "criteria": 80,
+   "finding": 80,
+   "indicators": 201,
+   "spec_defects": 7,
+   "subject": 80
+  },
+  "practice-0": {
+   "criteria": 39,
+   "finding": 39,
+   "indicators": 108,
+   "spec_defects": 321,
+   "subject": 39
+  },
+  "practice-1": {
+   "criteria": 40,
+   "finding": 40,
+   "indicators": 116,
+   "spec_defects": 485,
+   "subject": 39
+  },
+  "practice-2": {
+   "criteria": 38,
+   "finding": 38,
+   "indicators": 109,
+   "spec_defects": 439,
+   "subject": 38
+  },
+  "repeat-K": {
+   "criteria": 79,
+   "finding": 79,
+   "indicators": 229,
+   "spec_defects": 861,
+   "subject": 79
+  },
+  "round-1": {
+   "criteria": 80,
+   "finding": 80,
+   "indicators": 225,
+   "spec_defects": 900,
+   "subject": 80
+  }
+ },
+ "lines": 993,
+ "locus_raw_vs_stripped_differs": 0,
+ "per_source": {
+  "a-fresh": {
+   "injected": 134,
+   "total": 157,
+   "twin": 23
+  },
+  "b-fresh": {
+   "injected": 59,
+   "total": 62,
+   "twin": 3
+  },
+  "practice-0": {
+   "injected": 159,
+   "total": 282,
+   "twin": 123
+  },
+  "practice-1": {
+   "injected": 71,
+   "total": 92,
+   "twin": 21
+  },
+  "practice-2": {
+   "injected": 67,
+   "total": 101,
+   "twin": 34
+  },
+  "repeat-K": {
+   "injected": 121,
+   "total": 155,
+   "twin": 34
+  },
+  "round-1": {
+   "injected": 119,
+   "total": 144,
+   "twin": 25
+  }
+ },
+ "review_verdicts": {
+  "fail": 262
+ },
+ "reviews_with_lines": 262
+}

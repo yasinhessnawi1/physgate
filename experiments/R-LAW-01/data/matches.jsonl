@@ -1,0 +1,993 @@
+{"line_id": "L0001", "matched": false, "records": []}
+{"line_id": "L0002", "matched": false, "records": []}
+{"line_id": "L0003", "matched": false, "records": []}
+{"line_id": "L0004", "matched": false, "records": []}
+{"line_id": "L0005", "matched": false, "records": []}
+{"line_id": "L0006", "matched": false, "records": []}
+{"line_id": "L0007", "matched": false, "records": []}
+{"line_id": "L0008", "matched": false, "records": []}
+{"line_id": "L0009", "matched": false, "records": []}
+{"line_id": "L0010", "matched": false, "records": []}
+{"line_id": "L0011", "matched": false, "records": []}
+{"line_id": "L0012", "matched": false, "records": []}
+{"line_id": "L0013", "matched": false, "records": []}
+{"line_id": "L0014", "matched": false, "records": []}
+{"line_id": "L0015", "matched": true, "records": [{"check": 3, "name": "equilibrium", "relations": ["carrier"], "scope": "module"}, {"check": 3, "name": "equilibrium", "relations": ["carrier"], "scope": "system"}]}
+{"line_id": "L0016", "matched": false, "records": []}
+{"line_id": "L0017", "matched": false, "records": []}
+{"line_id": "L0018", "matched": false, "records": []}
+{"line_id": "L0019", "matched": false, "records": []}
+{"line_id": "L0020", "matched": false, "records": []}
+{"line_id": "L0021", "matched": false, "records": []}
+{"line_id": "L0022", "matched": false, "records": []}
+{"line_id": "L0023", "matched": false, "records": []}
+{"line_id": "L0024", "matched": false, "records": []}
+{"line_id": "L0025", "matched": false, "records": []}
+{"line_id": "L0026", "matched": false, "records": []}
+{"line_id": "L0027", "matched": true, "records": [{"check": 3, "name": "equilibrium", "relations": ["mount_balance", "forces_only", "torque_unit"], "scope": "module"}, {"check": 3, "name": "equilibrium", "relations": ["mount_balance", "forces_only", "torque_unit"], "scope": "system"}]}
+{"line_id": "L0028", "matched": false, "records": []}
+{"line_id": "L0029", "matched": false, "records": []}
+{"line_id": "L0030", "matched": true, "records": [{"check": 3, "name": "equilibrium", "relations": ["mount_balance", "forces_only", "torque_unit"], "scope": "module"}, {"check": 3, "name": "equilibrium", "relations": ["mount_balance", "forces_only", "torque_unit"], "scope": "system"}]}
+{"line_id": "L0031", "matched": true, "records": [{"check": 3, "name": "equilibrium", "relations": ["mount_balance", "forces_only", "torque_unit"], "scope": "module"}, {"check": 3, "name": "equilibrium", "relations": ["mount_balance", "forces_only", "torque_unit"], "scope": "system"}]}
+{"line_id": "L0032", "matched": false, "records": []}
+{"line_id": "L0033", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0034", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0035", "matched": false, "records": []}
+{"line_id": "L0036", "matched": true, "records": [{"check": 3, "name": "equilibrium", "relations": ["carrier"], "scope": "module"}, {"check": 3, "name": "equilibrium", "relations": ["carrier"], "scope": "system"}]}
+{"line_id": "L0037", "matched": true, "records": [{"check": 3, "name": "equilibrium", "relations": ["carrier"], "scope": "module"}, {"check": 3, "name": "equilibrium", "relations": ["carrier"], "scope": "system"}]}
+{"line_id": "L0038", "matched": false, "records": []}
+{"line_id": "L0039", "matched": false, "records": []}
+{"line_id": "L0040", "matched": false, "records": []}
+{"line_id": "L0041", "matched": false, "records": []}
+{"line_id": "L0042", "matched": true, "records": [{"check": 3, "name": "equilibrium", "relations": ["carrier"], "scope": "module"}, {"check": 3, "name": "equilibrium", "relations": ["carrier"], "scope": "system"}]}
+{"line_id": "L0043", "matched": true, "records": [{"check": 3, "name": "equilibrium", "relations": ["carrier"], "scope": "module"}, {"check": 3, "name": "equilibrium", "relations": ["carrier"], "scope": "system"}]}
+{"line_id": "L0044", "matched": true, "records": [{"check": 3, "name": "equilibrium", "relations": ["carrier"], "scope": "module"}, {"check": 3, "name": "equilibrium", "relations": ["carrier"], "scope": "system"}]}
+{"line_id": "L0045", "matched": false, "records": []}
+{"line_id": "L0046", "matched": false, "records": []}
+{"line_id": "L0047", "matched": false, "records": []}
+{"line_id": "L0048", "matched": false, "records": []}
+{"line_id": "L0049", "matched": false, "records": []}
+{"line_id": "L0050", "matched": false, "records": []}
+{"line_id": "L0051", "matched": false, "records": []}
+{"line_id": "L0052", "matched": false, "records": []}
+{"line_id": "L0053", "matched": false, "records": []}
+{"line_id": "L0054", "matched": false, "records": []}
+{"line_id": "L0055", "matched": false, "records": []}
+{"line_id": "L0056", "matched": false, "records": []}
+{"line_id": "L0057", "matched": false, "records": []}
+{"line_id": "L0058", "matched": false, "records": []}
+{"line_id": "L0059", "matched": false, "records": []}
+{"line_id": "L0060", "matched": false, "records": []}
+{"line_id": "L0061", "matched": false, "records": []}
+{"line_id": "L0062", "matched": false, "records": []}
+{"line_id": "L0063", "matched": false, "records": []}
+{"line_id": "L0064", "matched": false, "records": []}
+{"line_id": "L0065", "matched": false, "records": []}
+{"line_id": "L0066", "matched": false, "records": []}
+{"line_id": "L0067", "matched": false, "records": []}
+{"line_id": "L0068", "matched": false, "records": []}
+{"line_id": "L0069", "matched": false, "records": []}
+{"line_id": "L0070", "matched": false, "records": []}
+{"line_id": "L0071", "matched": false, "records": []}
+{"line_id": "L0072", "matched": false, "records": []}
+{"line_id": "L0073", "matched": false, "records": []}
+{"line_id": "L0074", "matched": false, "records": []}
+{"line_id": "L0075", "matched": false, "records": []}
+{"line_id": "L0076", "matched": false, "records": []}
+{"line_id": "L0077", "matched": false, "records": []}
+{"line_id": "L0078", "matched": false, "records": []}
+{"line_id": "L0079", "matched": false, "records": []}
+{"line_id": "L0080", "matched": false, "records": []}
+{"line_id": "L0081", "matched": false, "records": []}
+{"line_id": "L0082", "matched": false, "records": []}
+{"line_id": "L0083", "matched": false, "records": []}
+{"line_id": "L0084", "matched": false, "records": []}
+{"line_id": "L0085", "matched": false, "records": []}
+{"line_id": "L0086", "matched": true, "records": [{"check": 1, "name": "units", "relations": ["units_kind"], "scope": "subtask"}, {"check": 1, "name": "units", "relations": ["units_kind"], "scope": "system"}]}
+{"line_id": "L0087", "matched": false, "records": []}
+{"line_id": "L0088", "matched": true, "records": [{"check": 1, "name": "units", "relations": ["units_kind"], "scope": "subtask"}, {"check": 1, "name": "units", "relations": ["units_kind"], "scope": "system"}]}
+{"line_id": "L0089", "matched": false, "records": []}
+{"line_id": "L0090", "matched": false, "records": []}
+{"line_id": "L0091", "matched": false, "records": []}
+{"line_id": "L0092", "matched": false, "records": []}
+{"line_id": "L0093", "matched": false, "records": []}
+{"line_id": "L0094", "matched": false, "records": []}
+{"line_id": "L0095", "matched": false, "records": []}
+{"line_id": "L0096", "matched": false, "records": []}
+{"line_id": "L0097", "matched": false, "records": []}
+{"line_id": "L0098", "matched": false, "records": []}
+{"line_id": "L0099", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0100", "matched": false, "records": []}
+{"line_id": "L0101", "matched": false, "records": []}
+{"line_id": "L0102", "matched": false, "records": []}
+{"line_id": "L0103", "matched": false, "records": []}
+{"line_id": "L0104", "matched": false, "records": []}
+{"line_id": "L0105", "matched": false, "records": []}
+{"line_id": "L0106", "matched": false, "records": []}
+{"line_id": "L0107", "matched": false, "records": []}
+{"line_id": "L0108", "matched": false, "records": []}
+{"line_id": "L0109", "matched": false, "records": []}
+{"line_id": "L0110", "matched": false, "records": []}
+{"line_id": "L0111", "matched": false, "records": []}
+{"line_id": "L0112", "matched": false, "records": []}
+{"line_id": "L0113", "matched": false, "records": []}
+{"line_id": "L0114", "matched": false, "records": []}
+{"line_id": "L0115", "matched": false, "records": []}
+{"line_id": "L0116", "matched": false, "records": []}
+{"line_id": "L0117", "matched": false, "records": []}
+{"line_id": "L0118", "matched": false, "records": []}
+{"line_id": "L0119", "matched": false, "records": []}
+{"line_id": "L0120", "matched": false, "records": []}
+{"line_id": "L0121", "matched": false, "records": []}
+{"line_id": "L0122", "matched": false, "records": []}
+{"line_id": "L0123", "matched": false, "records": []}
+{"line_id": "L0124", "matched": false, "records": []}
+{"line_id": "L0125", "matched": false, "records": []}
+{"line_id": "L0126", "matched": false, "records": []}
+{"line_id": "L0127", "matched": false, "records": []}
+{"line_id": "L0128", "matched": false, "records": []}
+{"line_id": "L0129", "matched": false, "records": []}
+{"line_id": "L0130", "matched": false, "records": []}
+{"line_id": "L0131", "matched": false, "records": []}
+{"line_id": "L0132", "matched": false, "records": []}
+{"line_id": "L0133", "matched": false, "records": []}
+{"line_id": "L0134", "matched": false, "records": []}
+{"line_id": "L0135", "matched": false, "records": []}
+{"line_id": "L0136", "matched": false, "records": []}
+{"line_id": "L0137", "matched": false, "records": []}
+{"line_id": "L0138", "matched": false, "records": []}
+{"line_id": "L0139", "matched": false, "records": []}
+{"line_id": "L0140", "matched": false, "records": []}
+{"line_id": "L0141", "matched": false, "records": []}
+{"line_id": "L0142", "matched": false, "records": []}
+{"line_id": "L0143", "matched": false, "records": []}
+{"line_id": "L0144", "matched": false, "records": []}
+{"line_id": "L0145", "matched": false, "records": []}
+{"line_id": "L0146", "matched": false, "records": []}
+{"line_id": "L0147", "matched": false, "records": []}
+{"line_id": "L0148", "matched": false, "records": []}
+{"line_id": "L0149", "matched": false, "records": []}
+{"line_id": "L0150", "matched": false, "records": []}
+{"line_id": "L0151", "matched": false, "records": []}
+{"line_id": "L0152", "matched": false, "records": []}
+{"line_id": "L0153", "matched": false, "records": []}
+{"line_id": "L0154", "matched": false, "records": []}
+{"line_id": "L0155", "matched": false, "records": []}
+{"line_id": "L0156", "matched": false, "records": []}
+{"line_id": "L0157", "matched": false, "records": []}
+{"line_id": "L0158", "matched": false, "records": []}
+{"line_id": "L0159", "matched": false, "records": []}
+{"line_id": "L0160", "matched": false, "records": []}
+{"line_id": "L0161", "matched": false, "records": []}
+{"line_id": "L0162", "matched": false, "records": []}
+{"line_id": "L0163", "matched": false, "records": []}
+{"line_id": "L0164", "matched": false, "records": []}
+{"line_id": "L0165", "matched": false, "records": []}
+{"line_id": "L0166", "matched": false, "records": []}
+{"line_id": "L0167", "matched": false, "records": []}
+{"line_id": "L0168", "matched": false, "records": []}
+{"line_id": "L0169", "matched": false, "records": []}
+{"line_id": "L0170", "matched": false, "records": []}
+{"line_id": "L0171", "matched": false, "records": []}
+{"line_id": "L0172", "matched": false, "records": []}
+{"line_id": "L0173", "matched": false, "records": []}
+{"line_id": "L0174", "matched": false, "records": []}
+{"line_id": "L0175", "matched": false, "records": []}
+{"line_id": "L0176", "matched": false, "records": []}
+{"line_id": "L0177", "matched": false, "records": []}
+{"line_id": "L0178", "matched": false, "records": []}
+{"line_id": "L0179", "matched": false, "records": []}
+{"line_id": "L0180", "matched": false, "records": []}
+{"line_id": "L0181", "matched": false, "records": []}
+{"line_id": "L0182", "matched": false, "records": []}
+{"line_id": "L0183", "matched": false, "records": []}
+{"line_id": "L0184", "matched": false, "records": []}
+{"line_id": "L0185", "matched": false, "records": []}
+{"line_id": "L0186", "matched": false, "records": []}
+{"line_id": "L0187", "matched": false, "records": []}
+{"line_id": "L0188", "matched": false, "records": []}
+{"line_id": "L0189", "matched": false, "records": []}
+{"line_id": "L0190", "matched": false, "records": []}
+{"line_id": "L0191", "matched": false, "records": []}
+{"line_id": "L0192", "matched": false, "records": []}
+{"line_id": "L0193", "matched": false, "records": []}
+{"line_id": "L0194", "matched": false, "records": []}
+{"line_id": "L0195", "matched": false, "records": []}
+{"line_id": "L0196", "matched": false, "records": []}
+{"line_id": "L0197", "matched": false, "records": []}
+{"line_id": "L0198", "matched": false, "records": []}
+{"line_id": "L0199", "matched": false, "records": []}
+{"line_id": "L0200", "matched": false, "records": []}
+{"line_id": "L0201", "matched": false, "records": []}
+{"line_id": "L0202", "matched": false, "records": []}
+{"line_id": "L0203", "matched": false, "records": []}
+{"line_id": "L0204", "matched": false, "records": []}
+{"line_id": "L0205", "matched": false, "records": []}
+{"line_id": "L0206", "matched": false, "records": []}
+{"line_id": "L0207", "matched": false, "records": []}
+{"line_id": "L0208", "matched": false, "records": []}
+{"line_id": "L0209", "matched": false, "records": []}
+{"line_id": "L0210", "matched": false, "records": []}
+{"line_id": "L0211", "matched": false, "records": []}
+{"line_id": "L0212", "matched": false, "records": []}
+{"line_id": "L0213", "matched": false, "records": []}
+{"line_id": "L0214", "matched": false, "records": []}
+{"line_id": "L0215", "matched": false, "records": []}
+{"line_id": "L0216", "matched": false, "records": []}
+{"line_id": "L0217", "matched": false, "records": []}
+{"line_id": "L0218", "matched": false, "records": []}
+{"line_id": "L0219", "matched": false, "records": []}
+{"line_id": "L0220", "matched": false, "records": []}
+{"line_id": "L0221", "matched": false, "records": []}
+{"line_id": "L0222", "matched": false, "records": []}
+{"line_id": "L0223", "matched": false, "records": []}
+{"line_id": "L0224", "matched": false, "records": []}
+{"line_id": "L0225", "matched": false, "records": []}
+{"line_id": "L0226", "matched": false, "records": []}
+{"line_id": "L0227", "matched": false, "records": []}
+{"line_id": "L0228", "matched": false, "records": []}
+{"line_id": "L0229", "matched": false, "records": []}
+{"line_id": "L0230", "matched": false, "records": []}
+{"line_id": "L0231", "matched": false, "records": []}
+{"line_id": "L0232", "matched": false, "records": []}
+{"line_id": "L0233", "matched": false, "records": []}
+{"line_id": "L0234", "matched": false, "records": []}
+{"line_id": "L0235", "matched": false, "records": []}
+{"line_id": "L0236", "matched": false, "records": []}
+{"line_id": "L0237", "matched": false, "records": []}
+{"line_id": "L0238", "matched": false, "records": []}
+{"line_id": "L0239", "matched": false, "records": []}
+{"line_id": "L0240", "matched": false, "records": []}
+{"line_id": "L0241", "matched": false, "records": []}
+{"line_id": "L0242", "matched": false, "records": []}
+{"line_id": "L0243", "matched": false, "records": []}
+{"line_id": "L0244", "matched": false, "records": []}
+{"line_id": "L0245", "matched": false, "records": []}
+{"line_id": "L0246", "matched": false, "records": []}
+{"line_id": "L0247", "matched": false, "records": []}
+{"line_id": "L0248", "matched": false, "records": []}
+{"line_id": "L0249", "matched": false, "records": []}
+{"line_id": "L0250", "matched": false, "records": []}
+{"line_id": "L0251", "matched": false, "records": []}
+{"line_id": "L0252", "matched": false, "records": []}
+{"line_id": "L0253", "matched": false, "records": []}
+{"line_id": "L0254", "matched": false, "records": []}
+{"line_id": "L0255", "matched": false, "records": []}
+{"line_id": "L0256", "matched": false, "records": []}
+{"line_id": "L0257", "matched": false, "records": []}
+{"line_id": "L0258", "matched": false, "records": []}
+{"line_id": "L0259", "matched": false, "records": []}
+{"line_id": "L0260", "matched": false, "records": []}
+{"line_id": "L0261", "matched": false, "records": []}
+{"line_id": "L0262", "matched": false, "records": []}
+{"line_id": "L0263", "matched": false, "records": []}
+{"line_id": "L0264", "matched": false, "records": []}
+{"line_id": "L0265", "matched": false, "records": []}
+{"line_id": "L0266", "matched": false, "records": []}
+{"line_id": "L0267", "matched": false, "records": []}
+{"line_id": "L0268", "matched": false, "records": []}
+{"line_id": "L0269", "matched": false, "records": []}
+{"line_id": "L0270", "matched": false, "records": []}
+{"line_id": "L0271", "matched": false, "records": []}
+{"line_id": "L0272", "matched": false, "records": []}
+{"line_id": "L0273", "matched": false, "records": []}
+{"line_id": "L0274", "matched": false, "records": []}
+{"line_id": "L0275", "matched": false, "records": []}
+{"line_id": "L0276", "matched": false, "records": []}
+{"line_id": "L0277", "matched": false, "records": []}
+{"line_id": "L0278", "matched": false, "records": []}
+{"line_id": "L0279", "matched": false, "records": []}
+{"line_id": "L0280", "matched": false, "records": []}
+{"line_id": "L0281", "matched": false, "records": []}
+{"line_id": "L0282", "matched": false, "records": []}
+{"line_id": "L0283", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0284", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0285", "matched": false, "records": []}
+{"line_id": "L0286", "matched": false, "records": []}
+{"line_id": "L0287", "matched": false, "records": []}
+{"line_id": "L0288", "matched": false, "records": []}
+{"line_id": "L0289", "matched": false, "records": []}
+{"line_id": "L0290", "matched": false, "records": []}
+{"line_id": "L0291", "matched": false, "records": []}
+{"line_id": "L0292", "matched": false, "records": []}
+{"line_id": "L0293", "matched": false, "records": []}
+{"line_id": "L0294", "matched": false, "records": []}
+{"line_id": "L0295", "matched": false, "records": []}
+{"line_id": "L0296", "matched": false, "records": []}
+{"line_id": "L0297", "matched": false, "records": []}
+{"line_id": "L0298", "matched": false, "records": []}
+{"line_id": "L0299", "matched": false, "records": []}
+{"line_id": "L0300", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0301", "matched": false, "records": []}
+{"line_id": "L0302", "matched": false, "records": []}
+{"line_id": "L0303", "matched": false, "records": []}
+{"line_id": "L0304", "matched": false, "records": []}
+{"line_id": "L0305", "matched": false, "records": []}
+{"line_id": "L0306", "matched": true, "records": [{"check": 3, "name": "equilibrium", "relations": ["mount_balance", "forces_only", "torque_unit"], "scope": "module"}, {"check": 3, "name": "equilibrium", "relations": ["mount_balance", "forces_only", "torque_unit"], "scope": "system"}]}
+{"line_id": "L0307", "matched": true, "records": [{"check": 3, "name": "equilibrium", "relations": ["mount_balance", "forces_only", "torque_unit"], "scope": "module"}, {"check": 3, "name": "equilibrium", "relations": ["mount_balance", "forces_only", "torque_unit"], "scope": "system"}]}
+{"line_id": "L0308", "matched": true, "records": [{"check": 3, "name": "equilibrium", "relations": ["mount_balance", "forces_only", "torque_unit"], "scope": "module"}, {"check": 3, "name": "equilibrium", "relations": ["mount_balance", "forces_only", "torque_unit"], "scope": "system"}]}
+{"line_id": "L0309", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0310", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0311", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0312", "matched": true, "records": [{"check": 3, "name": "equilibrium", "relations": ["carrier"], "scope": "module"}, {"check": 3, "name": "equilibrium", "relations": ["carrier"], "scope": "system"}]}
+{"line_id": "L0313", "matched": true, "records": [{"check": 3, "name": "equilibrium", "relations": ["carrier"], "scope": "module"}, {"check": 3, "name": "equilibrium", "relations": ["carrier"], "scope": "system"}]}
+{"line_id": "L0314", "matched": false, "records": []}
+{"line_id": "L0315", "matched": false, "records": []}
+{"line_id": "L0316", "matched": false, "records": []}
+{"line_id": "L0317", "matched": true, "records": [{"check": 3, "name": "equilibrium", "relations": ["carrier"], "scope": "module"}, {"check": 3, "name": "equilibrium", "relations": ["carrier"], "scope": "system"}]}
+{"line_id": "L0318", "matched": true, "records": [{"check": 3, "name": "equilibrium", "relations": ["carrier"], "scope": "module"}, {"check": 3, "name": "equilibrium", "relations": ["carrier"], "scope": "system"}]}
+{"line_id": "L0319", "matched": false, "records": []}
+{"line_id": "L0320", "matched": false, "records": []}
+{"line_id": "L0321", "matched": false, "records": []}
+{"line_id": "L0322", "matched": false, "records": []}
+{"line_id": "L0323", "matched": false, "records": []}
+{"line_id": "L0324", "matched": false, "records": []}
+{"line_id": "L0325", "matched": false, "records": []}
+{"line_id": "L0326", "matched": false, "records": []}
+{"line_id": "L0327", "matched": false, "records": []}
+{"line_id": "L0328", "matched": false, "records": []}
+{"line_id": "L0329", "matched": false, "records": []}
+{"line_id": "L0330", "matched": false, "records": []}
+{"line_id": "L0331", "matched": false, "records": []}
+{"line_id": "L0332", "matched": false, "records": []}
+{"line_id": "L0333", "matched": false, "records": []}
+{"line_id": "L0334", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0335", "matched": true, "records": [{"check": 3, "name": "equilibrium", "relations": ["mount_balance", "forces_only", "torque_unit"], "scope": "module"}, {"check": 3, "name": "equilibrium", "relations": ["mount_balance", "forces_only", "torque_unit"], "scope": "system"}]}
+{"line_id": "L0336", "matched": false, "records": []}
+{"line_id": "L0337", "matched": false, "records": []}
+{"line_id": "L0338", "matched": false, "records": []}
+{"line_id": "L0339", "matched": false, "records": []}
+{"line_id": "L0340", "matched": false, "records": []}
+{"line_id": "L0341", "matched": false, "records": []}
+{"line_id": "L0342", "matched": false, "records": []}
+{"line_id": "L0343", "matched": false, "records": []}
+{"line_id": "L0344", "matched": false, "records": []}
+{"line_id": "L0345", "matched": false, "records": []}
+{"line_id": "L0346", "matched": false, "records": []}
+{"line_id": "L0347", "matched": false, "records": []}
+{"line_id": "L0348", "matched": false, "records": []}
+{"line_id": "L0349", "matched": false, "records": []}
+{"line_id": "L0350", "matched": false, "records": []}
+{"line_id": "L0351", "matched": false, "records": []}
+{"line_id": "L0352", "matched": false, "records": []}
+{"line_id": "L0353", "matched": false, "records": []}
+{"line_id": "L0354", "matched": false, "records": []}
+{"line_id": "L0355", "matched": false, "records": []}
+{"line_id": "L0356", "matched": false, "records": []}
+{"line_id": "L0357", "matched": false, "records": []}
+{"line_id": "L0358", "matched": false, "records": []}
+{"line_id": "L0359", "matched": false, "records": []}
+{"line_id": "L0360", "matched": false, "records": []}
+{"line_id": "L0361", "matched": false, "records": []}
+{"line_id": "L0362", "matched": false, "records": []}
+{"line_id": "L0363", "matched": false, "records": []}
+{"line_id": "L0364", "matched": false, "records": []}
+{"line_id": "L0365", "matched": false, "records": []}
+{"line_id": "L0366", "matched": false, "records": []}
+{"line_id": "L0367", "matched": false, "records": []}
+{"line_id": "L0368", "matched": false, "records": []}
+{"line_id": "L0369", "matched": false, "records": []}
+{"line_id": "L0370", "matched": false, "records": []}
+{"line_id": "L0371", "matched": false, "records": []}
+{"line_id": "L0372", "matched": false, "records": []}
+{"line_id": "L0373", "matched": false, "records": []}
+{"line_id": "L0374", "matched": false, "records": []}
+{"line_id": "L0375", "matched": false, "records": []}
+{"line_id": "L0376", "matched": false, "records": []}
+{"line_id": "L0377", "matched": false, "records": []}
+{"line_id": "L0378", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0379", "matched": false, "records": []}
+{"line_id": "L0380", "matched": false, "records": []}
+{"line_id": "L0381", "matched": false, "records": []}
+{"line_id": "L0382", "matched": true, "records": [{"check": 3, "name": "equilibrium", "relations": ["carrier"], "scope": "module"}, {"check": 3, "name": "equilibrium", "relations": ["carrier"], "scope": "system"}]}
+{"line_id": "L0383", "matched": false, "records": []}
+{"line_id": "L0384", "matched": false, "records": []}
+{"line_id": "L0385", "matched": false, "records": []}
+{"line_id": "L0386", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0387", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0388", "matched": false, "records": []}
+{"line_id": "L0389", "matched": false, "records": []}
+{"line_id": "L0390", "matched": true, "records": [{"check": 3, "name": "equilibrium", "relations": ["mount_balance", "forces_only", "torque_unit"], "scope": "module"}, {"check": 3, "name": "equilibrium", "relations": ["mount_balance", "forces_only", "torque_unit"], "scope": "system"}]}
+{"line_id": "L0391", "matched": false, "records": []}
+{"line_id": "L0392", "matched": true, "records": [{"check": 3, "name": "equilibrium", "relations": ["mount_balance", "forces_only", "torque_unit"], "scope": "module"}, {"check": 3, "name": "equilibrium", "relations": ["mount_balance", "forces_only", "torque_unit"], "scope": "system"}]}
+{"line_id": "L0393", "matched": true, "records": [{"check": 3, "name": "equilibrium", "relations": ["mount_balance", "forces_only", "torque_unit"], "scope": "module"}, {"check": 3, "name": "equilibrium", "relations": ["mount_balance", "forces_only", "torque_unit"], "scope": "system"}]}
+{"line_id": "L0394", "matched": false, "records": []}
+{"line_id": "L0395", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0396", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0397", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0398", "matched": true, "records": [{"check": 3, "name": "equilibrium", "relations": ["carrier"], "scope": "module"}, {"check": 3, "name": "equilibrium", "relations": ["carrier"], "scope": "system"}]}
+{"line_id": "L0399", "matched": true, "records": [{"check": 3, "name": "equilibrium", "relations": ["carrier"], "scope": "module"}, {"check": 3, "name": "equilibrium", "relations": ["carrier"], "scope": "system"}]}
+{"line_id": "L0400", "matched": true, "records": [{"check": 3, "name": "equilibrium", "relations": ["carrier"], "scope": "module"}, {"check": 3, "name": "equilibrium", "relations": ["carrier"], "scope": "system"}]}
+{"line_id": "L0401", "matched": false, "records": []}
+{"line_id": "L0402", "matched": false, "records": []}
+{"line_id": "L0403", "matched": false, "records": []}
+{"line_id": "L0404", "matched": false, "records": []}
+{"line_id": "L0405", "matched": false, "records": []}
+{"line_id": "L0406", "matched": false, "records": []}
+{"line_id": "L0407", "matched": false, "records": []}
+{"line_id": "L0408", "matched": false, "records": []}
+{"line_id": "L0409", "matched": true, "records": [{"check": 1, "name": "units", "relations": ["units_kind"], "scope": "subtask"}, {"check": 1, "name": "units", "relations": ["units_kind"], "scope": "system"}]}
+{"line_id": "L0410", "matched": false, "records": []}
+{"line_id": "L0411", "matched": false, "records": []}
+{"line_id": "L0412", "matched": false, "records": []}
+{"line_id": "L0413", "matched": false, "records": []}
+{"line_id": "L0414", "matched": false, "records": []}
+{"line_id": "L0415", "matched": false, "records": []}
+{"line_id": "L0416", "matched": false, "records": []}
+{"line_id": "L0417", "matched": false, "records": []}
+{"line_id": "L0418", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0419", "matched": true, "records": [{"check": 3, "name": "equilibrium", "relations": ["mount_balance", "forces_only", "torque_unit"], "scope": "module"}, {"check": 3, "name": "equilibrium", "relations": ["mount_balance", "forces_only", "torque_unit"], "scope": "system"}]}
+{"line_id": "L0420", "matched": false, "records": []}
+{"line_id": "L0421", "matched": false, "records": []}
+{"line_id": "L0422", "matched": false, "records": []}
+{"line_id": "L0423", "matched": false, "records": []}
+{"line_id": "L0424", "matched": false, "records": []}
+{"line_id": "L0425", "matched": false, "records": []}
+{"line_id": "L0426", "matched": false, "records": []}
+{"line_id": "L0427", "matched": false, "records": []}
+{"line_id": "L0428", "matched": false, "records": []}
+{"line_id": "L0429", "matched": false, "records": []}
+{"line_id": "L0430", "matched": false, "records": []}
+{"line_id": "L0431", "matched": false, "records": []}
+{"line_id": "L0432", "matched": false, "records": []}
+{"line_id": "L0433", "matched": false, "records": []}
+{"line_id": "L0434", "matched": false, "records": []}
+{"line_id": "L0435", "matched": false, "records": []}
+{"line_id": "L0436", "matched": false, "records": []}
+{"line_id": "L0437", "matched": false, "records": []}
+{"line_id": "L0438", "matched": false, "records": []}
+{"line_id": "L0439", "matched": false, "records": []}
+{"line_id": "L0440", "matched": false, "records": []}
+{"line_id": "L0441", "matched": false, "records": []}
+{"line_id": "L0442", "matched": false, "records": []}
+{"line_id": "L0443", "matched": false, "records": []}
+{"line_id": "L0444", "matched": false, "records": []}
+{"line_id": "L0445", "matched": false, "records": []}
+{"line_id": "L0446", "matched": false, "records": []}
+{"line_id": "L0447", "matched": false, "records": []}
+{"line_id": "L0448", "matched": false, "records": []}
+{"line_id": "L0449", "matched": false, "records": []}
+{"line_id": "L0450", "matched": false, "records": []}
+{"line_id": "L0451", "matched": false, "records": []}
+{"line_id": "L0452", "matched": false, "records": []}
+{"line_id": "L0453", "matched": false, "records": []}
+{"line_id": "L0454", "matched": false, "records": []}
+{"line_id": "L0455", "matched": false, "records": []}
+{"line_id": "L0456", "matched": false, "records": []}
+{"line_id": "L0457", "matched": false, "records": []}
+{"line_id": "L0458", "matched": false, "records": []}
+{"line_id": "L0459", "matched": false, "records": []}
+{"line_id": "L0460", "matched": false, "records": []}
+{"line_id": "L0461", "matched": false, "records": []}
+{"line_id": "L0462", "matched": false, "records": []}
+{"line_id": "L0463", "matched": false, "records": []}
+{"line_id": "L0464", "matched": false, "records": []}
+{"line_id": "L0465", "matched": false, "records": []}
+{"line_id": "L0466", "matched": false, "records": []}
+{"line_id": "L0467", "matched": false, "records": []}
+{"line_id": "L0468", "matched": false, "records": []}
+{"line_id": "L0469", "matched": false, "records": []}
+{"line_id": "L0470", "matched": false, "records": []}
+{"line_id": "L0471", "matched": false, "records": []}
+{"line_id": "L0472", "matched": false, "records": []}
+{"line_id": "L0473", "matched": false, "records": []}
+{"line_id": "L0474", "matched": false, "records": []}
+{"line_id": "L0475", "matched": false, "records": []}
+{"line_id": "L0476", "matched": false, "records": []}
+{"line_id": "L0477", "matched": false, "records": []}
+{"line_id": "L0478", "matched": true, "records": [{"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}]}
+{"line_id": "L0479", "matched": false, "records": []}
+{"line_id": "L0480", "matched": false, "records": []}
+{"line_id": "L0481", "matched": false, "records": []}
+{"line_id": "L0482", "matched": false, "records": []}
+{"line_id": "L0483", "matched": false, "records": []}
+{"line_id": "L0484", "matched": false, "records": []}
+{"line_id": "L0485", "matched": false, "records": []}
+{"line_id": "L0486", "matched": false, "records": []}
+{"line_id": "L0487", "matched": false, "records": []}
+{"line_id": "L0488", "matched": false, "records": []}
+{"line_id": "L0489", "matched": false, "records": []}
+{"line_id": "L0490", "matched": false, "records": []}
+{"line_id": "L0491", "matched": false, "records": []}
+{"line_id": "L0492", "matched": false, "records": []}
+{"line_id": "L0493", "matched": true, "records": [{"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0494", "matched": true, "records": [{"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0495", "matched": true, "records": [{"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0496", "matched": false, "records": []}
+{"line_id": "L0497", "matched": false, "records": []}
+{"line_id": "L0498", "matched": false, "records": []}
+{"line_id": "L0499", "matched": false, "records": []}
+{"line_id": "L0500", "matched": false, "records": []}
+{"line_id": "L0501", "matched": false, "records": []}
+{"line_id": "L0502", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0503", "matched": false, "records": []}
+{"line_id": "L0504", "matched": false, "records": []}
+{"line_id": "L0505", "matched": false, "records": []}
+{"line_id": "L0506", "matched": false, "records": []}
+{"line_id": "L0507", "matched": false, "records": []}
+{"line_id": "L0508", "matched": false, "records": []}
+{"line_id": "L0509", "matched": false, "records": []}
+{"line_id": "L0510", "matched": false, "records": []}
+{"line_id": "L0511", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0512", "matched": false, "records": []}
+{"line_id": "L0513", "matched": false, "records": []}
+{"line_id": "L0514", "matched": false, "records": []}
+{"line_id": "L0515", "matched": false, "records": []}
+{"line_id": "L0516", "matched": false, "records": []}
+{"line_id": "L0517", "matched": true, "records": [{"check": 1, "name": "units", "relations": ["units_kind"], "scope": "subtask"}, {"check": 1, "name": "units", "relations": ["units_kind"], "scope": "system"}]}
+{"line_id": "L0518", "matched": true, "records": [{"check": 1, "name": "units", "relations": ["units_kind"], "scope": "subtask"}, {"check": 1, "name": "units", "relations": ["units_kind"], "scope": "system"}]}
+{"line_id": "L0519", "matched": false, "records": []}
+{"line_id": "L0520", "matched": false, "records": []}
+{"line_id": "L0521", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0522", "matched": false, "records": []}
+{"line_id": "L0523", "matched": false, "records": []}
+{"line_id": "L0524", "matched": false, "records": []}
+{"line_id": "L0525", "matched": false, "records": []}
+{"line_id": "L0526", "matched": false, "records": []}
+{"line_id": "L0527", "matched": false, "records": []}
+{"line_id": "L0528", "matched": false, "records": []}
+{"line_id": "L0529", "matched": false, "records": []}
+{"line_id": "L0530", "matched": false, "records": []}
+{"line_id": "L0531", "matched": false, "records": []}
+{"line_id": "L0532", "matched": false, "records": []}
+{"line_id": "L0533", "matched": false, "records": []}
+{"line_id": "L0534", "matched": false, "records": []}
+{"line_id": "L0535", "matched": false, "records": []}
+{"line_id": "L0536", "matched": false, "records": []}
+{"line_id": "L0537", "matched": false, "records": []}
+{"line_id": "L0538", "matched": false, "records": []}
+{"line_id": "L0539", "matched": false, "records": []}
+{"line_id": "L0540", "matched": false, "records": []}
+{"line_id": "L0541", "matched": false, "records": []}
+{"line_id": "L0542", "matched": false, "records": []}
+{"line_id": "L0543", "matched": false, "records": []}
+{"line_id": "L0544", "matched": false, "records": []}
+{"line_id": "L0545", "matched": false, "records": []}
+{"line_id": "L0546", "matched": false, "records": []}
+{"line_id": "L0547", "matched": false, "records": []}
+{"line_id": "L0548", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0549", "matched": false, "records": []}
+{"line_id": "L0550", "matched": false, "records": []}
+{"line_id": "L0551", "matched": false, "records": []}
+{"line_id": "L0552", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0553", "matched": false, "records": []}
+{"line_id": "L0554", "matched": false, "records": []}
+{"line_id": "L0555", "matched": false, "records": []}
+{"line_id": "L0556", "matched": false, "records": []}
+{"line_id": "L0557", "matched": false, "records": []}
+{"line_id": "L0558", "matched": false, "records": []}
+{"line_id": "L0559", "matched": true, "records": [{"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}]}
+{"line_id": "L0560", "matched": true, "records": [{"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}]}
+{"line_id": "L0561", "matched": false, "records": []}
+{"line_id": "L0562", "matched": true, "records": [{"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}]}
+{"line_id": "L0563", "matched": false, "records": []}
+{"line_id": "L0564", "matched": false, "records": []}
+{"line_id": "L0565", "matched": false, "records": []}
+{"line_id": "L0566", "matched": false, "records": []}
+{"line_id": "L0567", "matched": false, "records": []}
+{"line_id": "L0568", "matched": false, "records": []}
+{"line_id": "L0569", "matched": true, "records": [{"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}]}
+{"line_id": "L0570", "matched": true, "records": [{"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}]}
+{"line_id": "L0571", "matched": false, "records": []}
+{"line_id": "L0572", "matched": false, "records": []}
+{"line_id": "L0573", "matched": false, "records": []}
+{"line_id": "L0574", "matched": false, "records": []}
+{"line_id": "L0575", "matched": false, "records": []}
+{"line_id": "L0576", "matched": false, "records": []}
+{"line_id": "L0577", "matched": false, "records": []}
+{"line_id": "L0578", "matched": false, "records": []}
+{"line_id": "L0579", "matched": false, "records": []}
+{"line_id": "L0580", "matched": false, "records": []}
+{"line_id": "L0581", "matched": false, "records": []}
+{"line_id": "L0582", "matched": false, "records": []}
+{"line_id": "L0583", "matched": false, "records": []}
+{"line_id": "L0584", "matched": false, "records": []}
+{"line_id": "L0585", "matched": false, "records": []}
+{"line_id": "L0586", "matched": false, "records": []}
+{"line_id": "L0587", "matched": false, "records": []}
+{"line_id": "L0588", "matched": false, "records": []}
+{"line_id": "L0589", "matched": false, "records": []}
+{"line_id": "L0590", "matched": false, "records": []}
+{"line_id": "L0591", "matched": false, "records": []}
+{"line_id": "L0592", "matched": false, "records": []}
+{"line_id": "L0593", "matched": false, "records": []}
+{"line_id": "L0594", "matched": false, "records": []}
+{"line_id": "L0595", "matched": false, "records": []}
+{"line_id": "L0596", "matched": false, "records": []}
+{"line_id": "L0597", "matched": false, "records": []}
+{"line_id": "L0598", "matched": false, "records": []}
+{"line_id": "L0599", "matched": false, "records": []}
+{"line_id": "L0600", "matched": false, "records": []}
+{"line_id": "L0601", "matched": false, "records": []}
+{"line_id": "L0602", "matched": false, "records": []}
+{"line_id": "L0603", "matched": false, "records": []}
+{"line_id": "L0604", "matched": false, "records": []}
+{"line_id": "L0605", "matched": false, "records": []}
+{"line_id": "L0606", "matched": false, "records": []}
+{"line_id": "L0607", "matched": false, "records": []}
+{"line_id": "L0608", "matched": false, "records": []}
+{"line_id": "L0609", "matched": false, "records": []}
+{"line_id": "L0610", "matched": false, "records": []}
+{"line_id": "L0611", "matched": false, "records": []}
+{"line_id": "L0612", "matched": false, "records": []}
+{"line_id": "L0613", "matched": false, "records": []}
+{"line_id": "L0614", "matched": false, "records": []}
+{"line_id": "L0615", "matched": false, "records": []}
+{"line_id": "L0616", "matched": false, "records": []}
+{"line_id": "L0617", "matched": false, "records": []}
+{"line_id": "L0618", "matched": false, "records": []}
+{"line_id": "L0619", "matched": false, "records": []}
+{"line_id": "L0620", "matched": false, "records": []}
+{"line_id": "L0621", "matched": false, "records": []}
+{"line_id": "L0622", "matched": false, "records": []}
+{"line_id": "L0623", "matched": false, "records": []}
+{"line_id": "L0624", "matched": false, "records": []}
+{"line_id": "L0625", "matched": false, "records": []}
+{"line_id": "L0626", "matched": false, "records": []}
+{"line_id": "L0627", "matched": false, "records": []}
+{"line_id": "L0628", "matched": false, "records": []}
+{"line_id": "L0629", "matched": false, "records": []}
+{"line_id": "L0630", "matched": false, "records": []}
+{"line_id": "L0631", "matched": false, "records": []}
+{"line_id": "L0632", "matched": false, "records": []}
+{"line_id": "L0633", "matched": false, "records": []}
+{"line_id": "L0634", "matched": true, "records": [{"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}]}
+{"line_id": "L0635", "matched": false, "records": []}
+{"line_id": "L0636", "matched": false, "records": []}
+{"line_id": "L0637", "matched": false, "records": []}
+{"line_id": "L0638", "matched": false, "records": []}
+{"line_id": "L0639", "matched": true, "records": [{"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0640", "matched": false, "records": []}
+{"line_id": "L0641", "matched": false, "records": []}
+{"line_id": "L0642", "matched": false, "records": []}
+{"line_id": "L0643", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0644", "matched": false, "records": []}
+{"line_id": "L0645", "matched": false, "records": []}
+{"line_id": "L0646", "matched": true, "records": [{"check": 1, "name": "units", "relations": ["units_kind"], "scope": "subtask"}, {"check": 1, "name": "units", "relations": ["units_kind"], "scope": "system"}]}
+{"line_id": "L0647", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0648", "matched": false, "records": []}
+{"line_id": "L0649", "matched": false, "records": []}
+{"line_id": "L0650", "matched": false, "records": []}
+{"line_id": "L0651", "matched": false, "records": []}
+{"line_id": "L0652", "matched": false, "records": []}
+{"line_id": "L0653", "matched": false, "records": []}
+{"line_id": "L0654", "matched": false, "records": []}
+{"line_id": "L0655", "matched": false, "records": []}
+{"line_id": "L0656", "matched": false, "records": []}
+{"line_id": "L0657", "matched": false, "records": []}
+{"line_id": "L0658", "matched": false, "records": []}
+{"line_id": "L0659", "matched": false, "records": []}
+{"line_id": "L0660", "matched": false, "records": []}
+{"line_id": "L0661", "matched": false, "records": []}
+{"line_id": "L0662", "matched": false, "records": []}
+{"line_id": "L0663", "matched": false, "records": []}
+{"line_id": "L0664", "matched": false, "records": []}
+{"line_id": "L0665", "matched": false, "records": []}
+{"line_id": "L0666", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0667", "matched": false, "records": []}
+{"line_id": "L0668", "matched": false, "records": []}
+{"line_id": "L0669", "matched": true, "records": [{"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}]}
+{"line_id": "L0670", "matched": false, "records": []}
+{"line_id": "L0671", "matched": false, "records": []}
+{"line_id": "L0672", "matched": true, "records": [{"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}]}
+{"line_id": "L0673", "matched": false, "records": []}
+{"line_id": "L0674", "matched": false, "records": []}
+{"line_id": "L0675", "matched": false, "records": []}
+{"line_id": "L0676", "matched": false, "records": []}
+{"line_id": "L0677", "matched": false, "records": []}
+{"line_id": "L0678", "matched": false, "records": []}
+{"line_id": "L0679", "matched": false, "records": []}
+{"line_id": "L0680", "matched": false, "records": []}
+{"line_id": "L0681", "matched": false, "records": []}
+{"line_id": "L0682", "matched": false, "records": []}
+{"line_id": "L0683", "matched": false, "records": []}
+{"line_id": "L0684", "matched": false, "records": []}
+{"line_id": "L0685", "matched": false, "records": []}
+{"line_id": "L0686", "matched": false, "records": []}
+{"line_id": "L0687", "matched": false, "records": []}
+{"line_id": "L0688", "matched": false, "records": []}
+{"line_id": "L0689", "matched": false, "records": []}
+{"line_id": "L0690", "matched": false, "records": []}
+{"line_id": "L0691", "matched": false, "records": []}
+{"line_id": "L0692", "matched": false, "records": []}
+{"line_id": "L0693", "matched": false, "records": []}
+{"line_id": "L0694", "matched": false, "records": []}
+{"line_id": "L0695", "matched": false, "records": []}
+{"line_id": "L0696", "matched": false, "records": []}
+{"line_id": "L0697", "matched": false, "records": []}
+{"line_id": "L0698", "matched": false, "records": []}
+{"line_id": "L0699", "matched": false, "records": []}
+{"line_id": "L0700", "matched": false, "records": []}
+{"line_id": "L0701", "matched": false, "records": []}
+{"line_id": "L0702", "matched": false, "records": []}
+{"line_id": "L0703", "matched": false, "records": []}
+{"line_id": "L0704", "matched": false, "records": []}
+{"line_id": "L0705", "matched": false, "records": []}
+{"line_id": "L0706", "matched": false, "records": []}
+{"line_id": "L0707", "matched": true, "records": [{"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0708", "matched": true, "records": [{"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0709", "matched": true, "records": [{"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0710", "matched": false, "records": []}
+{"line_id": "L0711", "matched": false, "records": []}
+{"line_id": "L0712", "matched": false, "records": []}
+{"line_id": "L0713", "matched": false, "records": []}
+{"line_id": "L0714", "matched": false, "records": []}
+{"line_id": "L0715", "matched": false, "records": []}
+{"line_id": "L0716", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0717", "matched": false, "records": []}
+{"line_id": "L0718", "matched": false, "records": []}
+{"line_id": "L0719", "matched": false, "records": []}
+{"line_id": "L0720", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0721", "matched": false, "records": []}
+{"line_id": "L0722", "matched": true, "records": [{"check": 1, "name": "units", "relations": ["units_kind"], "scope": "subtask"}, {"check": 1, "name": "units", "relations": ["units_kind"], "scope": "system"}]}
+{"line_id": "L0723", "matched": true, "records": [{"check": 1, "name": "units", "relations": ["units_kind"], "scope": "subtask"}, {"check": 1, "name": "units", "relations": ["units_kind"], "scope": "system"}]}
+{"line_id": "L0724", "matched": true, "records": [{"check": 1, "name": "units", "relations": ["units_kind"], "scope": "subtask"}, {"check": 1, "name": "units", "relations": ["units_kind"], "scope": "system"}]}
+{"line_id": "L0725", "matched": true, "records": [{"check": 1, "name": "units", "relations": ["units_kind"], "scope": "subtask"}, {"check": 1, "name": "units", "relations": ["units_kind"], "scope": "system"}]}
+{"line_id": "L0726", "matched": false, "records": []}
+{"line_id": "L0727", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0728", "matched": false, "records": []}
+{"line_id": "L0729", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0730", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0731", "matched": false, "records": []}
+{"line_id": "L0732", "matched": false, "records": []}
+{"line_id": "L0733", "matched": false, "records": []}
+{"line_id": "L0734", "matched": false, "records": []}
+{"line_id": "L0735", "matched": false, "records": []}
+{"line_id": "L0736", "matched": false, "records": []}
+{"line_id": "L0737", "matched": false, "records": []}
+{"line_id": "L0738", "matched": false, "records": []}
+{"line_id": "L0739", "matched": false, "records": []}
+{"line_id": "L0740", "matched": false, "records": []}
+{"line_id": "L0741", "matched": false, "records": []}
+{"line_id": "L0742", "matched": false, "records": []}
+{"line_id": "L0743", "matched": false, "records": []}
+{"line_id": "L0744", "matched": false, "records": []}
+{"line_id": "L0745", "matched": false, "records": []}
+{"line_id": "L0746", "matched": false, "records": []}
+{"line_id": "L0747", "matched": false, "records": []}
+{"line_id": "L0748", "matched": false, "records": []}
+{"line_id": "L0749", "matched": false, "records": []}
+{"line_id": "L0750", "matched": false, "records": []}
+{"line_id": "L0751", "matched": false, "records": []}
+{"line_id": "L0752", "matched": false, "records": []}
+{"line_id": "L0753", "matched": false, "records": []}
+{"line_id": "L0754", "matched": false, "records": []}
+{"line_id": "L0755", "matched": false, "records": []}
+{"line_id": "L0756", "matched": false, "records": []}
+{"line_id": "L0757", "matched": false, "records": []}
+{"line_id": "L0758", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0759", "matched": false, "records": []}
+{"line_id": "L0760", "matched": false, "records": []}
+{"line_id": "L0761", "matched": false, "records": []}
+{"line_id": "L0762", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0763", "matched": false, "records": []}
+{"line_id": "L0764", "matched": false, "records": []}
+{"line_id": "L0765", "matched": false, "records": []}
+{"line_id": "L0766", "matched": false, "records": []}
+{"line_id": "L0767", "matched": false, "records": []}
+{"line_id": "L0768", "matched": false, "records": []}
+{"line_id": "L0769", "matched": true, "records": [{"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}]}
+{"line_id": "L0770", "matched": true, "records": [{"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}]}
+{"line_id": "L0771", "matched": false, "records": []}
+{"line_id": "L0772", "matched": false, "records": []}
+{"line_id": "L0773", "matched": false, "records": []}
+{"line_id": "L0774", "matched": false, "records": []}
+{"line_id": "L0775", "matched": false, "records": []}
+{"line_id": "L0776", "matched": false, "records": []}
+{"line_id": "L0777", "matched": false, "records": []}
+{"line_id": "L0778", "matched": false, "records": []}
+{"line_id": "L0779", "matched": false, "records": []}
+{"line_id": "L0780", "matched": true, "records": [{"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}]}
+{"line_id": "L0781", "matched": false, "records": []}
+{"line_id": "L0782", "matched": false, "records": []}
+{"line_id": "L0783", "matched": false, "records": []}
+{"line_id": "L0784", "matched": false, "records": []}
+{"line_id": "L0785", "matched": false, "records": []}
+{"line_id": "L0786", "matched": false, "records": []}
+{"line_id": "L0787", "matched": false, "records": []}
+{"line_id": "L0788", "matched": false, "records": []}
+{"line_id": "L0789", "matched": false, "records": []}
+{"line_id": "L0790", "matched": false, "records": []}
+{"line_id": "L0791", "matched": false, "records": []}
+{"line_id": "L0792", "matched": false, "records": []}
+{"line_id": "L0793", "matched": false, "records": []}
+{"line_id": "L0794", "matched": false, "records": []}
+{"line_id": "L0795", "matched": false, "records": []}
+{"line_id": "L0796", "matched": false, "records": []}
+{"line_id": "L0797", "matched": false, "records": []}
+{"line_id": "L0798", "matched": false, "records": []}
+{"line_id": "L0799", "matched": false, "records": []}
+{"line_id": "L0800", "matched": false, "records": []}
+{"line_id": "L0801", "matched": false, "records": []}
+{"line_id": "L0802", "matched": false, "records": []}
+{"line_id": "L0803", "matched": false, "records": []}
+{"line_id": "L0804", "matched": false, "records": []}
+{"line_id": "L0805", "matched": false, "records": []}
+{"line_id": "L0806", "matched": false, "records": []}
+{"line_id": "L0807", "matched": false, "records": []}
+{"line_id": "L0808", "matched": false, "records": []}
+{"line_id": "L0809", "matched": false, "records": []}
+{"line_id": "L0810", "matched": false, "records": []}
+{"line_id": "L0811", "matched": false, "records": []}
+{"line_id": "L0812", "matched": false, "records": []}
+{"line_id": "L0813", "matched": false, "records": []}
+{"line_id": "L0814", "matched": false, "records": []}
+{"line_id": "L0815", "matched": false, "records": []}
+{"line_id": "L0816", "matched": false, "records": []}
+{"line_id": "L0817", "matched": false, "records": []}
+{"line_id": "L0818", "matched": false, "records": []}
+{"line_id": "L0819", "matched": false, "records": []}
+{"line_id": "L0820", "matched": false, "records": []}
+{"line_id": "L0821", "matched": false, "records": []}
+{"line_id": "L0822", "matched": false, "records": []}
+{"line_id": "L0823", "matched": false, "records": []}
+{"line_id": "L0824", "matched": false, "records": []}
+{"line_id": "L0825", "matched": false, "records": []}
+{"line_id": "L0826", "matched": false, "records": []}
+{"line_id": "L0827", "matched": false, "records": []}
+{"line_id": "L0828", "matched": false, "records": []}
+{"line_id": "L0829", "matched": false, "records": []}
+{"line_id": "L0830", "matched": false, "records": []}
+{"line_id": "L0831", "matched": false, "records": []}
+{"line_id": "L0832", "matched": false, "records": []}
+{"line_id": "L0833", "matched": false, "records": []}
+{"line_id": "L0834", "matched": false, "records": []}
+{"line_id": "L0835", "matched": false, "records": []}
+{"line_id": "L0836", "matched": false, "records": []}
+{"line_id": "L0837", "matched": false, "records": []}
+{"line_id": "L0838", "matched": false, "records": []}
+{"line_id": "L0839", "matched": false, "records": []}
+{"line_id": "L0840", "matched": false, "records": []}
+{"line_id": "L0841", "matched": false, "records": []}
+{"line_id": "L0842", "matched": false, "records": []}
+{"line_id": "L0843", "matched": false, "records": []}
+{"line_id": "L0844", "matched": false, "records": []}
+{"line_id": "L0845", "matched": false, "records": []}
+{"line_id": "L0846", "matched": false, "records": []}
+{"line_id": "L0847", "matched": false, "records": []}
+{"line_id": "L0848", "matched": false, "records": []}
+{"line_id": "L0849", "matched": false, "records": []}
+{"line_id": "L0850", "matched": false, "records": []}
+{"line_id": "L0851", "matched": true, "records": [{"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}]}
+{"line_id": "L0852", "matched": true, "records": [{"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}]}
+{"line_id": "L0853", "matched": false, "records": []}
+{"line_id": "L0854", "matched": false, "records": []}
+{"line_id": "L0855", "matched": false, "records": []}
+{"line_id": "L0856", "matched": false, "records": []}
+{"line_id": "L0857", "matched": false, "records": []}
+{"line_id": "L0858", "matched": false, "records": []}
+{"line_id": "L0859", "matched": false, "records": []}
+{"line_id": "L0860", "matched": false, "records": []}
+{"line_id": "L0861", "matched": true, "records": [{"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0862", "matched": true, "records": [{"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0863", "matched": true, "records": [{"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0864", "matched": false, "records": []}
+{"line_id": "L0865", "matched": false, "records": []}
+{"line_id": "L0866", "matched": false, "records": []}
+{"line_id": "L0867", "matched": false, "records": []}
+{"line_id": "L0868", "matched": false, "records": []}
+{"line_id": "L0869", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0870", "matched": false, "records": []}
+{"line_id": "L0871", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0872", "matched": false, "records": []}
+{"line_id": "L0873", "matched": false, "records": []}
+{"line_id": "L0874", "matched": false, "records": []}
+{"line_id": "L0875", "matched": false, "records": []}
+{"line_id": "L0876", "matched": false, "records": []}
+{"line_id": "L0877", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0878", "matched": false, "records": []}
+{"line_id": "L0879", "matched": false, "records": []}
+{"line_id": "L0880", "matched": false, "records": []}
+{"line_id": "L0881", "matched": false, "records": []}
+{"line_id": "L0882", "matched": true, "records": [{"check": 1, "name": "units", "relations": ["units_kind"], "scope": "subtask"}, {"check": 1, "name": "units", "relations": ["units_kind"], "scope": "system"}]}
+{"line_id": "L0883", "matched": true, "records": [{"check": 1, "name": "units", "relations": ["units_kind"], "scope": "subtask"}, {"check": 1, "name": "units", "relations": ["units_kind"], "scope": "system"}]}
+{"line_id": "L0884", "matched": true, "records": [{"check": 1, "name": "units", "relations": ["units_kind"], "scope": "subtask"}, {"check": 1, "name": "units", "relations": ["units_kind"], "scope": "system"}]}
+{"line_id": "L0885", "matched": true, "records": [{"check": 1, "name": "units", "relations": ["units_kind"], "scope": "subtask"}, {"check": 1, "name": "units", "relations": ["units_kind"], "scope": "system"}]}
+{"line_id": "L0886", "matched": false, "records": []}
+{"line_id": "L0887", "matched": false, "records": []}
+{"line_id": "L0888", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0889", "matched": false, "records": []}
+{"line_id": "L0890", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0891", "matched": false, "records": []}
+{"line_id": "L0892", "matched": false, "records": []}
+{"line_id": "L0893", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0894", "matched": true, "records": [{"check": 7, "name": "propagation", "relations": ["propagation"], "scope": "system"}]}
+{"line_id": "L0895", "matched": false, "records": []}
+{"line_id": "L0896", "matched": false, "records": []}
+{"line_id": "L0897", "matched": false, "records": []}
+{"line_id": "L0898", "matched": false, "records": []}
+{"line_id": "L0899", "matched": false, "records": []}
+{"line_id": "L0900", "matched": false, "records": []}
+{"line_id": "L0901", "matched": false, "records": []}
+{"line_id": "L0902", "matched": false, "records": []}
+{"line_id": "L0903", "matched": false, "records": []}
+{"line_id": "L0904", "matched": false, "records": []}
+{"line_id": "L0905", "matched": false, "records": []}
+{"line_id": "L0906", "matched": false, "records": []}
+{"line_id": "L0907", "matched": false, "records": []}
+{"line_id": "L0908", "matched": false, "records": []}
+{"line_id": "L0909", "matched": false, "records": []}
+{"line_id": "L0910", "matched": false, "records": []}
+{"line_id": "L0911", "matched": false, "records": []}
+{"line_id": "L0912", "matched": false, "records": []}
+{"line_id": "L0913", "matched": false, "records": []}
+{"line_id": "L0914", "matched": false, "records": []}
+{"line_id": "L0915", "matched": false, "records": []}
+{"line_id": "L0916", "matched": false, "records": []}
+{"line_id": "L0917", "matched": false, "records": []}
+{"line_id": "L0918", "matched": false, "records": []}
+{"line_id": "L0919", "matched": false, "records": []}
+{"line_id": "L0920", "matched": false, "records": []}
+{"line_id": "L0921", "matched": false, "records": []}
+{"line_id": "L0922", "matched": false, "records": []}
+{"line_id": "L0923", "matched": false, "records": []}
+{"line_id": "L0924", "matched": false, "records": []}
+{"line_id": "L0925", "matched": false, "records": []}
+{"line_id": "L0926", "matched": false, "records": []}
+{"line_id": "L0927", "matched": true, "records": [{"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}]}
+{"line_id": "L0928", "matched": true, "records": [{"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}]}
+{"line_id": "L0929", "matched": false, "records": []}
+{"line_id": "L0930", "matched": true, "records": [{"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}]}
+{"line_id": "L0931", "matched": false, "records": []}
+{"line_id": "L0932", "matched": false, "records": []}
+{"line_id": "L0933", "matched": false, "records": []}
+{"line_id": "L0934", "matched": false, "records": []}
+{"line_id": "L0935", "matched": true, "records": [{"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}]}
+{"line_id": "L0936", "matched": true, "records": [{"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "module"}, {"check": 5, "name": "conservation", "relations": ["mass_sum"], "scope": "system"}]}
+{"line_id": "L0937", "matched": false, "records": []}
+{"line_id": "L0938", "matched": false, "records": []}
+{"line_id": "L0939", "matched": false, "records": []}
+{"line_id": "L0940", "matched": false, "records": []}
+{"line_id": "L0941", "matched": false, "records": []}
+{"line_id": "L0942", "matched": false, "records": []}
+{"line_id": "L0943", "matched": false, "records": []}
+{"line_id": "L0944", "matched": false, "records": []}
+{"line_id": "L0945", "matched": false, "records": []}
+{"line_id": "L0946", "matched": false, "records": []}
+{"line_id": "L0947", "matched": false, "records": []}
+{"line_id": "L0948", "matched": false, "records": []}
+{"line_id": "L0949", "matched": false, "records": []}
+{"line_id": "L0950", "matched": false, "records": []}
+{"line_id": "L0951", "matched": false, "records": []}
+{"line_id": "L0952", "matched": false, "records": []}
+{"line_id": "L0953", "matched": false, "records": []}
+{"line_id": "L0954", "matched": false, "records": []}
+{"line_id": "L0955", "matched": false, "records": []}
+{"line_id": "L0956", "matched": false, "records": []}
+{"line_id": "L0957", "matched": false, "records": []}
+{"line_id": "L0958", "matched": false, "records": []}
+{"line_id": "L0959", "matched": false, "records": []}
+{"line_id": "L0960", "matched": false, "records": []}
+{"line_id": "L0961", "matched": false, "records": []}
+{"line_id": "L0962", "matched": false, "records": []}
+{"line_id": "L0963", "matched": false, "records": []}
+{"line_id": "L0964", "matched": false, "records": []}
+{"line_id": "L0965", "matched": false, "records": []}
+{"line_id": "L0966", "matched": false, "records": []}
+{"line_id": "L0967", "matched": false, "records": []}
+{"line_id": "L0968", "matched": false, "records": []}
+{"line_id": "L0969", "matched": false, "records": []}
+{"line_id": "L0970", "matched": false, "records": []}
+{"line_id": "L0971", "matched": false, "records": []}
+{"line_id": "L0972", "matched": false, "records": []}
+{"line_id": "L0973", "matched": false, "records": []}
+{"line_id": "L0974", "matched": false, "records": []}
+{"line_id": "L0975", "matched": false, "records": []}
+{"line_id": "L0976", "matched": false, "records": []}
+{"line_id": "L0977", "matched": false, "records": []}
+{"line_id": "L0978", "matched": false, "records": []}
+{"line_id": "L0979", "matched": false, "records": []}
+{"line_id": "L0980", "matched": false, "records": []}
+{"line_id": "L0981", "matched": false, "records": []}
+{"line_id": "L0982", "matched": false, "records": []}
+{"line_id": "L0983", "matched": false, "records": []}
+{"line_id": "L0984", "matched": false, "records": []}
+{"line_id": "L0985", "matched": false, "records": []}
+{"line_id": "L0986", "matched": false, "records": []}
+{"line_id": "L0987", "matched": false, "records": []}
+{"line_id": "L0988", "matched": false, "records": []}
+{"line_id": "L0989", "matched": false, "records": []}
+{"line_id": "L0990", "matched": false, "records": []}
+{"line_id": "L0991", "matched": false, "records": []}
+{"line_id": "L0992", "matched": false, "records": []}
+{"line_id": "L0993", "matched": false, "records": []}
