@@ -470,10 +470,14 @@ def _installer_error(capsys: pytest.CaptureFixture[str]) -> str:
     return said
 
 
+@pytest.mark.parametrize(
+    "temp", [[], ["--os-layer-temp", ""]], ids=["no-temporary-directory", "an-empty-one"]
+)
 def test_the_installer_writes_no_role_settings_without_the_sandbox(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], temp: list[str]
 ) -> None:
-    assert main(_role_install(tmp_path)) == 2
+    """An empty temporary directory is none: the settings would carry no sandbox."""
+    assert main(_role_install(tmp_path, *temp)) == 2
     said = _installer_error(capsys)
     assert "--os-layer-temp" in said and "os_layer_absent" in said
     assert not (tmp_path / "session").exists()
@@ -524,8 +528,10 @@ def test_the_installer_writes_a_role_s_settings_with_the_sandbox_and_needs_no_ru
 def test_a_run_configuration_that_cannot_be_read_lets_nothing_be_written(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """Missing, torn, or no file at all (reading a directory fails as the system's error)."""
     (tmp_path / "torn.json").write_text('{"run_id": ')
-    for path in (tmp_path / "none.json", tmp_path / "torn.json"):
+    (tmp_path / "a-directory.json").mkdir()
+    for path in (tmp_path / "none.json", tmp_path / "torn.json", tmp_path / "a-directory.json"):
         assert main(_role_install(tmp_path, "--run-config", str(path))) == 2
         assert "run configuration" in _installer_error(capsys)
     assert not (tmp_path / "session").exists()
