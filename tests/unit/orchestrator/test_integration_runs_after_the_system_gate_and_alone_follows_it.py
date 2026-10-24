@@ -772,7 +772,9 @@ def test_an_approve_that_completes_an_incomplete_design_dispatches_integration_a
     events = events_of(run_dir)
     calls = [e for e in events if isinstance(e, IntegrationGateRan | IntegrationGateSkipped)]
     assert [type(c).__name__ for c in calls] == ["IntegrationGateSkipped", "IntegrationGateRan"]
-    assert (calls[0].reason, calls[0].subtasks) == ("not_all_merged", ("s2",))
+    skipped = calls[0]
+    assert isinstance(skipped, IntegrationGateSkipped)
+    assert (skipped.reason, skipped.subtasks) == ("not_all_merged", ("s2",))
     (taken,) = [e for e in events if isinstance(e, DecisionTaken)]
     assert (taken.subtask_id, taken.effect) == ("s2", "merge")
     assert len(gate.integrations) == 1
