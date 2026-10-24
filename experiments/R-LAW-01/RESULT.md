@@ -453,9 +453,9 @@ gets §5.5's one retry.
 - The ledger has 555 lines, one per try. Every one exits 0 and records no infrastructure failure.
 - **The order of the reality steps.** §12 lists the twin versions before the rejection controls.
   The launcher ran both side by side after the injected versions, and the first control session
-  ended at 12:32:43Z, slightly before the first twin session at 12:33:26Z. No session reads
-  another's verdicts (the controls are built from the injected versions' verdicts only), so the
-  order changes nothing.
+  ended at 12:32:43Z, slightly before the first twin session ended at 12:33:26Z (a ledger line's
+  time is when its call settled). No session reads another's verdicts (the controls are built from
+  the injected versions' verdicts only), so the order changes nothing.
 - Calibration used 3,154,319 tokens. **The whole run spent 20,731,440 tokens** (tally.json
   `tokens.spent`, the ledger's sum), against **the 60,000,000 guard**.
 - **The projection check after round 1** (§12 step 6): 1,525,410 tokens spent over 40 sessions,
@@ -495,26 +495,26 @@ token estimate was used.
   each version's `prompts.json`).
 - §6 also asks for the slice's κ and L share under each version. No frozen script computes them.
   They were computed after the run and are in "Figures added after the run".
-- **The bank's lean toward L, answered** (post-run, from `data/report_extra.json`; reported, never
-  a result, per §6; a difference of 1 flaw over 7 clusters). Under v1 the slice's L share was
-  13.5 % (7 of 52 flaws), against 11.5 % (6 of 52) under v0. Per line it was 20.2 % (26 of 129)
-  against 17.1 % (22 of 129). So v1 coded one more slice flaw and four more slice lines L. The
-  two rounds are separate sessions, so the difference mixes the prompt change with
-  session-to-session variation, and the slice has only 7 clusters.
+- **The bank's lean toward L, not resolved at this size** (post-run, from
+  `data/report_extra.json`; reported, never a result, per §6; a difference of 1 flaw over 7
+  clusters). Under v1 the slice's L share was 13.5 % (7 of 52 flaws), against 11.5 % (6 of 52)
+  under v0. Per line it was 20.2 % (26 of 129) against 17.1 % (22 of 129). So v1 coded one more
+  slice flaw and four more slice lines L. The two rounds are separate sessions, so the difference
+  mixes the prompt change with session-to-session variation, and the slice has only 7 clusters.
 
 **4. The account.**
 - Every session ran on the **development account**. The owner confirmed on 22.10.2026 that the
   laptop is on it.
 - §12 says the sessions never run in the same weekly window as an evaluation run on that account.
   A private record of 22.10.2026 states that no evaluation run used the account that week: the
-  week's evaluation runs ran on a separate run account. The only other model work on the
-  development account that week was two adjudications, the prior adjudication of §2.3 among them,
-  and neither is an evaluation run.
+  week's evaluation runs ran on a separate run account. Besides this experiment's own pre-launch
+  checks (disclosure 7) and the R-PG-01b trial below, the record names two adjudications, the
+  prior adjudication of §2.3 among them; none is an evaluation run.
 - **One R-PG-01b trial session** used the same account on 23.10.2026 from **07:33:16Z to
   07:38:08Z**: 1 session, 17 turns, **336,445 tokens**. It read one file and scored nothing. It was
-  a check, not an evaluation run, and it ended before R-LAW-01's first session (11:50:39Z).
-  R-PG-01b's own run then moved to the run account (23.10.2026), so this trial was its only use of
-  the development account.
+  a check, not an evaluation run, and it ended before R-LAW-01's first session, which settled at
+  11:50:39Z. R-PG-01b's own run then moved to the run account (23.10.2026), so this trial was its
+  only use of the development account.
 - So **§12's rule holds.**
 
 **5. §2.5's parts-sheet defect.** §2.5 says a code-level verification was running at the freeze.
@@ -649,11 +649,12 @@ deviation (the owner's ruling, 24.10.2026). All figures here are from `data/repo
   and a `no_change_justified` record. Neither rule is a relation over the values of one design
   version.
 - **The claims.** In the measured step, 216 G claims named `propagation` or `units_kind`: 206 in
-  valid forms and 10 in forms of coder 2 that were invalid (next bullet but one). Of the 206, 202
-  failed §5.5: coder 1's 89, coder 2's 78 and the adjudicator's 35, which is every G claim the
-  adjudicator made. By relation and failure: `propagation` unparsed 143, no input 25, on no node 2;
-  `units_kind` unparsed 29, dimension 3. The 4 that passed are coder 2's `c_odo == cpr * N_gb` on
-  L0025, L0300, L0386 and L0387: a value relation labelled `propagation`, not check 7's rule.
+  valid forms and 10 in forms of coder 2 that were invalid (see "Coder 2's 10 lines without a
+  form" below). Of the 206, 202 failed §5.5: coder 1's 89, coder 2's 78 and the adjudicator's 35,
+  which is every G claim the adjudicator made. By relation and failure: `propagation` unparsed 143,
+  no input 25, on no node 2; `units_kind` unparsed 29, dimension 3. The 4 that passed are coder 2's
+  `c_odo == cpr * N_gb` on L0025, L0300, L0386 and L0387: a value relation labelled `propagation`,
+  not check 7's rule.
 - **Structural or writable.** Of the 202, 199 fail for a structural reason: 167 `propagation`
   claims that do not parse as one comparison, with or without a trailing comment (each is a rule
   over change and justification), and 32 `units_kind` claims that do not parse (29) or whose two
@@ -667,8 +668,8 @@ deviation (the owner's ruling, 24.10.2026). All figures here are from `data/repo
   (`matches.jsonl`), 57 end G, 49 end D and 1 ends N.
 - **Coder 2's 10 lines without a form come from the same limit.** All 10 are check-7 G claims
   written as change rules with no `tolerance` field, so the form was invalid on both tries, in
-  coder 2's packets P0001, P0097 and P0098 (the raw session outputs, which are not published,
-  show this; `data/report_extra.json` lists the lines and packets). They are the 10 lines κ counts
+  coder 2's packets P0001, P0097 and P0098 (`data/invalid_coder_forms.jsonl` holds the forms of
+  both tries; `data/report_extra.json` lists the lines and packets). They are the 10 lines κ counts
   as `none` against coder 1, and they hold the one uncoded real flaw, W0240 (line L0553). No
   flaw-level figure moves on this account: the tally already counts them so, and the
   after-the-fact variant leaves them uncoded.
@@ -699,8 +700,10 @@ G, it becomes G.
   because W0215's lines have an empty locus (§2.2 step B).
 - **Relations that block clean twins.** 16 of the 50 rest on relations that block all, or all but
   one, of their set's clean twins in the false-positive audit; 11 of those 16 are not base flaws.
-- This is §2.2's own stated limit of the unit (it under-merges one defect described under two
-  items), concentrated in L. Readings S1, S2 and S6 do not test it.
+- This is the unit's under-merging, one form of which §2.2 lists among its limits: one defect
+  stays two flaws when it is described under two items, or when step B's empty-locus rule splits
+  it. It is visible in L, where relation inputs make it countable. Readings S1, S2 and S6 do not
+  test it.
 
 ## Figures added after the run
 
@@ -895,9 +898,10 @@ assertion and a change-and-edge rule.
 ## Published under §11
 
 Everything is in `data/` unless the row says otherwise. Each data file is a byte-for-byte copy of
-the run's work dir file of the same name (the ledger from `ledger/`), with four exceptions:
+the run's work dir file of the same name (the ledger from `ledger/`), with five exceptions:
 `regate.jsonl.gz` (the work dir's `regate.jsonl`, compressed), and `reality_forms.jsonl`,
-`report_extra.json` and `SHA256SUMS`, which have no counterpart in the work dir.
+`invalid_coder_forms.jsonl`, `report_extra.json` and `SHA256SUMS`, which have no counterpart in
+the work dir.
 `data/SHA256SUMS` covers every file below; check it with `shasum -a 256 -c SHA256SUMS` from `data/`.
 
 | What §11 names | File | Bytes |
@@ -910,6 +914,7 @@ the run's work dir file of the same name (the ledger from `ledger/`), with four 
 | Every reality verdict and origin, per measured line | `reality.jsonl` | 104,309 |
 | The 34 control verdicts, each flaw's reality, both bars and the prior agreement | `reality_summary.json` | 10,902 |
 | Every reality and control form: the schema's four fields (`id`, `verdict`, `origin`, `reason`) of the form the scoring used, with the line, packet, finding id and try | `reality_forms.jsonl` | 368,019 |
+| Every invalid form of the measured coders: the coder schema's fields of each form, in a try the ledger marks invalid, that lacks a field its code requires (§5.5), with the coder, line, packet, finding id and try | `invalid_coder_forms.jsonl` | 61,636 |
 | The re-gate records, 120 design versions (gzip) | `regate.jsonl.gz` | 290,793 |
 | The re-gate's check against `a-fresh` | `regate_check.json` | 168 |
 | Each line's gate match (§5.6) | `matches.jsonl` | 73,369 |
@@ -934,6 +939,16 @@ the run's work dir file of the same name (the ledger from `ledger/`), with four 
   it), and only the schema's four fields. Never the transcript, the result text or the usage. Every
   row's verdict and origin equal those in `reality.jsonl` or `reality_summary.json`. No form held a
   field beyond the schema.
+- **The invalid coder forms** (`invalid_coder_forms.jsonl`, 50 rows: 7 of coder 1, 43 of coder 2)
+  were extracted after the run the same way, from the structured output of each measured coder try
+  the ledger marks invalid (coder 1's 2 and coder 2's 11). Each row is one form of such a try that
+  lacks a field its code requires (§5.5, `law_verify.py`'s field check), with only the coder
+  schema's fields. Never the transcript, the result text or the usage. That check, run again on
+  every measured coder try, finds exactly the ledger's 13 invalid tries, and in each of them every
+  finding has a form, so these rows are all that made them invalid. All 50 are G claims
+  (`propagation`) with no `tolerance`. The 20 rows of the findings invalid on both tries are coder
+  2's 10 lines without a form, exactly the 10 `no_form` rows of `codes.jsonl` and the 10 lines
+  `report_extra.json` lists (`checks_1_and_7`). No form held a field beyond the schema.
 - **The ledger** carries no field that identifies the account.
 - **Not published:** the session transcripts and raw outputs, and the account files (§11); the
   packets, which the scripts build from committed inputs; and the prior adjudication's output,
