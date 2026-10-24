@@ -623,11 +623,17 @@ class Loop:
 
     def _drive(self) -> Step:
         # The environment is recorded for a step that spawns a session; the integration
-        # call and a finished run spawn none, unless integration's own subtask waits on
-        # that call, whose session comes next if the call lets it run.
+        # call and a finished run spawn none, unless the call is still to be made and
+        # integration's own subtask waits on it, whose session comes next if the call lets
+        # it run. A blocking result already on the record, whose escalation alone is left,
+        # lets no session follow.
         first = self.state.next_step().kind
         integration = self.state.completion_subtask
-        waiting = integration is not None and self.state.subtasks[integration].status == "planned"
+        waiting = (
+            self.state.integration is None
+            and integration is not None
+            and self.state.subtasks[integration].status == "planned"
+        )
         if first not in ("done", "halted", "escalated", "integrate") or (
             first == "integrate" and waiting
         ):
