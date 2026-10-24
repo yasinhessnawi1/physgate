@@ -1,4 +1,175 @@
 {
+ "G_claim_denominators": {
+  "adj": {
+   "claimed_G_after_5_5": 0,
+   "claimed_G_before_5_5": 0,
+   "codes_after_5_5": {
+    "L": 3
+   },
+   "given": 3,
+   "lines": [
+    "L0552",
+    "L0666",
+    "L0762"
+   ]
+  },
+  "audit": {
+   "claimed_G_after_5_5": 2,
+   "claimed_G_before_5_5": 4,
+   "codes_after_5_5": {
+    "D": 2,
+    "G": 2,
+    "L": 3
+   },
+   "given": 7,
+   "lines": [
+    "L0015",
+    "L0283",
+    "L0560",
+    "L0729",
+    "L0769",
+    "L0851",
+    "L0852"
+   ]
+  },
+  "c1": {
+   "claimed_G_after_5_5": 36,
+   "claimed_G_before_5_5": 36,
+   "codes_after_5_5": {
+    "G": 36,
+    "L": 18,
+    "N": 3
+   },
+   "given": 57,
+   "lines": [
+    "L0015",
+    "L0027",
+    "L0030",
+    "L0031",
+    "L0036",
+    "L0037",
+    "L0042",
+    "L0043",
+    "L0044",
+    "L0283",
+    "L0306",
+    "L0307",
+    "L0308",
+    "L0312",
+    "L0313",
+    "L0317",
+    "L0318",
+    "L0335",
+    "L0382",
+    "L0390",
+    "L0392",
+    "L0393",
+    "L0396",
+    "L0398",
+    "L0399",
+    "L0400",
+    "L0419",
+    "L0478",
+    "L0493",
+    "L0494",
+    "L0552",
+    "L0559",
+    "L0560",
+    "L0562",
+    "L0569",
+    "L0570",
+    "L0634",
+    "L0639",
+    "L0666",
+    "L0669",
+    "L0672",
+    "L0707",
+    "L0708",
+    "L0729",
+    "L0762",
+    "L0769",
+    "L0770",
+    "L0780",
+    "L0851",
+    "L0852",
+    "L0861",
+    "L0862",
+    "L0927",
+    "L0928",
+    "L0930",
+    "L0935",
+    "L0936"
+   ]
+  },
+  "c2": {
+   "claimed_G_after_5_5": 36,
+   "claimed_G_before_5_5": 36,
+   "codes_after_5_5": {
+    "G": 36,
+    "L": 21
+   },
+   "given": 57,
+   "lines": [
+    "L0015",
+    "L0027",
+    "L0030",
+    "L0031",
+    "L0036",
+    "L0037",
+    "L0042",
+    "L0043",
+    "L0044",
+    "L0283",
+    "L0306",
+    "L0307",
+    "L0308",
+    "L0312",
+    "L0313",
+    "L0317",
+    "L0318",
+    "L0335",
+    "L0382",
+    "L0390",
+    "L0392",
+    "L0393",
+    "L0396",
+    "L0398",
+    "L0399",
+    "L0400",
+    "L0419",
+    "L0478",
+    "L0493",
+    "L0494",
+    "L0552",
+    "L0559",
+    "L0560",
+    "L0562",
+    "L0569",
+    "L0570",
+    "L0634",
+    "L0639",
+    "L0666",
+    "L0669",
+    "L0672",
+    "L0707",
+    "L0708",
+    "L0729",
+    "L0762",
+    "L0769",
+    "L0770",
+    "L0780",
+    "L0851",
+    "L0852",
+    "L0861",
+    "L0862",
+    "L0927",
+    "L0928",
+    "L0930",
+    "L0935",
+    "L0936"
+   ]
+  }
+ },
  "L_by_family": {
   "family": {
    "3": 11,
@@ -17,7 +188,432 @@
    "none | new relation": 5
   }
  },
+ "L_composition": {
+  "L_flaws": 50,
+  "blocking": [
+   {
+    "base": true,
+    "blocks": 19,
+    "flaw": "W0002",
+    "set": "practice",
+    "twins": 20
+   },
+   {
+    "base": true,
+    "blocks": 19,
+    "flaw": "W0005",
+    "set": "practice",
+    "twins": 20
+   },
+   {
+    "base": false,
+    "blocks": 19,
+    "flaw": "W0010",
+    "set": "practice",
+    "twins": 20
+   },
+   {
+    "base": false,
+    "blocks": 20,
+    "flaw": "W0031",
+    "set": "practice",
+    "twins": 20
+   },
+   {
+    "base": false,
+    "blocks": 20,
+    "flaw": "W0120",
+    "set": "practice",
+    "twins": 20
+   },
+   {
+    "base": false,
+    "blocks": 20,
+    "flaw": "W0129",
+    "set": "practice",
+    "twins": 20
+   },
+   {
+    "base": false,
+    "blocks": 19,
+    "flaw": "W0130",
+    "set": "practice",
+    "twins": 20
+   },
+   {
+    "base": true,
+    "blocks": 19,
+    "flaw": "W0162",
+    "set": "practice",
+    "twins": 20
+   },
+   {
+    "base": false,
+    "blocks": 20,
+    "flaw": "W0184",
+    "set": "practice",
+    "twins": 20
+   },
+   {
+    "base": true,
+    "blocks": 40,
+    "flaw": "W0190",
+    "set": "fresh",
+    "twins": 40
+   },
+   {
+    "base": true,
+    "blocks": 40,
+    "flaw": "W0191",
+    "set": "fresh",
+    "twins": 40
+   },
+   {
+    "base": false,
+    "blocks": 40,
+    "flaw": "W0211",
+    "set": "fresh",
+    "twins": 40
+   },
+   {
+    "base": false,
+    "blocks": 40,
+    "flaw": "W0215",
+    "set": "fresh",
+    "twins": 40
+   },
+   {
+    "base": false,
+    "blocks": 40,
+    "flaw": "W0249",
+    "set": "fresh",
+    "twins": 40
+   },
+   {
+    "base": false,
+    "blocks": 40,
+    "flaw": "W0323",
+    "set": "fresh",
+    "twins": 40
+   },
+   {
+    "base": false,
+    "blocks": 40,
+    "flaw": "W0348",
+    "set": "fresh",
+    "twins": 40
+   }
+  ],
+  "blocking_all_or_all_but_one_twin": 16,
+  "blocking_and_not_base": 11,
+  "distinct_set_pairs_inputs": 33,
+  "label": "post-run, descriptive, never a result",
+  "restating_another": 17,
+  "shared_inputs": [
+   {
+    "flaws": [
+     "W0190",
+     "W0191"
+    ],
+    "flaws_with_an_empty_locus": [],
+    "inputs": [
+     "electrical.battery_pack:supply_voltage",
+     "electrical.driver_left:output_current",
+     "electrical.motor_left:rated_voltage",
+     "electrical.motor_left:stall_current"
+    ],
+    "pairs": [
+     "a01",
+     "a02",
+     "a18"
+    ],
+    "set": "fresh"
+   },
+   {
+    "flaws": [
+     "W0205",
+     "W0292"
+    ],
+    "flaws_with_an_empty_locus": [],
+    "inputs": [
+     "control.balance_loop:plant_mass",
+     "mechanical.assembly:mass"
+    ],
+    "pairs": [
+     "a07"
+    ],
+    "set": "fresh"
+   },
+   {
+    "flaws": [
+     "W0211",
+     "W0215",
+     "W0348"
+    ],
+    "flaws_with_an_empty_locus": [
+     "W0215"
+    ],
+    "inputs": [
+     "electrical.battery_pack:supply_voltage",
+     "electrical.driver_left:current_draw",
+     "electrical.motor_left:rated_voltage",
+     "electrical.motor_left:stall_current"
+    ],
+    "pairs": [
+     "a08"
+    ],
+    "set": "fresh"
+   },
+   {
+    "flaws": [
+     "W0241",
+     "W0344"
+    ],
+    "flaws_with_an_empty_locus": [
+     "W0241"
+    ],
+    "inputs": [
+     "control.tilt_estimator:sample_rate",
+     "firmware.imu_driver:sample_rate"
+    ],
+    "pairs": [
+     "a24"
+    ],
+    "set": "fresh"
+   },
+   {
+    "flaws": [
+     "W0247",
+     "W0300"
+    ],
+    "flaws_with_an_empty_locus": [],
+    "inputs": [
+     "electrical.motor_left:stall_torque",
+     "mechanical.gearbox_left:motor_reaction_moment"
+    ],
+    "pairs": [
+     "a28"
+    ],
+    "set": "fresh"
+   },
+   {
+    "flaws": [
+     "W0246",
+     "W0248"
+    ],
+    "flaws_with_an_empty_locus": [],
+    "inputs": [
+     "mechanical.chassis:reaction_moment",
+     "mechanical.gearbox_left:motor_reaction_moment",
+     "mechanical.gearbox_right:motor_reaction_moment"
+    ],
+    "pairs": [
+     "a28"
+    ],
+    "set": "fresh"
+   },
+   {
+    "flaws": [
+     "W0256",
+     "W0257"
+    ],
+    "flaws_with_an_empty_locus": [],
+    "inputs": [
+     "electrical.mcu:max_supply_voltage",
+     "electrical.mcu:supply_voltage",
+     "electrical.mcu:supply_voltage_margin"
+    ],
+    "pairs": [
+     "a30"
+    ],
+    "set": "fresh"
+   },
+   {
+    "flaws": [
+     "W0263",
+     "W0264"
+    ],
+    "flaws_with_an_empty_locus": [],
+    "inputs": [
+     "electrical.driver_left:current_draw",
+     "electrical.driver_left:no_load_current_draw"
+    ],
+    "pairs": [
+     "a32"
+    ],
+    "set": "fresh"
+   },
+   {
+    "flaws": [
+     "W0260",
+     "W0261"
+    ],
+    "flaws_with_an_empty_locus": [],
+    "inputs": [
+     "electrical.driver_left:current_limit",
+     "electrical.driver_left:no_load_current_draw"
+    ],
+    "pairs": [
+     "a32"
+    ],
+    "set": "fresh"
+   },
+   {
+    "flaws": [
+     "W0265",
+     "W0266",
+     "W0267"
+    ],
+    "flaws_with_an_empty_locus": [
+     "W0267"
+    ],
+    "inputs": [
+     "electrical.battery_cell:charge_capacity",
+     "electrical.battery_cell:energy_capacity",
+     "electrical.battery_cell:rated_voltage"
+    ],
+    "pairs": [
+     "a33"
+    ],
+    "set": "fresh"
+   },
+   {
+    "flaws": [
+     "W0270",
+     "W0302"
+    ],
+    "flaws_with_an_empty_locus": [],
+    "inputs": [
+     "control.balance_loop:plant_mass",
+     "electrical.battery_pack:mass",
+     "mechanical.chassis:mass"
+    ],
+    "pairs": [
+     "a36"
+    ],
+    "set": "fresh"
+   },
+   {
+    "flaws": [
+     "W0002",
+     "W0005"
+    ],
+    "flaws_with_an_empty_locus": [],
+    "inputs": [
+     "electrical.motors:rated_voltage",
+     "electrical.motors:stall_current",
+     "electrical.power:motor_current_draw",
+     "electrical.power:supply_voltage"
+    ],
+    "pairs": [
+     "a01",
+     "a02"
+    ],
+    "set": "practice"
+   },
+   {
+    "flaws": [
+     "W0130",
+     "W0162"
+    ],
+    "flaws_with_an_empty_locus": [
+     "W0130"
+    ],
+    "inputs": [
+     "electrical.motors:rated_voltage",
+     "electrical.motors:stall_current",
+     "electrical.power:motor_current_draw",
+     "electrical.power:supply_voltage"
+    ],
+    "pairs": [
+     "a02"
+    ],
+    "set": "practice"
+   },
+   {
+    "flaws": [
+     "W0031",
+     "W0184"
+    ],
+    "flaws_with_an_empty_locus": [],
+    "inputs": [
+     "electrical.motors:torque_peak",
+     "mechanical.gearboxes:external_gear_ratio",
+     "mechanical.gearboxes:torque_peak"
+    ],
+    "pairs": [
+     "a06"
+    ],
+    "set": "practice"
+   },
+   {
+    "flaws": [
+     "W0080",
+     "W0146"
+    ],
+    "flaws_with_an_empty_locus": [],
+    "inputs": [
+     "electrical.motors:rated_voltage",
+     "firmware.motor_output:motor_voltage_limit"
+    ],
+    "pairs": [
+     "a14"
+    ],
+    "set": "practice"
+   }
+  ]
+ },
  "checks_1_and_7": {
+  "adjudicator_own_codes": [
+   {
+    "chosen": "A",
+    "claimed": "G",
+    "code": "D",
+    "failure": "unparsed",
+    "gate_relation": "propagation",
+    "line": "L0025"
+   },
+   {
+    "chosen": "A",
+    "claimed": "G",
+    "code": "D",
+    "failure": "unparsed",
+    "gate_relation": "propagation",
+    "line": "L0300"
+   },
+   {
+    "chosen": "A",
+    "claimed": "G",
+    "code": "D",
+    "failure": "unparsed",
+    "gate_relation": "propagation",
+    "line": "L0386"
+   },
+   {
+    "chosen": "A",
+    "claimed": "G",
+    "code": "D",
+    "failure": "unparsed",
+    "gate_relation": "propagation",
+    "line": "L0387"
+   },
+   {
+    "chosen": "A",
+    "claimed": "G",
+    "code": "D",
+    "failure": "unparsed",
+    "gate_relation": "propagation",
+    "line": "L0869"
+   },
+   {
+    "chosen": "B",
+    "claimed": "G",
+    "code": "D",
+    "failure": "unparsed",
+    "gate_relation": "propagation",
+    "line": "L0893"
+   }
+  ],
   "failed_G_claims": {
    "by_coder": {
     "adj": 35,
@@ -99,7 +695,80 @@
    "N": 1
   },
   "label": "post-run, descriptive, never a result",
+  "lines_without_a_form": {
+   "by_coder": {
+    "c2": 10
+   },
+   "lines": [
+    {
+     "line": "L0375",
+     "packet": "P0001",
+     "who": "c2"
+    },
+    {
+     "line": "L0010",
+     "packet": "P0001",
+     "who": "c2"
+    },
+    {
+     "line": "L0553",
+     "packet": "P0097",
+     "who": "c2"
+    },
+    {
+     "line": "L0922",
+     "packet": "P0097",
+     "who": "c2"
+    },
+    {
+     "line": "L0763",
+     "packet": "P0097",
+     "who": "c2"
+    },
+    {
+     "line": "L0556",
+     "packet": "P0098",
+     "who": "c2"
+    },
+    {
+     "line": "L0766",
+     "packet": "P0098",
+     "who": "c2"
+    },
+    {
+     "line": "L0555",
+     "packet": "P0098",
+     "who": "c2"
+    },
+    {
+     "line": "L0924",
+     "packet": "P0098",
+     "who": "c2"
+    },
+    {
+     "line": "L0667",
+     "packet": "P0098",
+     "who": "c2"
+    }
+   ],
+   "packets": [
+    "c2 P0001",
+    "c2 P0097",
+    "c2 P0098"
+   ],
+   "uncoded_real_flaws": [
+    {
+     "flaw": "W0240",
+     "lines": [
+      "L0553"
+     ]
+    }
+   ]
+  },
   "variant": {
+   "D_flaws_that_become_G_by_kind_as_tallied": {
+    "fallback": 17
+   },
    "L_flaws_that_become_G": [
     {
      "code_after": "G",
@@ -209,10 +878,10 @@
    ],
    "counts": {
     "D": 96,
-    "G": 42,
+    "G": 41,
     "L": 48,
     "L-if-data": 12,
-    "N": 51,
+    "N": 52,
     "uncoded": 1
    },
    "decision": {
@@ -240,9 +909,13 @@
      0.2650004416961131
     ]
    },
+   "flaws_whose_code_changes": {
+    "D -> G": 17,
+    "L -> G": 2
+   },
    "label": "post-run, descriptive, never a result",
-   "lines_set_to_G": 55,
-   "lines_set_to_G_true_flaw": 53,
+   "lines_set_to_G": 50,
+   "lines_set_to_G_true_flaw": 48,
    "origin": {
     "elsewhere": {
      "cluster": [
@@ -375,10 +1048,10 @@
    },
    "shares": {
     "D": 0.384,
-    "G": 0.168,
+    "G": 0.164,
     "L": 0.192,
     "L-if-data": 0.048,
-    "N": 0.204,
+    "N": 0.208,
     "uncoded": 0.004
    },
    "wilson_holds_T": true

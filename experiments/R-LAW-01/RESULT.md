@@ -9,8 +9,8 @@ that touches the file. The readings fixed before any session are in `README.md` 
 
 | Commit | What | As it stands on master |
 |---|---|---|
-| "Inputs filled", `3816c10` (22.10.2026, on the tooling branch) | the digests of every input (§2.4) | PR #70 was squashed into `7c1ca73`. Its `inputs/digests.json` is blob `30ad7679…`, the same blob as at `3816c10`; sha256 `e3792c3ae13a8942586d2f483810016b810eee9ca7ebc1e41d8b6fca9334afb9`. |
-| "Slice filled", `a9a4841` (22.10.2026, on the tooling branch) | the six calibration pairs (§6) | Squashed into `7c1ca73` too. Its `slice.json` is blob `a9dddd49…`, the same blob as at `a9a4841`; sha256 `33db7f86c18820004914335c823668fe7d38070f076381a38751483df65d6c40`. Fresh `a14`, `a06`, `a03`, `a35`; practice `a08`, `a20`. |
+| "Inputs filled", `3816c10`, tag `r-law-01-inputs-filled` (22.10.2026, on the tooling branch) | the digests of every input (§2.4) | PR #70 was squashed into `7c1ca73`. Its `inputs/digests.json` is blob `30ad7679…`, the same blob as at `3816c10`; sha256 `e3792c3ae13a8942586d2f483810016b810eee9ca7ebc1e41d8b6fca9334afb9`. |
+| "Slice filled", `a9a4841`, tag `r-law-01-slice-filled` (22.10.2026, on the tooling branch) | the six calibration pairs (§6) | Squashed into `7c1ca73` too. Its `slice.json` is blob `a9dddd49…`, the same blob as at `a9a4841`; sha256 `33db7f86c18820004914335c823668fe7d38070f076381a38751483df65d6c40`. Fresh `a14`, `a06`, `a03`, `a35`; practice `a08`, `a20`. |
 | "Prompt filled", `672618e` (23.10.2026, PR #75) | each prompt version with its sha256, round 1's disagreement counts and the bank items taken (§6) | Merged with the merge commit `579ac99`, so `672618e` is on master unchanged. |
 
 **The gate (§3):** `src/physgate/gate/` is tree `1e169aac5679d743d4b0585090a45bcd06ea1a63` at the freeze,
@@ -21,8 +21,8 @@ re-gate records.
 **The run:** 23.10.2026, on the macOS laptop, in a clean run worktree, on the development account.
 - **Calibration** ran from `7c1ca73` (preflight held at 11:49:34Z and 11:50:04Z; ledger lines from
   11:50:39Z to 12:08:30Z; the phase ended 12:08:31Z, exit 0).
-- **The measured phase** ran from `672618e` (preflight held at 12:11:30Z; ledger lines from
-  12:12:28Z to 14:11:13Z; the phase ended 14:11:18Z, exit 0).
+- **The measured phase** ran from `672618e` (preflight held at 12:11:17Z and 12:11:30Z; ledger
+  lines from 12:12:28Z to 14:11:13Z; the phase ended 14:11:18Z, exit 0).
 - **Binary:** Claude Code `2.1.301`, macOS build, sha256 `1f04c69e…00276b99` (`law_sessions.sh`,
   `PIN_MAC`). It ran with only the seven allowlisted environment names (README reading 15; launch
   log).
@@ -61,24 +61,36 @@ the existing relations the gate did not form fixed first.
 
 **One limit, disclosed.** Two of the gate's seven checks, 1 (units) and 7 (propagation), cannot be
 written in the coding scheme's relation grammar, so every claim that stated one of their rules fell
-back to D or N, as the frozen rules require; that understates G and overstates D. Counted after the
-fact, L moves from 20.0 % to 19.2 % (2 of the 50 L flaws become G) and no branch or label changes,
-though the Wilson interval then also reaches below 15 %.
+back to D or N, or left the line without that coder's form, as the frozen rules require; that
+understates G and overstates D. Counted after the fact, L moves from 20.0 % to 19.2 % (2 of the 50
+L flaws become G) and no branch or label changes, though the Wilson interval then also reaches
+below 15 %.
+
+**The two sets differ, outside §10's rule** (which compares only the flaws on the injection with
+those elsewhere). The fresh set's share, 26.5 %, lies above 15 % in both intervals (Wilson
+[19.7, 34.6] %, cluster [16.8, 37.4] %); the practice set's, 12.7 %, holds 15 % in both
+([7.9, 19.9] % and [6.8, 21.1] %).
 
 **The rest held.** The two coders agreed above the floor set before the run (weighted κ 0.777 over
 the five codes and 0.781 for "law or gate" against the rest; floor 0.60). The reality check met
 both of its control bars. No deviation occurred, so the decision is taken. The run had no
 interruption and used 20,731,440 tokens against a guard of 60,000,000.
 
-**What it means.** On these designs, one real flaw in five is a defect that a textbook law over
-values the nodes already hold would expose, and that the gate as built does not catch. By the rule
-fixed before the run, that makes the law library the gate's next extension.
+**What it means.** On these designs, about one real flaw in five (20.0 %, with intervals reaching
+from 13.9 % to 27.3 %) is a defect that a textbook law over values the nodes already hold would
+expose, and that the gate as built does not catch; 2 of those 50 are caught by check 7 after the
+fact. By the rule fixed before the run, that makes the law library the gate's next extension.
 
 **What it does not mean.** It is a ceiling: what a perfect library could catch, not what a built
 one catches. It counts only flaws that reviewers found, on one stand-in design per set, built from
 one parts sheet. It is not a measure of the gate's catch rate or of the reviewers' accuracy. The
 planted errors were chosen to be checkable; on the flaws away from them the share is 17.8 %, also
-above 15 %, so the decision does not depend on that mix.
+above 15 %, so the decision does not depend on that mix, though that share's own interval
+([10.9, 26.0] %) also holds 15 %. The 50 L flaws are not 50 distinct defects: 17 restate another L
+flaw's relation on the same inputs and pair, which leaves 33 distinct instances (counted after the
+fact). And at least one of the L relations, as written, would refuse each of the 60 clean twins:
+the false-positive audit blocks all 60, though a twin can carry a real flaw, so a block is not
+proven false.
 
 ---
 
@@ -93,7 +105,7 @@ above 15 %, so the decision does not depend on that mix.
 | Deciding share (§8.1, §10) | L / real flaws, against T = 15 % | **20.0 %** (50 of 250) | **at or above T: a priority** |
 | Resolved (§10) | the wider of the Wilson and cluster intervals lies wholly on one side of T | the wider is the cluster interval, [13.9 %, 27.3 %] | **not resolved at this size** |
 | Robust (§10) | all six readings of §8.3 on the deciding share's side of T | S3 gives 14.0 % | **not robust**: S3 crosses |
-| Limit, disclosed (not a deviation) | §5.5's grammar cannot state checks 1 and 7, so their G claims fell back to D or N | after the fact, with those lines as G: L 19.2 % (48 of 250), Wilson [14.8 %, 24.5 %], cluster [13.3 %, 26.5 %] | **no branch or label changes**; the Wilson interval then also crosses 15 % |
+| Limit, disclosed (not a deviation) | §5.5's grammar cannot state checks 1 and 7, so their G claims fell back to D or N, or left a line without a form | after the fact, with those lines as G: L 19.2 % (48 of 250), Wilson [14.8 %, 24.5 %], cluster [13.3 %, 26.5 %] | **no branch or label changes**; the Wilson interval then also crosses 15 % |
 
 ### The decision, as §10 words it
 
@@ -107,9 +119,9 @@ It is **not resolved at this size** (the cluster-bootstrap interval holds 15 %) 
 of the gate's seven checks cannot be stated in §5.5's relation grammar: check 1 (`units_kind`, a
 unit's dimension or kind) and check 7 (`propagation`, a change owed along a `constrains` edge, or a
 justification record). So every G claim that stated their rule failed §5.5 and fell back to D or
-N, and frozen §5.6 never turns a D or N line into G. This understates G and overstates D. Counted
-after the fact (post-run, descriptive, never a result; `data/report_extra.json`), with the lines
-checks 1 and 7 caught set to G:
+N, or left the line without that coder's form, and frozen §5.6 never turns a D or N line into G.
+This understates G and overstates D. Counted after the fact (post-run, descriptive, never a
+result; `data/report_extra.json`), with the lines checks 1 and 7 caught set to G:
 - L is **19.2 %** (48 of 250), Wilson [14.8 %, 24.5 %], cluster [13.3 %, 26.5 %];
 - two of the 50 L flaws, W0205 and W0217, become G;
 - the branch stays **a priority**, it stays **not resolved at this size** and **not robust** (S3,
@@ -170,18 +182,23 @@ category `none` and agrees with nothing (README reading 8).
 
 **Per coder, measured step** (reported, never a floor):
 
-| | Forms | Without a form | §5.5 failures (the fallback code is used) | Inconsistent L-if-data forms | Share of G-caught lines it claimed G |
+| | Rows; forms | Without a form | §5.5 failures (the fallback code is used) | Inconsistent L-if-data forms | Share of G-caught lines it claimed G |
 |---|--:|--:|---|--:|--:|
-| Coder 1 | 864 | 0 | unparsed 78, pairing 22, no input 11, dimension 7 | 0 | 63.2 % |
-| Coder 2 | 864 | 10 | unparsed 59, no input 14, pairing 12, dimension 10, on no node 2; no form 10 | 0 | 63.2 % |
-| Adjudicator | 124 | 0 | unparsed 35, pairing 8 | 0 | 0.0 % |
-| Cross-model audit | 170 | 0 | unparsed 13, dimension 6, pairing 3 | 0 | 28.6 % |
+| Coder 1 | 864; 864 | 0 | unparsed 78, pairing 22, no input 11, dimension 7 | 0 | 63.2 % (36 of 57) |
+| Coder 2 | 864; 854 | 10 | unparsed 59, no input 14, pairing 12, dimension 10, on no node 2; no form 10 | 0 | 63.2 % (36 of 57) |
+| Adjudicator | 124; 124 | 0 | unparsed 35, pairing 8 | 0 | 0.0 % (0 of 3) |
+| Cross-model audit | 170; 170 | 0 | unparsed 13, dimension 6, pairing 3 | 0 | 28.6 % (2 of 7) |
 
 The last column is taken over the G-caught lines each coder was given, on its own codes after
-§5.5 (README reading 11).
+§5.5 (README reading 11). Its counts and denominators are post-run figures from
+`data/report_extra.json`; tally.json gives the shares only. The adjudicator was given 3 G-caught
+lines, L0552, L0666 and L0762, and coded all three L, with forms that passed §5.5: it is 0 of 3
+whichever way its claims are read.
 
 **The adjudicator's choices:** on the 124 disputed lines it chose coder 1's form 49 times and
-coder 2's 75 times. It never chose a third code.
+coder 2's 75 times. Its `chosen` field never named a third code. But on 6 lines its own G claim
+(`propagation`) failed §5.5 and fell back to D, so its code is neither coder's: L0025, L0300,
+L0386, L0387, L0869 and L0893 (post-run, `data/report_extra.json`).
 
 **The cross-model audit** (`claude-fable-5-1`, reported only: it never changes a code, a share or
 the decision). 25 of coder 1's 123 packets, 170 lines. Against the final line codes (§5.7 rule 1,
@@ -193,8 +210,9 @@ before §5.6):
 | κ_L | 0.683 | [0.455, 0.910] | 0.633 | 0.920 / 0.865 | 0.880 / 0.797 | 170 |
 
 On the audited subset's 146 real lines, the L share is **27.4 %** by the audit's codes and
-**19.2 %** by the final codes. The only model the ledger records for the audit is
-`claude-fable-5-1`.
+**19.2 %** by the final line codes (§5.7 rule 1, before §5.6). That 19.2 % is a line-level share
+on the audit's subset, not the after-the-fact flaw-level L of disclosure 15. The only model the
+ledger records for the audit is `claude-fable-5-1`.
 
 ## Reality (§2.3, §8.2 item 6)
 
@@ -232,11 +250,11 @@ That split, computed after the run, is in "Figures added after the run". Each fl
 
 | Code | Share | Flaws | After the fact, with the lines checks 1 and 7 caught as G (post-run, descriptive) |
 |---|---|--:|---|
-| G | 8.8 %, which understates the gate (§5.5 cannot state checks 1 and 7); 16.8 % after the fact | 22 | 16.8 % (42) |
+| G | 8.8 %, which understates the gate (§5.5 cannot state checks 1 and 7); 16.4 % after the fact | 22 | 16.4 % (41) |
 | **L** | **20.0 %** | **50** | 19.2 % (48) |
 | L-if-data | 4.8 % | 12 | 4.8 % (12) |
 | D | 45.2 %, which overstates D and understates the gate (§5.5 cannot state checks 1 and 7); 38.4 % after the fact | 113 | 38.4 % (96) |
-| N | 20.8 % | 52 | 20.4 % (51) |
+| N | 20.8 % | 52 | 20.8 % (52) |
 | uncoded | 0.4 % | 1 | 0.4 % (1) |
 
 tally.json gives the parts and kinds below as counts of flaws, not as shares. The shares, computed
@@ -248,6 +266,8 @@ after the run, are in "Figures added after the run".
   numeric.
 - **N by kind:** traceability 45, judgement 3, process 2, `fallback` 2. No wording.
 - **A coder's G the gate did not fail, turned into L (gap):** 0 L flaws.
+- **The limit of disclosure 15 is in these parts too.** All 17 D flaws that become G after the
+  fact are in D `fallback` (post-run, `data/report_extra.json`).
 
 ### 2. L + L-if-data
 
@@ -337,16 +357,19 @@ and that state it (README reading 9). The only literals the tally lists are 2.0 
 ## Sensitivity readings (§8.3)
 
 Each computed on the deciding share (all real flaws). "Side" is the reading's side of T = 15 %.
+"Expected" is §8.3's expected direction on L, stated before the run.
 
-| # | Reading | Share | Flaws | Wilson 95 % (%) | Cluster 95 % (%) | Clusters | Side |
-|---|---|--:|--:|---|---|--:|---|
-| — | **Primary** | **20.0 %** | 50 of 250 | [15.5, 25.4] | [13.9, 27.3] | 67 | at or above |
-| S1 | Base flaws once per pair | 19.9 % | 53 of 266 | [15.6, 25.1] | [14.0, 26.9] | 83 | at or above |
-| S2 | Every line its own unit | 19.2 % | 140 of 731 | [16.5, 22.2] | [13.0, 25.5] | 52 | at or above |
-| **S3** | **Majority aggregation** | **14.0 %** | 35 of 250 | [10.2, 18.8] | [9.3, 19.4] | 67 | **below: crosses** |
-| S4 | Every line real | 17.2 % | 51 of 297 | [13.3, 21.9] | [11.5, 23.9] | 70 | at or above |
-| S5 | Strict law | 18.8 % | 47 of 250 | [14.4, 24.1] | [12.9, 25.9] | 67 | at or above |
-| S6 | Wider base merge | 19.6 % | 47 of 240 | [15.1, 25.1] | [13.2, 27.1] | 57 | at or above |
+| # | Reading | Expected (§8.3) | Share | Flaws | Wilson 95 % (%) | Cluster 95 % (%) | Clusters | Side |
+|---|---|---|--:|--:|---|---|--:|---|
+| — | **Primary** | — | **20.0 %** | 50 of 250 | [15.5, 25.4] | [13.9, 27.3] | 67 | at or above |
+| S1 | Base flaws once per pair | towards the inherited conditions' own share; sign not known | 19.9 % | 53 of 266 | [15.6, 25.1] | [14.0, 26.9] | 83 | at or above |
+| S2 | Every line its own unit | likely up | 19.2 % | 140 of 731 | [16.5, 22.2] | [13.0, 25.5] | 52 | at or above |
+| **S3** | **Majority aggregation** | down or equal | **14.0 %** | 35 of 250 | [10.2, 18.8] | [9.3, 19.4] | 67 | **below: crosses** |
+| S4 | Every line real | towards the share among not-real findings; small | 17.2 % | 51 of 297 | [13.3, 21.9] | [11.5, 23.9] | 70 | at or above |
+| S5 | Strict law | down or equal | 18.8 % | 47 of 250 | [14.4, 24.1] | [12.9, 25.9] | 67 | at or above |
+| S6 | Wider base merge | towards the share of the rest; sign not known | 19.6 % | 47 of 240 | [15.1, 25.1] | [13.2, 27.1] | 57 | at or above |
+
+S2 was expected to go up, and it went down, to 19.2 %.
 
 So the decision is **not robust**, and the reading that crosses is **S3**.
 
@@ -362,8 +385,9 @@ So the decision is **not robust**, and the reading that crosses is **S3**.
    failures per coder are in the agreement section. The coders against the gate: coder 1 and coder
    2 each claimed G on 63.2 % of the G-caught lines they were given. The false-positive audit: 515
    blocks over 60 clean twins. The cross-model audit: weighted κ₅ 0.626 [0.472, 0.784] and κ_L
-   0.683 [0.455, 0.910] against the final codes. On its 146 real lines it codes L 27.4 % of the time,
-   against 19.2 % by the final codes.
+   0.683 [0.455, 0.910] against the final codes. On its 146 real lines it codes L 27.4 % of the
+   time, against 19.2 % by the final line codes before §5.6 (a line-level share, not the
+   after-the-fact L).
 3. **The checks as implemented against as described.** Of the 50 L flaws, 8 are an existing gate
    relation the gate did not form, all 8 unformed by name; 42 are new relations. tally.json does
    not split L by the family field. Computed after the run: family 4 (power balance) 18, family 5
@@ -387,7 +411,9 @@ So the decision is **not robust**, and the reading that crosses is **S3**.
    and coders' own (README reading 10).
 9. **Practice runs carry tuning.** By set, the L share is 26.5 % on the fresh set (35 of 132,
    Wilson [19.7, 34.6] %, cluster [16.8, 37.4] %) and 12.7 % on the practice set (15 of 118, Wilson
-   [7.9, 19.9] %, cluster [6.8, 21.1] %).
+   [7.9, 19.9] %, cluster [6.8, 21.1] %). Outside §10's rule, which compares only the injection
+   with elsewhere: the two sets fall on opposite sides of 15 %. The fresh set's intervals both
+   lie wholly above it; the practice set's both hold it.
 10. **Findings made against an incomplete parts sheet.** Reality, which saw the full sheet, ruled 65
     injected-side and 41 twin-side lines `not_a_flaw`. 34 flaws are not real and 13 undecided, and
     neither enters the denominator. Against the prior adjudication, which saw the lossy copy, 43 of
@@ -404,8 +430,9 @@ which equals the `a-fresh` gate lines on all 80 fresh versions (`data/regate_che
 compared, 0 differ, 0 missing); calibration; "Prompt filled"; the measured sessions; the tally.
 
 **Sessions, tries and tokens per step** (`data/launch.log` for the counts and tokens; the ledger
-lines' times, UTC, 23.10.2026). A try is invalid if its output lacks a valid form for a finding of
-its packet; it then gets §5.5's one retry.
+lines' times, UTC, 23.10.2026). This table, from `data/ledger.jsonl`, is §12's "quota ledger line
+per step". A try is invalid if its output lacks a valid form for a finding of its packet; it then
+gets §5.5's one retry.
 
 | Step | Model | Packets | Tries | Invalid tries | Failed calls | Tokens | Ledger lines |
 |---|---|--:|--:|--:|--:|--:|---|
@@ -424,11 +451,17 @@ its packet; it then gets §5.5's one retry.
 | Cross-model audit | fable | 25 | 25 | 0 | 0 | 1,026,302 | 14:00:32–14:11:13 |
 
 - The ledger has 555 lines, one per try. Every one exits 0 and records no infrastructure failure.
+- **The order of the reality steps.** §12 lists the twin versions before the rejection controls.
+  The launcher ran both side by side after the injected versions, and the first control session
+  ended at 12:32:43Z, slightly before the first twin session at 12:33:26Z. No session reads
+  another's verdicts (the controls are built from the injected versions' verdicts only), so the
+  order changes nothing.
 - Calibration used 3,154,319 tokens. **The whole run spent 20,731,440 tokens** (tally.json
   `tokens.spent`, the ledger's sum), against **the 60,000,000 guard**.
 - **The projection check after round 1** (§12 step 6): 1,525,410 tokens spent over 40 sessions,
   38,135 per session, 550 sessions remaining, **22,499,798 projected**, at most 60,000,000: it
-  held (`ledger/projection.json`, exit 0).
+  held (`data/launch.log`, line 17; the work dir's `ledger/projection.json`, which is not
+  published, records it with exit 0).
 - **No token estimate was used:** 0 ledger rows carry `tokens_estimated` (README reading 12).
 - Reality gave every one of the 864 measured lines a verdict, with no retry. 854 measured lines
   have a deciding form; the other 10 are the lines coder 2 left without a form.
@@ -462,19 +495,21 @@ token estimate was used.
   each version's `prompts.json`).
 - §6 also asks for the slice's κ and L share under each version. No frozen script computes them.
   They were computed after the run and are in "Figures added after the run".
-- **The bank's lean toward L, answered.** Under v1 the slice's L share was 13.5 % (7 of 52 flaws),
-  against 11.5 % (6 of 52) under v0. Per line it was 20.2 % (26 of 129) against 17.1 % (22 of 129).
-  So v1 coded one more slice flaw and four more slice lines L. The two rounds are separate
-  sessions, so the difference mixes the prompt change with session-to-session variation, and the
-  slice has only 7 clusters.
+- **The bank's lean toward L, answered** (post-run, from `data/report_extra.json`; reported, never
+  a result, per §6; a difference of 1 flaw over 7 clusters). Under v1 the slice's L share was
+  13.5 % (7 of 52 flaws), against 11.5 % (6 of 52) under v0. Per line it was 20.2 % (26 of 129)
+  against 17.1 % (22 of 129). So v1 coded one more slice flaw and four more slice lines L. The
+  two rounds are separate sessions, so the difference mixes the prompt change with
+  session-to-session variation, and the slice has only 7 clusters.
 
 **4. The account.**
 - Every session ran on the **development account**. The owner confirmed on 22.10.2026 that the
   laptop is on it.
 - §12 says the sessions never run in the same weekly window as an evaluation run on that account.
-  The orchestrator's record of 22.10.2026: no evaluation run used the account that week. GR2 and
-  the transfer ran on the Oracle server's run account. The prior (H2) adjudication and an IMU
-  adjudication ran on the development account, and neither is an evaluation run.
+  A private record of 22.10.2026 states that no evaluation run used the account that week: the
+  week's evaluation runs ran on a separate run account. The only other model work on the
+  development account that week was two adjudications, the prior adjudication of §2.3 among them,
+  and neither is an evaluation run.
 - **One R-PG-01b trial session** used the same account on 23.10.2026 from **07:33:16Z to
   07:38:08Z**: 1 session, 17 turns, **336,445 tokens**. It read one file and scored nothing. It was
   a check, not an evaluation run, and it ended before R-LAW-01's first session (11:50:39Z).
@@ -483,8 +518,9 @@ token estimate was used.
 - So **§12's rule holds.**
 
 **5. §2.5's parts-sheet defect.** §2.5 says a code-level verification was running at the freeze.
-Its outcome (`.docs/specs/spec_GR2/parts_sheet_defect.md`, a read-only check of 22.10.2026): **the
-defect is as §2.5 states it.**
+Its outcome, a read-only check of 22.10.2026 kept as a private record (sha256
+`2aea63df8b3b9c7b499a85d8c16d50e5f7dd318abde14230e95adebfd3a880de`): **the defect is as §2.5
+states it.**
 - **No code drops a value.** The corpus format lets a sheet row hold one number or nothing, and no
   other field. So `sources.json` itself holds none of the 62 values and no note.
 - **The instrument hands reviewers that file byte for byte.** The authors' `parts_sheet.md`, with
@@ -495,11 +531,11 @@ defect is as §2.5 states it.**
 - **Where:** the same mechanism at `8bc03fc`, `0936f1f`, `eae78c0`, `8c51f48` and `1a7bb0d`, the
   commits the check read. It entered with PR #26 (`f2048da`, 17.10.2026).
 - **The gate never reads the sheet.**
-- **The prior (H2) adjudication's packets** showed the same 62 rows as "(no value)", with no notes.
-- **The fix** is PR #69, merged as `31b90aa` at 23:53Z on 22.10.2026 (maintenance item M-143,
-  closed 23.10.2026). A sheet row may now carry `given` (its value as the authors wrote it) and `note`,
-  and a converter writes `sources.json` from `parts_sheet.md`. No committed corpus changed, and the
-  gate tree is unchanged.
+- **The prior adjudication's packets** (§2.3) showed the same 62 rows as "(no value)", with no
+  notes.
+- **The fix** is PR #69, merged as `31b90aa` at 23:53Z on 22.10.2026. A sheet row may now carry
+  `given` (its value as the authors wrote it) and `note`, and a converter writes `sources.json`
+  from `parts_sheet.md`. No committed corpus changed, and the gate tree is unchanged.
 - **R-LAW-01 does not depend on the fix.** Every one of its packets carries `parts_sheet.md`
   verbatim at its digest (§2.5).
 
@@ -527,7 +563,10 @@ none wrote a ledger line. **The binary reported 12,107 tokens in all**, for five
   the result's usage equals the sum over `modelUsage`, which names only `claude-opus-5-5`; and
   `terminal_reason` is present. It was re-run after the fixes that changed how the binary is
   called: at `ad87e7d` (23.10.2026, 1,579 tokens) and at `958b46c` under the clean environment
-  (23.10.2026, 1,500 tokens). It held each time. Output: `testdata/smoke_out.json`.
+  (23.10.2026, 1,500 tokens). It held each time. Outputs: `testdata/smoke_out.json` (the first);
+  the two re-runs are kept as private records, sha256
+  `afc1db97a7123367dc2565582ca9dd071db2786e80026591d67bcf2eae236620` (1,579) and
+  `6af6d3c79a0a4052eaf55d78fe361b061b8bb9a69bf88526a2e21254a3dd4ca0` (1,500).
 - **Probe 1, an unsatisfiable schema** (22.10.2026). Why: to see how the binary reports a model
   that cannot fit the schema. The binary returned a success with no structured output, which is a
   try. 6,281 tokens. Output: `testdata/schema_fail_probe_out.json`.
@@ -537,10 +576,14 @@ none wrote a ledger line. **The binary reported 12,107 tokens in all**, for five
   `structured_output_retry_exhausted`. Both runs reported 0 tokens although two turns ran, as the
   binary's exhaustion path does. It confirmed the path that README reading 5 counts as a try with
   no form, and its missing usage led to reading 12 (a call that reports no usage is charged an
-  estimate). Output: `testdata/retry_exhausted_probe_out.json`.
+  estimate). The `--verbose` run's stream shows usage at message start (input 2, output 8, cache
+  read 761, cache creation 406), while its result line reports 0. Outputs:
+  `testdata/retry_exhausted_probe_out.json`; the `--verbose` run is kept as a private record,
+  sha256 `49ff367ca4067ff34ab4e4030483dc412ec1038bf92d2731130dc8ec5282e688`.
 - **Probe 3, the clean environment** (23.10.2026). Why: to confirm the pinned binary
   authenticates under the `env -i` allowlist before making that the rule (README reading 15). It
-  did: exit 0, success. 1,175 tokens.
+  did: exit 0, success. 1,175 tokens. Output kept as a private record, sha256
+  `2c14b271b350c3073a67e91644aa5de11b214983b7669b7d5999aadf80de8817`.
 
 **8. The tooling's review history.** Before any session, the scripts went through six review rounds,
 each finding fixed test-first: a first review, an ultrareview, three independent delta reviews and a
@@ -564,10 +607,10 @@ session. In fix round 5 (`40219dc` on the tooling branch) the driver would itsel
 deviation on a packet's third identical failed call in a row, with other packets' tries between. The
 final check before any session found that it could fire on an outage (an overload or a flaky
 network hitting the packet first in flight after each resume) and could never fire for a driver
-running alone. The owner ruled on 23.10.2026 that it be removed (`0fea01b` and `4150b42` on the
-tooling branch, both in `7c1ca73`). Now a packet that fails on every resume stops the run each time,
-and declaring the deviation is the owner's call. **In the run no call failed, so no packet stalled
-and nothing was declared.**
+running alone. The owner ruled on 23.10.2026 that it be removed (`0fea01b`, and `4150b42`, tag
+`r-law-01-tooling-final`, on the tooling branch; both in `7c1ca73`). Now a packet that fails on
+every resume stops the run each time, and declaring the deviation is the owner's call. **In the
+run no call failed, so no packet stalled and nothing was declared.**
 
 **10. "Prompt filled" was merged while the measured phase ran.** The measured phase launched from
 `672618e` at 12:11:28Z. PR #75 merged at 12:35:38Z with the merge commit `579ac99`, which keeps
@@ -605,7 +648,8 @@ deviation (the owner's ruling, 24.10.2026). All figures here are from `data/repo
   dimension or kind. Check 7 reads whether a node changed against its base, a `constrains` edge
   and a `no_change_justified` record. Neither rule is a relation over the values of one design
   version.
-- **The claims.** In the measured step, 206 G claims named `propagation` or `units_kind`. 202
+- **The claims.** In the measured step, 216 G claims named `propagation` or `units_kind`: 206 in
+  valid forms and 10 in forms of coder 2 that were invalid (next bullet but one). Of the 206, 202
   failed §5.5: coder 1's 89, coder 2's 78 and the adjudicator's 35, which is every G claim the
   adjudicator made. By relation and failure: `propagation` unparsed 143, no input 25, on no node 2;
   `units_kind` unparsed 29, dimension 3. The 4 that passed are coder 2's `c_odo == cpr * N_gb` on
@@ -621,10 +665,18 @@ deviation (the owner's ruling, 24.10.2026). All figures here are from `data/repo
 - **What frozen §5.6 does with them.** A failed G claim takes its fallback code, D or N, and §5.6
   never turns a D or N line into G. Of the measured lines a failing gate record matches
   (`matches.jsonl`), 57 end G, 49 end D and 1 ends N.
-- **The adjudicator's share.** This is why the adjudicator's share of G-caught lines claimed G is
-  0.0 %: the tally reads each claim after §5.5 (README reading 11).
+- **Coder 2's 10 lines without a form come from the same limit.** All 10 are check-7 G claims
+  written as change rules with no `tolerance` field, so the form was invalid on both tries, in
+  coder 2's packets P0001, P0097 and P0098 (the raw session outputs, which are not published,
+  show this; `data/report_extra.json` lists the lines and packets). They are the 10 lines κ counts
+  as `none` against coder 1, and they hold the one uncoded real flaw, W0240 (line L0553). No
+  flaw-level figure moves on this account: the tally already counts them so, and the
+  after-the-fact variant leaves them uncoded.
+- **The adjudicator's share is not from this limit.** The adjudicator's share of G-caught lines
+  claimed G is 0.0 % because it was given 3 G-caught lines, L0552, L0666 and L0762, and coded all
+  three L, with forms that passed §5.5. It is 0 of 3 whichever way its claims are read.
 - **Effect.** G is understated and D overstated: G 8.8 %, which understates the gate (§5.5 cannot
-  state checks 1 and 7), 16.8 % after the fact; D 45.2 %, which overstates D and understates the
+  state checks 1 and 7), 16.4 % after the fact; D 45.2 %, which overstates D and understates the
   gate (§5.5 cannot state checks 1 and 7), 38.4 % after the fact. L moves from 20.0 % to 19.2 %,
   and no branch or label changes. The variant is in "Figures added after the run".
 
@@ -639,6 +691,17 @@ of disclosure 15: a mass equality labelled `propagation`. The flaw is L through 
 lines, which state `m_plant == m_assy` or `m_plant == m_asm`. With the lines check 7 caught set to
 G, it becomes G.
 
+**17. What the L count is made of** (post-run, descriptive, never a result;
+`data/report_extra.json`).
+- **Restatements.** 17 of the 50 L flaws restate another L flaw's relation, reading the same node
+  and quantity inputs on the same pair or pairs. That leaves 33 distinct instances. One example is
+  fresh pair a08: W0211, W0215 and W0348 share identical inputs, and W0215 and W0348 are split only
+  because W0215's lines have an empty locus (§2.2 step B).
+- **Relations that block clean twins.** 16 of the 50 rest on relations that block all, or all but
+  one, of their set's clean twins in the false-positive audit; 11 of those 16 are not base flaws.
+- This is §2.2's own stated limit of the unit (it under-merges one defect described under two
+  items), concentrated in L. Readings S1, S2 and S6 do not test it.
+
 ## Figures added after the run
 
 **Reported, never a result.** `CRITERIA.md` asks for these figures, and the frozen tally does not
@@ -646,7 +709,12 @@ compute them. The last subsection, checks 1 and 7 counted as G, is not in `CRITE
 added on the owner's ruling of 24.10.2026, to size the limit of disclosure 15. The figures were
 computed after the run and after the tally (23 and 24.10.2026), by `law_report.py`, **code added
 after the run**.
-- It reuses the tally's own classes and functions.
+- It reuses the tally's classes (`Tally`, its shares, κ and bootstrap). A few small helpers
+  re-implement logic that sits inline in `law_tally.py`: `final_code` (§5.7 rule 1 and §5.6, as
+  the tally's constructor applies them), `role_of`, `class_of` and `groups` (the breakdowns, as
+  the tally's `run` forms them), `fp_signature` (the false-positive audit's key) and
+  `flaw_reality` (§2.3's real, not real and undecided). The tests hold the breakdowns and the
+  flaw reality to the tally's own figures.
 - It reads only the published data: `data/`, the committed `slice.json` and the frozen corpora the
   tally reads too.
 - It first re-runs the tally on the same files, and refuses unless that reproduces `tally.json`
@@ -695,6 +763,9 @@ Of the 250 real flaws.
 | N, judgement | 1.2 % | 3 |
 | N, process | 0.8 % | 2 |
 | N, `fallback` | 0.8 % | 2 |
+
+These parts and kinds carry the limit of disclosure 15: G is understated and D overstated. All 17
+D flaws that become G after the fact are in D `fallback`.
 
 ### §8.2 item 4: every code's share by role, class, set, reviewer kind and origin
 
@@ -764,17 +835,19 @@ No L flaw falls under family 1 (units), 2 (magnitude) or 6 (thermal).
 
 ### Checks 1 and 7 counted as G, after the fact
 
-**Post-run, descriptive, never a result.** The whole frozen tally is re-run with one change. Every
-measured line that a failing check-1 or check-7 record catches (§5.6's locus condition), and that
-ended D or N because its deciding form failed §5.5, is set to G. That is 55 lines, 53 of them
-`true_flaw`. Nothing else changes.
+**Post-run, descriptive, never a result.** The whole frozen tally is re-run with one change. A
+measured line is set to G when its deciding form claimed G on check 1 or 7 (gate relation
+`units_kind` or `propagation`), failed §5.5 and so ended D or N, and a failing check-1 or check-7
+record catches the line (§5.6's locus condition). That is 50 lines, 48 of them `true_flaw`.
+Nothing else changes. The flaws whose code changes: 17 go from D to G, all of them D `fallback` as
+tallied, and 2 go from L to G.
 
 | | As frozen | After the fact |
 |---|---|---|
 | **L / real flaws** | **20.0 %** (50 of 250); Wilson [15.5, 25.4] %; cluster [13.9, 27.3] % | **19.2 %** (48 of 250); Wilson [14.8, 24.5] %; cluster [13.3, 26.5] % |
-| G | 8.8 % (22), which understates the gate (§5.5 cannot state checks 1 and 7); 16.8 % after the fact | 16.8 % (42) |
+| G | 8.8 % (22), which understates the gate (§5.5 cannot state checks 1 and 7); 16.4 % after the fact | 16.4 % (41) |
 | D | 45.2 % (113), which overstates D and understates the gate (§5.5 cannot state checks 1 and 7); 38.4 % after the fact | 38.4 % (96) |
-| N | 20.8 % (52) | 20.4 % (51) |
+| N | 20.8 % (52) | 20.8 % (52) |
 | L-if-data; uncoded | 4.8 % (12); 0.4 % (1) | 4.8 % (12); 0.4 % (1) |
 | Branch | a priority | a priority |
 | Mix-dependent | no: 24.1 % on the injection, 17.8 % elsewhere | no: 21.8 % on the injection (19 of 87), 17.8 % elsewhere (29 of 163) |
@@ -822,7 +895,9 @@ assertion and a change-and-edge rule.
 ## Published under §11
 
 Everything is in `data/` unless the row says otherwise. Each data file is a byte-for-byte copy of
-the run's work dir file of the same name (the ledger from `ledger/`), except `regate.jsonl.gz`.
+the run's work dir file of the same name (the ledger from `ledger/`), with four exceptions:
+`regate.jsonl.gz` (the work dir's `regate.jsonl`, compressed), and `reality_forms.jsonl`,
+`report_extra.json` and `SHA256SUMS`, which have no counterpart in the work dir.
 `data/SHA256SUMS` covers every file below; check it with `shasum -a 256 -c SHA256SUMS` from `data/`.
 
 | What §11 names | File | Bytes |
@@ -839,7 +914,7 @@ the run's work dir file of the same name (the ledger from `ledger/`), except `re
 | The re-gate's check against `a-fresh` | `regate_check.json` | 168 |
 | Each line's gate match (§5.6) | `matches.jsonl` | 73,369 |
 | The tally's full output, sha256 `79190e7b…0f71d350` | `tally.json` | 31,824 |
-| The figures added after the run (`law_report.py`), checks 1 and 7 counted as G among them | `report_extra.json` | 35,508 |
+| The figures added after the run (`law_report.py`), checks 1 and 7 counted as G and the review's figures among them | `report_extra.json` | 46,483 |
 | The ledger, one line per try (exit, model asked and used, packet, step, tokens, try, time, validity) | `ledger.jsonl` | 132,937 |
 | The launch log (both phases; every line of the two launch outputs is in it) | `launch.log` | 9,142 |
 | The slice | `../slice.json` (committed at "Slice filled") | 312 |
@@ -889,7 +964,10 @@ the run's work dir file of the same name (the ledger from `ledger/`), except `re
 
 ## Appendix A. The law frequency table (§8.2 item 3)
 
-Each L flaw's representative line, by the law its deciding form names, word for word.
+Each L flaw's representative line, by the law its deciding form names, word for word. The names
+are verbatim, and many are one law in different words: 11 of the 44 names, covering 11 L flaws,
+are Ohm's law for a stalled motor. Grouping them is work for the library's specification, not for
+this file.
 
 | Law, as the deciding form names it | L flaws |
 |---|--:|

@@ -28,11 +28,14 @@ published data: the files of ``<data dir>`` (``experiments/R-LAW-01/data/``), th
   24.10.2026 that this is a disclosed limitation, not a deviation). §5.5's relation grammar cannot
   state check 1's rule (a unit's dimension or kind) or check 7's (a change owed along an edge, or a
   justification record), so every G claim on them fell back to D or N, and frozen §5.6 never turns
-  a D or N line into G. This variant re-runs the whole tally with every measured line that a
-  failing check-1 or check-7 record catches (§5.6's locus condition) and that ended D or N because
-  its deciding form failed §5.5 set to G. It also sorts the measured step's failed G claims into
+  a D or N line into G. This variant re-runs the whole tally with one change: a measured line is
+  set to G when its deciding form claimed G on check 1 or 7 (``units_kind`` or ``propagation``),
+  failed §5.5 and so ended D or N, and a failing check-1 or check-7 record catches the line
+  (§5.6's locus condition). It also sorts the measured step's failed G claims into
   structural (checks 1 and 7, and the relation either does not parse once a trailing comment is
-  cut, or parses with two dimensions) and writable (any other).
+  cut, or parses with two dimensions) and writable (any other), and gives the figures a review
+  of the result asked for: the lines left without a form, each coder's G-caught lines with their
+  denominators, the adjudicator's codes that are neither coder's, and what the L count is made of.
 
 Outside ``--dry-run`` it refuses unless the tally, run on the same files, reproduces the published
 ``tally.json`` byte for byte, so every figure here is computed on exactly the data the result
@@ -297,10 +300,13 @@ def caught_by_1_or_7(
 
 
 def fell_back(t: TL.Tally, lid: str) -> dict[str, Any] | None:
-    """The deciding form's verified row, if the form failed §5.5 and the line ended D or N."""
+    """The deciding form's verified row, if that form claimed G on check 1 or 7 (gate relation
+    ``units_kind`` or ``propagation``), failed §5.5, and the line ended D or N."""
     f = t.deciding.get(lid)
     ver = (f or {}).get("_verified") or {}
     if f is None or ver.get("failure") is None or t.final[lid] not in ("D", "N"):
+        return None
+    if ver.get("code_raw") != "G" or f.get("gate_relation") not in UNSTATABLE.values():
         return None
     return dict(ver)
 
@@ -331,18 +337,31 @@ def gate_variant(t: TL.Tally, regate: list[dict[str, Any]]) -> dict[str, Any]:
     er = not t.reliable
     flaws = t.unit_rows(t.flaws)
     before = {u["id"]: t.unit_code(u, er) for u in flaws if t.real(u, er)}
+    d_kind = {
+        u["id"]: t.kind_of(t.representative(u, "D"), "D")
+        for u in flaws
+        if before.get(u["id"]) == "D"
+    }
     for lid in caught:
         t.final[lid] = "G"
     out = t.run()
-    moved = []
+    moved, changed = [], Counter[str]()
+    to_g_from_d: Counter[str] = Counter()
     for u in flaws:
-        if u["id"] in before and before[u["id"]] == "L" and t.unit_code(u, er) != "L":
+        if u["id"] not in before:
+            continue
+        after = t.unit_code(u, er)
+        if after != before[u["id"]]:
+            changed[f"{before[u['id']]} -> {after}"] += 1
+            if before[u["id"]] == "D" and after == "G":
+                to_g_from_d[d_kind[u["id"]]] += 1
+        if before[u["id"]] == "L" and after != "L":
             moved.append(
                 {
                     "flaw": u["id"],
                     "set": u["set"],
                     "pairs": u["pairs"],
-                    "code_after": t.unit_code(u, er),
+                    "code_after": after,
                     "lines": [{"line": i, **caught[i]} for i in u["lines"] if i in caught],
                 }
             )
@@ -360,6 +379,8 @@ def gate_variant(t: TL.Tally, regate: list[dict[str, Any]]) -> dict[str, Any]:
         "readings": out["readings"],
         "origin": out["breakdowns"]["origin"],
         "L_flaws_that_become_G": moved,
+        "flaws_whose_code_changes": dict(sorted(changed.items())),
+        "D_flaws_that_become_G_by_kind_as_tallied": dict(sorted(to_g_from_d.items())),
     }
 
 
@@ -423,7 +444,8 @@ def failed_g_claims(t: TL.Tally) -> dict[str, Any]:
         "every_G_claim_by_gate_relation": dict(
             sorted(
                 Counter(
-                    f"{r['form'].get('gate_relation')} | {'failed' if r.get('failure') else 'passed'}"
+                    f"{r['form'].get('gate_relation')} | "
+                    + ("failed" if r.get("failure") else "passed")
                     for r in every
                 ).items()
             )
@@ -439,6 +461,147 @@ def failed_g_claims(t: TL.Tally) -> dict[str, Any]:
         "kind": dict(sorted(kinds.items())),
         "kind_detail": dict(sorted(detail.items())),
         "writable": writable,
+    }
+
+
+def lines_without_a_form(t: TL.Tally) -> dict[str, Any]:
+    """The measured lines a coder left without a form after its retry, and the real flaws that are
+    uncoded for it (§5.7 rule 1; κ counts each such line as the category ``none``)."""
+    rows = [r for r in t.codes if r["step"] == "measured" and r.get("form") is None]
+    er = not t.reliable
+    uncoded = [
+        {"flaw": u["id"], "lines": u["lines"]}
+        for u in t.unit_rows(t.flaws)
+        if t.real(u, er) and t.unit_code(u, er) == "uncoded"
+    ]
+    return {
+        "lines": [{"line": r["line_id"], "who": r["who"], "packet": r["packet"]} for r in rows],
+        "by_coder": dict(sorted(Counter(r["who"] for r in rows).items())),
+        "packets": sorted({f"{r['who']} {r['packet']}" for r in rows}),
+        "uncoded_real_flaws": uncoded,
+    }
+
+
+def g_claim_denominators(t: TL.Tally) -> dict[str, Any]:
+    """§7's share of G-caught lines each coder claimed G, with its count and denominator: over the
+    G-caught lines that coder was given, as the tally reads it (README reading 11), on its code
+    after §5.5 and, beside it, on its claim before §5.5."""
+    g_lines = {i for i in t.measured if t.final[i] == "G"}
+    out = {}
+    for who in ("c1", "c2", "adj", "audit"):
+        mine = {
+            r["line_id"]: r
+            for r in t.codes
+            if r["who"] == who and r["line_id"] in t.measured and r["line_id"] in g_lines
+        }
+        out[who] = {
+            "lines": sorted(mine),
+            "given": len(mine),
+            "claimed_G_after_5_5": sum(1 for r in mine.values() if TL.coder_code(r) == "G"),
+            "claimed_G_before_5_5": sum(1 for r in mine.values() if r.get("code_raw") == "G"),
+            "codes_after_5_5": dict(
+                sorted(Counter(TL.coder_code(r) for r in mine.values()).items())
+            ),
+        }
+    return out
+
+
+def adjudicator_own_codes(t: TL.Tally) -> list[dict[str, Any]]:
+    """The disputed lines on which the adjudicator's code after §5.5 is neither coder's: its
+    ``chosen`` names one form, but its own claim failed §5.5 and took its fallback code."""
+    by = TL.by_line(t.codes, "measured")
+    out = []
+    for lid in sorted(by):
+        w = by[lid]
+        a = w.get("adj")
+        if a is None or lid not in t.measured:
+            continue
+        code = TL.coder_code(a)
+        if code not in (TL.coder_code(w.get("c1")), TL.coder_code(w.get("c2"))):
+            out.append(
+                {
+                    "line": lid,
+                    "chosen": (a.get("form") or {}).get("chosen"),
+                    "claimed": a.get("code_raw"),
+                    "code": code,
+                    "failure": a.get("failure"),
+                    "gate_relation": (a.get("form") or {}).get("gate_relation"),
+                }
+            )
+    return out
+
+
+def fp_signature(t: TL.Tally, lid: str) -> str:
+    """The false-positive audit's key for one L line's relation, as ``law_tally`` forms it."""
+    f = t.deciding.get(lid) or {}
+    return json.dumps(
+        [
+            t.lines[lid]["set"],
+            f.get("relation"),
+            sorted(
+                [i.get("symbol"), i.get("node"), i.get("quantity"), i.get("requirement")]
+                for i in f.get("inputs") or []
+            ),
+            f.get("tolerance"),
+            f.get("tolerance_percent"),
+            f.get("kind"),
+        ],
+        default=str,
+    )
+
+
+def l_composition(t: TL.Tally, tally: dict[str, Any]) -> dict[str, Any]:
+    """What the L count is made of (post-run, descriptive).
+
+    - Restatements: L flaws whose representative relation reads the same (node, quantity or
+      requirement) inputs as another L flaw's, on the same set and pair or pairs.
+    - Blocking relations: L flaws whose L lines' relations (the false-positive audit's own
+      signatures) block all, or all but one, of their set's clean twins."""
+    er = not t.reliable
+    flaws = [u for u in t.unit_rows(t.flaws) if t.real(u, er) and t.unit_code(u, er) == "L"]
+    groups_: dict[tuple[Any, ...], list[str]] = defaultdict(list)
+    for u in flaws:
+        rep = t.representative(u, "L")
+        f = t.deciding.get(rep) or {} if rep else {}
+        sig = tuple(
+            sorted(
+                f"{i.get('node')}:{i.get('quantity', 'requirement ' + str(i.get('requirement')))}"
+                for i in f.get("inputs") or []
+            )
+        )
+        groups_[(u["set"], tuple(u["pairs"]), sig)].append(u["id"])
+    empty = {u["id"]: all(not t.lines[i]["locus"] for i in u["lines"]) for u in flaws}
+    shared = [
+        {
+            "set": k[0],
+            "pairs": list(k[1]),
+            "inputs": list(k[2]),
+            "flaws": v,
+            "flaws_with_an_empty_locus": [x for x in v if empty[x]],
+        }
+        for k, v in sorted(groups_.items())
+        if len(v) > 1
+    ]
+    first = {p["line"]: p["blocks"] for p in tally["false_positive_audit"]["per_relation"]}
+    blocks_of = {fp_signature(t, lid): b for lid, b in first.items()}
+    heavy = []
+    for u in flaws:
+        ls = [i for i in t.code_lines(u, er) if t.final[i] == "L"]
+        b = max((blocks_of.get(fp_signature(t, i), 0) for i in ls), default=0)
+        twins = len(t.sets[u["set"]].artefacts)
+        if b >= twins - 1:
+            heavy.append(
+                {"flaw": u["id"], "set": u["set"], "base": u["base"], "blocks": b, "twins": twins}
+            )
+    return {
+        "label": LABEL,
+        "L_flaws": len(flaws),
+        "distinct_set_pairs_inputs": len(groups_),
+        "restating_another": len(flaws) - len(groups_),
+        "shared_inputs": shared,
+        "blocking_all_or_all_but_one_twin": len(heavy),
+        "blocking_and_not_base": sum(1 for h in heavy if not h["base"]),
+        "blocking": heavy,
     }
 
 
@@ -471,7 +634,11 @@ def report(
             "label": LABEL,
             "gate_matched_lines_by_final_code": gate_matched_by_final(t),
             "failed_G_claims": failed_g_claims(t),
+            "lines_without_a_form": lines_without_a_form(t),
+            "adjudicator_own_codes": adjudicator_own_codes(t),
         },
+        "G_claim_denominators": g_claim_denominators(t),
+        "L_composition": l_composition(t, tally),
     }
 
 

@@ -266,49 +266,134 @@ def test_a_failed_g_claim_on_checks_1_and_7_is_structural_unless_it_could_be_wri
     assert RP.why_failed(other, nodes)[0] == "writable"
 
 
+RECORD_7 = {
+    "check": 7,
+    "name": "propagation",
+    "outcome": "fail",
+    "node": "e.a",
+    "module": None,
+    "details": {},
+    "message": "e.a changed power_draw and owes e.b a change",
+    "scope": "system",
+}
+
+
+def _regate(*records: dict[str, Any]) -> list[dict[str, Any]]:
+    return [{"set": "fresh", "pair": "a1", "side": "injected", "result": {"checks": list(records)}}]
+
+
+def _patch(tmp: Path, line: str, **fields: Any) -> TL.Tally:  # noqa: ANN401
+    """Change the coders' forms of one line of an invented work dir, verified again (§5.5)."""
+    codes = X.read_jsonl(tmp / "codes.jsonl")
+    lines = {x["line_id"]: x for x in X.read_jsonl(tmp / "lines.jsonl")}
+    x = lines[line]
+    version = R.SETS[x["set"]].version(x["pair"], x["side"])
+    for r in codes:
+        if r["line_id"] == line and r.get("form"):
+            r["form"] = {**r["form"], **fields}
+            r.update(V.verify_form(r["form"], version))
+    X.write_jsonl(tmp / "codes.jsonl", codes)
+    return TL.Tally(tmp, dry_run=True, sets=R.SETS)
+
+
 def test_the_variant_counts_a_line_check_7_caught_as_g_and_its_l_flaw_moves(
     tmp_path: Path,
 ) -> None:
-    t = R.build(
+    R.build(
         tmp_path,
         [
             R.flaw(
                 [
                     R.ln("a1", "L", "L"),
-                    # both coders claim G with a rule the grammar cannot parse: it falls back to N
+                    # both coders claim check 7 with a rule the grammar cannot parse: it falls
+                    # back to N
                     R.ln("a1", "G", "G", relation="changed(e.a) => changed(e.b)"),
                 ]
             ),
             R.flaw([R.ln("a2", "L", "L")]),
         ],
     )
+    t = _patch(tmp_path, "L0002", gate_relation="propagation")
     assert t.final == {"L0001": "L", "L0002": "N", "L0003": "L"}
-    record = {
-        "check": 7,
-        "name": "propagation",
-        "outcome": "fail",
-        "node": "e.a",
-        "module": None,
-        "details": {},
-        "message": "e.a changed power_draw and owes e.b a change",
-        "scope": "system",
-    }
-    regate = [{"set": "fresh", "pair": "a1", "side": "injected", "result": {"checks": [record]}}]
     as_tallied = t.run()
     assert (as_tallied["primary"]["k"], as_tallied["primary"]["n"]) == (2, 2)
-    v = RP.gate_variant(TL.Tally(tmp_path, dry_run=True, sets=R.SETS), regate)
+    v = RP.gate_variant(TL.Tally(tmp_path, dry_run=True, sets=R.SETS), _regate(RECORD_7))
     assert v["label"] == RP.LABEL
     assert v["lines_set_to_G"] == 1 and v["lines_set_to_G_true_flaw"] == 1
     assert (v["primary"]["k"], v["primary"]["n"]) == (1, 2)
     assert v["counts"] == {"G": 1, "L": 1}
+    assert v["flaws_whose_code_changes"] == {"L -> G": 1}
     [moved] = v["L_flaws_that_become_G"]
     assert moved["flaw"] == "F0001" and moved["code_after"] == "G"
     assert [x["line"] for x in moved["lines"]] == ["L0002"]
     assert moved["lines"][0]["records"] == [{"check": 7, "name": "propagation", "scope": "system"}]
     # a record of another check, or one whose message names no locus quantity, catches nothing
-    for other in ({**record, "check": 4, "name": "power"}, {**record, "message": "e.a changed"}):
-        regate = [{"set": "fresh", "pair": "a1", "side": "injected", "result": {"checks": [other]}}]
-        v = RP.gate_variant(TL.Tally(tmp_path, dry_run=True, sets=R.SETS), regate)
+    for other in (
+        {**RECORD_7, "check": 4, "name": "power"},
+        {**RECORD_7, "message": "e.a changed"},
+    ):
+        v = RP.gate_variant(TL.Tally(tmp_path, dry_run=True, sets=R.SETS), _regate(other))
         assert v["lines_set_to_G"] == 0 and v["primary"]["k"] == 2
     claims = RP.failed_g_claims(t)
-    assert claims["claims"] == 2 and claims["kind"] == {"writable": 2}
+    assert claims["claims"] == 2 and claims["kind"] == {"structural": 2}
+
+
+def test_the_variant_sets_only_failed_check_1_and_7_claims_to_g(tmp_path: Path) -> None:
+    # Three lines check 7 catches and that fell back to N: a failed L `limit` (a literal fails the
+    # pairing check), a failed G on another gate relation, and a failed G on check 7. Only the
+    # last was a claim on check 1 or 7; a variant reading the locus condition alone took all three.
+    R.build(
+        tmp_path,
+        [
+            R.flaw([R.ln("a1", "L", "L", relation="P <= 2 * M")]),
+            R.flaw([R.ln("a1", "G", "G", relation="sum of draws <= supply")]),
+            R.flaw([R.ln("a1", "G", "G", relation="changed(e.a) => changed(e.b)")]),
+        ],
+    )
+    _patch(tmp_path, "L0001", kind="limit")
+    t = _patch(tmp_path, "L0003", gate_relation="propagation")
+    assert t.final == {"L0001": "N", "L0002": "N", "L0003": "N"}
+    assert {r["line_id"]: r["failure"] for r in t.codes if r["who"] == "c1"} == {
+        "L0001": "pairing",
+        "L0002": "unparsed",
+        "L0003": "unparsed",
+    }
+    v = RP.gate_variant(TL.Tally(tmp_path, dry_run=True, sets=R.SETS), _regate(RECORD_7))
+    assert v["lines_set_to_G"] == 1
+    assert v["counts"] == {"G": 1, "N": 2}
+    assert v["flaws_whose_code_changes"] == {"N -> G": 1}
+
+
+def test_the_review_figures_no_form_denominators_own_codes_and_restatements(
+    tmp_path: Path,
+) -> None:
+    R.build(
+        tmp_path,
+        [
+            # two L flaws on one pair whose relations read the same inputs: one restates the other
+            R.flaw([R.ln("a1", "L", "L")]),
+            R.flaw([R.ln("a1", "L", "L")]),
+            # a G-caught line both coders coded L
+            R.flaw([R.ln("a2", "L", "L", matched=True)]),
+            # coder 2 left the line without a form: the line and its flaw are uncoded
+            R.flaw([R.ln("a3", "N", None)]),
+            # the adjudicator codes G, which is neither coder's code
+            R.flaw([R.ln("a4", "D", "L", adj="G")]),
+        ],
+    )
+    t = TL.Tally(tmp_path, dry_run=True, sets=R.SETS)
+    tally = t.run()
+    nf = RP.lines_without_a_form(t)
+    assert nf["lines"] == [{"line": "L0004", "who": "c2", "packet": "P0001"}]
+    assert nf["uncoded_real_flaws"] == [{"flaw": "F0004", "lines": ["L0004"]}]
+    den = RP.g_claim_denominators(t)
+    assert den["c1"]["lines"] == ["L0003"] and den["c1"]["given"] == 1
+    assert den["c1"]["claimed_G_after_5_5"] == 0 and den["c1"]["codes_after_5_5"] == {"L": 1}
+    [own] = RP.adjudicator_own_codes(t)
+    assert own["line"] == "L0005" and own["claimed"] == "G" and own["code"] == "G"
+    comp = RP.l_composition(t, tally)
+    # the adjudicator's G on a4 is not gate-caught, so it is an L (gap): three L flaws in all
+    assert comp["L_flaws"] == 3 and comp["restating_another"] == 1
+    assert comp["shared_inputs"][0]["flaws"] == ["F0001", "F0002"]
+    # P <= M fails on every clean twin of the fixture (2 W against 1 W): each blocks them all
+    assert comp["blocking_all_or_all_but_one_twin"] == 3
