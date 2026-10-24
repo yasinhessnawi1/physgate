@@ -4,14 +4,17 @@ Integration's session reads the system-scope result, so the subtask of the role 
 completion is dispatched only once the integration call has passed, or failed under
 ``observe``, or been skipped because the gate is off, and then only when every other subtask
 merged. After a blocking failure, or a design found incomplete, it is never dispatched.
-Once the call is on the record the plan stays closed for every other subtask: the one exception
-is integration's own subtask, found in the role register by what its role owns, never by its
-name. A run without that role is driven and replayed as before.
+Once the call is on the record the plan stays closed for every other subtask. The one exception
+is integration's own subtask, which its planning line marks as the completion owner's. The
+writer holds that mark to the role register when the line is written, and the loop asks the
+register again before it dispatches the subtask. Replay reads the mark alone, never the register
+or a role's name. A run without that role is driven and replayed as before.
 """
 
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -36,6 +39,8 @@ from physgate.orchestrator.events import (
     EnvironmentRecorded,
     Escalated,
     EventLog,
+    Halted,
+    Incident,
     IntegrationEscalated,
     IntegrationGateRan,
     IntegrationGateSkipped,
@@ -259,25 +264,50 @@ def test_the_integration_subtask_is_not_dispatched_after_an_incomplete_design(
     assert state.next_step().kind == "done"
 
 
+@pytest.mark.parametrize("ended", ["escalated", "rejected", "removed"])
 def test_under_off_the_integration_subtask_is_not_dispatched_over_a_subtask_that_did_not_merge(
-    tmp_path: Path,
+    tmp_path: Path, ended: str
 ) -> None:
     # Under off the call is skipped as off whether or not every subtask merged, so the skip line
-    # does not say the design is complete: the subtasks' own states do.
+    # does not say the design is complete: the subtasks' own states do. A subtask that waits for
+    # a person, one a person rejected for good, and one taken out of the plan all hold it back.
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    acts = ended == "rejected"
+    overrides: dict[str, Any] = {"models": models("electrical", "integration")}
+    if acts:
+        overrides |= {"queue_decisions": "act", "os_layer": PRESENT}
     reviewer = FakeReviewer(verdicts=["pass", "fail", "fail", "fail"])  # s1 merges, s2 does not
-    rig = integrated_rig(tmp_path, gate_mode="off", reviewer=reviewer)
+    rig = Rig(
+        run_dir,
+        gate_mode="off",
+        reviewer=reviewer,
+        dispatcher=FakeDispatcher(trajectories=run_dir / "sessions"),
+        config_overrides=overrides,
+    )
     loop = rig.open()
     loop.start(with_integration("s1", "s2"))
+    if ended == "removed":
+        loop.remove("s2", "no longer needed")
+    if acts:
+        _layer_present(loop)
     assert loop.run().kind == "done"
     loop.close()
-    events = events_of(tmp_path)
-    call = the_call(events)
-    assert isinstance(call, IntegrationGateSkipped)
-    assert (call.reason, call.subtasks) == ("gate_mode=off", ())
+    if acts:
+        # The third rejection went to a person, who rejects the subtask: no attempt is left, so
+        # it ends rejected, and the design the skip passed over is still incomplete.
+        _decide_the_open_item(run_dir, "reject", note="not this design")
+        again = rig.open()
+        _layer_present(again)
+        assert again.resume().kind == "done"
+        again.close()
+    events = events_of(run_dir)
+    calls = _calls(events)
+    assert calls and all((c.reason, c.subtasks) == ("gate_mode=off", ()) for c in calls)
     assert INTEG not in dispatched(rig)
     assert about(events, INTEG) == []
     state = replay(events)
-    assert (state.subtasks["s2"].status, state.subtasks[INTEG].status) == ("escalated", "planned")
+    assert (state.subtasks["s2"].status, state.subtasks[INTEG].status) == (ended, "planned")
     assert state.next_step().kind == "done"
 
 
@@ -762,8 +792,8 @@ def _layer_present(loop: Loop) -> None:
     )
 
 
-def _approve_the_open_item(run_dir: Path) -> None:
-    """A person approves the one open item from the listing, bound to the digest it printed."""
+def _decide_the_open_item(run_dir: Path, verb: str, note: str | None = None) -> None:
+    """A person decides the one open item from the listing, bound to the digest it printed."""
     view = read_queue(run_dir)
     (item,) = view.open_items()
     shown = ShownItem(
@@ -772,10 +802,15 @@ def _approve_the_open_item(run_dir: Path) -> None:
     record_decision(
         run_dir,
         item.item_id,
-        person=PersonDecision(verb="approve", note=None),
+        person=PersonDecision(verb=verb, note=note),  # type: ignore[arg-type]
         resolved_by="yasin",
         shown=shown,
     )
+
+
+def _approve_the_open_item(run_dir: Path) -> None:
+    """A person approves the one open item from the listing, bound to the digest it printed."""
+    _decide_the_open_item(run_dir, "approve")
 
 
 def test_an_approve_that_completes_an_incomplete_design_dispatches_integration_after_its_call(
@@ -938,6 +973,8 @@ def appended_past_the_writer(run_dir: Path, *lines: dict[str, Any]) -> None:
     ("case", "why"),
     [
         ("a domain subtask marked, planned last", "integration module directory"),
+        ("the owner's subtask in a directory below the integration one", "integration module"),
+        ("the owner's subtask in a directory named like the integration one", "integration module"),
         ("the marked subtask not planned last", "planned after"),
         ("two marked subtasks", "two subtasks are marked"),
         ("a second subtask of the marked role, before it", "a second subtask of the marked role"),
@@ -951,6 +988,13 @@ def test_a_forged_mark_is_refused_at_replay_whatever_the_register_says(
     log.close()
     lines = {
         "a domain subtask marked, planned last": [planned(entry("s2"), mark=True)],
+        # The directory is the integration directory exactly, never one it is a prefix of.
+        "the owner's subtask in a directory below the integration one": [
+            planned(entry(INTEG, "integration", "modules/integration/sub"), mark=True)
+        ],
+        "the owner's subtask in a directory named like the integration one": [
+            planned(entry(INTEG, "integration", "modules/integration-x"), mark=True)
+        ],
         "the marked subtask not planned last": [integ_line(), planned(entry("s2"))],
         "two marked subtasks": [
             integ_line(),
@@ -993,6 +1037,186 @@ def test_a_log_whose_completion_owner_was_renamed_since_still_replays(
     assert position(again.state) == left
     assert again.run().kind == "done"
     again.close()
+
+
+# --- the loop holds the mark to the register before it dispatches -----------------------------
+#
+# Replay reads the mark and never the register, so a planning line written past the writer's
+# check (appended to the file, or through a handle that follows no run state) is taken at open
+# whatever the register says. The process that would dispatch its subtask asks the register,
+# pinned with the harness across the run and its resume, first.
+
+#: Where the harness plans the completion owner's subtask.
+INTEGRATION_DIR = "modules/integration"
+
+PLANTED = [
+    "a domain subtask marked, appended at the plan",
+    "a domain subtask marked, appended mid-run",
+    "a domain subtask marked, through a log that follows no run state",
+    "a subtask of the owner's role unmarked, appended at the plan",
+]
+
+
+def _planted(tmp_path: Path, planted: str) -> Rig:
+    """A run of ``s1`` with one planning line, of ``s2``, that the writer never held."""
+    rig = Rig(
+        tmp_path,
+        dispatcher=_Recording(),
+        config_overrides={"models": models("electrical", "control", "integration")},
+    )
+    loop = rig.open()
+    loop.start(plan("s1"))
+    if "mid-run" in planted:
+        loop._attempt("s1", 1, "resolve")  # noqa: SLF001 - s1 merged, the call still to come
+    loop.close()
+    if "unmarked" in planted:
+        line = planned(entry("s2", "integration"))
+    else:
+        # The only subtask of its role, planned last, in the integration directory: every rule
+        # replay holds a mark to is met, and only the register says it is not the owner's.
+        line = planned(entry("s2", "control", INTEGRATION_DIR), mark=True)
+    if "no run state" in planted:
+        stateless = EventLog(tmp_path / "events.jsonl", run_id="run-1", gate_mode="on")
+        stateless.emit(SubtaskPlanned, **line)
+        stateless.close()
+    else:
+        appended_past_the_writer(tmp_path, line)
+    return rig
+
+
+@pytest.mark.parametrize("planted", PLANTED)
+def test_a_planning_line_the_register_does_not_bear_out_halts_the_run_before_its_dispatch(
+    tmp_path: Path, planted: str
+) -> None:
+    rig = _planted(tmp_path, planted)
+    # The line replays: the rules replay applies read the line alone.
+    state = replay(events_of(tmp_path))
+    assert state.subtasks["s2"].status == "planned"
+    assert state.completion_subtask == (None if "unmarked" in planted else "s2")
+    loop = rig.open()
+    assert loop.run().kind == "halted"
+    loop.close()
+    events = events_of(tmp_path)
+    # Nothing is dispatched for it, before the call or after it.
+    assert "s2" not in dispatched(rig)
+    assert about(events, "s2") == []
+    (incident,) = [e for e in events if isinstance(e, Incident)]
+    assert (incident.subtask_id, incident.cause) == (None, "duty_breach")
+    assert "s2" in incident.detail
+    (halted,) = [e for e in events if isinstance(e, Halted)]
+    assert (halted.seq, halted.reason) == (incident.seq + 1, "incident")
+    # A marked line would run after the call, an unmarked one of the owner's role before it.
+    calls = _calls(events)
+    if "unmarked" in planted:
+        assert calls == []
+    else:
+        assert len(calls) == 1 and calls[0].seq < incident.seq
+        # The register is asked before the environment line: a process whose first session
+        # would have been the refused one records no environment for it.
+        assert all(e.seq < calls[0].seq for e in events if isinstance(e, EnvironmentRecorded))
+    # The halt is a person's to resolve: no process drives the run past it.
+    again = rig.open()
+    assert again.run().kind == "halted"
+    with pytest.raises(RunStateError, match="a person resolves"):
+        again.resume()
+    again.close()
+    assert "s2" not in dispatched(rig)
+
+
+# --- the mark is a JSON true, or absent -------------------------------------------------------
+
+
+def _planning_line_with_mark(written: str | None) -> bytes:
+    """Integration's planning line as bytes, its mark written as ``written`` or left out."""
+    line = SubtaskPlanned(seq=1, ts=TS, run_id="run-1", gate_mode="on", **integ_line())
+    raw = line.model_dump_json()
+    if written is None:
+        raw = raw.replace(',"owns_completion":true', "")
+    else:
+        raw = raw.replace('"owns_completion":true', f'"owns_completion":{written}')
+    assert ('"owns_completion"' in raw) == (written is not None)
+    return raw.encode() + b"\n"
+
+
+@pytest.mark.parametrize("written", ["1", "1.0", "null", "false", "0", '"true"', "[true]"])
+def test_a_completion_mark_written_as_anything_but_json_true_is_a_malformed_line(
+    tmp_path: Path, written: str
+) -> None:
+    # A number equal to true, or an explicit null, would read as the mark or as none, and
+    # re-serialise to bytes the writer never wrote; no writer of this package writes either.
+    log = started_log(tmp_path)
+    log.close()
+    path = tmp_path / "events.jsonl"
+    path.write_bytes(path.read_bytes() + _planning_line_with_mark(written))
+    with pytest.raises(CorruptEventLogError) as refused:
+        read_events(path)
+    assert "owns_completion" in refused.value.context["reason"]
+    with pytest.raises(CorruptEventLogError):
+        EventLog(path, run_id="run-1", gate_mode="on", state=RunState())
+
+
+@pytest.mark.parametrize("written", ["true", None], ids=["marked", "absent"])
+def test_a_completion_mark_written_as_true_or_left_out_reads_back_to_its_own_bytes(
+    tmp_path: Path, written: str | None
+) -> None:
+    log = started_log(tmp_path)
+    log.close()
+    path = tmp_path / "events.jsonl"
+    raw = _planning_line_with_mark(written)
+    path.write_bytes(path.read_bytes() + raw)
+    events = read_events(path)
+    assert events[-1].model_dump_json().encode() + b"\n" == raw
+    assert replay(events).completion_subtask == (INTEG if written else None)
+
+
+# --- a plan is refused whole, before its first line -------------------------------------------
+
+
+#: Plans the log would refuse a line of, and the refusal's words.
+PLANS_REFUSED: dict[str, tuple[Callable[[], list[PlanEntry]], str]] = {
+    "the owner's subtask planned first": (
+        lambda: [entry(INTEG, "integration", INTEGRATION_DIR), entry("s1")],
+        "planned last",
+    ),
+    "the owner's subtask outside the integration directory": (
+        lambda: [entry("s1"), entry(INTEG, "integration", "modules/integ")],
+        "integration module directory",
+    ),
+    "two subtasks of the owner": (
+        lambda: [
+            entry("s1"),
+            entry("first", "integration", INTEGRATION_DIR),
+            entry(INTEG, "integration", INTEGRATION_DIR),
+        ],
+        "two subtasks are marked",
+    ),
+    "a subtask planned twice": (lambda: [entry("s1"), entry("s1")], "planned twice"),
+}
+
+
+@pytest.mark.parametrize("case", list(PLANS_REFUSED))
+def test_a_plan_any_line_of_which_the_log_would_refuse_is_refused_before_its_first_line(
+    tmp_path: Path, case: str
+) -> None:
+    plan_of, why = PLANS_REFUSED[case]
+    rig = integrated_rig(tmp_path)
+    loop = rig.open()
+    with pytest.raises(RunConfigError, match=why):
+        loop.start(plan_of())
+    loop.close()
+    # No part of a run was started: no line, no configuration, no ledger line.
+    assert (tmp_path / "events.jsonl").read_bytes() == b""
+    assert not (tmp_path / "run.json").exists()
+    assert TaskLedger(tmp_path / "ledger.jsonl").read_all() == []
+    # The directory still takes a plan the log accepts, and the run it starts is driven.
+    again = rig.open()
+    again.start(with_integration("s1"))
+    assert again.run().kind == "done"
+    again.close()
+    assert [e.subtask_id for e in events_of(tmp_path) if isinstance(e, SubtaskPlanned)] == [
+        "s1",
+        INTEG,
+    ]
 
 
 # --- under off, a decision that acts after the skip reopens an incomplete design -------------

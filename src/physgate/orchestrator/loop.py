@@ -76,6 +76,7 @@ from physgate.orchestrator.events import (
     WorktreeRemoved,
     WriteDone,
     WriteIntended,
+    completion_mark_problem,
 )
 from physgate.orchestrator.exceptions import (
     EscalationBackendError,
@@ -990,10 +991,38 @@ class Loop:
             self._emit(EnvironmentRecorded(**self._env(), facts=facts))
             self._environment_recorded = True
 
-    def _session(self, subtask_id: str, attempt: int) -> bool:
-        # Every session follows an environment line of the process that spawns it.
+    def _environment_before_a_spawn(self) -> None:
+        """Record this process's environment once, before the first session it spawns.
+
+        A role's session and a reviewer's run alike under the installation of the process that
+        spawns them, so each follows that process's environment line, whatever led to it.
+        """
         if not self._environment_recorded:
             self._record_environment()
+
+    def _mark_borne_out(self, subtask_id: str) -> bool:
+        """The subtask's completion mark is what the role register says; otherwise the run halts.
+
+        Replay reads the mark from the planning line and never asks the register, so a recorded
+        run replays under any later register. The writer held the line to the register, but a
+        line written past it (appended to the file, or through a handle that follows no run
+        state) replays as well, and a mark it put on another role's subtask would move that
+        subtask past the system gate. So the process that dispatches asks the register again,
+        before the subtask's first line of the attempt. The harness checkout, and with it the
+        register, is held across a run and its resume, so an honest run always passes.
+        """
+        role = self.state.subtasks[subtask_id].plan.assigned_role
+        why = completion_mark_problem(role, marked=subtask_id == self.state.completion_subtask)
+        if why is None:
+            return True
+        # No attempt is in progress yet, so the incident names no subtask; its detail does.
+        self._incident(None, "duty_breach", f"subtask {subtask_id}: {why}")
+        return False
+
+    def _session(self, subtask_id: str, attempt: int) -> bool:
+        if not self._mark_borne_out(subtask_id):
+            return False
+        self._environment_before_a_spawn()
         sub = self.state.subtasks[subtask_id]
         self._stage(subtask_id, attempt, "resolve")
         instruction, order = self._instruction(subtask_id, attempt)
@@ -1399,6 +1428,7 @@ class Loop:
         # The reviewer reads the trajectory: it must still be what was sealed.
         if not self._trajectories_hold(subtask_id, [session]):
             return False
+        self._environment_before_a_spawn()
         self._stage(subtask_id, attempt, "review")
         reviewer = self._reviewers[role]
         # The implementer's model is read from the run's record on disk, never from the

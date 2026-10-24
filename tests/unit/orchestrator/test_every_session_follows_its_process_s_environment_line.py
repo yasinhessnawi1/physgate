@@ -1,10 +1,10 @@
-"""Every role session a process spawns follows that process's own environment line.
+"""Every session a process spawns, a role's or a reviewer's, follows its process's environment line.
 
 The environment a session runs in is the installation of the process that spawns it, so each
 process records it before its first spawn, whatever led there: the run's first step, a retry,
-a resumed session, the integration call a process took over at, or a person's decision taken
-by a process that started at a run's end. A process that spawns no session records none at
-the call, as before.
+a resumed session, the integration call a process took over at, a person's decision taken by a
+process that started at a run's end, or a review the process reaches with no session of its
+own. A process that spawns no session records none at the call, as before.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from loop_fakes import FakeDispatcher, FakeGate, FakeReviewer, KilledError, Rig,
 from physgate.orchestrator.events import (
     EnvironmentRecorded,
     OsLayerChecked,
+    SessionSpawned,
     StageEntered,
     read_events,
 )
@@ -188,6 +189,23 @@ def _decided_at_a_runs_end(run_dir: Path, *, plan_of: list[PlanEntry], verb: str
     return run
 
 
+def _a_review_with_no_session_of_its_own(run_dir: Path) -> Run:
+    # One process ran the attempt's session and stopped there; the next takes the attempt up at
+    # its reading check, gate and review, with no session of its own before the reviewer's, as a
+    # decision that sends an attempt back to its gate would. No step the loop takes today leads
+    # there, so the attempt's point is called directly.
+    run = Run(run_dir)
+    loop = run.process()
+    loop.start(plan("s1"))
+    assert loop._session("s1", 1)  # noqa: SLF001 - the session ends, and nothing is judged
+    loop.close()
+    again = run.process()
+    again._attempt("s1", 1, "verify_reading")  # noqa: SLF001
+    assert again.state.subtasks["s1"].status == "done"
+    again.close()
+    return run
+
+
 SCENARIOS: dict[str, Callable[[Path], Run]] = {
     "a fresh run, and a retry in the same process": _a_fresh_run_with_a_retry,
     "a session killed, then resumed": _a_session_killed_and_resumed,
@@ -204,7 +222,18 @@ SCENARIOS: dict[str, Callable[[Path], Run]] = {
     "the fix a person orders after a blocked review": lambda d: _decided_at_a_runs_end(
         d, plan_of=plan("s1"), verb="reject", reviewer=FakeReviewer(results={1: BLOCKED})
     ),
+    "a review a process reaches with no session of its own": _a_review_with_no_session_of_its_own,
 }
+
+
+def _spawns_next(event: object) -> bool:
+    """A line a session's spawn follows at once: a role session's, or a reviewer's.
+
+    The review stage is entered just before the reviewer's session is spawned, as the spawn stage
+    is before a role's; a spawn the session records itself is a spawn too.
+    """
+    entered = isinstance(event, StageEntered) and event.stage in ("spawn", "review")
+    return entered or isinstance(event, SessionSpawned)
 
 
 @pytest.mark.parametrize("scenario", list(SCENARIOS))
@@ -221,7 +250,7 @@ def test_every_spawn_follows_an_environment_line_of_its_own_process(
             if isinstance(event, EnvironmentRecorded):
                 assert event.facts == FACTS
                 recorded = True
-            if isinstance(event, StageEntered) and event.stage == "spawn":
+            if _spawns_next(event):
                 spawns += 1
                 assert recorded, (
                     f"{scenario}: the spawn at line {event.seq} follows no environment line "

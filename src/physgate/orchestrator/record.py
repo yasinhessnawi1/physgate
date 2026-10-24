@@ -8,13 +8,15 @@ opens the same record and drives it.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
-from datetime import datetime
+import itertools
+from collections.abc import Callable, Iterator, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict
 
-from physgate.orchestrator.common import NonEmptyStr, utc_now
+from physgate.orchestrator.common import NonEmptyStr, utc_now, utc_stamp
 from physgate.orchestrator.events import (
     Decomposed,
     Envelope,
@@ -25,7 +27,7 @@ from physgate.orchestrator.events import (
     SubtaskPlanned,
     SubtaskRemoved,
     TokensUsed,
-    completion_mark_problem,
+    require_writable,
 )
 from physgate.orchestrator.exceptions import RunConfigError, RunStateError
 from physgate.orchestrator.managed import ObservedTraffic
@@ -77,6 +79,17 @@ class DecompositionSummary(BaseModel):
     #: The two lists the integration role checks; ``None`` in a run without that role.
     interface_consumers: tuple[InterfaceConsumers, ...] | None = None
     system_requirements: tuple[SystemRequirement, ...] | None = None
+
+
+class _Mark(TypedDict, total=False):
+    """The completion mark, spread into a planning line only where it is set."""
+
+    owns_completion: Literal[True]
+
+
+#: The timestamp a line carries when it is only checked, never written: the run's clock is not
+#: asked for it, so the lines that are written keep the times they always had.
+_UNWRITTEN_TS = utc_stamp(datetime(1970, 1, 1, tzinfo=UTC))
 
 
 class RunRecord:
@@ -140,23 +153,75 @@ class RunRecord:
             msg = "the run was already started"
             raise RunStateError(msg, run_dir=str(self.run_dir))
         write_run_config(self.config_path, self.config)
-        self.emit(
-            RunStarted(
-                **self.envelope(),
-                config_sha256=self.config.sha256(),
-                escalation_backend=self.config.escalation_backend,
-            )
+        for line in self._opening(call, self.envelope):
+            self.emit(line)
+
+    def _opening(
+        self, call: DecompositionCall | None, envelope: Callable[[], Envelope]
+    ) -> Iterator[Event]:
+        """The run's start line and what its one model call spent, each built as it is asked for.
+
+        A line's envelope is taken when the line is built, so a caller that writes each line
+        before it asks for the next gives every line the sequence number it is written at.
+        """
+        yield RunStarted(
+            **envelope(),
+            config_sha256=self.config.sha256(),
+            escalation_backend=self.config.escalation_backend,
         )
         if call is not None:
             for message in call.usage:
-                self.emit(
-                    TokensUsed(
-                        **self.envelope(),
-                        attribution=f"decomposition:{call.session_id}",
-                        message_id=message.message_id,
-                        usage=message.usage,
-                    )
+                yield TokensUsed(
+                    **envelope(),
+                    attribution=f"decomposition:{call.session_id}",
+                    message_id=message.message_id,
+                    usage=message.usage,
                 )
+
+    def _planning(
+        self,
+        plan: Sequence[PlanEntry],
+        decomposed: DecompositionSummary | None,
+        marked: frozenset[str],
+        envelope: Callable[[], Envelope],
+    ) -> Iterator[Event]:
+        """The decomposition's line, if there was one, then one planning line per subtask."""
+        if decomposed is not None:
+            yield Decomposed(
+                **envelope(),
+                session_id=decomposed.session_id,
+                model=decomposed.model,
+                num_turns=decomposed.num_turns,
+                subtasks=decomposed.subtasks,
+                interface_nodes=decomposed.interface_nodes,
+                spec_commit=decomposed.spec_commit,
+                head_revision=decomposed.head_revision,
+                policy_limits_sha256=decomposed.policy_limits_sha256,
+                observed_traffic=decomposed.observed_traffic,
+                plan_sha256=decomposed.plan_sha256,
+                interface_consumers=decomposed.interface_consumers,
+                system_requirements=decomposed.system_requirements,
+            )
+        for entry in plan:
+            # The mark is written only where it is set: every other line keeps the bytes it
+            # always had, and an explicit null is no line the log reads.
+            mark: _Mark = {"owns_completion": True} if entry.subtask_id in marked else {}
+            yield SubtaskPlanned(
+                **envelope(),
+                subtask_id=entry.subtask_id,
+                spec_path=entry.spec_path,
+                assigned_role=entry.assigned_role,
+                module_dir=entry.module_dir,
+                **mark,
+            )
+
+    def _unwritten(self) -> Callable[[], Envelope]:
+        """Envelopes numbered from a log's first line, for lines checked and never written."""
+        numbers = itertools.count()
+        run_id, gate_mode = self.config.run_id, self.config.gate_mode
+        return lambda: Envelope(
+            seq=next(numbers), ts=_UNWRITTEN_TS, run_id=run_id, gate_mode=gate_mode
+        )
 
     def start(
         self,
@@ -169,51 +234,33 @@ class RunRecord:
 
         Raises:
             RunStateError: the run was already started.
-            RunConfigError: a subtask's role has no pinned model.
+            RunConfigError: a subtask's role has no pinned model; or a line of the run's opening
+                is one the log would refuse, the role register's check on the plan's marks
+                among them. Either is raised before anything is written.
         """
         for entry in plan:
             if entry.assigned_role not in self.config.models.roles:
                 msg = "a planned subtask's role has no pinned model"
                 raise RunConfigError(msg, role=entry.assigned_role)
         # The subtask of the role that owns completion is marked on its line, as the register
-        # says now; checked for every line before any is written, so a plan the register does
-        # not bear out leaves no part of itself on the record.
+        # says now.
         owners = owners_of("completion")
-        marks = {entry.subtask_id: entry.assigned_role in owners for entry in plan}
-        for entry in plan:
-            why = completion_mark_problem(entry.assigned_role, marked=marks[entry.subtask_id])
-            if why is not None:
-                raise RunConfigError(why, role=entry.assigned_role)
+        marked = frozenset(entry.subtask_id for entry in plan if entry.assigned_role in owners)
+        # The whole opening is held to every check its lines would meet as they are written,
+        # the register's and the replay's, before the first is written: a plan that breaks one
+        # leaves no part of itself on the record, and no run is started from part of it.
+        unwritten = self._unwritten()
+        opening = [
+            *self._opening(call, unwritten),
+            *self._planning(plan, decomposed, marked, unwritten),
+        ]
+        try:
+            require_writable(opening, RunState())
+        except ValueError as exc:
+            raise RunConfigError(str(exc), run_dir=str(self.run_dir)) from None
         self._begin(call)
-        if decomposed is not None:
-            self.emit(
-                Decomposed(
-                    **self.envelope(),
-                    session_id=decomposed.session_id,
-                    model=decomposed.model,
-                    num_turns=decomposed.num_turns,
-                    subtasks=decomposed.subtasks,
-                    interface_nodes=decomposed.interface_nodes,
-                    spec_commit=decomposed.spec_commit,
-                    head_revision=decomposed.head_revision,
-                    policy_limits_sha256=decomposed.policy_limits_sha256,
-                    observed_traffic=decomposed.observed_traffic,
-                    plan_sha256=decomposed.plan_sha256,
-                    interface_consumers=decomposed.interface_consumers,
-                    system_requirements=decomposed.system_requirements,
-                )
-            )
-        for entry in plan:
-            self.emit(
-                SubtaskPlanned(
-                    **self.envelope(),
-                    subtask_id=entry.subtask_id,
-                    spec_path=entry.spec_path,
-                    assigned_role=entry.assigned_role,
-                    module_dir=entry.module_dir,
-                    owns_completion=True if marks[entry.subtask_id] else None,
-                )
-            )
+        for line in self._planning(plan, decomposed, marked, self.envelope):
+            self.emit(line)
 
     def fail_decomposition(self, call: DecompositionCall | None, detail: str) -> None:
         """Record a run whose one model call produced no usable plan. It ends there."""

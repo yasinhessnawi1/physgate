@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import io
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal, Protocol, TypedDict, TypeVar, cast
@@ -31,6 +31,7 @@ from pydantic import (
     StringConstraints,
     TypeAdapter,
     ValidationError,
+    field_validator,
     model_serializer,
     model_validator,
 )
@@ -175,6 +176,18 @@ class SubtaskPlanned(_Event):
     #: register changed later, a role renamed or an owner moved, cannot change how a recorded
     #: run replays.
     owns_completion: Literal[True] | None = None
+
+    @field_validator("owns_completion", mode="before")
+    @classmethod
+    def _a_boolean_when_present(cls, value: object) -> object:
+        # Present, the mark is a JSON boolean, and the type then takes true alone. A literal
+        # compares by equality, so 1 and 1.0 would read as the mark, and an explicit null as
+        # none: each re-serialises to bytes no writer here wrote, on the one field that decides
+        # which subtask runs after the system gate. Absent, nothing is validated.
+        if not isinstance(value, bool):
+            msg = "the completion mark is true when present, never a number or null"
+            raise ValueError(msg)
+        return value
 
     @model_serializer(mode="wrap")
     def _omit_absent(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
@@ -992,6 +1005,45 @@ class RecordState(Protocol):
         ...
 
 
+def _admit(context: _Context, state: RecordState | None, event: _Event) -> Event:
+    """``event``, if the writer may write it next; raise ``ValueError`` if not.
+
+    What every line is held to before it is written: its place among the lines before it, and in
+    a log that follows a run state, a planning line's mark against the role register and the line
+    against the state. Nothing is recorded.
+    """
+    if isinstance(event, ReviewUnavailable) and event.cause == "blocking_spec_defect":
+        msg = "a blocked review is written as a review line, never as one with no verdict"
+        raise ValueError(msg)
+    context.check(event)
+    if state is not None and isinstance(event, SubtaskPlanned):
+        # A run's plan, held to the register as it is written, and only then: replay reads
+        # the mark. An instrument's own log (a generalist review, an injected corpus) follows
+        # no run, and plans an artefact of any role; the mark is no part of it.
+        why = completion_mark_problem(event.assigned_role, marked=event.owns_completion is not None)
+        if why is not None:
+            raise ValueError(why)
+    admitted = cast("Event", event)
+    if state is not None:
+        state.check(admitted)
+    return admitted
+
+
+def require_writable(lines: Iterable[Event], state: RecordState) -> None:
+    """Raise ``ValueError`` unless ``lines``, in order, may open a log that ``state`` follows.
+
+    Each line is held to every check the writer holds a line to, as if the lines before it had
+    been written, so a run whose opening any of those checks would refuse part way is refused
+    before its first line. Nothing is written; ``state``, fresh, follows the lines and is the
+    caller's to discard.
+    """
+    context = _Context()
+    for line in lines:
+        admitted = _admit(context, state, line)
+        context.record(line)
+        state.record(admitted)
+
+
 def _parse_in(context: _Context, state: RecordState | None) -> Callable[[bytes], Event]:
     def parse(raw: bytes) -> Event:
         event = _EVENT.validate_json(raw)
@@ -1115,22 +1167,7 @@ class EventLog:
                 sequence number that is not the next one; or it is a review with
                 no verdict carrying the legacy blocked cause, which is only read.
         """
-        if isinstance(event, ReviewUnavailable) and event.cause == "blocking_spec_defect":
-            msg = "a blocked review is written as a review line, never as one with no verdict"
-            raise ValueError(msg)
-        self._context.check(event)
-        if self._state is not None and isinstance(event, SubtaskPlanned):
-            # A run's plan, held to the register as it is written, and only then: replay reads
-            # the mark. An instrument's own log (a generalist review, an injected corpus) follows
-            # no run, and plans an artefact of any role; the mark is no part of it.
-            why = completion_mark_problem(
-                event.assigned_role, marked=event.owns_completion is not None
-            )
-            if why is not None:
-                raise ValueError(why)
-        admitted = cast("Event", event)
-        if self._state is not None:
-            self._state.check(admitted)
+        admitted = _admit(self._context, self._state, event)
         self._handle.write(event.model_dump_json().encode() + b"\n")
         self._handle.flush()
         os.fsync(self._handle.fileno())
