@@ -1648,7 +1648,12 @@ class Loop:
         self._emit(IntegrationEscalated(**self._env(), item_id=item_id))
 
     def _diff(self, subtask_id: str, attempt: int) -> None:
-        self._stage(subtask_id, attempt, "diff")
+        # A person's approve is carried on from the record, never resumed: its attempt ended
+        # without a merge, so no resume line takes the cursor back. A process killed after the
+        # stage line and before the check leaves the stage entered, and the check is made under
+        # it, so the stage is never entered twice and the check never left out.
+        if self.state.subtasks[subtask_id].attempts[-1].cursor != "diff":
+            self._stage(subtask_id, attempt, "diff")
         now = self.state.subtasks[subtask_id].attempts[-1]
         since = min(now.applied.values()) - 1 if now.applied else self.state.journal_head
         role = self.state.subtasks[subtask_id].plan.assigned_role
