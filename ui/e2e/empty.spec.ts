@@ -1,4 +1,4 @@
-import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import { type ChildProcessWithoutNullStreams, execFileSync, spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -22,19 +22,25 @@ interface Started {
   readonly operator_url: string;
 }
 
-interface Serving {
-  readonly child: ChildProcessWithoutNullStreams;
-  readonly started: Started;
-}
+/** Every server this file started, stopped or not, so none is missed when it ends. */
+const servers: ChildProcessWithoutNullStreams[] = [];
 
-/** The real `physgate ui` over `root`, on a free port, with the operator named. */
-async function serve(root: string): Promise<Serving> {
+/**
+ * The real `physgate ui` over `root`, on a free port, with the operator named.
+ *
+ * It runs in a process group of its own, which `uv` leads, so a stop reaches the server `uv`
+ * starts. `uv run` neither stops on an interrupt sent to it alone nor passes one on, so a stop
+ * that signalled `uv` alone ended by killing it, and the server, adopted by the system, kept
+ * running for days.
+ */
+async function serve(root: string): Promise<Started> {
   const child = spawn(
     "uv",
     ["run", "physgate", "ui", "--root", root, "--port", "0", "--operator", "e2e-operator"],
-    { cwd: CHECKOUT },
+    { cwd: CHECKOUT, detached: true },
   );
-  const started = await new Promise<Started>((resolve, reject) => {
+  servers.push(child);
+  return new Promise<Started>((resolve, reject) => {
     let out = "";
     let err = "";
     child.stdout.on("data", (chunk: Buffer) => {
@@ -52,21 +58,51 @@ async function serve(root: string): Promise<Serving> {
       reject(new Error(`the server stopped before it served (${String(code)}): ${err}`));
     });
   });
-  return { child, started };
 }
 
-async function stop(child: ChildProcessWithoutNullStreams | undefined) {
-  // Read afresh each time: the process ends while this waits.
-  const running = () => child !== undefined && child.exitCode === null && child.signalCode === null;
-  if (child === undefined || !running()) return;
-  const stopped = new Promise((resolve) => child.once("exit", resolve));
-  child.kill("SIGINT");
-  await Promise.race([stopped, new Promise((resolve) => setTimeout(resolve, 10_000))]);
-  if (running()) child.kill("SIGKILL");
+/**
+ * Whether any process of the group `group` leads still runs. Signal 0 stops nothing. The
+ * group's id stays its own while any member runs, even once its leader is gone; a group of
+ * nothing but zombies refuses the signal (macOS: EPERM), and nothing of it runs.
+ */
+function groupRuns(group: number): boolean {
+  return signalGroup(group, 0);
 }
 
-let server: ChildProcessWithoutNullStreams | undefined;
-let unreadableServer: ChildProcessWithoutNullStreams | undefined;
+/** Signal the group `group` leads; whether it was there to be signalled. */
+function signalGroup(group: number, signal: NodeJS.Signals | 0): boolean {
+  try {
+    process.kill(-group, signal);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function until(gone: () => boolean, ms: number) {
+  const deadline = Date.now() + ms;
+  while (!gone() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
+}
+
+/** Stop the server's whole group as Ctrl-C would, and force what is left of it after 10 s. */
+async function stop(child: ChildProcessWithoutNullStreams) {
+  const group = child.pid;
+  if (group === undefined || !groupRuns(group)) return;
+  signalGroup(group, "SIGINT");
+  await until(() => !groupRuns(group), 10_000);
+  // Only while the group runs: once it is gone its id names no group of this file's.
+  if (groupRuns(group)) signalGroup(group, "SIGKILL");
+  await until(() => !groupRuns(group), 10_000);
+}
+
+/** The processes still running whose command line names `marker`, as `pid command` lines. */
+function runningWith(marker: string): string[] {
+  return execFileSync("ps", ["-A", "-ww", "-o", "pid=,command="], { encoding: "utf8" })
+    .split("\n")
+    .filter((line) => line.includes(marker))
+    .map((line) => line.trim());
+}
+
 let folder = "";
 let started: Started = { url: "", operator_url: "" };
 let unreadable: Started = { url: "", operator_url: "" };
@@ -76,18 +112,29 @@ test.beforeAll(async () => {
   folder = mkdtempSync(join(tmpdir(), "physgate-ui-e2e-empty-"));
   const root = join(folder, "physgate-runs");
   mkdirSync(root, { mode: 0o700 });
-  ({ child: server, started } = await serve(root));
+  started = await serve(root);
   // A run folder whose one run cannot be read: its record is not JSON.
   const broken = join(folder, "unreadable-runs");
   mkdirSync(join(broken, "broken-run"), { recursive: true, mode: 0o700 });
   writeFileSync(join(broken, "broken-run", "run.json"), "{");
-  ({ child: unreadableServer, started: unreadable } = await serve(broken));
+  unreadable = await serve(broken);
 });
 
+// Nothing this file started outlives it: each server is named by the folder its runs are in,
+// which this file made and nothing else names.
 test.afterAll(async () => {
-  await stop(server);
-  await stop(unreadableServer);
+  test.setTimeout(60_000);
+  for (const child of servers) await stop(child);
+  const left = folder === "" ? [] : runningWith(folder);
+  for (const line of left) {
+    try {
+      process.kill(Number(line.split(" ")[0]), "SIGKILL");
+    } catch {
+      // Gone since it was listed.
+    }
+  }
   if (folder !== "") rmSync(folder, { recursive: true, force: true });
+  expect(left, "a server this file started outlived it").toEqual([]);
 });
 
 function local(url: string = started.url): RegExp {
