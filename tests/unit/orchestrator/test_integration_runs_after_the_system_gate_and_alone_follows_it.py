@@ -1120,3 +1120,17 @@ def test_a_plan_the_register_does_not_bear_out_leaves_nothing_of_itself_on_the_r
         loop.start(with_integration("s1", "s2"))
     loop.close()
     assert not [e for e in events_of(tmp_path) if isinstance(e, SubtaskPlanned)]
+
+
+def test_an_instruments_log_that_follows_no_run_is_not_held_to_the_register(tmp_path: Path) -> None:
+    # An instrument's own log (a generalist review of one attempt, an injected corpus) plans
+    # one subtask per artefact, of whatever role the artefact is, and follows no run; the
+    # completion mark is the run's, and a run's log alone is held to the register.
+    instrument = EventLog(tmp_path / "instrument.jsonl", run_id="run-1", gate_mode="on")
+    instrument.emit(RunStarted, config_sha256="a" * 64)
+    instrument.emit(SubtaskPlanned, **planned(entry(INTEG, "integration", "-")))
+    instrument.close()
+    run = started_log(tmp_path)
+    with pytest.raises(ValueError, match="carries the completion mark"):
+        run.emit(SubtaskPlanned, **planned(entry(INTEG, "integration", "-")))
+    run.close()

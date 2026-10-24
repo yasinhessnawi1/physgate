@@ -1119,8 +1119,10 @@ class EventLog:
             msg = "a blocked review is written as a review line, never as one with no verdict"
             raise ValueError(msg)
         self._context.check(event)
-        if isinstance(event, SubtaskPlanned):
-            # Held to the register as it is written, and only then: replay reads the mark.
+        if self._state is not None and isinstance(event, SubtaskPlanned):
+            # A run's plan, held to the register as it is written, and only then: replay reads
+            # the mark. An instrument's own log (a generalist review, an injected corpus) follows
+            # no run, and plans an artefact of any role; the mark is no part of it.
             why = completion_mark_problem(
                 event.assigned_role, marked=event.owns_completion is not None
             )
