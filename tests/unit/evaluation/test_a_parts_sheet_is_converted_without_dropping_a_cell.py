@@ -1191,7 +1191,7 @@ SAYING = f"The {WORD} limit is R1.07 above."
 LABELLED = ["--label", LABEL]
 
 
-def _keeping(old: str | bytes | None = None, **rows: dict[str, Any]) -> list[str]:
+def _keeping(old: str | bytes | None = None, /, **rows: dict[str, Any]) -> list[str]:
     """Keep ``old``, or ``OLD`` with ``rows`` changed; the test writes it to a file of its own."""
     earlier = _old(**rows) if old is None else old
     return ["--keep-values-from", earlier.decode() if isinstance(earlier, bytes) else earlier]
