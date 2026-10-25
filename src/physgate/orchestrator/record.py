@@ -16,8 +16,10 @@ from typing import Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict
 
+from physgate.contracts.pairs import ContractPair
 from physgate.orchestrator.common import NonEmptyStr, utc_now, utc_stamp
 from physgate.orchestrator.events import (
+    ContractPairsPlanned,
     Decomposed,
     Envelope,
     Event,
@@ -79,6 +81,9 @@ class DecompositionSummary(BaseModel):
     #: The two lists the integration role checks; ``None`` in a run without that role.
     interface_consumers: tuple[InterfaceConsumers, ...] | None = None
     system_requirements: tuple[SystemRequirement, ...] | None = None
+    #: The module pairs whose contract is tested, read from the plan; ``None`` without the
+    #: consumers, so a run without the integration role records no such line.
+    contract_pairs: tuple[ContractPair, ...] | None = None
 
 
 class _Mark(TypedDict, total=False):
@@ -185,7 +190,11 @@ class RunRecord:
         marked: frozenset[str],
         envelope: Callable[[], Envelope],
     ) -> Iterator[Event]:
-        """The decomposition's line, if there was one, then one planning line per subtask."""
+        """The decomposition's line, if there was one, a planning line per subtask, then the pairs.
+
+        The pairs come last, so the opening holds every subtask a side names, and the first
+        dispatch finds them on the record.
+        """
         if decomposed is not None:
             yield Decomposed(
                 **envelope(),
@@ -214,6 +223,8 @@ class RunRecord:
                 module_dir=entry.module_dir,
                 **mark,
             )
+        if decomposed is not None and decomposed.contract_pairs is not None:
+            yield ContractPairsPlanned(**envelope(), pairs=decomposed.contract_pairs)
 
     def _unwritten(self) -> Callable[[], Envelope]:
         """Envelopes numbered from a log's first line, for lines checked and never written."""

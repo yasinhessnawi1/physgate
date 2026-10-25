@@ -23,6 +23,7 @@ from typing import Literal, NoReturn
 
 from pydantic import ValidationError
 
+from physgate.contracts.pairs import ContractPair, recorded_pairs_problem
 from physgate.orchestrator.budget import REPAIR_BUDGET, after_rejection
 from physgate.orchestrator.common import GateMode
 from physgate.orchestrator.decisions import require_taken
@@ -38,6 +39,7 @@ from physgate.orchestrator.escalation_state import EscalationState, escalation_s
 from physgate.orchestrator.events import (
     RESUMABLE_HALTS,
     AttemptRejected,
+    ContractPairsPlanned,
     DecisionsSealed,
     DecisionTaken,
     Decomposed,
@@ -247,6 +249,12 @@ class RunState:
         #: Every person's decision the run took, by item, and the held ones since confirmed.
         self.taken: dict[str, DecisionTaken] = {}
         self.confirmed: set[str] = set()
+        #: Each interface node's consumers, as the decomposition's line records them; ``None`` in
+        #: a run whose plan names none, which then records no contract pairs.
+        self.consumers: dict[str, tuple[str, ...]] | None = None
+        self.interfaces: tuple[str, ...] = ()
+        #: The module pairs whose contract the run tests, once their line is on the record.
+        self.contract_pairs: tuple[ContractPair, ...] | None = None
 
     # -- following the log -------------------------------------------------------
 
@@ -314,11 +322,28 @@ class RunState:
         if self.halted is not None and not isinstance(event, Resumed | Incident):
             _refuse("the run is halted; only a resume, or an incident found at one, may follow")
         if isinstance(event, SubtaskPlanned):
+            if self.contract_pairs is not None:
+                _refuse("nothing is planned after the run's contract pairs")
             self._plan(event)
             return
         if isinstance(event, Decomposed):
             self.journal_head = event.head_revision
+            if event.interface_consumers is not None:
+                self.consumers = {e.interface: e.consumers for e in event.interface_consumers}
+                self.interfaces = event.interface_nodes
             return
+        if isinstance(event, ContractPairsPlanned):
+            self._pairs(event)
+            return
+        if (
+            self.consumers is not None
+            and self.contract_pairs is None
+            and isinstance(
+                event,
+                StageEntered | IntegrationGateRan | IntegrationGateSkipped | IntegrationEscalated,
+            )
+        ):
+            _refuse("nothing is dispatched before the run's contract pairs are recorded")
         if isinstance(event, TokensUsed | EnvironmentRecorded):
             return  # attributed or recorded, never a transition
         if isinstance(event, IntegrationGateRan | IntegrationGateSkipped | IntegrationEscalated):
@@ -482,6 +507,26 @@ class RunState:
         self.order.append(event.subtask_id)
         self.subtasks[event.subtask_id] = SubtaskState(plan=event)
         self._ledger(event.subtask_id, attempt_count=0)
+
+    def _pairs(self, event: ContractPairsPlanned) -> None:
+        """Take the run's contract pairs, once, if they are the ones its recorded plan gives."""
+        if self.consumers is None:
+            _refuse(
+                "contract pairs are recorded only in a run whose plan names its interfaces' "
+                "consumers"
+            )
+        if self.contract_pairs is not None:
+            _refuse("the run's contract pairs are recorded once")
+        why = recorded_pairs_problem(
+            event.pairs,
+            interfaces=self.interfaces,
+            consumers=self.consumers,
+            planned={s: sub.plan.assigned_role for s, sub in self.subtasks.items()},
+            completion=self.completion_subtask,
+        )
+        if why is not None:
+            _refuse(f"the run's contract pairs are not its plan's: {why}")
+        self.contract_pairs = event.pairs
 
     def integrated(self) -> list[str]:
         """The planned subtasks the integration call waits for and judges: all but integration's."""

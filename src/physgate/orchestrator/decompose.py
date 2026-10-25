@@ -30,6 +30,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from physgate.contracts.pairs import ContractError, ContractPair, pairing_problems, plan_pairs
 from physgate.gate.catalogue import shadowing_names
 from physgate.hooks.settings import protected_in_a_worktree
 from physgate.knowledge.library import LibraryError, put_into, read_library
@@ -344,6 +345,7 @@ def _integration_problems(plan: Plan, roles: Sequence[str], brief: str) -> list[
     return (
         list_problems(interfaces, plan.interface_consumers, plan.system_requirements)
         + _consumer_problems(plan)
+        + pairing_problems(plan)
         + _requirement_problems(plan, brief)
     )
 
@@ -1123,10 +1125,12 @@ def start_run(
     require_fresh(run_dir)
     curated: dict[Path, bytes] = {}
     planned: list[_Issued] = []
+    pairs: tuple[ContractPair, ...] | None = None
     if outcome.ok and outcome.plan is not None:
         # Before anything is written: a refusal here leaves no run record, no run
         # branch and no worktree behind, so the same run directory can be used again.
         planned = _planned_subtasks(outcome.plan, config)
+        pairs = _contract_pairs(outcome.plan, planned)
         try:
             curated = read_library(library, (one.entry.assigned_role for one in planned))
         except LibraryError as exc:
@@ -1202,9 +1206,28 @@ def start_run(
             plan_sha256=plan_sha256(plan),
             interface_consumers=consumers,
             system_requirements=requirements,
+            contract_pairs=pairs,
         ),
     )
     return record
+
+
+def _contract_pairs(plan: Plan, planned: Sequence[_Issued]) -> tuple[ContractPair, ...] | None:
+    """The plan's contract pairs, with each module's subtask; ``None`` for a base plan.
+
+    The plan modules are the first of ``planned``, one each, minted from their places in the
+    plan; a closing pass and integration follow them and are no module of the plan.
+
+    Raises:
+        DecompositionError: the pairs cannot be formed, from a plan the plan check did not hold.
+    """
+    if not isinstance(plan, IntegratedPlan):
+        return None
+    subtask_of = {one.module: one.entry.subtask_id for one in planned[: len(plan.modules)]}
+    try:
+        return plan_pairs(plan, subtask_of)
+    except ContractError as exc:
+        raise DecompositionError(str(exc), **exc.context) from None
 
 
 def _lists(

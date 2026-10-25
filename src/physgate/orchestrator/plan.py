@@ -35,13 +35,13 @@ INTEGRATION_MODULE_DIR = "modules/integration"
 SPEC_MAX_CHARS = 32_768
 
 #: A module's name in the plan.
-_ModuleName = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9-]{0,31}$")]
+ModuleName = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9-]{0,31}$")]
 
 
 class PlannedModule(_Frozen):
     """One module of the design, as the decomposition proposes it."""
 
-    name: _ModuleName
+    name: ModuleName
     role: NonEmptyStr
     module_dir: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_][A-Za-z0-9_./-]{0,127}$")]
     #: Long enough for a specification that states its plant, sensors, timing and numbered
@@ -67,7 +67,7 @@ class Contribution(_Frozen):
     that module's specification numbers under a heading that names acceptance criteria.
     """
 
-    module: _ModuleName
+    module: ModuleName
     criterion: Annotated[str, StringConstraints(pattern=r"^[0-9]{1,6}$")]
 
 
@@ -106,7 +106,7 @@ class InterfaceConsumers(_Frozen):
     """
 
     interface: Annotated[str, StringConstraints(min_length=1, max_length=NODE_ID_MAX_LENGTH)]
-    consumers: Annotated[tuple[_ModuleName, ...], Field(min_length=1)]
+    consumers: Annotated[tuple[ModuleName, ...], Field(min_length=1)]
 
 
 class IntegratedPlan(Plan):

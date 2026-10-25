@@ -36,6 +36,7 @@ from pydantic import (
     model_validator,
 )
 
+from physgate.contracts.pairs import ContractPair
 from physgate.orchestrator.budget import ATTEMPT_LIMIT, InfraCause
 from physgate.orchestrator.common import (
     GateMode,
@@ -675,6 +676,19 @@ class Decomposed(_Event):
         return data
 
 
+class ContractPairsPlanned(_Event):
+    """The module pairs whose interface contract the run tests, read from its plan.
+
+    Written once, in the run's opening after the planning lines, and only in a run whose plan
+    names the consumers of its interfaces (one with the integration role), so the set is on the
+    record before any module runs and nothing a module writes can shape it. Replay holds it to
+    the plan's recorded lines and refuses a dispatch before it.
+    """
+
+    kind: Literal["contract_pairs_planned"] = "contract_pairs_planned"
+    pairs: Annotated[tuple[ContractPair, ...], Field(min_length=1)]
+
+
 class WriteIntended(_Event):
     """The orchestrator is about to write one node into the canonical store.
 
@@ -877,6 +891,7 @@ Event = Annotated[
     | Incident
     | Resumed
     | Decomposed
+    | ContractPairsPlanned
     | EnvironmentRecorded
     | InstallChecked
     | OsLayerChecked
