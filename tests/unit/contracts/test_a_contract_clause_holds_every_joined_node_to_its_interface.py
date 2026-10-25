@@ -288,20 +288,24 @@ def test_a_result_reads_back_whole_and_one_that_contradicts_itself_is_refused() 
     result = joined_pair({"v": q(12, "V")}, {"v": q(12, "V")}, {"v": q(13, "V")})
     raw = result.model_dump_json()
     assert ContractResult.model_validate_json(raw) == result
-    for path, value in [
-        (("clauses_checked",), 2),
-        (("outcome",), "pass"),
-        (("interfaces", 0, "clauses_checked"), 0),
-        (("interfaces", 0, "outcome"), "pass"),
-        (("interfaces", 0, "clauses", 0, "outcome"), "pass"),
-        (("interfaces", 0, "not_joined"), ["producer"]),
-        (("interfaces", 0, "interface"), "iface.other"),
+    # Each set of changes is consistent above the level it contradicts, so only the check of
+    # that level can refuse it: a clause, an interface, or the result as a whole.
+    clause = ("interfaces", 0, "clauses", 0, "outcome")
+    for changes in [
+        [(clause, "pass"), (("interfaces", 0, "outcome"), "pass"), (("outcome",), "pass")],
+        [(("interfaces", 0, "not_joined"), ["producer"])],
+        [(("interfaces", 0, "clauses_checked"), 0), (("clauses_checked",), 0)],
+        [(("interfaces", 0, "outcome"), "pass"), (("outcome",), "pass")],
+        [(("clauses_checked",), 2)],
+        [(("outcome",), "pass")],
+        [(("interfaces", 0, "interface"), "iface.other")],
     ]:
         data = json.loads(raw)
-        target = data
-        for key in path[:-1]:
-            target = target[key]
-        target[path[-1]] = value
+        for path, value in changes:
+            target = data
+            for key in path[:-1]:
+                target = target[key]
+            target[path[-1]] = value
         with pytest.raises(ValidationError):
             ContractResult.model_validate_json(json.dumps(data))
 
