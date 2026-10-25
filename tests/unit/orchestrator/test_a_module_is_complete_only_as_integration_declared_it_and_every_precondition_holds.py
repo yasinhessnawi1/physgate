@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from loop_fakes import FakeChanges, FakeGate, FakeReviewer, KilledError, Rig, plan
+from loop_fakes import FakeChanges, FakeDispatcher, FakeGate, FakeReviewer, KilledError, Rig, plan
 
 from physgate import roles
 from physgate.orchestrator import completion
@@ -41,6 +41,7 @@ from physgate.orchestrator.events import (
     read_events,
 )
 from physgate.orchestrator.exceptions import CorruptEventLogError
+from physgate.orchestrator.install import InstallFacts
 from physgate.orchestrator.loop import Loop
 from physgate.orchestrator.protocols import Artefact, GateResult, RunningGateMode
 from physgate.orchestrator.record import PlanEntry
@@ -60,6 +61,23 @@ INTEGRATION = PlanEntry(
     assigned_role="integration",
     module_dir="modules/integration",
 )
+
+
+class Installed(FakeDispatcher):
+    """A dispatcher whose installation has facts, so each process records its environment."""
+
+    def environment(self) -> InstallFacts:  # type: ignore[override]
+        return InstallFacts(
+            path="/i",
+            interpreter="/i/bin/python",
+            owner_is_session_user=True,
+            files_with_write_bits=0,
+            files_with_second_links=0,
+            stdlib="/lib",
+            stdlib_writable=True,
+            state_filesystem="apfs",
+            state_on_local_disk=True,
+        )
 
 
 def rig_for(tmp_path: Path, mode: GateMode = "on", **fields: Any) -> Rig:
@@ -436,7 +454,7 @@ def test_replay_refuses_a_completion_no_integration_attempt_explains(
 def test_a_kill_between_integrations_diff_and_its_last_completion_resumes_to_one_line_each(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, written: int
 ) -> None:
-    rig = rig_for(tmp_path)
+    rig = rig_for(tmp_path, dispatcher=Installed())
     loop = rig.open()
     declaring(monkeypatch, loop, ("s1", "s2"), kill_at_completion=written)
     loop.start([*plan("s1", "s2"), INTEGRATION])
@@ -453,7 +471,9 @@ def test_a_kill_between_integrations_diff_and_its_last_completion_resumes_to_one
     fresh.close()
     events = read_events(tmp_path / "events.jsonl")
     assert [e.subtask_id for e in completions(events)] == ["s1", "s2"]
-    # The process that took over spawned nothing, so it recorded no environment for it.
+    # The process that took over spawned nothing, so it recorded no environment for it; the one
+    # before it did, for its sessions.
+    assert [e for e in events[:cut] if isinstance(e, EnvironmentRecorded)]
     assert not [e for e in events[cut:] if isinstance(e, EnvironmentRecorded)]
     assert len(rig.dispatcher.requests) == sessions
 
@@ -483,7 +503,10 @@ def test_a_kill_after_integrations_declaration_resumes_to_a_fresh_one_for_the_re
     with pytest.raises(KilledError):
         loop.run()
     loop.close()
-    assert [e.attempt for e in read_events(tmp_path / "events.jsonl")[-3:]] == [1, 1, 1]
+    # Killed at the gate of integration's first attempt, its declaration already on the record.
+    last = read_events(tmp_path / "events.jsonl")[-3:]
+    assert [type(e) for e in last] == [ProposalsChecked, CompletionDeclared, StageEntered]
+    assert [getattr(e, "attempt", None) for e in last] == [1, 1, 1]
     fresh = rig.open()
     declaring(monkeypatch, fresh, ("s1", "s2"))
     assert fresh.resume().kind == "done"
