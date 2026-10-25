@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from loop_fakes import FakeChanges, FakeGate, KilledError, Rig, plan
+from loop_fakes import FakeChanges, FakeGate, FakeReviewer, KilledError, Rig, plan
 
 from physgate import roles
 from physgate.orchestrator import completion
@@ -42,6 +42,7 @@ from physgate.orchestrator.events import (
 )
 from physgate.orchestrator.exceptions import CorruptEventLogError
 from physgate.orchestrator.loop import Loop
+from physgate.orchestrator.protocols import Artefact, GateResult, RunningGateMode
 from physgate.orchestrator.record import PlanEntry
 from physgate.orchestrator.replay import RunState, replay
 from physgate.orchestrator.run_config import ModelStrings
@@ -213,6 +214,30 @@ def test_a_run_with_merged_but_undeclared_modules_does_not_read_complete(
         assert "s2" not in state.completed
         assert state.owed_completion() is None
         assert state.next_step().kind == "done"
+
+
+def test_nothing_is_owed_while_integrations_subtask_is_set_aside_for_a_person(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reviewer = FakeReviewer(verdicts=["pass", "pass", "fail", "fail", "fail"])
+    events = finished(tmp_path, monkeypatch, reviewer=reviewer)
+    # Every attempt declared, and none was accepted: the third rejection went to the queue.
+    assert [e.attempt for e in events if isinstance(e, CompletionDeclared)] == [1, 2, 3]
+    state = replay(events)
+    assert state.subtasks[INTEG].status == "escalated"
+    assert completions(events) == []
+    assert state.owed_completion() is None
+    assert state.next_step().kind == "done"
+
+
+def test_the_completion_names_the_attempt_of_integration_that_merged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Integration's first attempt is refused at its change check, so it declares nothing.
+    changes = FakeChanges(refuse={3: ("proposal", "a node no session writes")})
+    events = finished(tmp_path, monkeypatch, changes=changes)
+    assert [e.attempt for e in events if isinstance(e, CompletionDeclared)] == [2]
+    assert [(e.subtask_id, e.attempt) for e in completions(events)] == [("s1", 2), ("s2", 2)]
 
 
 def test_completion_is_withheld_while_a_registered_precondition_is_open(
@@ -429,6 +454,42 @@ def test_a_kill_between_integrations_diff_and_its_last_completion_resumes_to_one
     assert len(rig.dispatcher.requests) == sessions
 
 
+class KillingGate(FakeGate):
+    """A gate that kills the orchestrator once, inside its ``n``-th check of an attempt."""
+
+    def __init__(self, n: int) -> None:
+        super().__init__()
+        self.n = n
+
+    def check(self, artefact: Artefact, *, mode: RunningGateMode) -> GateResult:
+        if len(self.seen) + 1 == self.n:
+            self.n = 0
+            self.seen.append(artefact)
+            raise KilledError
+        return super().check(artefact, mode=mode)
+
+
+def test_a_kill_after_integrations_declaration_resumes_to_a_fresh_one_for_the_rechecked_attempt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = rig_for(tmp_path, gate=KillingGate(3))  # integration's is the third attempt gated
+    loop = rig.open()
+    declaring(monkeypatch, loop, ("s1", "s2"))
+    loop.start([*plan("s1", "s2"), INTEGRATION])
+    with pytest.raises(KilledError):
+        loop.run()
+    loop.close()
+    assert [e.attempt for e in read_events(tmp_path / "events.jsonl")[-3:]] == [1, 1, 1]
+    fresh = rig.open()
+    declaring(monkeypatch, fresh, ("s1", "s2"))
+    assert fresh.resume().kind == "done"
+    fresh.close()
+    events = read_events(tmp_path / "events.jsonl")
+    # The resumed attempt checks its changes again, and reads its declaration again with them.
+    assert len([e for e in events if isinstance(e, CompletionDeclared)]) == 2
+    assert [e.subtask_id for e in completions(events)] == ["s1", "s2"]
+
+
 def _prefix_log(tmp_path: Path, events: Sequence[Event]) -> EventLog:
     """A run's log holding ``events``, opened by the writer, which follows a run state."""
     path = tmp_path / "prefix" / "events.jsonl"
@@ -453,6 +514,10 @@ def test_a_completion_line_is_refused_as_it_is_written_unless_the_register_names
         log = _prefix_log(tmp_path / f"ok-{type(extra).__name__}", prefix)
         log.append(extra)
         log.close()
+    log = _prefix_log(tmp_path / "another role", owed)
+    with pytest.raises(ValueError, match="only a subtask of the integration role, which owns"):
+        log.append(completed(owed, "s1", declared_by="s2"))
+    log.close()
     # Past the register's own check, as a patched register is.
     if register == "two owners":
         closer = CrossCuttingRole(name="closer", architecture="ARCH-051", owns="completion")
