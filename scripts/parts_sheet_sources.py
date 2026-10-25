@@ -166,7 +166,7 @@ _GAP = rf"[{re.escape(_MARKERS)}\s]*"
 #: optional letter, a separator and digits, with markers and spaces between them, and no space
 #: after a comma.
 _ROW_ID_LOOSE = re.compile(
-    rf"(?<![^\W_]|[-\u2010])(?:R|row){_GAP}\d+[{re.escape(_MARKERS)}]*[A-Z]?{_GAP}"
+    rf"(?<![^\W_]|[-\u2010])(?:R|row){_GAP}\d+[A-Z]?{_GAP}"
     rf"(?:[{re.escape(_ROW_ID_SEPARATORS)}]{_GAP}"
     rf"|[{_ROW_ID_COMMAS}](?![{re.escape(_MARKERS)}]*\s)[{re.escape(_MARKERS)}]*)\d+",
     re.IGNORECASE,
