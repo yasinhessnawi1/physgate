@@ -331,6 +331,10 @@ def test_a_declaration_comes_only_from_integration_after_its_accepted_change_che
         (events[: s1_checked + 1], {"subtask_id": "s1"}, owner),
     ):
         refused(prefix, declaration(prefix, **(extra or {})), reason)
+    # Past the change check in an attempt that has declared nothing: its gate stage, its merge.
+    bare = finished(tmp_path / "undeclared", monkeypatch, declared=None)
+    for after in (index(bare, StageEntered, stage="gate"), index(bare, Merged)):
+        refused(bare[: after + 1], declaration(bare[: after + 1]), place)
     # After a change check that refused the attempt.
     changes = FakeChanges(refuse={3: ("proposal", "a node no session writes")})
     events = finished(tmp_path / "refused", monkeypatch, declared=(), changes=changes)
