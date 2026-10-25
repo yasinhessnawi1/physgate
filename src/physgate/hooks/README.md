@@ -50,8 +50,19 @@ session is started with them.
 physgate hooks install --profile role --role electrical \
     --worktree <worktree> --own-branch <branch> --store-root <store> \
     --state-dir <state> --target <settings dir> --claude-config-dir <dir> \
+    --os-layer-temp <session temp dir> --spawns-with-canary \
     --ceiling <tokens> --reading <file> ... --always-loaded <file> ...
 ```
+
+A role session's settings carry the OS layer's sandbox, which `--os-layer-temp` names
+the session's own temporary directory for; without it the command refuses (exit 2)
+and writes nothing. A development run that allows the layer's absence names its
+recorded configuration instead, `--run-config <run>/run.json`, and the settings are
+written without the sandbox only where that configuration says `os_layer_absent:
+allow` and does not act on queue decisions. `--spawns-with-canary` says the spawner
+exports the session's pid as the survivor reaper's canary before it starts the
+binary, as the dispatcher's held spawn does; on macOS, where the reaper runs, a
+sandboxed role session is refused without it.
 
 It prints the spawn arguments: `--setting-sources ""` and `--settings <file>`,
 and a scratch `CLAUDE_CONFIG_DIR`. All of it is outside the worktree, and all of

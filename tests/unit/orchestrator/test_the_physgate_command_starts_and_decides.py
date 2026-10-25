@@ -155,6 +155,12 @@ def test_the_hook_layer_is_still_reachable_through_the_one_command(
 ) -> None:
     worktree = tmp_path / "wt"
     worktree.mkdir()
+    from orch_helpers import make_config  # noqa: PLC0415
+
+    from physgate.orchestrator.run_config import write_run_config  # noqa: PLC0415
+
+    # Without the OS layer, for a run that allows that.
+    write_run_config(tmp_path / "run.json", make_config(os_layer_absent="allow"))
     code = main(
         [
             "hooks",
@@ -173,6 +179,8 @@ def test_the_hook_layer_is_still_reachable_through_the_one_command(
             str(tmp_path / "cfg"),
             "--ceiling",
             "1000",
+            "--run-config",
+            str(tmp_path / "run.json"),
         ]
     )
     assert code == 0
