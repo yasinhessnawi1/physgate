@@ -1108,33 +1108,41 @@ def test_the_additive_check_compares_quantity_address_and_the_sheet_s_own_fields
 #
 # A blind conversion may be scripted by an agent that is never to read the corpus. A refusal
 # names a line by its number (and a line that may be named, by its digest), a row by its id, a
-# telltale by the list's own word, and a name by its place among those given: never a name,
-# and never any other text of the table.
+# telltale by the list's own word, a name by its place among those given, an earlier sheet's
+# key by its place unless it is a row id or a field's name, a file by what it is, an argument
+# by what is wrong with it, and a byte that is not UTF-8 by its offset: never a name, a path or
+# an argument, and never any other text of the table or the earlier sheet.
 
 #: A word no refusal may print: written into what each refusal is about, or passed as a name.
 WORD = "Quokkazanzibar"
 #: A line of prose that names a row, holding the word.
 SAYING = f"The {WORD} limit is R1.07 above."
+#: The arguments that give a sheet converted from the table alone its label.
+LABELLED = ["--label", LABEL]
 
 
-def _keeping(**rows: dict[str, Any]) -> list[str]:
-    return ["--keep-values-from", _old(**rows).decode()]
+def _keeping(old: str | bytes | None = None, **rows: dict[str, Any]) -> list[str]:
+    """Keep ``old``, or ``OLD`` with ``rows`` changed; the test writes it to a file of its own."""
+    earlier = _old(**rows) if old is None else old
+    return ["--keep-values-from", earlier.decode() if isinstance(earlier, bytes) else earlier]
 
 
-#: Each refusal, as the command is run: the table, and its arguments after the two paths.
-REFUSALS: dict[str, tuple[str, list[str]]] = {
-    "an-unnamed-line-that-holds-a-row-id": (_with(SAYING), ["--prose", "drop"]),
+#: Each refusal of the converter, as the command is run: the table, and the arguments after the
+#: two paths. The command exits 1.
+REFUSALS: dict[str, tuple[str | bytes, list[str]]] = {
+    "an-unnamed-line-that-holds-a-row-id": (_with(SAYING), [*LABELLED, "--prose", "drop"]),
     "the-line-passed-as-its-own-name": (
         _with(SAYING),
-        ["--prose", "drop", "--drop-prose-line-sha256", SAYING],
+        [*LABELLED, "--prose", "drop", "--drop-prose-line-sha256", SAYING],
     ),
     "a-line-with-no-row-id-passed-as-a-name": (
         _with(SAYING, f"The {WORD} part."),
-        ["--prose", "drop", "--drop-prose-line-sha256", f"The {WORD} part."],
+        [*LABELLED, "--prose", "drop", "--drop-prose-line-sha256", f"The {WORD} part."],
     ),
     "a-stale-name": (
         _with(SAYING),
         [
+            *LABELLED,
             "--prose",
             "drop",
             "--drop-prose-line-sha256",
@@ -1145,58 +1153,253 @@ REFUSALS: dict[str, tuple[str, list[str]]] = {
     ),
     "a-name-given-twice": (
         _with(SAYING),
-        ["--prose", "drop", *(["--drop-prose-line-sha256", _digest(SAYING)] * 2)],
+        [*LABELLED, "--prose", "drop", *(["--drop-prose-line-sha256", _digest(SAYING)] * 2)],
     ),
     "a-name-two-lines-share": (
         _with(SAYING, SAYING),
-        ["--prose", "drop", "--drop-prose-line-sha256", _digest(SAYING)],
+        [*LABELLED, "--prose", "drop", "--drop-prose-line-sha256", _digest(SAYING)],
     ),
     "a-name-where-the-prose-is-carried": (
         _with(SAYING),
-        ["--prose", "carry", "--drop-prose-line-sha256", _digest(SAYING)],
+        [*LABELLED, "--prose", "carry", "--drop-prose-line-sha256", _digest(SAYING)],
     ),
-    "prose-told-nothing": (_with(SAYING), []),
-    "a-heading-that-holds-a-row-id": (_with(f"## {WORD} R1.08"), ["--prose", "drop"]),
-    "a-heading-that-holds-a-pipe": (_with(f"## {WORD} | b"), ["--prose", "drop"]),
-    "a-row-without-its-leading-pipe": (_with(f"R1.08 | {WORD} | 5 | V"), ["--prose", "drop"]),
-    "a-line-that-holds-a-pipe": (_with(f"{WORD} | b"), ["--prose", "carry"]),
-    "a-code-fence": (_with(f"```{WORD}", "```"), ["--prose", "carry"]),
-    "a-carriage-return-in-a-line": (_with(f"{WORD}\rR1.07"), ["--prose", "carry"]),
-    "a-telltale-in-carried-prose": (_with(f"The planted {WORD} part."), ["--prose", "carry"]),
-    "a-telltale-in-a-note": (_row(SHEET, "R1.03", 6, f"the {WORD} answer"), []),
-    "a-table-line-that-is-no-row": (SHEET + f"| {WORD} | b |\n", []),
-    "a-row-with-no-quantity": (_row(_row(SHEET, "R1.03", 1, "-"), "R1.03", 6, WORD), []),
-    "a-source-that-is-no-address": (_row(SHEET, "R1.03", 4, f"the {WORD} datasheet"), []),
+    "prose-told-nothing": (_with(SAYING), LABELLED),
+    "a-heading-that-holds-a-row-id": (_with(f"## {WORD} R1.08"), [*LABELLED, "--prose", "drop"]),
+    "a-heading-that-holds-a-pipe": (_with(f"## {WORD} | b"), [*LABELLED, "--prose", "drop"]),
+    "a-row-without-its-leading-pipe": (
+        _with(f"R1.08 | {WORD} | 5 | V"),
+        [*LABELLED, "--prose", "drop"],
+    ),
+    "a-line-that-holds-a-pipe": (_with(f"{WORD} | b"), [*LABELLED, "--prose", "carry"]),
+    "a-code-fence": (_with(f"```{WORD}", "```"), [*LABELLED, "--prose", "carry"]),
+    "a-carriage-return-in-a-line": (_with(f"{WORD}\rR1.07"), [*LABELLED, "--prose", "carry"]),
+    "a-telltale-in-carried-prose": (
+        _with(f"The planted {WORD} part."),
+        [*LABELLED, "--prose", "carry"],
+    ),
+    "a-telltale-in-a-note": (_row(SHEET, "R1.03", 6, f"the {WORD} answer"), LABELLED),
+    "a-table-line-that-is-no-row": (SHEET + f"| {WORD} | b |\n", LABELLED),
+    "a-separator-with-no-header": (
+        "# Parts\n\n|---|---|\n" + HEADER + f"| R1.01 | {WORD} | 1 | A | {MOTOR} | {DAY} | — |\n",
+        LABELLED,
+    ),
+    "a-row-before-any-header": (
+        f"# Parts\n\n| R1.01 | {WORD} | 1 | A | {MOTOR} | {DAY} | — |\n",
+        LABELLED,
+    ),
+    "a-row-with-another-number-of-cells": (_row(SHEET, "R1.03", 6, f"{WORD} | b"), LABELLED),
+    "a-row-written-twice": (
+        SHEET + f"| R1.01 | {WORD} | 1 | A | {MOTOR} | {DAY} | — |\n",
+        LABELLED,
+    ),
+    "a-row-with-no-quantity": (_row(_row(SHEET, "R1.03", 1, "-"), "R1.03", 6, WORD), LABELLED),
+    "a-row-with-no-value": (_row(_row(SHEET, "R1.03", 2, "—"), "R1.03", 6, WORD), LABELLED),
+    "a-source-that-is-no-address": (_row(SHEET, "R1.03", 4, f"the {WORD} datasheet"), LABELLED),
+    "a-second-retrieval-date": (_row(SHEET, "R1.03", 5, WORD), LABELLED),
+    "no-row": (f"# Parts\n\n{WORD} said.\n", [*LABELLED, "--prose", "carry"]),
+    "no-label": (_with(f"The {WORD} part."), ["--prose", "carry"]),
+    "another-label-than-the-earlier-sheet-s": (SHEET, [*_keeping(), "--label", WORD]),
+    "an-earlier-sheet-that-is-no-json": (SHEET, _keeping(f"{WORD} {{")),
+    "an-earlier-sheet-that-writes-a-key-twice": (
+        SHEET,
+        _keeping(f'{{"label": "L", "rows": {{"R1.01": {{"{WORD}": 1, "{WORD}": 2}}}}}}'),
+    ),
+    "an-earlier-sheet-that-already-gives-a-value": (
+        SHEET,
+        _keeping(**{WORD: {**OLD["rows"]["R1.05"], "given": "QFN-24"}}),
+    ),
     "an-earlier-sheet-that-is-no-parts-sheet": (
         SHEET,
         _keeping(**{"R1.03": {**OLD["rows"]["R1.03"], "value": WORD}}),
+    ),
+    "an-earlier-sheet-with-a-row-that-is-no-row-id": (
+        SHEET,
+        _keeping(**{WORD: {**OLD["rows"]["R1.05"]}}),
+    ),
+    "an-earlier-sheet-with-a-field-of-its-own": (SHEET, _keeping(json.dumps({**OLD, WORD: 1}))),
+    "an-earlier-sheet-whose-row-has-a-field-of-its-own": (
+        SHEET,
+        _keeping(**{"R1.05": {**OLD["rows"]["R1.05"], WORD: 1}}),
+    ),
+    "an-earlier-sheet-with-other-rows": (
+        SHEET,
+        _keeping(**{"R2.01": {**OLD["rows"]["R1.05"], "quantity": WORD}}),
+    ),
+    "an-earlier-sheet-in-another-order": (
+        SHEET,
+        _keeping(_reorder(json.dumps({**OLD, "label": WORD}).encode())),
+    ),
+    "another-quantity-than-the-earlier-sheet-s": (_row(SHEET, "R1.03", 1, WORD), _keeping()),
+    "another-address-than-the-earlier-sheet-s": (
+        _row(SHEET, "R1.03", 4, f"{SUPPLY}/{WORD}"),
+        _keeping(),
     ),
     "a-kept-number-the-cell-does-not-write": (
         _row(SHEET, "R1.03", 2, f"2.7–5.5 {WORD}"),
         _keeping(**{"R1.03": {**OLD["rows"]["R1.03"], "value": 4.0}}),
     ),
+    "a-unit-of-another-scale-than-the-earlier-sheet-s": (
+        _row(_row(SHEET, "R1.03", 3, "mV"), "R1.03", 6, WORD),
+        _keeping(),
+    ),
+    "a-table-that-is-not-utf-8": (
+        (SHEET + f"\nThe limit is {WORD}").encode() + b"\xff\n",
+        [*LABELLED, "--prose", "carry"],
+    ),
+}
+
+#: Each refusal of the command's arguments: argparse refuses before the command runs, and its
+#: own refusals print the arguments they refuse. The command exits 2.
+ARGUMENT_REFUSALS: dict[str, tuple[str, list[str]]] = {
+    "the-line-split-into-words-after-its-option": (
+        _with(SAYING),
+        [*LABELLED, "--prose", "drop", "--drop-prose-line-sha256", *SAYING.split()],
+    ),
+    "the-line-given-to-prose": (_with(SAYING), [*LABELLED, "--prose", SAYING]),
+    "a-name-that-starts-with-a-dash": (
+        _with(SAYING),
+        [*LABELLED, "--prose", "drop", "--drop-prose-line-sha256", f"-{WORD}"],
+    ),
+    "an-option-it-does-not-know": (_with(SAYING), [*LABELLED, f"--{WORD}", "drop"]),
 }
 
 
-@pytest.mark.parametrize(("table", "args"), REFUSALS.values(), ids=REFUSALS.keys())
+def _exit(argv: list[str]) -> int:
+    """What the command exits with, argparse's refusals (which raise ``SystemExit``) among it."""
+    try:
+        return converter.main(argv)
+    except SystemExit as stopped:
+        return stopped.code if isinstance(stopped.code, int) else -1
+
+
+@pytest.mark.parametrize(
+    ("table", "args", "code"),
+    [
+        *((table, args, 1) for table, args in REFUSALS.values()),
+        *((table, args, 2) for table, args in ARGUMENT_REFUSALS.values()),
+    ],
+    ids=[*REFUSALS, *ARGUMENT_REFUSALS],
+)
 def test_no_refusal_prints_a_name_or_the_text_of_the_table(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], table: str, args: list[str]
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    table: str | bytes,
+    args: list[str],
+    code: int,
 ) -> None:
     path, out = tmp_path / "parts_sheet.md", tmp_path / "sources.json"
-    path.write_bytes(table.encode("utf-8"))
-    if args[:1] == ["--keep-values-from"]:
-        (tmp_path / "old.json").write_text(args[1])
-        args = ["--keep-values-from", str(tmp_path / "old.json"), *args[2:]]
-    else:
-        args = ["--label", LABEL, *args]
-    assert converter.main([str(path), str(out), *args]) == 1
+    path.write_bytes(table if isinstance(table, bytes) else table.encode("utf-8"))
+    args = list(args)
+    if "--keep-values-from" in args:
+        at = args.index("--keep-values-from") + 1
+        (tmp_path / "old.json").write_text(args[at])
+        args[at] = str(tmp_path / "old.json")
+    assert _exit([str(path), str(out), *args]) == code
     assert not out.exists()
     said = capsys.readouterr()
     printed = (said.out + said.err).casefold()
     assert "refused" in printed
     assert WORD.casefold() not in printed
-    names = [args[i + 1] for i, a in enumerate(args) if a == "--drop-prose-line-sha256"]
-    assert not [n for n in names if n.casefold() in printed], "a name given was printed"
+    if code == 1:
+        named = [args[i + 1] for i, a in enumerate(args) if a == "--drop-prose-line-sha256"]
+        assert not [n for n in named if n.casefold() in printed], "a name given was printed"
+
+
+@pytest.mark.parametrize(
+    "place",
+    ["the-table", "the-earlier-sheet", "the-sheet-to-write", "the-sheet-s-folder"],
+)
+def test_no_refusal_prints_a_path_it_was_given(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], place: str
+) -> None:
+    """A path may be a line of the table too, passed in place of a file."""
+    table, out, old = tmp_path / "parts_sheet.md", tmp_path / "sources.json", tmp_path / "old.json"
+    table.write_text(SHEET)
+    old.write_bytes(_old())
+    missing = tmp_path / f"The {WORD} limit"
+    if place == "the-table":
+        argv = [str(missing), str(out), *LABELLED]
+    elif place == "the-earlier-sheet":
+        argv = [str(table), str(out), "--keep-values-from", str(missing)]
+    elif place == "the-sheet-to-write":
+        missing.write_text("kept")
+        argv = [str(table), str(missing), *LABELLED]
+    else:
+        argv = [str(table), str(missing / "sources.json"), *LABELLED]
+    assert _exit(argv) == 1
+    said = capsys.readouterr()
+    printed = (said.out + said.err).casefold()
+    assert "refused" in printed
+    assert WORD.casefold() not in printed
+    assert not out.exists() and not (missing / "sources.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("old", "said"),
+    [
+        (
+            f'{{"label": "L", "rows": {{"R1.01": {{"quantity": "q", "{WORD}": 1, "{WORD}": 2}}}}}}',
+            r"a key twice in one object, as its keys 2 and 3 of 3",
+        ),
+        (
+            json.dumps({**OLD, "rows": {**OLD["rows"], WORD: {**OLD["rows"]["R1.05"]}}}),
+            r"rows\.<key 9 of 9>\.\[key\]: String should match pattern",
+        ),
+        (
+            json.dumps({**OLD, WORD: 1}),
+            r"not a parts sheet: <key 3 of 3>: Extra inputs",
+        ),
+        (
+            json.dumps(
+                {**OLD, "rows": {**OLD["rows"], "R1.05": {**OLD["rows"]["R1.05"], WORD: 1}}}
+            ),
+            r"rows\.R1\.05\.<key 5 of 5>: Extra inputs",
+        ),
+        (
+            json.dumps(
+                {**OLD, "rows": {**OLD["rows"], WORD: {**OLD["rows"]["R1.05"], "note": "n"}}}
+            ),
+            r"already gives values, notes or remarks, at rows <key 9 of 9>$",
+        ),
+    ],
+    ids=[
+        "a-key-twice",
+        "a-row-keyed-by-no-row-id",
+        "a-field-of-its-own",
+        "a-row-s-field-of-its-own",
+        "a-row-that-already-gives-a-note",
+    ],
+)
+def test_an_earlier_sheet_s_key_is_named_by_its_place_unless_it_is_a_row_id_or_a_field(
+    old: str, said: str
+) -> None:
+    """A key that is neither may be a line of the table; a row id or a field's name cannot."""
+    with pytest.raises(converter.SheetRefusedError, match=said) as refused:
+        converter.convert(SHEET, keep=old.encode())
+    assert WORD not in str(refused.value)
+
+
+def test_prose_told_neither_carry_nor_drop_is_refused_and_what_it_was_told_is_not_printed() -> None:
+    """The command's parser refuses it first; a script calling the converter may not."""
+    with pytest.raises(converter.SheetRefusedError, match="carry or drop") as refused:
+        converter.convert(_with(SAYING), label=LABEL, prose=SAYING)
+    assert WORD not in str(refused.value)
+
+
+def test_a_sheet_that_would_not_load_is_refused_by_where_and_not_by_what(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The written sheet is held to the parts sheet's schema; the refusal says where it fails."""
+    built = converter._row
+
+    def unloadable(cells: list[str], address: str | None) -> dict[str, object]:
+        row = built(cells, address)
+        return {**row, "quantity": f"the {WORD} current", "unit": None} if row["unit"] else row
+
+    monkeypatch.setattr(converter, "_row", unloadable)
+    with pytest.raises(converter.SheetRefusedError, match=r"would not load.*R1\.01") as refused:
+        converter.convert(SHEET, label=LABEL)
+    assert WORD not in str(refused.value)
 
 
 def test_a_cell_s_unit_is_not_printed_where_it_is_refused(

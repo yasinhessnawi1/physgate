@@ -39,9 +39,14 @@ neither is refused. A line of whitespace and characters that print as nothing is
 every cell is read without them around it.
 
 **What a refusal prints.** A line by its number, and a line that may be named by its digest;
-a row by its id; a telltale by the list's own word; a name by its place among the names given.
-Never a name, and never any other text of the table, so a refusal can be read where the
-table may not be.
+a row by its id; a telltale by the list's own word; a name by its place among the names given;
+a key of the earlier sheet as written where it is a row id or a parts sheet's field, and
+otherwise by its place in its object; a file by what it is (the table, the earlier sheet, the
+sheet to write), never by its path; an argument the command cannot take by what is wrong with
+it, never the argument; a table that is not UTF-8 by the offset of its first byte that is not.
+Never a name, a path or an argument, and never any other text of the table or of the earlier
+sheet but the earlier sheet's numbers and units, so a refusal can be read where the table may
+not be: an argument may be a line of it, passed by mistake, or split into words by the shell.
 
 **What a review is given holds no telltale word.** Every ``given``, ``note`` and remark the
 converter writes is held to the corpus's telltale words, the same list the instrument holds a
@@ -99,11 +104,11 @@ import unicodedata
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from pydantic import ValidationError
 
-from physgate.evaluation.inject.corpus import Sources, telltales, visible
+from physgate.evaluation.inject.corpus import SourceRow, Sources, telltales, visible
 from physgate.gate.units import UnitRefusedError, parse
 from physgate.orchestrator.common import first_problem
 
@@ -508,13 +513,57 @@ def _kept(
     return row
 
 
+#: The names a parts sheet gives its fields, and a validator's name for a key itself.
+_FIELD_NAMES = frozenset({*Sources.model_fields, *SourceRow.model_fields, "[key]"})
+
+
+def _printable(key: object) -> bool:
+    """Whether a key of the earlier sheet may be printed: a row id, or a parts sheet's field.
+
+    Neither can hold the table's text. Any other key may: an earlier sheet is a file the
+    command is given, and a line of the table may stand in it.
+    """
+    return isinstance(key, str) and (key in _FIELD_NAMES or _ROW_ID.fullmatch(key) is not None)
+
+
+def _key(key: object, keys: Sequence[object]) -> str:
+    """A key of the earlier sheet as a refusal names it: as written, or by its place."""
+    return str(key) if _printable(key) else f"<key {list(keys).index(key) + 1} of {len(keys)}>"
+
+
+def _where(loc: Sequence[int | str], earlier: object) -> str:
+    """Where in the earlier sheet a validator's problem is, each key named as :func:`_key` does.
+
+    A validator's own words for a branch of a type (``float``, ``tuple[…]``) name no place in
+    the sheet and are left out.
+    """
+    parts: list[str] = []
+    node = earlier
+    for part in loc:
+        if isinstance(node, dict) and part in node:
+            parts.append(_key(part, list(node)))
+            node = node[part]
+        elif isinstance(part, int):
+            parts.append(str(part))
+            node = node[part] if isinstance(node, list) and -len(node) <= part < len(node) else None
+        elif _printable(part):
+            parts.append(str(part))
+            node = None
+    return ".".join(parts) or "the sheet"
+
+
 def _once(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     """A JSON object whose every key is written once."""
     keys = [k for k, _ in pairs]
-    twice = sorted({k for k in keys if keys.count(k) > 1})
-    if twice:
-        msg = f"the earlier sheet writes {twice} twice in one object"
-        raise SheetRefusedError(msg)
+    for place, key in enumerate(keys, start=1):
+        first = keys.index(key) + 1
+        if first != place:
+            named = key if _printable(key) else "a key"
+            msg = (
+                f"the earlier sheet writes {named} twice in one object, as its keys {first} and "
+                f"{place} of {len(keys)}"
+            )
+            raise SheetRefusedError(msg)
     return dict(pairs)
 
 
@@ -528,19 +577,25 @@ def _earlier(keep: bytes, ids: list[str]) -> dict[str, Any]:
     try:
         earlier: dict[str, Any] = json.loads(keep, object_pairs_hook=_once)
         rows: dict[str, dict[str, Any]] = earlier["rows"]
-        given = sorted(k for k, r in rows.items() if any(f in r for f in ADDED))
+        given = [k for k, r in rows.items() if any(f in r for f in ADDED)]
     except SheetRefusedError:
         raise
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
         msg = f"the earlier sheet is not a parts sheet: {exc}"
         raise SheetRefusedError(msg) from exc
-    if given or any(f in earlier for f in SHEET_ADDED):
-        msg = f"the earlier sheet already gives values, notes or remarks, at {given[:5]}"
+    remarked = any(f in earlier for f in SHEET_ADDED)
+    if given or remarked:
+        at = [f"at rows {', '.join(_key(k, list(rows)) for k in given[:5])}"] if given else []
+        msg = "the earlier sheet already gives values, notes or remarks, " + " and ".join(
+            [*at, *(["in its remarks"] if remarked else [])]
+        )
         raise SheetRefusedError(msg)
     try:
         Sources.model_validate_json(keep)
     except ValidationError as exc:
-        msg = f"the earlier sheet is not a parts sheet: {first_problem(exc)}"
+        problems = exc.errors()
+        where = f": {_where(problems[0]['loc'], earlier)}: {problems[0]['msg']}" if problems else ""
+        msg = f"the earlier sheet is not a parts sheet{where}"
         raise SheetRefusedError(msg) from exc
     if set(rows) != set(ids):
         odd = sorted(set(rows) ^ set(ids))
@@ -650,7 +705,10 @@ def convert(
     """
     table = read_table(markdown)
     if prose is not None and prose not in PROSE:
-        msg = f"prose is carried or dropped, {PROSE}, not {prose!r}"
+        msg = (
+            f"prose is carried or dropped ({' or '.join(PROSE)}); what was given is neither, and "
+            "is not printed, since it may be a line of the table"
+        )
         raise SheetRefusedError(msg)
     if table.prose and prose is None:
         msg = (
@@ -715,9 +773,59 @@ def _additive(earlier: dict[str, Any], sheet: dict[str, Any]) -> None:
         raise SheetRefusedError(msg)
 
 
+#: The command's options: an argument's refusal may name one, being the command's own word.
+_OPTIONS = ("--label", "--keep-values-from", "--prose", "--drop-prose-line-sha256")
+_OPTION_REFUSED = re.compile(r"argument (--[a-z0-9-]+)(?:/\S+)?: ")
+
+
+def _argument_fault(message: str) -> str:
+    """What is wrong with the arguments, from argparse's message, with no argument in it."""
+    if message.startswith("unrecognized arguments"):
+        return "an argument was not recognised"
+    if message.startswith("the following arguments are required"):
+        return "the table and the sheet to write are both required"
+    option = _OPTION_REFUSED.match(message)
+    if option is not None and option.group(1) in _OPTIONS:
+        name = option.group(1)
+        if name == "--prose" and "invalid choice" in message:
+            return f"--prose takes {' or '.join(PROSE)}"
+        if "expected one argument" in message:
+            return f"{name} takes a value"
+        return f"{name} was given a value it does not take"
+    return "the arguments do not parse"
+
+
+class _Parser(argparse.ArgumentParser):
+    """The command's parser, whose refusal names what is wrong and never an argument.
+
+    argparse's own refusal prints the arguments it refuses ("unrecognized arguments: …",
+    "invalid choice: '…'"), and an argument may be a line of the table: passed in place of its
+    digest, or split into words by the shell where a command substitution is left unquoted.
+    """
+
+    def error(self, message: str) -> NoReturn:
+        """Print the usage, which holds no argument, and the fault; exit 2."""
+        self.print_usage(sys.stderr)
+        self.exit(
+            2,
+            f"refused: {_argument_fault(message)}; no argument is printed, since one may be a "
+            "line of the table\n",
+        )
+
+
+def _refused(why: str) -> int:
+    print(f"refused: {why}", file=sys.stderr)
+    return 1
+
+
+def _cannot(what: str, exc: OSError) -> int:
+    """Refuse a file by what it is: its path is an argument, and is not printed."""
+    return _refused(f"{what} {exc.strerror or type(exc).__name__}; its path is not printed")
+
+
 def main(argv: list[str] | None = None) -> int:
-    """Write the sheet; print counts; 0 when written, 1 when refused."""
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
+    """Write the sheet; print counts; 0 when written, 1 when refused, 2 when the arguments are."""
+    parser = _Parser(description=__doc__.splitlines()[0] if __doc__ else None)
     parser.add_argument("table", type=Path, help="the authors' parts_sheet.md")
     parser.add_argument("out", type=Path, help="the sources.json to write; must not exist")
     parser.add_argument("--label", help="the sheet's label; when keeping, the earlier sheet's")
@@ -744,25 +852,32 @@ def main(argv: list[str] | None = None) -> int:
     named: list[str] = args.drop_prose_line_sha256
     out: Path = args.out
     earlier: Path | None = args.keep_values_from
-    keep = earlier.read_bytes() if earlier is not None else None
+    try:
+        keep = earlier.read_bytes() if earlier is not None else None
+    except OSError as exc:
+        return _cannot("the earlier sheet cannot be read:", exc)
     try:
         # The bytes as written: no newline is translated, so a line is what a newline ends.
-        text = args.table.read_bytes().decode("utf-8")
+        raw = args.table.read_bytes()
+    except OSError as exc:
+        return _cannot("the table cannot be read:", exc)
+    try:
+        text = raw.decode("utf-8")
     except UnicodeDecodeError as exc:
-        print(f"refused: the table is not UTF-8 text: {exc.reason} at byte {exc.start}",
-              file=sys.stderr)  # fmt: skip
-        return 1
+        return _refused(
+            f"the table is not UTF-8 text; its first byte that is not is at offset {exc.start}"
+        )
     try:
         written = convert(text, label=args.label, keep=keep, prose=args.prose, drop_named=named)
     except SheetRefusedError as exc:
-        print(f"refused: {exc}", file=sys.stderr)
-        return 1
+        return _refused(str(exc))
     try:
         with out.open("xb") as handle:
             handle.write(written)
     except FileExistsError:
-        print(f"refused: {out} exists, and is never written over", file=sys.stderr)
-        return 1
+        return _refused("the sheet to write exists, and is never written over")
+    except OSError as exc:
+        return _cannot("the sheet cannot be written:", exc)
     table = read_table(text)
     rows = json.loads(written)["rows"].values()
     print(
