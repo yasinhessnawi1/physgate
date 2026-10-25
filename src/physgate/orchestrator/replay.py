@@ -26,6 +26,7 @@ from pydantic import ValidationError
 from physgate.contracts.pairs import ContractPair, recorded_pairs_problem
 from physgate.orchestrator.budget import REPAIR_BUDGET, after_rejection
 from physgate.orchestrator.common import GateMode
+from physgate.orchestrator.completion import open_preconditions
 from physgate.orchestrator.decisions import require_taken
 from physgate.orchestrator.escalation import (
     REGISTER,
@@ -39,6 +40,7 @@ from physgate.orchestrator.escalation_state import EscalationState, escalation_s
 from physgate.orchestrator.events import (
     RESUMABLE_HALTS,
     AttemptRejected,
+    CompletionDeclared,
     ContractPairsPlanned,
     DecisionsSealed,
     DecisionTaken,
@@ -60,6 +62,7 @@ from physgate.orchestrator.events import (
     LeftoverRead,
     LeftoverStopped,
     Merged,
+    ModuleCompleted,
     NodeFilesRepaired,
     OsLayerChecked,
     ProposalsChecked,
@@ -107,6 +110,8 @@ class AttemptState:
     ended: list[SessionEnded] = field(default_factory=list)
     retries_done: int = 0
     changes: ProposalsChecked | None = None
+    #: What the attempt declared complete, for integration's subtask: read after its change check.
+    declaration: CompletionDeclared | None = None
     gate: GateRan | GateSkipped | None = None
     review: ReviewRan | None = None
     #: A review that was not a verdict: retried once for infrastructure, otherwise final.
@@ -136,6 +141,7 @@ class AttemptState:
         if order.index(cursor) < order.index("spawn"):
             self.session = None
         self.changes = self.gate = self.review = None
+        self.declaration = None
         self.unavailable = []
         self.cursor = cursor
 
@@ -185,6 +191,7 @@ class Step:
         "escalate",
         "end_subtask",
         "integrate",
+        "complete",
         "halted",
         "escalated",
         "done",
@@ -255,6 +262,9 @@ class RunState:
         self.interfaces: tuple[str, ...] = ()
         #: The module pairs whose contract the run tests, once their line is on the record.
         self.contract_pairs: tuple[ContractPair, ...] | None = None
+        #: The modules recorded complete, by the subtask that planned each. Merged is not
+        #: complete: a module's subtask is ``done`` once it merged, whether or not it is here.
+        self.completed: dict[str, ModuleCompleted] = {}
 
     # -- following the log -------------------------------------------------------
 
@@ -266,7 +276,8 @@ class RunState:
         """Take ``event`` as the next line, or raise ``ValueError`` if it cannot be.
 
         Once the integration call is on the record the plan is closed: no line about
-        a subtask may follow, except a worktree removal or a person's decision. The rule is
+        a subtask may follow, except a worktree removal, a person's decision, or a module's
+        completion, which follows integration's accepted attempt (:meth:`_complete`). The rule is
         applied after the line's own rules, so a line that breaks one of those is refused for
         it. A decision that acts on a design the call skipped as incomplete reopens it, and so
         does one under ``off`` while a subtask but integration's has not merged.
@@ -279,7 +290,7 @@ class RunState:
         closed = (
             self.integration is not None
             and subtask_id is not None
-            and not isinstance(event, WorktreeRemoved | DecisionTaken)
+            and not isinstance(event, WorktreeRemoved | DecisionTaken | ModuleCompleted)
             and not (subtask_id == self.completion_subtask and self.integration_may_run())
         )
         self._record(event)
@@ -352,6 +363,9 @@ class RunState:
         if isinstance(event, DecisionTaken):
             self._take(event)
             return
+        if isinstance(event, ModuleCompleted):
+            self._complete(event)
+            return
         if event.subtask_id is None:
             return  # an incident with no subtask, taken above; for the type checker
         sub = self.subtasks[event.subtask_id]
@@ -382,6 +396,8 @@ class RunState:
         elif isinstance(event, ProposalsChecked):
             self._expect(now.cursor == "implement" and now.changes is None, "a change check")
             now.changes = event
+        elif isinstance(event, CompletionDeclared):
+            self._declared(sub, now, event)
         elif isinstance(event, GateRan | GateSkipped):
             self._expect(now.cursor == "gate" and now.gate is None, "a gate line")
             now.gate = event
@@ -549,6 +565,103 @@ class RunState:
             others = self.integrated()
             return bool(others) and all(self.subtasks[s].status == "done" for s in others)
         return False
+
+    def modules(self) -> list[str]:
+        """The plan's modules in plan order, each named by the first subtask of its directory.
+
+        A later subtask planned in the same directory, as sizing's closing pass is, is a pass
+        over that module and no module of its own; integration's subtask is no module.
+        """
+        seen: set[str] = set()
+        found: list[str] = []
+        for subtask_id in self.order:
+            directory = self.subtasks[subtask_id].plan.module_dir
+            if directory not in seen and subtask_id != self.completion_subtask:
+                found.append(subtask_id)
+            seen.add(directory)
+        return found
+
+    def _declared(self, sub: SubtaskState, now: AttemptState, event: CompletionDeclared) -> None:
+        """Take integration's declaration: after the attempt's accepted change check, once.
+
+        It is read from the commit that check held, so it comes before the attempt's gate, and it
+        names modules of the plan, each once, in plan order.
+        """
+        if sub.plan.subtask_id != self.completion_subtask:
+            _refuse(
+                "a completion declaration comes only from the subtask marked as the completion "
+                "owner's"
+            )
+        accepted = now.changes is not None and now.changes.refused_by is None
+        self._expect(
+            now.cursor == "implement" and accepted and now.declaration is None,
+            "a completion declaration",
+        )
+        modules = self.modules()
+        for module in event.modules:
+            if module not in modules:
+                _refuse(
+                    f"a completion declaration names {module!r}, which is no module of the plan"
+                )
+        places = [modules.index(module) for module in event.modules]
+        if places != sorted(set(places)):
+            _refuse("a completion declaration names each module once, in plan order")
+        now.declaration = event
+
+    def owed_completion(self) -> str | None:
+        """The module whose completion line the record owes next, if any.
+
+        Once integration's attempt merged and its diff found nothing: the first module, in plan
+        order, that the attempt's declaration names, that has no completion line yet, and for
+        which every registered precondition holds. A declared module with a precondition open is
+        withheld: it is never owed, and the run ends without its line.
+        """
+        integration = self.completion_subtask
+        if integration is None or self.subtasks[integration].status != "done":
+            return None
+        declared = self.subtasks[integration].attempts[-1].declaration
+        if declared is None:
+            return None
+        return next(
+            (
+                module
+                for module in declared.modules
+                if module not in self.completed and not open_preconditions(self, module)
+            ),
+            None,
+        )
+
+    def _complete(self, event: ModuleCompleted) -> None:
+        """Take a module's completion line: the one the record owes next, and no other (ARCH-051).
+
+        Integration's attempt that merged, with its diff clean, explains it: that attempt's
+        declaration names the module, the module is not complete already, and every registered
+        precondition holds for it, asked here as the writer asked it.
+        """
+        integration = self.completion_subtask
+        if integration is None or event.declared_by != integration:
+            _refuse("a completion is declared only by the subtask marked as the completion owner's")
+        sub = self.subtasks[integration]
+        if sub.status != "done":
+            _refuse(
+                "a completion follows integration's accepted attempt: merged, and its diff clean"
+            )
+        merged = sub.attempts[-1]
+        if event.attempt != merged.number:
+            _refuse("a completion names the attempt of integration that merged")
+        declared = merged.declaration
+        if declared is None or event.subtask_id not in declared.modules:
+            _refuse(f"{event.subtask_id!r} is not a module the merged attempt declared complete")
+        if event.subtask_id in self.completed:
+            _refuse(f"{event.subtask_id!r} is recorded complete once")
+        still_open = open_preconditions(self, event.subtask_id)
+        if still_open:
+            named = "; ".join(f"{name}: {why}" for name, why in still_open)
+            _refuse(f"a precondition of completion is open for {event.subtask_id!r}: {named}")
+        owed = self.owed_completion()
+        if event.subtask_id != owed:
+            _refuse(f"{owed!r} is owed its completion line first, in plan order")
+        self.completed[event.subtask_id] = event
 
     @staticmethod
     def _ended_without_merge(now: AttemptState) -> bool:
@@ -844,7 +957,7 @@ class RunState:
         """What the loop does next, from the state alone.
 
         Every planned subtask in order, then the integration call, then integration's own
-        subtask where the call lets it run.
+        subtask where the call lets it run, then each completion its accepted attempt owes.
         """
         if self.halted is not None:
             return Step(kind="halted")
@@ -868,6 +981,9 @@ class RunState:
             step = self._step_of(self.completion_subtask)
             if step is not None:
                 return step
+            owed = self.owed_completion()
+            if owed is not None:
+                return Step(kind="complete", subtask_id=owed)
         return Step(kind="done")
 
     def _step_of(self, subtask_id: str) -> Step | None:

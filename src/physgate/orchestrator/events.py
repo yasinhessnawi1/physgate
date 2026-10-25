@@ -48,7 +48,12 @@ from physgate.orchestrator.common import (
 )
 from physgate.orchestrator.escalation import BackendName, Decision
 from physgate.orchestrator.escalation_state import EscalationState
-from physgate.orchestrator.exceptions import CorruptEventLogError, RunConfigError
+from physgate.orchestrator.exceptions import (
+    CorruptEventLogError,
+    DutyUnownedError,
+    RoleRegisterError,
+    RunConfigError,
+)
 from physgate.orchestrator.install import InstallFacts
 from physgate.orchestrator.managed import ObservedTraffic
 from physgate.orchestrator.plan import InterfaceConsumers, SystemRequirements, list_problems
@@ -62,7 +67,7 @@ from physgate.orchestrator.protocols import (
 from physgate.orchestrator.repair import Finding
 from physgate.orchestrator.trajectory import Seal
 from physgate.oslayer.probe import OsLayerState
-from physgate.roles import owners_of
+from physgate.roles import owner_of, owners_of
 from physgate.series.seal import SeriesCheck, SessionSeries
 
 #: The eight stages of the per-subtask loop, in the architecture's order (ARCH-030).
@@ -218,6 +223,28 @@ def completion_mark_problem(assigned_role: str, *, marked: bool) -> str | None:
         return "only a subtask of the role that owns completion is marked as its owner's"
     if not marked and assigned_role in owners:
         return "a subtask of the role that owns completion carries the completion mark"
+    return None
+
+
+def completion_owner_problem(declaring_role: str | None) -> str | None:
+    """Why the role register, asked now, does not let ``declaring_role`` declare completion.
+
+    Asked when a declaration or a completion line is written, never when one is read: replay
+    reads the planning line's mark. The register must name exactly one owner of completion, and
+    the declaring subtask must be of that role; with none or two, nothing is declared complete.
+    ``None`` if the line may be written.
+    """
+    try:
+        owner = owner_of("completion")
+    except DutyUnownedError:
+        return "no role owns completion, so no module is declared or recorded complete"
+    except RoleRegisterError as exc:
+        return (
+            "more than one role owns completion, so no module is declared or recorded complete: "
+            + exc.context.get("owners", "")
+        )
+    if declaring_role != owner:
+        return f"only a subtask of the {owner} role, which owns completion, declares completion"
     return None
 
 
@@ -689,6 +716,39 @@ class ContractPairsPlanned(_Event):
     pairs: Annotated[tuple[ContractPair, ...], Field(min_length=1)]
 
 
+class CompletionDeclared(_Event):
+    """What an attempt of integration's subtask declares complete, read from its checked commit.
+
+    One line per attempt of the subtask marked as the completion owner's, straight after that
+    attempt's accepted change check and before its gate: the plan modules the declaration names
+    complete, each by the subtask that planned it, in plan order, and the digest of the
+    declaration as that commit holds it. A module it leaves out is one integration did not
+    declare complete. No module is recorded complete that the merged attempt's line does not
+    name (ARCH-051).
+    """
+
+    kind: Literal["completion_declared"] = "completion_declared"
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    modules: tuple[NonEmptyStr, ...]
+    declaration_sha256: Sha256
+
+
+class ModuleCompleted(_Event):
+    """A module of the plan recorded complete, which merged alone never says (ARCH-051).
+
+    ``subtask_id`` is the subtask that planned the module; ``declared_by`` and ``attempt`` are
+    integration's subtask and its attempt that merged, whose declaration names the module.
+    Written only once that attempt merged and its diff found nothing, one line per module in
+    plan order, and only while every precondition of completion holds for the module.
+    """
+
+    kind: Literal["module_completed"] = "module_completed"
+    subtask_id: NonEmptyStr
+    declared_by: NonEmptyStr
+    attempt: Attempt
+
+
 class WriteIntended(_Event):
     """The orchestrator is about to write one node into the canonical store.
 
@@ -892,6 +952,8 @@ Event = Annotated[
     | Resumed
     | Decomposed
     | ContractPairsPlanned
+    | CompletionDeclared
+    | ModuleCompleted
     | EnvironmentRecorded
     | InstallChecked
     | OsLayerChecked
@@ -947,7 +1009,8 @@ class _Context:
     def __init__(self) -> None:
         self.count = 0
         self.run: tuple[str, str] | None = None
-        self.planned: set[str] = set()
+        #: Each planned subtask's role, by subtask.
+        self.planned: dict[str, str] = {}
 
     def check(self, event: _Event) -> None:
         """Raise ``ValueError`` unless ``event`` may be the next line."""
@@ -998,7 +1061,7 @@ class _Context:
         if self.run is None:
             self.run = (event.run_id, event.gate_mode)
         if isinstance(event, SubtaskPlanned):
-            self.planned.add(event.subtask_id)
+            self.planned[event.subtask_id] = event.assigned_role
         self.count += 1
 
 
@@ -1024,8 +1087,8 @@ def _admit(context: _Context, state: RecordState | None, event: _Event) -> Event
     """``event``, if the writer may write it next; raise ``ValueError`` if not.
 
     What every line is held to before it is written: its place among the lines before it, and in
-    a log that follows a run state, a planning line's mark against the role register and the line
-    against the state. Nothing is recorded.
+    a log that follows a run state, a planning line's mark and a completion's declaring subtask
+    against the role register, and the line against the state. Nothing is recorded.
     """
     if isinstance(event, ReviewUnavailable) and event.cause == "blocking_spec_defect":
         msg = "a blocked review is written as a review line, never as one with no verdict"
@@ -1036,6 +1099,13 @@ def _admit(context: _Context, state: RecordState | None, event: _Event) -> Event
         # the mark. An instrument's own log (a generalist review, an injected corpus) follows
         # no run, and plans an artefact of any role; the mark is no part of it.
         why = completion_mark_problem(event.assigned_role, marked=event.owns_completion is not None)
+        if why is not None:
+            raise ValueError(why)
+    if state is not None and isinstance(event, CompletionDeclared | ModuleCompleted):
+        # So is a run's completion: the subtask that declares it is of the one role the register
+        # names as owning completion now. Replay reads the planning line's mark instead.
+        declaring = event.subtask_id if isinstance(event, CompletionDeclared) else event.declared_by
+        why = completion_owner_problem(context.planned.get(declaring))
         if why is not None:
             raise ValueError(why)
     admitted = cast("Event", event)

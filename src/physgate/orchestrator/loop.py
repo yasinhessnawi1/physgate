@@ -61,6 +61,7 @@ from physgate.orchestrator.events import (
     LeftoverRead,
     LeftoverStopped,
     Merged,
+    ModuleCompleted,
     NodeFilesRepaired,
     OsLayerChecked,
     ProposalsChecked,
@@ -626,10 +627,11 @@ class Loop:
 
     def _drive(self) -> Step:
         # The environment is recorded for a step that spawns a session; the integration
-        # call and a finished run spawn none. A process whose first step is one of those may
-        # still spawn one, after a decision it takes or the call it makes: that session's
-        # line is recorded before it, once (:meth:`_session`).
-        if self.state.next_step().kind not in ("done", "halted", "escalated", "integrate"):
+        # call, a completion line and a finished run spawn none. A process whose first step is
+        # one of those may still spawn one, after a decision it takes or the call it makes:
+        # that session's line is recorded before it, once (:meth:`_session`).
+        first = self.state.next_step().kind
+        if first not in ("done", "halted", "escalated", "integrate", "complete"):
             self._record_environment()
         while True:
             step = self.state.next_step()
@@ -640,6 +642,9 @@ class Loop:
                 return step
             if step.kind == "integrate":
                 self._integrate()
+                continue
+            if step.kind == "complete":
+                self._complete(step)
                 continue
             if step.subtask_id is None or step.attempt is None:
                 msg = "a step with no subtask or attempt"
@@ -1676,6 +1681,23 @@ class Loop:
                 )
             )
         self._emit(IntegrationEscalated(**self._env(), item_id=item_id))
+
+    def _complete(self, step: Step) -> None:
+        """Record the completion the record owes next (ARCH-051).
+
+        Integration's attempt merged with its diff clean, its declaration names the module, and
+        every precondition holds for it: the run state owes the line only then, in plan order.
+        """
+        integration = self.state.completion_subtask
+        if step.subtask_id is None or integration is None:
+            msg = "a completion step with no module, or in a run with no subtask that declares one"
+            raise RunStateError(msg, step=step.kind)
+        attempt = self.state.subtasks[integration].attempts[-1].number
+        self._emit(
+            ModuleCompleted(
+                **self._env(), subtask_id=step.subtask_id, declared_by=integration, attempt=attempt
+            )
+        )
 
     def _diff(self, subtask_id: str, attempt: int) -> None:
         # A person's approve is carried on from the record, never resumed: its attempt ended
