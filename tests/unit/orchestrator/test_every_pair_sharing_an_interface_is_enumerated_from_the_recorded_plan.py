@@ -26,8 +26,10 @@ from typing import Any
 import pytest
 from knowledge_fixture import FIXTURE_ROLES, write_fixture
 from orch_helpers import make_config
+from pydantic import ValidationError
 
 from physgate import roles
+from physgate.contracts.pairs import ContractPair
 from physgate.orchestrator.decompose import (
     IntegratedPlan,
     Outcome,
@@ -92,9 +94,10 @@ NODES = [
     interface("iface.speed", "control"),
     interface("iface.tilt", "firmware"),
 ]
+#: Listed out of id order, so a pair's interfaces are in order only if they are put in order.
 CONSUMERS: list[dict[str, Any]] = [
-    {"interface": "iface.drive", "consumers": ["fw", "budget"]},
     {"interface": "iface.speed", "consumers": ["fw"]},
+    {"interface": "iface.drive", "consumers": ["fw", "budget"]},
     {"interface": "iface.tilt", "consumers": ["drive"]},
 ]
 REQUIREMENTS = [{"requirement": "1", "contributing": [{"module": "drive", "criterion": "1"}]}]
@@ -275,6 +278,21 @@ def test_the_prompt_and_schema_with_integration_are_the_bytes_sent_before(
     assert hashlib.sha256(prompt.encode()).hexdigest() == INTEGRATED_PROMPT_SHA256[run_roles]
 
 
+def test_a_pair_is_of_two_roles_and_names_each_interface_once_in_order() -> None:
+    # Each wrong pair differs from the right one in one thing only.
+    fields = {"producer": side("drive", "control"), "consumer": side("fw", "firmware")}
+    right = {**fields, "interfaces": ["iface.drive", "iface.speed"]}
+    ContractPair.model_validate_json(json.dumps(right))
+    for wrong in (
+        {**right, "interfaces": ["iface.speed", "iface.drive"]},
+        {**right, "interfaces": ["iface.drive", "iface.drive"]},
+        {**right, "interfaces": []},
+        {**right, "consumer": side("budget", "control")},
+    ):
+        with pytest.raises(ValidationError):
+            ContractPair.model_validate_json(json.dumps(wrong))
+
+
 # --- the plan check --------------------------------------------------------------------------
 
 
@@ -326,8 +344,22 @@ def test_two_modules_of_a_role_in_no_interface_or_without_integration_are_not_re
     assert plan_problems(base, DOMAINS, BRIEF) == []
 
 
-def test_start_run_fails_closed_on_a_plan_whose_pairs_cannot_be_formed(tmp_path: Path) -> None:
-    plan = integrated(modules=[*MODULES, module("steer", "control")])
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"modules": [*MODULES, module("steer", "control")]},
+        {
+            "modules": [*MODULES[:2], module("fw", "firmware"), module("fw2", "firmware")],
+            "interface_nodes": NODES[:1],
+            "interface_consumers": [{"interface": "iface.drive", "consumers": ["fw", "fw2"]}],
+        },
+    ],
+    ids=["two modules of the producing role", "two modules of a consumer's role"],
+)
+def test_start_run_fails_closed_on_a_plan_whose_pairs_cannot_be_formed(
+    tmp_path: Path, changes: dict[str, Any]
+) -> None:
+    plan = integrated(**changes)
     with pytest.raises(DecompositionError, match="contract pairs"):
         start(tmp_path, plan)
     assert not any((tmp_path / "run" / name).exists() for name in ("events.jsonl", "run.json"))
@@ -367,6 +399,10 @@ def test_replay_refuses_pairs_in_a_run_whose_plan_names_no_consumers(tmp_path: P
 
 def _drop_budget(pairs: list[dict[str, Any]]) -> None:
     del pairs[0]
+
+
+def _one_side_moved(pairs: list[dict[str, Any]]) -> None:
+    pairs[2]["producer"]["subtask_id"] = "fw-000000"
 
 
 def _two_producers(pairs: list[dict[str, Any]]) -> None:
@@ -414,6 +450,7 @@ def _split(pairs: list[dict[str, Any]]) -> None:
     ("edit", "why"),
     [
         (_drop_budget, "is in no pair"),
+        (_one_side_moved, "named with two subtasks or roles"),
         (_two_producers, "two producers"),
         (_unplanned, "no planned module's subtask"),
         (_integration_side, "no planned module's subtask"),
@@ -425,6 +462,7 @@ def _split(pairs: list[dict[str, Any]]) -> None:
     ],
     ids=[
         "a pair dropped",
+        "a module named with two subtasks",
         "an interface with two producers",
         "a side's subtask not planned",
         "integration's subtask as a side",
