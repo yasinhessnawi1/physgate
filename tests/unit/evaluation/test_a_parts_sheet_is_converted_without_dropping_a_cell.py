@@ -535,6 +535,7 @@ ROW_LIKE = [
     "See R1\u066b08 for the voltage.",
     "See \u01541.08 for the voltage.",
     "See R\u03011.08 for the voltage.",
+    "See R1a-01 for the pack.",
 ]
 ROW_LIKE_IDS = [
     "in-code",
@@ -583,6 +584,7 @@ ROW_LIKE_IDS = [
     "an-arabic-decimal-separator",
     "an-r-with-an-accent",
     "an-r-with-a-combining-accent",
+    "a-lettered-row-id-with-a-hyphen",
 ]
 #: Those of them that start with a row id: refused whatever is done with prose.
 ROW_LEADS = frozenset({f"**R1.08** voltage 5 V {MOTOR}", "R1.08\tvoltage\t5\tV"})
@@ -1435,6 +1437,12 @@ def test_no_refusal_prints_a_path_it_was_given(
             ),
             r"already gives values, notes or remarks, at rows <key 9 of 9>$",
         ),
+        (
+            json.dumps(
+                {**OLD, "rows": {**OLD["rows"], "R1.03": {**OLD["rows"]["R1.03"], "value": WORD}}}
+            ),
+            r"not a parts sheet: rows\.R1\.03\.value: Input should be a valid number$",
+        ),
     ],
     ids=[
         "a-key-twice",
@@ -1442,6 +1450,7 @@ def test_no_refusal_prints_a_path_it_was_given(
         "a-field-of-its-own",
         "a-row-s-field-of-its-own",
         "a-row-that-already-gives-a-note",
+        "a-value-that-is-no-number",
     ],
 )
 def test_an_earlier_sheet_s_key_is_named_by_its_place_unless_it_is_a_row_id_or_a_field(
