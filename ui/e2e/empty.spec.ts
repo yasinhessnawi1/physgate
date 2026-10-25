@@ -1,4 +1,9 @@
-import { type ChildProcessWithoutNullStreams, execFileSync, spawn } from "node:child_process";
+import {
+  type ChildProcess,
+  type ChildProcessWithoutNullStreams,
+  execFileSync,
+  spawn,
+} from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -84,15 +89,45 @@ async function until(gone: () => boolean, ms: number) {
   while (!gone() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
 }
 
-/** Stop the server's whole group as Ctrl-C would, and force what is left of it after 10 s. */
-async function stop(child: ChildProcessWithoutNullStreams) {
-  const group = child.pid;
-  if (group === undefined || !groupRuns(group)) return;
+/** What a stop knows of the process that leads a group: its id, and whether it is reaped. */
+type Leader = Pick<ChildProcess, "pid" | "exitCode" | "signalCode">;
+
+/** The command lines of the processes of the group `group`, as `ps` lists them. */
+function membersOf(group: number): string[] {
+  return execFileSync("ps", ["-A", "-ww", "-o", "pgid=,command="], { encoding: "utf8" })
+    .split("\n")
+    .map((line) => line.trim().split(/\s+/))
+    .filter(([pgid]) => pgid === String(group))
+    .map((words) => words.slice(1).join(" "));
+}
+
+/**
+ * Whether the group `leader` leads is still the one this file started, named by `marker`, the
+ * folder this file made and nothing else names. While this file has not reaped the leader, its
+ * id is its own: the system hands an id out again only once its process is reaped, and this
+ * file reaps a child only between its own steps, never between this look and a signal. Once
+ * the leader is reaped (`uv` may end while its server runs), the group's id stays its own while
+ * any member runs, and a member of this file's names the marker. A group that is neither is
+ * another's: its id was handed out again after this file's group had ended.
+ */
+function ours(leader: Leader, group: number, marker: string): boolean {
+  if (leader.exitCode === null && leader.signalCode === null) return true;
+  return membersOf(group).some((command) => command.includes(marker));
+}
+
+/**
+ * Stop the server's whole group as Ctrl-C would, and force what is left of it after 10 s. Each
+ * signal goes only to a group that is still the one this file started; any other is left alone.
+ */
+async function stop(leader: Leader, marker: string = folder) {
+  const group = leader.pid;
+  if (group === undefined || marker === "") return;
+  const runs = () => ours(leader, group, marker) && groupRuns(group);
+  if (!runs()) return;
   signalGroup(group, "SIGINT");
-  await until(() => !groupRuns(group), 10_000);
-  // Only while the group runs: once it is gone its id names no group of this file's.
-  if (groupRuns(group)) signalGroup(group, "SIGKILL");
-  await until(() => !groupRuns(group), 10_000);
+  await until(() => !runs(), 10_000);
+  if (runs()) signalGroup(group, "SIGKILL");
+  await until(() => !runs(), 10_000);
 }
 
 /** The processes still running whose command line names `marker`, as `pid command` lines. */
@@ -135,6 +170,53 @@ test.afterAll(async () => {
   }
   if (folder !== "") rmSync(folder, { recursive: true, force: true });
   expect(left, "a server this file started outlived it").toEqual([]);
+});
+
+/** Wait for a process this file started to be reaped. */
+async function reaped(child: ChildProcess) {
+  await until(() => child.exitCode !== null || child.signalCode !== null, 10_000);
+}
+
+// A server's group id, once the whole group has ended, may be handed out again to a process
+// that leads a group of its own, for as long as this file runs. The stop signals a group only
+// while it is still the one this file started.
+test("a stop leaves alone a group its server's id names once that group is another's", async () => {
+  // A process that leads a group of its own and names nothing of this file's.
+  const other = spawn("sleep", ["300"], { detached: true, stdio: "ignore" });
+  try {
+    const id = other.pid;
+    expect(id).toBeDefined();
+    // A server whose `uv` this file has reaped, its id since handed out to that process.
+    await stop({ pid: id, exitCode: 0, signalCode: null });
+    expect(groupRuns(id ?? 0), "the stop signalled a group that is not this file's").toBe(true);
+  } finally {
+    other.kill("SIGKILL");
+    await reaped(other);
+  }
+});
+
+test("a stop still stops a group whose leader is gone while a member naming this file's folder runs", async () => {
+  // The leader exits at once; its child, whose command line names the folder, runs on in its
+  // group, as a server runs on once `uv` is gone.
+  const member = `"${process.execPath}" -e "setTimeout(() => {}, 300000)" "${folder}/a-member"`;
+  const leader = spawn("sh", ["-c", `${member} & exit 0`], { detached: true, stdio: "ignore" });
+  await reaped(leader);
+  try {
+    expect(leader.exitCode).toBe(0);
+    await until(() => runningWith(`${folder}/a-member`).length > 0, 10_000);
+    expect(runningWith(`${folder}/a-member`)).toHaveLength(1);
+    await stop(leader);
+    await until(() => runningWith(`${folder}/a-member`).length === 0, 10_000);
+    expect(runningWith(`${folder}/a-member`), "the stop left its group running").toEqual([]);
+  } finally {
+    for (const line of runningWith(`${folder}/a-member`)) {
+      try {
+        process.kill(Number(line.split(" ")[0]), "SIGKILL");
+      } catch {
+        // Gone since it was listed.
+      }
+    }
+  }
 });
 
 function local(url: string = started.url): RegExp {
