@@ -37,6 +37,9 @@ from physgate.contracts.pairs import ContractError, ContractPair, Side
 from physgate.gate.units import UREG
 from physgate.state.schema import Node, Quantity
 
+#: Where a field sits in a result's JSON: keys and list indices from the top.
+FieldPath = tuple[str | int, ...]
+
 PAIR = ContractPair(
     producer=Side(module="drive", subtask_id="drive-0a1b2c", role="control"),
     consumer=Side(module="fw", subtask_id="fw-3d4e5f", role="firmware"),
@@ -290,8 +293,8 @@ def test_a_result_reads_back_whole_and_one_that_contradicts_itself_is_refused() 
     assert ContractResult.model_validate_json(raw) == result
     # Each set of changes is consistent above the level it contradicts, so only the check of
     # that level can refuse it: a clause, an interface, or the result as a whole.
-    clause = ("interfaces", 0, "clauses", 0, "outcome")
-    for changes in [
+    clause: FieldPath = ("interfaces", 0, "clauses", 0, "outcome")
+    cases: list[list[tuple[FieldPath, object]]] = [
         [(clause, "pass"), (("interfaces", 0, "outcome"), "pass"), (("outcome",), "pass")],
         [(("interfaces", 0, "not_joined"), ["producer"])],
         [(("interfaces", 0, "clauses_checked"), 0), (("clauses_checked",), 0)],
@@ -299,7 +302,8 @@ def test_a_result_reads_back_whole_and_one_that_contradicts_itself_is_refused() 
         [(("clauses_checked",), 2)],
         [(("outcome",), "pass")],
         [(("interfaces", 0, "interface"), "iface.other")],
-    ]:
+    ]
+    for changes in cases:
         data = json.loads(raw)
         for path, value in changes:
             target = data
