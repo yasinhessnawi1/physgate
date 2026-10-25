@@ -627,7 +627,7 @@ def test_prose_that_holds_no_row_id_is_still_dropped_and_counted(line: str) -> N
 
 #: Part names that hold an R, digits, a separator and digits, and are no row id: an R inside a
 #: part number, after a letter, a digit or a hyphen, and a board's revision with a comma and a
-#: space after it.
+#: space after it. The last three are no row id by one of those alone.
 PART_NAMES = {
     "an-ultrasonic-sensor": "Distance: HC-SR04, 2-400 cm.",
     "a-motion-sensor": "PIR: HC-SR501, 3-7 m.",
@@ -637,6 +637,9 @@ PART_NAMES = {
     "a-function-generator": "Function generator XR2206, 1 Hz to 1 MHz.",
     "resistor-value-codes": "Use 4R7, 10R and 1k resistors.",
     "a-shunt-value-code": "Shunt 0R1, 1 %.",
+    "a-sensor-and-its-range": "HC-SR04 \u2013 2 to 400 cm.",
+    "a-range-of-resistor-codes": "Use 4R7\u201310R gate resistors.",
+    "a-hyphenated-part-code": "Fuse holder FH-R5-20, panel mount.",
 }
 
 
@@ -1448,6 +1451,28 @@ def test_an_earlier_sheet_s_key_is_named_by_its_place_unless_it_is_a_row_id_or_a
     with pytest.raises(converter.SheetRefusedError, match=said) as refused:
         converter.convert(SHEET, keep=old.encode())
     assert WORD not in str(refused.value)
+
+
+@pytest.mark.parametrize(
+    ("args", "said"),
+    [
+        ([], "the table and the sheet to write are both required"),
+        (["--prose"], "--prose takes a value"),
+        (["--prose", "sideways"], "--prose takes carry or drop"),
+        (["--sideways"], "an argument was not recognised"),
+        (["--label", LABEL, "sideways"], "an argument was not recognised"),
+    ],
+    ids=["a-path-missing", "no-value", "another-value", "an-unknown-option", "a-third-path"],
+)
+def test_arguments_it_cannot_take_are_refused_by_what_is_wrong(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], args: list[str], said: str
+) -> None:
+    paths = [str(tmp_path / "parts_sheet.md")] + ([str(tmp_path / "s.json")] if args else [])
+    assert _exit([*paths, *args]) == 2
+    printed = capsys.readouterr().err
+    assert printed.startswith("usage: ")
+    assert f"refused: {said}; no argument is printed" in printed
+    assert "sideways" not in printed
 
 
 def test_prose_told_neither_carry_nor_drop_is_refused_and_what_it_was_told_is_not_printed() -> None:
