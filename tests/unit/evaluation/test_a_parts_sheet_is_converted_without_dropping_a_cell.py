@@ -484,9 +484,10 @@ def test_a_code_fence_is_refused_since_a_row_inside_it_is_no_table_row(fence: st
         converter.convert(fenced, label=LABEL, prose="carry")
 
 
-#: Lines that hold a row id, however it is written: in code, emphasis or brackets, in a cell of
-#: HTML or a comment, after a word, misspelt, in another case, with a full-width digit, or
-#: behind a character that prints as nothing.
+#: Lines that hold a row id, however it is written: in code, emphasis or brackets, split by
+#: emphasis or code markers, in a cell of HTML or a comment, after a word, misspelt, in another
+#: case, with a full-width digit, behind a character that prints as nothing or as a blank, or
+#: with an accent on its R.
 ROW_LIKE = [
     f"`R1.08` voltage 5 V {MOTOR}",
     f"**R1.08** voltage 5 V {MOTOR}",
@@ -523,6 +524,17 @@ ROW_LIKE = [
     "See row 1.08 for the voltage.",
     "See Row1.08 for the voltage.",
     "See \U0001d411\U0001d7cf.08 for the voltage.",
+    "See **R1**.08 for the voltage.",
+    "See R1.**08** for the voltage.",
+    "See `R1`.08 for the voltage.",
+    "See __R1__.08 for the voltage.",
+    "See R\u28001.08 for the voltage.",
+    "See R1\u2800.08 for the voltage.",
+    "See R1\u30fb08 for the voltage.",
+    "See R1\u2e3108 for the voltage.",
+    "See R1\u066b08 for the voltage.",
+    "See \u01541.08 for the voltage.",
+    "See R\u03011.08 for the voltage.",
 ]
 ROW_LIKE_IDS = [
     "in-code",
@@ -560,6 +572,17 @@ ROW_LIKE_IDS = [
     "the-word-row",
     "the-word-row-joined",
     "mathematical-letters",
+    "split-by-emphasis",
+    "split-by-emphasis-after-the-point",
+    "split-by-code",
+    "split-by-underscores",
+    "a-braille-blank-after-the-r",
+    "a-braille-blank-before-the-point",
+    "a-katakana-middle-dot",
+    "a-word-separator-middle-dot",
+    "an-arabic-decimal-separator",
+    "an-r-with-an-accent",
+    "an-r-with-a-combining-accent",
 ]
 #: Those of them that start with a row id: refused whatever is done with prose.
 ROW_LEADS = frozenset({f"**R1.08** voltage 5 V {MOTOR}", "R1.08\tvoltage\t5\tV"})
@@ -600,6 +623,42 @@ def test_prose_that_holds_no_row_id_is_still_dropped_and_counted(line: str) -> N
     assert converter.read_table(SHEET + f"\n{line}\n").prose == (
         (len(SHEET.splitlines()) + 2, line),
     )
+
+
+#: Part names that hold an R, digits, a separator and digits, and are no row id: an R inside a
+#: part number, after a letter, a digit or a hyphen, and a board's revision with a comma and a
+#: space after it.
+PART_NAMES = {
+    "an-ultrasonic-sensor": "Distance: HC-SR04, 2-400 cm.",
+    "a-motion-sensor": "PIR: HC-SR501, 3-7 m.",
+    "a-touch-controller": "Touch: MPR121, 12 electrodes.",
+    "a-board-revision": "Arduino Uno R3, 5 V logic.",
+    "a-board-revision-and-its-clock": "Controller: Arduino Uno R3, 16 MHz",
+    "a-function-generator": "Function generator XR2206, 1 Hz to 1 MHz.",
+    "resistor-value-codes": "Use 4R7, 10R and 1k resistors.",
+    "a-shunt-value-code": "Shunt 0R1, 1 %.",
+}
+
+
+@pytest.mark.parametrize("line", PART_NAMES.values(), ids=PART_NAMES.keys())
+def test_a_part_name_in_prose_is_no_row_id_and_is_dropped_and_counted(line: str) -> None:
+    assert not converter._names_a_row(line)
+    dropped = json.loads(converter.convert(_with(line), label=LABEL, prose="drop"))
+    assert dropped == json.loads(converter.convert(SHEET, label=LABEL))
+    assert converter.read_table(_with(line)).prose == ((len(SHEET.splitlines()) + 2, line),)
+
+
+@pytest.mark.parametrize("line", PART_NAMES.values(), ids=PART_NAMES.keys())
+@pytest.mark.parametrize("prose", [None, "carry", "drop"])
+def test_a_heading_that_names_a_part_is_the_table_s_structure_in_every_mode(
+    line: str, prose: str | None
+) -> None:
+    """A heading is never named to be dropped: one read as holding a row id has no way out."""
+    heading = f"## {line}"
+    assert converter.convert(_with(heading), label=LABEL, prose=prose) == (
+        converter.convert(SHEET, label=LABEL)
+    )
+    assert converter.read_table(_with(heading)).prose == ()
 
 
 #: The lines above that do not start with a row id, after any indent, quote or list marker.
@@ -746,8 +805,16 @@ def test_the_command_drops_the_lines_it_is_told_to_by_digest_and_says_how_many(
         "## Rows R1.01 to R1.07",
         "## r1.2: the motor",
         "### \u200bR1.08",
+        "### `R1`.08 voltage",
     ],
-    ids=["a-row-as-a-heading", "a-pipe", "a-row-id", "a-misspelt-row-id", "a-hidden-row-id"],
+    ids=[
+        "a-row-as-a-heading",
+        "a-pipe",
+        "a-row-id",
+        "a-misspelt-row-id",
+        "a-hidden-row-id",
+        "a-row-id-split-by-code",
+    ],
 )
 @pytest.mark.parametrize("prose", [None, "carry", "drop"])
 def test_a_heading_that_holds_a_pipe_or_a_row_id_is_refused(
@@ -1480,10 +1547,17 @@ def test_the_command_reads_the_table_s_bytes_and_translates_no_line_end(
 # --- A line led by a # that is no heading is prose ------------------------------------------------
 
 #: Lines led by a ``#`` that CommonMark reads as a paragraph's, not a heading.
-NOT_HEADINGS = ["#tag and a remark", "####### seven of them", "    # four spaces before it"]
+NOT_HEADINGS = [
+    "#tag and a remark",
+    "####### seven of them",
+    "    # four spaces before it",
+    "\t# a tab before it",
+]
 
 
-@pytest.mark.parametrize("line", NOT_HEADINGS, ids=["no-space", "seven", "indented-four"])
+@pytest.mark.parametrize(
+    "line", NOT_HEADINGS, ids=["no-space", "seven", "indented-four", "a-tab-before-it"]
+)
 def test_a_line_led_by_a_hash_that_is_no_heading_is_prose_carried_or_counted(
     line: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1498,7 +1572,7 @@ def test_a_line_led_by_a_hash_that_is_no_heading_is_prose_carried_or_counted(
 
 
 @pytest.mark.parametrize(
-    "lead", ["#tag", "#######", "    #"], ids=["no-space", "seven", "indented"]
+    "lead", ["#tag", "#######", "    #", "\t#"], ids=["no-space", "seven", "indented", "a-tab"]
 )
 def test_a_line_led_by_a_hash_that_is_no_heading_and_holds_a_row_id_is_not_dropped_unnamed(
     lead: str,

@@ -149,17 +149,32 @@ _DASH = "–—"
 _GROUPING = ",.   "
 _LETTERS = re.compile(r"[^\W\d_]+")
 _HYPHEN_AFTER = re.compile(r"\s*[-−]\s*[0-9.]")
-#: What may stand between a row id's two numbers: a point, a comma, an underscore, a middle
-#: dot or another dot, a hyphen, a dash or a minus.
+#: What may stand between a row id's two numbers, besides a comma: a point, an underscore, a
+#: middle dot or another dot, an Arabic decimal separator, a hyphen, a dash or a minus.
 _ROW_ID_SEPARATORS = (
-    ".,_\u00b7\u2022\u2027\u2219\u22c5\u3001\u3002-\u2010\u2011\u2012\u2013\u2014\u2015\u2212"
+    "._\u00b7\u2022\u2027\u2219\u22c5\u2e31\u3002\u30fb\u066b"
+    "-\u2010\u2011\u2012\u2013\u2014\u2015\u2212"
 )
+#: A comma between a row id's two numbers: a plain or an ideographic one.
+_ROW_ID_COMMAS = ",\u3001"
+#: Emphasis and code markers, which may split a row id (``**R1**.02``), and spaces.
+_MARKERS = "*_`"
+_GAP = rf"[{re.escape(_MARKERS)}\s]*"
 #: A row id however it is written (see :func:`_names_a_row`), in a line read as
-#: :func:`_plain` gives it.
+#: :func:`_plain` gives it: ``R`` or ``row`` after no letter, digit or hyphen; digits, an
+#: optional letter, a separator and digits, with markers and spaces between them, and no space
+#: after a comma.
 _ROW_ID_LOOSE = re.compile(
-    rf"(?:R|\bR\s+|\brow\s*)\d+[A-Z]?\s*[{re.escape(_ROW_ID_SEPARATORS)}]\s*\d+",
+    rf"(?<![^\W_]|[-\u2010])(?:R|row){_GAP}\d+[{re.escape(_MARKERS)}]*[A-Z]?{_GAP}"
+    rf"(?:[{re.escape(_ROW_ID_SEPARATORS)}]{_GAP}"
+    rf"|[{_ROW_ID_COMMAS}](?![{re.escape(_MARKERS)}]*\s)[{re.escape(_MARKERS)}]*)\d+",
     re.IGNORECASE,
 )
+#: A row id written as the table writes one (``R1.08``, ``R1a.01``), read after a letter, a
+#: digit or a hyphen too (``TR1.08``).
+_ROW_ID_WRITTEN = re.compile(r"R\d+[A-Za-z]?\.\d{2}(?!\d)")
+#: A character that prints as a blank but is no space to Unicode: the Braille pattern blank.
+_BLANKS = frozenset("\u2800")
 #: Unicode's Default_Ignorable_Code_Point ranges (DerivedCoreProperties): characters a reader
 #: is shown as nothing, the Hangul fillers and the variation selectors among them.
 _IGNORABLE = (
@@ -230,28 +245,48 @@ def _unprinted(char: str) -> bool:
 
 
 def _plain(line: str) -> str:
-    """``line`` as a row id is looked for in: compatibility forms folded, nothing unprinted."""
-    return "".join(c for c in unicodedata.normalize("NFKD", line) if not _unprinted(c))
+    """``line`` as a row id is looked for in: compatibility forms folded, nothing unprinted.
+
+    A character that prints as a blank is read as the space it looks like.
+    """
+    folded = unicodedata.normalize("NFKD", line)
+    return "".join(" " if c in _BLANKS else c for c in folded if not _unprinted(c))
 
 
 def _names_a_row(line: str) -> bool:
     """Whether ``line`` holds a row id anywhere, however it is written.
 
-    The line is read with its compatibility forms folded (NFKD: full-width letters and digits,
-    a no-break space, a mathematical R) and with every character removed that prints as
-    nothing or only as a mark on another: format characters (a zero-width space, a joiner, a
-    byte-order mark), combining marks (the combining grapheme joiner, the variation selectors)
-    and every other default-ignorable code point (the Hangul fillers). In that, a row id is,
-    in any case: ``R`` (inside a word too, ``TR1.08``), or ``R`` standing as a word with spaces
-    after it, or the word ``row`` with or without spaces after it; then digits of any script,
-    an optional letter, one of ``. , _``, a middle or other dot, a hyphen, a dash or a minus,
-    with spaces on either side or none; then digits.
+    The line is read with its compatibility forms decomposed and folded (NFKD: full-width
+    letters and digits, a no-break space, a mathematical R, and an accented R as an R and its
+    accent, where NFKC would compose them into a letter that is no R), with every character
+    removed that prints as nothing or only as a mark on another: format characters (a
+    zero-width space, a joiner, a byte-order mark), combining marks (an accent, the combining
+    grapheme joiner, the variation selectors) and every other default-ignorable code point
+    (the Hangul fillers), and with a Braille pattern blank read as a space. In that, a row id
+    is, in any case:
+
+    - ``R`` or the word ``row``, after no letter, digit or hyphen, with or without spaces
+      after it; then digits of any script and an optional letter; then one of ``. _``, a
+      middle or other dot (the katakana and the word-separator middle dots among them), an
+      Arabic decimal separator, a hyphen, a dash or a minus, with spaces on either side or
+      none, or a comma with no space after it; then digits. Emphasis and code markers (``*``,
+      ``_``, a backtick) between those parts are read as nothing (``**R1**.02``, ``R1.**02**``);
+    - or, after a letter, a digit or a hyphen too, a row id as the table writes it: ``R``,
+      digits, an optional letter, a point and two digits (``TR1.08``).
+
+    So a part name is no row id: an ``R`` inside a part number (``HC-SR04, 2-400 cm``,
+    ``MPR121, 12``), a resistor's value code (``4R7, 10R``), or a board's revision with a
+    comma and a space after it (``Uno R3, 5 V``). A reference designator before a dash and a
+    number (``R1 - 10 kΩ``), a revision written with a point (``R2.1``) and an amount after
+    the currency sign R (``R 1,500``) still read as row ids.
 
     Not caught: a letter of another script that looks like R (a Cyrillic ``Р`` is the look-alike
-    of a Latin P, not of R), a separator other than those (``R1:02``, ``R1/02``), or none
-    (``R102``, ``R1 02``).
+    of a Latin P, not of R), a separator other than those (``R1:02``, ``R1/02``), none
+    (``R102``, ``R1 02``), a comma with a space after it (``R1, 02``), a letter in place of a
+    digit (``R1.O2``, with the letter O), or an id split by HTML tags (``<b>R</b>1.02``).
     """
-    return _ROW_ID_LOOSE.search(_plain(line)) is not None
+    plain = _plain(line)
+    return _ROW_ID_LOOSE.search(plain) is not None or _ROW_ID_WRITTEN.search(plain) is not None
 
 
 def _number(cell: str, unit: str) -> float | int | None:
