@@ -1240,6 +1240,10 @@ REFUSALS: dict[str, tuple[str | bytes, list[str]]] = {
     "a-line-that-holds-a-pipe": (_with(f"{WORD} | b"), [*LABELLED, "--prose", "carry"]),
     "a-code-fence": (_with(f"```{WORD}", "```"), [*LABELLED, "--prose", "carry"]),
     "a-carriage-return-in-a-line": (_with(f"{WORD}\rR1.07"), [*LABELLED, "--prose", "carry"]),
+    "a-carriage-return-at-the-text-s-end": (
+        SHEET + f"\n{SAYING}\r",
+        [*LABELLED, "--prose", "carry"],
+    ),
     "a-telltale-in-carried-prose": (
         _with(f"The planted {WORD} part."),
         [*LABELLED, "--prose", "carry"],
@@ -1528,6 +1532,18 @@ def test_a_table_whose_lines_end_in_a_carriage_return_and_a_newline_reads_as_one
 def test_a_carriage_return_that_ends_no_line_is_refused(line: str) -> None:
     with pytest.raises(converter.SheetRefusedError, match=r"line \d+ holds a carriage return"):
         converter.convert(_with(line), label=LABEL, prose="carry")
+
+
+@pytest.mark.parametrize(
+    "end", ["Every address read on one day.\r", "\r"], ids=["after-a-line", "alone"]
+)
+def test_a_carriage_return_at_the_text_s_very_end_is_refused(end: str) -> None:
+    """No newline follows it, so it ends no line."""
+    text = SHEET + "\n" + end
+    with pytest.raises(converter.SheetRefusedError, match=r"line \d+ holds a carriage return"):
+        converter.read_table(text)
+    with pytest.raises(converter.SheetRefusedError, match=r"line \d+ holds a carriage return"):
+        converter.convert(text, label=LABEL, prose="carry")
 
 
 def test_the_command_reads_the_table_s_bytes_and_translates_no_line_end(

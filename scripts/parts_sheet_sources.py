@@ -15,7 +15,8 @@ Row, Quantity, Value, Unit, Source URL, Retrieved and Note. A review is given
 - the Retrieved column must hold one date for every row, because a row has no field for it.
 
 **Lines.** The text is read as lines that a newline (``\n``) ends, a carriage return just
-before the newline being part of the line's end. A carriage return anywhere else is refused.
+before the newline being part of the line's end. A carriage return anywhere else is refused,
+one at the text's very end, which no newline follows, among them.
 A vertical tab, a form feed, a file, group or record separator, a next line (U+0085), or a
 Unicode line or paragraph separator ends no line: it is a character of the line it is in.
 
@@ -339,9 +340,11 @@ def lines(markdown: str) -> list[str]:
     """``markdown``'s lines: what a newline ends, a carriage return just before it left out.
 
     Raises:
-        SheetRefusedError: a carriage return stands anywhere else; the line is named.
+        SheetRefusedError: a carriage return stands anywhere else, at the text's very end
+            among them, where no newline follows it; the line is named.
     """
-    split = [line.removesuffix("\r") for line in markdown.split("\n")]
+    pieces = markdown.split("\n")
+    split = [piece.removesuffix("\r") for piece in pieces[:-1]] + pieces[-1:]
     for number, line in enumerate(split, start=1):
         if "\r" in line:
             msg = (
