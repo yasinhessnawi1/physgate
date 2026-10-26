@@ -1,0 +1,80 @@
+{
+ "law_extract_sha256": "08b8d840ff1386dfcd18f6ddbc43537113500a89ff55b045d1f0e3d795d7afe8",
+ "law_inputs_digests_sha256": "e3792c3ae13a8942586d2f483810016b810eee9ca7ebc1e41d8b6fca9334afb9",
+ "runs_held_to_recorded_digests": [
+  "repeat-K",
+  "round-1"
+ ],
+ "keys": [
+  {
+   "case": "1",
+   "key": {
+    "run": "the kept round",
+    "item": "a18",
+    "side": "twin",
+    "rubric_item_id": "ES-14"
+   },
+   "results_rows": 1,
+   "reviews_read": 1,
+   "lines_matched": 1,
+   "of_them_unmet_or_confirmed": 1,
+   "of_them_failing_item_branch": 0
+  },
+  {
+   "case": "2",
+   "key": {
+    "run": "the kept round",
+    "item": "a21",
+    "side": "twin",
+    "rubric_item_id": "D28"
+   },
+   "results_rows": 1,
+   "reviews_read": 1,
+   "lines_matched": 1,
+   "of_them_unmet_or_confirmed": 1,
+   "of_them_failing_item_branch": 0
+  },
+  {
+   "case": "3",
+   "key": {
+    "run": "the kept round",
+    "item": "a28",
+    "side": "twin",
+    "rubric_item_id": "MS-3"
+   },
+   "results_rows": 1,
+   "reviews_read": 1,
+   "lines_matched": 1,
+   "of_them_unmet_or_confirmed": 1,
+   "of_them_failing_item_branch": 0
+  },
+  {
+   "case": "4a",
+   "key": {
+    "run": "the noise run",
+    "item": "a22",
+    "side": "twin",
+    "rubric_item_id": "DS-27"
+   },
+   "results_rows": 1,
+   "reviews_read": 1,
+   "lines_matched": 1,
+   "of_them_unmet_or_confirmed": 1,
+   "of_them_failing_item_branch": 0
+  },
+  {
+   "case": "4b",
+   "key": {
+    "run": "the kept round",
+    "item": "a22",
+    "side": "injected",
+    "rubric_item_id": "DS-27"
+   },
+   "results_rows": 1,
+   "reviews_read": 1,
+   "lines_matched": 1,
+   "of_them_unmet_or_confirmed": 1,
+   "of_them_failing_item_branch": 0
+  }
+ ]
+}
