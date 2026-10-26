@@ -1,0 +1,151 @@
+"""Tests of launch.sh: its refusals before any review, and the shape of a block.
+
+Run explicitly, from the repository root: ``uv run pytest -q experiments/R-PG-03``.
+
+Nothing here reaches the network, reads a token or starts a review: the refusals tested come before
+the first review, every place is under a fresh directory, and the block's shape is read from the
+script itself.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import subprocess
+from pathlib import Path
+
+import pytest
+
+HERE = Path(__file__).resolve().parent
+LAUNCH = HERE / "launch.sh"
+REPO = HERE.parent.parent
+
+
+def launch(
+    tmp: Path, *args: str, extra: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
+    env = {k: v for k, v in os.environ.items() if not k.startswith("RP3_")}
+    env.update({"HOME": str(tmp / "home"), **(extra or {})})
+    (tmp / "home").mkdir(exist_ok=True)
+    return subprocess.run(
+        ["bash", str(LAUNCH), *args],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=REPO,
+        check=False,
+        timeout=600,
+    )
+
+
+@pytest.mark.parametrize(
+    "args", [(), ("--block",), ("--block", "x3"), ("--block", "x1", "--alone")]
+)
+def test_a_bad_command_line_is_refused_with_the_usage(
+    tmp_path: Path, args: tuple[str, ...]
+) -> None:
+    done = launch(tmp_path, *args)
+    assert done.returncode == 2 and "usage:" in done.stderr
+
+
+def test_checks_only_needs_a_records_directory_of_its_own(tmp_path: Path) -> None:
+    done = launch(tmp_path, "--block", "x1", "--checks-only")
+    assert done.returncode == 1 and "needs RP3_RUNS" in done.stderr
+    done = launch(
+        tmp_path,
+        "--block",
+        "x1",
+        "--checks-only",
+        extra={"RP3_RUNS": str(tmp_path / "home" / "runs" / "rpg03" / "trial")},
+    )
+    assert done.returncode == 1 and "lies under" in done.stderr
+
+
+def test_the_trial_s_settings_are_refused_on_a_run(tmp_path: Path) -> None:
+    done = launch(tmp_path, "--block", "x1", extra={"RP3_MASTER_REF": "HEAD"})
+    assert done.returncode == 1 and "--checks-only alone" in done.stderr
+
+
+def test_a_check_only_trial_refuses_without_commits_filled(tmp_path: Path) -> None:
+    done = launch(
+        tmp_path,
+        "--block",
+        "x1",
+        "--checks-only",
+        extra={"RP3_RUNS": str(tmp_path / "trial"), "RP3_TRIAL_HOST": "1", "RP3_R_K": str(REPO)},
+    )
+    log = next((tmp_path / "trial" / "blocks").glob("x1-*/launch.log")).read_text()
+    assert done.returncode == 1 and "REFUSED: L2-commits" in log and "Commits filled" in log
+
+
+def code() -> list[str]:
+    return [ln for ln in LAUNCH.read_text().splitlines() if not ln.lstrip().startswith("#")]
+
+
+def test_the_stages_run_in_the_documented_order() -> None:
+    text = "\n".join(code())
+    names = [
+        "L1-host",
+        "L1-order",
+        "L1-owner",
+        "L2-commits",
+        "L2-generalist",
+        "L3-binary",
+        "L4-split",
+        "L4-plan",
+        "L5-sets",
+        "L5-sheet",
+        "L6-r4",
+        "L7-r3",
+        "L8-corpus",
+        "L9-ff",
+        "L10",
+        "check L11",
+        "check start",
+    ]
+    where = [text.index(n) for n in names]
+    assert where == sorted(where)
+
+
+def test_the_three_arms_start_together_and_never_one_alone() -> None:
+    text = "\n".join(code())
+    assert text.count("start_one 0") == 1 and "start_one 1" in text and "start_one 2" in text
+    assert re.search(r"STARTED\[2\] - STARTED\[0\]\)\) -gt 60", text)
+    assert "first_minute.txt" in text and "stop_all" in text
+    assert re.search(r'watch_limit\.sh" "\$LAUNCH/watcher\.log" block', text)
+    for arm, checkout, mode in (("A2", "CHECKOUT", ""), ("B", "R_K_CHECKOUT", "--generalist")):
+        assert arm in text and checkout in text and mode in text
+
+
+def test_every_arm_runs_the_block_s_seed_lanes_per_class_and_its_own_root() -> None:
+    text = "\n".join(code())
+    for flag in (
+        '--seed "$(SEED_OF',
+        '--lanes "$(lanes_of',
+        '--per-class "$(PER_CLASS_OF',
+        '--scratch "$(scratch_of',
+        "--review-clean-twins",
+    ):
+        assert flag in text
+    seed_line = next(ln for ln in text.splitlines() if ln.startswith("SEED_OF()"))
+    seeds = dict(re.findall(r"(\w+)\) echo (\d+) ;;", seed_line))
+    assert {
+        k: int(v)
+        for k, v in seeds.items()
+        if k in ("x1", "y1", "z1", "z2", "y2", "x2", "s", "p1", "p2")
+    } == {"x1": 53, "y1": 59, "z1": 83, "z2": 89, "y2": 67, "x2": 61, "s": 71, "p1": 73, "p2": 79}
+
+
+def test_the_end_of_a_block_checks_ledgers_logins_and_scans_before_it_says_valid() -> None:
+    text = "\n".join(code())
+    for step in (
+        'checks.py" "${CK[@]}" after',
+        'ledger.py" block',
+        'checks.py" "${CK[@]}" credentials',
+        'rp3_scan "${WRITTEN[@]}"',
+        "rp3_drop_token",
+    ):
+        assert step in text
+    assert text.index('rp3_drop_token\n[ "$CREDENTIALS_OK"') > text.index(
+        'rp3_scan "${WRITTEN[@]}"'
+    )
