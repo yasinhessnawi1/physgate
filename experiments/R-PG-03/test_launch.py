@@ -214,3 +214,18 @@ def test_the_end_of_a_block_checks_ledgers_logins_and_scans_before_it_says_valid
 def test_a_deviation_is_refused_as_one_and_never_said_void() -> None:
     text = "\n".join(code())
     assert "DEVIATION" in text and "checks.py classify" in text
+
+
+def test_an_arm_stopped_or_crashed_has_its_sessions_stopped_before_the_end_checks() -> None:
+    # The instrument starts each review session in a session of its own and cannot end them once
+    # killed: the launch stops what the review roots' records prove still running, and removes
+    # their login files, as the watcher does at a limit.
+    text = "\n".join(code())
+    waits = text.index('wait "${PIDS[$i]}"')
+    stop = text.index('checks.py" "${CK[@]}" stop-sessions', waits)
+    assert stop < text.index('checks.py" "${CK[@]}" after')
+    call = text[stop : text.index("\n", stop)]
+    for arm in ("A2", "A1", "B"):
+        assert f'--scratch "$(scratch_of {arm})"' in call
+    guard = text[text.rindex("\nif ", 0, stop) : stop]
+    assert "first_minute.txt" in guard and "ABNORMAL" in guard

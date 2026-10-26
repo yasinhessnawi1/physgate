@@ -380,6 +380,18 @@ wait "$WATCHER" || true
 python3 -I -c 'import json,sys; a = sys.argv[1:]; print(json.dumps({a[k]: int(a[k + 1]) for k in range(0, len(a), 2)}))' \
   A2 "${EXITS[A2]}" A1 "${EXITS[A1]}" B "${EXITS[B]}" > "$LAUNCH/exits.json"
 BLOCK_ENDED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+# An arm stopped in its first minute, or one that ended other than 0 or 1, leaves the review
+# sessions it started running in sessions of their own, with their login files: stop every session
+# the review roots' process records prove still running, and remove their credential directories,
+# as the watcher does at a limit, before the end checks.
+ABNORMAL=0
+for arm in "${ARMS[@]}"; do case "${EXITS[$arm]}" in 0|1) ;; *) ABNORMAL=1 ;; esac; done
+if [ -f "$LAUNCH/first_minute.txt" ] || [ "$ABNORMAL" = 1 ]; then
+  status=0
+  out="$(py "$HERE/checks.py" "${CK[@]}" stop-sessions --scratch "$(scratch_of A2)" --scratch "$(scratch_of A1)" --scratch "$(scratch_of B)" 2>&1)" || status=$?
+  say "SESSIONS $(printf '%s' "$out" | tail -n 1)"
+  [ "$status" = 0 ] || say "CREDENTIALS NOT CONFIRMED REMOVED (stop-sessions exit $status)"
+fi
 
 # ---- the attempt's end: its checks, its ledger line, the logins, the token's scan ----
 AFTER_OK=1
