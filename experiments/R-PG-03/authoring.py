@@ -103,6 +103,11 @@ INFRA_LADDER = (60.0, 900.0, 2700.0)
 MAX_TURNS = 150
 ALLOWED_TOOLS = {"Read", "Write", "Edit"}
 REFUSAL = "is outside this session's working directory"
+#: The model name the binary gives the messages it writes itself; excused only on the one kind of
+#: such message the stream marks as the binary's own report of an API error.
+SYNTHETIC_MODEL = "<synthetic>"
+#: The one audit failure judged at the turn's end alone (§2.5), so never carried from a cut part.
+PASSED_COPY_FAILURE = "a passed copy changed or gone at the turn's end"
 GATE_WORDS = (
     "src/physgate",
     "physgate/gate",
@@ -427,7 +432,8 @@ def audit(
         message: dict[str, Any] = event["message"] if isinstance(event.get("message"), dict) else {}
         content: list[Any] = message["content"] if isinstance(message.get("content"), list) else []
         if event.get("type") == "assistant":
-            if message.get("model"):
+            api_error = event.get("is_api_error_message") is True
+            if message.get("model") and not (message["model"] == SYNTHETIC_MODEL and api_error):
                 models.add(str(message["model"]))
             for block in content:
                 if not isinstance(block, dict) or block.get("type") != "tool_use":
@@ -472,7 +478,7 @@ def audit(
     if outcome["message"] not in fixed_names and not outcome["message"].startswith("facts"):
         failed.append("a message from anyone but the runner's fixed files")
     if not copies["holds"]:
-        failed.append("a passed copy changed or gone at the turn's end")
+        failed.append(PASSED_COPY_FAILURE)
     found = {
         "tool_calls": dict(tools),
         "tools_not_allowed_tried": sorted(set(tools) - ALLOWED_TOOLS),
@@ -986,17 +992,26 @@ def _pair_step(state: dict[str, Any], pair: str, p: dict[str, Any]) -> dict[str,
 def _resolve(
     state: dict[str, Any], pair: str, p: dict[str, Any], pend: dict[str, Any]
 ) -> dict[str, Any]:
-    """The turn that just ran: resumed if it was cut short, routed if its audit failed."""
+    """The turn that just ran: resumed if it was cut short, routed if its audit failed.
+
+    A turn and every resume of it are one turn (§2.5), so an audit failure in a part that was cut
+    is carried until the turn ends and routed then, with the failures of the rest. A passed copy
+    is judged at the turn's end alone, so that failure is not carried from a cut part.
+    """
     role = pend["role"]
     s = p["sessions"][role]
     last = s["last"]
+    if last["ended"] in ("usage_limit", "infrastructure"):
+        carried = pend.setdefault("cut_failed", [])
+        for f in last.get("audit_failed") or []:
+            if f != PASSED_COPY_FAILURE and f not in carried:
+                carried.append(f)
     if last["ended"] == "usage_limit":
         if pend["usage_cut"] or s["usage_resumes"] >= MAX_USAGE_RESUMES:
             record(state, "a usage limit counted as an audit failure", pair=pair, session=role)
             p["pending"] = None
-            return _route(
-                state, pair, p, role, pend, "a usage-limit cut twice in one turn, or past 2"
-            )
+            why = "a usage-limit cut twice in one turn, or past 2"
+            return _route(state, pair, p, role, pend, "; ".join([*pend["cut_failed"], why]))
         if not _released(state, "the usage limit's reset (authoring.sh limit-reset)", pair, role):
             return {"step": "waiting", "for": state["waiting"]["for"]}
         pend["usage_cut"] = True
@@ -1022,8 +1037,10 @@ def _resolve(
         record(state, "resume after an infrastructure cut", pair=pair, session=role, delay_s=delay)
         return _turn(state, pair, p, role, f"resume-{pend['label']}", "resume.txt")
     p["pending"] = None
-    if last.get("audit_failed"):
-        return _route(state, pair, p, role, pend, "; ".join(last["audit_failed"]))
+    carried = pend.get("cut_failed") or []
+    failed = [*carried, *(f for f in last.get("audit_failed") or [] if f not in carried)]
+    if failed:
+        return _route(state, pair, p, role, pend, "; ".join(failed))
     p["phase"] = pend["next"]
     return {"step": "turn resolved", "pair": pair, "session": role, "next": p["phase"]}
 

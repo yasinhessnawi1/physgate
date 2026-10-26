@@ -209,6 +209,32 @@ def call(tid: str, name: str, path: str | None = None) -> dict[str, Any]:
         ),
         ([], "/tmp/another-message.txt", None, "a message from anyone"),
         ([], "launch.txt", {"token_value": 0, "sk_ant_prefix": 1, "oat_prefix": 0}, "a secret"),
+        (
+            [
+                {
+                    "type": "assistant",
+                    "is_api_error_message": True,
+                    "message": {
+                        "model": "<synthetic>",
+                        "content": [{"type": "text", "text": "API Error: 529 overloaded"}],
+                    },
+                }
+            ],
+            "launch.txt",
+            None,
+            None,
+        ),
+        (
+            [
+                {
+                    "type": "assistant",
+                    "message": {"model": "<synthetic>", "content": [{"type": "text", "text": "x"}]},
+                }
+            ],
+            "launch.txt",
+            None,
+            "a model",
+        ),
     ],
     ids=[
         "a-tool-tried-and-unavailable",
@@ -218,6 +244,8 @@ def call(tid: str, name: str, path: str | None = None) -> dict[str, Any]:
         "another-model",
         "a-message-not-fixed",
         "a-secret",
+        "the-binary-s-own-api-error-message",
+        "a-synthetic-model-on-any-other-message",
     ],
 )
 def test_the_audit_of_a_turn(
@@ -551,6 +579,31 @@ def test_a_usage_limit_waits_for_the_reset_and_resumes_once_per_turn(sheet: Shee
     sheet.step(state)
     assert sheet.turns[-1][1:] == ("resume-launch", "resume.txt")
     assert state["pairs"]["X"]["sessions"]["W"]["usage_resumes"] == 1
+
+
+@pytest.mark.parametrize("cut", ["usage_limit", "infrastructure"])
+def test_an_audit_failure_in_the_cut_part_of_a_turn_is_routed_when_the_turn_ends(
+    sheet: Sheet, cut: str
+) -> None:
+    # The launch turn uses a tool it may not, then is cut; its resume ends clean. A turn and every
+    # resume of it are one turn, so the turn's audit fails and the pair restarts.
+    state = au.read_state()
+    sheet.ended = [cut]
+    sheet.failing = [["a tool other than Read, Write and Edit was used"]]
+    if cut == "usage_limit":
+        sheet.until(state, "waiting")
+        state["waiting"]["released"] = True
+    got = sheet.until(state, "restart")
+    assert "a tool other than Read, Write and Edit" in got["why"]
+    assert [t[1] for t in sheet.turns] == ["launch", "resume-launch"]
+
+
+def test_a_passed_copy_is_judged_at_the_turn_s_end_not_where_it_was_cut(sheet: Sheet) -> None:
+    state = au.read_state()
+    sheet.ended = ["infrastructure"]
+    sheet.failing = [["a passed copy changed or gone at the turn's end"]]
+    got = sheet.until(state, "turn resolved")
+    assert got["next"] == "W-check-1" and state["pairs"]["X"]["restarts"] == 0
 
 
 def test_a_second_usage_limit_in_one_turn_counts_as_an_audit_failure(sheet: Sheet) -> None:
