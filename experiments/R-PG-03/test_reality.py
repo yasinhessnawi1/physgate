@@ -388,6 +388,21 @@ def judge(packets: Path, sessions: Path, by_line: dict[str, tuple[str, str]]) ->
         )
 
 
+def test_a_line_is_eligible_only_where_every_pair_of_its_locus_is_changed() -> None:
+    changed = {("control.balance_loop", "loop_gain"), ("control.balance_loop", "tick")}
+    true = {"verdict": "true_flaw", "origin": "introduced"}
+    both = line(1, "fresh-v2-x1", "c1", "injected", "A2", 0, [list(p) for p in sorted(changed)])
+    part = line(2, "fresh-v2-x1", "c1", "injected", "A2", 0, [["control.balance_loop", "tick"]])
+    outside = [["control.balance_loop", "tick"], ["x.y", "z"]]
+    wider = line(3, "fresh-v2-x1", "c1", "injected", "A2", 0, outside)
+    assert rl.eligible(both, true, changed) and rl.eligible(part, true, changed)
+    assert not rl.eligible(wider, true, changed)
+    assert not rl.eligible(both, {"verdict": "true_flaw", "origin": "base"}, changed)
+    assert not rl.eligible(both, {"verdict": "not_a_flaw", "origin": "n/a"}, changed)
+    assert not rl.eligible({**both, "side": "twin"}, true, changed)
+    assert not rl.eligible(both, None, changed)
+
+
 def test_the_rejection_control_draws_one_eligible_line_per_injected_version_by_seed_43(
     tmp_path: Path, sets: Path
 ) -> None:
@@ -659,9 +674,12 @@ def test_the_false_finding_control_passes_only_four_of_four_with_a22_s_two_lines
     ]
     got = _scored(tmp_path / "a", sets, [], {}, {}, ok)
     assert got["controls"]["fresh-v2"]["false_finding"]["status"] == "met"
+    assert got["controls"]["fresh-v2"]["false_finding"]["hit"] == 4
     bad = [*ok[:4], ("4", "true_flaw:both")]
     got = _scored(tmp_path / "b", sets, [], {}, {}, bad)
     assert got["controls"]["fresh-v2"]["false_finding"]["status"] == "missed"
+    # a22's case holds two lines, and one flaw-making line misses the case.
+    assert got["controls"]["fresh-v2"]["false_finding"]["hit"] == 3
     assert got["reliability"] == "unreliable"
     got = _scored(tmp_path / "c", sets, [], {}, {}, None)
     assert got["controls"]["fresh-v2"]["false_finding"]["status"] == "not checked"

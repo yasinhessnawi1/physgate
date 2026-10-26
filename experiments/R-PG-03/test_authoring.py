@@ -450,7 +450,6 @@ def sheet(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Sheet:
 
 def test_the_sheet_runs_pair_x_s_order_and_assembles_its_corpora(sheet: Sheet) -> None:
     state = au.read_state()
-    sheet.until(state, "C-check", limit=40) if False else None
     for _ in range(40):
         got = sheet.step(state)
         if got["step"] == "pair done":
@@ -551,6 +550,20 @@ def test_the_s_batch_failing_goes_to_x3_once_and_then_the_class_is_not_run(sheet
     assert state["pairs"]["X"]["s_status"] == "cap"
     assert not any(t[0].startswith("C-") for t in sheet.turns)
     assert (sheet.tmp / "runs" / "sets" / "fresh-v2-x1").is_dir()
+
+
+def test_the_writer_s_audit_failing_in_its_s_turn_goes_to_x3_and_does_not_restart_the_pair(
+    sheet: Sheet,
+) -> None:
+    state = au.read_state()
+    sheet.failing = [[], [], ["a tool other than Read, Write and Edit was used"]]
+    for _ in range(60):
+        got = sheet.step(state)
+        if got["step"] == "pair done":
+            break
+    assert sheet.turns[2] == ("X1-1", "third", "continue_third.txt")
+    assert ("X3-1", "launch", "launch_X3.txt") in sheet.turns
+    assert state["pairs"]["X"]["restarts"] == 0 and state["pairs"]["X"]["attempt"] == 1
 
 
 def test_pair_y_has_no_s_batch(sheet: Sheet) -> None:
