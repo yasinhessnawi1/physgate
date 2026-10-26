@@ -218,6 +218,60 @@ def test_token_sh_run_gives_the_token_to_one_step_watches_it_and_scans_what_it_w
     assert done.returncode == 1 and "found a hit" in (tmp_path / "log2").read_text()
 
 
+def run_machine_bin(tmp: Path) -> Path:
+    """Shims for the run machine's ``setsid`` and ``uname -s``, so the watcher acts as it would."""
+    bin_dir = tmp / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    (bin_dir / "setsid").write_text(
+        f'#!/bin/sh\nexec "{sys.executable}" -c '
+        '"import os,sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])" "$@"\n'
+    )
+    (bin_dir / "uname").write_text(
+        '#!/bin/sh\n[ "${1:-}" = -s ] && { echo Linux; exit 0; }\nexec /usr/bin/uname "$@"\n'
+    )
+    for name in ("setsid", "uname"):
+        (bin_dir / name).chmod(0o755)
+    return bin_dir
+
+
+def test_the_reading_resumed_after_a_limit_runs_whole_and_its_cut_step_kept_its_records(
+    tmp_path: Path,
+) -> None:
+    # Step 1's call ends on the limit and leaves its failed-call file; the step then writes its own
+    # records. Step 2, after the reset, runs in the same sessions directory with that file in it.
+    bin_dir = run_machine_bin(tmp_path)
+    env_file = tmp_path / "run.env"
+    env_file.write_text(fx.token_line(DUMMY) + "\n")
+    out = tmp_path / "sessions"
+    env = {
+        "PATH": f"{bin_dir}:/usr/bin:/bin",
+        "HOME": str(tmp_path),
+        "RP3_ENV_FILE": str(env_file),
+        "RP3_WATCH_SECONDS": "1",
+    }
+    steps = (
+        'echo "usage_limit_reached" > "$1/Q0001.attempt1.failed-20261105T0800Z.json"; '
+        'sleep 3; echo "stopped" > "$1/STOPPED"',
+        'sleep 3; echo "{}" > "$1/Q0001.attempt1.json"',
+    )
+    codes = []
+    for n, step in enumerate(steps, 1):
+        done = subprocess.run(
+            ["bash", str(TOKEN_SH), "run", str(tmp_path / f"log{n}"), "reality", str(out), "--"]
+            + ["sh", "-c", step, "x", str(out)],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=120,
+        )
+        codes.append(done.returncode)
+    assert (out / "STOPPED").read_text() == "stopped\n"  # the cut step's own record is written
+    assert (out / "Q0001.attempt1.json").is_file()  # the resumed step is not aborted
+    assert codes == [0, 0]
+    assert "ABORT" not in (tmp_path / "log1").read_text() + (tmp_path / "log2").read_text()
+
+
 def test_token_sh_run_needs_its_whole_command_line(tmp_path: Path) -> None:
     done = subprocess.run(
         ["bash", str(TOKEN_SH), "run", "log", "reality"],

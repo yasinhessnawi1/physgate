@@ -704,6 +704,118 @@ def test_the_command_sheet_names_its_steps_and_keeps_the_token_to_one_child() ->
     assert done.returncode == 2
 
 
+STEP_PY = """
+import json, os, time
+spec = json.load(open(os.environ["STEP_SPEC"]))
+turns = os.path.join(os.environ["RP3_RUNS"], "authoring", "X-1", "X1-1", "turns")
+os.makedirs(turns, exist_ok=True)
+n = len([f for f in os.listdir(turns) if f.endswith(".outcome.json")])
+s = spec[n]
+stem = os.path.join(turns, "%02d-%s" % (n + 1, s["label"]))
+with open(stem + ".stream.jsonl", "w") as f:
+    f.write(s["stream"])
+time.sleep(s["sleep"])
+with open(stem + ".outcome.json", "w") as f:
+    json.dump({"turn": n + 1, "label": s["label"], "started_utc": s["started"],
+               "ended_utc": s["ended"]}, f)
+print(json.dumps({"step": "turn", "label": s["label"]}))
+"""
+
+
+def authoring_steps(tmp: Path, spec: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """``authoring.sh next``, once per entry of ``spec``, as on the run machine.
+
+    ``uv``, ``setsid`` and ``uname -s`` are stood in for: each step writes one turn's stream,
+    waits ``sleep`` seconds (its bookkeeping), then writes the turn's outcome; the ledger lines are
+    written by the real ``ledger.py``. Returns the ledger's lines.
+    """
+    bin_dir = tmp / "bin"
+    bin_dir.mkdir()
+    (tmp / "step.py").write_text(STEP_PY)
+    (bin_dir / "uv").write_text(
+        "#!/bin/sh\n"
+        '[ "$1" = run ] && shift; [ "$1" = --frozen ] && shift\n'
+        '[ "$1" = python ] && shift; [ "$1" = -I ] && shift\n'
+        f'case "$1" in */authoring.py) exec "{sys.executable}" "{tmp / "step.py"}" ;; esac\n'
+        f'exec "{sys.executable}" -I "$@"\n'
+    )
+    (bin_dir / "setsid").write_text(
+        f'#!/bin/sh\nexec "{sys.executable}" -c '
+        '"import os,sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])" "$@"\n'
+    )
+    (bin_dir / "uname").write_text(
+        '#!/bin/sh\n[ "${1:-}" = -s ] && { echo Linux; exit 0; }\nexec /usr/bin/uname "$@"\n'
+    )
+    for name in ("uv", "setsid", "uname"):
+        (bin_dir / name).chmod(0o755)
+    (tmp / "home" / ".config").mkdir(parents=True)
+    (tmp / "home" / ".config" / "physgate-run.env").write_text(fx.token_line(fx.DUMMY_TOKEN) + "\n")
+    owner = tmp / "runs" / "owner"
+    owner.mkdir(parents=True)
+    account = {"account_label": "the run account", "weekly_reset_utc": "2026-10-29T07:00:00Z"}
+    (owner / "account.json").write_text(json.dumps(account))
+    (tmp / "spec.json").write_text(json.dumps(spec))
+    env = {
+        "PATH": f"{bin_dir}:/usr/bin:/bin",
+        "HOME": str(tmp / "home"),
+        "RP3_RUNS": str(tmp / "runs"),
+        "RP3_WATCH_SECONDS": "1",
+        "STEP_SPEC": str(tmp / "spec.json"),
+    }
+    for _ in spec:
+        subprocess.run(
+            ["bash", str(HERE / "authoring.sh"), "next"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=180,
+        )
+    ledger = tmp / "runs" / "ledger.jsonl"
+    return [json.loads(x) for x in ledger.read_text().splitlines()] if ledger.exists() else []
+
+
+#: A turn whose stream ends on the usage limit, then its resume after the reset.
+CUT_THEN_RESUMED = [
+    {
+        "label": "launch",
+        "stream": '{"type": "system"}\n{"error": "usage_limit_reached"}\n',
+        "sleep": 3,
+        "started": "2026-11-01T10:00:00Z",
+        "ended": "2026-11-01T10:30:00Z",
+    },
+    {
+        "label": "resume-launch",
+        "stream": fx.stream(),
+        "sleep": 2,
+        "started": "2026-11-05T08:00:00Z",
+        "ended": "2026-11-05T08:40:00Z",
+    },
+]
+
+
+def test_the_turn_after_a_limit_reset_is_not_aborted_and_every_turn_gets_its_ledger_line(
+    tmp_path: Path,
+) -> None:
+    lines = authoring_steps(tmp_path, CUT_THEN_RESUMED)
+    assert [(x["kind"], x["label"]) for x in lines] == [
+        ("authoring", "X1-1 01-launch"),
+        ("resume", "X1-1 02-resume-launch"),
+    ]
+    assert lines[1]["tokens_every_try"] == 10 and lines[1]["sessions_without_result"] == 0
+
+
+def test_an_authoring_line_carries_its_turn_s_own_times_and_its_weekly_window(
+    tmp_path: Path,
+) -> None:
+    lines = authoring_steps(tmp_path, CUT_THEN_RESUMED)
+    assert [(x["started_utc"], x["ended_utc"], x["window"]) for x in lines] == [
+        ("2026-11-01T10:00:00Z", "2026-11-01T10:30:00Z", "2026-10-29T07:00:00Z"),
+        ("2026-11-05T08:00:00Z", "2026-11-05T08:40:00Z", "2026-11-05T07:00:00Z"),
+    ]
+    assert lines[0]["no_total"] is True and lines[1]["no_total"] is False
+
+
 def test_the_acceptance_checks_on_an_assembled_corpus(tmp_path: Path) -> None:
     corpus = fx.write_set(tmp_path / "fresh-v2-x1")
     got = au.accept(

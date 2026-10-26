@@ -5,11 +5,12 @@ Usage (on the run machine; the records directory is ``~/runs/rpg03``, or ``RP3_R
     python -I ledger.py rpg01b --round <ledger-round-r.json> [--round ...]
         [--reality <R-PG-01b's reality ledger>] --account <label> --window <utc>
     python -I ledger.py block --block <b> --attempt <n> --scratch <dir> [--scratch ...]
-        --account <label> --window <utc> --started <utc> --ended <utc> [--void <cause>]
-    python -I ledger.py session --kind <authoring|resume|smoke> --label <name> --root <dir>
-        --account <label> --window <utc> --started <utc> --ended <utc>
-    python -I ledger.py reality --step <name> --sessions <dir> --account <label> --window <utc>
+        --account <label> --weekly-reset <utc> --started <utc> --ended <utc> [--void <cause>]
+    python -I ledger.py session --kind <authoring|resume|smoke> --label <name>
+        (--root <dir> | --stream <file> ...) --account <label> --weekly-reset <utc>
         --started <utc> --ended <utc>
+    python -I ledger.py reality --step <name> --sessions <dir> --account <label>
+        --weekly-reset <utc> --started <utc> --ended <utc>
     python -I ledger.py trailing [--now <utc>]
     python -I ledger.py project --block <b> [--now <utc>] [--w5 <tokens>]
 
@@ -20,6 +21,12 @@ so and gives the times. Then R-PG-03's lines: one per block attempt (void attemp
 authoring session and per resume, per reality step, and per smoke, each written before any
 scoring. Each line holds ``tokens_every_try`` (the binary's own totals, from every session's
 ``result`` line), the account's label, its weekly window, and the start and end times (UTC).
+
+**Its weekly window** is the window its start falls in: the last weekly reset of the run account at
+or before it, counted in whole weeks from one reset the owner read from the account's usage page
+(``--weekly-reset``; ``owner/account.json`` in the records holds it). A line whose sessions do not
+all have a ``result`` line (one cut by a usage limit or an outage) carries ``no_total``: its tokens
+are those of the sessions that have one, and the projection treats it as a line with no total.
 
 **The 5-hour projection** (``project``, before each block): the tokens the ledger records in the
 trailing 5 hours (a line whose span overlaps them counts in full) plus the block's projection
@@ -207,8 +214,22 @@ def rpg01b_lines(rounds: list[Path], reality: Path | None) -> list[dict[str, Any
     return out
 
 
+WEEK_S = 7 * 24 * 3600
+
+
+def weekly_window(reset_utc: str, at_utc: str) -> str:
+    """The window ``at_utc`` falls in: the last weekly reset at or before it."""
+    anchor, at = seconds(reset_utc), seconds(at_utc)
+    start = anchor + ((at - anchor) // WEEK_S) * WEEK_S
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(start))
+
+
 def trailing(lines: list[dict[str, Any]], now: float) -> dict[str, Any]:
-    """The tokens of every line whose span overlaps the trailing 5 hours, each counted in full."""
+    """The tokens of every line whose span overlaps the trailing 5 hours, each counted in full.
+
+    A line with no total, or one whose sessions do not all have one (``no_total``), cannot be
+    counted: it is listed, and the projection that needs it is refused.
+    """
     since = now - common.WINDOW_5H_S
     counted = []
     unknown = []
@@ -219,7 +240,7 @@ def trailing(lines: list[dict[str, Any]], now: float) -> dict[str, Any]:
             unknown.append(line.get("label"))
             continue
         if seconds(end) >= since and seconds(str(start)) <= now:
-            if line.get("tokens_every_try") is None:
+            if line.get("tokens_every_try") is None or line.get("no_total") is True:
                 unknown.append(line.get("label"))
             else:
                 counted.append(int(line["tokens_every_try"]))
@@ -257,9 +278,12 @@ def project(lines: list[dict[str, Any]], block: str, now: float, w5: int) -> dic
 
 
 def _base(args: argparse.Namespace) -> dict[str, Any]:
+    window = args.window
+    if getattr(args, "weekly_reset", None):
+        window = weekly_window(args.weekly_reset, args.started)
     return {
         "account": args.account,
-        "window": args.window,
+        "window": window,
         "started_utc": args.started,
         "ended_utc": args.ended,
     }
@@ -285,9 +309,15 @@ def main(argv: list[str] | None = None) -> int:
     q = sub.add_parser("reality")
     q.add_argument("--step", required=True)
     q.add_argument("--sessions", type=Path, required=True)
-    for p in (r, b, s, q):
+    r.add_argument("--account", required=True)
+    r.add_argument("--window", required=True)
+    for p in (b, s, q):
         p.add_argument("--account", required=True)
-        p.add_argument("--window", required=True)
+        w = p.add_mutually_exclusive_group(required=True)
+        w.add_argument("--window", help="the weekly window's start, UTC")
+        w.add_argument(
+            "--weekly-reset", help="one reset of the weekly limit, UTC: the window is computed"
+        )
     for p in (b, s, q):
         p.add_argument("--started", required=True)
         p.add_argument("--ended", required=True)
@@ -320,6 +350,7 @@ def main(argv: list[str] | None = None) -> int:
                 "sessions": sum(c["sessions"] for c in counts),
                 "sessions_without_result": sum(c["without_result"] for c in counts),
                 "tokens_every_try": sum(c["tokens"] for c in counts),
+                "no_total": any(c["without_result"] for c in counts),
             }
         elif args.cmd == "session":
             found = root_tokens(args.root) if args.root is not None else stream_tokens(args.stream)
@@ -330,6 +361,7 @@ def main(argv: list[str] | None = None) -> int:
                 "sessions": found["sessions"],
                 "sessions_without_result": found["without_result"],
                 "tokens_every_try": found["tokens"],
+                "no_total": found["without_result"] > 0,
             }
         elif args.cmd == "reality":
             found = output_tokens(args.sessions)
@@ -340,6 +372,7 @@ def main(argv: list[str] | None = None) -> int:
                 "sessions": found["sessions"],
                 "sessions_without_result": found["without_result"],
                 "tokens_every_try": found["tokens"],
+                "no_total": found["without_result"] > 0,
             }
         else:
             now = seconds(args.now) if args.now else time.time()

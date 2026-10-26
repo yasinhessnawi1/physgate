@@ -1,16 +1,25 @@
 #!/usr/bin/env bash
 # R-PG-03, CRITERIA.md §10: the usage-limit watcher, for a block, an authoring session and the
 # reality reading. Derived from R-PG-01b's abort_on_limit.sh, itself derived from the practice
-# cycle's abort guard. It stops everything it watches at the first session that ends with
-# usage_limit_reached, so no further session runs into the limit; it logs counts and causes only.
+# cycle's abort guard. It logs counts and causes only.
 #
 # Usage: watch_limit.sh <log> <kind> <pid> <dir> [<dir> ...] [-- <pid> <dir> [<dir> ...]] ...
-#   <kind>  block      each group is an arm: its pid, its run directory and its scratch directory;
-#                      on a limit every arm's group is stopped, then every session the review roots'
-#                      process records prove still running (checks.py stop-sessions, which signals
-#                      nothing else), and every session's credential directory is removed
-#           authoring  one group: the session's launcher pid and the session's root
+#   <kind>  block      each group is an arm: its pid, its run directory and its scratch directory.
+#                      At the first session that ends with usage_limit_reached every arm's group is
+#                      stopped, so no further session runs into the limit; then every session the
+#                      review roots' process records prove still running (checks.py stop-sessions,
+#                      which signals nothing else), and every session's credential directory is
+#                      removed. A block's directories are new, so every file in them counts.
+#           authoring  one group: the step's pid and the authoring's records
 #           reality    one group: the sessions' runner pid and its output directory
+#                      These directories keep every earlier step's files for good (a cut turn's
+#                      stream, a failed call's output), so only a file written after the watcher
+#                      started counts: one modified after a stamp it makes at its start. A step here
+#                      runs one session at a time and starts nothing after a session that ends on the
+#                      limit (authoring.py ends the step with that turn; reality.py run writes
+#                      STOPPED), so at a limit the watcher logs it and signals nothing: the step
+#                      finishes its own records (the turn's outcome, audit and state; the failed
+#                      call's file), which a kill would lose.
 # Each <pid> was started under setsid, so it leads its own process group. The watcher notes each
 # one's start time, and signals a group only while its leader is still that process. Off the run
 # machine (Linux) it signals nothing. When everything it watches has ended it looks once more, and
@@ -30,14 +39,31 @@ while [ $# -ge 2 ]; do
 done
 same() { [ -n "${STARTS[$1]}" ] && [ "$(started "${PIDS[$1]}")" = "${STARTS[$1]}" ]; }
 alive() { local i; for i in "${!PIDS[@]}"; do kill -0 "${PIDS[$i]}" 2>/dev/null && same "$i" && return 0; done; return 1; }
-count() {
-  # -r follows no symlink below the directories; -D skip never opens a FIFO, socket or device
-  lim=$(grep -rl -D skip --include='*.jsonl' --include='*.json' --include='*.err' --include='*.txt' 'usage_limit_reached' "${DIRS[@]}" 2>/dev/null | wc -l | tr -d ' ')
-  r429=$(grep -rho -D skip --include='*.jsonl' '"api_error_status": *429' "${DIRS[@]}" 2>/dev/null | wc -l | tr -d ' ')
+STAMP=""
+if [ "$KIND" != block ]; then
+  STAMP="$(mktemp "${TMPDIR:-/tmp}/rp3-watch.XXXXXX")" || exit 2
+  trap 'rm -f "$STAMP"' EXIT
+fi
+files() { # the regular files under the directories with one of the suffixes given, NUL-separated
+  local newer=() names=() s
+  [ -n "$STAMP" ] && newer=(-newer "$STAMP")
+  for s in "$@"; do names+=(-o -name "*$s"); done
+  # find follows no symlink (-P); -type f never opens a FIFO, socket or device
+  find "${DIRS[@]}" -type f \( "${names[@]:1}" \) "${newer[@]}" -print0 2>/dev/null
 }
+count() {
+  lim=$(files .jsonl .json .err .txt | xargs -0 grep -l -D skip -- 'usage_limit_reached' 2>/dev/null | wc -l | tr -d ' ')
+  r429=$(files .jsonl | xargs -0 grep -ho -D skip -- '"api_error_status": *429' 2>/dev/null | wc -l | tr -d ' ')
+}
+NOTED=0
 while alive; do
   count
-  if [ "$lim" -gt 0 ]; then
+  if [ "$lim" -gt 0 ] && [ "$KIND" != block ]; then
+    if [ "$NOTED" = 0 ]; then
+      echo "LIMIT $(date -u +%FT%TZ) $KIND: usage_limit_reached files $lim, 429s $r429; nothing signalled: the step finishes its records and starts nothing more" | tee -a "$LOG"
+      NOTED=1
+    fi
+  elif [ "$lim" -gt 0 ]; then
     if [ "$(uname -s)" != Linux ]; then
       echo "ABORT $(date -u +%FT%TZ) $KIND: usage_limit_reached files $lim, 429s $r429; nothing signalled off the run machine" | tee -a "$LOG"
       exit 1

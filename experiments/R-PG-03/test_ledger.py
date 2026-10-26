@@ -161,3 +161,53 @@ def test_the_cli_writes_a_block_line_and_never_rewrites_the_ledger(tmp_path: Pat
     rows = [json.loads(x) for x in (tmp_path / "runs" / "ledger.jsonl").read_text().splitlines()]
     assert rows[0]["tokens_every_try"] == 10 and rows[0]["void"] == "a cut read"
     assert "the run account" not in done.stdout  # the account's label is never printed
+
+
+def block_line(tmp: Path, *streams: str) -> dict[str, object]:
+    """The CLI's line for one block attempt whose sessions wrote ``streams``.
+
+    Its window is computed from the owner's reset anchor.
+    """
+    root = tmp / "scratch"
+    for n, text in enumerate(streams, 1):
+        d = root / "lane-0" / fx.session_of(n) / "session"
+        d.mkdir(parents=True)
+        (d / "stdout.jsonl").write_text(text)
+    done = subprocess.run(
+        [sys.executable, "-I", str(HERE / "ledger.py"), "block", "--block", "x1", "--attempt", "1"]
+        + ["--scratch", str(root), "--account", "the run account"]
+        + ["--weekly-reset", "2026-10-29T07:00:00Z"]
+        + ["--started", "2026-11-12T06:59:59Z", "--ended", "2026-11-12T09:00:00Z"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "RP3_RUNS": str(tmp / "runs")},
+        cwd=common.REPO,
+    )
+    assert done.returncode == 0, done.stdout
+    rows = [json.loads(x) for x in (tmp / "runs" / "ledger.jsonl").read_text().splitlines()]
+    return dict(rows[-1])
+
+
+def test_a_line_whose_sessions_lack_a_total_says_so_and_the_projection_cannot_count_it(
+    tmp_path: Path,
+) -> None:
+    # A block voided by a usage limit: one session ended with no result line.
+    got = block_line(tmp_path, fx.stream(), fx.stream(result={}))
+    assert got["tokens_every_try"] == 10 and got["sessions_without_result"] == 1
+    assert got["no_total"] is True
+    later = lg.seconds("2026-11-12T10:00:00Z")
+    found = lg.project([RPB, got], "x2", later, common.W5)
+    assert not found["may_start"] and found["trailing_5h"]["lines_without_a_total"]
+    whole = block_line(tmp_path / "whole", fx.stream(), fx.stream())
+    assert whole["no_total"] is False
+    assert lg.project([RPB, whole], "x2", later, common.W5)["trailing_5h"]["tokens"] == 20
+
+
+def test_a_line_s_weekly_window_is_the_last_reset_at_or_before_its_start(tmp_path: Path) -> None:
+    # A second before the third reset, the line is still in the second window.
+    assert block_line(tmp_path, fx.stream())["window"] == "2026-11-05T07:00:00Z"
+    reset = "2026-10-29T07:00:00Z"
+    assert lg.weekly_window(reset, "2026-10-29T07:00:00Z") == reset
+    assert lg.weekly_window(reset, "2026-10-29T06:59:59Z") == "2026-10-22T07:00:00Z"
+    assert lg.weekly_window(reset, "2026-11-12T07:00:00Z") == "2026-11-12T07:00:00Z"

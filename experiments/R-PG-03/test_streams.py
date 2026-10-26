@@ -232,11 +232,91 @@ def test_the_watcher_notes_an_end_with_no_limit(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(platform.system() == "Linux", reason="off the run machine it signals nothing")
-def test_the_watcher_aborts_at_a_limit_and_signals_nothing_off_the_run_machine(
+def test_a_block_s_watcher_aborts_at_a_limit_and_signals_nothing_off_the_run_machine(
     tmp_path: Path,
 ) -> None:
-    log = watch(tmp_path, "authoring", write_limit=True)
+    log = watch(tmp_path, "block", write_limit=True)
     assert "ABORT" in log and "nothing signalled off the run machine" in log
+
+
+def as_the_run_machine(tmp: Path) -> dict[str, str]:
+    """An environment whose ``uname -s`` says Linux, so the watcher acts as on the run machine."""
+    shims = tmp / "linux-shims"
+    shims.mkdir(exist_ok=True)
+    (shims / "uname").write_text(
+        '#!/bin/sh\n[ "${1:-}" = -s ] && { echo Linux; exit 0; }\nexec /usr/bin/uname "$@"\n'
+    )
+    (shims / "uname").chmod(0o755)
+    return {**os.environ, "PATH": f"{shims}:{os.environ['PATH']}", "RP3_WATCH_SECONDS": "1"}
+
+
+def step_under_watch(
+    tmp: Path, kind: str, step: str, env: dict[str, str], dirs: int = 1
+) -> tuple[subprocess.CompletedProcess[str], str]:
+    """One step (``sh -c step <dir>``) in a session of its own, under the watcher of ``kind``."""
+    d = tmp / "watched"
+    d.mkdir(exist_ok=True)
+    extra = [str(tmp / "scratch")] if dirs == 2 else []
+    if extra:
+        Path(extra[0]).mkdir(exist_ok=True)
+    proc = subprocess.Popen(["sh", "-c", step, "x", str(d)], start_new_session=True)
+    reaper = threading.Thread(target=proc.wait, daemon=True)
+    reaper.start()
+    log = tmp / f"watcher-{kind}.log"
+    done = subprocess.run(
+        ["bash", str(HERE / "watch_limit.sh"), str(log), kind, str(proc.pid), str(d), *extra],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+        timeout=120,
+    )
+    reaper.join(timeout=30)
+    return done, log.read_text() if log.exists() else ""
+
+
+@pytest.mark.parametrize("kind", ["authoring", "reality"])
+def test_a_limit_an_earlier_step_left_is_never_counted_again(tmp_path: Path, kind: str) -> None:
+    # The cut turn's stream (or a failed reading call's file) is kept for good in the directory the
+    # next step is watched over: only what is written after the watcher starts counts.
+    (tmp_path / "watched").mkdir()
+    (tmp_path / "watched" / "03-continue.stream.jsonl").write_text(
+        '{"error": "usage_limit_reached"}\n'
+    )
+    old = time.time() - 600
+    os.utime(tmp_path / "watched" / "03-continue.stream.jsonl", (old, old))
+    done, log = step_under_watch(
+        tmp_path, kind, 'sleep 3; echo ended > "$1/after.txt"', as_the_run_machine(tmp_path)
+    )
+    assert "ABORT" not in log and "LIMIT" not in log, log
+    assert (tmp_path / "watched" / "after.txt").read_text() == "ended\n"
+    assert "WATCHER" in log and "usage_limit_reached files 0" in log
+
+
+@pytest.mark.parametrize("kind", ["authoring", "reality"])
+def test_a_step_whose_session_ends_on_a_limit_is_left_to_finish_its_bookkeeping(
+    tmp_path: Path, kind: str
+) -> None:
+    # The session has already ended on the limit; the step's own records (outcome, audit, state,
+    # or the failed call's file and STOPPED) are still to be written: a kill there loses them.
+    # The session runs a while, then its stream ends on the limit.
+    step = (
+        'sleep 1.5; echo \'{"error": "usage_limit_reached"}\' > "$1/01-launch.stream.jsonl"; '
+        'sleep 3; echo written > "$1/01-launch.outcome.json"'
+    )
+    done, log = step_under_watch(tmp_path, kind, step, as_the_run_machine(tmp_path))
+    assert (tmp_path / "watched" / "01-launch.outcome.json").read_text() == "written\n", log
+    assert "LIMIT" in log and "usage_limit_reached files 1" in log and "ABORT" not in log
+
+
+def test_a_block_s_watcher_still_stops_every_arm_at_the_first_limit(tmp_path: Path) -> None:
+    step = (
+        'echo \'{"error": "usage_limit_reached"}\' > "$1/s.jsonl"; '
+        'sleep 6; echo written > "$1/after.txt"'
+    )
+    done, log = step_under_watch(tmp_path, "block", step, as_the_run_machine(tmp_path), dirs=2)
+    assert "ABORT" in log and "everything watched stopped" in log
+    assert not (tmp_path / "watched" / "after.txt").exists()
 
 
 def test_the_watcher_refuses_an_unknown_kind(tmp_path: Path) -> None:

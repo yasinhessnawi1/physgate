@@ -25,8 +25,11 @@
 #
 # The credential (token.sh, R-PG-01b's discipline): `next` loads it into one unexported variable,
 # gives it to the step's process alone, never prints it, and after each step scans everything the
-# authoring wrote for it; the watcher (watch_limit.sh) stops the step at a usage limit. Each turn
-# gets its line in the quota ledger.
+# authoring wrote for it. The watcher (watch_limit.sh) logs a usage limit and lets the step finish
+# its records; a step runs one turn, so nothing starts after a session that ends on the limit. Each
+# turn gets its line in the quota ledger, with the turn's own start and end and its weekly window,
+# from the owner's ~/runs/rpg03/owner/account.json:
+#   {"account_label": "...", "weekly_reset_utc": "<one reset of the weekly limit, from the usage page>"}
 
 set -euo pipefail
 
@@ -61,8 +64,12 @@ unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL CLAUDE_CODE_OAUT
 source "$HERE/token.sh"
 export DISABLE_AUTOUPDATER=1
 rp3_load_token "$ENV_FILE" 2>> "$LOG" || { say "REFUSED: the run account's token (see the line above)"; exit 1; }
+ACCOUNT="$RUNS/owner/account.json"
+owner_says() { python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$ACCOUNT" "$1" 2>/dev/null; }
+if ! LABEL="$(owner_says account_label)" || ! RESET="$(owner_says weekly_reset_utc)"; then
+  rp3_drop_token; say "REFUSED: the owner's account file ($ACCOUNT) names no account label or weekly reset"; exit 1
+fi
 BEFORE="$(find "$AUTH" -name '*.outcome.json' 2>/dev/null | sort)"
-STARTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 set +e
 ( rp3_exec_with_token setsid uv run --frozen python -I "$HERE/authoring.py" next ) > "$AUTH/next.out" 2>> "$LOG" &
 STEP=$!
@@ -72,17 +79,19 @@ wait "$STEP"; CODE=$?
 wait "$WATCHER"
 set -e
 say "next $(date -u +%Y-%m-%dT%H:%M:%SZ) exit $CODE: $(tail -n 1 "$AUTH/next.out")"
-# Each turn this step ran gets its ledger line: a resume as a resume, any other turn as its session's.
+# Each turn this step ran gets its ledger line: a resume as a resume, any other turn as its session's,
+# with the turn's own start and end from its outcome.
 AFTER="$(find "$AUTH" -name '*.outcome.json' 2>/dev/null | sort)"
-LABEL="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1])).get("account_label", "?"))' "$RUNS/owner/authoring.json" 2>/dev/null || echo "?")"
 comm -13 <(printf '%s\n' "$BEFORE") <(printf '%s\n' "$AFTER") | while read -r outcome; do
   [ -n "$outcome" ] || continue
   stream="${outcome%.outcome.json}.stream.jsonl"
   session="$(basename "$(dirname "$(dirname "$outcome")")")"
   turn="$(basename "${outcome%.outcome.json}")"
   kind=authoring; case "$turn" in *-resume-*) kind=resume ;; esac
+  times="$(python3 -I -c 'import json,sys; o = json.load(open(sys.argv[1])); print(o["started_utc"], o["ended_utc"])' "$outcome")" \
+    || { say "REFUSED: $outcome has no start and end"; continue; }
   py "$HERE/ledger.py" session --kind "$kind" --label "$session $turn" --stream "$stream" \
-    --account "$LABEL" --window "authoring" --started "$STARTED" --ended "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOG"
+    --account "$LABEL" --weekly-reset "$RESET" --started "${times% *}" --ended "${times#* }" >> "$LOG"
 done
 # The credential never belongs in what the authoring wrote: counts only, never a match. The audits
 # and the outcomes name the prefixes' counts in keys that do not spell them.
