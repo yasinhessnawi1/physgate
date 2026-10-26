@@ -15,7 +15,8 @@ will, through the loop's own writer.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import json
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,7 @@ from physgate.orchestrator.events import (
     ModuleCompleted,
     ProposalsChecked,
     StageEntered,
+    parse_events,
     read_events,
 )
 from physgate.orchestrator.exceptions import CorruptEventLogError
@@ -648,19 +650,97 @@ def test_a_run_without_integration_or_its_declaration_writes_no_completion_line(
 
 # --- every recorded run with a completion replays under the whole registry ---------------------
 
-#: The repository's root, and where its recorded runs are committed: an experiment's records and
-#: the tests' own. The injected corpus is pinned by its manifest and predates completion lines.
+#: The repository's root. The injected corpus is pinned by its manifest and predates completion
+#: lines.
 ROOT = Path(__file__).resolve().parents[3]
-RECORDED = ("experiments", "tests")
+#: Where the tests keep recorded material, each of which the search must reach: a run's parameters
+#: recorded before a parameter existed, the reviewer's replayed submissions and schemas, and the
+#: golden escalation runs, whose cases hold event lists.
+STORES = (
+    Path("tests/unit/orchestrator/recorded"),
+    Path("tests/integration/orchestrator/replayed"),
+    Path("tests/unit/orchestrator/escalation_paths.golden.json"),
+)
+GOLDEN = STORES[-1]
+#: Installed dependencies, never a recorded run: the hook tests' pinned binary lives under one.
+NOT_RECORDED = "node_modules"
 
 
-def recorded_with_completions(root: Path) -> list[Path]:
-    """Every run event log under ``root`` that holds a completion line."""
+def _decoded(raw: bytes) -> object:
+    """``raw`` as JSON, or ``None`` if it is not JSON."""
+    try:
+        return json.loads(raw)
+    except ValueError:
+        return None
+
+
+def _event_lists(document: object) -> Iterator[list[Any]]:
+    """Every ``events`` list in a decoded JSON document, at any depth."""
+    if isinstance(document, dict):
+        for key, value in document.items():
+            if key == "events" and isinstance(value, list):
+                yield value
+            else:
+                yield from _event_lists(value)
+    elif isinstance(document, list):
+        for value in document:
+            yield from _event_lists(value)
+
+
+def recorded_runs(tests: Path) -> tuple[list[Path], list[tuple[Path, list[Any]]]]:
+    """Every file decoded under ``tests``, and every run in them, as its records decoded.
+
+    A ``*.jsonl`` file is one run, a record per line. A ``*.json`` document holds one wherever it
+    has an ``events`` list, at the top or nested, as the golden file holds one per case.
+    """
+    examined: list[Path] = []
+    runs: list[tuple[Path, list[Any]]] = []
+    for path in sorted(tests.rglob("*")):
+        if NOT_RECORDED in path.parts or not path.is_file():
+            continue
+        if path.suffix == ".jsonl":
+            examined.append(path)
+            lines = [_decoded(raw) for raw in path.read_bytes().splitlines() if raw.strip()]
+            runs.append((path, lines))
+        elif path.suffix == ".json":
+            document = _decoded(path.read_bytes())
+            if document is not None:
+                examined.append(path)
+                runs.extend((path, events) for events in _event_lists(document))
+    return examined, runs
+
+
+def with_completions(runs: list[tuple[Path, list[Any]]]) -> list[tuple[Path, list[Any]]]:
+    """The runs with a completion line, read by each record's ``kind``, whatever its layout."""
+    return [
+        (path, records)
+        for path, records in runs
+        if any(isinstance(r, dict) and r.get("kind") == "module_completed" for r in records)
+    ]
+
+
+def experiment_logs_with_completions(root: Path) -> list[Path]:
+    """Every experiment run's event log under ``root`` that holds a completion line."""
     return sorted(
         path
         for path in root.rglob("events.jsonl")
         if b'"kind":"module_completed"' in path.read_bytes()
     )
+
+
+def replayed(path: Path, records: list[Any]) -> RunState:
+    """The run ``records`` hold, read as the writer's lines and replayed."""
+    data = b"".join(json.dumps(record).encode() + b"\n" for record in records)
+    return replay(parse_events(data, log=str(path)))
+
+
+def unreached(root: Path, examined: list[Path]) -> list[Path]:
+    """Each of the stores, under ``root``, that no file examined lies in or is."""
+    return [
+        store
+        for store in STORES
+        if not any(path == root / store or root / store in path.parents for path in examined)
+    ]
 
 
 def test_every_recorded_run_with_a_completion_line_replays_under_the_whole_registry(
@@ -669,19 +749,55 @@ def test_every_recorded_run_with_a_completion_line_replays_under_the_whole_regis
     """Replay asks the registry as it stands for every completion line it reads.
 
     So a precondition added later must hold on every run recorded before it: one that is open on
-    an old run makes that run unreadable, and this test fails on it. At the commit that adds the
-    registry no committed run has a completion line, so the repository part passes on nothing;
-    the first part shows the search finds such a run and that an entry open on it fails. The
-    golden escalation runs are rebuilt through the loop by their own test, whose writer asks the
-    registry as each line is written.
+    an old run makes that run unreadable, and this test fails on it. It can only fail on a run it
+    finds, so a recorded run with a completion line is committed where it looks:
+
+    - under ``tests/``, as a ``*.jsonl`` log, or as a ``*.json`` document whose ``events`` list
+      holds the log's records as the writer wrote them (any layout, at any depth). Each record is
+      decoded and a completion is found by its ``kind``, never by its bytes. Every store the tests
+      keep recorded material in must be among the files examined, so a store moved or renamed
+      fails here until this test names it;
+    - under ``experiments/``, as a run's ``events.jsonl`` in the writer's own bytes.
+
+    A record replay cannot read fails here too: the golden escalation runs drop the timestamps
+    and the run's parameters, so a completion line in that form fails this test. Those runs are
+    rebuilt through the loop by their own test, whose writer asks the registry for each line.
+
+    At the commit that adds the registry no committed run has a completion line, so the
+    repository part passes on nothing; the first part shows the search finds such a run in each
+    form and that an entry open on it fails.
     """
-    finished(tmp_path / "recorded", monkeypatch)
-    assert recorded_with_completions(tmp_path) == [tmp_path / "recorded" / "events.jsonl"]
+    events = finished(tmp_path / "run", monkeypatch)
+    records = [json.loads(e.model_dump_json()) for e in events]
+    shaped = tmp_path / "repo"
+    forms = {
+        # A document with its log at the top, laid out by hand: a space after every colon.
+        STORES[0] / "a_run.json": json.dumps({"events": records}, indent=2),
+        # A log line by line, not named as the writer names one, nor in its bytes.
+        STORES[1] / "a_run.jsonl": "".join(json.dumps(r) + "\n" for r in records),
+        # One case of several, as the golden file holds them.
+        GOLDEN: json.dumps({"a case/on": {"config": [], "events": records}, "other": {}}),
+    }
+    for where, text in forms.items():
+        (shaped / where).parent.mkdir(parents=True, exist_ok=True)
+        (shaped / where).write_text(text)
+    examined, runs = recorded_runs(shaped / "tests")
+    found = with_completions(runs)
+    assert sorted(path for path, _ in found) == sorted(shaped / where for where in forms)
+    assert unreached(shaped, examined) == []
+    for path, run in found:
+        assert set(replayed(path, run).completed) == {"s1", "s2"}
     later = Precondition("later", lambda state, module: "open on a run recorded before it")
     monkeypatch.setattr(completion, "PRECONDITIONS", (*completion.PRECONDITIONS, later))
-    with pytest.raises(CorruptEventLogError):
-        replay(read_events(tmp_path / "recorded" / "events.jsonl"))
+    for path, run in found:
+        with pytest.raises(CorruptEventLogError):
+            replayed(path, run)
     monkeypatch.undo()
-    for root in RECORDED:
-        for path in recorded_with_completions(ROOT / root):
-            replay(read_events(path))
+    # The repository's own: every store reached, the golden file's cases decoded.
+    examined, runs = recorded_runs(ROOT / "tests")
+    assert unreached(ROOT, examined) == []
+    assert any(path == ROOT / GOLDEN for path, _ in runs)
+    for path, run in with_completions(runs):
+        replayed(path, run)
+    for log in experiment_logs_with_completions(ROOT / "experiments"):
+        replay(read_events(log))
