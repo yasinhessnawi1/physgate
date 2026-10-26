@@ -32,6 +32,7 @@ from physgate.orchestrator.events import (
     EnvironmentRecorded,
     Event,
     EventLog,
+    Halted,
     IntegrationGateRan,
     IntegrationGateSkipped,
     Merged,
@@ -401,8 +402,22 @@ def _unexplained(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case: str) -> 
         loop.close()
         events = read_events(tmp_path / "events.jsonl")
         return events, completed(events, "s1", declared_by="s1")
+    if case == "an earlier attempt than the merged one":
+        # Integration's first attempt is refused at its change check; its second merges.
+        changes = FakeChanges(refuse={3: ("proposal", "a node no session writes")})
+        base = before_completions(finished(tmp_path, monkeypatch, changes=changes))
+        return base, completed(base, "s1", attempt=1)
     full = finished(tmp_path, monkeypatch)
     owed = before_completions(full)
+    if case == "over a diff that found divergences":
+        # Integration's diff named a divergence: its subtask is not done, whatever it declared.
+        diff = owed[-1]
+        assert isinstance(diff, DiffChecked)
+        owed[-1] = diff.model_copy(update={"divergences": ("motor.left: written by s1",)})
+        return owed, completed(owed, "s1")
+    if case == "in a halted run":
+        halted = [*owed, line(owed, Halted, reason="incident", detail="duty_breach")]
+        return halted, completed(halted, "s1")
     if case == "before integration's diff":
         base = full[: index(full, Merged) + 1]
         return base, completed(base, "s1")
@@ -430,6 +445,9 @@ def _unexplained(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case: str) -> 
         ("a module owed later", "'s1' is owed its completion line first"),
         ("declared by another subtask", "declared only by the subtask marked as the completion"),
         ("another attempt", "names the attempt of integration that merged"),
+        ("an earlier attempt than the merged one", "names the attempt of integration that merged"),
+        ("over a diff that found divergences", "follows integration's accepted attempt"),
+        ("in a halted run", "the run is halted"),
         ("integration's own", f"{INTEG!r} is not a module the merged attempt declared complete"),
         ("an unplanned module", "'ghost' is not a module the merged attempt declared complete"),
         ("before integration's diff", "follows integration's accepted attempt"),
