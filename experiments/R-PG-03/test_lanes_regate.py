@@ -84,3 +84,18 @@ def test_r6_the_gate_repeats_and_every_arm_s_records_are_a2_s(
     log.write_text("".join(json.dumps(x) + "\n" for x in lines))
     found = regate.block("x1", made["corpus"], {**made["runs"], "B": b}, tmp_path / "again2")
     assert not found["holds"] and found["b_against_a2"]["differ"] == 1
+
+
+def test_block_s_s_plan_deals_its_one_class_round_the_lanes_and_its_runs_keep_it(
+    tmp_path: Path,
+) -> None:
+    corpus = fx.write_set(tmp_path / common.BLOCK_CORPUS["s"], standard=True)
+    found = lanes.plan(corpus, "s")
+    assert found["holds"] and found["seed"] == 71 and found["a2_and_a1_share_a_plan"]
+    for arm in ("A2", "B"):
+        per_lane = found["plans"][arm]["classes_per_lane"]
+        assert list(per_lane) == [common.STANDARD_CLASS], arm
+        assert sum(per_lane[common.STANDARD_CLASS].values()) == 4, arm
+    run = fx.real_run(corpus, tmp_path / "A2", 71, "A2", {})
+    assert lanes.check(run, corpus, "s", "A2")["holds"]
+    assert regate.block("s", corpus, {"A2": run, "A1": run, "B": run}, tmp_path / "again")["holds"]

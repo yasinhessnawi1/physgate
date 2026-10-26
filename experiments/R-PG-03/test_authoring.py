@@ -360,6 +360,64 @@ def test_a_batch_is_assembled_from_the_passed_copies_alone_and_held_to_completen
         )
 
 
+def s_batch(tmp: Path, classes: list[str]) -> Path:
+    """Block ``s``'s batch, assembled as the sheet assembles it.
+
+    X1's ten revisions are the test design's four, in turn; session C's ten injections are each
+    revision's error, the k-th of class ``classes[k]`` and with no edge.
+    """
+    scratch, sheet, arts = pilot(tmp / "pilot")
+    designs = list(arts.values())
+    clean = tmp / "writer"
+    (clean / "clean").mkdir(parents=True)
+    (clean / "base.json").write_bytes((scratch / "base.json").read_bytes())
+    errors = tmp / "c"
+    (errors / "injections").mkdir(parents=True)
+    passed = {"base.json": common.sha256_file(clean / "base.json")}
+    injections = {}
+    for k, rid in enumerate(au.ids_of("s")):
+        a = designs[k % len(designs)]
+        rev = {"id": rid, "assigned_role": a["assigned_role"], "summary": "s", "clean": a["clean"]}
+        (clean / "clean" / f"{rid}.json").write_text(json.dumps(rev))
+        passed[f"clean/{rid}.json"] = common.sha256_file(clean / "clean" / f"{rid}.json")
+        kept = {m["id"] for m in a["injected"]["nodes"]}
+        inj = {
+            "id": rid,
+            "error_class": classes[k],
+            "expected_check": a["expected_check"],
+            "description": a["description"],
+            "edge": None,
+            "replace": [n for n in a["injected"]["nodes"] if n not in a["clean"]["nodes"]],
+            "drop": [n["id"] for n in a["clean"]["nodes"] if n["id"] not in kept],
+        }
+        (errors / "injections" / f"{rid}.json").write_text(json.dumps(inj))
+        injections[f"injections/{rid}.json"] = common.sha256_file(
+            errors / "injections" / f"{rid}.json"
+        )
+    return au.assemble(
+        "X", "s", clean, errors, passed, injections, tmp / "fresh-v2-s", sheet, fx.edited_table()
+    )
+
+
+def test_the_s_batch_is_held_to_the_instrument_s_rule_for_a_corpus_of_the_standard_class(
+    tmp_path: Path,
+) -> None:
+    ten = s_batch(tmp_path / "ten", ["standard"] * 10)
+    assert au.check_injections(ten, "s", set(), tmp_path / "w1") == []
+    from physgate.evaluation.inject.corpus import STANDARD, load_corpus
+
+    assert [a.error_class for a in load_corpus(ten).artefacts] == [STANDARD] * 10
+    assert common.STANDARD_CLASS == STANDARD
+    assert common.PER_CLASS_S == len(au.ids_of("s")) == common.BLOCK_ITEMS["s"] == 10
+    for name, classes in (
+        ("mixed", ["standard"] * 9 + ["magnitude"]),
+        ("four", ["unit", "magnitude", "equilibrium", "unit"] * 2 + ["magnitude", "unit"]),
+    ):
+        batch = s_batch(tmp_path / name, classes)
+        got = au.check_injections(batch, "s", set(), tmp_path / f"w-{name}")
+        assert got == ["the loader or completeness: CorpusError"], name
+
+
 # ---- the sheet's routes --------------------------------------------------------------------------
 
 

@@ -4,9 +4,11 @@ Nothing here is read by a script of the run, and nothing here is a set of the ex
 is the instrument's own four-role test design (``pilot_corpus``: one revision per role, a control
 unit error, an electrical magnitude error, a firmware propagation error and a mechanical unit
 error, each with a clean twin the gate passes), carrying the edited authors' table as its
-``parts_sheet.md``, as every corpus of this experiment does. The runs are real ``run_instrument``
-runs whose reviews are scripted per item and arm: each review line carries its arm's rubric
-digest for its role, and nothing is called.
+``parts_sheet.md``, as every corpus of this experiment does. The set named for block ``s`` is the
+same design with every error of the instrument's ``standard`` class (and so with no edge), since
+that corpus holds that class alone. The runs are real ``run_instrument`` runs whose reviews are
+scripted per item and arm: each review line carries its arm's rubric digest for its role, and
+nothing is called.
 """
 
 from __future__ import annotations
@@ -27,7 +29,7 @@ for _p in (HERE, REPO / "tests", REPO / "tests" / "unit" / "evaluation"):
 
 import common  # noqa: E402
 import pilot_corpus  # noqa: E402
-from instrument_corpus import LABEL  # noqa: E402
+from instrument_corpus import LABEL, SOURCE_ROWS, write_corpus  # noqa: E402
 
 from physgate.evaluation.inject.corpus import (  # noqa: E402
     load_corpus,
@@ -74,9 +76,27 @@ def edited_table() -> bytes:
     return table
 
 
-def write_set(root: Path, label: str = LABEL) -> Path:
-    """The four-role test design, with the edited authors' table as its ``parts_sheet.md``."""
-    pilot_corpus.write_pilot_corpus(root)
+def as_standard(artefact: Mapping[str, Any]) -> dict[str, Any]:
+    """One of the test design's artefacts as one of the ``standard`` class, which names no edge."""
+    return {**artefact, "error_class": "standard", "edge": None}
+
+
+def write_set(root: Path, label: str = LABEL, standard: bool = False) -> Path:
+    """The four-role test design, with the edited authors' table as its ``parts_sheet.md``.
+
+    With ``standard``, every artefact is of the ``standard`` class, as block ``s``'s corpus is.
+    """
+    if standard:
+        write_corpus(
+            root,
+            artefacts=tuple(as_standard(a) for a in pilot_corpus.ARTEFACTS),
+            base_nodes=pilot_corpus.BASE_NODES,
+            author=pilot_corpus.AUTHOR,
+            rows=dict(SOURCE_ROWS),
+            sheet_indent=1,
+        )
+    else:
+        pilot_corpus.write_pilot_corpus(root)
     author = json.loads((root / "MANIFEST.json").read_text())["author_model"]
     (root / "MANIFEST.json").unlink()
     (root / common.TABLE_NAME).write_bytes(edited_table())
@@ -86,9 +106,10 @@ def write_set(root: Path, label: str = LABEL) -> Path:
 
 
 def write_sets(base: Path, names: list[str]) -> Path:
-    """One test set under each corpus name, in one sets directory."""
+    """One test set under each corpus name, in one sets directory; block ``s``'s is ``standard``."""
     for name in names:
-        write_set(base / name, label=f"a test set named {name}")
+        standard = name == common.BLOCK_CORPUS["s"]
+        write_set(base / name, label=f"a test set named {name}", standard=standard)
     return base
 
 

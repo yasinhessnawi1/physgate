@@ -148,7 +148,12 @@ AUTHOR_PAIR = {"x1": "X", "x2": "X", "y1": "Y", "y2": "Y", "z1": "Z", "z2": "Z"}
 PAIRS = ("X", "Y", "Z")
 #: Items per block, injected (and as many twins).
 BLOCK_ITEMS = {**dict.fromkeys(PRIMARY_BLOCKS, 20), "s": 10, "p1": 20, "p2": 20}
+#: Every other batch's size per class: five of each of the four classes (§2.5 item 1).
 PER_CLASS_BATCH = 5
+#: The instrument's domain-standard class, and ``fresh-v2-s``'s size of it: that class alone, ten
+#: of it (§2.1, §2.5 item 1).
+STANDARD_CLASS = "standard"
+PER_CLASS_S = 10
 BOOT_SEED = 13
 BOOT_DRAWS = 10_000
 PACKET_SEED = 37

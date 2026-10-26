@@ -291,24 +291,80 @@ def test_the_expected_knowledge_is_the_pinned_trees_files_for_the_arm_and_role()
     assert a2["knowledge/cross/standards.md"] == b["knowledge/cross/standards.md"]
 
 
-def test_the_frozen_per_item_refuses_the_standard_class_and_the_own_path_scores_it(
-    made: dict[str, Any], tmp_path: Path
-) -> None:
-    def change(d: Path) -> None:
-        rows = [json.loads(x) for x in (d / "results.jsonl").read_text().splitlines()]
-        for r in rows:
-            r["error_class"] = "standard"
-        (d / "results.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+@pytest.fixture(scope="module")
+def s_made(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
+    """Block ``s`` run for real over a set of the instrument's ``standard`` class, by every arm."""
+    base = tmp_path_factory.mktemp("block-s")
+    sets = fx.write_sets(base / "sets", [common.BLOCK_CORPUS["s"]])
+    corpus = sets / common.BLOCK_CORPUS["s"]
+    seed = common.BLOCK_SEED["s"]
+    runs = {arm: fx.real_run(corpus, base / arm, seed, arm, BY_ARM[arm]) for arm in common.ARMS}
+    return {"sets": sets, "attempt": fx.attempt("s", runs)}
 
-    block = _broken_copy(made, tmp_path, change)
+
+@pytest.fixture(scope="module")
+def block_s(s_made: dict[str, Any]) -> t3.Block:
+    return t3.read_block("s", s_made["attempt"], s_made["sets"], {})
+
+
+def test_the_frozen_per_item_refuses_the_standard_class_and_the_own_path_scores_it(
+    block_s: t3.Block,
+) -> None:
+    for arm in common.ARMS:
+        # The rows are the instrument's own, written under the class it loaded.
+        assert {r["error_class"] for r in block_s.runs[arm].rows} == {t3.STANDARD}, arm
+        t3.check_run(block_s, arm, None, any_count=True)
     with pytest.raises(t3.TallyError):
-        t3.T.per_item(block.runs["A2"], block.facts, "paired")
-    block = t3.Block("s", block.corpus, block.runs, block.facts, block.law)
+        t3.T.per_item(block_s.runs["A2"], block_s.facts, "paired")
     cells = t3.Cells.at(common.REPO)
-    scored = {p["item"]: p for p in t3.score(block, "A2", cells)}
+    scored = {p["item"]: p for p in t3.score(block_s, "A2", cells)}
     # e1's review cites EA-9 (the Section 1 line), in the standard class's common cell
     assert scored["e1"]["R_common"] and scored["c1"]["R_common"]  # D25 is a control Section 2 item
-    assert "R_strict" not in scored["e1"]
+    assert not scored["f1"]["R_common"]  # its twin's review cites the same item
+    assert "R_strict" not in scored["e1"] and scored["e1"]["class"] == t3.STANDARD
+    generalist = {p["item"]: p for p in t3.score(block_s, "B", cells)}
+    # B's cell is the Section 1 line alone: A7 and MA-10 are, ES-32 is not
+    assert generalist["c1"]["R_common"] and generalist["k1"]["R_common"]
+    assert not generalist["e1"]["R_common"]
+    assert t3.STANDARD == common.STANDARD_CLASS
+
+
+def test_the_tally_scores_block_s_by_its_own_path_into_the_class_rule(
+    made: dict[str, Any], s_made: dict[str, Any], tmp_path: Path
+) -> None:
+    sets = tmp_path / "sets"
+    shutil.copytree(made["sets"], sets)
+    name = common.BLOCK_CORPUS["s"]
+    shutil.copytree(s_made["sets"] / name, sets / name)
+    records = tmp_path / "records"
+    attempts = [*made["attempts"], s_made["attempt"]]
+    fx.write_blocks(records, attempts, {"p1": "fresh-v1c failed", "p2": "same"})
+    got = t3.tally(
+        records,
+        sets,
+        made["practice"],
+        None,
+        {},
+        200,
+        practice_pinned=False,
+        fills=None,
+        any_count=True,
+        tuning=made["tuning"],
+    )
+    assert "s" in got["blocks"] and set(got["not_run"]) == {"p1", "p2"}
+    cls = got["secondary"]["standard"]
+    # A2 credits e1 (EA-9), which B misses; B credits k1 (MA-10), which A2 passed.
+    assert {k: cls["halves"]["common"][k] for k in ("n_A2", "n_B", "d")} == {
+        "n_A2": 1,
+        "n_B": 1,
+        "d": 0,
+    }
+    assert cls["acceptance"]["raw_of_10"] == {"A2": 3, "B": 3}  # f1's twin fails in both
+    assert not cls["catch_half_holds"] and not cls["class_rule_holds"]
+    assert "the class was not measured" not in got["decision"]["class_clause"]
+    assert got["decision"]["class_clause"].startswith(
+        "On the domain-standard class (10 pairs, secondary), the fixed specialists credited 1 "
+    )
 
 
 def test_the_standard_cell_is_section_2_whole_with_the_section_1_line_and_b_s_is_the_line() -> None:

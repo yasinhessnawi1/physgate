@@ -12,11 +12,15 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import common  # noqa: E402
+
 LAUNCH = HERE / "launch.sh"
 REPO = HERE.parent.parent
 
@@ -134,6 +138,17 @@ def test_every_arm_runs_the_block_s_seed_lanes_per_class_and_its_own_root() -> N
         for k, v in seeds.items()
         if k in ("x1", "y1", "z1", "z2", "y2", "x2", "s", "p1", "p2")
     } == {"x1": 53, "y1": 59, "z1": 83, "z2": 89, "y2": 67, "x2": 61, "s": 71, "p1": 73, "p2": 79}
+
+
+def test_each_block_s_size_per_class_is_the_one_the_instrument_holds_its_corpus_to() -> None:
+    text = "\n".join(code())
+    line = next(ln for ln in text.splitlines() if ln.startswith("PER_CLASS_OF()"))
+    sizes = {k: int(v) for k, v in re.findall(r"(\S+)\) echo (\d+) ;;", line)}
+    # Block s's corpus holds the standard class alone, ten of it; every other batch, five of each
+    # of the four classes.
+    assert sizes == {"s": common.PER_CLASS_S, "*": common.PER_CLASS_BATCH} == {"s": 10, "*": 5}
+    assert common.BLOCK_ITEMS["s"] == common.PER_CLASS_S
+    assert all(common.BLOCK_ITEMS[b] == 4 * common.PER_CLASS_BATCH for b in common.PRIMARY_BLOCKS)
 
 
 def test_the_end_of_a_block_checks_ledgers_logins_and_scans_before_it_says_valid() -> None:

@@ -27,9 +27,10 @@ revision (whole nodes, legal sources, derivations, no telltale word in a node or
 interface rewritten, no owner changed), the gate on the base and on each revision over it (no
 failing record), the source check (no ``mismatch``), the rule checks (``rules_check.py``), and the
 blindness check on a packet built for every twin. The injections (items 1 and 6): each batch
-assembled from the passed copies, loaded, complete (5 per class, 5 distinct cross-domain edges,
-none of the first batch's in the second; 10 of ``standard`` for ``s``), and held to the blindness
-check on a packet for every item and twin.
+assembled from the passed copies, loaded, complete by the instrument's own rule (5 per class, 5
+distinct cross-domain edges, none of the first batch's in the second; for ``s``, 10 of the
+``standard`` class and nothing else), and held to the blindness check on a packet for every item
+and twin.
 
 **The routes** (§2.5's table), every one recorded: a clean batch that fails after its 4th fact
 round, or the writer's audit failing in a primary turn, restarts the pair from scratch (at most 2
@@ -668,10 +669,9 @@ def check_injections(
     try:
         corpus = load_corpus(corpus_dir)
         if batch == "s":
-            if len(corpus.artefacts) != len(S_IDS) or any(
-                str(a.error_class) != "standard" or a.edge is not None for a in corpus.artefacts
-            ):
-                problems.append("the s batch is not ten of the standard class, with no edge")
+            # The instrument's rule for a corpus of the standard class: that class alone, ten of
+            # it, none naming an edge (its loader refuses an edge on any class but propagation).
+            require_complete(corpus, per_class=common.PER_CLASS_S)
         else:
             require_complete(corpus, per_class=common.PER_CLASS_BATCH)
             edges = {(a.edge.source, a.edge.target) for a in corpus.artefacts if a.edge is not None}
