@@ -117,10 +117,11 @@ def test_the_owner_confirms_each_block_and_the_window_before_the_first(runs_dir:
     owner_file(
         runs_dir, "window.json", {"weekly_limit_reset_confirmed_utc": "2026-11-05T07:00:00Z"}
     )
-    assert ck.owner("x1", 1, [])["window_confirmed_utc"] == "2026-11-05T07:00:00Z"
+    smoked(runs_dir, (0, "2026-11-04T21:00:00Z"))
+    assert ck.owner("x1", 1, [], now=AFTER)["window_confirmed_utc"] == "2026-11-05T07:00:00Z"
     later = [{"kind": "authoring", "started_utc": "2026-11-05T07:30:00Z"}]
     with pytest.raises(ck.RefusedError, match="nothing else runs"):
-        ck.owner("x1", 1, later)
+        ck.owner("x1", 1, later, now=AFTER)
     blocks(runs_dir, [att("x1", True)])
     owner_file(
         runs_dir,
@@ -128,6 +129,67 @@ def test_the_owner_confirms_each_block_and_the_window_before_the_first(runs_dir:
         {"account_label": "a", "no_other_session_on_the_run_account": True},
     )
     assert ck.owner("y1", 1, later)["first_block"] is False
+
+
+WINDOW = {"weekly_limit_reset_confirmed_utc": "2026-11-05T07:00:00Z"}
+ACCOUNT = {"account_label": "the run account", "weekly_reset_utc": "2026-10-29T07:00:00Z"}
+BLOCK_X1 = {"account_label": "the run account", "no_other_session_on_the_run_account": True}
+
+
+def smoked(runs: Path, *attempts: tuple[int, str]) -> None:
+    """The smoke record: each attempt's exit code and end."""
+    for code, ended in attempts:
+        ck.smoke_record(code, "2026-11-04T20:00:00Z", ended, "every key matches one line", runs)
+
+
+def test_the_first_block_needs_a_passed_smoke_ended_before_the_window_s_confirmation(
+    runs_dir: Path,
+) -> None:
+    owner_file(runs_dir, "block-x1-1.json", BLOCK_X1)
+    owner_file(runs_dir, "window.json", WINDOW)
+    with pytest.raises(ck.RefusedError, match="smoke"):
+        ck.owner("x1", 1, [], now=AFTER)
+    smoked(runs_dir, (4, "2026-11-04T20:30:00Z"))
+    with pytest.raises(ck.RefusedError, match="smoke"):
+        ck.owner("x1", 1, [], now=AFTER)  # the last smoke did not pass
+    smoked(runs_dir, (0, "2026-11-05T07:10:00Z"))
+    with pytest.raises(ck.RefusedError, match="smoke"):
+        ck.owner("x1", 1, [], now=AFTER)  # it ended after the confirmation
+    smoked(runs_dir, (0, "2026-11-04T21:00:00Z"))
+    smoke_line = {"kind": "smoke", "started_utc": "2026-11-04T20:00:00Z"}
+    found = ck.owner("x1", 1, [smoke_line], now=AFTER)
+    assert found["smoke"]["passed"] is True
+    # A refused launch writes no ledger line, so the first block is never locked out by one.
+    assert ck.owner("x1", 1, [smoke_line], now=AFTER)["first_block"] is True
+
+
+def test_the_smoke_runs_before_the_window_s_confirmation_and_before_any_block(
+    runs_dir: Path,
+) -> None:
+    with pytest.raises(ck.RefusedError, match="account"):
+        ck.smoke_ready("x1")
+    owner_file(runs_dir, "account.json", ACCOUNT)
+    with pytest.raises(ck.RefusedError, match="first block"):
+        ck.smoke_ready("y1")
+    got = ck.smoke_ready("x1")
+    assert got["account_label"] == "the run account"
+    assert got["weekly_reset_utc"] == "2026-10-29T07:00:00Z"
+    owner_file(runs_dir, "window.json", WINDOW)
+    with pytest.raises(ck.RefusedError, match="before the owner"):
+        ck.smoke_ready("x1")
+    (runs_dir / "owner" / "window.json").unlink()
+    blocks(runs_dir, [att("x1", False)])
+    with pytest.raises(ck.RefusedError, match="before the first block"):
+        ck.smoke_ready("x1")
+
+
+def test_the_false_finding_keys_on_records_not_at_their_digests_are_not_checked_not_refused(
+    tmp_path: Path,
+) -> None:
+    for label in ("round-1", "repeat-K"):
+        (tmp_path / label).mkdir()
+    got = ck.ff_status({"round-1": tmp_path / "round-1", "repeat-K": tmp_path / "repeat-K"})
+    assert got["status"] == "not checked" and "digest" in got["why"]
 
 
 # ---- R and R_K -----------------------------------------------------------------------------------

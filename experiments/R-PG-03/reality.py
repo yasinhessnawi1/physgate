@@ -120,6 +120,10 @@ class RefusedError(Exception):
     """An input is not the one §7 names, or a step is run out of its order."""
 
 
+class NotCheckedError(RefusedError):
+    """The practice records cannot be read at their recorded digests: the control is not checked."""
+
+
 # ---------------------------------------------------------------- the prompt and the packets
 
 
@@ -699,7 +703,9 @@ def ff_count(practice: dict[str, Path]) -> dict[str, Any]:
     """§7's five keys, counted again on the records held to R-LAW-01's digests: each must be 1.
 
     Raises:
-        RefusedError: a record is not at its recorded digest (the control is then not checked).
+        NotCheckedError: a record cannot be read at its recorded digest (the control is then not
+            checked, and the reading unchecked: §7).
+        RefusedError: R-LAW-01's extractor or its recorded digests are not the ones the probe read.
     """
     digests = json.loads(LX.INPUTS.read_text())
     pins = {p.label: p for p in LX.FROZEN.runs}
@@ -712,7 +718,8 @@ def ff_count(practice: dict[str, Path]) -> dict[str, Any]:
         try:
             runs[label] = LX.load_run(LX.FROZEN, pins[label], practice[label], digests)
         except (LX.Refused, KeyError, OSError, ValueError) as exc:
-            raise RefusedError(f"the practice record {label} cannot be read at its digest") from exc
+            msg = f"the practice record {label} cannot be read at its digest"
+            raise NotCheckedError(msg) from exc
     counts = []
     for case, label, item, side, rubric_id in FF_KEYS:
         run = runs[label]
@@ -1184,7 +1191,17 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.cmd == "ff-count":
-            found = ff_count(practice())
+            # 0: every key matches one line; 1: the records cannot be read at their digests (the
+            # control is not checked); 2: R-LAW-01's files are not the probe's; 3: a key's count
+            # is not 1 (a defect of the script, a failed precondition).
+            try:
+                found = ff_count(practice())
+            except NotCheckedError as exc:
+                print(json.dumps({"not_checked": str(exc)}))
+                return 1
+            except RefusedError as exc:
+                print(json.dumps({"refused": str(exc)}))
+                return 2
             found.pop("runs")
             print(json.dumps(found, sort_keys=True))
             return 0 if found["every_key_matches_one_line"] else 3

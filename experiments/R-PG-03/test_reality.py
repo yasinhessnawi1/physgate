@@ -65,6 +65,18 @@ def test_the_false_finding_control_is_not_checked_on_records_not_at_their_digest
         rl.ff_count({"round-1": tmp_path / "round-1", "repeat-K": tmp_path / "repeat-K"})
 
 
+def test_ff_count_says_not_checked_apart_from_a_failed_precondition(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    for label in ("round-1", "repeat-K"):
+        (tmp_path / label).mkdir()
+    argv = ["ff-count", f"--practice=round-1={tmp_path / 'round-1'}"]
+    argv += [f"--practice=repeat-K={tmp_path / 'repeat-K'}"]
+    assert rl.main(argv) == 1 and "not_checked" in capsys.readouterr().out
+    monkeypatch.setattr(common, "LAW_INPUTS_SHA256", "0" * 64)
+    assert rl.main(argv) == 2 and "refused" in capsys.readouterr().out
+
+
 # ---- the lines, from real runs ---------------------------------------------------------------
 
 

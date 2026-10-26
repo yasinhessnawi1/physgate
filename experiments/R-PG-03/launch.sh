@@ -5,23 +5,38 @@
 # script before a review runs, and nothing is resumed. Derived from R-PG-02's and R-PG-01b's.
 #
 #   experiments/R-PG-03/launch.sh --block <x1|y1|z1|z2|y2|x2|s|p1|p2> [--checks-only]
+#   experiments/R-PG-03/launch.sh --block x1 --smoke
 #
 # Run it on the ARM virtual machine, as the run account, from the run checkout ~/physgate-r-pg-03-run
 # at R with a clean tree (and R_K at ~/physgate-r-pg-03-run-k), under setsid nohup:
 #
 #   setsid nohup experiments/R-PG-03/launch.sh --block x1 > ~/runs/rpg03/launch-x1.log 2>&1 < /dev/null &
 #
-# Before it, the owner writes ~/runs/rpg03/owner/block-<b>-<attempt>.json:
-#   {"account_label": "...", "no_other_session_on_the_run_account": true}
-# and, before the first block, ~/runs/rpg03/owner/window.json:
-#   {"weekly_limit_reset_confirmed_utc": "2026-11-05T07:00:00Z"}   (read from the usage page)
+# The owner's files, in ~/runs/rpg03/owner/:
+#   account.json   {"account_label": "...", "weekly_reset_utc": "<one reset of the weekly limit>"}
+#   block-<b>-<attempt>.json   {"account_label": "...", "no_other_session_on_the_run_account": true}
+#   window.json    before the first block, after the smoke:
+#                  {"weekly_limit_reset_confirmed_utc": "2026-11-05T07:00:00Z"}   (the usage page)
 # W5 is 80 M unless the owner raises it at launch: RP3_W5=<tokens>, recorded in the log.
 # The practice cycle's records, for the false-finding control's count before the first block:
 #   RP3_PRACTICE_ROUND1=<the kept round's run dir> RP3_PRACTICE_REPEATK=<the noise run's run dir>
 #
-# Stages, in order:
+# --smoke, first, as a step of its own before the owner confirms the weekly window (§10 item 4 lets
+# nothing run on the run account between that confirmation and the first block): the host; that
+# no block attempt and no window confirmation exist yet; the binary; the block's corpus and sheet;
+# L9, the false-finding control's five keys counted again (reality.py), whose "not checked" (the
+# practice records cannot be read at their digests, so the reading will be unchecked) is printed
+# for the owner before the confirmation, and refused only on a count other than 1; and L10, the
+# whole-read smoke on the run account (streams.py smoke), with its ledger line, the prefixes'
+# counts (scan.sh) and the token's scan of what it wrote, and the login files' check at its end.
+# Its pass, its end and L9's status are recorded in ~/runs/rpg03/smoke.json; the first block's L1
+# needs a passed smoke ended before the window's confirmation.
+#
+# Stages of a block, in order (no stage before the block's start runs on the run account or
+# writes a ledger line, so a refused launch never stands between the confirmation and the block):
 #   L1  the host, no claude or inject process alive, no login file left; the block's place in the
-#       fixed order, its void attempts and its earliest date; the owner's confirmations;
+#       fixed order, its void attempts and its earliest date; the owner's confirmations, and for
+#       the first block the window's, after a passed smoke and with no ledger line after it;
 #   L2  R and R_K: the five paths, R_K's promotions line for line, the rubric and generalist_of
 #       digests, the knowledge trees, every tree, blob and digest "Commits filled" records;
 #   L3  the pinned binary's digest and version;
@@ -32,8 +47,6 @@
 #       read allowance on the pinned binary;
 #   L8  the prompt identity check (prompt_identity.py): A2 at R against gr2-r1-run-tree, A1 and B at
 #       R_K against eae78c0, every tree fed the same test-corpus bytes;
-#   L9  first block only: the false-finding control's five keys counted again (reality.py ff-count);
-#   L10 first block only: the whole-read smoke on the run account (streams.py smoke);
 #   L11 the 5-hour projection with every ledger line, R-PG-01b's included (ledger.py project);
 # then the watcher and the three arms at once, A2 at R, A1 and B at R_K, each one `physgate inject`
 # on the block's seed, starting within one minute of each other; an arm that stops in its first
@@ -41,7 +54,7 @@
 # the stream check, the rubric digests, R6, the lanes), its ledger line, the login files and the
 # token's scan of everything written.
 #
-# --checks-only runs L1 to L9 and L11 (L10 never), never reads the token and never starts a review;
+# --checks-only runs L1 to L8, L9 and L11, never reads the token and never starts a review;
 # it needs RP3_RUNS, a records directory of its own outside ~/runs/rpg03, and may name another
 # master ref (RP3_MASTER_REF) and skip the host and date checks (RP3_TRIAL_HOST=1). The log says so.
 
@@ -53,10 +66,11 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --block) BLOCK="${2:-}"; shift; [ $# -gt 0 ] && shift ;;
     --checks-only) STOP_AFTER=checks; shift ;;
-    *) echo "usage: $0 --block <b> [--checks-only]" >&2; exit 2 ;;
+    --smoke) STOP_AFTER=smoke; shift ;;
+    *) echo "usage: $0 --block <b> [--checks-only | --smoke]" >&2; exit 2 ;;
   esac
 done
-case "$BLOCK" in x1|y1|z1|z2|y2|x2|s|p1|p2) ;; *) echo "usage: $0 --block <b> [--checks-only]" >&2; exit 2 ;; esac
+case "$BLOCK" in x1|y1|z1|z2|y2|x2|s|p1|p2) ;; *) echo "usage: $0 --block <b> [--checks-only | --smoke]" >&2; exit 2 ;; esac
 
 CHECKOUT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 HERE="$CHECKOUT/experiments/R-PG-03"
@@ -94,6 +108,10 @@ mode_of() { case "$1" in B) echo "--generalist" ;; *) echo "" ;; esac; }
 mkdir -p "$RUNS"
 N=1; while [ -e "$RUNS/blocks/$BLOCK-$N" ]; do N=$((N + 1)); done
 LAUNCH="$RUNS/blocks/$BLOCK-$N"
+if [ "$STOP_AFTER" = smoke ]; then
+  K=1; while [ -e "$RUNS/smoke-$K" ]; do K=$((K + 1)); done
+  LAUNCH="$RUNS/smoke-$K"
+fi
 mkdir -p "$LAUNCH"
 LOG="$LAUNCH/launch.log"
 cd "$CHECKOUT"
@@ -128,9 +146,9 @@ scan_written() { # how path...: rp3_scan or rp3_scan_token over those that exist
 }
 
 unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL CLAUDE_CODE_OAUTH_TOKEN
-# The run account's token (token.sh): loaded for L10 and the arms into one unexported variable,
+# The run account's token (token.sh): loaded for the smoke or the arms into one unexported variable,
 # given to each child alone through rp3_exec_with_token, never an argument, never printed; every
-# file this launch wrote is scanned for it after L10 and after the block.
+# file this launch wrote is scanned for it after the smoke and after the block.
 # shellcheck source=token.sh
 source "$HERE/token.sh"
 # shellcheck source=../../scripts/experiment/scan.sh
@@ -142,6 +160,54 @@ say "== R-PG-03 launch, block $BLOCK, attempt $N, $(date -u +%Y-%m-%dT%H:%M:%SZ)
 uv sync --frozen -q
 (cd "$R_K_CHECKOUT" && uv sync --frozen -q)
 CK=(--master-ref "$MASTER_REF")
+ff_status() { # L9: the false-finding control's five keys counted again; "not checked" is said plainly
+  [ -n "${RP3_PRACTICE_ROUND1:-}" ] && [ -n "${RP3_PRACTICE_REPEATK:-}" ] \
+    || refuse "name the practice records for the false-finding control's count (RP3_PRACTICE_ROUND1, RP3_PRACTICE_REPEATK)"
+  check L9-ff py "$HERE/checks.py" "${CK[@]}" ff-status \
+    --practice "round-1=$RP3_PRACTICE_ROUND1" --practice "repeat-K=$RP3_PRACTICE_REPEATK"
+  FF="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["status"])' "$LAUNCH/L9-ff.json")"
+  if [ "$FF" = "not checked" ]; then
+    say "NOT CHECKED L9-ff: the practice records cannot be read at their recorded digests, so the false-finding control is not checked and the reading will be unchecked (§7). The owner reads this before confirming the window."
+  fi
+}
+
+# ---- the smoke: a step of its own, before the owner's window confirmation (§2.4, §10 item 4) ----
+if [ "$STOP_AFTER" = smoke ]; then
+  check L1-host py "$HERE/checks.py" "${CK[@]}" host
+  check L1-smoke py "$HERE/checks.py" "${CK[@]}" smoke-ready --block "$BLOCK"
+  owner_said() { python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$LAUNCH/L1-smoke.json" "$1"; }
+  check L3-binary py "$HERE/checks.py" "${CK[@]}" binary
+  check L5-sets py "$HERE/checks.py" "${CK[@]}" sets --sets "$SETS" --block "$BLOCK"
+  ff_status
+  SMOKE_ROOT="$HOME/review-scratch/rp3-smoke-$K"
+  rp3_load_token "$ENV_FILE" 2>> "$LOG" || refuse "the run account's token (see the line above)"
+  say "ok  token loaded: one line of the token's shape"
+  SMOKE_STARTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  set +e
+  ( rp3_exec_with_token uv run --frozen python -I "$HERE/streams.py" smoke \
+      --sheet "$SETS/$(CORPUS_OF "$BLOCK")/sources.json" --out "$LAUNCH/smoke" --root "$SMOKE_ROOT" ) > "$LAUNCH/L10.json"
+  CODE=$?
+  set -e
+  SMOKE_ENDED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  say "L10 $(cat "$LAUNCH/L10.json")"
+  py "$HERE/ledger.py" session --kind smoke --label "smoke $K before block $BLOCK" --root "$SMOKE_ROOT" \
+    --account "$(owner_said account_label)" --weekly-reset "$(owner_said weekly_reset_utc)" \
+    --started "$SMOKE_STARTED" --ended "$SMOKE_ENDED" | tee -a "$LOG"
+  SCAN_OK=1
+  # The prefixes are counted with scan.sh, as at a block's end; the token's own value only through
+  # token.sh's scan, whose pattern goes to grep in a file.
+  { prefix_counts "$SMOKE_ROOT" "$LAUNCH/smoke" "$LAUNCH/L10.json" \
+      && scan_written rp3_scan_token "$SMOKE_ROOT" "$LAUNCH"; } || SCAN_OK=0
+  rp3_drop_token
+  CREDENTIALS_OK=1; py "$HERE/checks.py" "${CK[@]}" credentials | tee -a "$LOG" || CREDENTIALS_OK=0
+  py "$HERE/checks.py" "${CK[@]}" smoke-record --code "$CODE" --started "$SMOKE_STARTED" \
+    --ended "$SMOKE_ENDED" --ff "$FF" --dir "$LAUNCH" | tee -a "$LOG"
+  [ "$SCAN_OK" = 1 ] || refuse "the token's scan found a hit in what the smoke wrote"
+  [ "$CREDENTIALS_OK" = 1 ] || refuse "a login file of the smoke's session remains, or its removal is not confirmed"
+  [ "$CODE" = 0 ] || refuse "the smoke did not pass (exit $CODE): the first block does not start"
+  say "== the smoke passed $(date -u +%Y-%m-%dT%H:%M:%SZ). The owner may now confirm the weekly window (owner/window.json); nothing else runs on the run account until the first block."
+  exit 0
+fi
 
 # ---- L1: the host, the order, the owner ----
 if [ "$TRIAL_HOST" = 1 ]; then say "TRIAL: the host check is skipped"; else check L1-host py "$HERE/checks.py" "${CK[@]}" host; fi
@@ -237,40 +303,15 @@ try: d = json.load(open(sys.argv[1]))
 except FileNotFoundError: d = {}
 print(0 if any(a.get("valid") is not None for a in d.get("attempts", [])) else 1)' "$RUNS/blocks.json")"
 
-# ---- L9: the false-finding control's keys, counted again (first block) ----
-if [ "$FIRST" = 1 ]; then
-  [ -n "${RP3_PRACTICE_ROUND1:-}" ] && [ -n "${RP3_PRACTICE_REPEATK:-}" ] \
-    || refuse "name the practice records for the false-finding control's count (RP3_PRACTICE_ROUND1, RP3_PRACTICE_REPEATK)"
-  check L9-ff py "$HERE/reality.py" ff-count --practice "round-1=$RP3_PRACTICE_ROUND1" --practice "repeat-K=$RP3_PRACTICE_REPEATK"
-fi
-
-# ---- L10: the whole-read smoke (first block), on the run account ----
-SMOKE_ROOT="$HOME/review-scratch/rp3-smoke-$BLOCK-$N"
-if [ "$STOP_AFTER" = run ] && [ "$FIRST" = 1 ]; then
-  rp3_load_token "$ENV_FILE" 2>> "$LOG" || refuse "the run account's token (see the line above)"
-  say "ok  token loaded: one line of the token's shape"
-  SMOKE_STARTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  set +e
-  ( rp3_exec_with_token uv run --frozen python -I "$HERE/streams.py" smoke \
-      --sheet "$SETS/$(CORPUS_OF "$BLOCK")/sources.json" --out "$LAUNCH/smoke" --root "$SMOKE_ROOT" ) > "$LAUNCH/L10.json"
-  CODE=$?
-  set -e
-  say "L10 $(cat "$LAUNCH/L10.json")"
-  py "$HERE/ledger.py" session --kind smoke --label "smoke before block $BLOCK" --root "$SMOKE_ROOT" \
-    --account "$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["account_label"])' "$LAUNCH/L1-owner.json")" \
-    --window "$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1])).get("window_confirmed_utc", "?"))' "$LAUNCH/L1-owner.json")" \
-    --started "$SMOKE_STARTED" --ended "$(date -u +%Y-%m-%dT%H:%M:%SZ)" | tee -a "$LOG"
-  { scan_written rp3_scan "$SMOKE_ROOT" "$LAUNCH/smoke" && scan_written rp3_scan_token "$LAUNCH"; } \
-    || { rp3_drop_token; refuse "the token's scan found a hit after L10"; }
-  [ "$CODE" = 0 ] || { rp3_drop_token; refuse "the smoke did not pass (exit $CODE): the first block does not start"; }
-fi
+# ---- L9 in a trial: the false-finding control's keys (the smoke's own step runs it for real) ----
+if [ "$STOP_AFTER" = checks ] && [ "$FIRST" = 1 ]; then ff_status; fi
 
 # ---- L11: the 5-hour projection ----
 check L11 py "$HERE/ledger.py" project --block "$BLOCK" --w5 "$W5"
 [ "$STOP_AFTER" = checks ] && { say "stopped after the checks, as asked"; exit 0; }
 
 # ---- the block: the watcher, then the three arms at once ----
-[ -n "${RP3_TOKEN:-}" ] || { rp3_load_token "$ENV_FILE" 2>> "$LOG" || refuse "the run account's token (see the line above)"; }
+rp3_load_token "$ENV_FILE" 2>> "$LOG" || refuse "the run account's token (see the line above)"
 INSTALL_R="$LAUNCH/install-r"; INSTALL_K="$LAUNCH/install-r-k"
 uv run --frozen python -I -c 'import sys; from pathlib import Path
 from physgate.orchestrator import cli

@@ -86,6 +86,19 @@ def code() -> list[str]:
     return [ln for ln in LAUNCH.read_text().splitlines() if not ln.lstrip().startswith("#")]
 
 
+def smoke_step() -> str:
+    """The smoke's own step: from its branch's opening to its ``exit``."""
+    text = "\n".join(code())
+    start = text.index('if [ "$STOP_AFTER" = smoke ]; then')
+    return text[start : text.index("\n  exit 0\nfi", start)]
+
+
+def run_path() -> str:
+    """A block's path: from the owner's confirmation to the arms' start."""
+    text = "\n".join(code())
+    return text[text.index("check L1-owner") : text.index("check start")]
+
+
 def test_the_stages_run_in_the_documented_order() -> None:
     text = "\n".join(code())
     names = [
@@ -102,13 +115,45 @@ def test_the_stages_run_in_the_documented_order() -> None:
         "L6-r4",
         "L7-r3",
         "L8-corpus",
-        "L9-ff",
-        "L10",
         "check L11",
         "check start",
     ]
-    where = [text.index(n) for n in names]
+    after = text.index(smoke_step()) + len(smoke_step())
+    where = [text.index(n, after) for n in names]
     assert where == sorted(where)
+
+
+def test_the_smoke_is_a_step_of_its_own_before_the_window_s_confirmation() -> None:
+    text = "\n".join(code())
+    smoke = smoke_step()
+    # The smoke's branch ends before the block's checks begin, and the owner's check of the window
+    # (which needs a passed smoke ended before it) is the block's, never the smoke's.
+    assert text.index(smoke) < text.index("check L1-owner")
+    for step in ("L1-host", "L1-smoke", "L3-binary", "L5-sets", "L9-ff", 'streams.py" smoke'):
+        assert step in smoke, step
+    assert 'ledger.py" session --kind smoke' in smoke and "L1-owner" not in smoke
+
+
+def test_no_step_after_the_window_s_confirmation_runs_on_the_run_account_before_the_block() -> None:
+    # A refused pre-flight then writes no ledger line, so it never locks the first block out.
+    path = run_path()
+    for word in ('ledger.py" session', 'ledger.py" block', "streams.py", "rp3_exec_with_token"):
+        assert word not in path, word
+
+
+def test_the_smoke_counts_the_prefixes_with_scan_sh_and_ends_with_the_credentials_check() -> None:
+    smoke = smoke_step()
+    assert "prefix_counts" in smoke and "scan_written rp3_scan_token" in smoke
+    assert "scan_written rp3_scan " not in smoke + " "
+    record = smoke.index('checks.py" "${CK[@]}" smoke-record')
+    assert smoke.index('checks.py" "${CK[@]}" credentials') < record
+    assert smoke.index("rp3_drop_token") < smoke.index('checks.py" "${CK[@]}" credentials')
+
+
+def test_l9_records_not_checked_and_refuses_only_on_a_key_s_count() -> None:
+    smoke = smoke_step()
+    assert 'check L9-ff py "$HERE/checks.py" "${CK[@]}" ff-status' in smoke
+    assert "NOT CHECKED" in smoke and "the reading will be unchecked" in smoke
 
 
 def test_the_three_arms_start_together_and_never_one_alone() -> None:

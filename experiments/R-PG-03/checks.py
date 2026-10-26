@@ -6,6 +6,9 @@ if it holds::
     checks.py host                                   the machine, no session alive, no login left
     checks.py order --block <b>                      the fixed order, the void attempts, the dates
     checks.py owner --block <b> --attempt <n>        the owner's confirmations (§10)
+    checks.py smoke-ready --block <b>                the smoke's own step may run (§2.4, §10)
+    checks.py smoke-record --code <n> --started <utc> --ended <utc> --ff <status> --dir <dir>
+    checks.py ff-status --practice round-1=<dir> --practice repeat-K=<dir>   §7's keys, counted
     checks.py commits --r <dir> --r-k <dir>          R and R_K against §3.2 and "Commits filled"
     checks.py generalist --into <file>               at R_K: generalist_of's four digests
     checks.py binary                                 the pinned binary's digest and version
@@ -161,12 +164,107 @@ def _seconds(utc: str) -> float:
     return float(calendar.timegm(time.strptime(utc, "%Y-%m-%dT%H:%M:%SZ")))
 
 
-def owner(block: str, attempt: int, ledger: list[dict[str, Any]]) -> dict[str, Any]:
-    """The owner's per-block confirmation; for the first block, the window's, with nothing after.
+SMOKE_RECORD = "smoke.json"
+
+
+def read_smokes() -> list[dict[str, Any]]:
+    """Every smoke's record, in the order they ran."""
+    data = common.read_own(records_dir() / SMOKE_RECORD)
+    found: list[dict[str, Any]] = json.loads(data).get("attempts", []) if data else []
+    return found
+
+
+def smoke_ready(block: str) -> dict[str, Any]:
+    """The smoke's own step may run: before the first block, before the window's confirmation.
+
+    §10 item 4 lets nothing run on the run account between the owner's confirmation that a weekly
+    window has begun and the first block, so the whole-read smoke (§2.4), which runs on that
+    account, is a step of its own before that confirmation.
 
     Raises:
-        RefusedError: a confirmation is missing or incomplete, or a ledger line starts after the
-            window's confirmation before the first block.
+        RefusedError: the block is not the first, an attempt has started, the window is already
+            confirmed, or the owner's account file names no label or weekly reset.
+    """
+    said = _json_or_none(records_dir() / "owner" / "account.json") or {}
+    label, reset = str(said.get("account_label", "")).strip(), str(said.get("weekly_reset_utc", ""))
+    if not label or not re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", reset):
+        raise RefusedError("the owner's account file names no account label or weekly reset (UTC)")
+    if block != common.BLOCKS[0]:
+        raise RefusedError(f"the smoke runs before the first block, {common.BLOCKS[0]}")
+    if read_blocks().get("attempts"):
+        raise RefusedError("a block attempt has started: the smoke runs before the first block")
+    if (records_dir() / "owner" / "window.json").exists():
+        raise RefusedError(
+            "the window is confirmed: the smoke runs before the owner's confirmation (§10 item 4)"
+        )
+    return {"check": "smoke-ready", "account_label": label, "weekly_reset_utc": reset}
+
+
+def smoke_record(code: int, started: str, ended: str, ff: str, where: Path) -> dict[str, Any]:
+    """One smoke's record: its exit code, its start and end, and the false-finding keys' status."""
+    for utc in (started, ended):
+        _seconds(utc)
+    row = {
+        "code": code,
+        "passed": code == 0,
+        "started_utc": started,
+        "ended_utc": ended,
+        "false_finding_keys": ff,
+        "dir": str(where),
+    }
+    rec = {"attempts": [*read_smokes(), row]}
+    path = records_dir() / SMOKE_RECORD
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(rec, indent=1, sort_keys=True) + "\n")
+    os.replace(tmp, path)
+    return {"check": "smoke-record", **row}
+
+
+def ff_status(practice: dict[str, Path]) -> dict[str, Any]:
+    """§7's five keys, counted again before the first block.
+
+    Records that cannot be read at their digests are "not checked" (the reading is then
+    unchecked), never a refusal.
+
+    Raises:
+        RefusedError: a key's count is not 1, or R-LAW-01's files are not the probe's: a failed
+            precondition (§11).
+    """
+    import reality
+
+    try:
+        found = reality.ff_count(practice)
+    except reality.NotCheckedError as exc:
+        return {"check": "ff-status", "status": "not checked", "why": str(exc)}
+    except reality.RefusedError as exc:
+        raise RefusedError(str(exc)) from exc
+    if not found["every_key_matches_one_line"]:
+        raise RefusedError("a key does not match exactly one line: a defect of the script (§11)")
+    return {"check": "ff-status", "status": "every key matches one line", "keys": found["keys"]}
+
+
+def _json_or_none(path: Path) -> dict[str, Any] | None:
+    data = common.read_own(path)
+    if data is None:
+        return None
+    found = json.loads(data)
+    return found if isinstance(found, dict) else None
+
+
+def owner(
+    block: str, attempt: int, ledger: list[dict[str, Any]], now: float | None = None
+) -> dict[str, Any]:
+    """The owner's per-block confirmation; for the first block, the window's, with nothing after.
+
+    The first block also needs the smoke's own step to have passed, its last attempt ended before
+    the window's confirmation, so that nothing runs on the run account between that confirmation
+    and the first block (§10 item 4).
+
+    Raises:
+        RefusedError: a confirmation is missing or incomplete, a ledger line starts after the
+            window's confirmation before the first block, or the first block has no passed smoke
+            ended before that confirmation.
     """
     where = records_dir() / "owner"
     said = (
@@ -198,7 +296,25 @@ def owner(block: str, attempt: int, ledger: list[dict[str, Any]]) -> dict[str, A
                 f"{len(later)} ledger line(s) start after the window's confirmation: nothing else "
                 "runs on the run account before the first block (§10)"
             )
+        smokes = read_smokes()
+        if not smokes:
+            raise RefusedError(
+                "no smoke on record: the whole-read smoke runs first, as its own step "
+                "(launch.sh --smoke), before the owner confirms the window"
+            )
+        last = smokes[-1]
+        if not last.get("passed"):
+            raise RefusedError("the last smoke did not pass: the first block does not start")
+        if str(last.get("ended_utc") or "9") > utc:
+            raise RefusedError(
+                "the last smoke ended after the window's confirmation: the smoke runs before it"
+            )
         found["window_confirmed_utc"] = utc
+        found["smoke"] = {
+            "passed": True,
+            "ended_utc": last["ended_utc"],
+            "false_finding_keys": last.get("false_finding_keys"),
+        }
     found["first_block"] = first
     return found
 
@@ -762,6 +878,16 @@ def main(argv: list[str] | None = None) -> int:
     w = sub.add_parser("owner")
     w.add_argument("--block", choices=common.BLOCKS, required=True)
     w.add_argument("--attempt", type=int, required=True)
+    sr = sub.add_parser("smoke-ready")
+    sr.add_argument("--block", choices=common.BLOCKS, required=True)
+    sd = sub.add_parser("smoke-record")
+    sd.add_argument("--code", type=int, required=True)
+    sd.add_argument("--started", required=True)
+    sd.add_argument("--ended", required=True)
+    sd.add_argument("--ff", required=True)
+    sd.add_argument("--dir", type=Path, required=True)
+    fs = sub.add_parser("ff-status")
+    fs.add_argument("--practice", action="append", default=[], help="<run label>=<dir>")
     c = sub.add_parser("commits")
     c.add_argument("--r", type=Path, required=True)
     c.add_argument("--r-k", type=Path, required=True)
@@ -807,6 +933,16 @@ def main(argv: list[str] | None = None) -> int:
             found = order(args.block, ledger=ledger.read(records_dir() / ledger.LEDGER_NAME))
         elif args.cmd == "owner":
             found = owner(args.block, args.attempt, ledger.read(records_dir() / ledger.LEDGER_NAME))
+        elif args.cmd == "smoke-ready":
+            found = smoke_ready(args.block)
+        elif args.cmd == "smoke-record":
+            found = smoke_record(args.code, args.started, args.ended, args.ff, args.dir)
+        elif args.cmd == "ff-status":
+            practice = {
+                spec.partition("=")[0]: Path(spec.partition("=")[2]).resolve()
+                for spec in args.practice
+            }
+            found = ff_status(practice)
         elif args.cmd == "commits":
             found = commits(args.r.resolve(), args.r_k.resolve(), fills(), args.master_ref)
         elif args.cmd == "generalist":
