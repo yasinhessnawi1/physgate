@@ -1716,14 +1716,33 @@ class Loop:
         if self.state.subtasks[subtask_id].attempts[-1].cursor != "diff":
             self._stage(subtask_id, attempt, "diff")
         now = self.state.subtasks[subtask_id].attempts[-1]
+        # A check on the record here named divergences, since a clean one makes the subtask done:
+        # a process was killed before the incident it owed, or before the halt after it. What
+        # that process would have written next is written now, and nothing twice.
+        checked, written = now.diff, self.state.incident
+        if (
+            checked is not None
+            and written is not None
+            and written.subtask_id == subtask_id
+            and written.seq > checked.seq
+        ):
+            self._halt_for(subtask_id, written.cause)
+            return
         since = min(now.applied.values()) - 1 if now.applied else self.state.journal_head
         role = self.state.subtasks[subtask_id].plan.assigned_role
         found = self._graph.divergences(since, role)
         named = tuple(str(d) for d in found)
-        self._emit(
-            DiffChecked(**self._env(), subtask_id=subtask_id, attempt=attempt, divergences=named)
-        )
-        if found:
+        if checked is None:
+            self._emit(
+                DiffChecked(
+                    **self._env(), subtask_id=subtask_id, attempt=attempt, divergences=named
+                )
+            )
+        else:
+            # The graph still holds those writes, so it gives the cause; the check's own line,
+            # the detail.
+            named = checked.divergences
+        if named:
             # A write past the store's own guard is the graver of the two, and the cause a
             # step that made one was always recorded under; duty breaches alone are a breach.
             foreign = any(d.reason == REJECT_CROSS_ROLE for d in found)
