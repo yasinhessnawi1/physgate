@@ -34,12 +34,14 @@ from physgate.orchestrator.events import (
     Event,
     EventLog,
     Halted,
+    Incident,
     IntegrationGateRan,
     IntegrationGateSkipped,
     Merged,
     ModuleCompleted,
     ProposalsChecked,
     StageEntered,
+    WorktreeRemoved,
     parse_events,
     read_events,
 )
@@ -578,6 +580,46 @@ def test_a_completion_line_is_refused_as_it_is_written_unless_the_register_names
         log.close()
     # Replay reads the mark and never the register: the recorded run reads as it did.
     assert set(replay(read_events(tmp_path / "run" / "events.jsonl")).completed) == {"s1", "s2"}
+
+
+def test_a_completion_step_under_a_register_with_two_owners_of_completion_halts_on_the_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The process that writes a completion asks the register first, as a dispatch does.
+
+    The writer would refuse the line and the process would end with nothing on the record, and
+    so would every process after it. Asked first, the process records why as an incident and
+    halts, so an operator reads the cause in the run's own log.
+    """
+    rig = rig_for(tmp_path, dispatcher=Installed())
+    loop = rig.open()
+    declaring(monkeypatch, loop, ("s1", "s2"), kill_at_completion=0)
+    loop.start([*plan("s1", "s2"), INTEGRATION])
+    with pytest.raises(KilledError):
+        loop.run()
+    loop.close()
+    cut = len(read_events(tmp_path / "events.jsonl"))
+    assert replay(read_events(tmp_path / "events.jsonl")).next_step().kind == "complete"
+    # The process that takes over runs under a register with a second owner of completion. (With
+    # none, the run's own role is not registered, and no process opens the run at all.)
+    closer = CrossCuttingRole(name="closer", architecture="ARCH-051", owns="completion")
+    monkeypatch.setitem(roles.ROLES, closer.name, closer)
+    fresh = rig.open()
+    assert fresh.run().kind == "halted"
+    fresh.close()
+    events = read_events(tmp_path / "events.jsonl")
+    # The incident and the halt; then, as at any halt, the merged subtasks' worktrees are removed.
+    incident, halted, *removed = events[cut:]
+    assert isinstance(incident, Incident) and isinstance(halted, Halted)
+    assert all(isinstance(e, WorktreeRemoved) for e in removed)
+    assert (incident.subtask_id, incident.cause) == (None, "duty_breach")
+    assert incident.detail == (
+        f"subtask {INTEG}: more than one role owns completion, so no module is declared or "
+        "recorded complete: closer,integration"
+    )
+    assert (halted.reason, halted.detail) == ("incident", "duty_breach")
+    assert completions(events) == []
+    assert replay(events).next_step().kind == "halted"
 
 
 @pytest.mark.parametrize(

@@ -78,6 +78,7 @@ from physgate.orchestrator.events import (
     WriteDone,
     WriteIntended,
     completion_mark_problem,
+    completion_owner_problem,
 )
 from physgate.orchestrator.exceptions import (
     EscalationBackendError,
@@ -1692,6 +1693,14 @@ class Loop:
         if step.subtask_id is None or integration is None:
             msg = "a completion step with no module, or in a run with no subtask that declares one"
             raise RunStateError(msg, step=step.kind)
+        # The writer refuses the line unless the register names the declaring role as the one
+        # owner of completion, and a refusal there records nothing, in this process or any after
+        # it. So the register is asked first, as a dispatch asks it (:meth:`_mark_borne_out`),
+        # and the run halts with the cause on the record.
+        why = completion_owner_problem(self.state.subtasks[integration].plan.assigned_role)
+        if why is not None:
+            self._incident(None, "duty_breach", f"subtask {integration}: {why}")
+            return
         attempt = self.state.subtasks[integration].attempts[-1].number
         self._emit(
             ModuleCompleted(
