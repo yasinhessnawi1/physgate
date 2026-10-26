@@ -329,6 +329,15 @@ def test_the_frozen_per_item_refuses_the_standard_class_and_the_own_path_scores_
     assert t3.STANDARD == common.STANDARD_CLASS
 
 
+def test_the_class_s_own_path_refuses_a_run_whose_rows_are_not_of_the_class(
+    made: dict[str, Any],
+) -> None:
+    x1 = t3.read_block("x1", made["attempts"][0], made["sets"], {})
+    as_s = t3.Block("s", x1.corpus, x1.runs, x1.facts, x1.law)
+    with pytest.raises(t3.TallyError, match="a class other than standard"):
+        t3.score(as_s, "A2", t3.Cells.at(common.REPO))
+
+
 def test_the_tally_scores_block_s_by_its_own_path_into_the_class_rule(
     made: dict[str, Any], s_made: dict[str, Any], tmp_path: Path
 ) -> None:
