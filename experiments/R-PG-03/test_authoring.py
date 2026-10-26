@@ -737,6 +737,42 @@ def test_the_error_session_s_corpora_are_assembled_from_the_passed_record(sheet:
     assert (record / "clean" / "s01.json").is_file() and (record / "base.json").is_file()
 
 
+def waiting_on_the_s_turn(sheet: Sheet, second_ladder: bool) -> dict[str, Any]:
+    """X1's third continuation (the s batch) cut by outages until the authoring waits."""
+    state = au.read_state()
+    sheet.ended = ["completed", "completed"] + ["infrastructure"] * 7
+    sheet.until(state, "waiting")
+    if second_ladder:
+        state["waiting"]["released"] = True
+        sheet.until(state, "waiting")
+    au.write_state(state)
+    return state
+
+
+def test_the_owner_stopping_the_s_batch_leaves_the_primary_running(sheet: Sheet) -> None:
+    waiting_on_the_s_turn(sheet, second_ladder=True)
+    assert au.main(["owner-stop", "--batch", "1"]) == 2  # no waiting turn writes batch 1
+    assert au.read_state()["stopped"] is None
+    assert au.main(["owner-stop", "--batch", "s"]) == 0
+    state = au.read_state()
+    x = state["pairs"]["X"]
+    assert state["stopped"] is None and state["waiting"] is None
+    assert x["s_status"] == "cap" and x["pending"] is None and x["phase"] == "E-launch"
+    for _ in range(80):
+        got = sheet.step(state)
+        if state["pairs"].get("Z", {}).get("status") == "done":
+            break
+    assert got and ("X2-1", "launch", "launch.txt") in sheet.turns
+    assert not any(t[0].startswith("C-") for t in sheet.turns)
+    assert state["pairs"]["Y"]["status"] == "done" and state["pairs"]["Z"]["status"] == "done"
+
+
+def test_the_owner_stops_at_a_cap_only_after_a_turn_s_second_ladder(sheet: Sheet) -> None:
+    waiting_on_the_s_turn(sheet, second_ladder=False)  # waits for the service to be back
+    assert au.main(["owner-stop", "--batch", "s"]) == 2
+    assert au.read_state()["pairs"]["X"]["s_status"] == "pending"
+
+
 def test_pair_y_has_no_s_batch(sheet: Sheet) -> None:
     state = au.read_state()
     for _ in range(80):

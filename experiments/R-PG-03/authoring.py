@@ -122,6 +122,18 @@ GATE_WORDS = (
 )
 #: R-PG-01b's last session must have ended this long before the authoring starts (§10 item 3).
 AFTER_RPG01B_S = 5 * 3600
+#: The wait after a turn's second retry ladder: the owner resumes it once more, or stops (§2.5).
+OWNER_WORD = "the owner's word: resume once more (owner-resume) or stop at the cap (owner-stop)"
+#: The batch a pending turn writes, by the phase that follows it.
+WRITES = {
+    "W-check-1": "1",
+    "W-check-2": "2",
+    "W-check-s": "s",
+    "X3-check-s": "s",
+    "E-continue": "1",
+    "E-check": "2",
+    "C-check": "s",
+}
 
 
 class RefusedError(Exception):
@@ -1052,8 +1064,7 @@ def _resolve(
             why = (
                 "the owner's word that the service is back (authoring.sh service-back)"
                 if ladders == 1
-                else "the owner's word: resume once more (owner-resume) or stop at the cap "
-                "(owner-stop)"
+                else OWNER_WORD
             )
             if not _released(state, why, pair, role):
                 return {"step": "waiting", "for": why}
@@ -1071,6 +1082,42 @@ def _resolve(
         return _route(state, pair, p, role, pend, "; ".join(failed))
     p["phase"] = pend["next"]
     return {"step": "turn resolved", "pair": pair, "session": role, "next": p["phase"]}
+
+
+def owner_stop(state: dict[str, Any], batch: str) -> dict[str, Any]:
+    """The owner stops the authoring as at the cap of the batch the waiting turn writes (§2.5).
+
+    Only after a turn's second retry ladder is spent may the owner stop it, and only at the cap of
+    the batch that turn writes: the primary's cap stops the authoring for the owner;
+    ``fresh-v2-s``'s leaves the standard class not run, and the primary goes on (the writer's
+    phase moves on to its error session, or C's pair is done).
+
+    Raises:
+        RefusedError: nothing waits for the owner's word, or the waiting turn writes another batch.
+    """
+    waiting = state.get("waiting") or {}
+    if waiting.get("for") != OWNER_WORD:
+        raise RefusedError(
+            "the owner stops at a cap only where a turn waits for the owner's word after its "
+            "second retry ladder (§2.5)"
+        )
+    pair = waiting["pair"]
+    p = state["pairs"][pair]
+    pend = p.get("pending") or {}
+    written = WRITES.get(pend.get("next", ""))
+    if written != batch:
+        raise RefusedError(f"the waiting turn writes batch {written}, not batch {batch}")
+    state["waiting"] = None
+    if batch == "s":
+        p["s_status"] = "cap"
+        p["pending"] = None
+        p["phase"] = "done" if pend["role"] == "C" else "E-launch"
+        record(state, "owner-stop", pair=pair, batch="s", why="fresh-v2-s's cap: not run")
+        return {"owner-stop": "s", "pair": pair, "standard class": "not run"}
+    p["status"] = "cap"
+    state["stopped"] = f"the owner stopped the authoring at the primary's cap (batch {batch})"
+    record(state, "owner-stop", pair=pair, batch=batch)
+    return {"stopped": state["stopped"]}
 
 
 def _released(state: dict[str, Any], why: str, pair: str, role: str) -> bool:
@@ -1462,7 +1509,7 @@ def main(argv_: list[str] | None = None) -> int:
     sub.add_parser("service-back")
     sub.add_parser("owner-resume")
     os_ = sub.add_parser("owner-stop")
-    os_.add_argument("--batch", required=True)
+    os_.add_argument("--batch", choices=("1", "2", "s"), required=True)
     args = parser.parse_args(argv_)
     try:
         if args.cmd == "inputs":
@@ -1511,10 +1558,9 @@ def main(argv_: list[str] | None = None) -> int:
             print(json.dumps({"released": waiting["for"]}))
             return 0
         if args.cmd == "owner-stop":
-            state["stopped"] = f"the owner stopped the authoring at the cap of batch {args.batch}"
-            record(state, "owner-stop", batch=args.batch)
+            found = owner_stop(state, args.batch)
             write_state(state)
-            print(json.dumps({"stopped": state["stopped"]}))
+            print(json.dumps(found))
             return 0
         runs_allowed()
         inputs_record()
