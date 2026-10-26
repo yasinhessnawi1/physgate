@@ -478,8 +478,6 @@ def test_a_whole_attempt_is_valid_and_r6_and_the_lanes_hold(
     [
         ({"watcher": "ABORT 2026-11-05: usage_limit_reached files 1"}, "usage limit"),
         ({"first_minute": True}, "an arm stopped in its first minute"),
-        ({"exits": {"A2": 0, "A1": 143, "B": 0}}, "a crashed or killed process"),
-        ({"exits": {"A2": 0, "B": 0}}, "a crashed or killed process"),
     ],
 )
 def test_each_void_cause_voids_the_attempt(
@@ -503,6 +501,76 @@ def test_a_review_line_with_another_arm_s_rubric_digest_voids_the_attempt(
     (b / "events.jsonl").write_text(text)
     found = end({**ended, "runs": {**ended["runs"], "B": b}}, tmp_path, monkeypatch)
     assert "a review line's rubric digest is not its arm's" in found["void_causes"]
+
+
+@pytest.mark.parametrize(
+    "exits", [{"A2": 0, "A1": 143, "B": 0}, {"A2": 0, "B": 0}], ids=["killed", "no-exit"]
+)
+def test_a_crashed_or_killed_process_is_a_deviation_never_a_void(
+    ended: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, exits: dict[str, int]
+) -> None:
+    # §11's void list is closed; anything else impossible as specified is a deviation.
+    found = end(ended, tmp_path, monkeypatch, exits=exits)
+    assert not found["valid"] and found["void_causes"] == []
+    assert "a crashed or killed process" in found["deviation"]["causes"]
+    row = json.loads((tmp_path / "runs" / "blocks.json").read_text())["attempts"][0]
+    assert row["deviation"]["classification"] is None and row["launch"] == str(tmp_path / "launch")
+
+
+def test_a_run_that_is_not_whole_is_a_deviation_never_a_void(
+    ended: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    b = fx.copy_run(ended["runs"]["B"], tmp_path / "b")
+    rows = (b / "results.jsonl").read_text().splitlines()
+    (b / "results.jsonl").write_text("\n".join(rows[:-1]) + "\n")
+    found = end({**ended, "runs": {**ended["runs"], "B": b}}, tmp_path, monkeypatch)
+    assert found["void_causes"] == [] and "a run that is not whole" in found["deviation"]["causes"]
+
+
+def test_a_deviation_holds_the_block_until_the_owner_classifies_it(runs_dir: Path) -> None:
+    launch = runs_dir / "blocks" / "x1-1"
+    launch.mkdir(parents=True)
+    pending = {"causes": ["a crashed or killed process"], "classification": None}
+    row = {**att("x1", False), "launch": str(launch), "void_causes": [], "deviation": pending}
+    blocks(runs_dir, [row])
+    with pytest.raises(ck.RefusedError, match="classif"):
+        ck.order("x1", now=AFTER)
+    test = "experiments/R-PG-03/test_checks.py"
+    bad: list[tuple[str, str | None, str]] = [
+        ("instrument defect", None, "test"),
+        ("instrument defect", "experiments/R-PG-03/checks.py", "test"),
+        ("instrument defect", "experiments/R-PG-03/test_nothing.py", "tracked"),
+        ("something else", None, "route"),
+    ]
+    for route, path, why in bad:
+        with pytest.raises(ck.RefusedError, match=why):
+            ck.classify("x1", 1, route, path)
+    with pytest.raises(ck.RefusedError, match="no deviation"):
+        ck.classify("x1", 2, "anything else impossible as specified", None)
+    got = ck.classify("x1", 1, "instrument defect", test)
+    assert got["test_blob"] == git(common.REPO, "rev-parse", f"HEAD:{test}")
+    assert json.loads((launch / "classification.json").read_text())["route"] == "instrument defect"
+    with pytest.raises(ck.RefusedError, match="already"):
+        ck.classify("x1", 1, "anything else impossible as specified", None)
+    assert ck.order("x1", now=AFTER)["attempt"] == 2  # re-run at the corrected commit
+    # A deviation is no void attempt: three voids are still needed for the owner's declaration.
+    blocks(runs_dir, [{**row, "deviation": {**pending, "classification": "instrument defect"}}] * 3)
+    assert ck.order("x1", now=AFTER)["attempt"] == 4
+
+
+def test_a_deviation_classified_impossible_as_specified_is_never_attempted_again(
+    runs_dir: Path,
+) -> None:
+    launch = runs_dir / "blocks" / "x1-1"
+    launch.mkdir(parents=True)
+    pending = {"causes": ["a run that is not whole"], "classification": None}
+    blocks(
+        runs_dir,
+        [{**att("x1", False), "launch": str(launch), "void_causes": [], "deviation": pending}],
+    )
+    ck.classify("x1", 1, "anything else impossible as specified", None)
+    with pytest.raises(ck.RefusedError, match="not taken"):
+        ck.order("x1", now=AFTER)
 
 
 def test_an_incomplete_run_is_a_crashed_process(tmp_path: Path) -> None:

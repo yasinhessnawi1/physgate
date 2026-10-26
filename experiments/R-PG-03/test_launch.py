@@ -209,3 +209,8 @@ def test_the_end_of_a_block_checks_ledgers_logins_and_scans_before_it_says_valid
         assert step in text, step
     assert text.index('prefix_counts "${WRITTEN[@]}"') < text.rindex("rp3_drop_token")
     assert 'count_files_with "$pattern"' in text  # the prefixes are counted with scan.sh
+
+
+def test_a_deviation_is_refused_as_one_and_never_said_void() -> None:
+    text = "\n".join(code())
+    assert "DEVIATION" in text and "checks.py classify" in text

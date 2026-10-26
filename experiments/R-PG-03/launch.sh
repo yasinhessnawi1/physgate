@@ -386,6 +386,7 @@ AFTER_OK=1
 py "$HERE/checks.py" "${CK[@]}" after --block "$BLOCK" --attempt "$N" --launch "$LAUNCH" \
   --sheet "$SETS/$(CORPUS_OF "$BLOCK")/sources.json" --sets "$SETS" | tee -a "$LOG" || AFTER_OK=0
 VOID="$(python3 -I -c 'import json,sys; d = json.load(open(sys.argv[1])); print("; ".join(d["void_causes"]))' "$LAUNCH/after.json" 2>/dev/null || echo "the end check did not complete")"
+DEVIATION="$(python3 -I -c 'import json,sys; d = json.load(open(sys.argv[1])); print("; ".join((d.get("deviation") or {}).get("causes", [])))' "$LAUNCH/after.json" 2>/dev/null || true)"
 LEDGER_OK=1
 py "$HERE/ledger.py" block --block "$BLOCK" --attempt "$N" \
   --scratch "$(scratch_of A2)" --scratch "$(scratch_of A1)" --scratch "$(scratch_of B)" \
@@ -403,5 +404,6 @@ rp3_drop_token
 [ "$CREDENTIALS_OK" = 1 ] || refuse "a login file of the block's sessions remains, or its removal is not confirmed"
 [ "$SCAN_OK" = 1 ] || refuse "the token's scan found a hit in what the block wrote"
 [ "$LEDGER_OK" = 1 ] || refuse "the ledger line"
+[ -z "$DEVIATION" ] || refuse "DEVIATION ($DEVIATION): the attempt is not void, since §11's void list is closed. No further attempt of block $BLOCK until the owner classifies it on the logs and the ledger only: experiments/R-PG-03/checks.py classify --block $BLOCK --attempt $N, with --route defect --test <a tracked test that depends on no verdict and shows it>, or --route impossible"
 [ "$AFTER_OK" = 1 ] || refuse "the attempt is void ($VOID): it is re-attempted whole, never resumed (§11)"
 say "== done $(date -u +%Y-%m-%dT%H:%M:%SZ): block $BLOCK attempt $N is valid"

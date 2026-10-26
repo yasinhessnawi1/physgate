@@ -16,6 +16,7 @@ if it holds::
     checks.py r3 --checkout <dir> --root <dir>... --sets <dir> [--place <dir>...]
     checks.py start --block <b> --attempt <n> --runs <json>
     checks.py after --block <b> --attempt <n> --launch <dir>
+    checks.py classify --block <b> --attempt <n> --route defect --test <path> | --route impossible
     checks.py stop-sessions --scratch <dir> [--scratch ...]
     checks.py credentials
 
@@ -56,6 +57,10 @@ HOME = Path(os.environ.get("HOME", "~")).expanduser()
 EARLIEST = "2026-11-05T00:00:00Z"
 EARLIEST_IF_RPG01B_RAN_ON = "2026-11-12T00:00:00Z"
 ARM_FIRST_MINUTE_S = 60
+#: §11's two routes for a deviation found before any number: an instrument defect a test that
+#: depends on no verdict shows (the block is re-run at the corrected commit, both runs reported),
+#: or anything else impossible as specified (the decisions it feeds are not taken).
+ROUTES = {"defect": "instrument defect", "impossible": "anything else impossible as specified"}
 #: A review root of this experiment's form, under ~/review-scratch.
 ROOT_NAME = re.compile(r"rp3-[a-z0-9]{1,3}-[0-9]{1,2}-(a2|a1|b)")
 _CLAUDE = re.compile(r"^claude(-[0-9][\w.]*)?$")
@@ -141,7 +146,21 @@ def order(
         raise RefusedError(f"block {block} already has a valid attempt")
     if any(a.get("valid") is None for a in mine):
         raise RefusedError(f"an attempt of block {block} has not been closed by its end check")
-    voids = sum(1 for a in mine if a.get("valid") is False)
+    for a in mine:
+        dev = a.get("deviation") or {}
+        if dev and dev.get("classification") is None:
+            raise RefusedError(
+                f"block {block}'s attempt {a.get('attempt')} is a deviation "
+                f"({'; '.join(dev.get('causes', []))}): no further attempt until the owner "
+                "classifies it (checks.py classify, §11)"
+            )
+        if dev.get("classification") == ROUTES["impossible"]:
+            raise RefusedError(
+                f"block {block}'s attempt {a.get('attempt')} is classified as anything else "
+                "impossible as specified: the decisions it feeds are not taken, and it is not "
+                "attempted again (§11)"
+            )
+    voids = sum(1 for a in mine if a.get("valid") is False and not a.get("deviation"))
     if voids >= common.MAX_VOID_ATTEMPTS:
         raise RefusedError(
             f"block {block} has had {voids} void attempts: the owner declares whether it is "
@@ -410,9 +429,12 @@ def rubric_mismatches(run: Path, arm: str) -> tuple[int, int]:
 def after(block: str, attempt: int, launch: Path, sheet: bytes, sets: Path) -> dict[str, Any]:
     """An attempt's end: its void causes, its stream check, its digests, R6 and its lanes.
 
-    Void causes (§11): a usage limit; an arm that stopped in its first minute; a crashed or
-    killed process (an exit other than 0 or 1, or a run that is not whole); a cut read; a rubric
-    digest on a review line that is not its arm's. Deviations, which void nothing: R6.
+    Void causes, §11's list, closed: a usage limit; an arm that stopped in its first minute; a cut
+    read; a rubric or knowledge digest on a review that is not its arm's. A crashed or killed
+    process (an exit other than 0 or 1, or none) or a run that is not whole is none of them: with
+    no void cause beside it, the attempt is a deviation, recorded unclassified, and the block is
+    not attempted again until the owner classifies it (:func:`classify`). R6 and a review off its
+    lane are deviations for the gate's figures and the lanes, which void nothing.
     """
     import lanes
     import regate
@@ -434,8 +456,9 @@ def after(block: str, attempt: int, launch: Path, sheet: bytes, sets: Path) -> d
         causes.append("usage limit")
     if (launch / "first_minute.txt").is_file():
         causes.append("an arm stopped in its first minute")
+    crashed: list[str] = []
     if set(exits) != set(common.ARMS) or any(int(c) not in (0, 1) for c in exits.values()):
-        causes.append("a crashed or killed process")
+        crashed.append("a crashed or killed process")
     per_arm: dict[str, Any] = {}
     cut = 0
     items = common.BLOCK_ITEMS[block]
@@ -459,8 +482,8 @@ def after(block: str, attempt: int, launch: Path, sheet: bytes, sets: Path) -> d
             "lanes": lane,
         }
     every_run_whole = all(v["complete"]["holds"] for v in per_arm.values())
-    if not every_run_whole and "a crashed or killed process" not in causes:
-        causes.append("a crashed or killed process")
+    if not every_run_whole:
+        crashed.append("a run that is not whole")
     if cut:
         causes.append("a cut read")
     if any(v["rubric_mismatches"] for v in per_arm.values()):
@@ -468,20 +491,25 @@ def after(block: str, attempt: int, launch: Path, sheet: bytes, sets: Path) -> d
     knowledge = knowledge_digests(block, corpus, runs, scratch)
     if knowledge["mismatch"]:
         causes.append("a review's knowledge digests are not its arm's")
+    deviation = {"causes": crashed, "classification": None} if crashed and not causes else None
     deviations: list[str] = []
     regated: dict[str, Any] | None = None
-    if not causes:
+    if not causes and deviation is None:
         regated = regate.block(block, corpus, runs, launch / "regate")
         if not regated["holds"]:
             deviations.append("the gate's records differ (R6): a deviation for the gate's figures")
         if not all(v["lanes"].get("holds") for v in per_arm.values()):
             deviations.append("a review ran off its planned lane")
     stream_check = {"cut": cut, "per_arm": {a: v["reads"] for a, v in per_arm.items()}}
+    valid = not causes and deviation is None
     row.update(
         {
             "ended_utc": common.utc_now(),
-            "valid": not causes,
+            "launch": str(launch),
+            "valid": valid,
             "void_causes": causes,
+            "deviation": deviation,
+            "crashed_or_not_whole": crashed,
             "deviations": deviations,
             "stream_check": {"cut": cut},
             "usage_limit_files": limits["usage_limit_files"],
@@ -493,8 +521,9 @@ def after(block: str, attempt: int, launch: Path, sheet: bytes, sets: Path) -> d
         "check": "after",
         "block": block,
         "attempt": attempt,
-        "valid": not causes,
+        "valid": valid,
         "void_causes": causes,
+        "deviation": deviation,
         "deviations": deviations,
         "per_arm": per_arm,
         "stream_check": stream_check,
@@ -503,6 +532,71 @@ def after(block: str, attempt: int, launch: Path, sheet: bytes, sets: Path) -> d
         **limits,
     }
     (launch / "after.json").write_text(json.dumps(found, indent=1, sort_keys=True) + "\n")
+    return found
+
+
+def classify(
+    block: str, attempt: int, route: str, test: str | None, repo: Path = common.REPO
+) -> dict[str, Any]:
+    """The owner's classification of a deviation, on the logs and the ledger only (§11, R8).
+
+    ``route`` is ``instrument defect`` (with ``test``, the repository path of a tracked test that
+    depends on no verdict and shows the defect: the block is then re-run at the corrected commit,
+    and both runs are reported) or ``anything else impossible as specified`` (the decisions it
+    feeds are not taken). It is written once, next to the attempt (``classification.json``), and
+    in the block record; the launch refuses any further attempt of the block until it exists.
+
+    Raises:
+        RefusedError: the route is neither; a defect names no tracked test file, or the other
+            route names one; the attempt records no deviation, or is classified already.
+    """
+    if route not in ROUTES.values():
+        raise RefusedError(f"the route is {ROUTES['defect']!r} or {ROUTES['impossible']!r}")
+    found: dict[str, Any] = {
+        "check": "classify",
+        "block": block,
+        "attempt": attempt,
+        "route": route,
+        "recorded_utc": common.utc_now(),
+        "on": "the attempt's logs and the ledger only, before any tally (R8)",
+    }
+    if route == ROUTES["defect"]:
+        name = Path(test or "").name
+        if not test or not (name.startswith("test_") and name.endswith(".py")):
+            raise RefusedError(
+                "an instrument defect names the path of a test (test_*.py) that depends on no "
+                "verdict and shows it (§11)"
+            )
+        try:
+            common.git(repo, "ls-files", "--error-unmatch", "--", test)
+            blob = common.git(repo, "rev-parse", f"HEAD:{test}")
+        except subprocess.CalledProcessError:
+            raise RefusedError(f"{test} is not a tracked test at the checkout's HEAD") from None
+        found.update(test=test, test_commit=common.git(repo, "rev-parse", "HEAD"), test_blob=blob)
+    elif test:
+        raise RefusedError("a test is named for an instrument defect alone")
+    rec = read_blocks()
+    row = next(
+        (
+            a
+            for a in rec.get("attempts", [])
+            if a.get("block") == block and a.get("attempt") == attempt
+        ),
+        None,
+    )
+    if row is None or not row.get("deviation"):
+        raise RefusedError(f"block {block}'s attempt {attempt} records no deviation")
+    where = Path(row.get("launch") or records_dir() / "blocks" / f"{block}-{attempt}")
+    if (
+        row["deviation"].get("classification") is not None
+        or (where / "classification.json").exists()
+    ):
+        raise RefusedError(f"block {block}'s attempt {attempt} is classified already")
+    found["causes"] = row["deviation"].get("causes", [])
+    where.mkdir(parents=True, exist_ok=True)
+    (where / "classification.json").write_text(json.dumps(found, indent=1, sort_keys=True) + "\n")
+    row["deviation"]["classification"] = route
+    write_blocks(rec)
     return found
 
 
@@ -912,6 +1006,11 @@ def main(argv: list[str] | None = None) -> int:
     af.add_argument("--launch", type=Path, required=True)
     af.add_argument("--sheet", type=Path, required=True)
     af.add_argument("--sets", type=Path, required=True)
+    cl = sub.add_parser("classify")
+    cl.add_argument("--block", choices=common.BLOCKS, required=True)
+    cl.add_argument("--attempt", type=int, required=True)
+    cl.add_argument("--route", choices=sorted(ROUTES), required=True)
+    cl.add_argument("--test", help="defect: the path of a tracked test that depends on no verdict")
     nr = sub.add_parser("not-run")
     nr.add_argument("--block", choices=("s", "p1", "p2"), required=True)
     nr.add_argument("--cause", required=True)
@@ -967,10 +1066,13 @@ def main(argv: list[str] | None = None) -> int:
             found = after(args.block, args.attempt, args.launch, args.sheet.read_bytes(), args.sets)
             print(
                 json.dumps(
-                    {k: found[k] for k in ("valid", "void_causes", "deviations")}, sort_keys=True
+                    {k: found[k] for k in ("valid", "void_causes", "deviation", "deviations")},
+                    sort_keys=True,
                 )
             )
             return 0 if found["valid"] else 1
+        elif args.cmd == "classify":
+            found = classify(args.block, args.attempt, ROUTES[args.route], args.test)
         elif args.cmd == "not-run":
             found = not_run(args.block, args.cause)
         elif args.cmd == "stop-sessions":
