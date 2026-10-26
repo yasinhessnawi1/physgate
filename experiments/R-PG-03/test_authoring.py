@@ -459,6 +459,7 @@ class Sheet:
         self.checks: list[int] = []  # each next clean check's count of facts
         self.errors: list[list[str]] = []  # each next injection check's problems
         self.turns: list[tuple[str, str, str]] = []
+        self.assembled_from: list[Path] = []
         monkeypatch.setenv("RP3_RUNS", str(tmp / "runs"))
         monkeypatch.setenv("RP3_NO_WAIT", "1")
         monkeypatch.setattr(au, "session_files", lambda kind, p, pair: {"brief.md": b"b"})
@@ -476,6 +477,10 @@ class Sheet:
 
     def turn(self, root: Path, label: str, message: str, resume: str | None) -> dict[str, Any]:
         self.turns.append((root.name, label, Path(message).name))
+        (root / "scratch" / "clean").mkdir(parents=True, exist_ok=True)
+        (root / "scratch" / "base.json").write_text("{}")
+        for rid in [*au.ids_of("1"), *au.ids_of("2"), *au.ids_of("s")]:
+            (root / "scratch" / "clean" / f"{rid}.json").write_text(json.dumps({"id": rid}))
         (root / "scratch" / "injections").mkdir(parents=True, exist_ok=True)
         for k in range(1, 41):
             (root / "scratch" / "injections" / f"a{k:02d}.json").write_text("{}")
@@ -515,6 +520,7 @@ class Sheet:
         sheet: bytes,
         table: bytes,
     ) -> Path:
+        self.assembled_from.append(clean_dir)
         fx.write_set(out)
         return out
 
@@ -675,6 +681,60 @@ def test_the_writer_s_audit_failing_in_its_s_turn_goes_to_x3_and_does_not_restar
     assert sheet.turns[2] == ("X1-1", "third", "continue_third.txt")
     assert ("X3-1", "launch", "launch_X3.txt") in sheet.turns
     assert state["pairs"]["X"]["restarts"] == 0 and state["pairs"]["X"]["attempt"] == 1
+
+
+def writer_batches(tmp: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[dict[str, Any], Path]:
+    """Pair X's writer, its two primary batches passed and recorded; its state and its scratch."""
+    monkeypatch.setenv("RP3_RUNS", str(tmp / "runs"))
+    monkeypatch.setattr(au, "check_clean", lambda scratch, ids, sheet, work: [])
+    monkeypatch.setattr(au, "sheet_bytes", lambda: (b"table", b"sheet"))
+    state = au.read_state()
+    p = au.pair_state(state, "X")
+    root = au.records_dir() / "authoring" / "X-1" / "X1-1"
+    (root / "scratch" / "clean").mkdir(parents=True)
+    (root / "scratch" / "base.json").write_bytes(b'{"base": 1}')
+    for rid in au.ids_of("1") + au.ids_of("2"):
+        (root / "scratch" / "clean" / f"{rid}.json").write_text(json.dumps({"id": rid}))
+    p["sessions"]["W"] = {"root": str(root), "session_id": "s", "turns": 2, "usage_resumes": 0}
+    for batch, phase in (("1", "W-check-1"), ("2", "W-check-2")):
+        assert au._clean_batch(state, "X", p, "W", batch, phase)["passed"] is True
+    return p, root / "scratch"
+
+
+@pytest.mark.parametrize("kind", ["X3", "E"])
+def test_later_sessions_get_pair_x_s_passed_bytes_after_x1_changed_one_in_its_s_turn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    # X1's audit fails in its s turn on a change to a passed copy: X3 writes the s batch with pair
+    # X's passed copies, and pair X's primary is assembled from them (§2.5).
+    p, scratch = writer_batches(tmp_path, monkeypatch)
+    (scratch / "clean" / "a07.json").write_text('{"changed": true}')
+    (scratch / "base.json").unlink()
+    got = au.session_files(kind, p, "X")
+    assert got["clean/a07.json"] == json.dumps({"id": "a07"}).encode()
+    assert got["base.json"] == b'{"base": 1}'
+
+
+def test_the_passed_record_is_read_only_and_held_to_its_digests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    p, _ = writer_batches(tmp_path, monkeypatch)
+    kept = au.passed_dir("X", p) / "clean" / "a07.json"
+    assert not kept.stat().st_mode & 0o222
+    kept.chmod(0o644)
+    kept.write_text('{"changed": true}')
+    with pytest.raises(au.RefusedError, match="recorded digest"):
+        au.session_files("E", p, "X")
+
+
+def test_the_error_session_s_corpora_are_assembled_from_the_passed_record(sheet: Sheet) -> None:
+    state = au.read_state()
+    for _ in range(40):
+        if sheet.step(state)["step"] == "pair done":
+            break
+    record = sheet.tmp / "runs" / "authoring" / "X-1" / "passed"
+    assert sheet.assembled_from and set(sheet.assembled_from) == {record}
+    assert (record / "clean" / "s01.json").is_file() and (record / "base.json").is_file()
 
 
 def test_pair_y_has_no_s_batch(sheet: Sheet) -> None:

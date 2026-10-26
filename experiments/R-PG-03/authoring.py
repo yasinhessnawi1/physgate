@@ -16,7 +16,9 @@ checkout at ``R``; ``next`` with the run account's credential in its environment
 1. the writer (X1) is launched: the launch message, then the fixed continuation to ``a21``-``a40``,
    then for pair X the third continuation to ``s01``-``s10``; each batch is checked after the turn
    that wrote it, and only bare facts go back, in Appendix B's template, at most 4 fact rounds per
-   batch; a batch that passes has its ``base.json`` and ``clean/*.json`` recorded by sha256;
+   batch; a batch that passes has its ``base.json`` and ``clean/*.json`` copied, read-only, into
+   the pair's record of passed copies (``authoring/<pair>-<attempt>/passed/``) and recorded by
+   sha256; every later session's copies, and every corpus, come from that record alone;
 2. the error session (X2) starts when ``a01``-``a40`` have passed: the launch message, then the
    fixed continuation; it never sees a check; its injections are checked when it has ended;
 3. for pair X, session C starts when ``s01``-``s10`` have passed; X3 writes the ``s`` batch once
@@ -499,6 +501,36 @@ def audit(
 # ---------------------------------------------------------------- the checks
 
 
+def passed_dir(pair: str, p: dict[str, Any]) -> Path:
+    """A pair attempt's record of its passed copies, read-only, never written over (§2.2)."""
+    return records_dir() / "authoring" / f"{pair}-{p['attempt']}" / "passed"
+
+
+def record_passed(pair: str, p: dict[str, Any], scratch: Path, rels: list[str]) -> None:
+    """A passed batch's files, copied from the writer's directory into the record, with digests.
+
+    Every corpus and every later session's copies are taken from this record, so the writer
+    changing a file afterwards (an audit failure in a later turn) leaves the passed bytes intact.
+
+    Raises:
+        RefusedError: a passed file cannot be read, or the record holds it already with other bytes.
+    """
+    where = passed_dir(pair, p)
+    for rel in rels:
+        data = common.read_inside(scratch, scratch / rel)
+        if data is None:
+            raise RefusedError(f"{rel} passed its check but cannot be read")
+        dest = where / rel
+        if dest.exists():
+            if dest.read_bytes() != data:
+                raise RefusedError(f"the record holds the passed copy {rel} with other bytes")
+        else:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(data)
+            dest.chmod(0o444)
+        p["passed"][rel] = common.sha256_bytes(data)
+
+
 def check_clean(scratch: Path, ids: list[str], sheet: bytes, work: Path) -> list[dict[str, str]]:
     """§2.5 items 1-4 and 6 on the base and the named clean revisions: the bare facts found."""
     from physgate.evaluation.inject.corpus import (
@@ -841,7 +873,8 @@ def session_files(
     """A session's inputs, each its own copy.
 
     Its brief as ``brief.md``, the commons, the rules and the table; and for an error session, C
-    or X3, its own copies of the pair's passed files.
+    or X3, its own copies of the pair's passed files, from the pair's record of passed copies, each
+    held to its recorded digest.
     """
     import sheet_check
 
@@ -852,18 +885,13 @@ def session_files(
     files["brief.md"] = fixed(
         {"W": "brief_A.md", "E": "brief_B.md", "C": "brief_C.md", "X3": "brief_A.md"}[kind]
     )
-    writer = Path(p["sessions"]["W"]["root"]) / "scratch" if "W" in p["sessions"] else None
     if kind in ("E", "X3", "C"):
-        if writer is None:
-            raise RefusedError("no writer's passed copies to give")
+        src = passed_dir(pair, p)
         wanted = ["base.json"]
         if kind in ("E", "X3"):
             wanted += [f"clean/{i}.json" for i in ids_of("1") + ids_of("2")]
         if kind == "C":
-            src = Path(p["s_source"]) / "scratch"
             wanted += [f"clean/{i}.json" for i in S_IDS]
-        else:
-            src = writer
         for rel in wanted:
             data = common.read_inside(src, src / rel)
             if data is None or common.sha256_bytes(data) != p["passed"].get(rel):
@@ -1187,9 +1215,7 @@ def _clean_batch(
     if not facts:
         b["status"] = "passed"
         rels = [f"clean/{i}.json" for i in ids] + (["base.json"] if batch == "1" else [])
-        for rel in rels:
-            data = common.read_inside(root / "scratch", root / "scratch" / rel)
-            p["passed"][rel] = common.sha256_bytes(data or b"")
+        record_passed(pair, p, root / "scratch", rels)
         if batch == "s":
             p["s_source"] = str(root)
             p["s_status"] = "clean passed"
@@ -1259,7 +1285,6 @@ def _check_errors(
             record_[rel] = common.sha256_bytes(data)
     k = p["replacements"].get(role, 0) + 1
     sets = records_dir() / "authoring" / f"{pair}-{p['attempt']}" / f"sets-{role}-{k}"
-    clean_root = Path(p["s_source"]) if batches == ["s"] else Path(p["sessions"]["W"]["root"])
     problems: list[str] = []
     earlier: set[tuple[str, str]] = set()
     built: dict[str, Path] = {}
@@ -1268,7 +1293,7 @@ def _check_errors(
         out = assemble(
             pair,
             batch,
-            clean_root / "scratch",
+            passed_dir(pair, p),
             root / "scratch",
             p["passed"],
             record_,
