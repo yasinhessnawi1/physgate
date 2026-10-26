@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import platform
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -145,13 +146,22 @@ def r_k(tmp_path_factory: pytest.TempPathFactory) -> Any:  # noqa: ANN401
     made: list[Path] = []
 
     def make(
-        name: str, extra: dict[str, str] | None = None, drop_promotion: int = 4
+        name: str,
+        extra: dict[str, str] | None = None,
+        drop_promotion: int = 4,
+        r_extra: dict[str, str] | None = None,
+        k_commits: int = 1,
     ) -> tuple[Path, Path, str, str]:
         r = base / f"{name}-r"
         k = base / f"{name}-k"
         for d in (r, k):
             git(common.REPO, "worktree", "add", "-q", "--detach", str(d), head)
             made.append(d)
+        if r_extra:
+            for rel, text in r_extra.items():
+                (r / rel).write_text(text)
+            git(r, "-c", "user.email=t@example.invalid", "-c", "user.name=t", "commit", "-qam", "R")
+            git(k, "checkout", "-q", "--detach", git(r, "rev-parse", "HEAD"))
         for role in common.ROLES:
             blob = subprocess.run(
                 [
@@ -188,7 +198,10 @@ def r_k(tmp_path_factory: pytest.TempPathFactory) -> Any:  # noqa: ANN401
             "-am",
             "K's rubrics",
         )
-        return r, k, head, git(k, "rev-parse", "HEAD")
+        for n in range(1, k_commits):  # R_K more than one commit above R
+            ident = ("-c", "user.email=t@example.invalid", "-c", "user.name=t")
+            git(k, *ident, "commit", "-q", "--allow-empty", "-m", f"one more {n}")
+        return r, k, git(r, "rev-parse", "HEAD"), git(k, "rev-parse", "HEAD")
 
     yield make
     for d in made:
@@ -225,6 +238,112 @@ def test_commits_filled_must_be_on_record_and_be_the_checkouts(r_k: Any) -> None
         ck.commits(
             r, k, {"commits": {"R": rs, "R_K": ks, "trees": {"src/physgate/gate": "0" * 40}}}
         )
+
+
+CRITERIA = f"{common.EXPERIMENT}/CRITERIA.md"
+README = f"{common.EXPERIMENT}/README.md"
+
+
+@pytest.mark.parametrize("path", [CRITERIA, README])
+def test_r_k_holding_a_frozen_file_other_than_the_freeze_s_is_refused(
+    r_k: Any,  # noqa: ANN401
+    path: str,
+) -> None:
+    r, k, rs, ks = r_k(f"k-{Path(path).stem}", extra={path: "changed\n"})
+    with pytest.raises(ck.RefusedError, match=f"R_K's {re.escape(path)}"):
+        ck.commits(r, k, {"commits": {"R": rs, "R_K": ks}}, master_ref=rs)
+
+
+def test_r_holding_a_frozen_file_other_than_the_freeze_s_is_refused(r_k: Any) -> None:  # noqa: ANN401
+    r, k, rs, ks = r_k("r-readme", r_extra={README: "changed\n"})
+    with pytest.raises(ck.RefusedError, match=f"R's {re.escape(README)}"):
+        ck.commits(r, k, {"commits": {"R": rs, "R_K": ks}}, master_ref=rs)
+
+
+def test_the_master_ref_holding_no_frozen_criteria_is_refused(r_k: Any) -> None:  # noqa: ANN401
+    r, k, rs, ks = r_k("master")
+    # fc28f32 is older than the freeze: CRITERIA.md is not there.
+    with pytest.raises(ck.RefusedError, match="the master ref's"):
+        ck.commits(r, k, {"commits": {"R": rs, "R_K": ks}}, master_ref=common.R_FLOOR)
+    found = ck.commits(r, k, {"commits": {"R": rs, "R_K": ks}}, master_ref=rs)
+    assert found[f"the master ref's {CRITERIA}"] == common.FROZEN_BLOBS[CRITERIA]
+
+
+def fills_repo(tmp: Path, steps: list[tuple[str, dict[str, Any], dict[str, str] | None]]) -> Path:
+    """A repository whose fills record is written by ``steps``: (subject, record, other files)."""
+    repo = tmp / "repo"
+    repo.mkdir()
+    ident = ("-c", "user.email=t@example.invalid", "-c", "user.name=t")
+    git(repo, "init", "-q")
+    (repo / "README.md").write_text("x\n")
+    git(repo, "add", "-A")
+    git(repo, *ident, "commit", "-qm", "the start")
+    where = repo / common.EXPERIMENT / common.FILLS_NAME
+    where.parent.mkdir(parents=True)
+    for subject, record, others in steps:
+        where.write_text(json.dumps(record, indent=1) + "\n")
+        for rel, text in (others or {}).items():
+            (repo / rel).write_text(text)
+        git(repo, "add", "-A")
+        git(repo, *ident, "commit", "-qm", subject)
+    return repo
+
+
+COMMITS = {"R": "a" * 40, "R_K": "b" * 40}
+SHEET = {"sha256": "c" * 64}
+SETS = {"manifests": {"fresh-v2-x1": "d" * 64}}
+
+
+def test_the_fills_record_is_read_when_each_fill_came_in_its_own_named_commit(
+    tmp_path: Path,
+) -> None:
+    repo = fills_repo(
+        tmp_path,
+        [
+            ("docs(r-pg-03): Commits filled", {"commits": COMMITS}, None),
+            ("docs(r-pg-03): Sheet filled", {"commits": COMMITS, "sheet": SHEET}, None),
+            ("docs(r-pg-03): Set filled", {"commits": COMMITS, "sheet": SHEET, "sets": SETS}, None),
+        ],
+    )
+    assert common.fills_on(repo, "HEAD") == {"commits": COMMITS, "sheet": SHEET, "sets": SETS}
+
+
+@pytest.mark.parametrize(
+    ("steps", "why"),
+    [
+        ([("docs(r-pg-03): Commits filled", {"commits": COMMITS, "sheet": SHEET}, None)], "one"),
+        (
+            [("docs(r-pg-03): Commits filled", {"commits": COMMITS}, {"README.md": "y\n"})],
+            "touches",
+        ),
+        ([("docs(r-pg-03): the commits", {"commits": COMMITS}, None)], "names"),
+        ([("docs(r-pg-03): Sheet filled", {"sheet": SHEET}, None)], "order"),
+        (
+            [
+                ("docs(r-pg-03): Commits filled", {"commits": COMMITS}, None),
+                (
+                    "docs(r-pg-03): Sheet filled",
+                    {"commits": {**COMMITS, "R": "e" * 40}, "sheet": SHEET},
+                    None,
+                ),
+            ],
+            "changes",
+        ),
+    ],
+    ids=[
+        "two-fills-at-once",
+        "another-path-touched",
+        "a-subject-naming-no-fill",
+        "out-of-order",
+        "an-earlier-fill-changed",
+    ],
+)
+def test_the_fills_record_s_history_is_held(
+    tmp_path: Path, steps: list[tuple[str, dict[str, Any], dict[str, str] | None]], why: str
+) -> None:
+    repo = fills_repo(tmp_path, steps)
+    with pytest.raises(common.RefusedError, match=why):
+        common.fills_on(repo, "HEAD")
 
 
 # ---- R3 ------------------------------------------------------------------------------------------

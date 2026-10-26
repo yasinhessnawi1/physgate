@@ -413,8 +413,21 @@ def knowledge_digests(
 # ---------------------------------------------------------------- the pins
 
 
-def commits(r_dir: Path, r_k_dir: Path, fills: dict[str, Any]) -> dict[str, Any]:
-    """R and R_K against §3.2 and "Commits filled".
+def _blob(repo: Path, rev: str, path: str) -> str | None:
+    """A path's blob id at a revision, or ``None`` if it is not there."""
+    try:
+        return common.git(repo, "rev-parse", f"{rev}:{path}")
+    except subprocess.CalledProcessError:
+        return None
+
+
+def commits(
+    r_dir: Path, r_k_dir: Path, fills: dict[str, Any], master_ref: str = "origin/master"
+) -> dict[str, Any]:
+    """R and R_K against §3.2 and "Commits filled"; the frozen files at R, R_K and master.
+
+    ``CRITERIA.md`` and the README are the freeze's blobs at all three for good: the fills are a
+    record of their own (``fills.json``), never written into the frozen file.
 
     Raises:
         RefusedError: anything differs.
@@ -423,6 +436,13 @@ def commits(r_dir: Path, r_k_dir: Path, fills: dict[str, Any]) -> dict[str, Any]
     found: dict[str, Any] = {"check": "commits"}
     r = common.git(r_dir, "rev-parse", "HEAD")
     r_k = common.git(r_k_dir, "rev-parse", "HEAD")
+    for name, d, rev in (
+        ("R's", r_dir, r),
+        ("R_K's", r_k_dir, r_k),
+        ("the master ref's", r_dir, master_ref),
+    ):
+        for path, frozen in common.FROZEN_BLOBS.items():
+            _equal(found, f"{name} {path}", _blob(d, rev, path), frozen)
     _equal(found, "R", r, filled.get("R"))
     _equal(found, "R_K", r_k, filled.get("R_K"))
     for name, d in (("R", r_dir), ("R_K", r_k_dir)):
@@ -777,7 +797,10 @@ def main(argv: list[str] | None = None) -> int:
     import ledger
 
     try:
-        fills = common.fills_on(common.REPO, args.master_ref)
+
+        def fills() -> dict[str, Any]:
+            return common.fills_on(common.REPO, args.master_ref)
+
         if args.cmd == "host":
             found = host()
         elif args.cmd == "order":
@@ -785,7 +808,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "owner":
             found = owner(args.block, args.attempt, ledger.read(records_dir() / ledger.LEDGER_NAME))
         elif args.cmd == "commits":
-            found = commits(args.r.resolve(), args.r_k.resolve(), fills)
+            found = commits(args.r.resolve(), args.r_k.resolve(), fills(), args.master_ref)
         elif args.cmd == "generalist":
             found = generalist()
         elif args.cmd == "binary":
@@ -793,7 +816,7 @@ def main(argv: list[str] | None = None) -> int:
                 Path(os.environ.get("PHYSGATE_CLAUDE_BIN", str(HOME / "pinned/claude-2.1.301")))
             )
         elif args.cmd == "sets":
-            found = sets_check(args.sets.resolve(), args.block, fills)
+            found = sets_check(args.sets.resolve(), args.block, fills())
         elif args.cmd == "r3":
             found = r3(
                 args.checkout.resolve(),

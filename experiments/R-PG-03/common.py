@@ -25,6 +25,12 @@ from typing import Any
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 EXPERIMENT = "experiments/R-PG-03"
+#: The freeze: the criteria and the README as committed before any code, byte for byte for good.
+FREEZE_COMMIT = "3e7a3c8b62e93c38758a7ca3aabee9e6597fefbc"
+FROZEN_BLOBS = {
+    f"{EXPERIMENT}/CRITERIA.md": "5a9c996b97cda9a2c5c13722761af4481a54eb60",
+    f"{EXPERIMENT}/README.md": "7ce44f4c1627df24049338df81b26e245d7cb869",
+}
 
 # ---- the arms (§3.1) ----
 
@@ -282,6 +288,8 @@ def utc_now() -> str:
 #:   and fresh-v1c's two.
 FILLS_NAME = "fills.json"
 FILL_KEYS = ("commits", "sheet", "sets")
+#: Each fill's name, which the subject of the commit that adds it names.
+FILL_NAMES = {"commits": "Commits filled", "sheet": "Sheet filled", "sets": "Set filled"}
 
 
 class RefusedError(Exception):
@@ -302,8 +310,57 @@ def fills_from(text: str | None) -> dict[str, Any]:
     return data
 
 
+def fills_history(repo: Path, ref: str) -> list[dict[str, Any]]:
+    """Every commit that changed the fills record on ``ref``, oldest first, each held to its rule.
+
+    Each fill is "filled later, each in its own dated commit": a commit that changes the record is
+    one commit (never a merge), changes that file alone, adds exactly one fill, the next of
+    "Commits filled", "Sheet filled" and "Set filled" in that order, names it in its subject, and
+    changes no fill added before it.
+
+    Raises:
+        RefusedError: any commit breaks the rule.
+    """
+    path = f"{EXPERIMENT}/{FILLS_NAME}"
+    log = git(repo, "log", "--reverse", "--format=%H%x1f%P%x1f%s", ref, "--", path)
+    before: dict[str, Any] = {}
+    found = []
+    for row in log.splitlines():
+        sha, parents, subject = row.split("\x1f")
+        short = sha[:7]
+        if len(parents.split()) != 1:
+            raise RefusedError(f"{short} changes the fills record and is not one commit of its own")
+        files = git(repo, "diff-tree", "--no-commit-id", "--name-only", "-r", sha).splitlines()
+        if files != [path]:
+            raise RefusedError(f"{short} touches more than the fills record ({len(files)} paths)")
+        try:
+            after = fills_from(git(repo, "show", f"{sha}:{path}"))
+        except subprocess.CalledProcessError:
+            raise RefusedError(f"{short} removes the fills record") from None
+        if set(before) - set(after) or any(after[k] != v for k, v in before.items()):
+            raise RefusedError(f"{short} changes or drops a fill added before it")
+        added = sorted(set(after) - set(before))
+        if len(added) != 1:
+            raise RefusedError(f"{short} adds {len(added)} fills: a fill commit adds one")
+        if added[0] != FILL_KEYS[len(before)]:
+            want = FILL_NAMES[FILL_KEYS[len(before)]]
+            raise RefusedError(f"{short} adds a fill out of order: {want!r} comes next")
+        if FILL_NAMES[added[0]] not in subject:
+            raise RefusedError(f"{short}'s subject names no {FILL_NAMES[added[0]]!r}")
+        found.append({"commit": sha, "fill": added[0], "subject": subject})
+        before = after
+    return found
+
+
 def fills_on(repo: Path, ref: str) -> dict[str, Any]:
-    """The fills on ``ref`` (``origin/master`` at launch); none before the first fill commit."""
+    """The fills on ``ref`` (``origin/master`` at launch), held to their history.
+
+    There are none before the first fill commit.
+
+    Raises:
+        RefusedError: the record, or a commit that wrote it, breaks the fills' rule.
+    """
+    fills_history(repo, ref)
     try:
         text = git(repo, "show", f"{ref}:{EXPERIMENT}/{FILLS_NAME}")
     except subprocess.CalledProcessError:
