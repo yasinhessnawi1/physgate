@@ -142,10 +142,10 @@ def test_the_end_of_a_block_checks_ledgers_logins_and_scans_before_it_says_valid
         'checks.py" "${CK[@]}" after',
         'ledger.py" block',
         'checks.py" "${CK[@]}" credentials',
-        'rp3_scan "${WRITTEN[@]}"',
+        'prefix_counts "${WRITTEN[@]}"',
+        'scan_written rp3_scan_token "${WRITTEN[@]}" "$LAUNCH"',
         "rp3_drop_token",
     ):
-        assert step in text
-    assert text.index('rp3_drop_token\n[ "$CREDENTIALS_OK"') > text.index(
-        'rp3_scan "${WRITTEN[@]}"'
-    )
+        assert step in text, step
+    assert text.index('prefix_counts "${WRITTEN[@]}"') < text.rindex("rp3_drop_token")
+    assert 'count_files_with "$pattern"' in text  # the prefixes are counted with scan.sh

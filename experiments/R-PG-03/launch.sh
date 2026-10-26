@@ -106,6 +106,17 @@ check() { # name, then the command: its JSON line is logged and kept as $LAUNCH/
   printf '%s\n' "$out" > "$LAUNCH/$name.json"
   say "ok  $name $(printf '%s' "$out" | cut -c1-400)"
 }
+prefix_counts() { # path...: scan.sh's count of files naming each prefix, over those that exist
+  local p there=() n hits=0 pattern
+  for p in "$@"; do [ -e "$p" ] && there+=("$p"); done
+  [ "${#there[@]}" -gt 0 ] || return 0
+  for pattern in sk-ant- oat01; do
+    n="$(count_files_with "$pattern" "${there[@]}")" || return 1
+    say "count_files_with $pattern: $n files"
+    [ "$n" = 0 ] || hits=1
+  done
+  return "$hits"
+}
 scan_written() { # how path...: rp3_scan or rp3_scan_token over those that exist; 1 on any hit
   local how="$1" p there=() out status=0
   shift
@@ -344,7 +355,9 @@ CREDENTIALS_OK=1; py "$HERE/checks.py" "${CK[@]}" credentials | tee -a "$LOG" ||
 WRITTEN=("$LAUNCH"/*.out "$LAUNCH"/*.err "$LAUNCH/a2" "$LAUNCH/a1" "$LAUNCH/b" "$LAUNCH/install-r" "$LAUNCH/install-r-k" \
   "$(scratch_of A2)" "$(scratch_of A1)" "$(scratch_of B)" "$RUNS/blocks.json" "$RUNS/ledger.jsonl")
 SCAN_OK=1
-{ scan_written rp3_scan "${WRITTEN[@]}" && scan_written rp3_scan_token "$LAUNCH"; } || SCAN_OK=0
+# The prefixes are counted with scan.sh (a pattern that is no secret may be an argument); the
+# token's own value only through token.sh's scan, whose pattern goes to grep in a file.
+{ prefix_counts "${WRITTEN[@]}" && scan_written rp3_scan_token "${WRITTEN[@]}" "$LAUNCH"; } || SCAN_OK=0
 rp3_drop_token
 [ "$CREDENTIALS_OK" = 1 ] || refuse "a login file of the block's sessions remains, or its removal is not confirmed"
 [ "$SCAN_OK" = 1 ] || refuse "the token's scan found a hit in what the block wrote"

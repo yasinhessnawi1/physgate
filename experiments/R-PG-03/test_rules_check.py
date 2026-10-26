@@ -245,3 +245,12 @@ def test_the_cli_writes_the_facts_and_the_message_and_prints_counts_only(tmp_pat
     printed = json.loads(done.stdout)
     assert printed["facts"]["rule 3"] == 1 and "stall_current" not in done.stdout
     assert (tmp_path / "out" / "message.txt").read_text().startswith("The design was checked.")
+
+
+def test_a_url_s_number_cites_a_row_only_within_half_a_unit_in_the_third_figure(
+    tmp_path: Path,
+) -> None:
+    near = named("electrical.mcu", "supply_cap", (6.02, "V", URL))  # 0.33 %: the abs-max row's
+    far = named("electrical.mcu", "supply_top", (6.06, "V", URL))  # 1 %: no row's
+    got = rc.check(design(tmp_path, BASE, [near], [far]), ["a01", "a02"], sheet())["facts"]
+    assert [(f["place"], f["quantity"]) for f in got] == [("clean/a01.json", "supply_cap")]

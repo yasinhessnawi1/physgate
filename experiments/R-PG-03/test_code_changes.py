@@ -306,7 +306,13 @@ def test_a_file_that_does_not_parse_stops(tmp_path: Path) -> None:
 def test_the_list_marks_every_path_and_names_each_commit_s_pr(tmp_path: Path) -> None:
     repo = make_repo(tmp_path, BASE_FILES)
     old = git(repo, "rev-parse", "HEAD")
-    write(repo, {"src/physgate/state/store.py": "X = 2\n"})
+    write(
+        repo,
+        {
+            "src/physgate/state/store.py": "import physgate.state.newer\n",
+            "src/physgate/state/newer.py": "N = 1\n",
+        },
+    )
     commit(repo, "fix(state): a squashed change (#7)")
     git(repo, "checkout", "-q", "-b", "side")
     write(
@@ -327,12 +333,14 @@ def test_the_list_marks_every_path_and_names_each_commit_s_pr(tmp_path: Path) ->
     assert squashed["pr"] == "7"
     assert by_sha[side]["pr"] == "9"
     marks = {p["path"]: p["mark"] for c in found["commits"] for p in c["paths"]}
+    assert "src/physgate/state/newer.py" not in o.reached  # loaded at the target alone
     assert marks == {
+        "src/physgate/state/newer.py": "loaded",
         "src/physgate/state/store.py": "loaded",
         "src/physgate/orphan.py": "not loaded",
         "src/physgate/gate/trampoline.sh": "may be read",
     }
-    assert found["diff_stat"][-1].strip().startswith("3 files changed")
+    assert found["diff_stat"][-1].strip().startswith("4 files changed")
 
 
 def test_the_cli_exits_3_on_a_stop_and_never_writes_over_a_list(tmp_path: Path) -> None:

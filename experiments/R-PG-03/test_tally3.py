@@ -158,6 +158,16 @@ def test_the_locating_rule_holds_the_twin_condition(made: dict[str, Any]) -> Non
     assert not a2["k1"]["R_locating"]
 
 
+def test_a_changed_quantity_s_name_with_its_node_locates_and_its_name_alone_does_not() -> None:
+    pair = [("power.supply", "max_voltage")]
+    assert t3.locates("the supply's max_voltage is above the regulator's", [], pair)
+    assert t3.locates("power.supply max_voltage", [], pair)
+    assert not t3.locates("max_voltage is above the regulator's", [], pair)
+    assert not t3.locates("the supply is fine", [], pair)
+    assert t3.locates("see power.supply here", ["power.supply"], [])
+    assert not t3.locates("see power.supply2 here", ["power.supply"], [])
+
+
 def test_the_primary_counts_are_120_pairs_in_three_strata_of_40_in_line_order(
     made: dict[str, Any],
 ) -> None:

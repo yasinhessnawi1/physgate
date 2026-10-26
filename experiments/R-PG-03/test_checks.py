@@ -357,3 +357,20 @@ def test_a_login_file_left_under_a_review_root_is_found(tmp_path: Path) -> None:
     assert ck.login_files(tmp_path)["left"] == 1
     assert common.remove_inside(tmp_path, (fx.session_of(1), "session", "config")) == "removed"
     assert ck.login_files(tmp_path)["left"] == 0
+
+
+def test_a_packet_with_another_arm_s_knowledge_voids_the_attempt(
+    ended: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = fx.copy_run(ended["runs"]["A2"], tmp_path / "a2" / "run")
+    scratch = tmp_path / "a2" / "scratch"
+    line = next(
+        json.loads(x)
+        for x in (run / "events.jsonl").read_text().splitlines()
+        if '"review_ran"' in x
+    )
+    packet = scratch / "lane-0" / line["result"]["session_id"] / "packet.json"
+    packet.parent.mkdir(parents=True)
+    packet.write_text(json.dumps({"knowledge_sha256": {"knowledge/cross/standards.md": "0" * 64}}))
+    found = end({**ended, "runs": {**ended["runs"], "A2": run}}, tmp_path, monkeypatch)
+    assert "a review's knowledge digests are not its arm's" in found["void_causes"]

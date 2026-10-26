@@ -349,6 +349,9 @@ def after(block: str, attempt: int, launch: Path, sheet: bytes, sets: Path) -> d
         causes.append("a cut read")
     if any(v["rubric_mismatches"] for v in per_arm.values()):
         causes.append("a review line's rubric digest is not its arm's")
+    knowledge = knowledge_digests(block, corpus, runs, scratch)
+    if knowledge["mismatch"]:
+        causes.append("a review's knowledge digests are not its arm's")
     deviations: list[str] = []
     regated: dict[str, Any] | None = None
     if not causes:
@@ -380,9 +383,30 @@ def after(block: str, attempt: int, launch: Path, sheet: bytes, sets: Path) -> d
         "per_arm": per_arm,
         "stream_check": stream_check,
         "regate": regated,
+        "knowledge": knowledge,
         **limits,
     }
     (launch / "after.json").write_text(json.dumps(found, indent=1, sort_keys=True) + "\n")
+    return found
+
+
+def knowledge_digests(
+    block: str, corpus: Path, runs: dict[str, Path], scratch: dict[str, Path]
+) -> dict[str, Any]:
+    """Every review's packet against its arm's and role's pinned knowledge (§3.1, §11)."""
+    import tally3
+
+    found: dict[str, Any] = {"mismatch": False, "per_arm": {}}
+    for arm in common.ARMS:
+        if not (runs[arm] / "events.jsonl").is_file():
+            continue
+        run = tally3.T.Run.read(runs[arm], any_count=True)
+        one = tally3.Block(block, corpus, {arm: run}, None, None, {arm: scratch[arm]})
+        try:
+            found["per_arm"][arm] = tally3.check_knowledge(common.REPO, one, arm)
+        except tally3.RefusedError as exc:
+            found["per_arm"][arm] = {"refused": str(exc)}
+            found["mismatch"] = True
     return found
 
 

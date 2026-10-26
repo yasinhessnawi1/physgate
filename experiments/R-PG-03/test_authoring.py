@@ -646,9 +646,10 @@ def test_the_acceptance_checks_on_an_assembled_corpus(tmp_path: Path) -> None:
 
 
 def test_every_fixed_input_is_listed_with_its_sha256() -> None:
-    listed = dict(
-        reversed(line.split()) for line in (au.AUTHORING / "INPUTS.sha256").read_text().splitlines()
-    )
+    listed: dict[str, str] = {}
+    for line in (au.AUTHORING / "INPUTS.sha256").read_text().splitlines():
+        digest, name = line.split()
+        listed[name] = digest
     assert set(listed) == set(au.FIXED)
     for name, digest in listed.items():
         assert common.sha256_bytes(au.fixed(name)) == digest
