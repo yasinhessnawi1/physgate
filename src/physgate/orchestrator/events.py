@@ -36,6 +36,7 @@ from pydantic import (
     model_validator,
 )
 
+from physgate.contracts.clause import ContractResult
 from physgate.contracts.pairs import ContractPair
 from physgate.orchestrator.budget import ATTEMPT_LIMIT, InfraCause
 from physgate.orchestrator.common import (
@@ -85,7 +86,9 @@ Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 #: ``cross_role_write`` is a node changed by a role that does not own it, a write the store's
 #: own guard refuses; ``duty_breach`` is a write the store accepts and a cross-cutting duty
 #: forbids (ARCH-051). A run recorded before ``duty_breach`` existed keeps the cause it was
-#: recorded with.
+#: recorded with. ``interface_mismatch`` is an interface node the store holds otherwise than the
+#: plan's contract pairs say: missing, not an interface, or owned by another role than the pair's
+#: producer, so no contract can be tested against it.
 IncidentCause = Literal[
     "cross_role_write",
     "merge_conflict",
@@ -107,6 +110,7 @@ IncidentCause = Literal[
     "queue_item_mismatch",
     "decisions_rewritten",
     "duty_breach",
+    "interface_mismatch",
 ]
 
 #: Why a run stopped short of the end of its plan.
@@ -716,6 +720,24 @@ class ContractPairsPlanned(_Event):
     pairs: Annotated[tuple[ContractPair, ...], Field(min_length=1)]
 
 
+class ContractTested(_Event):
+    """A pair's interface contract, held to the clause after a merge in one of its modules.
+
+    Owed once both subtasks the pair names have merged with a clean diff, and again after every
+    later clean merge in either module's directory, as sizing's closing pass is one; the pair's
+    first line is marked ``first`` and no later one is (ARCH-051). A record, never a block: the
+    merge that owed it stands whatever the outcome, and a failed contract withholds completion
+    alone. ``commit`` is the run branch's head and ``revision`` the canonical journal's, at which
+    the graph was read.
+    """
+
+    kind: Literal["contract_tested"] = "contract_tested"
+    result: ContractResult
+    first: bool
+    commit: Sha
+    revision: Annotated[int, Field(ge=1)]
+
+
 class CompletionDeclared(_Event):
     """What an attempt of integration's subtask declares complete, read from its checked commit.
 
@@ -952,6 +974,7 @@ Event = Annotated[
     | Resumed
     | Decomposed
     | ContractPairsPlanned
+    | ContractTested
     | CompletionDeclared
     | ModuleCompleted
     | EnvironmentRecorded

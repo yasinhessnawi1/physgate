@@ -42,6 +42,7 @@ from physgate.orchestrator.events import (
     AttemptRejected,
     CompletionDeclared,
     ContractPairsPlanned,
+    ContractTested,
     DecisionsSealed,
     DecisionTaken,
     Decomposed,
@@ -192,6 +193,7 @@ class Step:
         "end_subtask",
         "integrate",
         "complete",
+        "contract",
         "halted",
         "escalated",
         "done",
@@ -265,6 +267,12 @@ class RunState:
         #: The modules recorded complete, by the subtask that planned each. Merged is not
         #: complete: a module's subtask is ``done`` once it merged, whether or not it is here.
         self.completed: dict[str, ModuleCompleted] = {}
+        #: Every contract result on the record, in order.
+        self.contracts: list[ContractTested] = []
+        #: The run branch's head as the log records it: the decomposition's commit, then each merge.
+        self.run_head: str | None = None
+        #: Where each module directory's last merge with a clean diff is on the record, by line.
+        self.merged_at: dict[str, int] = {}
 
     # -- following the log -------------------------------------------------------
 
@@ -339,12 +347,16 @@ class RunState:
             return
         if isinstance(event, Decomposed):
             self.journal_head = event.head_revision
+            self.run_head = event.spec_commit
             if event.interface_consumers is not None:
                 self.consumers = {e.interface: e.consumers for e in event.interface_consumers}
                 self.interfaces = event.interface_nodes
             return
         if isinstance(event, ContractPairsPlanned):
             self._pairs(event)
+            return
+        if isinstance(event, ContractTested):
+            self._tested(event)
             return
         if (
             self.consumers is not None
@@ -355,6 +367,19 @@ class RunState:
             )
         ):
             _refuse("nothing is dispatched before the run's contract pairs are recorded")
+        if (
+            isinstance(
+                event,
+                StageEntered
+                | IntegrationGateRan
+                | IntegrationGateSkipped
+                | IntegrationEscalated
+                | CompletionDeclared
+                | ModuleCompleted,
+            )
+            and self.owed_contract() is not None
+        ):
+            _refuse("nothing is dispatched or completed while a pair's contract result is owed")
         if isinstance(event, TokensUsed | EnvironmentRecorded):
             return  # attributed or recorded, never a transition
         if isinstance(event, IntegrationGateRan | IntegrationGateSkipped | IntegrationEscalated):
@@ -457,12 +482,14 @@ class RunState:
             if event.attempt_commit != checked:
                 _refuse("a merge of a commit other than the one that was checked")
             now.merged = event
+            self.run_head = event.merge_commit
             self._ledger(sub.plan.subtask_id, merge_commit=event.merge_commit)
         elif isinstance(event, DiffChecked):
             self._expect(now.cursor == "diff" and now.diff is None, "a diff line")
             now.diff = event
             if not event.divergences:
                 sub.status = "done"
+                self.merged_at[sub.plan.module_dir] = event.seq
         elif isinstance(event, EscalationDecided):
             self._decided(sub, now, event)
         elif isinstance(event, Escalated):
@@ -607,6 +634,49 @@ class RunState:
         if places != sorted(set(places)):
             _refuse("a completion declaration names each module once, in plan order")
         now.declaration = event
+
+    def owed_contract(self) -> ContractPair | None:
+        """The pair whose contract result the record owes next, if any (ARCH-051).
+
+        A pair is owed its first result once the subtasks its two sides name are both done (merged,
+        their diffs clean), and a retest after every later clean merge in either side's module
+        directory, as sizing's closing pass is one: the first such pair, in the recorded order.
+        """
+        for pair in self.contract_pairs or ():
+            sides = [self.subtasks[side.subtask_id] for side in (pair.producer, pair.consumer)]
+            if any(sub.status != "done" for sub in sides):
+                continue
+            latest = self.latest_contract(pair)
+            merged = max(self.merged_at[sub.plan.module_dir] for sub in sides)
+            if latest is None or latest.seq < merged:
+                return pair
+        return None
+
+    def latest_contract(self, pair: ContractPair) -> ContractTested | None:
+        """The pair's latest contract result on the record, if it has one."""
+        return next((line for line in reversed(self.contracts) if line.result.pair == pair), None)
+
+    def _tested(self, event: ContractTested) -> None:
+        """Take a pair's contract result: the one the record owes next, at the recorded head.
+
+        Its clauses cannot be recomputed here, where there is no graph: the result is held to
+        itself as it is read, and its definition's digest to the form of one, never to the code's
+        digest now, which a later change to that code would move.
+        """
+        if self.contract_pairs is None:
+            _refuse("a contract result in a run that records no contract pairs")
+        owed = self.owed_contract()
+        if owed is None:
+            _refuse("a contract result where none is owed")
+        if event.result.pair != owed:
+            _refuse(
+                f"the contract result owed next is {owed.producer.module} to {owed.consumer.module}"
+            )
+        if event.first != (self.latest_contract(owed) is None):
+            _refuse("a pair's first result is marked first, and no other is")
+        if (event.commit, event.revision) != (self.run_head, self.journal_head):
+            _refuse("a contract result is taken at the run's recorded head and journal revision")
+        self.contracts.append(event)
 
     def owed_completion(self) -> str | None:
         """The module whose completion line the record owes next, if any.
@@ -957,10 +1027,13 @@ class RunState:
         """What the loop does next, from the state alone.
 
         Every planned subtask in order, then the integration call, then integration's own
-        subtask where the call lets it run, then each completion its accepted attempt owes.
+        subtask where the call lets it run, then each completion its accepted attempt owes. A
+        contract result the record owes comes before all of them.
         """
         if self.halted is not None:
             return Step(kind="halted")
+        if self.owed_contract() is not None:
+            return Step(kind="contract")
         for subtask_id in self.integrated():
             step = self._step_of(subtask_id)
             if step is not None:

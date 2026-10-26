@@ -67,11 +67,31 @@ def _system_scope(state: RunState, module: str) -> str | None:
     return "no integration call is on the record"
 
 
+def _contract(state: RunState, module: str) -> str | None:
+    """The latest contract result of every pair the module takes part in passed (ARCH-051).
+
+    The latest result is current: a merge in either module of a pair owes a retest before anything
+    else is dispatched. A pair with no result, or whose latest result failed, withholds completion
+    from both of its modules, whatever was decided about it. A run that records no contract pairs,
+    as every run recorded before they existed, has none to hold.
+    """
+    found: list[str] = []
+    for pair in state.contract_pairs or ():
+        if module not in (pair.producer.subtask_id, pair.consumer.subtask_id):
+            continue
+        latest = state.latest_contract(pair)
+        if latest is None or latest.result.outcome != "pass":
+            why = "no contract result" if latest is None else "its latest contract result failed"
+            found.append(f"{pair.producer.module} to {pair.consumer.module}: {why}")
+    return "; ".join(found) or None
+
+
 #: Asked in this order, and every open entry is named. A later precondition is one more entry
 #: here, and holds on every run recorded before it.
 PRECONDITIONS: tuple[Precondition, ...] = (
     Precondition("merged", _merged),
     Precondition("system_scope", _system_scope),
+    Precondition("contract", _contract),
 )
 
 

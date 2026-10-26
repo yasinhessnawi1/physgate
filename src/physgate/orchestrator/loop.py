@@ -22,6 +22,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
+from physgate.contracts.clause import check_pair
+from physgate.contracts.graph import nodes_at
+from physgate.contracts.pairs import ContractError
 from physgate.orchestrator.apply import ProposalRefusedError
 from physgate.orchestrator.budget import infra_retry_delay
 from physgate.orchestrator.change_sets import change_history
@@ -40,6 +43,7 @@ from physgate.orchestrator.escalation_state import escalation_state
 from physgate.orchestrator.events import (
     RESUMABLE_HALTS,
     AttemptRejected,
+    ContractTested,
     DecisionsSealed,
     DecisionTaken,
     Decomposed,
@@ -628,11 +632,11 @@ class Loop:
 
     def _drive(self) -> Step:
         # The environment is recorded for a step that spawns a session; the integration
-        # call, a completion line and a finished run spawn none. A process whose first step is
-        # one of those may still spawn one, after a decision it takes or the call it makes:
-        # that session's line is recorded before it, once (:meth:`_session`).
+        # call, a contract result, a completion line and a finished run spawn none. A process
+        # whose first step is one of those may still spawn one, after a decision it takes or the
+        # call it makes: that session's line is recorded before it, once (:meth:`_session`).
         first = self.state.next_step().kind
-        if first not in ("done", "halted", "escalated", "integrate", "complete"):
+        if first not in ("done", "halted", "escalated", "integrate", "contract", "complete"):
             self._record_environment()
         while True:
             step = self.state.next_step()
@@ -643,6 +647,9 @@ class Loop:
                 return step
             if step.kind == "integrate":
                 self._integrate()
+                continue
+            if step.kind == "contract":
+                self._contract()
                 continue
             if step.kind == "complete":
                 self._complete(step)
@@ -1682,6 +1689,42 @@ class Loop:
                 )
             )
         self._emit(IntegrationEscalated(**self._env(), item_id=item_id))
+
+    def _contract(self) -> None:
+        """Hold the pair the record owes a result to the clause, and record it (ARCH-051).
+
+        The graph is read at the journal revision the log records. The result blocks nothing: the
+        merge that owed it stands, and a failed contract withholds completion alone. An interface
+        node the pair cannot be held to, or a journal that ends before the recorded revision, halts
+        the run, and no result is recorded; a process killed between that incident and its halt
+        writes the halt alone.
+        """
+        incident = self.state.incident
+        if incident is not None:
+            self._halt_for(None, incident.cause)
+            return
+        pair, head = self.state.owed_contract(), self.state.run_head
+        if pair is None or head is None:
+            msg = "a contract step with no pair owed a result, or no run head on the record"
+            raise RunStateError(msg, run_dir=str(self.run_dir))
+        revision = self.state.journal_head
+        what = f"the contract of {pair.producer.module} to {pair.consumer.module}"
+        try:
+            result = check_pair(pair, nodes_at(self._graph.root, revision))
+        except DesignStateError as exc:
+            detail = f"{what} reads the graph at journal revision {revision}: {exc}"
+            self._incident(None, "foreign_journal_line", detail)
+            return
+        except ContractError as exc:
+            held = ", ".join(f"{key} {value}" for key, value in sorted(exc.context.items()))
+            self._incident(None, "interface_mismatch", f"{what}: {exc} ({held})")
+            return
+        first = self.state.latest_contract(pair) is None
+        self._emit(
+            ContractTested(
+                **self._env(), result=result, first=first, commit=head, revision=revision
+            )
+        )
 
     def _complete(self, step: Step) -> None:
         """Record the completion the record owes next (ARCH-051).
