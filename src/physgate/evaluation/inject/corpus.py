@@ -6,9 +6,11 @@ A corpus is one directory:
   the given design every artefact is a revision of.
 - ``artefacts/<id>.json``: one artefact each. It holds the clean patch and the
   injected patch, both whole node payloads, written over the base as one
-  revision; the error class, exactly one of four; the check expected to catch
-  it; and a description of the error in physics terms. A propagation artefact
-  also names the one edge whose target the change did not reach.
+  revision; the error class, exactly one of risk row 1's four, or the
+  domain-standard class (a number that breaks a rule its domain's standards
+  state), which a corpus holds alone; the check expected to catch it; and a
+  description of the error in physics terms. A propagation artefact also names
+  the one edge whose target the change did not reach.
 - ``sources.json``: the parts sheet the numbers cite, by row id, each row that
   is one number with its unit and the URL it was read from, and, where its authors'
   table gives more, the value as written there and their note, and the remarks they
@@ -69,9 +71,14 @@ from physgate.orchestrator.protocols import CheckName
 from physgate.state.exceptions import DesignStateError
 from physgate.state.schema import NODE_ID_PATTERN, validate_node
 
+#: An artefact's class: one of the four of risk row 1, or the domain-standard class.
+ErrorClass = Literal["unit", "magnitude", "equilibrium", "propagation", "standard"]
 #: The four error classes of risk row 1, fixed in advance.
-ErrorClass = Literal["unit", "magnitude", "equilibrium", "propagation"]
 ERROR_CLASSES: tuple[ErrorClass, ...] = ("unit", "magnitude", "equilibrium", "propagation")
+#: The domain-standard class: a number that breaks a rule its domain's standards file states (a
+#: rating exceeded, a derating not applied, a margin below the standard's minimum, a timing or
+#: rate budget overrun). It is not one of risk row 1's four, and a corpus of it holds it alone.
+STANDARD: Literal["standard"] = "standard"
 #: Artefacts per class in a complete corpus.
 PER_CLASS = 10
 
@@ -757,14 +764,30 @@ def require_complete(corpus: Corpus, per_class: int = PER_CLASS) -> None:
     one (ARCH-080, row 7), so each propagation artefact's edge joins two nodes of
     different domains.
 
+    A corpus of the domain-standard class is complete with ``per_class`` artefacts of
+    that class and no other; none of them names an edge. A corpus with no artefact of
+    that class is held to the four classes' rule, as it was before the class existed.
+    One that mixes the class with the four is refused: neither rule counts it.
+
     Raises:
         CorpusError: ``per_class`` is not positive; a class has another count; two
             propagation artefacts name the same edge, so the errors would be fewer
-            than they read; or an edge stays within one domain.
+            than they read; an edge stays within one domain; or the domain-standard
+            class is mixed with the four, or is not ``per_class`` strong.
     """
     if per_class < 1:
         msg = "a complete corpus has at least one artefact of each class"
         raise CorpusError(msg, per_class=str(per_class))
+    standard = sum(a.error_class == STANDARD for a in corpus.artefacts)
+    if standard:
+        others = len(corpus.artefacts) - standard
+        if others:
+            msg = "a corpus of the standard class holds that class alone"
+            raise CorpusError(msg, standard=str(standard), others=str(others))
+        if standard != per_class:
+            msg = f"a complete corpus has {per_class} artefacts of the standard class"
+            raise CorpusError(msg, standard=str(standard))
+        return
     counts = {c: sum(a.error_class == c for a in corpus.artefacts) for c in ERROR_CLASSES}
     if any(n != per_class for n in counts.values()):
         msg = f"a complete corpus has {per_class} artefacts of each class"
