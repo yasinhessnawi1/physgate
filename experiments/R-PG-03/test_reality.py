@@ -286,6 +286,9 @@ if mode == "usage":
     sys.exit(1)
 if mode == "noresult":
     sys.exit(1)
+if mode == "sleep":
+    import time
+    time.sleep(60)
 found = [{{"id": i, "verdict": "true_flaw", "origin": "introduced", "reason": "r"}} for i in ids]
 if mode == "partial":
     found = found[:1]
@@ -382,6 +385,43 @@ def test_a_call_with_no_result_is_not_an_attempt(tmp_path: Path, sets: Path) -> 
 # ---- the controls and the confirmation pass ------------------------------------------------------
 
 
+def unread(tmp: Path) -> dict[str, Path]:
+    """Practice records that cannot be read at their digests.
+
+    The false-finding control is then not checked.
+    """
+    for label in ("round-1", "repeat-K"):
+        (tmp / "practice" / label).mkdir(parents=True, exist_ok=True)
+    return {label: tmp / "practice" / label for label in ("round-1", "repeat-K")}
+
+
+def controls_and_ff(work: Path, sets: Path, tmp: Path) -> tuple[Path, Path, Path, Path]:
+    """The rejection controls, judged not a flaw, and the false-finding step, not checked."""
+    rl.build_controls(work, sets, tmp / "p", tmp / "s", tmp / "cc")
+    judge(tmp / "cc", tmp / "ccs", {})
+    rl.build_ff(unread(tmp), tmp / "p", tmp / "cc", tmp / "ff")
+    return tmp / "cc", tmp / "ccs", tmp / "ff", tmp / "ffs"
+
+
+def hand_ff(out: Path, after: int, judged: list[str], sessions: Path) -> None:
+    """The false-finding packets' key as build_ff writes it, numbered after ``after``, judged."""
+    out.mkdir(parents=True)
+    key = {}
+    for n, (case, label, item, side, rubric) in enumerate(rl.FF_KEYS, after + 1):
+        key[f"Q{n:04d}"] = {
+            "corpus": "the tuning set",
+            "item": item,
+            "side": "twin",
+            "kind": "false-finding control",
+            "case": case,
+            "key": {"run": label, "item": item, "side": side, "rubric_item": rubric},
+            "findings": {"F1": f"ff-{case}-{label}"},
+        }
+    (out / "key.json").write_text(json.dumps(key))
+    for (pid, _), vo in zip(sorted(key.items()), judged, strict=True):
+        write_attempt(sessions, pid, {"F1": tuple(vo.split(":"))})  # type: ignore[dict-item]
+
+
 def write_attempt(sessions: Path, pid: str, forms: dict[str, tuple[str, str]]) -> None:
     sessions.mkdir(parents=True, exist_ok=True)
     found = [{"id": f, "verdict": v, "origin": o, "reason": "r"} for f, (v, o) in forms.items()]
@@ -460,7 +500,7 @@ def test_the_confirmation_pass_takes_flaw_making_lines_on_fresh_v2_twins_and_the
         line(4, "fresh-v1c-a01-a20", "c1", "twin", "A2"),
         line(5, "fresh-v2-x1", "c1", "injected", "A2"),
     ]
-    work = make_work(tmp_path, lines)
+    work = make_work(tmp_path, lines, design={"fresh-v2-x1": {"c1": {"changed": []}}})
     rl.build_packets(work, sets, tmp_path / "p")
     judge(
         tmp_path / "p",
@@ -473,7 +513,8 @@ def test_the_confirmation_pass_takes_flaw_making_lines_on_fresh_v2_twins_and_the
             "L00005": ("true_flaw", "introduced"),
         },
     )
-    rl.build_confirm(work, sets, tmp_path / "p", tmp_path / "s", [tmp_path / "p"], tmp_path / "c")
+    built = controls_and_ff(work, sets, tmp_path)
+    rl.build_confirm(work, sets, tmp_path / "p", tmp_path / "s", *built, tmp_path / "c")
     key = json.loads((tmp_path / "c" / "key.json").read_text())
     assert sorted(k["findings"]["F1"] for k in key.values()) == ["L00001", "L00003"]
     judge(
@@ -600,20 +641,18 @@ def _scored(
     work = make_work(tmp, lines, reviews, design)
     rl.build_packets(work, sets, tmp / "p")
     judge(tmp / "p", tmp / "s", by_line)  # type: ignore[arg-type]
-    for name in ("c", "cs", "f", "fs", "t", "ts"):
-        (tmp / name).mkdir()
-    (tmp / "c" / "key.json").write_text("{}")
-    rl.build_confirm(work, sets, tmp / "p", tmp / "s", [tmp / "p"], tmp / "k")
+    rl.build_controls(work, sets, tmp / "p", tmp / "s", tmp / "c")
+    judge(tmp / "c", tmp / "cs", {})
+    if ff is None:
+        rl.build_ff(unread(tmp), tmp / "p", tmp / "c", tmp / "f")
+    else:
+        hand_ff(tmp / "f", rl.number([tmp / "p", tmp / "c"]), [vo for _, vo in ff], tmp / "fs")
+    rl.build_confirm(
+        work, sets, tmp / "p", tmp / "s", tmp / "c", tmp / "cs", tmp / "f", tmp / "fs", tmp / "k"
+    )
     judge(tmp / "k", tmp / "ks", second)
     rl.build_third(tmp / "k", tmp / "ks", tmp / "th")
     judge(tmp / "th", tmp / "ths", third)
-    if ff is not None:
-        key = {
-            f"Q09{n:02d}": {"case": c, "findings": {"F1": f"ff-{n}"}} for n, (c, _) in enumerate(ff)
-        }
-        (tmp / "f" / "key.json").write_text(json.dumps(key))
-        for n, (_, vo) in enumerate(ff):
-            write_attempt(tmp / "fs", f"Q09{n:02d}", {"F1": tuple(vo.split(":"))})  # type: ignore[dict-item]
     dirs = {
         "reading": (tmp / "p", tmp / "s"),
         "controls": (tmp / "c", tmp / "cs"),
@@ -711,3 +750,201 @@ def test_the_score_waits_for_every_packet(tmp_path: Path, sets: Path) -> None:
                 "third": (tmp_path / "x", tmp_path / "x"),
             },
         )
+
+
+# ---- §7's order, held by each build and again by the score -------------------------------------
+
+CHANGED_PAIR = [["control.balance_loop", "loop_gain"]]
+ALL_TRUE = {f"L{n:05d}": ("true_flaw", "introduced") for n in range(1, 7)}
+
+
+def reading(tmp: Path, sets: Path) -> Path:
+    """Two arms' eligible lines on one injected version, and two twin lines; packets built."""
+    lines = [
+        line(1, "fresh-v2-x1", "c1", "injected", "A2", 0, CHANGED_PAIR),
+        line(2, "fresh-v2-x1", "c1", "injected", "A1", 0, CHANGED_PAIR),
+        line(3, "fresh-v2-x1", "e1", "injected", "A2", 0, CHANGED_PAIR),
+        line(4, "fresh-v2-x1", "c1", "twin", "A2"),
+        line(5, "fresh-v2-x1", "e1", "twin", "B"),
+    ]
+    design = {
+        "fresh-v2-x1": {
+            "c1": {"role": "control", "changed": CHANGED_PAIR},
+            "e1": {"role": "electrical", "changed": CHANGED_PAIR},
+        }
+    }
+    work = make_work(tmp, lines, design=design)
+    rl.build_packets(work, sets, tmp / "p")
+    return work
+
+
+def whole(tmp: Path, sets: Path) -> tuple[Path, dict[str, tuple[Path, Path]]]:
+    """Every step of §7 built and judged in its order: the score's inputs."""
+    work = reading(tmp, sets)
+    judge(tmp / "p", tmp / "s", ALL_TRUE)
+    built = controls_and_ff(work, sets, tmp)
+    rl.build_confirm(work, sets, tmp / "p", tmp / "s", *built, tmp / "k")
+    judge(tmp / "k", tmp / "ks", ALL_TRUE)
+    rl.build_third(tmp / "k", tmp / "ks", tmp / "t")
+    return work, {
+        "reading": (tmp / "p", tmp / "s"),
+        "controls": (built[0], built[1]),
+        "ff": (built[2], built[3]),
+        "confirm": (tmp / "k", tmp / "ks"),
+        "third": (tmp / "t", tmp / "ts"),
+    }
+
+
+def test_the_controls_are_drawn_only_after_every_reading_packet_has_ended(
+    tmp_path: Path, sets: Path
+) -> None:
+    work = reading(tmp_path, sets)
+    key = json.loads((tmp_path / "p" / "key.json").read_text())
+    first = sorted(key)[0]  # one injected packet judged; the rest open
+    write_attempt(
+        tmp_path / "s", first, dict.fromkeys(key[first]["findings"], ("true_flaw", "introduced"))
+    )
+    with pytest.raises(rl.RefusedError, match="not ended"):
+        rl.build_controls(work, sets, tmp_path / "p", tmp_path / "s", tmp_path / "c")
+    assert not (tmp_path / "c").exists()
+
+
+def test_the_second_judgments_wait_for_every_reading_and_control_packet(
+    tmp_path: Path, sets: Path
+) -> None:
+    work = reading(tmp_path, sets)
+    judge(tmp_path / "p", tmp_path / "s", ALL_TRUE)
+    rl.build_controls(work, sets, tmp_path / "p", tmp_path / "s", tmp_path / "cc")
+    rl.build_ff(unread(tmp_path), tmp_path / "p", tmp_path / "cc", tmp_path / "ff")
+    args = (tmp_path / "cc", tmp_path / "ccs", tmp_path / "ff", tmp_path / "ffs")
+    with pytest.raises(rl.RefusedError, match="not ended"):  # the control packet is open
+        rl.build_confirm(work, sets, tmp_path / "p", tmp_path / "s", *args, tmp_path / "k")
+    judge(tmp_path / "cc", tmp_path / "ccs", {})
+    rl.build_confirm(work, sets, tmp_path / "p", tmp_path / "s", *args, tmp_path / "k")
+    key = json.loads((tmp_path / "k" / "key.json").read_text())
+    assert sorted(k["findings"]["F1"] for k in key.values()) == ["L00004", "L00005"]
+    assert int(min(key)[1:]) == rl.number([tmp_path / "p", tmp_path / "cc"]) + 1
+
+
+def test_the_third_judgments_wait_for_every_second_judgment(tmp_path: Path, sets: Path) -> None:
+    lines = [line(1, "fresh-v2-s", "c1", "twin", "A2"), line(2, "fresh-v2-s", "c1", "twin", "B", 1)]
+    work = make_work(tmp_path, lines)
+    rl.build_packets(work, sets, tmp_path / "p")
+    judge(tmp_path / "p", tmp_path / "s", ALL_TRUE)
+    built = controls_and_ff(work, sets, tmp_path)
+    rl.build_confirm(work, sets, tmp_path / "p", tmp_path / "s", *built, tmp_path / "k")
+    key = json.loads((tmp_path / "k" / "key.json").read_text())
+    first = sorted(key)[0]
+    write_attempt(tmp_path / "ks", first, {"F1": ("true_flaw", "introduced")})
+    with pytest.raises(rl.RefusedError, match="not ended"):
+        rl.build_third(tmp_path / "k", tmp_path / "ks", tmp_path / "t")
+
+
+def test_the_score_holds_every_step_to_the_draw_the_final_verdicts_give(
+    tmp_path: Path, sets: Path
+) -> None:
+    work, dirs = whole(tmp_path, sets)
+    assert rl.score(work, dirs)["reliability"] == "unchecked"
+    # The rejection control drawn for another eligible line than seed 43's draw from these verdicts.
+    ckey = json.loads((dirs["controls"][0] / "key.json").read_text())
+    pid = min(k for k, v in ckey.items() if v["item"] == "c1")
+    drawn = ckey[pid]["findings"]["F1"]
+    ckey[pid]["findings"]["F1"] = "L00002" if drawn == "L00001" else "L00001"
+    (dirs["controls"][0] / "key.json").write_text(json.dumps(ckey))
+    with pytest.raises(rl.RefusedError, match="rejection controls"):
+        rl.score(work, dirs)
+    ckey[pid]["findings"]["F1"] = drawn
+    (dirs["controls"][0] / "key.json").write_text(json.dumps(ckey))
+    # A second judgment left out.
+    kkey = json.loads((dirs["confirm"][0] / "key.json").read_text())
+    (dirs["confirm"][0] / "key.json").write_text(json.dumps(dict(sorted(kkey.items())[1:])))
+    with pytest.raises(rl.RefusedError, match="second judgments"):
+        rl.score(work, dirs)
+
+
+@pytest.mark.parametrize("step", ["controls", "ff", "confirm", "third"])
+def test_the_score_refuses_a_step_that_has_not_run(tmp_path: Path, sets: Path, step: str) -> None:
+    work, dirs = whole(tmp_path, sets)
+    (dirs[step][0] / "key.json").unlink()
+    with pytest.raises(rl.RefusedError, match="has not run"):
+        rl.score(work, dirs)
+
+
+def test_the_score_refuses_a_stand_in_s_sessions(tmp_path: Path, sets: Path) -> None:
+    work, dirs = whole(tmp_path, sets)
+    (dirs["reading"][1] / "Q0001.attempt1.standin").write_text("")
+    with pytest.raises(rl.RefusedError, match="stand-in"):
+        rl.score(work, dirs)
+    assert rl.score(work, dirs, allow_standin=True)["reliability"] == "unchecked"
+
+
+def test_the_steps_that_read_first_judgments_print_no_count_that_depends_on_one(
+    tmp_path: Path, sets: Path
+) -> None:
+    work = reading(tmp_path, sets)
+    judge(tmp_path / "p", tmp_path / "s", ALL_TRUE)
+    args = ["controls", "--work", str(work), "--sets", str(sets), "--packets", str(tmp_path / "p")]
+    args += ["--sessions", str(tmp_path / "s"), "--out", str(tmp_path / "c")]
+    done = subprocess.run(
+        [sys.executable, "-I", str(HERE / "reality.py"), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=common.REPO,
+    )
+    assert json.loads(done.stdout) == {"built": True}, done.stdout
+
+
+def test_a_set_not_at_set_filled_s_digest_is_refused(sets: Path) -> None:
+    have = common.sha256_file(sets / "fresh-v2-x1" / "MANIFEST.json")
+    rl.hold_sets(sets, {"sets": {"manifests": {"fresh-v2-x1": have}}}, ["fresh-v2-x1"])
+    with pytest.raises(rl.RefusedError, match="Set filled"):
+        rl.hold_sets(sets, {"sets": {"manifests": {"fresh-v2-x1": "0" * 64}}}, ["fresh-v2-x1"])
+
+
+@pytest.mark.parametrize(
+    ("result", "code", "cause"),
+    [
+        ({"is_error": False, "terminal_reason": "max_turns"}, 0, "terminal max_turns"),
+        ({"is_error": True, "terminal_reason": "structured_output_retry_exhausted"}, 1, None),
+        ({"is_error": False, "terminal_reason": "completed"}, 0, None),
+    ],
+    ids=["a-terminal-reason-other-than-completed", "the-form-retries-spent", "completed"],
+)
+def test_a_call_is_classed_as_r_pg_01b_classes_it(
+    tmp_path: Path, result: dict[str, Any], code: int, cause: str | None
+) -> None:
+    out, err = tmp_path / "out.json", tmp_path / "err"
+    out.write_text(json.dumps({"type": "result", "subtype": "success", **result}))
+    err.write_text("")
+    assert rl.failed(out, err, code) == cause
+
+
+def test_a_run_ended_by_sigterm_leaves_no_empty_home_behind(tmp_path: Path, sets: Path) -> None:
+    import signal
+    import time
+
+    rl.build_packets(
+        make_work(tmp_path, [line(1, "fresh-v2-x1", "c1", "injected", "A2")]), sets, tmp_path / "p"
+    )
+    homes = tmp_path / "tmp"
+    homes.mkdir()
+    env = {
+        **os.environ,
+        "RP3_STANDIN": str(standin(tmp_path)),
+        "STANDIN_MODE": "sleep",
+        "STANDIN_DIR": str(tmp_path),
+        "TMPDIR": str(homes),
+    }
+    argv = [sys.executable, "-I", str(HERE / "reality.py"), "run", "--packets", str(tmp_path / "p")]
+    argv += ["--ids", str(tmp_path / "p" / "injected.txt"), "--out", str(tmp_path / "s")]
+    proc = subprocess.Popen(
+        argv, env=env, cwd=common.REPO, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    deadline = time.time() + 30
+    while time.time() < deadline and not (tmp_path / "calls").exists():
+        time.sleep(0.2)
+    assert any(homes.glob("rp3r.*")), "the session never started"
+    proc.send_signal(signal.SIGTERM)
+    proc.wait(timeout=30)
+    assert not any(homes.glob("rp3r.*"))

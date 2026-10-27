@@ -15,9 +15,10 @@ watcher, and every step's tokens go to the ledger (``ledger.py reality --step``)
     reality.py blind    --work <dir> --sets <dir> --packets <dir>
     reality.py run      --packets <dir> --ids <file> --out <sessions dir>        injected, twins
     reality.py controls --work <dir> --sets <dir> --packets <dir> --sessions <dir> --out <new dir>
-    reality.py ff       --work <dir> --practice ... --after <dir>... --out <new dir>
+    reality.py ff       --practice ... --packets <dir> --controls <dir> --out <new dir>
     reality.py confirm  --work <dir> --sets <dir> --packets <dir> --sessions <dir>
-                        --after <dir>... --out <new dir>
+                        --controls <dir> --control-sessions <dir> --ff <dir> --ff-sessions <dir>
+                        --out <new dir>
     reality.py third    --confirm <dir> --confirm-sessions <dir> --out <new dir>
     reality.py score    --work <dir> --packets <dir> --sessions <dir> --controls <dir>
                         --control-sessions <dir> --ff <dir> --ff-sessions <dir>
@@ -64,10 +65,21 @@ table; four cases, a22's two lines one case. Bars: 70 % with at least 10 cases; 
 ``introduced`` or ``both``) is judged again alone (``confirm``); every confirmed line on a twin of
 ``fresh-v2-s`` once more, with the same packet bytes (``third``).
 
+**The order** (§7) is held by every step: the rejection controls are drawn only when every reading
+packet has ended (a verdict, or its 3 attempts); the false-finding packets are numbered after the
+controls; the second judgments are built only when every reading, control and false-finding
+packet has ended, and the class's third only when every second judgment has. Packet numbers
+follow from that fixed order alone. A false-finding step whose practice records cannot be read at
+their digests is recorded as "not checked" (an empty key and its reason).
+
 **Score** (``score``): one class per rejection (B, P, P′, O-introduced, O-base, N, U), "other real
 flaw", "planted named", the controls and the reliability, the twin statuses and the corrected-A
-reading in both ways. It refuses until every packet has a verdict or has used its 3 attempts.
-Every subcommand prints counts only; no verdict is shown to a person before ``score``.
+reading in both ways. It refuses until every packet has a verdict or has used its 3 attempts, and
+until every step has run; it draws the rejection controls, the second judgments and the third
+again from the final verdicts and refuses on any difference, and refuses a stand-in's sessions.
+Every subcommand prints counts only, and the steps that read first judgments print that they are
+built and nothing more: no verdict, or count that depends on one, is shown to a person before
+``score``.
 """
 
 from __future__ import annotations
@@ -77,6 +89,7 @@ import json
 import os
 import random
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -114,6 +127,8 @@ FF_COMMITS = {"round-1": common.KEPT_ROUND_TREE, "repeat-K": common.NOISE_RUN_TR
 #: The power of the false-finding control's bar, stated in §7 (not computed here).
 FF_POWER = {"(1-p)^4": {"p=0.10": 0.66, "p=0.30": 0.24, "p=0.50": 0.06}}
 STANDARDS_HEADING = "\n## The {role} domain's standards\n\n"
+#: The false-finding step's record that its practice records cannot be read at their digests.
+NOT_CHECKED = "not_checked.json"
 
 
 class RefusedError(Exception):
@@ -285,6 +300,21 @@ def extract(records: Path, sets: Path, repo: Path = common.REPO) -> dict[str, An
     keyed.sort(key=lambda x: x[0])
     lines = [{"line_id": f"L{n:05d}", **rec} for n, (_, rec) in enumerate(keyed, 1)]
     return {"lines": lines, "reviews": reviews, "design": design, "not_run": rec["not_run"]}
+
+
+def hold_sets(sets: Path, fills: dict[str, Any], names: Iterable[str]) -> None:
+    """Each named corpus at the manifest digest "Set filled" records (R5).
+
+    Raises:
+        RefusedError: "Set filled" is not on record, or a corpus's manifest is not its digest.
+    """
+    try:
+        filled = common.need_fill(fills, "sets").get("manifests") or {}
+    except common.RefusedError as exc:
+        raise RefusedError(str(exc)) from exc
+    for name in names:
+        if common.sha256_file(sets / name / "MANIFEST.json") != filled.get(name):
+            raise RefusedError(f'{name}\'s manifest is not the digest "Set filled" records')
 
 
 def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -489,6 +519,20 @@ def verdicts(packets: Path, sessions: Path) -> dict[str, dict[str, Any]]:
     return out
 
 
+def require_ended(name: str, packets: Path, sessions: Path) -> None:
+    """§7's order: a step is built from another only once every packet of that one has ended.
+
+    Raises:
+        RefusedError: the step has not been built, or a packet of it has neither a verdict for
+            every finding nor its 3 attempts.
+    """
+    if not (packets / "key.json").is_file():
+        raise RefusedError(f"{name} has not been built: §7's order")
+    d = done(packets, sessions)
+    if d["open"]:
+        raise RefusedError(f"{d['open']} packet(s) of {name} have not ended: §7's order")
+
+
 def done(packets: Path, sessions: Path) -> dict[str, int]:
     """How many packets have a verdict for every finding or have used their 3 attempts."""
     key = json.loads((packets / "key.json").read_text())
@@ -585,18 +629,44 @@ def failed(out: Path, err: Path, code: int) -> str | None:
     if not results:
         return "no_result"
     r = results[-1]
-    if r.get("subtype") == "error_max_structured_output_retries":
+    term = r.get("terminal_reason")
+    if (
+        r.get("subtype") == "error_max_structured_output_retries"
+        or term == "structured_output_retry_exhausted"
+    ):
         return None  # a returned call with no form: an attempt, which may be tried again
     if r.get("is_error") is not False:
         status = r.get("api_error_status")
         return f"api_error ({status})" if isinstance(status, int) else "error_result"
+    if term is not None and term != "completed":
+        return f"terminal {term}"
     if code != 0:
         return f"exit {code}"
     return None
 
 
+def _ended_by_signal(signum: int, _frame: object) -> None:
+    """A signal ends ``run`` as an exception.
+
+    The call's child is then killed, and its empty working directory and home are removed.
+    """
+    raise SystemExit(128 + signum)
+
+
 def run(packets: Path, ids: list[str], out: Path) -> dict[str, Any]:
-    """One session per packet named, until each is done or a call fails; counts only."""
+    """One session per packet named, until each is done or a call fails; counts only.
+
+    A SIGTERM ends it as an exception, so the session's child is killed and its temporary working
+    directory and home are removed.
+    """
+    previous = signal.signal(signal.SIGTERM, _ended_by_signal)
+    try:
+        return _run(packets, ids, out)
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+
+def _run(packets: Path, ids: list[str], out: Path) -> dict[str, Any]:
     prompt, schema = prompt_and_schema()
     binary, standin = binary_for_sessions()
     out.mkdir(parents=True, exist_ok=True)
@@ -658,20 +728,15 @@ def by_line(got: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return {v["line"]: v for v in got.values()}
 
 
-def build_controls(
-    work: Path, sets: Path, packets: Path, sessions: Path, out: Path, repo: Path = common.REPO
-) -> dict[str, Any]:
-    """The rejection controls: fresh-v2's draw by one ``random.Random(43)``, then fresh-v1c's."""
-    lines = read_jsonl(work / "lines.jsonl")
-    design = json.loads((work / "design.json").read_text())
-    got = by_line(verdicts(packets, sessions))
+def control_draw(
+    lines: list[dict[str, Any]], design: dict[str, Any], got: dict[str, dict[str, Any]]
+) -> list[tuple[str, str, str, str]]:
+    """R-LAW-01 §2.3's draw: (group, corpus, item, line) per injected version with an eligible line.
+
+    fresh-v2's versions by one ``random.Random(43)``, in line order, then fresh-v1c's by a second.
+    """
     by_id = {x["line_id"]: x for x in lines}
-    first = number([packets]) + 1
-    present = sorted({x["corpus"] for x in lines}, key=common.CORPUS_ORDER.index)
-    corpora = load_corpora(sets, present)
-    out.mkdir(parents=True)
-    key: dict[str, Any] = {}
-    n = first - 1
+    drawn: list[tuple[str, str, str, str]] = []
     for group in (common.FRESH_V2, common.FRESH_V1C):
         rng = random.Random(common.CONTROL_SEED)
         for (corpus, item, side), ids in versions(lines, group).items():
@@ -681,22 +746,45 @@ def build_controls(
             pool = [i for i in ids if eligible(by_id[i], got.get(i), changed)]
             if not pool:
                 continue
-            lid = rng.choice(pool)
-            n += 1
-            pid = f"Q{n:04d}"
-            text = packet_text(pid, corpora[corpus], item, "twin", [by_id[lid]["text"]], repo)
-            (out / f"{pid}.md").write_text(text)
-            key[pid] = {
-                "corpus": corpus,
-                "item": item,
-                "side": "twin",
-                "kind": "rejection control",
-                "group": "fresh-v2" if group == common.FRESH_V2 else "fresh-v1c",
-                "findings": {"F1": lid},
-            }
+            name = "fresh-v2" if group == common.FRESH_V2 else "fresh-v1c"
+            drawn.append((name, corpus, item, rng.choice(pool)))
+    return drawn
+
+
+def build_controls(
+    work: Path, sets: Path, packets: Path, sessions: Path, out: Path, repo: Path = common.REPO
+) -> dict[str, Any]:
+    """The rejection controls, drawn once every reading packet has ended (§7's order).
+
+    Raises:
+        RefusedError: a reading packet has not ended.
+    """
+    require_ended("the reading", packets, sessions)
+    lines = read_jsonl(work / "lines.jsonl")
+    design = json.loads((work / "design.json").read_text())
+    got = by_line(verdicts(packets, sessions))
+    by_id = {x["line_id"]: x for x in lines}
+    present = sorted({x["corpus"] for x in lines}, key=common.CORPUS_ORDER.index)
+    corpora = load_corpora(sets, present)
+    out.mkdir(parents=True)
+    key: dict[str, Any] = {}
+    n = number([packets])
+    for group, corpus, item, lid in control_draw(lines, design, got):
+        n += 1
+        pid = f"Q{n:04d}"
+        text = packet_text(pid, corpora[corpus], item, "twin", [by_id[lid]["text"]], repo)
+        (out / f"{pid}.md").write_text(text)
+        key[pid] = {
+            "corpus": corpus,
+            "item": item,
+            "side": "twin",
+            "kind": "rejection control",
+            "group": group,
+            "findings": {"F1": lid},
+        }
     (out / "key.json").write_text(json.dumps(key, indent=1, sort_keys=True))
     (out / "ids.txt").write_text("".join(i + "\n" for i in sorted(key)))
-    return {"control_packets": len(key)}
+    return {"built": True}
 
 
 def ff_count(practice: dict[str, Path]) -> dict[str, Any]:
@@ -748,10 +836,28 @@ def ff_count(practice: dict[str, Path]) -> dict[str, Any]:
 
 
 def build_ff(
-    practice: dict[str, Path], after: list[Path], out: Path, repo: Path = common.REPO
+    practice: dict[str, Path], packets: Path, controls: Path, out: Path, repo: Path = common.REPO
 ) -> dict[str, Any]:
-    """The false-finding control's five packets, each line alone in its twin's packet."""
-    found = ff_count(practice)
+    """The false-finding control's five packets, each line alone in its twin's packet.
+
+    They are numbered after the reading's and the rejection controls' packets. Practice records
+    that cannot be read at their digests leave the step "not checked": an empty key and its reason.
+
+    Raises:
+        RefusedError: the rejection controls have not been built; or a key does not match exactly
+            one line.
+    """
+    if not (controls / "key.json").is_file():
+        raise RefusedError("the rejection controls have not been built: §7's order")
+    n = number([packets, controls])
+    try:
+        found = ff_count(practice)
+    except NotCheckedError as exc:
+        out.mkdir(parents=True)
+        (out / "key.json").write_text("{}")
+        (out / "ids.txt").write_text("")
+        (out / NOT_CHECKED).write_text(json.dumps({"not_checked": str(exc)}) + "\n")
+        return {"built": True, "ff_packets": 0, "not_checked": True}
     if not found["every_key_matches_one_line"]:
         raise RefusedError("a key does not match exactly one line: a defect of the script (§11)")
     tuning = repo / common.TUNING_SET
@@ -762,7 +868,6 @@ def build_ff(
 
     edited, _ = sheet_check.table_facts(repo)
     sd.sheet = edited
-    n = number(after)
     out.mkdir(parents=True)
     key: dict[str, Any] = {}
     for case, label, item, side, rubric_id in FF_KEYS:
@@ -789,7 +894,7 @@ def build_ff(
         }
     (out / "key.json").write_text(json.dumps(key, indent=1, sort_keys=True))
     (out / "ids.txt").write_text("".join(i + "\n" for i in sorted(key)))
-    return {"ff_packets": len(key)}
+    return {"built": True, "ff_packets": len(key), "not_checked": False}
 
 
 # ---------------------------------------------------------------- the confirmation pass
@@ -800,31 +905,51 @@ def flaw_making(v: dict[str, Any] | None) -> bool:
     return v is not None and v["verdict"] == TRUE and v["origin"] in FLAW_ORIGINS
 
 
+def confirm_set(lines: list[dict[str, Any]], got: dict[str, dict[str, Any]]) -> list[str]:
+    """Every flaw-making line on a fresh-v2 twin, in line order: the second judgments' lines."""
+    return [
+        x["line_id"]
+        for x in sorted(lines, key=lambda x: x["line_id"])
+        if x["side"] == "twin"
+        and x["corpus"] in common.FRESH_V2
+        and flaw_making(got.get(x["line_id"]))
+    ]
+
+
 def build_confirm(
     work: Path,
     sets: Path,
     packets: Path,
     sessions: Path,
-    after: list[Path],
+    controls: Path,
+    control_sessions: Path,
+    ff: Path,
+    ff_sessions: Path,
     out: Path,
     repo: Path = common.REPO,
 ) -> dict[str, Any]:
-    """Every flaw-making line on a fresh-v2 twin, alone in a packet built for its twin."""
+    """Every flaw-making line on a fresh-v2 twin, alone in a packet built for its twin.
+
+    Built once every reading, control and false-finding packet has ended (§7's order), numbered
+    after them.
+
+    Raises:
+        RefusedError: a packet of those steps has not ended, or a step has not been built.
+    """
+    require_ended("the reading", packets, sessions)
+    require_ended("the rejection controls", controls, control_sessions)
+    require_ended("the false-finding control", ff, ff_sessions)
     lines = read_jsonl(work / "lines.jsonl")
+    by_id = {x["line_id"]: x for x in lines}
     got = by_line(verdicts(packets, sessions))
     corpora = load_corpora(
         sets, [c for c in common.FRESH_V2 if any(x["corpus"] == c for x in lines)]
     )
-    n = number(after)
+    n = number([packets, controls, ff])
     out.mkdir(parents=True)
     key: dict[str, Any] = {}
-    for x in sorted(lines, key=lambda x: x["line_id"]):
-        if (
-            x["side"] != "twin"
-            or x["corpus"] not in common.FRESH_V2
-            or not flaw_making(got.get(x["line_id"]))
-        ):
-            continue
+    for lid in confirm_set(lines, got):
+        x = by_id[lid]
         n += 1
         pid = f"Q{n:04d}"
         text = packet_text(pid, corpora[x["corpus"]], x["item"], "twin", [x["text"]], repo)
@@ -838,23 +963,37 @@ def build_confirm(
         }
     (out / "key.json").write_text(json.dumps(key, indent=1, sort_keys=True))
     (out / "ids.txt").write_text("".join(i + "\n" for i in sorted(key)))
-    return {"second_judgments": len(key)}
+    return {"built": True}
+
+
+def third_set(key: dict[str, Any], got: dict[str, dict[str, Any]]) -> list[str]:
+    """Every second-judgment packet on a twin of fresh-v2-s whose line it confirmed."""
+    return [
+        pid
+        for pid, k in sorted(key.items())
+        if k["corpus"] == STANDARD_CORPUS and flaw_making(got.get(f"{pid}:F1"))
+    ]
 
 
 def build_third(confirm: Path, confirm_sessions: Path, out: Path) -> dict[str, Any]:
-    """Every confirmed line on a twin of fresh-v2-s, judged once more with the same bytes."""
+    """Every confirmed line on a twin of fresh-v2-s, judged once more with the same bytes.
+
+    Built once every second judgment has ended (§7's order).
+
+    Raises:
+        RefusedError: a second-judgment packet has not ended.
+    """
+    require_ended("the second judgments", confirm, confirm_sessions)
     key = json.loads((confirm / "key.json").read_text())
     got = verdicts(confirm, confirm_sessions)
     out.mkdir(parents=True)
     mine: dict[str, Any] = {}
-    for pid, k in sorted(key.items()):
-        if k["corpus"] != STANDARD_CORPUS or not flaw_making(got.get(f"{pid}:F1")):
-            continue
+    for pid in third_set(key, got):
         shutil.copyfile(confirm / f"{pid}.md", out / f"{pid}.md")
-        mine[pid] = {**k, "kind": "third judgment"}
+        mine[pid] = {**key[pid], "kind": "third judgment"}
     (out / "key.json").write_text(json.dumps(mine, indent=1, sort_keys=True))
     (out / "ids.txt").write_text("".join(i + "\n" for i in sorted(mine)))
-    return {"third_judgments": len(mine)}
+    return {"built": True}
 
 
 # ---------------------------------------------------------------- the score
@@ -915,14 +1054,76 @@ def classify(
     return "U"
 
 
+def _numbered_after(key: dict[str, Any], after: int, name: str) -> None:
+    want = [f"Q{n:04d}" for n in range(after + 1, after + 1 + len(key))]
+    if sorted(key) != want:
+        raise RefusedError(f"{name}'s packets are not numbered after the steps before it")
+
+
+def hold_order(work: Path, dirs: dict[str, tuple[Path, Path]]) -> None:
+    """Every step is the one §7's order builds from the final verdicts of the steps before it.
+
+    Raises:
+        RefusedError: a step's packets are not the rejection controls' draw, the false-finding
+            keys, the second judgments' lines or the class's third judgments that the final
+            verdicts give, or are not numbered in that order.
+    """
+    lines = read_jsonl(work / "lines.jsonl")
+    design = json.loads((work / "design.json").read_text())
+    keys = {name: json.loads((d[0] / "key.json").read_text()) for name, d in dirs.items()}
+    reading, controls, ff = dirs["reading"][0], dirs["controls"][0], dirs["ff"][0]
+    got = by_line(verdicts(*dirs["reading"]))
+    have = [
+        (k["group"], k["corpus"], k["item"], k["findings"]["F1"])
+        for _, k in sorted(keys["controls"].items())
+    ]
+    if have != control_draw(lines, design, got):
+        raise RefusedError("the rejection controls are not the draw the final first judgments give")
+    _numbered_after(keys["controls"], number([reading]), "the rejection controls")
+    if (ff / NOT_CHECKED).is_file():
+        if keys["ff"]:
+            raise RefusedError("the false-finding step is both not checked and built")
+    else:
+        found = [
+            (
+                k["case"],
+                k["key"]["run"],
+                k["key"]["item"],
+                k["key"]["side"],
+                k["key"]["rubric_item"],
+            )
+            for _, k in sorted(keys["ff"].items())
+        ]
+        if found != list(FF_KEYS):
+            raise RefusedError("the false-finding packets are not §7's five keys")
+    _numbered_after(keys["ff"], number([reading, controls]), "the false-finding control")
+    second = [k["findings"]["F1"] for _, k in sorted(keys["confirm"].items())]
+    if second != confirm_set(lines, got):
+        raise RefusedError(
+            "the second judgments are not the lines the final first judgments make flaw-making"
+        )
+    _numbered_after(keys["confirm"], number([reading, controls, ff]), "the second judgments")
+    third = third_set(keys["confirm"], verdicts(*dirs["confirm"]))
+    if sorted(keys["third"]) != third:
+        raise RefusedError("the third judgments are not the lines the second judgments confirmed")
+    for pid in third:
+        if (dirs["third"][0] / f"{pid}.md").read_bytes() != (
+            dirs["confirm"][0] / f"{pid}.md"
+        ).read_bytes():
+            raise RefusedError(f"the third judgment {pid} is not its second's packet byte for byte")
+
+
 def score(
     work: Path,
     dirs: dict[str, tuple[Path, Path]],
+    allow_standin: bool = False,
 ) -> dict[str, Any]:
     """§7 in full, from every step's packets and sessions.
 
     Raises:
-        RefusedError: a packet of any step has neither a verdict nor its 3 attempts.
+        RefusedError: a packet of any step has neither a verdict nor its 3 attempts; a step has
+            not run, or is not the one §7's order builds from the final verdicts; or a session is
+            a stand-in's (outside a test).
     """
     for name, (packets, sessions) in dirs.items():
         if (packets / "key.json").is_file():
@@ -931,6 +1132,12 @@ def score(
                 raise RefusedError(
                     f"{d['open']} packet(s) of {name} are not done: no verdict is read yet"
                 )
+    for name, (packets, sessions) in dirs.items():
+        if not (packets / "key.json").is_file():
+            raise RefusedError(f"the step {name} has not run: §7's order")
+        if not allow_standin and sessions.is_dir() and any(sessions.glob("*.standin")):
+            raise RefusedError(f"the sessions of {name} are a stand-in's: a test's, never scored")
+    hold_order(work, dirs)
     lines = read_jsonl(work / "lines.jsonl")
     reviews = read_jsonl(work / "reviews.jsonl")
     design = json.loads((work / "design.json").read_text())
@@ -1159,12 +1366,21 @@ def main(argv: list[str] | None = None) -> int:
         ct.add_argument(name, type=Path, required=True)
     ff = sub.add_parser("ff")
     ff.add_argument("--practice", action="append", default=[])
-    ff.add_argument("--after", type=Path, action="append", default=[])
-    ff.add_argument("--out", type=Path, required=True)
+    for name in ("--packets", "--controls", "--out"):
+        ff.add_argument(name, type=Path, required=True)
     cf = sub.add_parser("confirm")
-    for name in ("--work", "--sets", "--packets", "--sessions", "--out"):
+    for name in (
+        "--work",
+        "--sets",
+        "--packets",
+        "--sessions",
+        "--controls",
+        "--control-sessions",
+        "--ff",
+        "--ff-sessions",
+        "--out",
+    ):
         cf.add_argument(name, type=Path, required=True)
-    cf.add_argument("--after", type=Path, action="append", default=[])
     th = sub.add_parser("third")
     for name in ("--confirm", "--confirm-sessions", "--out"):
         th.add_argument(name, type=Path, required=True)
@@ -1209,6 +1425,9 @@ def main(argv: list[str] | None = None) -> int:
             if args.work.exists():
                 raise RefusedError("the work directory exists: nothing is written over")
             got = extract(args.records.resolve(), args.sets.resolve())
+            hold_sets(
+                args.sets.resolve(), common.fills_on(common.REPO, "origin/master"), got["design"]
+            )
             args.work.mkdir(parents=True)
             write_jsonl(args.work / "lines.jsonl", got["lines"])
             write_jsonl(args.work / "reviews.jsonl", got["reviews"])
@@ -1225,6 +1444,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.cmd == "packets":
             prompt_and_schema()
+            present = {x["corpus"] for x in read_jsonl(args.work / "lines.jsonl")}
+            hold_sets(args.sets.resolve(), common.fills_on(common.REPO, "origin/master"), present)
             print(json.dumps(build_packets(args.work, args.sets, args.out), sort_keys=True))
             return 0
         if args.cmd == "blind":
@@ -1241,7 +1462,8 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(found, sort_keys=True))
             return 0
         if args.cmd == "ff":
-            print(json.dumps(build_ff(practice(), args.after, args.out), sort_keys=True))
+            found = build_ff(practice(), args.packets, args.controls, args.out)
+            print(json.dumps(found, sort_keys=True))
             return 0
         if args.cmd == "confirm":
             found = build_confirm(
@@ -1249,7 +1471,10 @@ def main(argv: list[str] | None = None) -> int:
                 args.sets,
                 args.packets,
                 args.sessions,
-                [args.packets, *args.after],
+                args.controls,
+                args.control_sessions,
+                args.ff,
+                args.ff_sessions,
                 args.out,
             )
             print(json.dumps(found, sort_keys=True))
