@@ -704,7 +704,77 @@ def test_the_tally_uses_the_corrected_attempt_of_a_touched_block_and_lists_both(
     assert gate["attempts"]["x1"]["others"] == [
         {"attempt": 1, "valid": True, "void_causes": [], "deviation": None, "correction": "c1"}
     ]
+    check = records / "corrections" / "c1" / "check.json"  # made after every block ended
+    check.parent.mkdir(parents=True)
+    check.write_text(json.dumps({"passed": True, "checked_utc": "2026-11-05T11:00:00Z"}))
     assert t3.blocks_record(records, {"corrections": [CORRECTS_X1]})["chosen"]["x1"] == second
+
+
+def test_a_block_not_taken_is_not_tallied_and_the_decisions_it_feeds_are_not_taken(
+    made: dict[str, Any], tmp_path: Path
+) -> None:
+    # §11: anything else impossible as specified; the decisions it feeds are not taken.
+    records = tmp_path / "records"
+    crashed = {**made["attempts"][0], "valid": False, "deviation": {"causes": ["x"]}}
+    fx.write_blocks(records, [crashed, *made["attempts"][1:]], NOT_RUN)
+    rec = json.loads((records / "blocks.json").read_text())
+    rec["not_taken"] = {"x1": {"attempt": 1, "causes": ["x"]}}
+    (records / "blocks.json").write_text(json.dumps(rec))
+    got = fx.holds(lambda: run_tally({**made, "records": records}))
+    whole = fx.holds(lambda: run_tally(made))
+    # The primary over the pairs present, labelled with their count.
+    corpora = {p["corpus"] for p in got["per_item"]["A2"]}
+    assert got["primary"]["pairs"] == len(got["per_item"]["A2"]) < whole["primary"]["pairs"]
+    assert "fresh-v2-x1" not in corpora and "fresh-v2-x2" in corpora
+    assert got["not_taken"] == {"x1": {"attempt": 1, "causes": ["x"]}}
+    assert all(q["taken"] is False for q in got["criteria"].values())
+    assert all(q["taken"] is True for q in whole["criteria"].values())
+    assert "not taken" in got["decision"] and "row" not in got["decision"]
+    assert got["decision"]["class_clause"] == whole["decision"]["class_clause"]
+    # A block s or p1 not taken: the class was not measured; the sheet-matched Q4 is not taken.
+    rec["not_taken"] = {"s": {"attempt": 1, "causes": ["x"]}, "p1": {"attempt": 1, "causes": ["x"]}}
+    rec["not_run"] = {"p2": "same"}
+    rec["attempts"] = made["attempts"]
+    (records / "blocks.json").write_text(json.dumps(rec))
+    got = fx.holds(lambda: run_tally({**made, "records": records}))
+    assert "not measured" in got["decision"]["class_clause"]
+    assert "not taken" in got["q4_sheet_matched"] and got["decision"]["row"]
+
+
+def test_a_block_ended_after_a_correction_s_check_needs_its_result_and_not_touched(
+    made: dict[str, Any], tmp_path: Path
+) -> None:
+    records = tmp_path / "records"
+    fx.write_blocks(records, made["attempts"], NOT_RUN)
+    fills = {"corrections": [CORRECTS_X1]}
+    first = {**made["attempts"][0], "correction": "c1"}
+    second = {**made["attempts"][0], "attempt": 2}
+    fx.write_blocks(records, [first, second, *made["attempts"][1:]], NOT_RUN)
+    fx.refuses(t3.RefusedError, "no passing check record", lambda: t3.blocks_record(records, fills))
+    check = records / "corrections" / "c1" / "check.json"
+    check.parent.mkdir(parents=True)
+    # Every tallied attempt ended after it (the fixture's end: 5.11 10:00 UTC).
+    check.write_text(json.dumps({"passed": True, "checked_utc": "2026-11-05T09:00:00Z"}))
+    fx.refuses(
+        t3.RefusedError,
+        "needs that correction's tests' result",
+        lambda: t3.blocks_record(records, fills),
+    )
+    for a in [second, *made["attempts"][1:]]:
+        where = records / "blocks" / f"{a['block']}-{a['attempt']}"
+        where.mkdir(parents=True)
+        (where / "touched.json").write_text(json.dumps({"c1": {"touched": False}}))
+    assert fx.holds(lambda: t3.blocks_record(records, fills))["chosen"]["x1"] == second
+    touched = records / "blocks" / "y1-1" / "touched.json"
+    touched.write_text(json.dumps({"c1": {"touched": True}}))
+    fx.refuses(
+        t3.RefusedError,
+        "y1's attempt 1 ended after correction c1",
+        lambda: t3.blocks_record(records, fills),
+    )
+    # A check made after they all ended asks nothing of them.
+    check.write_text(json.dumps({"passed": True, "checked_utc": "2026-11-05T11:00:00Z"}))
+    assert fx.holds(lambda: t3.blocks_record(records, fills))["chosen"]["y1"]
 
 
 def test_the_tally_refuses_while_a_block_a_correction_names_lacks_its_corrected_attempt(

@@ -706,12 +706,16 @@ def blocks_record(records: Path, fills: dict[str, Any] | None = None) -> dict[st
     """The launch's record of every block attempt, held to R8: nothing tallied before the end.
 
     A block a correction touches (§11) is tallied on its corrected attempt, the valid one after
-    its attempt classified with the correction's id; that earlier attempt is kept and listed.
+    its attempt classified with the correction's id; that earlier attempt is kept and listed. A
+    block classified impossible as specified (``not_taken``) is not tallied; the decisions it feeds
+    are not taken. A tallied attempt that ended after a correction's check carries that
+    correction's tests' result on its own records (``touched.json``) and is not touched.
 
     Raises:
         RefusedError: a block has no valid attempt that ended and passed its stream check (a
             block a correction touches, none after the touched one), and is not recorded as not
-            run; or one of the primary blocks is recorded as not run.
+            run or not taken; one of the primary blocks is recorded as not run; a correction has no
+            passing check record; or a tallied attempt lacks a correction's result, or is touched.
         common.RefusedError: the corrections that name a block (``fills``) are not those its
             attempts are classified with.
     """
@@ -721,7 +725,7 @@ def blocks_record(records: Path, fills: dict[str, Any] | None = None) -> dict[st
             "no block record: nothing is tallied before the last block has ended (R8)"
         )
     rec = json.loads(data)
-    not_run = rec.get("not_run") or {}
+    not_run, not_taken = rec.get("not_run") or {}, rec.get("not_taken") or {}
     if set(not_run) - {"s", "p1", "p2"}:
         raise RefusedError("a primary block is recorded as not run: the primary is not measured")
     chosen: dict[str, Any] = {}
@@ -739,6 +743,8 @@ def blocks_record(records: Path, fills: dict[str, Any] | None = None) -> dict[st
             if valid:
                 raise RefusedError(f"block {block} is recorded both as run and as not run")
             continue
+        if block in not_taken:
+            continue
         if len(valid) != 1:
             at = " at its corrected commit (§11)" if since else ""
             raise RefusedError(
@@ -746,7 +752,32 @@ def blocks_record(records: Path, fills: dict[str, Any] | None = None) -> dict[st
                 "stream check: nothing is tallied before the last block has ended (R8)"
             )
         chosen[block] = valid[0]
-    return {"chosen": chosen, "not_run": not_run, "attempts": rec.get("attempts", [])}
+    for entry in (fills or {}).get(common.CORRECTIONS) or []:
+        cid = entry.get("id") if isinstance(entry, dict) else None
+        checked = json.loads(
+            common.read_own(records / "corrections" / str(cid) / "check.json") or "{}"
+        )
+        if checked.get("passed") is not True:
+            raise RefusedError(
+                f"correction {cid} has no passing check record (checks.py correction-check)"
+            )
+        for block, a in chosen.items():
+            if str(a.get("ended_utc")) < checked["checked_utc"]:
+                continue
+            where = Path(a.get("launch") or records / "blocks" / f"{block}-{a.get('attempt')}")
+            said = json.loads(common.read_own(where / "touched.json") or "{}").get(cid)
+            if not said or said.get("touched") is not False:
+                raise RefusedError(
+                    f"block {block}'s attempt {a.get('attempt')} ended after correction {cid}'s "
+                    "check: it needs that correction's tests' result on its own records (checks.py "
+                    "touched), and, if touched, its corrected attempt (§11)"
+                )
+    return {
+        "chosen": chosen,
+        "not_run": not_run,
+        "not_taken": not_taken,
+        "attempts": rec.get("attempts", []),
+    }
 
 
 def read_block(
@@ -1248,9 +1279,12 @@ def tally(
         name: {arm: score(b, arm, cells) for arm in common.ARMS} for name, b in blocks.items()
     }
     reading = json.loads(reading_path.read_text()) if reading_path is not None else None
-    # ---- the primary: 120 pairs, X, Y and Z ----
+    # ---- the primary: 120 pairs, X, Y and Z; under a block not taken (§11), the pairs present ----
+    lost = sorted(set(rec["not_taken"]) & set(common.PRIMARY_BLOCKS))
     primary = {
-        arm: by_corpus_order([p for b in common.PRIMARY_BLOCKS for p in scored[b][arm]])
+        arm: by_corpus_order(
+            [p for b in common.PRIMARY_BLOCKS if b in blocks for p in scored[b][arm]]
+        )
         for arm in common.ARMS
     }
     strata = strata_of(primary["A2"])
@@ -1307,11 +1341,15 @@ def tally(
         check_practice_figure(T.j_of(kept))
     adj = set_adjusted(kept, k_mean, a2_pairs, a1_pairs, draws)
     adj["label"] = set_adjusted_label(q4_main, adj)
-    sheet_matched = sheet_matched_q4(scored, a2_pairs, a1_pairs, draws)
+    sheet_matched: dict[str, Any] | None = sheet_matched_q4(scored, a2_pairs, a1_pairs, draws)
+    if {"p1", "p2"} & set(rec["not_taken"]):
+        sheet_matched = {"not taken": "block p1 or p2 is classified impossible as specified (§11)"}
     # ---- §6.4 ----
     author_pairs = {}
     for name in common.PAIRS:
         mine = {arm: [p for p in primary[arm] if p["author_pair"] == name] for arm in common.ARMS}
+        if not mine["A2"]:  # both of its blocks not taken
+            continue
         author_pairs[name] = {
             "figures": {
                 arm: arm_figures(mine[arm], "R_common", draws, None) for arm in common.ARMS
@@ -1324,7 +1362,9 @@ def tally(
         pa = [(float(x), float(y)) for x, y in pairs_of(primary["A2"], "R_common")]
         pb = [(float(x), float(y)) for x, y in pairs_of(primary[other], "R_common")]
         per = {
-            name: pair_against_rest(pa, pb, strata, k, draws) for k, name in enumerate(common.PAIRS)
+            name: pair_against_rest(pa, pb, strata, k, draws)
+            for k, name in enumerate(common.PAIRS)
+            if strata[k]
         }
         comparisons[label] = {
             "intervals": per,
@@ -1347,7 +1387,8 @@ def tally(
         )
         for arm in common.ARMS
     }
-    runs_by_arm = {arm: [blocks[b].runs[arm] for b in common.PRIMARY_BLOCKS] for arm in common.ARMS}
+    present = [b for b in common.PRIMARY_BLOCKS if b in blocks]
+    runs_by_arm = {arm: [blocks[b].runs[arm] for b in present] for arm in common.ARMS}
     gate = {
         "layer": T.gate_layer([_gate_view(p) for p in primary["A2"]], draws),
         "per_class": group(
@@ -1366,14 +1407,14 @@ def tally(
             "injected": T.check_counts(
                 [
                     blocks[b].runs["A2"].injected.gate[r["review_id"]]
-                    for b in common.PRIMARY_BLOCKS
+                    for b in present
                     for r in blocks[b].runs["A2"].rows
                 ]
             ),
             "twins": T.check_counts(
                 [
                     blocks[b].runs["A2"].controls.gate[r["control_id"]]
-                    for b in common.PRIMARY_BLOCKS
+                    for b in present
                     for r in blocks[b].runs["A2"].rows
                 ]
             ),
@@ -1445,17 +1486,28 @@ def tally(
         "q4_clean": q4_clean,
         "robustness": robust,
     }
+    if lost:  # the decisions the primary feeds are not taken; the figures are reported
+        decision = {
+            "not taken": f"blocks {', '.join(lost)} are classified impossible as specified (§11): "
+            "Q1-Q4, the row and the claim shift are not taken, and the claim shift is not applied",
+            "class_clause": decision["class_clause"],
+        }
     return {
         "blocks": {
             k: {"attempt": v.get("attempt"), "checks": checks[k]} for k, v in rec["chosen"].items()
         },
         "not_run": rec["not_run"],
+        "not_taken": rec["not_taken"],
         "primary": {
+            "pairs": len(primary["A2"]),
             "figures": figs,
             "contrasts": contrasts,
             "cost": cost,
         },
-        "criteria": {"Q1": q1, "Q2": q2, "Q3": q3, "Q4": q4_main},
+        "criteria": {
+            k: {**v, "taken": not lost}
+            for k, v in {"Q1": q1, "Q2": q2, "Q3": q3, "Q4": q4_main}.items()
+        },
         "q4_set_adjusted": adj,
         "q4_sheet_matched": sheet_matched,
         "secondary": {
