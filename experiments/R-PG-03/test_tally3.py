@@ -856,3 +856,30 @@ def test_row_two_s_bracket_and_row_3b_s_test_of_the_generalist(
     else:
         assert ("the generalist is shown worse" in sentence) is test
         assert ("the generalist is not shown worse" in sentence) is not test
+
+
+def test_q4_s_set_adjusted_reading_subtracts_k_s_drop_from_the_fixed_rubrics_drop() -> None:
+    before_a2 = [(1.0, 1.0)] * 30 + [(0.0, 1.0)] * 10  # J 0.75
+    before_k = [(1.0, 1.0)] * 20 + [(0.0, 1.0)] * 20  # J 0.5
+    a2 = [(1.0, 1.0)] * 60 + [(0.0, 1.0)] * 60  # J 0.5
+    a1 = [(1.0, 1.0)] * 54 + [(0.0, 1.0)] * 66  # J 0.45
+    got = t3.set_adjusted(before_a2, before_k, a2, a1, 200)
+    assert got["point"] == round((0.75 - 0.5) - (0.5 - 0.45), 4) == 0.2
+    assert got["interval"] == t3.joint_drop_difference(before_a2, before_k, a2, a1, 200)
+
+
+def test_the_sheet_matched_q4_is_a2_s_drop_from_blocks_p1_and_p2_with_a1_s_beside() -> None:
+    def items(r: list[int]) -> list[dict[str, Any]]:
+        return [_p_item(f"a{k + 1:02d}", "fail", bool(x), True) for k, x in enumerate(r)]
+
+    scored = {
+        "p1": {"A2": items([1] * 20), "A1": items([1] * 10 + [0] * 10), "B": items([0] * 20)},
+        "p2": {"A2": items([1] * 20), "A1": items([1] * 10 + [0] * 10), "B": items([0] * 20)},
+    }
+    a2 = [(1.0, 1.0)] * 30 + [(0.0, 1.0)] * 30
+    a1 = [(1.0, 1.0)] * 15 + [(0.0, 1.0)] * 45
+    got = t3.sheet_matched_q4(scored, a2, a1, 200)
+    assert got is not None
+    assert got["q4"]["J_before"] == 1.0 and got["q4"]["J_after"] == 0.5
+    assert got["set_adjusted"]["point"] == round((1.0 - 0.5) - (0.5 - 0.25), 4)
+    assert t3.sheet_matched_q4({"p1": scored["p1"]}, a2, a1, 200) is None

@@ -1047,6 +1047,43 @@ def row_clauses(row: str, interval: list[float]) -> tuple[bool, bool]:
     return row in ("2a", "2b") and interval[1] < 0, interval[1] < -Q3_MARGIN
 
 
+def set_adjusted(
+    before_a2: list[tuple[float, float]],
+    before_k: list[tuple[float, float]],
+    a2_pairs: list[tuple[float, float]],
+    a1_pairs: list[tuple[float, float]],
+    draws: int,
+) -> dict[str, Any]:
+    """§6.3: the fixed rubrics' drop less K's, over the same two sets, each set drawn jointly."""
+    point = (T.j_of(before_a2) - T.j_of(a2_pairs)) - (T.j_of(before_k) - T.j_of(a1_pairs))
+    return {
+        "point": round(point, 4),
+        "interval": joint_drop_difference(before_a2, before_k, a2_pairs, a1_pairs, draws),
+    }
+
+
+def sheet_matched_q4(
+    scored: dict[str, dict[str, list[dict[str, Any]]]],
+    a2_pairs: list[tuple[float, float]],
+    a1_pairs: list[tuple[float, float]],
+    draws: int,
+) -> dict[str, Any] | None:
+    """§6.3's sheet-matched Q4, or none unless both blocks p1 and p2 ran.
+
+    A2's drop from blocks p1 and p2 to fresh-v2, in Q4's form, and its set-adjusted form with A1's
+    figure from the same blocks.
+    """
+    if "p1" not in scored or "p2" not in scored:
+        return None
+    p_items = {arm: scored["p1"][arm] + scored["p2"][arm] for arm in common.ARMS}
+    pa2 = [(float(x), float(y)) for x, y in pairs_of(p_items["A2"], "R_common")]
+    pa1 = [(float(x), float(y)) for x, y in pairs_of(p_items["A1"], "R_common")]
+    return {
+        "q4": q4(pa2, a2_pairs, draws),
+        "set_adjusted": set_adjusted(pa2, pa1, a2_pairs, a1_pairs, draws),
+    }
+
+
 def set_adjusted_label(q4_main: dict[str, Any], adj: dict[str, Any]) -> str | None:
     """§6.3: the label beside a flagged Q4.
 
@@ -1252,26 +1289,9 @@ def tally(
     q4_main["practice_figure_is_the_criteria_s"] = round(T.j_of(kept), 4) == KEPT_ROUND_J
     if practice_pinned:
         check_practice_figure(T.j_of(kept))
-    adj_point = round((T.j_of(kept) - T.j_of(a2_pairs)) - (T.j_of(k_mean) - T.j_of(a1_pairs)), 4)
-    adj = {
-        "point": adj_point,
-        "interval": joint_drop_difference(kept, k_mean, a2_pairs, a1_pairs, draws),
-    }
+    adj = set_adjusted(kept, k_mean, a2_pairs, a1_pairs, draws)
     adj["label"] = set_adjusted_label(q4_main, adj)
-    sheet_matched: dict[str, Any] | None = None
-    if "p1" in scored and "p2" in scored:
-        p_items = {arm: scored["p1"][arm] + scored["p2"][arm] for arm in common.ARMS}
-        pa2 = [(float(x), float(y)) for x, y in pairs_of(p_items["A2"], "R_common")]
-        pa1 = [(float(x), float(y)) for x, y in pairs_of(p_items["A1"], "R_common")]
-        sheet_matched = {
-            "q4": q4(pa2, a2_pairs, draws),
-            "set_adjusted": {
-                "point": round(
-                    (T.j_of(pa2) - T.j_of(a2_pairs)) - (T.j_of(pa1) - T.j_of(a1_pairs)), 4
-                ),
-                "interval": joint_drop_difference(pa2, pa1, a2_pairs, a1_pairs, draws),
-            },
-        }
+    sheet_matched = sheet_matched_q4(scored, a2_pairs, a1_pairs, draws)
     # ---- §6.4 ----
     author_pairs = {}
     for name in common.PAIRS:
