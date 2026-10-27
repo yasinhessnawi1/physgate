@@ -9,7 +9,8 @@ unit through the gate's own parser, agrees under ``math.isclose`` at a relative 
 absolute term: zero agrees only with zero. A side with no joined node fails as not joined,
 whether or not the interface has quantities, and every result counts the clauses it checked, so
 a pass with none is told apart from a pass with some. Each result carries the digest of the
-definition that judged it, which moves with any change to the code that decides a clause.
+definition that judged it, which moves with any change to the code that decides a clause or
+that picks, from the journal, the nodes a clause reads.
 """
 
 from __future__ import annotations
@@ -353,6 +354,7 @@ def test_every_contract_result_carries_the_definition_digest() -> None:
         name: hashlib.sha256((sources / relative).read_bytes()).hexdigest()
         for name, relative in [
             ("clause", "contracts/clause.py"),
+            ("graph", "contracts/graph.py"),
             ("units", "gate/units.py"),
             ("unit_spelling", "unit_spelling.py"),
         ]

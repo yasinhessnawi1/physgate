@@ -19,9 +19,10 @@ pair passes only when every interface is joined on both sides and every clause p
 result counts the clauses it checked, so a pass with none can be told apart from one with some.
 
 Every result carries the digest of the definition that judged it (:func:`definition_sha256`):
-the tolerances, the bytes of the code that decides a clause, pint's version, and any unit
-definition file loaded beyond pint's defaults. A change to any of them is a new definition: a
-contract test changed after a result was read cannot pass for the one that produced it.
+the tolerances, the bytes of the code that decides a clause and of the code that picks the nodes
+it reads from the journal, pint's version, and any unit definition file loaded beyond pint's
+defaults. A change to any of them is a new definition: a contract test changed after a result was
+read cannot pass for the one that produced it.
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from physgate import unit_spelling
+from physgate.contracts import graph
 from physgate.contracts.pairs import ContractError, ContractPair
 from physgate.gate import units
 from physgate.gate.units import PINT, PINT_ERRORS, UnitRefusedError, parse
@@ -46,9 +48,11 @@ from physgate.state.schema import Node, Quantity
 REL_TOL = 1e-9
 #: The absolute term: none, so zero agrees only with zero.
 ABS_TOL = 0.0
-#: The code that decides a clause, whose bytes the definition's digest covers.
+#: The code that decides a clause, and that picks from the journal the nodes it reads, whose
+#: bytes the definition's digest covers.
 SOURCES: dict[str, Path] = {
     "clause": Path(__file__),
+    "graph": Path(graph.__file__),
     "units": Path(units.__file__),
     "unit_spelling": Path(unit_spelling.__file__),
 }
