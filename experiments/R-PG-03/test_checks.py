@@ -929,6 +929,10 @@ def test_the_owner_classifies_a_valid_attempt_a_correction_touches_with_its_id(
     assert said == got and ck.read_blocks()["attempts"][0]["correction"] == "c1"
     with pytest.raises(ck.RefusedError, match="classified already"):
         ck.classify("x1", 1, "instrument defect", TEST, "c2")
+    # The block record holds the classification too, its file gone.
+    (launch / "classification.json").unlink()
+    with pytest.raises(ck.RefusedError, match="classified already"):
+        ck.classify("x1", 1, "instrument defect", TEST, "c2")
 
 
 def test_a_correction_s_id_classifies_one_attempt_of_a_block(runs_dir: Path) -> None:
