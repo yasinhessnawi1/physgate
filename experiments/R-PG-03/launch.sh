@@ -62,6 +62,7 @@
 # name another
 # master ref (RP3_MASTER_REF) and skip the host and date checks (RP3_TRIAL_HOST=1). The log says so.
 
+# shellcheck source-path=SCRIPTDIR
 set -euo pipefail
 
 STOP_AFTER=run
@@ -167,7 +168,8 @@ unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL CLAUDE_CODE_OAUT
 # file this launch wrote is scanned for it after the smoke and after the block.
 # shellcheck source=token.sh
 source "$HERE/token.sh"
-# shellcheck source=../../scripts/experiment/scan.sh
+# scan.sh is the repository's, outside the scripts checked here: followed with -x alone.
+# shellcheck source=../../scripts/experiment/scan.sh disable=SC1091
 source "$CHECKOUT/scripts/experiment/scan.sh"
 export DISABLE_AUTOUPDATER=1 PHYSGATE_CLAUDE_BIN="$BIN"
 say "== R-PG-03 launch, block $BLOCK, attempt $N, $(date -u +%Y-%m-%dT%H:%M:%SZ), stop after: $STOP_AFTER"

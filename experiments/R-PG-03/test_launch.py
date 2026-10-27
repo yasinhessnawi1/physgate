@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -272,3 +273,12 @@ def test_a_login_file_left_after_the_block_refuses_it_valid() -> None:
     credentials = text.index('CREDENTIALS_OK=1; py "$HERE/checks.py" "${CK[@]}" credentials', end)
     refusal = text.index('[ "$CREDENTIALS_OK" = 1 ] || refuse', credentials)
     assert refusal < text.index("is valid", refusal)
+
+
+@pytest.mark.skipif(shutil.which("shellcheck") is None, reason="shellcheck is not installed here")
+def test_every_script_passes_shellcheck_from_the_repository_root() -> None:
+    scripts = sorted(str(p.relative_to(REPO)) for p in HERE.glob("*.sh"))
+    done = subprocess.run(
+        ["shellcheck", *scripts], capture_output=True, text=True, check=False, cwd=REPO
+    )
+    assert done.returncode == 0, done.stdout[-2000:]

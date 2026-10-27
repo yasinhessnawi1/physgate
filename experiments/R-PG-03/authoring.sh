@@ -31,6 +31,7 @@
 # from the owner's ~/runs/rpg03/owner/account.json:
 #   {"account_label": "...", "weekly_reset_utc": "<one reset of the weekly limit, from the usage page>"}
 
+# shellcheck source-path=SCRIPTDIR
 set -euo pipefail
 
 CHECKOUT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
