@@ -199,25 +199,37 @@ each names that sentence. Quotes are `CRITERIA.md` as frozen at `3e7a3c8`.
     recorded unclassified, and the launch refuses any further attempt of that block until the owner
     runs `checks.py classify` on the attempt's logs and the ledger alone, before any tally: either
     an instrument defect, naming the path of a tracked test that depends on no verdict and shows it
-    (its commit and blob are recorded; the block is then re-run at the corrected commit and both
-    runs are reported), or anything else impossible as specified (the decisions it feeds are not
-    taken, and the block is not attempted again). The classification is written once, as
+    and the id of the correction that names the block (the test's commit and blob are recorded; the
+    block is then re-run at the corrected commit and both runs are reported, reading 24), or
+    anything else impossible as specified (the decisions it feeds are not taken, and the block is
+    not attempted again). The classification is written once, as
     `classification.json` next to the attempt, and in the block record. Rests on: §11, "An
     instrument defect found after a number is seen is a deviation only if a test that depends on no
     verdict shows it"; "Anything else impossible as specified is a deviation. The decisions it feeds
     are not taken".
 24. **The corrected commit of an instrument defect is recorded beside "Commits filled", which never
-    changes.** A correction is a commit of its own to `fills.json` alone, only after "Set filled",
-    whose subject names "Commits corrected" and the block, and which adds exactly one entry: the
-    block, its corrected `R'` and `R_K'`, and the path of that block's classification. `R'`
-    descends from `R`; `R_K'` is one commit above `R'`, with the same five-path difference and the
-    same check of `promotions.jsonl`'s content. The launch uses a correction only for an attempt of
-    the block whose deviation the block record classifies an instrument defect, with that
-    classification; every other block runs at `R`. The trees, blobs and digests "Commits filled"
-    records describe `R`, so they are not held at `R'`; every other pin of §3 is. A correction for a
-    block with no such defect, and a defect with no correction, are refused. Rests on: §11, "Every
-    block it touches is then re-run at the corrected commit, and both runs are reported"; the
-    header, "Facts are filled later, each in its own dated commit".
+    changes, and names every block the defect touches.** A correction is a commit of its own to
+    `fills.json` alone, only after "Set filled", whose subject names "Commits corrected" and every
+    block it touches, and which adds exactly one entry: an id no earlier correction has, the
+    corrected `R'` and `R_K'`, and every block it touches, each with the path of a tracked test
+    that depends on no verdict and shows the defect in that block's own records. `R'` descends from
+    `R`; `R_K'` is one commit above `R'`, with the same five-path difference and the same check of
+    `promotions.jsonl`'s content. For each block it names, the owner's `checks.py classify` writes
+    the classification (an instrument defect, with that test and the correction's id) next to the
+    block's attempt, a valid attempt too; an id classifies one attempt of a block, so a further
+    defect is a correction of its own. The launch then runs exactly those blocks once more, at `R'`
+    and `R_K'`, and no other: a touched block is attempted until it has a valid attempt after the
+    touched one (a void attempt is re-attempted whole, as any is, and §11's three void attempts
+    count over the block), and the blocks after it in the fixed order wait for that. Every other
+    block runs at `R`. The trees, blobs and digests "Commits filled" records describe `R`, so they
+    are not held at `R'`; every other pin of §3 is. A correction that names a block without that
+    classification, a classification with a correction that does not name the block, and a
+    classification other than the correction's for it, are refused. Both attempts are kept in the
+    block record and listed in the tally's output; the tally, and the reading's lines, use the
+    corrected attempt of a touched block, and the tally refuses while a block a correction names
+    lacks it. Rests on: §11, "Every block it touches is then re-run at the corrected commit, and
+    both runs are reported"; "The decision uses the corrected runs"; the header, "Facts are filled
+    later, each in its own dated commit".
 
 **The tally.**
 
