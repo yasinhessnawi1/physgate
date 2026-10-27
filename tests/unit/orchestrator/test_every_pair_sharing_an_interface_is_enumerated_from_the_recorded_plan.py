@@ -25,6 +25,7 @@ from typing import Any
 
 import pytest
 from knowledge_fixture import FIXTURE_ROLES, write_fixture
+from loop_fakes import Rig
 from orch_helpers import make_config
 from pydantic import ValidationError
 
@@ -41,8 +42,13 @@ from physgate.orchestrator.decompose import (
     start_run,
 )
 from physgate.orchestrator.events import EventLog
-from physgate.orchestrator.exceptions import CorruptEventLogError, DecompositionError
+from physgate.orchestrator.exceptions import (
+    CorruptEventLogError,
+    DecompositionError,
+    RunConfigError,
+)
 from physgate.orchestrator.git import head_of
+from physgate.orchestrator.record import PlanEntry
 from physgate.orchestrator.replay import RunState
 from physgate.orchestrator.run_config import ModelStrings
 
@@ -508,3 +514,25 @@ def test_replay_refuses_an_opening_whose_module_directories_are_one_with_case_fo
     # The same directory written the same way twice is one module and its later pass.
     assert [one["module_dir"] for one in planned].count("modules/budget") == 2
     assert refusal(tmp_path, log) == ""
+
+
+def test_directories_one_with_case_folded_are_refused_however_far_apart_they_are_planned(
+    tmp_path: Path,
+) -> None:
+    """Every module planned before is asked, not only the one planned just before."""
+    planned = [("s1", "modules/s1"), ("s2", "modules/s2"), ("s3", "modules/S1")]
+    entries = [
+        PlanEntry(
+            subtask_id=subtask_id,
+            spec_path=f"specs/{subtask_id}.md",
+            assigned_role="electrical",
+            module_dir=module_dir,
+        )
+        for subtask_id, module_dir in planned
+    ]
+    loop = Rig(tmp_path).open()
+    with pytest.raises(RunConfigError, match="modules/s1 and modules/S1 are one directory"):
+        loop.start(entries)
+    loop.close()
+    log = tmp_path / "events.jsonl"
+    assert not log.exists() or not log.read_bytes()

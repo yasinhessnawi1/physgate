@@ -792,3 +792,102 @@ def test_a_result_rewritten_in_its_detail_with_its_outcome_kept_halts_the_run_to
     _, incident, _ = halt_of(events)
     assert incident.cause == "foreign_journal_line"
     assert "drive to budget" in incident.detail and "revision 6" in incident.detail
+
+
+@pytest.mark.parametrize("field", ["its digest", "a node's reason"])
+def test_a_result_rewritten_between_two_completions_halts_before_the_second(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, field: str
+) -> None:
+    # Every completion line follows the check, not the first alone: one completion on the record
+    # is no reason to take the results as they stand.
+    rig = rig_for(tmp_path)
+    loop = rig.open()
+
+    def at_the_second(event: Event, written: list[Event]) -> bool:
+        return isinstance(event, ModuleCompleted) and any(
+            isinstance(e, ModuleCompleted) for e in written
+        )
+
+    hooked(monkeypatch, loop, declared=(DRIVE, FW), kill=at_the_second)
+    start(loop)
+    with pytest.raises(KilledError):
+        loop.run()
+    loop.close()
+    log = rig.run_dir / "events.jsonl"
+
+    def edit(records: list[dict[str, Any]]) -> None:
+        assert [r["kind"] for r in records].count("module_completed") == 1
+        line = next(r for r in records if r["kind"] == "contract_tested")
+        if field == "its digest":
+            line["result"]["definition_sha256"] = "0" * 64
+        else:
+            line["result"]["interfaces"][0]["clauses"][0]["nodes"][0]["reason"] = "rewritten"
+
+    rewritten(log, edit)
+    fresh = rig.open()
+    hooked(monkeypatch, fresh, declared=(DRIVE, FW))
+    assert fresh.run().kind == "halted"
+    fresh.close()
+    events = read_events(log)
+    assert [e.subtask_id for e in events if isinstance(e, ModuleCompleted)] == [DRIVE]
+    _, incident, _ = halt_of(events)
+    assert incident.cause == "foreign_journal_line"
+
+
+def test_a_journal_that_can_no_longer_give_a_recorded_result_halts_at_completion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The results were taken with the journal whole; at completion it ends before fw's write.
+    rig = rig_for(tmp_path)
+    loop = rig.open()
+    hooked(
+        monkeypatch, loop, declared=(DRIVE, FW), kill=lambda e, _: isinstance(e, ModuleCompleted)
+    )
+    start(loop)
+    with pytest.raises(KilledError):
+        loop.run()
+    loop.close()
+    journal = rig.diff.root / JOURNAL_NAME
+    journal.write_bytes(b"".join(journal.read_bytes().splitlines(keepends=True)[:-1]))
+    fresh = rig.open()
+    hooked(monkeypatch, fresh, declared=(DRIVE, FW))
+    assert fresh.run().kind == "halted"
+    fresh.close()
+    events = read_events(rig.run_dir / "events.jsonl")
+    assert [e for e in events if isinstance(e, ModuleCompleted)] == []
+    _, incident, halted = halt_of(events)
+    assert (incident.cause, halted.detail) == ("foreign_journal_line", "foreign_journal_line")
+
+
+def test_a_first_result_rewritten_behind_its_pairs_retest_halts_the_run_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The first result is the one an evaluation counts, and a later retest stands in front of it:
+    # every recorded result is taken again, not each pair's latest alone.
+    rig = rig_for(tmp_path)
+    loop = rig.open()
+    declared = (BUDGET, DRIVE, FW)
+    hooked(monkeypatch, loop, declared=declared, kill=lambda e, _: isinstance(e, ModuleCompleted))
+    start(loop, sizing=True)
+    with pytest.raises(KilledError):
+        loop.run()
+    loop.close()
+    log = rig.run_dir / "events.jsonl"
+
+    def behind_its_retest(records: list[dict[str, Any]]) -> None:
+        tested = [r for r in records if r["kind"] == "contract_tested"]
+        sized = json.loads(P_BUDGET.model_dump_json())
+        (first,) = [r for r in tested if r["first"] and r["result"]["pair"] == sized]
+        (retest,) = [r for r in tested if not r["first"] and r["result"]["pair"] == sized]
+        assert (first["result"]["outcome"], retest["result"]["outcome"]) == ("pass", "pass")
+        first["result"]["definition_sha256"] = "0" * 64
+
+    rewritten(log, behind_its_retest)
+    fresh = rig.open()
+    hooked(monkeypatch, fresh, declared=declared)
+    assert fresh.run().kind == "halted"
+    fresh.close()
+    events = read_events(log)
+    assert [e for e in events if isinstance(e, ModuleCompleted)] == []
+    _, incident, _ = halt_of(events)
+    assert incident.cause == "foreign_journal_line" and "drive to budget" in incident.detail
