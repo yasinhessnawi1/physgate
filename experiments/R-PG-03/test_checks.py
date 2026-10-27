@@ -60,6 +60,51 @@ def test_r_pg_01b_in_a_second_window_moves_the_first_start_a_week(runs_dir: Path
         ck.order("x1", now=AFTER, ledger=ledger)
 
 
+def test_r_pg_01b_re_attempting_a_round_after_the_5_11_reset_moves_the_start_a_week(
+    runs_dir: Path,
+) -> None:
+    # R-PG-01b's ledger gives a round's earliest attempt's start: a round voided before 5.11 and
+    # re-run after the reset keeps its older start, and its end tells that it ran on.
+    line = {
+        "kind": "rpg01b-round",
+        "started_utc": "2026-11-04T10:00:00Z",
+        "ended_utc": "2026-11-05T18:00:00Z",
+        "attempts": 2,
+    }
+    with pytest.raises(ck.RefusedError, match="2026-11-12"):
+        ck.order("x1", now=AFTER, ledger=[line])
+    before = {**line, "ended_utc": "2026-11-04T20:00:00Z"}
+    assert ck.order("x1", now=AFTER, ledger=[before])["earliest"] == ck.EARLIEST
+
+
+@pytest.mark.parametrize(
+    ("stamp", "why"),
+    [("2026-11-07T07:00:00Z", "after now"), ("2026-11-04T07:00:00Z", "before")],
+    ids=["in-the-future", "before-the-earliest-start"],
+)
+def test_the_window_s_confirmation_is_bounded_in_time(runs_dir: Path, stamp: str, why: str) -> None:
+    owner_file(runs_dir, "block-x1-1.json", BLOCK_X1)
+    owner_file(runs_dir, "window.json", {"weekly_limit_reset_confirmed_utc": stamp})
+    smoked(runs_dir, (0, "2026-11-04T06:00:00Z"))
+    with pytest.raises(ck.RefusedError, match=why):
+        ck.owner("x1", 1, [], now=AFTER)
+
+
+def test_the_window_s_confirmation_is_after_r_pg_01b_s_second_window_began_if_it_ran_into_one(
+    runs_dir: Path,
+) -> None:
+    owner_file(runs_dir, "block-x1-1.json", BLOCK_X1)
+    owner_file(runs_dir, "window.json", WINDOW)  # 5.11, 07:00
+    smoked(runs_dir, (0, "2026-11-04T06:00:00Z"))
+    ran_on = {
+        "kind": "rpg01b-round",
+        "started_utc": "2026-11-05T01:00:00Z",
+        "ended_utc": "2026-11-05T09:00:00Z",
+    }
+    with pytest.raises(ck.RefusedError, match="before"):
+        ck.owner("x1", 1, [ran_on], now=ck._seconds("2026-11-13T09:00:00Z"))
+
+
 def test_the_fixed_order_holds(runs_dir: Path) -> None:
     with pytest.raises(ck.RefusedError, match="x1 comes first"):
         ck.order("y1", now=AFTER)

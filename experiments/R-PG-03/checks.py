@@ -54,7 +54,8 @@ import common  # noqa: E402
 
 HOME = Path(os.environ.get("HOME", "~")).expanduser()
 #: The block may not start before this date (§10 item 4), nor before the next window's if
-#: R-PG-01b ran into a second weekly window.
+#: R-PG-01b ran into a second weekly window: if a line of R-PG-01b's ends (or starts) on 5.11 or
+#: later, midnight UTC standing for that day's reset, which errs toward the later start.
 EARLIEST = "2026-11-05T00:00:00Z"
 EARLIEST_IF_RPG01B_RAN_ON = "2026-11-12T00:00:00Z"
 ARM_FIRST_MINUTE_S = 60
@@ -167,15 +168,25 @@ def order(
             f"block {block} has had {voids} void attempts: the owner declares whether it is "
             "impossible as specified (§11)"
         )
-    earliest = EARLIEST
-    for line in ledger or []:
-        start = line.get("started_utc")
-        if line.get("kind", "").startswith("rpg01b") and start and start >= EARLIEST:
-            earliest = EARLIEST_IF_RPG01B_RAN_ON
+    earliest = earliest_start(ledger or [])
     now = time.time() if now is None else now
     if now < _seconds(earliest):
         raise RefusedError(f"no block starts before {earliest} (§10)")
     return {"check": "order", "block": block, "attempt": len(mine) + 1, "earliest": earliest}
+
+
+def earliest_start(ledger: list[dict[str, Any]]) -> str:
+    """§10 item 4: 5.11, or 12.11 if R-PG-01b ran into a second weekly window.
+
+    R-PG-01b's ledger gives a round's earliest attempt's start, so a round voided before 5.11 and
+    re-attempted after that reset keeps an older start: its end is what shows it ran on.
+    """
+    for line in ledger:
+        if not str(line.get("kind", "")).startswith("rpg01b"):
+            continue
+        if max(str(line.get("started_utc") or ""), str(line.get("ended_utc") or "")) >= EARLIEST:
+            return EARLIEST_IF_RPG01B_RAN_ON
+    return EARLIEST
 
 
 def _seconds(utc: str) -> float:
@@ -316,6 +327,14 @@ def owner(
         utc = w.get("weekly_limit_reset_confirmed_utc", "")
         if not re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", str(utc)):
             raise RefusedError("the window's confirmation is not stamped in UTC")
+        now = time.time() if now is None else now
+        if _seconds(utc) > now:
+            raise RefusedError("the window's confirmation is stamped after now")
+        if utc < earliest_start(ledger):
+            raise RefusedError(
+                f"the window's confirmation is stamped before {earliest_start(ledger)}, the "
+                "blocks' earliest start (§10 item 4)"
+            )
         later = [x for x in ledger if (x.get("started_utc") or "") > utc]
         if later:
             raise RefusedError(
