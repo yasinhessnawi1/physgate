@@ -649,6 +649,32 @@ def knowledge_digests(
 # ---------------------------------------------------------------- the pins
 
 
+def _bytes(repo: Path, rev: str, path: str) -> bytes | None:
+    """A path's bytes at a revision, or ``None`` if it is not there."""
+    try:
+        return common.git_bytes(repo, "show", f"{rev}:{path}")
+    except subprocess.CalledProcessError:
+        return None
+
+
+def readme_problem(frozen: bytes, have: bytes | None) -> str | None:
+    """Why a README is not the freeze's bytes followed by exactly one appended readings section.
+
+    ``None`` if it is.
+    """
+    if have is None:
+        return "it is not there"
+    if not have.startswith(frozen):
+        return "its frozen part is not the freeze's bytes"
+    rest = have[len(frozen) :]
+    head = b"\n" + common.READINGS_HEADING + b"\n"
+    if not rest.startswith(head):
+        return "it does not hold exactly one appended section, its readings, after its frozen part"
+    if any(line.startswith((b"# ", b"## ")) for line in rest[len(head) :].split(b"\n")):
+        return "it holds more than the one appended section of its readings"
+    return None
+
+
 def _blob(repo: Path, rev: str, path: str) -> str | None:
     """A path's blob id at a revision, or ``None`` if it is not there."""
     try:
@@ -736,8 +762,10 @@ def commits(
 ) -> dict[str, Any]:
     """R and R_K against §3.2 and "Commits filled"; the frozen files at R, R_K and master.
 
-    ``CRITERIA.md`` and the README are the freeze's blobs at all three for good: the fills are a
-    record of their own (``fills.json``), never written into the frozen file. For an attempt of a
+    ``CRITERIA.md`` is the freeze's blob at all three for good: the fills are a record of their own
+    (``fills.json``), never written into it. The README is the freeze's bytes followed by exactly
+    one appended section, its readings, and is the same bytes at all three, so the readings are
+    final at "Commits filled" and nothing in it moves during the run. For an attempt of a
     block whose deviation is classified an instrument defect, R and R_K are its corrected commit's
     (:func:`run_pins`), held by the same checks but for the trees, blobs and digests "Commits
     filled" records for R, which the correction replaces.
@@ -755,8 +783,19 @@ def commits(
         ("R_K's", r_k_dir, r_k),
         ("the master ref's", r_dir, master_ref),
     ):
-        for path, frozen in common.FROZEN_BLOBS.items():
-            _equal(found, f"{name} {path}", _blob(d, rev, path), frozen)
+        criteria = f"{common.EXPERIMENT}/CRITERIA.md"
+        _equal(found, f"{name} {criteria}", _blob(d, rev, criteria), common.FROZEN_BLOBS[criteria])
+    readme = f"{common.EXPERIMENT}/README.md"
+    readme_at_r = _bytes(r_dir, r, readme)
+    why = readme_problem(
+        common.git_bytes(r_dir, "cat-file", "blob", common.FROZEN_BLOBS[readme]), readme_at_r
+    )
+    if why is not None:
+        raise RefusedError(f"R's {readme}: {why}")
+    found[f"R's {readme}"] = "the freeze's bytes and one appended section"
+    for name, d, rev in (("R_K's", r_k_dir, r_k), ("the master ref's", r_dir, master_ref)):
+        if _bytes(d, rev, readme) != readme_at_r:
+            raise RefusedError(f"{name} {readme} is not R's byte for byte")
     _equal(found, "R", r, pins["R"])
     _equal(found, "R_K", r_k, pins["R_K"])
     for name, d in (("R", r_dir), ("R_K", r_k_dir)):

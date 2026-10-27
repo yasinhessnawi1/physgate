@@ -321,31 +321,34 @@ def r_k(tmp_path_factory: pytest.TempPathFactory) -> Any:  # noqa: ANN401
 
 def test_r_and_r_k_hold_section_3_2(r_k: Any) -> None:  # noqa: ANN401
     r, k, rs, ks = r_k("ok")
-    found = ck.commits(r, k, {"commits": {"R": rs, "R_K": ks}})
+    found = ck.commits(r, k, {"commits": {"R": rs, "R_K": ks}}, master_ref=rs)
     assert found["the paths R_K differs from R in"] == sorted(common.R_K_PATHS)
 
 
 def test_r_k_with_a_sixth_path_is_refused(r_k: Any) -> None:  # noqa: ANN401
     r, k, rs, ks = r_k("six", extra={"README.md": "changed\n"})
     with pytest.raises(ck.RefusedError, match="paths R_K differs"):
-        ck.commits(r, k, {"commits": {"R": rs, "R_K": ks}})
+        ck.commits(r, k, {"commits": {"R": rs, "R_K": ks}}, master_ref=rs)
 
 
 def test_r_k_s_promotions_are_compared_by_content_line_for_line(r_k: Any) -> None:  # noqa: ANN401
     r, k, rs, ks = r_k("three", drop_promotion=3)
     with pytest.raises(ck.RefusedError, match="promotions"):
-        ck.commits(r, k, {"commits": {"R": rs, "R_K": ks}})
+        ck.commits(r, k, {"commits": {"R": rs, "R_K": ks}}, master_ref=rs)
 
 
 def test_commits_filled_must_be_on_record_and_be_the_checkouts(r_k: Any) -> None:  # noqa: ANN401
     r, k, rs, ks = r_k("fills")
     with pytest.raises(common.RefusedError, match="Commits filled"):
-        ck.commits(r, k, {})
+        ck.commits(r, k, {}, master_ref=rs)
     with pytest.raises(ck.RefusedError, match="R is"):
-        ck.commits(r, k, {"commits": {"R": "0" * 40, "R_K": ks}})
+        ck.commits(r, k, {"commits": {"R": "0" * 40, "R_K": ks}}, master_ref=rs)
     with pytest.raises(ck.RefusedError, match="tree"):
         ck.commits(
-            r, k, {"commits": {"R": rs, "R_K": ks, "trees": {"src/physgate/gate": "0" * 40}}}
+            r,
+            k,
+            {"commits": {"R": rs, "R_K": ks, "trees": {"src/physgate/gate": "0" * 40}}},
+            master_ref=rs,
         )
 
 
@@ -372,7 +375,7 @@ def test_r_holding_a_frozen_file_other_than_the_freeze_s_is_refused(r_k: Any) ->
 def test_the_master_ref_holding_no_frozen_criteria_is_refused(r_k: Any) -> None:  # noqa: ANN401
     r, k, rs, ks = r_k("master")
     # fc28f32 is older than the freeze: CRITERIA.md is not there.
-    with pytest.raises(ck.RefusedError, match="the master ref's"):
+    with pytest.raises(ck.RefusedError, match=f"the master ref's {re.escape(CRITERIA)}"):
         ck.commits(r, k, {"commits": {"R": rs, "R_K": ks}}, master_ref=common.R_FLOOR)
     found = ck.commits(r, k, {"commits": {"R": rs, "R_K": ks}}, master_ref=rs)
     assert found[f"the master ref's {CRITERIA}"] == common.FROZEN_BLOBS[CRITERIA]
@@ -601,6 +604,51 @@ def test_the_fills_record_s_history_is_held(
     repo = fills_repo(tmp_path, steps)
     with pytest.raises(common.RefusedError, match=why):
         common.fills_on(repo, "HEAD")
+
+
+# ---- README: the freeze's bytes and one appended section -------------------------------------
+
+
+FROZEN_README = subprocess.run(
+    ["git", "-C", str(common.REPO), "cat-file", "blob", common.FROZEN_BLOBS[README]],
+    capture_output=True,
+    text=True,
+    check=True,
+).stdout
+SECTION = "\n## Readings disclosed\n\nOne reading.\n"
+
+
+def test_the_readme_holds_the_freeze_s_bytes_and_one_appended_section(r_k: Any) -> None:  # noqa: ANN401
+    r, k, rs, ks = r_k("readme-held", r_extra={README: FROZEN_README + SECTION})
+    found = ck.commits(r, k, {"commits": {"R": rs, "R_K": ks}}, master_ref=rs)
+    assert found[f"R's {README}"] == "the freeze's bytes and one appended section"
+
+
+@pytest.mark.parametrize(
+    ("text", "why"),
+    [
+        (FROZEN_README.replace("Three arms", "Four arms") + SECTION, "frozen part"),
+        (FROZEN_README + SECTION + "\n## More\n\nx\n", "one appended section"),
+        (FROZEN_README, "one appended section"),
+        (FROZEN_README + "\n## Something else\n", "one appended section"),
+    ],
+    ids=["an-edit-inside-the-frozen-part", "a-second-section", "no-section", "another-section"],
+)
+def test_a_readme_other_than_the_freeze_s_bytes_and_its_one_section_is_refused(
+    r_k: Any,
+    text: str,
+    why: str,  # noqa: ANN401
+) -> None:
+    r, k, rs, ks = r_k(f"readme-{why[:5]}-{len(text)}", r_extra={README: text})
+    with pytest.raises(ck.RefusedError, match=why):
+        ck.commits(r, k, {"commits": {"R": rs, "R_K": ks}}, master_ref=rs)
+
+
+def test_a_master_readme_other_than_r_s_is_refused(r_k: Any) -> None:  # noqa: ANN401
+    r, k, rs, ks = r_k("readme-master", r_extra={README: FROZEN_README + SECTION})
+    other = git(common.REPO, "rev-parse", "HEAD")  # its README is not R's
+    with pytest.raises(ck.RefusedError, match="the master ref's .*README.md is not R's"):
+        ck.commits(r, k, {"commits": {"R": rs, "R_K": ks}}, master_ref=other)
 
 
 # ---- §11's corrected commit -------------------------------------------------------------------

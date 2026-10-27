@@ -31,6 +31,8 @@ FROZEN_BLOBS = {
     f"{EXPERIMENT}/CRITERIA.md": "5a9c996b97cda9a2c5c13722761af4481a54eb60",
     f"{EXPERIMENT}/README.md": "7ce44f4c1627df24049338df81b26e245d7cb869",
 }
+#: The README is the freeze's bytes followed by exactly one appended section, under this heading.
+READINGS_HEADING = b"## Readings disclosed"
 
 # ---- the arms (§3.1) ----
 
