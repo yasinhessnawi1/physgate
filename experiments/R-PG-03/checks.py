@@ -54,11 +54,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import common  # noqa: E402
 
 HOME = Path(os.environ.get("HOME", "~")).expanduser()
-#: The block may not start before this date (§10 item 4), nor before the next window's if
-#: R-PG-01b ran into a second weekly window: if a line of R-PG-01b's ends (or starts) on 5.11 or
-#: later, midnight UTC standing for that day's reset, which errs toward the later start.
-EARLIEST = "2026-11-05T00:00:00Z"
-EARLIEST_IF_RPG01B_RAN_ON = "2026-11-12T00:00:00Z"
+#: Thursday 5.11.2026 begins in Norway (UTC+1 since 25.10): no block starts before the first weekly
+#: reset at or after it (§10 item 4), nor before the next one if R-PG-01b ran into its second.
+THURSDAY_5_11 = "2026-11-04T23:00:00Z"
+WEEK_S = 7 * 24 * 3600
+UTC = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ")
 ARM_FIRST_MINUTE_S = 60
 #: §11's two routes for a deviation found before any number: an instrument defect a test that
 #: depends on no verdict shows (the block is re-run at the corrected commit, both runs reported),
@@ -135,9 +135,9 @@ def order(
 
     Raises:
         RefusedError: an earlier block has no valid attempt, or none after the one a correction
-            touches, and is not recorded as not run; this block already has a valid attempt (after
-            the one a correction touches, if one does), or three void ones; it is recorded as not
-            run; or it is before its earliest start.
+            touches, and is not recorded as not run or not taken; this block already has a valid
+            attempt (after the one a correction touches, if one does), or three void ones; it is
+            recorded as not run; or it is before its earliest start.
     """
     rec = read_blocks()
     stopped = rec.get("stopped")
@@ -148,7 +148,8 @@ def order(
         raise RefusedError(f"block {block} is recorded as not run ({not_run[block]})")
     k = common.BLOCKS.index(block)
     for earlier in common.BLOCKS[:k]:
-        if earlier in not_run:
+        # A block classified impossible as specified feeds decisions not taken; the rest run (§11).
+        if earlier in not_run or earlier in (rec.get("not_taken") or {}):
             continue
         if not any(a.get("valid") is True for a in current(rec, earlier)):
             raise RefusedError(
@@ -189,17 +190,35 @@ def order(
 
 
 def earliest_start(ledger: list[dict[str, Any]]) -> str:
-    """§10 item 4: 5.11, or 12.11 if R-PG-01b ran into a second weekly window.
+    """§10 item 4: 5.11's weekly reset, or 12.11's if R-PG-01b ran into a second weekly window.
 
-    R-PG-01b's ledger gives a round's earliest attempt's start, so a round voided before 5.11 and
-    re-attempted after that reset keeps an older start: its end is what shows it ran on.
+    Both follow from the one reset the owner read from the usage page (``owner/account.json``):
+    the first at or after Thursday 5.11's start, and the one a week later. A line of R-PG-01b's
+    that ends (or starts) at 5.11's reset or later ran into its second window. R-PG-01b's ledger
+    gives a round's earliest attempt's start, so a round voided before 5.11 and re-attempted after
+    that reset keeps an older start: its end is what shows it ran on.
+
+    Raises:
+        RefusedError: the owner's account file records no weekly reset.
     """
+    said = _json_or_none(records_dir() / "owner" / "account.json") or {}
+    reset = str(said.get("weekly_reset_utc", ""))
+    if not UTC.fullmatch(reset):
+        raise RefusedError(
+            "the owner's account file records no weekly reset (UTC): the blocks' earliest start "
+            "is 5.11's reset, which follows from it (§10 item 4)"
+        )
+    anchor = _seconds(reset)
+    first = anchor - ((anchor - _seconds(THURSDAY_5_11)) // WEEK_S) * WEEK_S
+    first_utc, second_utc = (
+        time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t)) for t in (first, first + WEEK_S)
+    )
     for line in ledger:
         if not str(line.get("kind", "")).startswith("rpg01b"):
             continue
-        if max(str(line.get("started_utc") or ""), str(line.get("ended_utc") or "")) >= EARLIEST:
-            return EARLIEST_IF_RPG01B_RAN_ON
-    return EARLIEST
+        if max(str(line.get("started_utc") or ""), str(line.get("ended_utc") or "")) >= first_utc:
+            return second_utc
+    return first_utc
 
 
 def _seconds(utc: str) -> float:
@@ -580,6 +599,7 @@ def classify(
     route: str,
     test: str | None,
     correction: str | None = None,
+    fills: dict[str, Any] | None = None,
     repo: Path = common.REPO,
 ) -> dict[str, Any]:
     """The owner's classification of a deviation, or of a valid attempt a correction touches (§11).
@@ -590,14 +610,18 @@ def classify(
     and both runs are reported) or ``anything else impossible as specified`` (the decisions it
     feeds are not taken). A deviation is classified on the attempt's logs and the ledger only,
     before any tally (R8); a defect also classifies the valid attempt of every block its
-    correction names. It is written once, next to the attempt (``classification.json``), and in
-    the block record; the launch refuses any further attempt of a deviation's block until it exists.
+    correction names. The correction is committed first: ``fills``, the master ref's, must hold
+    one with that id naming this attempt of the block with that test. It is written once, next to
+    the attempt (``classification.json``), and in the block record; the launch refuses any further
+    attempt of a deviation's block until it exists. Anything else impossible as specified marks
+    the block ``not_taken`` in the record: later blocks run, and the decisions it feeds are not
+    taken.
 
     Raises:
         RefusedError: the route is neither; a defect names no tracked test file or no correction,
-            or the other route names either; the attempt records no deviation and is not a valid
-            attempt a defect touches; the correction classifies an attempt of the block already;
-            or the attempt is classified already.
+            or a correction the master ref does not hold for this attempt and test, or the other
+            route names either; the attempt records no deviation and is not a valid
+            attempt a defect touches; or the attempt is classified already.
     """
     if route not in ROUTES.values():
         raise RefusedError(f"the route is {ROUTES['defect']!r} or {ROUTES['impossible']!r}")
@@ -626,6 +650,18 @@ def classify(
                 "an instrument defect names the correction that re-runs it: its id in the "
                 "fills' corrections (§11)"
             )
+        named = [
+            e
+            for e in map(common.correction_entry, (fills or {}).get(common.CORRECTIONS) or [])
+            if e["id"] == correction
+            and e["blocks"].get(block) == {"attempt": attempt, "test": test}
+        ]
+        if not named:
+            raise RefusedError(
+                f"no correction {correction} on the master ref names block {block}'s attempt "
+                f"{attempt} with {test}: a correction is committed first, after checks.py "
+                "correction-check passes on it, and then classified"
+            )
         head = common.git(repo, "rev-parse", "HEAD")
         found.update(test=test, test_commit=head, test_blob=blob, correction=correction)
     elif test or correction:
@@ -645,11 +681,6 @@ def classify(
             f"block {block}'s attempt {attempt} records no deviation, and is not a valid attempt "
             "an instrument defect touches"
         )
-    if correction and any(a.get("correction") == correction for a in attempts_of(rec, block)):
-        raise RefusedError(
-            f"correction {correction} classifies an attempt of block {block} already: a further "
-            "defect is a correction of its own"
-        )
     where = Path(row.get("launch") or records_dir() / "blocks" / f"{block}-{attempt}")
     deviation = row.get("deviation") or {}
     if (
@@ -667,6 +698,8 @@ def classify(
         deviation["classification"] = route
     if correction:
         row["correction"] = correction
+    if route == ROUTES["impossible"]:
+        rec.setdefault("not_taken", {})[block] = {"attempt": attempt, "causes": found["causes"]}
     write_blocks(rec)
     return found
 
@@ -755,12 +788,14 @@ def run_pins(
         return base, None
     touched = mine[since - 1]
     said = _json_or_none(Path(str(touched.get("launch") or "")) / "classification.json") or {}
-    if [said.get(k) for k in ("route", "block", "correction", "test")] != [
+    named = entry["blocks"][block]
+    if [said.get(k) for k in ("route", "block", "correction", "test", "attempt")] != [
         ROUTES["defect"],
         block,
         entry["id"],
-        entry["blocks"][block],
-    ]:
+        named["test"],
+        named["attempt"],
+    ] or touched.get("attempt") != named["attempt"]:
         raise RefusedError(
             f"the classification next to block {block}'s attempt {touched.get('attempt')} is not "
             f"an instrument defect of correction {entry['id']} with the test it names for the block"
@@ -1254,7 +1289,12 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if found["valid"] else 1
         elif args.cmd == "classify":
             found = classify(
-                args.block, args.attempt, ROUTES[args.route], args.test, args.correction
+                args.block,
+                args.attempt,
+                ROUTES[args.route],
+                args.test,
+                args.correction,
+                fills() if args.correction else None,
             )
         elif args.cmd == "not-run":
             found = not_run(args.block, args.cause)

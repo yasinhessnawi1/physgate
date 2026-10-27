@@ -294,8 +294,9 @@ def utc_now() -> str:
 #:   and fresh-v1c's two;
 #: - ``corrections`` ("Commits corrected", §11's instrument defect, after "Set filled" alone): a
 #:   list, one entry per correction commit, each its ``id``, the corrected ``R`` and ``R_K`` (full
-#:   shas) and ``blocks``: every block it touches, each with the path of a test that depends on no
-#:   verdict and shows the defect in that block's own records. "Commits filled" never changes.
+#:   shas) and ``blocks``: every block it touches, each with its ``attempt`` and the path of the
+#:   ``test`` that depends on no verdict and shows the defect in that attempt's own records.
+#:   "Commits filled" never changes.
 FILLS_NAME = "fills.json"
 FILL_KEYS = ("commits", "sheet", "sets")
 #: Each fill's name, which the subject of the commit that adds it names.
@@ -332,7 +333,7 @@ def correction_entry(entry: object) -> dict[str, Any]:
 
     Raises:
         RefusedError: it is not an id, two full shas and the blocks of the run it touches, each
-            with the path of a test (``test_*.py``).
+            with its attempt and the path of a test (``test_*.py``).
     """
     blocks = entry.get("blocks") if isinstance(entry, dict) else None
     if (
@@ -342,15 +343,25 @@ def correction_entry(entry: object) -> dict[str, Any]:
         or not all(isinstance(entry[k], str) and _SHA.fullmatch(entry[k]) for k in ("R", "R_K"))
         or not isinstance(blocks, dict)
         or not blocks
-        or not all(
-            b in BLOCKS and isinstance(t, str) and _TEST.fullmatch(t) for b, t in blocks.items()
-        )
+        or not all(b in BLOCKS and _touch(t) for b, t in blocks.items())
     ):
         raise RefusedError(
             "a correction entry is not an id, the corrected R and R_K (full shas) and the blocks "
-            "it touches, each with the path of its test"
+            "it touches, each with its attempt and the path of its test"
         )
     return dict(entry)
+
+
+def _touch(named: object) -> bool:
+    """A block's part of a correction entry: ``{"attempt": n, "test": path}``, and nothing else."""
+    return (
+        isinstance(named, dict)
+        and set(named) == {"attempt", "test"}
+        and type(named["attempt"]) is int
+        and named["attempt"] >= 1
+        and isinstance(named["test"], str)
+        and _TEST.fullmatch(named["test"]) is not None
+    )
 
 
 def corrected_from(
@@ -381,7 +392,9 @@ def corrected_from(
         raise RefusedError(
             f"block {block} is named by the corrections {sorted(named)}, and its attempts are "
             f"classified with {sorted(have)}: each correction that names a block has its "
-            "classification with the correction's id, and no other (§11)"
+            "classification with the correction's id, and no other (§11). A correction is "
+            "committed only after checks.py correction-check passes on it; each attempt it names "
+            "is then classified with its id (checks.py classify --correction <id>)"
         )
     return since, named[mine[since - 1]["correction"]] if marked else None
 

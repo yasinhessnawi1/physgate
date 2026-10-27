@@ -14,9 +14,10 @@ nothing is called.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import sys
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -61,6 +62,30 @@ ITEMS = {
 }
 SECTION2 = "domain_standards"
 SECTION1 = "acceptance_criteria"
+
+
+def refuses(kind: type[Exception], pattern: str, call: Callable[[], object]) -> None:
+    """The call is refused with ``kind`` and a message ``pattern`` finds.
+
+    Anything else fails on an assertion (another exception, another message, or no refusal), never
+    by an exception.
+    """
+    try:
+        call()
+    except Exception as exc:  # noqa: BLE001 - every outcome is judged by the assertion below
+        assert isinstance(exc, kind) and re.search(pattern, str(exc)), (
+            f"{type(exc).__name__}: {exc}"
+        )
+        return
+    raise AssertionError(f"not refused ({kind.__name__}: {pattern})")
+
+
+def holds(call: Callable[[], Any]) -> Any:  # noqa: ANN401
+    """The call returns: a refusal or any other exception fails on an assertion."""
+    try:
+        return call()
+    except Exception as exc:  # noqa: BLE001 - judged by the assertion
+        raise AssertionError(f"refused or raised: {type(exc).__name__}: {exc}") from exc
 
 
 def token_line(value: str, before: str = "", between: str = "=") -> str:

@@ -27,11 +27,16 @@ import common  # noqa: E402
 import fixture as fx  # noqa: E402
 
 AFTER = ck._seconds("2026-11-06T09:00:00Z")
+#: The owner's account file: a weekly reset read from the usage page, Thursdays at 07:00 UTC.
+ACCOUNT = {"account_label": "the run account", "weekly_reset_utc": "2026-10-29T07:00:00Z"}
+#: Thursday 5.11's reset and the next week's, as that one reset gives them.
+FIRST, SECOND = "2026-11-05T07:00:00Z", "2026-11-12T07:00:00Z"
 
 
 @pytest.fixture
 def runs_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("RP3_RUNS", str(tmp_path / "runs"))
+    owner_file(tmp_path / "runs", "account.json", ACCOUNT)
     return tmp_path / "runs"
 
 
@@ -74,7 +79,26 @@ def test_r_pg_01b_re_attempting_a_round_after_the_5_11_reset_moves_the_start_a_w
     with pytest.raises(ck.RefusedError, match="2026-11-12"):
         ck.order("x1", now=AFTER, ledger=[line])
     before = {**line, "ended_utc": "2026-11-04T20:00:00Z"}
-    assert ck.order("x1", now=AFTER, ledger=[before])["earliest"] == ck.EARLIEST
+    assert ck.order("x1", now=AFTER, ledger=[before])["earliest"] == FIRST
+
+
+@pytest.mark.parametrize(
+    ("ended", "earliest"),
+    [("2026-11-05T06:59:59Z", FIRST), ("2026-11-05T07:00:00Z", SECOND)],
+    ids=["a-second-before-5-11-s-reset", "at-5-11-s-reset"],
+)
+def test_the_blocks_earliest_start_is_5_11_s_reset_from_the_owner_s_recorded_one(
+    runs_dir: Path, ended: str, earliest: str
+) -> None:
+    # A line of R-PG-01b's ending at 5.11's reset or later ran into its second weekly window.
+    line = {"kind": "rpg01b-round", "started_utc": "2026-11-04T10:00:00Z", "ended_utc": ended}
+    assert ck.earliest_start([line]) == earliest
+    # A reset that falls on 5.11 local time: Thursday 00:30 in Norway is Wednesday 23:30 UTC.
+    owner_file(runs_dir, "account.json", {**ACCOUNT, "weekly_reset_utc": "2026-10-28T23:30:00Z"})
+    assert ck.earliest_start([]) == "2026-11-04T23:30:00Z"
+    (runs_dir / "owner" / "account.json").unlink()
+    with pytest.raises(ck.RefusedError, match="records no weekly reset"):
+        ck.earliest_start([])
 
 
 @pytest.mark.parametrize(
@@ -179,7 +203,6 @@ def test_the_owner_confirms_each_block_and_the_window_before_the_first(runs_dir:
 
 
 WINDOW = {"weekly_limit_reset_confirmed_utc": "2026-11-05T07:00:00Z"}
-ACCOUNT = {"account_label": "the run account", "weekly_reset_utc": "2026-10-29T07:00:00Z"}
 BLOCK_X1 = {"account_label": "the run account", "no_other_session_on_the_run_account": True}
 
 
@@ -213,6 +236,7 @@ def test_the_first_block_needs_a_passed_smoke_ended_before_the_window_s_confirma
 def test_the_smoke_runs_before_the_window_s_confirmation_and_before_any_block(
     runs_dir: Path,
 ) -> None:
+    (runs_dir / "owner" / "account.json").unlink()
     with pytest.raises(ck.RefusedError, match="account"):
         ck.smoke_ready("x1")
     owner_file(runs_dir, "account.json", ACCOUNT)
@@ -450,8 +474,9 @@ SETS = {"manifests": {"fresh-v2-x1": "d" * 64}}
 
 #: A tracked test that depends on no verdict, as a correction names one per block it touches.
 TEST = "experiments/R-PG-03/test_checks.py"
-C1: dict[str, Any] = {"id": "c1", "R": "f" * 40, "R_K": "e" * 40, "blocks": {"x1": TEST}}
-C2: dict[str, Any] = {**C1, "id": "c2", "blocks": {"y1": TEST, "z1": TEST}}
+ONE: dict[str, Any] = {"attempt": 1, "test": TEST}
+C1: dict[str, Any] = {"id": "c1", "R": "f" * 40, "R_K": "e" * 40, "blocks": {"x1": ONE}}
+C2: dict[str, Any] = {**C1, "id": "c2", "blocks": {"y1": ONE, "z1": ONE}}
 ALL = {"commits": COMMITS, "sheet": SHEET, "sets": SETS}
 FILLED: list[tuple[str, dict[str, Any], dict[str, str] | None]] = [
     ("docs(r-pg-03): Commits filled", {"commits": COMMITS}, None),
@@ -551,14 +576,56 @@ def test_a_correction_after_set_filled_is_read(tmp_path: Path) -> None:
                 *FILLED,
                 (
                     "docs: Commits corrected, block x1",
-                    {
-                        **ALL,
-                        "corrections": [{**C1, "blocks": {"x1": "experiments/R-PG-03/checks.py"}}],
-                    },
+                    {**ALL, "corrections": [{**C1, "blocks": {"x1": {**ONE, "test": "a.py"}}}]},
                     None,
                 ),
             ],
             "the blocks it touches",
+        ),
+        (
+            [
+                *FILLED,
+                (
+                    "docs: Commits corrected, block x1",
+                    {**ALL, "corrections": [{**C1, "blocks": {"x1": TEST}}]},
+                    None,
+                ),
+            ],
+            "each with its attempt",
+        ),
+        (
+            [
+                *FILLED,
+                (
+                    "docs: Commits corrected, block x1",
+                    {**ALL, "corrections": [{**C1, "blocks": {"x1": {**ONE, "attempt": 0}}}]},
+                    None,
+                ),
+            ],
+            "each with its attempt",
+        ),
+        (
+            [
+                *FILLED,
+                (
+                    "docs: Commits corrected, block x1",
+                    {**ALL, "corrections": [{**C1, "by": 1}]},
+                    None,
+                ),
+            ],
+            "each with its attempt",
+        ),
+        (
+            # Block s, whose name is a letter of "Commits": a word of the subject, not a substring.
+            [
+                *FILLED,
+                (
+                    "docs: Commits corrected, block x1",
+                    {**ALL, "corrections": [{**C1, "blocks": {"x1": ONE, "s": ONE}}]},
+                    None,
+                ),
+            ],
+            "every block it touches",
         ),
         (
             [
@@ -594,6 +661,10 @@ def test_a_correction_after_set_filled_is_read(tmp_path: Path) -> None:
         "an-id-used-twice",
         "an-entry-touching-no-block",
         "an-entry-whose-test-is-no-test",
+        "an-entry-whose-block-names-no-attempt",
+        "an-entry-whose-attempt-is-not-one-or-more",
+        "an-entry-with-a-key-of-its-own",
+        "a-subject-naming-block-s-only-inside-a-word",
         "a-malformed-entry",
         "another-path-touched",
     ],
@@ -683,8 +754,15 @@ def test_the_readme_holds_the_freeze_s_bytes_and_one_appended_section(r_k: Any) 
         (FROZEN_README + SECTION + "\n## More\n\nx\n", "one appended section"),
         (FROZEN_README, "one appended section"),
         (FROZEN_README + "\n## Something else\n", "one appended section"),
+        (FROZEN_README + SECTION + "\n# A title\n", "more than the one appended section"),
     ],
-    ids=["an-edit-inside-the-frozen-part", "a-second-section", "no-section", "another-section"],
+    ids=[
+        "an-edit-inside-the-frozen-part",
+        "a-second-section",
+        "no-section",
+        "another-section",
+        "a-top-level-heading-after-it",
+    ],
 )
 def test_a_readme_other_than_the_freeze_s_bytes_and_its_one_section_is_refused(
     r_k: Any,
@@ -739,8 +817,8 @@ def classified(runs: Path, route: str = "instrument defect", block: str = "x1") 
 
 
 def correction(r: str, r_k: str, *touches: str, cid: str = "c1") -> dict[str, Any]:
-    """A correction's entry: its id, R' and R_K', and each block it touches with its test."""
-    return {"id": cid, "R": r, "R_K": r_k, "blocks": {b: TEST for b in touches or ("x1",)}}
+    """A correction's entry: its id, R' and R_K', each block it touches with attempt and test."""
+    return {"id": cid, "R": r, "R_K": r_k, "blocks": {b: ONE for b in touches or ("x1",)}}
 
 
 def corrected_pair(r_k: Any, name: str, k_commits: int = 1) -> tuple[Path, Path, str, str, str]:  # noqa: ANN401
@@ -765,7 +843,7 @@ def test_a_block_whose_deviation_is_an_instrument_defect_runs_at_its_corrected_c
     }
     # "Commits filled"'s trees describe R: they are not held at the corrected R'.
     fills["commits"]["trees"] = {"src/physgate/gate": "0" * 40}
-    found = ck.commits(r, k, fills, master_ref=rs, block="x1")
+    found = fx.holds(lambda: ck.commits(r, k, fills, master_ref=rs, block="x1"))
     assert found["corrected"] == correction(rs, ks)
     # Every other block stays at R, the commit "Commits filled" records.
     with pytest.raises(ck.RefusedError, match="R is"):
@@ -803,12 +881,16 @@ def test_a_correction_that_names_a_block_without_its_classification_is_refused(
 ) -> None:
     classified(runs_dir, route="anything else impossible as specified")
     fills = {"commits": {"R": "a" * 40, "R_K": "b" * 40}, "corrections": [C1]}
-    with pytest.raises(common.RefusedError, match=NAMED_NOT_CLASSIFIED):
-        ck.commits(tmp_path, tmp_path, fills, master_ref="HEAD", block="x1")
+
+    def l2() -> object:
+        return ck.commits(tmp_path, tmp_path, fills, master_ref="HEAD", block="x1")
+
+    fx.refuses(common.RefusedError, NAMED_NOT_CLASSIFIED, l2)
+    # The refusal names the remedy: the check before the commit, then the classification.
+    fx.refuses(common.RefusedError, r"correction-check passes on it.*classify --correction", l2)
     # A valid attempt the correction names is refused alike until it is classified with it.
     blocks(runs_dir, [att("x1", True)])
-    with pytest.raises(common.RefusedError, match=NAMED_NOT_CLASSIFIED):
-        ck.commits(tmp_path, tmp_path, fills, master_ref="HEAD", block="x1")
+    fx.refuses(common.RefusedError, NAMED_NOT_CLASSIFIED, l2)
 
 
 def test_an_instrument_defect_whose_correction_does_not_name_the_block_is_refused(
@@ -816,11 +898,13 @@ def test_an_instrument_defect_whose_correction_does_not_name_the_block_is_refuse
 ) -> None:
     classified(runs_dir)
     fills: dict[str, Any] = {"commits": {"R": "a" * 40, "R_K": "b" * 40}}
-    with pytest.raises(common.RefusedError, match=CLASSIFIED_NOT_NAMED):
-        ck.commits(tmp_path, tmp_path, fills, master_ref="HEAD", block="x1")
-    fills["corrections"] = [{**C1, "blocks": {"y1": TEST}}]
-    with pytest.raises(common.RefusedError, match=CLASSIFIED_NOT_NAMED):
-        ck.commits(tmp_path, tmp_path, fills, master_ref="HEAD", block="x1")
+
+    def l2() -> object:
+        return ck.commits(tmp_path, tmp_path, fills, master_ref="HEAD", block="x1")
+
+    fx.refuses(common.RefusedError, CLASSIFIED_NOT_NAMED, l2)
+    fills["corrections"] = [{**C1, "blocks": {"y1": ONE}}]
+    fx.refuses(common.RefusedError, CLASSIFIED_NOT_NAMED, l2)
 
 
 def test_a_correction_that_names_r_itself_is_refused(r_k: Any, runs_dir: Path) -> None:  # noqa: ANN401
@@ -860,12 +944,20 @@ def test_a_corrected_r_k_more_than_one_commit_above_r_prime_is_refused(
         ("test", "experiments/R-PG-03/test_launch.py"),
         ("route", "something else"),
         ("block", "y1"),
+        ("attempt", 2),
         (None, None),
     ],
-    ids=["another-correction", "another-test", "not-a-defect", "another-block", "none-written"],
+    ids=[
+        "another-correction",
+        "another-test",
+        "not-a-defect",
+        "another-block",
+        "another-attempt",
+        "none-written",
+    ],
 )
 def test_a_classification_other_than_the_correction_s_for_the_block_is_refused(
-    runs_dir: Path, tmp_path: Path, key: str | None, value: str | None
+    runs_dir: Path, tmp_path: Path, key: str | None, value: str | int | None
 ) -> None:
     path = classified(runs_dir)
     fills = {"commits": {"R": "a" * 40, "R_K": "b" * 40}, "corrections": [C1]}
@@ -882,14 +974,14 @@ def test_a_block_a_correction_touches_runs_again_until_its_corrected_attempt_is_
 ) -> None:
     first = touched(runs_dir, "y1", valid=True)
     blocks(runs_dir, [att("x1", True), first])
-    assert ck.order("y1", now=AFTER)["attempt"] == 2
+    assert fx.holds(lambda: ck.order("y1", now=AFTER))["attempt"] == 2
     # No other block: x1's valid attempt is no correction's.
     with pytest.raises(ck.RefusedError, match="block x1 already has a valid attempt$"):
         ck.order("x1", now=AFTER)
     # A void corrected attempt is re-attempted whole, as any void is (§11).
     void = {**att("y1", False), "attempt": 2, "void_causes": ["usage limit"]}
     blocks(runs_dir, [att("x1", True), first, void])
-    assert ck.order("y1", now=AFTER)["attempt"] == 3
+    assert fx.holds(lambda: ck.order("y1", now=AFTER))["attempt"] == 3
     # Once one is valid, the block is not run again.
     blocks(runs_dir, [att("x1", True), first, void, {**att("y1", True), "attempt": 3}])
     with pytest.raises(ck.RefusedError, match="y1 already has a valid attempt at its corrected"):
@@ -913,39 +1005,50 @@ def test_the_owner_classifies_a_valid_attempt_a_correction_touches_with_its_id(
     row = {**att("x1", True), "launch": str(launch), "void_causes": [], "deviation": None}
     void = {**att("y1", False), "void_causes": ["usage limit"], "deviation": None}
     blocks(runs_dir, [row, void])
+    # The corrections on the master ref: c1 and c2 name x1's attempt 1, c3 names y1's.
+    fills = {"corrections": [C1, {**C1, "id": "c2"}, {**C1, "id": "c3", "blocks": {"y1": ONE}}]}
+    other = "experiments/R-PG-03/test_launch.py"
     bad: list[tuple[str, str | None, str | None, str]] = [
         ("anything else impossible as specified", None, None, "no deviation"),
         ("instrument defect", TEST, None, "names the correction"),
         ("anything else impossible as specified", None, "c1", "for an instrument defect alone"),
+        # A correction is committed first: an id the master ref does not hold for this attempt
+        # and test is refused, so a typo can never lock the block.
+        ("instrument defect", TEST, "c1-typo", "no correction c1-typo on the master ref"),
+        ("instrument defect", other, "c1", "no correction c1 on the master ref"),
     ]
     for route, test, cid, why in bad:
         with pytest.raises(ck.RefusedError, match=why):
-            ck.classify("x1", 1, route, test, cid)
+            ck.classify("x1", 1, route, test, cid, fills)
+    with pytest.raises(ck.RefusedError, match="no correction c1 on the master ref"):
+        ck.classify("x1", 1, "instrument defect", TEST, "c1", None)
     # A void attempt is re-attempted whole, never classified.
     with pytest.raises(ck.RefusedError, match="no deviation"):
-        ck.classify("y1", 1, "instrument defect", TEST, "c1")
-    got = ck.classify("x1", 1, "instrument defect", TEST, "c1")
+        ck.classify("y1", 1, "instrument defect", TEST, "c3", fills)
+    got = ck.classify("x1", 1, "instrument defect", TEST, "c1", fills)
     said = json.loads((launch / "classification.json").read_text())
     assert (said["route"], said["correction"], said["test"]) == ("instrument defect", "c1", TEST)
     assert said == got and ck.read_blocks()["attempts"][0]["correction"] == "c1"
     with pytest.raises(ck.RefusedError, match="classified already"):
-        ck.classify("x1", 1, "instrument defect", TEST, "c2")
+        ck.classify("x1", 1, "instrument defect", TEST, "c2", fills)
     # The block record holds the classification too, its file gone.
     (launch / "classification.json").unlink()
     with pytest.raises(ck.RefusedError, match="classified already"):
-        ck.classify("x1", 1, "instrument defect", TEST, "c2")
+        ck.classify("x1", 1, "instrument defect", TEST, "c2", fills)
 
 
-def test_a_correction_s_id_classifies_one_attempt_of_a_block(runs_dir: Path) -> None:
+def test_a_correction_s_id_classifies_the_one_attempt_of_a_block_it_names(runs_dir: Path) -> None:
     first = touched(runs_dir, "x1")
     launch = runs_dir / "blocks" / "x1-2"
     launch.mkdir(parents=True)
     pending = {"causes": ["a crashed or killed process"], "classification": None}
     second = {**att("x1", False), "attempt": 2, "launch": str(launch), "deviation": pending}
     blocks(runs_dir, [first, second])
-    with pytest.raises(ck.RefusedError, match="c1 classifies an attempt of block x1 already"):
-        ck.classify("x1", 2, "instrument defect", TEST, "c1")
-    assert ck.classify("x1", 2, "instrument defect", TEST, "c2")["correction"] == "c2"
+    c2 = {**C1, "id": "c2", "blocks": {"x1": {**ONE, "attempt": 2}}}
+    with pytest.raises(ck.RefusedError, match="no correction c1 on the master ref"):
+        ck.classify("x1", 2, "instrument defect", TEST, "c1", {"corrections": [C1, c2]})
+    got = ck.classify("x1", 2, "instrument defect", TEST, "c2", {"corrections": [C1, c2]})
+    assert got["correction"] == "c2"
 
 
 # ---- R3 ------------------------------------------------------------------------------------------
@@ -1089,7 +1192,7 @@ def test_a_deviation_holds_the_block_until_the_owner_classifies_it(runs_dir: Pat
         ck.classify("x1", 1, "instrument defect", test, None)
     with pytest.raises(ck.RefusedError, match="no deviation"):
         ck.classify("x1", 2, "anything else impossible as specified", None)
-    got = ck.classify("x1", 1, "instrument defect", test, "c1")
+    got = ck.classify("x1", 1, "instrument defect", test, "c1", {"corrections": [C1]})
     assert got["test_blob"] == git(common.REPO, "rev-parse", f"HEAD:{test}")
     assert json.loads((launch / "classification.json").read_text())["route"] == "instrument defect"
     with pytest.raises(ck.RefusedError, match="already"):
@@ -1097,7 +1200,7 @@ def test_a_deviation_holds_the_block_until_the_owner_classifies_it(runs_dir: Pat
     assert ck.order("x1", now=AFTER)["attempt"] == 2  # re-run at the corrected commit
     # A deviation is no void attempt: three voids are still needed for the owner's declaration.
     blocks(runs_dir, [{**row, "deviation": {**pending, "classification": "instrument defect"}}] * 3)
-    assert ck.order("x1", now=AFTER)["attempt"] == 4
+    assert fx.holds(lambda: ck.order("x1", now=AFTER))["attempt"] == 4
 
 
 def test_a_deviation_classified_impossible_as_specified_is_never_attempted_again(
@@ -1113,6 +1216,23 @@ def test_a_deviation_classified_impossible_as_specified_is_never_attempted_again
     ck.classify("x1", 1, "anything else impossible as specified", None)
     with pytest.raises(ck.RefusedError, match="not taken"):
         ck.order("x1", now=AFTER)
+
+
+def test_a_block_classified_impossible_is_marked_not_taken_and_the_later_blocks_run(
+    runs_dir: Path,
+) -> None:
+    # §11: the decisions it feeds are not taken; nothing else stops.
+    launch = runs_dir / "blocks" / "y1-1"
+    launch.mkdir(parents=True)
+    pending = {"causes": ["a run that is not whole"], "classification": None}
+    row = {**att("y1", False), "launch": str(launch), "void_causes": [], "deviation": pending}
+    blocks(runs_dir, [att("x1", True), row])
+    with pytest.raises(ck.RefusedError, match="block y1 comes first"):
+        ck.order("z1", now=AFTER)
+    ck.classify("y1", 1, "anything else impossible as specified", None)
+    marked = ck.read_blocks()["not_taken"]
+    assert marked == {"y1": {"attempt": 1, "causes": ["a run that is not whole"]}}
+    assert ck.order("z1", now=AFTER)["attempt"] == 1
 
 
 def test_an_incomplete_run_is_a_crashed_process(tmp_path: Path) -> None:
@@ -1207,8 +1327,9 @@ def test_stop_sessions_refuses_a_review_root_that_is_a_symlink(
     real = tmp_path / "elsewhere"
     recorded_session(real, 1, 424242)
     (tmp_path / "rp3-x1-1-a2").symlink_to(real)
-    with pytest.raises(ck.RefusedError, match="not a review root"):
-        ck.stop_sessions([tmp_path / "rp3-x1-1-a2"])
+    fx.refuses(
+        ck.RefusedError, "not a review root", lambda: ck.stop_sessions([tmp_path / "rp3-x1-1-a2"])
+    )
 
 
 def test_the_host_check_refuses_a_login_file_it_cannot_confirm_removed(
