@@ -6,24 +6,38 @@ result. Its specification was written before any module ran, so code writes the 
 the run's event log alone, before integration's session is spawned (ARCH-051):
 
 - the run's gate mode, with the sentence integration's specification states it in;
-- the system-scope line: the verdict, the failing check, the finding, the numeric output and the
-  quantities, or why the check did not run;
+- the system-scope line: the verdict, the failing check, each blocking failure and warning by its
+  check and node, the numeric output and the quantities; or why the check did not run;
 - each module pair the plan names, in the recorded order: its first contract result, labelled
   first, and its latest result, or that no result exists for it;
 - the system requirements the plan allocates to integration, with the brief's own words for each
   one the plan gives by number, so a bare number never stands for a requirement.
 
-It is state, never a message (ARCH-040): it reads only those lines' structured fields, so no
-session's stream, no reviewer's words, no repair instruction and no node's free text reach it. The
-gate's finding is quoted as the gate recorded it.
+**It is state, never a message** (ARCH-040). Quoting a string keeps it from making a heading, not
+from carrying an instruction, so the document renders nothing but:
 
-**Its bytes.** UTF-8 with LF line endings and one final newline; every recorded string and number
-is quoted as JSON on one line, so no recorded text can begin a heading or a numbered line of its
-own; nothing from a clock, a session, an attempt or a line's place in the log (a process that
-takes a run over adds lines of its own), so what the run recorded fixes the bytes. No line is
-longer than the transcript's width: a longer one is cut into pieces, each but the last ending in
-the transcript's continuation mark, so the Read tool shows every line whole and the reading check,
-which counts lines, proves a whole read.
+- text the harness words itself, and enum values, numbers, digests and commits;
+- identifiers a check holds to a strict pattern and bound wherever they are written: node and
+  interface ids (the store's id pattern, at every write and every journal read), module names (the
+  plan's name pattern), roles (the register's names), subtask ids (minted from those names);
+- a unit only as pint's own name for it, after the gate's parser has held it to the shared
+  spelling guard; a unit the parser refuses is said to be refused, and never shown;
+- a quantity's name only where it is a name of the gate's catalogue: a graph quantity's name is
+  held to no pattern at write, so any other is named by its place (a clause by its number in the
+  order of its interface's quantity names, which the interface's contract file gives);
+- the brief's own words, a person's, for each requirement given by number. A requirement the plan
+  gives in words is named by its place in integration's specification, which quotes it.
+
+So it copies no gate finding or check message, no clause's reason (each quotes a unit or a name
+as a session wrote it), no session's stream, no reviewer's words and no node's free text; each
+failing node's outcome is worded here.
+
+**Its bytes.** UTF-8 with LF line endings and one final newline; every value is quoted as JSON on
+one line, so none can begin a heading or a numbered line; nothing from a clock, a session, an
+attempt or a line's place in the log (a process that takes a run over adds lines of its own), so
+what the run recorded fixes the bytes. No line is longer than the transcript's width: a longer one
+is cut into pieces, each but the last ending in the transcript's continuation mark, so the Read
+tool shows every line whole and the reading check, which counts lines, proves a whole read.
 """
 
 from __future__ import annotations
@@ -31,14 +45,17 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
+from physgate.gate.catalogue import QUANTITIES
+from physgate.gate.units import UnitRefusedError, parse
 from physgate.orchestrator.decompose import GATE_MODE_SENTENCES
 from physgate.orchestrator.events import IntegrationGateRan
 from physgate.reviewers.transcript import cut_line
 
 if TYPE_CHECKING:
-    from physgate.contracts.clause import InterfaceCheck
+    from physgate.contracts.clause import InterfaceCheck, NodeCheck
     from physgate.contracts.pairs import ContractPair, Side
     from physgate.orchestrator.events import ContractTested
+    from physgate.orchestrator.protocols import CheckRecord, NumericOutput, QuantityRef
     from physgate.orchestrator.replay import RunState
 
 #: The document's name, where its session reads it and in its reviewer's packet.
@@ -49,19 +66,32 @@ HEAD = (
     "spawned. It holds the record's state, not a message: the run's gate mode, the system-scope "
     "result, the contract results of each module pair the plan names, and the system requirements "
     "with the brief's own words for each one the plan gives by number. No session wrote any of "
-    'it. Every recorded value is quoted as JSON, and a line that ends in " ⏎" goes on in the '
-    "next."
+    "it: it names a node by its id, a unit by the unit registry's name for it, and a quantity by "
+    "the gate catalogue's name, or else by its place. Every value is quoted as JSON, and a line "
+    'that ends in " ⏎" goes on in the next.'
+)
+SCOPE_HEAD = (
+    "The gate's own words are on its record and are not copied here: they quote units and "
+    "quantity names as sessions wrote them."
 )
 PAIRS_HEAD = (
     "Each module pair the plan names, in the order the run recorded them. A pair's first result "
     "is labelled first; its latest result is the one after the last merge in either of its "
-    "modules."
+    "modules. A clause is one quantity of an interface, numbered in the order of the quantities' "
+    "names in the interface's contract file."
 )
 REQUIREMENTS_HEAD = (
-    "Each requirement the plan allocates to integration, as the plan gives it, with the module "
-    "criteria that contribute to it; where the plan gives one by the brief's criterion number, "
-    "the brief's own words for it."
+    "Each requirement the plan allocates to integration, with the module criteria that "
+    "contribute to it: one the plan gives by the brief's criterion number, with the brief's own "
+    "words for it; one it gives in words, by its place in integration's specification, which "
+    "quotes it."
 )
+#: Why a joined node fails a clause, in the harness's words.
+WHY: dict[str, str] = {
+    "missing": "it carries no quantity of the clause's name",
+    "unit": "its unit is one the gate's parser refuses, or is not in the interface's root units",
+    "value": "its value, converted to the interface's unit, is not the interface's",
+}
 
 
 def _q(value: object) -> str:
@@ -77,6 +107,42 @@ def _nodes(names: tuple[str, ...]) -> str:
     return ", ".join(_q(name) for name in names) if names else "none"
 
 
+def _quantity(name: str) -> str:
+    """A quantity, by the gate catalogue's name when it is one; never by a name it is not."""
+    if name in QUANTITIES:
+        return f"quantity {_q(name)}"
+    return "a quantity the catalogue does not name"
+
+
+def _measure(value: float | int, unit: str) -> str:
+    """A value in the unit registry's own names for its unit, or said to be in a refused unit.
+
+    The unit is held to the gate's parser first (the shared spelling guard, then the registry),
+    and only the registry's names for what it parsed are written, each with its power: a name
+    the registry does not define never parses, so no word of the unit as written is shown.
+    """
+    try:
+        items = parse(value, unit).unit_items()
+    except UnitRefusedError:
+        return f"{_q(value)}, in a unit the gate's parser refuses"
+    named = " * ".join(name if power == 1 else f"{name}**{power}" for name, power in items)
+    return f"{_q(value)} {_q(named or 'dimensionless')}"
+
+
+def _output(output: NumericOutput | None) -> str:
+    return _measure(output.value, output.unit) if output is not None else "none"
+
+
+def _ref(ref: QuantityRef) -> str:
+    return f"node {_q(ref.node_id)}, {_quantity(ref.name)}, {_measure(ref.value, ref.unit)}"
+
+
+def _record(record: CheckRecord) -> str:
+    where = f"node {_q(record.node)}" if record.node is not None else "no one node"
+    value = f"; value {_output(record.value)}" if record.value is not None else ""
+    return f"  - Check {_q(record.name)} at {_q(record.scope)} scope, on {where}{value}."
+
+
 def _system_scope(state: RunState) -> list[str]:
     ran = state.integration
     if ran is None:
@@ -87,21 +153,21 @@ def _system_scope(state: RunState) -> list[str]:
             "system-scope result."
         ]
     result = ran.result
-    output = result.numeric_output
-    quantities = [
-        f"- Quantity: node {_q(ref.node_id)}, quantity {_q(ref.name)}, {_q(ref.value)} "
-        f"{_q(ref.unit)}."
-        for ref in result.quantities
-    ] or ["- Quantities: none."]
+    blocking = [r for r in result.checks if r.outcome == "fail" and r.blocking]
+    warnings = [r for r in result.checks if r.outcome == "warn"]
     failing = _q(result.failing_check) if result.failing_check is not None else "none"
     return [
         f"The system-scope check ran in mode {_q(result.mode)}, and its verdict is "
-        f"{_q(result.verdict)}.",
+        f"{_q(result.verdict)}. {SCOPE_HEAD}",
         "",
         f"- Failing check: {failing}.",
-        f"- Finding: {_q(result.finding)}.",
-        f"- Numeric output: {f'{_q(output.value)} {_q(output.unit)}' if output else 'none'}.",
-        *quantities,
+        f"- Blocking failures: {len(blocking)}{':' if blocking else '.'}",
+        *(_record(record) for record in blocking),
+        f"- Warnings: {len(warnings)}{':' if warnings else '.'}",
+        *(_record(record) for record in warnings),
+        f"- Numeric output: {_output(result.numeric_output)}.",
+        *(f"- Quantity: {_ref(ref)}." for ref in result.quantities),
+        *([] if result.quantities else ["- Quantities: none."]),
         f"- Catalogue: {_q(result.catalogue_sha256)}.",
     ]
 
@@ -110,6 +176,11 @@ def _side(name: str, side: Side) -> str:
     return (
         f"- {name}: module {_q(side.module)}, role {_q(side.role)}, subtask {_q(side.subtask_id)}."
     )
+
+
+def _node(check: NodeCheck) -> str:
+    said = f"node {_q(check.node)} ({check.side}) {_q(check.outcome)}"
+    return said if check.outcome == "pass" else f"{said}: {WHY[check.outcome]}"
 
 
 def _interface(check: InterfaceCheck) -> list[str]:
@@ -123,14 +194,12 @@ def _interface(check: InterfaceCheck) -> list[str]:
         f"{_clauses(check.clauses_checked)}; producer nodes {_nodes(check.producer_nodes)}; "
         f"consumer nodes {_nodes(check.consumer_nodes)}{unjoined}."
     ]
-    for clause in check.clauses:
-        nodes = "; ".join(
-            f"node {_q(node.node)} ({node.side}) {_q(node.outcome)}"
-            + (f", because {_q(node.reason)}" if node.reason is not None else "")
-            for node in clause.nodes
-        )
+    total = len(check.clauses)
+    for number, clause in enumerate(check.clauses, start=1):
+        named = f", {_quantity(clause.quantity)}" if clause.quantity in QUANTITIES else ""
+        nodes = "; ".join(_node(node) for node in clause.nodes)
         lines.append(
-            f"  - Clause {_q(clause.quantity)}: {_q(clause.outcome)}"
+            f"  - Clause {number} of {total}{named}: {_q(clause.outcome)}"
             + (f"; {nodes}" if nodes else "")
             + "."
         )
@@ -181,6 +250,11 @@ def _contracts(state: RunState) -> list[str]:
     return lines
 
 
+def _criterion(requirement: str) -> bool:
+    """Whether the plan gives ``requirement`` as a criterion number of the brief's."""
+    return requirement.isascii() and requirement.isdigit() and len(requirement) <= 6
+
+
 def _requirements(state: RunState) -> list[str]:
     requirements = state.system_requirements
     if requirements is None:
@@ -189,19 +263,23 @@ def _requirements(state: RunState) -> list[str]:
         return ["The plan allocates no system requirement to integration."]
     words = {entry.criterion: entry.words for entry in state.brief_words}
     lines = [REQUIREMENTS_HEAD, ""]
-    for item in requirements:
-        said = words.get(item.requirement)
-        given = f", in the brief's words: {_q(said)}." if said is not None else "."
+    for place, item in enumerate(requirements, start=1):
+        if not _criterion(item.requirement):
+            given = (
+                f"- Requirement {place}: given in words, as integration's specification quotes it."
+            )
+        elif item.requirement in words:
+            given = (
+                f"- Requirement {place}: the brief's criterion {_q(item.requirement)}, in the "
+                f"brief's words: {_q(words[item.requirement])}."
+            )
+        else:
+            given = f"- Requirement {place}: the brief's criterion {_q(item.requirement)}."
         contributing = "; ".join(
             f"criterion {_q(part.criterion)} of module {_q(part.module)}"
             for part in item.contributing
         )
-        lines.extend(
-            [
-                f"- Requirement {_q(item.requirement)}{given}",
-                f"  - Contributing: {contributing}.",
-            ]
-        )
+        lines.extend([given, f"  - Contributing: {contributing}."])
     return lines
 
 

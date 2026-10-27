@@ -1,13 +1,14 @@
 """No session's own words reach integration's issued state: it is state, never a message.
 
 Integration's issued state is built from the run's record, and the record holds more than state:
-every session's stream, every reviewer's finding and every repair instruction quoting one, and
-each node's free text (a quantity's source, a node's requirements, its model, and the reason its
-owner gives for leaving it unchanged). A canary planted in each of those is shown to be on the
-record, or in the graph, and then found in no form in the document the session is handed and its
-reviewer reads. The walk runs over the fake gate and over the real one, which reads the graph's
-free text into its check records: the real gate's finding, which the document quotes, never
-carries it.
+every session's stream, every reviewer's finding and every repair instruction quoting one, each
+node's free text (a quantity's source, a node's requirements, its model, the reason its owner gives
+for leaving it unchanged), and what sessions name things: a unit and a quantity's name, which no
+check holds to a pattern at write, and a node id, which the store holds to its pattern and bound.
+A canary planted in each is shown to be on the record, or in the graph, and then found in no form
+in the document the session is handed and its reviewer reads; a node id only whole, as the
+identifier it is. The walk runs over the fake gate and over the real one, whose finding and check
+records quote units, quantity names and a node's free text: the document copies none of them.
 """
 
 from __future__ import annotations
@@ -39,6 +40,7 @@ from physgate.orchestrator.protocols import (
     RunningGateMode,
 )
 from physgate.orchestrator.trajectory import seal
+from physgate.state.schema import NODE_ID_MAX_LENGTH, NODE_ID_PATTERN
 from physgate.state.store import JOURNAL_NAME
 
 INTEG, DRIVE, FW, BUDGET, CLOSING = (
@@ -127,9 +129,17 @@ class RealSystemGate(FakeGate):
         return PhysicsGate().check_integration(artefact, mode=mode)
 
 
-def walk(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gate: FakeGate) -> dict[str, Any]:
-    """A run with sizing's two passes and integration, a canary in every session's own words."""
+def walk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gate: FakeGate, *, identifiers: bool = False
+) -> dict[str, Any]:
+    """A run with sizing's two passes and integration, a canary in every session's own words.
+
+    With ``identifiers``, firmware's node also carries a canary in a unit and in a quantity's
+    name, each far longer than any identifier, and firmware writes a node whose id carries one,
+    as long as the store's id pattern allows.
+    """
     words = {field: canary() for field in ("source", "requirements", "model", "justified")}
+    said = {field: canary() for field in ("unit", "name", "node_id")}
     dispatcher = Streaming(tmp_path / "streams")
     reviewer = Wordy()
     rig = runner.rig_for(
@@ -164,6 +174,19 @@ def walk(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gate: FakeGate) -> dic
             CLOSING: [free_text(kept, words)],
         }
     )
+    long_id = f"c{said['node_id']}." + "z" * (NODE_ID_MAX_LENGTH - 2 - len(said["node_id"]))
+    if identifiers:
+        fw = graph.writes[FW][0]
+        unit = said["unit"] + "_" * 967  # read by the clause and the gate, refused by both
+        fw["quantities"]["v"]["unit"] = unit
+        name = said["name"] + "_" + "q" * 967
+        fw["quantities"][name] = {
+            "value": 1,
+            "unit": "V",
+            "source": "brief",
+            "written_by": "firmware",
+        }
+        graph.writes[FW].append(runner.node(long_id, "firmware", "iface.tilt", period=10))
     loop = rig.open()
     runner.hooked(monkeypatch, loop, declared=(BUDGET, DRIVE, FW))
     runner.start(loop, sizing=True)
@@ -181,6 +204,8 @@ def walk(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gate: FakeGate) -> dic
         "review": frozenset(reviewer.said),
         "node": frozenset(words.values()),
         "journal": (graph.root / JOURNAL_NAME).read_bytes(),
+        "said": said,
+        "long_id": long_id,
         "streams": b"".join(p.read_bytes() for p in (tmp_path / "streams").rglob("*.jsonl")),
     }
 
@@ -221,10 +246,36 @@ def test_the_real_gates_finding_carries_no_nodes_free_text_into_the_state(
     )
     assert any(justified in record.message for record in ran.result.checks)
     assert (ran.result.verdict, ran.result.failing_check) == ("fail", "propagation")
-    # Its finding, failing check and quantities, which the document quotes, carry none of it.
+    # The document copies none of the gate's words, and none of them reaches it.
     quoted = ran.result.model_dump_json(
         include={"verdict", "mode", "finding", "failing_check", "numeric_output", "quantities"}
     )
     assert canary_seen(quoted.encode(), seen["node"]) is None
     assert canary_seen(seen["state"], seen["node"] | seen["session"] | seen["review"]) is None
     assert [e for e in seen["events"] if isinstance(e, IntegrationStateIssued)]
+
+
+@pytest.mark.parametrize("which", ["fake", "real"], ids=["the fake gate", "the real gate"])
+def test_a_unit_or_a_quantity_name_reaches_the_state_in_no_form_and_a_node_id_only_whole(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, which: str
+) -> None:
+    gate = FakeGate() if which == "fake" else RealSystemGate()
+    seen = walk(tmp_path, monkeypatch, gate, identifiers=True)
+    said, long_id = seen["said"], seen["long_id"]
+    # Each is on the record: in the graph, and, held to nothing at write, a unit and a quantity's
+    # name are what a clause's reason and a gate's message quote.
+    for words in said.values():
+        assert canary_seen(seen["journal"], frozenset({words})) == words
+    log = (seen["rig"].run_dir / "events.jsonl").read_bytes()
+    assert canary_seen(log, frozenset({said["unit"]})) == said["unit"]
+    if which == "real":
+        (ran,) = [e for e in seen["events"] if isinstance(e, IntegrationGateRan)]
+        assert canary_seen(ran.result.model_dump_json().encode(), frozenset({said["name"]}))
+    # Neither reaches the document, in any form.
+    assert canary_seen(seen["state"], frozenset({said["unit"], said["name"]})) is None
+    # A node id is held at every write to the store's pattern and bound, so it may be named, and
+    # only whole, as the identifier it is.
+    assert NODE_ID_PATTERN.fullmatch(long_id) and len(long_id) == NODE_ID_MAX_LENGTH
+    text = seen["state"].decode()
+    assert text.count(f'"{long_id}"') >= 1
+    assert text.count(said["node_id"]) == text.count(f'"{long_id}"')
