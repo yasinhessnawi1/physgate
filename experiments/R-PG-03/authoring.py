@@ -402,6 +402,7 @@ def turn(root: Path, label: str, message: str, resume: str | None) -> dict[str, 
         # The turn did not end within its bound: an infrastructure cut, resumed on the ladder.
         end = {"ended": "infrastructure", "result_line": end.get("result_line"), "exit": None}
     result: dict[str, Any] = {}
+    began = None  # the session the binary's system/init line names: a cut stream has no result
     for line in text.splitlines():
         try:
             event = json.loads(line)
@@ -409,6 +410,8 @@ def turn(root: Path, label: str, message: str, resume: str | None) -> dict[str, 
             continue
         if isinstance(event, dict) and event.get("type") == "result":
             result = event
+        if isinstance(event, dict) and event.get("subtype") == "init" and began is None:
+            began = event.get("session_id")
     outcome = {
         "turn": n,
         "label": label,
@@ -420,7 +423,7 @@ def turn(root: Path, label: str, message: str, resume: str | None) -> dict[str, 
         "timed_out": timed_out,
         "ended": end["ended"],
         "stream_sha256": common.sha256_file(stream),
-        "session_id": result.get("session_id"),
+        "session_id": result.get("session_id") or began,
         "num_turns": result.get("num_turns"),
         "tokens": common.result_tokens(text),
         "secret_scan": secret_scan(root),
@@ -1023,6 +1026,7 @@ def _pair_step(state: dict[str, Any], pair: str, p: dict[str, Any]) -> dict[str,
         p["pending"] = {
             "role": role,
             "label": label,
+            "message": message,
             "next": after,
             "usage_cut": False,
             "infra": 0,
@@ -1069,7 +1073,7 @@ def _resolve(
         pend["usage_cut"] = True
         s["usage_resumes"] += 1
         record(state, "resume after a usage limit", pair=pair, session=role)
-        return _turn(state, pair, p, role, f"resume-{pend['label']}", "resume.txt")
+        return _cut_again(state, pair, p, role, pend)
     if last["ended"] == "infrastructure":
         n, ladders = pend["infra"], pend["ladders"]
         if n >= 3 * ladders or (ladders > 2 and n >= 6):
@@ -1086,7 +1090,7 @@ def _resolve(
             time.sleep(delay)
         pend["infra"] = n + 1
         record(state, "resume after an infrastructure cut", pair=pair, session=role, delay_s=delay)
-        return _turn(state, pair, p, role, f"resume-{pend['label']}", "resume.txt")
+        return _cut_again(state, pair, p, role, pend)
     p["pending"] = None
     carried = pend.get("cut_failed") or []
     failed = [*carried, *(f for f in last.get("audit_failed") or [] if f not in carried)]
@@ -1094,6 +1098,20 @@ def _resolve(
         return _route(state, pair, p, role, pend, "; ".join(failed))
     p["phase"] = pend["next"]
     return {"step": "turn resolved", "pair": pair, "session": role, "next": p["phase"]}
+
+
+def _cut_again(
+    state: dict[str, Any], pair: str, p: dict[str, Any], role: str, pend: dict[str, Any]
+) -> dict[str, Any]:
+    """A cut turn, resumed in its session with the resume message (§2.5).
+
+    A turn no line of which named a session never began, so there is nothing to resume: it is run
+    again with its own message.
+    """
+    if p["sessions"][role]["session_id"] is None:
+        record(state, "a cut turn that began no session, run again", pair=pair, session=role)
+        return _turn(state, pair, p, role, f"again-{pend['label']}", pend["message"])
+    return _turn(state, pair, p, role, f"resume-{pend['label']}", "resume.txt")
 
 
 def owner_stop(state: dict[str, Any], batch: str) -> dict[str, Any]:
@@ -1304,6 +1322,7 @@ def _clean_batch(
     p["pending"] = {
         "role": role,
         "label": f"facts-{batch}-{b['fact_rounds']}",
+        "message": str(path),
         "next": phase,
         "usage_cut": False,
         "infra": 0,

@@ -288,13 +288,54 @@ def test_a_turn_that_outlasts_its_bound_ends_as_an_outage_with_its_outcome(
         raise subprocess.TimeoutExpired(argv, kw.get("timeout") or 1)
 
     monkeypatch.setattr(subprocess, "run", hangs)
-    got = au.turn(root, "launch", "launch.txt", None)
+    got = fx.holds(lambda: au.turn(root, "launch", "launch.txt", None))
     assert got["ended"] == "infrastructure" and got["timed_out"] is True and got["exit"] is None
     saved = json.loads((root / "turns" / "01-launch.outcome.json").read_text())
     assert saved["ended"] == "infrastructure"
 
 
 # ---- the checks and the assembly -----------------------------------------------------------------
+
+
+def test_a_turn_cut_with_no_result_line_keeps_the_session_its_init_line_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A cut stream ends before the turn does: the binary's first line, system/init, names the
+    # session, and no result line follows.
+    root = tmp_path / "X1-1"
+    au.prepare(root, {"brief.md": b"b"})
+    monkeypatch.setattr(au, "binary", lambda: "/usr/bin/true")
+
+    def cut(argv: list[str], **kw: Any) -> subprocess.CompletedProcess[bytes]:  # noqa: ANN401
+        kw["stdout"].write(b'{"type": "system", "subtype": "init", "session_id": "S-1"}\n')
+        return subprocess.CompletedProcess(argv, 1)
+
+    monkeypatch.setattr(subprocess, "run", cut)
+    got = au.turn(root, "launch", "launch.txt", None)
+    assert (got["ended"], got["session_id"]) == ("infrastructure", "S-1")
+
+
+def test_a_cut_launch_turn_is_resumed_in_the_session_it_began(sheet: Sheet) -> None:
+    state = au.read_state()
+    sheet.ended, sheet.sessions = ["infrastructure"], ["S-1"]
+    sheet.step(state)
+    sheet.step(state)
+    assert sheet.turns[-1][1:] == ("resume-launch", "resume.txt") and sheet.resumed[-1] == "S-1"
+
+
+def test_a_cut_turn_no_line_of_which_names_a_session_is_run_again_with_its_own_message(
+    sheet: Sheet,
+) -> None:
+    # The binary never began a session: there is nothing to resume, and a resume would start a
+    # session that never got the launch message. The turn is run again, with its own message.
+    state = au.read_state()
+    sheet.ended, sheet.sessions = ["infrastructure"], [None, "S-2"]
+    sheet.step(state)
+    sheet.step(state)
+    assert sheet.turns[-1][1:] == ("again-launch", "launch.txt") and sheet.resumed[-1] is None
+    assert state["pairs"]["X"]["pending"]["infra"] == 1  # it stands in the ladder's place
+    sheet.step(state)
+    assert state["pairs"]["X"]["sessions"]["W"]["session_id"] == "S-2"
 
 
 def pilot(tmp: Path) -> tuple[Path, bytes, dict[str, Any]]:
@@ -495,6 +536,10 @@ class Sheet:
         self.checks: list[int] = []  # each next clean check's count of facts
         self.errors: list[list[str]] = []  # each next injection check's problems
         self.turns: list[tuple[str, str, str]] = []
+        # Each next turn's session as its stream names it (its result line, or its init line when
+        # the turn was cut); None: no line named one. "sid" when none is scripted.
+        self.sessions: list[str | None] = []
+        self.resumed: list[str | None] = []  # the session each turn was given to resume
         self.assembled_from: list[Path] = []
         monkeypatch.setenv("RP3_RUNS", str(tmp / "runs"))
         monkeypatch.setenv("RP3_NO_WAIT", "1")
@@ -513,6 +558,7 @@ class Sheet:
 
     def turn(self, root: Path, label: str, message: str, resume: str | None) -> dict[str, Any]:
         self.turns.append((root.name, label, Path(message).name))
+        self.resumed.append(resume)
         (root / "scratch" / "clean").mkdir(parents=True, exist_ok=True)
         (root / "scratch" / "base.json").write_text("{}")
         for rid in [*au.ids_of("1"), *au.ids_of("2"), *au.ids_of("s")]:
@@ -527,7 +573,7 @@ class Sheet:
             "turn": len(self.turns),
             "label": label,
             "ended": ended,
-            "session_id": "sid",
+            "session_id": self.sessions.pop(0) if self.sessions else "sid",
             "tokens": 1,
             "message": Path(message).name,
         }
@@ -746,7 +792,7 @@ def test_later_sessions_get_pair_x_s_passed_bytes_after_x1_changed_one_in_its_s_
     p, scratch = writer_batches(tmp_path, monkeypatch)
     (scratch / "clean" / "a07.json").write_text('{"changed": true}')
     (scratch / "base.json").unlink()
-    got = au.session_files(kind, p, "X")
+    got = fx.holds(lambda: au.session_files(kind, p, "X"))
     assert got["clean/a07.json"] == json.dumps({"id": "a07"}).encode()
     assert got["base.json"] == b'{"base": 1}'
 
@@ -801,6 +847,28 @@ def test_the_owner_stopping_the_s_batch_leaves_the_primary_running(sheet: Sheet)
     assert got and ("X2-1", "launch", "launch.txt") in sheet.turns
     assert not any(t[0].startswith("C-") for t in sheet.turns)
     assert state["pairs"]["Y"]["status"] == "done" and state["pairs"]["Z"]["status"] == "done"
+
+
+def test_the_owner_stopping_the_s_batch_at_c_s_turn_ends_pair_x_and_the_rest_go_on(
+    sheet: Sheet,
+) -> None:
+    state = au.read_state()
+    for _ in range(60):  # pair X up to C's launch
+        sheet.step(state)
+        if sheet.turns and sheet.turns[-1][0].startswith("C-"):
+            break
+    assert sheet.turns[-1][0] == "C-1"
+    # C's launch turn is cut by outages until its second ladder is spent.
+    state["pairs"]["X"]["sessions"]["C"]["last"]["ended"] = "infrastructure"
+    sheet.ended = ["infrastructure"] * 7
+    sheet.until(state, "waiting")
+    state["waiting"]["released"] = True
+    sheet.until(state, "waiting")
+    assert state["waiting"]["for"] == au.OWNER_WORD
+    au.owner_stop(state, "s")
+    x = state["pairs"]["X"]
+    # C writes the s batch alone: at its cap pair X is done, never back to its error session.
+    assert (x["s_status"], x["phase"], state["stopped"]) == ("cap", "done", None)
 
 
 def test_the_owner_stops_at_a_cap_only_after_a_turn_s_second_ladder(sheet: Sheet) -> None:
