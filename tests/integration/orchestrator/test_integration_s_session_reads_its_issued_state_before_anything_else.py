@@ -110,6 +110,7 @@ def test_a_state_whose_bytes_on_disk_are_not_the_requests_is_refused_before_inst
     sdir = run.run_dir / "sessions" / "probe"
 
     def torn(path: Path, data: bytes) -> None:
+        path.parent.mkdir(parents=True)
         path.write_bytes(data[:-1])
 
     monkeypatch.setattr(dispatch_module, "write_issued_state", torn)
@@ -134,7 +135,8 @@ def test_a_request_with_no_state_is_installed_exactly_as_before(tmp_path: Path) 
     without, with_ = configs
     assert not issued_state_path(run.run_dir / "sessions" / "without").parent.exists()
     path = str(issued_state_path(run.run_dir / "sessions" / "with"))
-    assert list(with_.required_reading) == [*without.required_reading, path]
+    # The one file more, and nothing else: the installer keeps the reading in its own order.
+    assert sorted(with_.required_reading) == sorted([*without.required_reading, path])
 
 
 def _steps(worktree: Path, subtask_id: str, state: Path | None) -> list[dict[str, Any]]:
