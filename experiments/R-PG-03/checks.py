@@ -10,7 +10,7 @@ if it holds::
     checks.py smoke-record --code <n> --started <utc> --ended <utc> --ff <status> --dir <dir>
         [--figure <status>]
     checks.py ff-status --practice round-1=<dir> --practice repeat-K=<dir>   §7's keys, counted
-    checks.py commits --r <dir> --r-k <dir>          R and R_K against §3.2 and "Commits filled"
+    checks.py commits --r <dir> --r-k <dir> [--block <b>]   R and R_K against §3.2 and the fills
     checks.py generalist --into <file>               at R_K: generalist_of's four digests
     checks.py binary                                 the pinned binary's digest and version
     checks.py sets --sets <dir> --block <b>          the block's manifest and sheet, as filled
@@ -657,19 +657,97 @@ def _blob(repo: Path, rev: str, path: str) -> str | None:
         return None
 
 
+def defect_attempt(block: str) -> dict[str, Any] | None:
+    """The block's last attempt whose deviation the owner classified an instrument defect."""
+    found = None
+    for a in attempts_of(read_blocks(), block):
+        if (a.get("deviation") or {}).get("classification") == ROUTES["defect"]:
+            found = a
+    return found
+
+
+def run_pins(
+    r_dir: Path, fills: dict[str, Any], block: str | None
+) -> tuple[dict[str, str], dict[str, str] | None]:
+    """The commits an attempt of ``block`` runs at, and the correction that names them, if any.
+
+    Every block runs at R and R_K, as "Commits filled" records them, except a block whose deviation
+    the owner classified an instrument defect (§11): it is re-run at the corrected commit, R' and
+    R_K', which its own "Commits corrected" entry names, with that classification's path. R'
+    descends from R; R_K' is one commit above R' (held below as R_K is above R).
+
+    Raises:
+        RefusedError: a correction names a block whose attempts hold no deviation classified an
+            instrument defect, or names another classification than that one, or an R' that does
+            not descend from R; or a block's defect has no correction.
+    """
+    filled = common.need_fill(fills, "commits")
+    base = {"R": str(filled.get("R")), "R_K": str(filled.get("R_K"))}
+    if block is None:
+        return base, None
+    entries = [
+        common.correction_entry(c)
+        for c in fills.get(common.CORRECTIONS) or []
+        if isinstance(c, dict) and c.get("block") == block
+    ]
+    defect = defect_attempt(block)
+    if entries and defect is None:
+        raise RefusedError(
+            f"a correction names block {block}, whose attempts hold no deviation classified an "
+            "instrument defect (§11)"
+        )
+    if defect is None:
+        return base, None
+    if not entries:
+        raise RefusedError(
+            f"block {block}'s deviation is classified an instrument defect: it is re-run at the "
+            'corrected commit, which a "Commits corrected" entry of the fills names (§11)'
+        )
+    entry = entries[-1]
+    want = Path(str(defect.get("launch") or "")) / "classification.json"
+    said = _json_or_none(Path(entry["classification"]))
+    if (
+        Path(entry["classification"]).resolve() != want.resolve()
+        or not said
+        or said.get("route") != ROUTES["defect"]
+        or said.get("block") != block
+    ):
+        raise RefusedError(
+            f"the correction of block {block} names another classification than the block "
+            "record's instrument defect"
+        )
+    if entry["R"] == base["R"]:
+        raise RefusedError(f"the correction of block {block} names R itself, not a corrected R'")
+    try:
+        common.git(r_dir, "merge-base", "--is-ancestor", base["R"], entry["R"])
+    except subprocess.CalledProcessError:
+        raise RefusedError(
+            f'the corrected R\' of block {block} does not descend from R ("Commits filled")'
+        ) from None
+    return {"R": entry["R"], "R_K": entry["R_K"]}, entry
+
+
 def commits(
-    r_dir: Path, r_k_dir: Path, fills: dict[str, Any], master_ref: str = "origin/master"
+    r_dir: Path,
+    r_k_dir: Path,
+    fills: dict[str, Any],
+    master_ref: str = "origin/master",
+    block: str | None = None,
 ) -> dict[str, Any]:
     """R and R_K against §3.2 and "Commits filled"; the frozen files at R, R_K and master.
 
     ``CRITERIA.md`` and the README are the freeze's blobs at all three for good: the fills are a
-    record of their own (``fills.json``), never written into the frozen file.
+    record of their own (``fills.json``), never written into the frozen file. For an attempt of a
+    block whose deviation is classified an instrument defect, R and R_K are its corrected commit's
+    (:func:`run_pins`), held by the same checks but for the trees, blobs and digests "Commits
+    filled" records for R, which the correction replaces.
 
     Raises:
         RefusedError: anything differs.
     """
     filled = common.need_fill(fills, "commits")
-    found: dict[str, Any] = {"check": "commits"}
+    pins, corrected = run_pins(r_dir, fills, block)
+    found: dict[str, Any] = {"check": "commits", "corrected": corrected}
     r = common.git(r_dir, "rev-parse", "HEAD")
     r_k = common.git(r_k_dir, "rev-parse", "HEAD")
     for name, d, rev in (
@@ -679,8 +757,8 @@ def commits(
     ):
         for path, frozen in common.FROZEN_BLOBS.items():
             _equal(found, f"{name} {path}", _blob(d, rev, path), frozen)
-    _equal(found, "R", r, filled.get("R"))
-    _equal(found, "R_K", r_k, filled.get("R_K"))
+    _equal(found, "R", r, pins["R"])
+    _equal(found, "R_K", r_k, pins["R_K"])
     for name, d in (("R", r_dir), ("R_K", r_k_dir)):
         if common.git(d, "status", "--porcelain"):
             raise RefusedError(f"the {name} checkout is not clean")
@@ -725,8 +803,9 @@ def commits(
     for name, d, rev in (("R", r_dir, r), ("R_K", r_k_dir, r_k)):
         for path, tree in common.KNOWLEDGE_TREES.items():
             _equal(found, f"{name} {path}", common.git(d, "rev-parse", f"{rev}:{path}"), tree)
+    held = {} if corrected else filled
     for kind in ("trees", "blobs"):
-        for path, value in (filled.get(kind) or {}).items():
+        for path, value in (held.get(kind) or {}).items():
             for name, d, rev in (("R", r_dir, r), ("R_K", r_k_dir, r_k)):
                 _equal(
                     found,
@@ -734,7 +813,7 @@ def commits(
                     common.git(d, "rev-parse", f"{rev}:{path}"),
                     value,
                 )
-    for path, digest in (filled.get("sha256") or {}).items():
+    for path, digest in (held.get("sha256") or {}).items():
         for name, d in (("R", r_dir), ("R_K", r_k_dir)):
             _equal(found, f"{name} sha256 {path}", common.sha256_file(d / path), digest)
     from physgate.evaluation.inject.materialise import ACCOUNT_SHA256
@@ -1019,6 +1098,7 @@ def main(argv: list[str] | None = None) -> int:
     c = sub.add_parser("commits")
     c.add_argument("--r", type=Path, required=True)
     c.add_argument("--r-k", type=Path, required=True)
+    c.add_argument("--block", choices=common.BLOCKS)
     sub.add_parser("generalist")
     sub.add_parser("binary")
     s = sub.add_parser("sets")
@@ -1079,7 +1159,9 @@ def main(argv: list[str] | None = None) -> int:
             }
             found = ff_status(practice)
         elif args.cmd == "commits":
-            found = commits(args.r.resolve(), args.r_k.resolve(), fills(), args.master_ref)
+            found = commits(
+                args.r.resolve(), args.r_k.resolve(), fills(), args.master_ref, args.block
+            )
         elif args.cmd == "generalist":
             found = generalist()
         elif args.cmd == "binary":

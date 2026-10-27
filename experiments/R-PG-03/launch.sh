@@ -40,7 +40,8 @@
 #       fixed order, its void attempts and its earliest date; the owner's confirmations, and for
 #       the first block the window's, after a passed smoke and with no ledger line after it;
 #   L2  R and R_K: the five paths, R_K's promotions line for line, the rubric and generalist_of
-#       digests, the knowledge trees, every tree, blob and digest "Commits filled" records;
+#       digests, the knowledge trees, every tree, blob and digest "Commits filled" records; for a
+#       block whose deviation is classified an instrument defect, its corrected R' and R_K' (§11);
 #   L3  the pinned binary's digest and version;
 #   L4  the parameters (R-PG-02's but lanes) and the 3/3/2 split; the block's seeded lane plan;
 #   L5  the block's corpus: "Set filled"'s manifest, "Sheet filled"'s sheet, the converter re-run;
@@ -245,7 +246,7 @@ if [ "$TRIAL_HOST" = 1 ]; then say "TRIAL: the order and owner checks are skippe
 fi
 
 # ---- L2: R and R_K ----
-check L2-commits py "$HERE/checks.py" "${CK[@]}" commits --r "$CHECKOUT" --r-k "$R_K_CHECKOUT"
+check L2-commits py "$HERE/checks.py" "${CK[@]}" commits --r "$CHECKOUT" --r-k "$R_K_CHECKOUT" --block "$BLOCK"
 check L2-generalist uv run --frozen --project "$R_K_CHECKOUT" python -I "$R_K_CHECKOUT/experiments/R-PG-03/checks.py" "${CK[@]}" generalist
 
 # ---- L3: the binary ----

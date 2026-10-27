@@ -445,6 +445,112 @@ SHEET = {"sha256": "c" * 64}
 SETS = {"manifests": {"fresh-v2-x1": "d" * 64}}
 
 
+C1 = {"block": "x1", "R": "f" * 40, "R_K": "e" * 40, "classification": "/r/blocks/x1-2/c.json"}
+C2 = {**C1, "block": "y1"}
+ALL = {"commits": COMMITS, "sheet": SHEET, "sets": SETS}
+FILLED: list[tuple[str, dict[str, Any], dict[str, str] | None]] = [
+    ("docs(r-pg-03): Commits filled", {"commits": COMMITS}, None),
+    ("docs(r-pg-03): Sheet filled", {"commits": COMMITS, "sheet": SHEET}, None),
+    ("docs(r-pg-03): Set filled", ALL, None),
+]
+
+
+def test_a_correction_after_set_filled_is_read(tmp_path: Path) -> None:
+    steps = [
+        *FILLED,
+        ("docs(r-pg-03): Commits corrected, block x1", {**ALL, "corrections": [C1]}, None),
+        ("docs(r-pg-03): Commits corrected, block y1", {**ALL, "corrections": [C1, C2]}, None),
+    ]
+    assert common.fills_on(fills_repo(tmp_path, steps), "HEAD")["corrections"] == [C1, C2]
+
+
+@pytest.mark.parametrize(
+    ("steps", "why"),
+    [
+        (
+            [
+                *FILLED[:2],
+                (
+                    "docs: Commits corrected, block x1",
+                    {"commits": COMMITS, "sheet": SHEET, "corrections": [C1]},
+                    None,
+                ),
+            ],
+            "after",
+        ),
+        ([*FILLED, ("docs: Commits corrected", {**ALL, "corrections": [C1]}, None)], "names"),
+        ([*FILLED, ("docs: block x1 fixed", {**ALL, "corrections": [C1]}, None)], "names"),
+        (
+            [
+                *FILLED,
+                (
+                    "docs: Commits corrected, block x1",
+                    {**ALL, "commits": {**COMMITS, "R": "f" * 40}, "corrections": [C1]},
+                    None,
+                ),
+            ],
+            "changes",
+        ),
+        (
+            [
+                *FILLED,
+                ("docs: Commits corrected, block x1", {**ALL, "corrections": [C1, C2]}, None),
+            ],
+            "adds",
+        ),
+        (
+            [
+                *FILLED,
+                ("docs: Commits corrected, block x1", {**ALL, "corrections": [C1]}, None),
+                (
+                    "docs: Commits corrected, block y1",
+                    {**ALL, "corrections": [{**C1, "R": "d" * 40}, C2]},
+                    None,
+                ),
+            ],
+            "changes",
+        ),
+        (
+            [
+                *FILLED,
+                (
+                    "docs: Commits corrected, block x1",
+                    {**ALL, "corrections": [{**C1, "R": "not a sha"}]},
+                    None,
+                ),
+            ],
+            "entry",
+        ),
+        (
+            [
+                *FILLED,
+                (
+                    "docs: Commits corrected, block x1",
+                    {**ALL, "corrections": [C1]},
+                    {"README.md": "y\n"},
+                ),
+            ],
+            "touches",
+        ),
+    ],
+    ids=[
+        "before-set-filled",
+        "a-subject-naming-no-block",
+        "a-subject-naming-no-correction",
+        "commits-filled-changed",
+        "two-corrections-at-once",
+        "an-earlier-correction-changed",
+        "a-malformed-entry",
+        "another-path-touched",
+    ],
+)
+def test_a_correction_s_history_is_held(
+    tmp_path: Path, steps: list[tuple[str, dict[str, Any], dict[str, str] | None]], why: str
+) -> None:
+    with pytest.raises(common.RefusedError, match=why):
+        common.fills_on(fills_repo(tmp_path, steps), "HEAD")
+
+
 def test_the_fills_record_is_read_when_each_fill_came_in_its_own_named_commit(
     tmp_path: Path,
 ) -> None:
@@ -495,6 +601,112 @@ def test_the_fills_record_s_history_is_held(
     repo = fills_repo(tmp_path, steps)
     with pytest.raises(common.RefusedError, match=why):
         common.fills_on(repo, "HEAD")
+
+
+# ---- §11's corrected commit -------------------------------------------------------------------
+
+
+def classified(runs: Path, route: str = "instrument defect", block: str = "x1") -> Path:
+    """Block x1's first attempt, a deviation classified on ``route``; its classification's path."""
+    launch = runs / "blocks" / f"{block}-1"
+    launch.mkdir(parents=True)
+    deviation = {"causes": ["a crashed or killed process"], "classification": route}
+    row = {**att(block, False), "launch": str(launch), "void_causes": [], "deviation": deviation}
+    blocks(runs, [row])
+    path = launch / "classification.json"
+    path.write_text(json.dumps({"block": block, "attempt": 1, "route": route}))
+    return path
+
+
+def correction(r: str, r_k: str, path: Path, block: str = "x1") -> dict[str, str]:
+    return {"block": block, "R": r, "R_K": r_k, "classification": str(path)}
+
+
+def corrected_pair(r_k: Any, name: str, k_commits: int = 1) -> tuple[Path, Path, str, str, str]:  # noqa: ANN401
+    """R (the head), and R' one commit above it with R_K' above R'."""
+    head = git(common.REPO, "rev-parse", "HEAD")
+    gitignore = (common.REPO / ".gitignore").read_text()
+    r, k, rs, ks = r_k(
+        name, r_extra={".gitignore": gitignore + "# a correction\n"}, k_commits=k_commits
+    )
+    return r, k, rs, ks, head
+
+
+def test_a_block_whose_deviation_is_an_instrument_defect_runs_at_its_corrected_commit(
+    r_k: Any,
+    runs_dir: Path,  # noqa: ANN401
+) -> None:
+    r, k, rs, ks, head = corrected_pair(r_k, "corrected")
+    path = classified(runs_dir)
+    fills = {"commits": {"R": head, "R_K": "0" * 40}, "corrections": [correction(rs, ks, path)]}
+    found = ck.commits(r, k, fills, master_ref=rs, block="x1")
+    assert found["corrected"] == {"block": "x1", "R": rs, "R_K": ks, "classification": str(path)}
+    # Every other block stays at R, the commit "Commits filled" records.
+    with pytest.raises(ck.RefusedError, match="R is"):
+        ck.commits(r, k, fills, master_ref=rs, block="y1")
+
+
+def test_a_correction_for_a_block_whose_deviation_is_no_instrument_defect_is_refused(
+    r_k: Any,
+    runs_dir: Path,  # noqa: ANN401
+) -> None:
+    r, k, rs, ks, head = corrected_pair(r_k, "no-defect")
+    path = classified(runs_dir, route="anything else impossible as specified")
+    fills = {"commits": {"R": head, "R_K": "0" * 40}, "corrections": [correction(rs, ks, path)]}
+    with pytest.raises(ck.RefusedError, match="no deviation classified an instrument defect"):
+        ck.commits(r, k, fills, master_ref=rs, block="x1")
+
+
+def test_an_instrument_defect_without_its_corrected_commit_is_refused(
+    r_k: Any,
+    runs_dir: Path,  # noqa: ANN401
+) -> None:
+    r, k, rs, ks = r_k("no-correction")
+    classified(runs_dir)
+    with pytest.raises(ck.RefusedError, match="corrected commit"):
+        ck.commits(r, k, {"commits": {"R": rs, "R_K": ks}}, master_ref=rs, block="x1")
+
+
+def test_a_corrected_commit_that_does_not_descend_from_r_is_refused(
+    r_k: Any,
+    runs_dir: Path,  # noqa: ANN401
+) -> None:
+    r, k, rs, ks = r_k("not-down")
+    path = classified(runs_dir)
+    fills = {"commits": {"R": rs, "R_K": ks}, "corrections": [correction(common.R_FLOOR, ks, path)]}
+    with pytest.raises(ck.RefusedError, match="descend"):
+        ck.commits(r, k, fills, master_ref=rs, block="x1")
+
+
+def test_a_corrected_r_k_more_than_one_commit_above_r_prime_is_refused(
+    r_k: Any,
+    runs_dir: Path,  # noqa: ANN401
+) -> None:
+    r, k, rs, ks, head = corrected_pair(r_k, "corr-two", k_commits=2)
+    path = classified(runs_dir)
+    fills = {"commits": {"R": head, "R_K": "0" * 40}, "corrections": [correction(rs, ks, path)]}
+    with pytest.raises(ck.RefusedError, match="R_K's parent"):
+        ck.commits(r, k, fills, master_ref=rs, block="x1")
+
+
+def test_a_correction_naming_another_classification_than_the_block_s_defect_is_refused(
+    r_k: Any,
+    runs_dir: Path,  # noqa: ANN401
+) -> None:
+    r, k, rs, ks, head = corrected_pair(r_k, "other-cls")
+    path = classified(runs_dir)
+    elsewhere = runs_dir / "elsewhere.json"
+    elsewhere.write_text(path.read_text())
+    fills = {
+        "commits": {"R": head, "R_K": "0" * 40},
+        "corrections": [correction(rs, ks, elsewhere)],
+    }
+    with pytest.raises(ck.RefusedError, match="classification"):
+        ck.commits(r, k, fills, master_ref=rs, block="x1")
+    path.write_text(json.dumps({"block": "x1", "attempt": 1, "route": "something else"}))
+    fills["corrections"] = [correction(rs, ks, path)]
+    with pytest.raises(ck.RefusedError, match="classification"):
+        ck.commits(r, k, fills, master_ref=rs, block="x1")
 
 
 # ---- R3 ------------------------------------------------------------------------------------------

@@ -289,11 +289,17 @@ def utc_now() -> str:
 #:   launch; and the published path of ``code_changes.py``'s list;
 #: - ``sheet`` ("Sheet filled"): ``sha256`` and the counts §2.4 names;
 #: - ``sets`` ("Set filled"): ``manifests``, corpus name to manifest sha256, for fresh-v2's seven
-#:   and fresh-v1c's two.
+#:   and fresh-v1c's two;
+#: - ``corrections`` ("Commits corrected", §11's instrument defect, after "Set filled" alone): a
+#:   list, one entry per correction commit, each ``block``, the corrected ``R`` and ``R_K`` (full
+#:   shas) and the path of that block's ``classification.json``. "Commits filled" never changes.
 FILLS_NAME = "fills.json"
 FILL_KEYS = ("commits", "sheet", "sets")
 #: Each fill's name, which the subject of the commit that adds it names.
 FILL_NAMES = {"commits": "Commits filled", "sheet": "Sheet filled", "sets": "Set filled"}
+CORRECTIONS = "corrections"
+CORRECTED = "Commits corrected"
+_SHA = re.compile(r"[0-9a-f]{40}")
 
 
 class RefusedError(Exception):
@@ -309,9 +315,32 @@ def fills_from(text: str | None) -> dict[str, Any]:
     if text is None:
         return {}
     data = json.loads(text)
-    if not isinstance(data, dict) or set(data) - set(FILL_KEYS):
+    if not isinstance(data, dict) or set(data) - {*FILL_KEYS, CORRECTIONS}:
         raise RefusedError("the fills record holds a key no fill commit writes")
+    if not isinstance(data.get(CORRECTIONS, []), list):
+        raise RefusedError("the fills record's corrections are not a list")
     return data
+
+
+def correction_entry(entry: object) -> dict[str, str]:
+    """One correction's entry, held to its form.
+
+    Raises:
+        RefusedError: it is not a block of the run, two full shas and a classification's path.
+    """
+    if (
+        not isinstance(entry, dict)
+        or set(entry) != {"block", "R", "R_K", "classification"}
+        or entry["block"] not in BLOCKS
+        or not all(isinstance(entry[k], str) and _SHA.fullmatch(entry[k]) for k in ("R", "R_K"))
+        or not isinstance(entry["classification"], str)
+        or not entry["classification"]
+    ):
+        raise RefusedError(
+            "a correction entry is not a block, the corrected R and R_K (full shas) and the path "
+            "of its classification"
+        )
+    return {k: str(v) for k, v in entry.items()}
 
 
 def fills_history(repo: Path, ref: str) -> list[dict[str, Any]]:
@@ -320,7 +349,10 @@ def fills_history(repo: Path, ref: str) -> list[dict[str, Any]]:
     Each fill is "filled later, each in its own dated commit": a commit that changes the record is
     one commit (never a merge), changes that file alone, adds exactly one fill, the next of
     "Commits filled", "Sheet filled" and "Set filled" in that order, names it in its subject, and
-    changes no fill added before it.
+    changes no fill added before it. A correction (§11's instrument defect) comes after "Set
+    filled" alone: a commit of its own that adds exactly one entry to the corrections, names
+    "Commits corrected" and its block in its subject, and changes no fill and no correction before
+    it.
 
     Raises:
         RefusedError: any commit breaks the rule.
@@ -341,9 +373,28 @@ def fills_history(repo: Path, ref: str) -> list[dict[str, Any]]:
             after = fills_from(git(repo, "show", f"{sha}:{path}"))
         except subprocess.CalledProcessError:
             raise RefusedError(f"{short} removes the fills record") from None
-        if set(before) - set(after) or any(after[k] != v for k, v in before.items()):
+        if set(before) - set(after) or any(
+            after[k] != v for k, v in before.items() if k != CORRECTIONS
+        ):
             raise RefusedError(f"{short} changes or drops a fill added before it")
-        added = sorted(set(after) - set(before))
+        old, new = before.get(CORRECTIONS, []), after.get(CORRECTIONS, [])
+        if new[: len(old)] != old:
+            raise RefusedError(f"{short} changes or drops a correction added before it")
+        added = sorted(set(after) - set(before) - {CORRECTIONS})
+        if len(new) > len(old):
+            if added or len(new) - len(old) != 1:
+                count = len(added) + len(new) - len(old)
+                raise RefusedError(f"{short} adds {count} entries: a commit adds one")
+            entry = correction_entry(new[-1])
+            if "sets" not in before:
+                raise RefusedError(f'{short}: a correction comes only after "Set filled"')
+            named = re.search(rf"(?<![\w-]){re.escape(entry['block'])}(?![\w-])", subject)
+            if CORRECTED not in subject or not named:
+                msg = f"{short}'s subject names no {CORRECTED!r} and block {entry['block']}"
+                raise RefusedError(msg)
+            found.append({"commit": sha, "fill": CORRECTIONS, "subject": subject, **entry})
+            before = after
+            continue
         if len(added) != 1:
             raise RefusedError(f"{short} adds {len(added)} fills: a fill commit adds one")
         if added[0] != FILL_KEYS[len(before)]:
