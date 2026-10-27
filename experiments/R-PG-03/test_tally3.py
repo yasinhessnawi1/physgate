@@ -739,6 +739,15 @@ def test_a_block_not_taken_is_not_tallied_and_the_decisions_it_feeds_are_not_tak
     got = fx.holds(lambda: run_tally({**made, "records": records}))
     assert "not measured" in got["decision"]["class_clause"]
     assert "not taken" in got["q4_sheet_matched"] and got["decision"]["row"]
+    # Both blocks of author pair X not taken: its figures and its comparison are left out.
+    rec["not_taken"] = {b: {"attempt": 1, "causes": ["x"]} for b in ("x1", "x2")}
+    rec["not_run"] = NOT_RUN
+    rec["attempts"] = [a for a in made["attempts"] if a["block"] not in ("x1", "x2")]
+    (records / "blocks.json").write_text(json.dumps(rec))
+    got = fx.holds(lambda: run_tally({**made, "records": records}))
+    assert sorted(got["secondary"]["per_author_pair"]) == ["Y", "Z"]
+    compared = got["secondary"]["author_pairs_compared"]["A2_minus_B"]["intervals"]
+    assert sorted(compared) == ["Y", "Z"]
 
 
 def test_a_block_ended_after_a_correction_s_check_needs_its_result_and_not_touched(

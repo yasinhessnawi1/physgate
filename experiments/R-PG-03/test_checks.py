@@ -97,8 +97,7 @@ def test_the_blocks_earliest_start_is_5_11_s_reset_from_the_owner_s_recorded_one
     owner_file(runs_dir, "account.json", {**ACCOUNT, "weekly_reset_utc": "2026-10-28T23:30:00Z"})
     assert ck.earliest_start([]) == "2026-11-04T23:30:00Z"
     (runs_dir / "owner" / "account.json").unlink()
-    with pytest.raises(ck.RefusedError, match="records no weekly reset"):
-        ck.earliest_start([])
+    fx.refuses(ck.RefusedError, "records no weekly reset", lambda: ck.earliest_start([]))
 
 
 @pytest.mark.parametrize(
@@ -1203,6 +1202,9 @@ def test_a_correction_check_refuses_an_attempt_it_cannot_name(
     ("change", "why"),
     [
         ("not-at-r-prime", "not clean at the entry's R'"),
+        ("dirty", "not clean at the entry's R'"),
+        ("r-itself", "R' is R"),
+        ("does-not-run", "did not run to a pass or a fail"),
         ("r-k-two-above", "not R' plus the\\s+five paths"),
         ("not-descending", "does not descend"),
         ("untracked", "not tracked at R'"),
@@ -1220,9 +1222,17 @@ def test_a_correction_check_refuses_commits_or_a_test_that_do_not_show_the_defec
     extra = dict(FIXED)
     if change == "passes-at-r":  # a test that passes whatever the tree
         extra[PROBE] = "def test_nothing() -> None:\n    assert True\n"
-    r, k, rs, ks, head = corrected_pair(
-        r_k, f"cc-{change}", k_commits=2 if change == "r-k-two-above" else 1, extra=extra
-    )
+    if change == "does-not-run":  # pytest cannot collect it: neither a pass nor a fail
+        extra[PROBE] = "def test_nothing( -> None:\n"
+    if change == "r-itself":  # R' is R: R_K' sits right above R
+        r, k, rs, ks = r_k(f"cc-{change}")
+        head = rs
+    else:
+        r, k, rs, ks, head = corrected_pair(
+            r_k, f"cc-{change}", k_commits=2 if change == "r-k-two-above" else 1, extra=extra
+        )
+    if change == "dirty":
+        (r / "stray.txt").write_text("x\n")
     defect_attempts(runs_dir)
     if change == "not-on-the-records":
         (runs_dir / "blocks" / "x1-1" / "defect.txt").unlink()
