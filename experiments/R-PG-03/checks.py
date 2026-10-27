@@ -737,15 +737,22 @@ def commits(
     for path, digest in (filled.get("sha256") or {}).items():
         for name, d in (("R", r_dir), ("R_K", r_k_dir)):
             _equal(found, f"{name} sha256 {path}", common.sha256_file(d / path), digest)
+    from physgate.evaluation.inject.materialise import ACCOUNT_SHA256
+
+    # §3.3: the account's three paragraphs, unchanged, held before the run (R's code; R_K's is held
+    # by its generalist check, which runs in R_K's checkout).
+    _equal(found, "R's account paragraphs", ACCOUNT_SHA256, common.ACCOUNT_SHA256)
     return {k: v for k, v in found.items() if not isinstance(v, list) or k.startswith("the paths")}
 
 
 def generalist() -> dict[str, Any]:
-    """At R_K: each role's generalist rubric, by code, against §3.1's digests."""
+    """At R_K: each role's generalist rubric, by code, against §3.1's digests; and the account."""
+    from physgate.evaluation.inject.materialise import ACCOUNT_SHA256
     from physgate.knowledge.promote import KNOWLEDGE_ROOT
     from physgate.reviewers.rubric import generalist_of, load_rubric
 
     found: dict[str, Any] = {"check": "generalist"}
+    _equal(found, "account paragraphs", ACCOUNT_SHA256, common.ACCOUNT_SHA256)
     for role in common.ROLES:
         g = generalist_of(load_rubric(common.REPO / KNOWLEDGE_ROOT, role))
         _equal(found, f"B {role}", g.sha256, common.RUBRIC_SHA256["B"][role])

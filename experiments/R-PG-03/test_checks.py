@@ -403,6 +403,23 @@ def test_the_five_knowledge_trees_are_held_in_r_and_r_k(
         ck.commits(r, k, {"commits": {"R": rs, "R_K": ks}}, master_ref=rs)
 
 
+def test_the_account_s_paragraphs_are_held_to_their_digest_before_the_run(
+    r_k: Any,  # noqa: ANN401
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    r, k, rs, ks = r_k("account")
+    assert (
+        ck.commits(r, k, {"commits": {"R": rs, "R_K": ks}}, master_ref=rs)["R's account paragraphs"]
+        == common.ACCOUNT_SHA256
+    )
+    # generalist() runs whole in R_K's checkout alone (K's digests); its account check comes first.
+    monkeypatch.setattr(common, "ACCOUNT_SHA256", "0" * 64)
+    with pytest.raises(ck.RefusedError, match="account paragraphs"):
+        ck.commits(r, k, {"commits": {"R": rs, "R_K": ks}}, master_ref=rs)
+    with pytest.raises(ck.RefusedError, match="account paragraphs"):
+        ck.generalist()
+
+
 def fills_repo(tmp: Path, steps: list[tuple[str, dict[str, Any], dict[str, str] | None]]) -> Path:
     """A repository whose fills record is written by ``steps``: (subject, record, other files)."""
     repo = tmp / "repo"
