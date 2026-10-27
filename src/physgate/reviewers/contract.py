@@ -49,6 +49,7 @@ from physgate.reviewers.scan import ScanHit
 
 _HEADING = re.compile(r"^#{1,6}\s+(?P<title>.+?)\s*$")
 _NUMBERED = re.compile(r"^\s*(?P<ref>\d+)[.)]\s+\S")
+_WORDED = re.compile(r"^\s*(?P<ref>\d+)[.)]\s+(?P<words>\S.*)$")
 CRITERION_RESULTS = ("met", "unmet", "not evaluable")
 #: The one criterion line of a revision issued with no specification: whether it is
 #: consistent with the design it changes and with the rubric.
@@ -79,6 +80,33 @@ def issued_criteria(spec: str | None) -> tuple[str, ...] | None:
         if numbered and numbered["ref"] not in refs:
             refs.append(numbered["ref"])
     return tuple(refs) or None
+
+
+def criterion_words(brief: str) -> dict[str, str]:
+    """Each acceptance criterion the brief numbers, by its number, in the brief's own words.
+
+    Read where :func:`issued_criteria` reads the numbers: a criterion is its numbered line under a
+    heading that names acceptance criteria, and the lines that carry it on, up to the next numbered
+    line, heading or blank line; its whitespace is joined to single spaces. A number given twice
+    is the first one.
+    """
+    found: dict[str, str] = {}
+    inside = False
+    current: list[str] | None = None
+    for line in [*brief.splitlines(), ""]:
+        heading = _HEADING.fullmatch(line)
+        numbered = _WORDED.match(line) if inside and heading is None else None
+        if current is not None and (heading or numbered or not line.strip()):
+            ref, *words = current
+            found.setdefault(ref, " ".join(" ".join(words).split()))
+            current = None
+        if heading:
+            inside = "acceptance criteria" in heading["title"].casefold()
+        elif numbered:
+            current = [numbered["ref"], numbered["words"]]
+        elif current is not None:
+            current.append(line)
+    return found
 
 
 def _string(**more: Any) -> dict[str, Any]:  # noqa: ANN401 - a schema fragment's own values

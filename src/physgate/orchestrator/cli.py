@@ -559,8 +559,9 @@ def _decompose(args: argparse.Namespace) -> int:
         return _fail(str(exc), **exc.context)
     try:
         require_fresh(run_dir)
+        brief = args.brief.read_text()
         outcome = call(
-            args.brief.read_text(),
+            brief,
             config=config,
             workdir=run_dir / "decomposition",
             base_url=os.environ.get("ANTHROPIC_BASE_URL"),
@@ -572,6 +573,7 @@ def _decompose(args: argparse.Namespace) -> int:
             run_dir=run_dir,
             target_repo=args.target.resolve(),
             library=_library_root(),
+            brief=brief,
         )
     except OrchestratorError as exc:
         return _fail(str(exc), **exc.context)

@@ -65,6 +65,7 @@ from physgate.orchestrator.plan import INTEGRATION_MODULE_DIR as INTEGRATION_MOD
 from physgate.orchestrator.plan import REQUIREMENT_MAX_CHARS as REQUIREMENT_MAX_CHARS
 from physgate.orchestrator.plan import SPEC_MAX_CHARS as SPEC_MAX_CHARS
 from physgate.orchestrator.plan import Contribution as Contribution
+from physgate.orchestrator.plan import CriterionWords
 from physgate.orchestrator.plan import IntegratedPlan as IntegratedPlan
 from physgate.orchestrator.plan import InterfaceConsumers as InterfaceConsumers
 from physgate.orchestrator.plan import Plan as Plan
@@ -80,7 +81,7 @@ from physgate.orchestrator.record import (
     RunRecord,
 )
 from physgate.orchestrator.run_config import RunConfig
-from physgate.reviewers.contract import issued_criteria
+from physgate.reviewers.contract import criterion_words, issued_criteria
 from physgate.roles import CrossCuttingDuty, owners_of
 from physgate.series.collect import series_library
 from physgate.state.exceptions import MalformedNodeIdError
@@ -1104,6 +1105,7 @@ def start_run(
     run_dir: Path,
     target_repo: Path,
     library: Path | None,
+    brief: str | None = None,
 ) -> RunRecord:
     """Start the run from the call's outcome: record a failure, or write the plan.
 
@@ -1112,7 +1114,9 @@ def start_run(
     planned role reads, copied from ``library`` (the checkout the orchestrator runs
     from) byte for byte, in the same commit. The run records the plan's digest, taken
     from the plan itself (an outcome's dump is of the base form and drops an integrated
-    plan's lists), and, in a run with the integration role, the two lists it checks.
+    plan's lists), and, in a run with the integration role, the two lists it checks, with the
+    brief's own words for each system requirement the plan gives by number, taken from ``brief``,
+    the brief the call was given.
 
     Raises:
         RunStateError: the run directory already holds a run.
@@ -1120,17 +1124,20 @@ def start_run(
             subtasks were minted one id, an interface node's id is not a node id, the
             store refused an interface node the plan validated, or the curated library
             cannot be put into the target: a planned role's
-            file missing or empty, or the target holding other bytes where it goes.
+            file missing or empty, or the target holding other bytes where it goes; or the
+            brief's words for a requirement longer than a module's specification may be.
     """
     require_fresh(run_dir)
     curated: dict[Path, bytes] = {}
     planned: list[_Issued] = []
     pairs: tuple[ContractPair, ...] | None = None
+    words: tuple[CriterionWords, ...] = ()
     if outcome.ok and outcome.plan is not None:
         # Before anything is written: a refusal here leaves no run record, no run
         # branch and no worktree behind, so the same run directory can be used again.
         planned = _planned_subtasks(outcome.plan, config)
         pairs = _contract_pairs(outcome.plan, planned)
+        words = _brief_words(outcome.plan, brief)
         try:
             curated = read_library(library, (one.entry.assigned_role for one in planned))
         except LibraryError as exc:
@@ -1207,9 +1214,35 @@ def start_run(
             interface_consumers=consumers,
             system_requirements=requirements,
             contract_pairs=pairs,
+            brief_words=words or None,
         ),
     )
     return record
+
+
+def _brief_words(plan: Plan, brief: str | None) -> tuple[CriterionWords, ...]:
+    """The brief's own words for each system requirement the plan gives by the brief's number.
+
+    None for a base plan, a run started with no brief, or requirements given in words.
+
+    Raises:
+        DecompositionError: a criterion's words are longer than a module's specification may be.
+    """
+    if brief is None or not isinstance(plan, IntegratedPlan):
+        return ()
+    words = criterion_words(brief)
+    found: list[CriterionWords] = []
+    for item in plan.system_requirements:
+        said = words.get(item.requirement)
+        if said is None or not item.requirement.isascii() or not item.requirement.isdigit():
+            continue
+        if len(said) > SPEC_MAX_CHARS:
+            msg = "the brief's words for a requirement are longer than a module's specification"
+            raise DecompositionError(
+                msg, criterion=item.requirement, length=str(len(said)), limit=str(SPEC_MAX_CHARS)
+            )
+        found.append(CriterionWords(criterion=item.requirement, words=said))
+    return tuple(found)
 
 
 def _contract_pairs(plan: Plan, planned: Sequence[_Issued]) -> tuple[ContractPair, ...] | None:

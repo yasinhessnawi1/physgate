@@ -57,7 +57,13 @@ from physgate.orchestrator.exceptions import (
 )
 from physgate.orchestrator.install import InstallFacts
 from physgate.orchestrator.managed import ObservedTraffic
-from physgate.orchestrator.plan import InterfaceConsumers, SystemRequirements, list_problems
+from physgate.orchestrator.plan import (
+    CriterionWords,
+    InterfaceConsumers,
+    SystemRequirements,
+    list_problems,
+    words_problems,
+)
 from physgate.orchestrator.protocols import (
     GateResult,
     RecordedUnavailableCause,
@@ -88,7 +94,9 @@ Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 #: forbids (ARCH-051). A run recorded before ``duty_breach`` existed keeps the cause it was
 #: recorded with. ``interface_mismatch`` is an interface node the store holds otherwise than the
 #: plan's contract pairs say: missing, not an interface, or owned by another role than the pair's
-#: producer, so no contract can be tested against it.
+#: producer, so no contract can be tested against it. ``issued_state_mismatch`` is integration's
+#: issued state that the run's record, read again, no longer gives: a line it was built from was
+#: rewritten after the state was issued.
 IncidentCause = Literal[
     "cross_role_write",
     "merge_conflict",
@@ -111,6 +119,7 @@ IncidentCause = Literal[
     "decisions_rewritten",
     "duty_breach",
     "interface_mismatch",
+    "issued_state_mismatch",
 ]
 
 #: Why a run stopped short of the end of its plan.
@@ -677,6 +686,10 @@ class Decomposed(_Event):
     #: and to the plan's rules across the two lists and the line's own interface nodes.
     interface_consumers: tuple[InterfaceConsumers, ...] | None = None
     system_requirements: SystemRequirements | None = None
+    #: The brief's own words for each system requirement the plan gives by the brief's criterion
+    #: number, in the list's order; left out when there are none. Taken from the brief the call
+    #: was given, which the record holds by its digest alone.
+    brief_words: tuple[CriterionWords, ...] | None = None
 
     @model_validator(mode="after")
     def _both_lists_or_neither(self) -> Decomposed:
@@ -697,11 +710,19 @@ class Decomposed(_Event):
                 raise ValueError("; ".join(problems))
         return self
 
+    @model_validator(mode="after")
+    def _the_words_are_the_requirements(self) -> Decomposed:
+        if self.brief_words is not None:
+            problems = words_problems(self.system_requirements or (), self.brief_words)
+            if problems:
+                raise ValueError("; ".join(problems))
+        return self
+
     @model_serializer(mode="wrap")
     def _omit_absent(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         # Left out when absent, so a line without them is written exactly as before they existed.
         data: dict[str, Any] = handler(self)
-        for name in ("plan_sha256", "interface_consumers", "system_requirements"):
+        for name in ("plan_sha256", "interface_consumers", "system_requirements", "brief_words"):
             if data.get(name) is None:
                 data.pop(name, None)
         return data
@@ -736,6 +757,24 @@ class ContractTested(_Event):
     first: bool
     commit: Sha
     revision: Annotated[int, Field(ge=1)]
+
+
+class IntegrationStateIssued(_Event):
+    """Integration's issued state, by digest and length, before its session is spawned.
+
+    The document is built by code from the run's record alone (the gate mode, the system-scope
+    result, each planned pair's contract results, the system requirements with the brief's words)
+    and handed to the session as required reading and to its reviewer in the packet. One line in
+    each window between the attempt's ``resolve`` and its ``spawn``: a restarted window records
+    its own. Replay holds the line to its place and its form; the loop holds the bytes, rebuilding
+    them from the record before the spawn and before the review.
+    """
+
+    kind: Literal["integration_state_issued"] = "integration_state_issued"
+    subtask_id: NonEmptyStr
+    attempt: Attempt
+    sha256: Sha256
+    length: Annotated[int, Field(ge=1)]
 
 
 class CompletionDeclared(_Event):
@@ -975,6 +1014,7 @@ Event = Annotated[
     | Decomposed
     | ContractPairsPlanned
     | ContractTested
+    | IntegrationStateIssued
     | CompletionDeclared
     | ModuleCompleted
     | EnvironmentRecorded

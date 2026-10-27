@@ -54,7 +54,7 @@ from physgate.orchestrator.events import (
 from physgate.orchestrator.exceptions import CorruptEventLogError
 from physgate.orchestrator.install import InstallFacts
 from physgate.orchestrator.loop import Loop
-from physgate.orchestrator.plan import InterfaceConsumers, SystemRequirement
+from physgate.orchestrator.plan import CriterionWords, InterfaceConsumers, SystemRequirement
 from physgate.orchestrator.record import DecompositionSummary, PlanEntry
 from physgate.orchestrator.replay import replay
 from physgate.orchestrator.run_config import ModelStrings
@@ -199,8 +199,17 @@ def entry(subtask_id: str, role: str, module: str) -> PlanEntry:
     )
 
 
-def start(loop: Loop, *, sizing: bool = False, pairs: bool = True) -> None:
-    """The plan: sizing's opening pass if asked, drive, fw, the closing pass, integration."""
+def start(
+    loop: Loop,
+    *,
+    sizing: bool = False,
+    pairs: bool = True,
+    words: tuple[CriterionWords, ...] = (),
+) -> None:
+    """The plan: sizing's opening pass if asked, drive, fw, the closing pass, integration.
+
+    ``words`` are the brief's own words the decomposition's line records for its requirements.
+    """
     plan = [entry(BUDGET, "sizing", "budget")] if sizing else []
     plan += [entry(DRIVE, "control", "drive"), entry(FW, "firmware", "fw")]
     plan += [entry(CLOSING, "sizing", "budget")] if sizing else []
@@ -227,6 +236,7 @@ def start(loop: Loop, *, sizing: bool = False, pairs: bool = True) -> None:
         interface_consumers=consumers,
         system_requirements=(SystemRequirement.model_validate_json(requirement),),
         contract_pairs=(P_BUDGET, P_FW, P_BACK) if sizing else (P_FW, P_BACK),
+        brief_words=words or None,
     )
     loop.record.start(plan, decomposed=summary)
 

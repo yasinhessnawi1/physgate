@@ -175,8 +175,10 @@ def outcome(plan: Plan) -> Outcome:
     )
 
 
-def start(root: Path, plan: Plan, run_roles: tuple[str, ...] = BOTH) -> tuple[Path, Path]:
-    """Start a run of ``run_roles`` from ``plan``; its run directory and its target."""
+def start(
+    root: Path, plan: Plan, run_roles: tuple[str, ...] = BOTH, *, brief: str | None = None
+) -> tuple[Path, Path]:
+    """Start a run of ``run_roles`` from ``plan``, given ``brief``; its run directory and target."""
     repo = target_repo(root)
     library = root / "library"
     write_fixture(library, (*FIXTURE_ROLES, *run_roles))
@@ -192,7 +194,12 @@ def start(root: Path, plan: Plan, run_roles: tuple[str, ...] = BOTH) -> tuple[Pa
         ),
     )
     start_run(
-        outcome(plan), config=config, run_dir=run_dir, target_repo=repo, library=library
+        outcome(plan),
+        config=config,
+        run_dir=run_dir,
+        target_repo=repo,
+        library=library,
+        brief=brief,
     ).close()
     return run_dir, repo
 

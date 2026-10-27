@@ -122,6 +122,39 @@ class IntegratedPlan(Plan):
     system_requirements: SystemRequirements
 
 
+class CriterionWords(_Frozen):
+    """An acceptance criterion the brief numbers, in the brief's own words.
+
+    Recorded for each system requirement the plan gives by the brief's criterion number, so what
+    integration and its reviewer read says what the number stands for. No part of the plan or its
+    schema: the harness takes the words from the brief the decomposition was given, and the record
+    holds that brief by its digest alone, so the words cannot be held to it on replay.
+    """
+
+    criterion: Annotated[str, StringConstraints(pattern=r"^[0-9]{1,6}$")]
+    words: Annotated[str, StringConstraints(min_length=1, max_length=SPEC_MAX_CHARS)]
+
+
+def words_problems(
+    requirements: Sequence[SystemRequirement], words: Sequence[CriterionWords]
+) -> list[str]:
+    """What is wrong with the brief's words against the requirement list they are recorded for.
+
+    Each entry names a requirement of the list, once, in the list's order; a list of none is
+    never recorded (the field is left out instead).
+    """
+    if not words:
+        return ["the brief's words are recorded only when there are some"]
+    listed = [r.requirement for r in requirements]
+    named = [w.criterion for w in words]
+    if any(n not in listed for n in named):
+        return ["the brief's words name a criterion that is no system requirement of the plan"]
+    places = [listed.index(n) for n in named]
+    if places != sorted(set(places)):
+        return ["the brief's words name each requirement once, in the plan's order"]
+    return []
+
+
 def list_problems(
     interfaces: Sequence[str],
     consumers: Sequence[InterfaceConsumers],

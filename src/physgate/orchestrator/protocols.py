@@ -14,6 +14,7 @@ their fields by code, never phrased by a model.
 
 from __future__ import annotations
 
+import hashlib
 from typing import Annotated, Any, Literal, Protocol, runtime_checkable
 
 from pydantic import (
@@ -103,6 +104,26 @@ class IssuedSpec(_Frozen):
     sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 
 
+class IssuedState(_Frozen):
+    """Integration's issued state, as its session and its reviewer read it.
+
+    The document's text with the digest and length its ``integration_state_issued`` line records;
+    a text whose UTF-8 bytes are not of that digest and length is no issued state.
+    """
+
+    text: NonEmptyStr
+    sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+    length: Annotated[int, Field(ge=1)]
+
+    @model_validator(mode="after")
+    def _the_text_is_what_was_recorded(self) -> IssuedState:
+        data = self.text.encode("utf-8")
+        if (hashlib.sha256(data).hexdigest(), len(data)) != (self.sha256, self.length):
+            msg = "an issued state's text is of the digest and length its line records"
+            raise ValueError(msg)
+        return self
+
+
 #: Where the gate checks one attempt. System scope is the integration call's alone.
 AttemptScope = Literal["subtask", "module"]
 
@@ -173,6 +194,9 @@ class Artefact(_Frozen):
     #: What a person ordered this attempt to be, when one did. Left out of a dump when absent,
     #: so every attempt no person ordered is recorded exactly as before.
     ordered_by_person: PersonOrder | None = None
+    #: Integration's issued state, for an attempt of integration's subtask: what its session was
+    #: given to read. Left out of a dump when absent, so every other attempt is recorded as before.
+    integration_state: IssuedState | None = None
 
     @model_serializer(mode="wrap")
     def _omit_absent_series(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
@@ -181,6 +205,8 @@ class Artefact(_Frozen):
             data.pop("series", None)
         if self.ordered_by_person is None:
             data.pop("ordered_by_person", None)
+        if self.integration_state is None:
+            data.pop("integration_state", None)
         return data
 
     @model_validator(mode="after")

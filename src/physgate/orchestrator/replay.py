@@ -60,6 +60,7 @@ from physgate.orchestrator.events import (
     IntegrationEscalated,
     IntegrationGateRan,
     IntegrationGateSkipped,
+    IntegrationStateIssued,
     LeftoverRead,
     LeftoverStopped,
     Merged,
@@ -92,7 +93,7 @@ from physgate.orchestrator.exceptions import (
     RunConfigError,
     RunStateError,
 )
-from physgate.orchestrator.plan import INTEGRATION_MODULE_DIR
+from physgate.orchestrator.plan import INTEGRATION_MODULE_DIR, CriterionWords, SystemRequirement
 from physgate.orchestrator.queue import item_id_for
 from physgate.orchestrator.repair import FindingSource
 from physgate.orchestrator.run_config import load_run_config
@@ -135,12 +136,15 @@ class AttemptState:
     approved: DecisionTaken | None = None
     #: A person's reject that spent this attempt: the next attempt, the fix, or the end follows.
     person_rejected: DecisionTaken | None = None
+    #: Integration's issued state, recorded in this window before its session was spawned.
+    issued: IntegrationStateIssued | None = None
 
     def restart(self, cursor: Stage | None) -> None:
         """Forget everything the attempt did after ``cursor``."""
         order: list[Stage | None] = [None, "resolve", "spawn", "verify_reading", "implement"]
         if order.index(cursor) < order.index("spawn"):
             self.session = None
+            self.issued = None
         self.changes = self.gate = self.review = None
         self.declaration = None
         self.unavailable = []
@@ -276,6 +280,10 @@ class RunState:
         self.run_head: str | None = None
         #: Where each module directory's last merge with a clean diff is on the record, by line.
         self.merged_at: dict[str, int] = {}
+        #: The system requirements the plan allocates to integration, and the brief's own words for
+        #: each one given by number, as the decomposition's line records them.
+        self.system_requirements: tuple[SystemRequirement, ...] | None = None
+        self.brief_words: tuple[CriterionWords, ...] = ()
 
     # -- following the log -------------------------------------------------------
 
@@ -354,6 +362,8 @@ class RunState:
             if event.interface_consumers is not None:
                 self.consumers = {e.interface: e.consumers for e in event.interface_consumers}
                 self.interfaces = event.interface_nodes
+            self.system_requirements = event.system_requirements
+            self.brief_words = event.brief_words or ()
             return
         if isinstance(event, ContractPairsPlanned):
             self._pairs(event)
@@ -411,7 +421,11 @@ class RunState:
         if getattr(event, "attempt", now.number) != now.number:
             _refuse(f"attempt {getattr(event, 'attempt', '?')} is not the one in progress")
         if isinstance(event, StageEntered):
+            if event.stage == "spawn" and sub.plan.subtask_id == self.completion_subtask:
+                self._expect_issued(now)
             self._enter(now, event.stage)
+        elif isinstance(event, IntegrationStateIssued):
+            self._issued(sub, now, event)
         elif isinstance(event, SessionEnded):
             self._expect(now.cursor == "spawn" and now.session is None, "a session end")
             now.session = event
@@ -644,6 +658,28 @@ class RunState:
         if places != sorted(set(places)):
             _refuse("a completion declaration names each module once, in plan order")
         now.declaration = event
+
+    def _issued(self, sub: SubtaskState, now: AttemptState, event: IntegrationStateIssued) -> None:
+        """Take integration's issued state: in its window, after ``resolve``, once.
+
+        Held to its place and its form alone. Its bytes are the loop's to hold: a rebuild here
+        would make every recorded log unreadable after any change to the document's wording.
+        """
+        if sub.plan.subtask_id != self.completion_subtask:
+            _refuse(
+                "an issued state is integration's subtask's alone, the subtask marked as the "
+                "completion owner's"
+            )
+        self._expect(now.cursor == "resolve" and now.issued is None, "integration's issued state")
+        now.issued = event
+
+    @staticmethod
+    def _expect_issued(now: AttemptState) -> None:
+        if now.issued is None:
+            _refuse(
+                "integration's session is spawned only after its issued state is recorded in "
+                "the same window"
+            )
 
     def owed_contract(self) -> ContractPair | None:
         """The pair whose contract result the record owes next, if any (ARCH-051).

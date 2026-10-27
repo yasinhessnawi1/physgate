@@ -33,7 +33,7 @@ from physgate.orchestrator.events import (
 )
 from physgate.orchestrator.exceptions import RunConfigError, RunStateError
 from physgate.orchestrator.managed import ObservedTraffic
-from physgate.orchestrator.plan import InterfaceConsumers, SystemRequirement
+from physgate.orchestrator.plan import CriterionWords, InterfaceConsumers, SystemRequirement
 from physgate.orchestrator.protocols import MessageUsage
 from physgate.orchestrator.queue import ApprovalQueue
 from physgate.orchestrator.replay import RunState, project_ledger
@@ -84,6 +84,9 @@ class DecompositionSummary(BaseModel):
     #: The module pairs whose contract is tested, read from the plan; ``None`` without the
     #: consumers, so a run without the integration role records no such line.
     contract_pairs: tuple[ContractPair, ...] | None = None
+    #: The brief's own words for each system requirement the plan gives by number; ``None`` or
+    #: empty when there are none, and then left out of the line.
+    brief_words: tuple[CriterionWords, ...] | None = None
 
 
 class _Mark(TypedDict, total=False):
@@ -210,6 +213,7 @@ class RunRecord:
                 plan_sha256=decomposed.plan_sha256,
                 interface_consumers=decomposed.interface_consumers,
                 system_requirements=decomposed.system_requirements,
+                brief_words=decomposed.brief_words or None,
             )
         for entry in plan:
             # The mark is written only where it is set: every other line keeps the bytes it

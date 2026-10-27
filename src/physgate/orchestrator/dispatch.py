@@ -23,6 +23,7 @@ ends and redacted from the captured stream before anything reads it.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 import re
@@ -71,6 +72,7 @@ from physgate.orchestrator.exceptions import (
 )
 from physgate.orchestrator.git import common_dir, named_from, object_format, verified_git_dir
 from physgate.orchestrator.install import InstallFacts, build_record_path, install_facts
+from physgate.orchestrator.integration_state import STATE_NAME
 from physgate.orchestrator.invocation import isolated_env, role_argv, session_search_path
 from physgate.orchestrator.managed import drift, policy_limits_digest
 from physgate.orchestrator.merge import RunGit, commit_attempt
@@ -414,8 +416,28 @@ def review_material_seen(stream: Path, live: frozenset[str]) -> str | None:
     return canary_seen(read_stream_file(stream), live)
 
 
-def role_prompt(request: SessionRequest) -> str:
-    """What a role session is told: a template, with the repair instruction if any."""
+def issued_state_path(sdir: Path) -> Path:
+    """Where a session's issued state is written: its own directory, outside its worktree.
+
+    So no attempt's commit can hold it and nothing of it reaches the run branch; and every
+    session's directory is a root sessions may not write.
+    """
+    return sdir / "issued" / STATE_NAME
+
+
+def write_issued_state(path: Path, data: bytes) -> None:
+    """Write a session's issued state, new, where it will read it."""
+    path.parent.mkdir(parents=True)
+    with path.open("xb") as handle:
+        handle.write(data)
+
+
+def role_prompt(request: SessionRequest, state: Path | None = None) -> str:
+    """What a role session is told: a template, with the repair instruction if any.
+
+    A session handed an issued state (integration's) is told where it is, in one sentence;
+    every other session's prompt is what it always was.
+    """
     text = (
         f"You implement subtask {request.subtask_id} in the {request.assigned_role} role.\n\n"
         f"Your specification is {request.spec_path}; read it in full first. Change files only "
@@ -426,6 +448,12 @@ def role_prompt(request: SessionRequest) -> str:
         "each run through the series writer, .physgate/lib/series_writer.py, into "
         ".physgate/series/, which nothing else may write. Stop when the specification is met.\n"
     )
+    if state is not None:
+        text += (
+            f"\nYour issued state is {state}; read it in full first too. It is the run's record of "
+            "the system-scope result, each module pair's contract results and the system "
+            "requirements, written by the harness and by no session.\n"
+        )
     if request.kind == "fix":
         # The one fix a person ordered: told so, then its instruction. Nothing else differs.
         text += (
@@ -1120,6 +1148,10 @@ class ClaudeDispatcher:
         reading_args = [
             arg for path in reading_paths for arg in ("--reading", str(worktree / path))
         ]
+        # Integration's issued state, read through the same check as its specification.
+        issued = self._issue_state(request, sdir)
+        if issued is not None:
+            reading_args += ["--reading", str(issued)]
         always_loaded_args = [
             arg for path in always_loaded_paths for arg in ("--always-loaded", str(worktree / path))
         ]
@@ -1177,6 +1209,27 @@ class ClaudeDispatcher:
         if self._credential.mode == "subscription":
             write_login(sdir / "config", self._credential.secret)
         return Installed.model_validate_json(done.stdout)
+
+    @staticmethod
+    def _issue_state(request: SessionRequest, sdir: Path) -> Path | None:
+        """Write the request's issued state where its session reads it, held to its line.
+
+        Read back and held to the digest and length the run recorded before anything of the
+        session is installed; a file that does not hold those bytes installs no session.
+
+        Raises:
+            InvocationError: the file does not hold the bytes the run recorded.
+        """
+        state = request.issued_state
+        if state is None:
+            return None
+        path = issued_state_path(sdir)
+        write_issued_state(path, state.text.encode("utf-8"))
+        held = path.read_bytes()
+        if (hashlib.sha256(held).hexdigest(), len(held)) != (state.sha256, state.length):
+            msg = "the issued state written for the session is not the one the run recorded"
+            raise InvocationError(msg, subtask_id=request.subtask_id, path=str(path))
+        return path
 
     def run(self, request: SessionRequest, on_spawn: SpawnHook | None = None) -> SessionReport:
         """Run one attempt in a fresh session and report what it left.
@@ -1272,7 +1325,9 @@ class ClaudeDispatcher:
             env["PATH"] = f"{session_bin(sdir, recorded_python)}:{env['PATH']}"
         argv = role_argv(
             self._binary,
-            prompt=role_prompt(request),
+            prompt=role_prompt(
+                request, issued_state_path(sdir) if request.issued_state is not None else None
+            ),
             spawn_args=installed.spawn_args,
             model=request.model,
             session_id=session_id,

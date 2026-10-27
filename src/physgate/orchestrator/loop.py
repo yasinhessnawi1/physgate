@@ -62,6 +62,7 @@ from physgate.orchestrator.events import (
     IntegrationEscalated,
     IntegrationGateRan,
     IntegrationGateSkipped,
+    IntegrationStateIssued,
     LeftoverRead,
     LeftoverStopped,
     Merged,
@@ -98,6 +99,7 @@ from physgate.orchestrator.exceptions import (
     TrajectoryTamperedError,
     WorktreeMisplacedError,
 )
+from physgate.orchestrator.integration_state import issued_state
 from physgate.orchestrator.managed import policy_limits_change
 from physgate.orchestrator.merge import merge_message
 from physgate.orchestrator.ports import (
@@ -116,6 +118,7 @@ from physgate.orchestrator.protocols import (
     Gate,
     IntegrationArtefact,
     IssuedSpec,
+    IssuedState,
     PersonOrder,
     Reviewer,
     ReviewResult,
@@ -1058,6 +1061,23 @@ class Loop:
             subtask_id, self._screened(subtask_id, order)
         ):
             return False
+        held: IssuedState | None = None
+        if subtask_id == self.state.completion_subtask:
+            # Integration's session reads the record's state: built from the log, recorded by its
+            # digest before the spawn, and held to that line before it is handed over.
+            data = issued_state(self.state)
+            self._emit(
+                IntegrationStateIssued(
+                    **self._env(),
+                    subtask_id=subtask_id,
+                    attempt=attempt,
+                    sha256=hashlib.sha256(data).hexdigest(),
+                    length=len(data),
+                )
+            )
+            held = self._state_holds(subtask_id)
+            if held is None:
+                return False
         # The decisions file's length now and when the session ends: the window a
         # decision written meanwhile falls in, which the queue listing marks.
         self._emit(
@@ -1094,6 +1114,7 @@ class Loop:
             bounds=self.config.bounds,
             spec_commit=self._spec_commit(),
             kind="fix" if order is not None and order.kind == "fix_after_block" else "attempt",
+            issued_state=held,
         )
         try:
             report = self._dispatcher.run(request, on_spawn=self._spawned)
@@ -1243,6 +1264,30 @@ class Loop:
         self._emit(
             Incident(**self._env(), subtask_id=subtask_id, cause="os_layer_aborted", detail=detail)
         )
+
+    def _state_holds(self, subtask_id: str) -> IssuedState | None:
+        """Integration's issued state, built again from the record and held to its window's line.
+
+        Replay holds the line to its place and form, never to the bytes, so a recorded log stays
+        readable whatever the document's wording becomes. The bytes are held here instead, each
+        time they are handed over: before the spawn and before the review. A record that no
+        longer gives what was issued (a line it was built from rewritten since, or the line's own
+        digest) halts the run, and nothing is handed over.
+        """
+        line = self.state.subtasks[subtask_id].attempts[-1].issued
+        data = issued_state(self.state)
+        if line is None or (hashlib.sha256(data).hexdigest(), len(data)) != (
+            line.sha256,
+            line.length,
+        ):
+            where = f"at line {line.seq}" if line is not None else "in this window"
+            detail = (
+                f"integration's issued state recorded {where} is not what the run's record gives "
+                "now"
+            )
+            self._incident(subtask_id, "issued_state_mismatch", detail)
+            return None
+        return IssuedState(text=data.decode("utf-8"), sha256=line.sha256, length=line.length)
 
     def _spec_commit(self) -> str | None:
         """The commit that issued every subtask's specification: the decomposition's."""
@@ -1456,6 +1501,12 @@ class Loop:
         # The reviewer reads the trajectory: it must still be what was sealed.
         if not self._trajectories_hold(subtask_id, [session]):
             return False
+        if subtask_id == self.state.completion_subtask:
+            # And the issued state its session read: still what the record gives.
+            held = self._state_holds(subtask_id)
+            if held is None:
+                return False
+            artefact = artefact.model_copy(update={"integration_state": held})
         self._environment_before_a_spawn()
         self._stage(subtask_id, attempt, "review")
         reviewer = self._reviewers[role]

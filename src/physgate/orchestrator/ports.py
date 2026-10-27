@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 from physgate.orchestrator.budget import ATTEMPT_LIMIT, SessionEnd
 from physgate.orchestrator.common import NonEmptyStr
 from physgate.orchestrator.install import InstallFacts
-from physgate.orchestrator.protocols import MessageUsage
+from physgate.orchestrator.protocols import IssuedState, MessageUsage
 from physgate.orchestrator.run_config import RunBounds
 from physgate.orchestrator.trajectory import Seal
 from physgate.series.seal import SeriesCheck, SessionSeries
@@ -55,6 +55,9 @@ class SessionRequest(_Frozen):
     spec_commit: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")] | None = None
     #: An ordinary attempt, or the fix a person ordered; a fix always carries its instruction.
     kind: RequestKind = "attempt"
+    #: Integration's issued state, for a session of integration's subtask: the dispatcher writes it
+    #: where the session reads it and adds it to the required reading.
+    issued_state: IssuedState | None = None
 
     @model_validator(mode="after")
     def _a_fix_is_told_what_to_fix(self) -> SessionRequest:
