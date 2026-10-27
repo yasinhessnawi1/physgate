@@ -49,7 +49,7 @@ from physgate.reviewers.scan import ScanHit
 
 _HEADING = re.compile(r"^#{1,6}\s+(?P<title>.+?)\s*$")
 _NUMBERED = re.compile(r"^\s*(?P<ref>\d+)[.)]\s+\S")
-_WORDED = re.compile(r"^\s*(?P<ref>\d+)[.)]\s+(?P<words>\S.*)$")
+_WORDED = re.compile(r"^\s*(?P<ref>\d+)[.)]\s+(?P<words>\S.*)")
 CRITERION_RESULTS = ("met", "unmet", "not evaluable")
 #: The one criterion line of a revision issued with no specification: whether it is
 #: consistent with the design it changes and with the rubric.
