@@ -678,7 +678,8 @@ def test_the_readme_holds_the_freeze_s_bytes_and_one_appended_section(r_k: Any) 
 @pytest.mark.parametrize(
     ("text", "why"),
     [
-        (FROZEN_README.replace("Three arms", "Four arms") + SECTION, "frozen part"),
+        # The same length, so the frozen part's own check is the one that refuses.
+        (FROZEN_README.replace("Three arms", "Three ARMS") + SECTION, "frozen part is not"),
         (FROZEN_README + SECTION + "\n## More\n\nx\n", "one appended section"),
         (FROZEN_README, "one appended section"),
         (FROZEN_README + "\n## Something else\n", "one appended section"),
