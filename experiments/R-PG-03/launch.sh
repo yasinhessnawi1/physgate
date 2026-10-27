@@ -57,7 +57,9 @@
 # token's scan of everything written.
 #
 # --checks-only runs L1 to L8, L9 and L11, never reads the token and never starts a review;
-# it needs RP3_RUNS, a records directory of its own outside ~/runs/rpg03, and may name another
+# it needs RP3_RUNS, a records directory of its own under ~/runs/rpg03-trials (every real block's
+# R3 holds that directory as a place, since a trial's records may hold copies of the sets), and may
+# name another
 # master ref (RP3_MASTER_REF) and skip the host and date checks (RP3_TRIAL_HOST=1). The log says so.
 
 set -euo pipefail
@@ -81,13 +83,16 @@ BIN="${PHYSGATE_CLAUDE_BIN:-$HOME/pinned/claude-2.1.301}"
 ENV_FILE="$HOME/.config/physgate-run.env"
 MASTER_REF=origin/master
 RUNS="$HOME/runs/rpg03"
+TRIALS="$HOME/runs/rpg03-trials"
 TRIAL_HOST=0
 if [ "$STOP_AFTER" = checks ]; then
   MASTER_REF="${RP3_MASTER_REF:-$MASTER_REF}"
   real() { python3 -I -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"; }
-  [ -n "${RP3_RUNS:-}" ] || { echo "REFUSED: --checks-only needs RP3_RUNS, a records directory outside $RUNS" >&2; exit 1; }
+  [ -n "${RP3_RUNS:-}" ] || { echo "REFUSED: --checks-only needs RP3_RUNS, a records directory of its own under $TRIALS" >&2; exit 1; }
+  mkdir -p "$TRIALS"
   case "$(real "$RP3_RUNS")/" in
-    "$(real "$RUNS")/"*) echo "REFUSED: RP3_RUNS lies under $RUNS, the run's records" >&2; exit 1 ;;
+    "$(real "$TRIALS")/"?*) ;;
+    *) echo "REFUSED: RP3_RUNS lies outside $TRIALS, where every real block's R3 holds a trial's records" >&2; exit 1 ;;
   esac
   RUNS="$RP3_RUNS"
   TRIAL_HOST="${RP3_TRIAL_HOST:-0}"
@@ -108,8 +113,17 @@ lanes_of() { case "$1" in B) echo 2 ;; *) echo 3 ;; esac; }
 mode_of() { case "$1" in B) echo "--generalist" ;; *) echo "" ;; esac; }
 
 mkdir -p "$RUNS"
-N=1; while [ -e "$RUNS/blocks/$BLOCK-$N" ]; do N=$((N + 1)); done
+# The attempt's number is the block record's (the owner's files and the review roots carry it); a
+# pre-flight of the same attempt that was refused earlier keeps its directory beside, renamed.
+N="$(python3 -I -c 'import json,sys
+try: d = json.load(open(sys.argv[1]))
+except FileNotFoundError: d = {}
+print(1 + sum(1 for a in d.get("attempts", []) if a.get("block") == sys.argv[2]))' "$RUNS/blocks.json" "$BLOCK")"
 LAUNCH="$RUNS/blocks/$BLOCK-$N"
+if [ "$STOP_AFTER" != smoke ] && [ -e "$LAUNCH" ]; then
+  R=1; while [ -e "$LAUNCH.refused-$R" ]; do R=$((R + 1)); done
+  mv "$LAUNCH" "$LAUNCH.refused-$R"
+fi
 if [ "$STOP_AFTER" = smoke ]; then
   K=1; while [ -e "$RUNS/smoke-$K" ]; do K=$((K + 1)); done
   LAUNCH="$RUNS/smoke-$K"
@@ -259,7 +273,7 @@ for arm in "${ARMS[@]}"; do ROOTS+=(--root "$HOME/review-scratch/rp3-$BLOCK-$N-$
 for arm in "${ARMS[@]}"; do
   [ ! -e "$HOME/review-scratch/rp3-$BLOCK-$N-$(lower "$arm")" ] || refuse "a review root of this attempt exists: an attempt is never resumed"
 done
-PLACES=(--place "$HOME/runs/rpg01b" --place "$HOME/runs/rpg02" --place "$HOME/runs/gr1" --place "$HOME/runs/gr2")
+PLACES=(--place "$HOME/runs/rpg01b" --place "$HOME/runs/rpg02" --place "$HOME/runs/gr1" --place "$HOME/runs/gr2" --place "$TRIALS")
 for p in "$RUNS"/blocks/* "$RUNS"/authoring "$RUNS"/reality "$HOME"/review-scratch/rp3-* "$HOME"/review-scratch/rpb-*; do
   [ -e "$p" ] && [ "$p" != "$LAUNCH" ] && PLACES+=(--place "$p")
 done

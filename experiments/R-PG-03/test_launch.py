@@ -62,7 +62,19 @@ def test_checks_only_needs_a_records_directory_of_its_own(tmp_path: Path) -> Non
         "--checks-only",
         extra={"RP3_RUNS": str(tmp_path / "home" / "runs" / "rpg03" / "trial")},
     )
-    assert done.returncode == 1 and "lies under" in done.stderr
+    assert done.returncode == 1 and "rpg03-trials" in done.stderr
+
+
+def test_a_trial_s_records_lie_where_every_real_launch_holds_them_by_r3(tmp_path: Path) -> None:
+    # A trial's records may hold copies of the sets: they lie under ~/runs/rpg03-trials, an R3
+    # place of every real block.
+    done = launch(
+        tmp_path, "--block", "x1", "--checks-only", extra={"RP3_RUNS": str(tmp_path / "trial")}
+    )
+    assert done.returncode == 1 and "rpg03-trials" in done.stderr
+    text = "\n".join(code())
+    places = next(ln for ln in text.splitlines() if ln.startswith("PLACES=("))
+    assert '--place "$TRIALS"' in places and 'TRIALS="$HOME/runs/rpg03-trials"' in text
 
 
 def test_the_trial_s_settings_are_refused_on_a_run(tmp_path: Path) -> None:
@@ -70,16 +82,31 @@ def test_the_trial_s_settings_are_refused_on_a_run(tmp_path: Path) -> None:
     assert done.returncode == 1 and "--checks-only alone" in done.stderr
 
 
+TRIAL = ("home", "runs", "rpg03-trials", "t1")
+
+
 def test_a_check_only_trial_refuses_without_commits_filled(tmp_path: Path) -> None:
+    trial = tmp_path.joinpath(*TRIAL)
     done = launch(
         tmp_path,
         "--block",
         "x1",
         "--checks-only",
-        extra={"RP3_RUNS": str(tmp_path / "trial"), "RP3_TRIAL_HOST": "1", "RP3_R_K": str(REPO)},
+        extra={"RP3_RUNS": str(trial), "RP3_TRIAL_HOST": "1", "RP3_R_K": str(REPO)},
     )
-    log = next((tmp_path / "trial" / "blocks").glob("x1-*/launch.log")).read_text()
+    log = next((trial / "blocks").glob("x1-*/launch.log")).read_text()
     assert done.returncode == 1 and "REFUSED: L2-commits" in log and "Commits filled" in log
+
+
+def test_a_refused_pre_flight_keeps_its_attempt_s_number_and_its_log_beside(tmp_path: Path) -> None:
+    trial = tmp_path.joinpath(*TRIAL)
+    extra = {"RP3_RUNS": str(trial), "RP3_TRIAL_HOST": "1", "RP3_R_K": str(REPO)}
+    for _ in range(2):
+        assert launch(tmp_path, "--block", "x1", "--checks-only", extra=extra).returncode == 1
+    blocks = trial / "blocks"
+    assert sorted(p.name for p in blocks.iterdir()) == ["x1-1", "x1-1.refused-1"]
+    for d in ("x1-1", "x1-1.refused-1"):
+        assert "block x1, attempt 1," in (blocks / d / "launch.log").read_text()
 
 
 def code() -> list[str]:
