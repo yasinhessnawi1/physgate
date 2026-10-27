@@ -17,7 +17,8 @@ if it holds::
     checks.py r3 --checkout <dir> --root <dir>... --sets <dir> [--place <dir>...]
     checks.py start --block <b> --attempt <n> --runs <json>
     checks.py after --block <b> --attempt <n> --launch <dir>
-    checks.py classify --block <b> --attempt <n> --route defect --test <path> | --route impossible
+    checks.py classify --block <b> --attempt <n> --route defect --test <path> --correction <id>
+        | --route impossible
     checks.py stop-sessions --scratch <dir> [--scratch ...]
     checks.py credentials
 
@@ -118,15 +119,25 @@ def attempts_of(record: dict[str, Any], block: str) -> list[dict[str, Any]]:
     return [a for a in record.get("attempts", []) if a.get("block") == block]
 
 
+def current(record: dict[str, Any], block: str) -> list[dict[str, Any]]:
+    """A block's attempts after the last one a correction touches (§11); all, if none is."""
+    mine = attempts_of(record, block)
+    return mine[common.corrected_from(mine, block, None)[0] :]
+
+
 def order(
     block: str, now: float | None = None, ledger: list[dict[str, Any]] | None = None
 ) -> dict[str, Any]:
     """The fixed order (§10), the void attempts (§11) and the earliest start of a block.
 
+    A block a correction touches (§11) runs once more, at the corrected commit, until it has a
+    valid attempt after the one the correction touches; the blocks after it wait for that.
+
     Raises:
-        RefusedError: an earlier block has no valid attempt and is not recorded as not run; this
-            block already has a valid attempt, or three void ones; it is recorded as not run; or
-            it is before its earliest start.
+        RefusedError: an earlier block has no valid attempt, or none after the one a correction
+            touches, and is not recorded as not run; this block already has a valid attempt (after
+            the one a correction touches, if one does), or three void ones; it is recorded as not
+            run; or it is before its earliest start.
     """
     rec = read_blocks()
     stopped = rec.get("stopped")
@@ -139,13 +150,15 @@ def order(
     for earlier in common.BLOCKS[:k]:
         if earlier in not_run:
             continue
-        if not any(a.get("valid") is True for a in attempts_of(rec, earlier)):
+        if not any(a.get("valid") is True for a in current(rec, earlier)):
             raise RefusedError(
-                f"block {earlier} comes first and has no valid attempt (§10's order)"
+                f"block {earlier} comes first and has no valid attempt (§10's order), or none at "
+                "the corrected commit of a correction that touches it (§11)"
             )
-    mine = attempts_of(rec, block)
-    if any(a.get("valid") is True for a in mine):
-        raise RefusedError(f"block {block} already has a valid attempt")
+    mine, fresh = attempts_of(rec, block), current(rec, block)
+    if any(a.get("valid") is True for a in fresh):
+        at = " at its corrected commit (§11)" if len(fresh) < len(mine) else ""
+        raise RefusedError(f"block {block} already has a valid attempt{at}")
     if any(a.get("valid") is None for a in mine):
         raise RefusedError(f"an attempt of block {block} has not been closed by its end check")
     for a in mine:
@@ -562,19 +575,29 @@ def after(block: str, attempt: int, launch: Path, sheet: bytes, sets: Path) -> d
 
 
 def classify(
-    block: str, attempt: int, route: str, test: str | None, repo: Path = common.REPO
+    block: str,
+    attempt: int,
+    route: str,
+    test: str | None,
+    correction: str | None = None,
+    repo: Path = common.REPO,
 ) -> dict[str, Any]:
-    """The owner's classification of a deviation, on the logs and the ledger only (§11, R8).
+    """The owner's classification of a deviation, or of a valid attempt a correction touches (§11).
 
     ``route`` is ``instrument defect`` (with ``test``, the repository path of a tracked test that
-    depends on no verdict and shows the defect: the block is then re-run at the corrected commit,
+    depends on no verdict and shows the defect in the block's own records, and ``correction``, the
+    id of the correction that names the block: the block is then re-run at its corrected commit,
     and both runs are reported) or ``anything else impossible as specified`` (the decisions it
-    feeds are not taken). It is written once, next to the attempt (``classification.json``), and
-    in the block record; the launch refuses any further attempt of the block until it exists.
+    feeds are not taken). A deviation is classified on the attempt's logs and the ledger only,
+    before any tally (R8); a defect also classifies the valid attempt of every block its
+    correction names. It is written once, next to the attempt (``classification.json``), and in
+    the block record; the launch refuses any further attempt of a deviation's block until it exists.
 
     Raises:
-        RefusedError: the route is neither; a defect names no tracked test file, or the other
-            route names one; the attempt records no deviation, or is classified already.
+        RefusedError: the route is neither; a defect names no tracked test file or no correction,
+            or the other route names either; the attempt records no deviation and is not a valid
+            attempt a defect touches; the correction classifies an attempt of the block already;
+            or the attempt is classified already.
     """
     if route not in ROUTES.values():
         raise RefusedError(f"the route is {ROUTES['defect']!r} or {ROUTES['impossible']!r}")
@@ -598,9 +621,15 @@ def classify(
             blob = common.git(repo, "rev-parse", f"HEAD:{test}")
         except subprocess.CalledProcessError:
             raise RefusedError(f"{test} is not a tracked test at the checkout's HEAD") from None
-        found.update(test=test, test_commit=common.git(repo, "rev-parse", "HEAD"), test_blob=blob)
-    elif test:
-        raise RefusedError("a test is named for an instrument defect alone")
+        if not correction:
+            raise RefusedError(
+                "an instrument defect names the correction that re-runs it: its id in the "
+                "fills' corrections (§11)"
+            )
+        head = common.git(repo, "rev-parse", "HEAD")
+        found.update(test=test, test_commit=head, test_blob=blob, correction=correction)
+    elif test or correction:
+        raise RefusedError("a test and a correction are named for an instrument defect alone")
     rec = read_blocks()
     row = next(
         (
@@ -610,18 +639,34 @@ def classify(
         ),
         None,
     )
-    if row is None or not row.get("deviation"):
-        raise RefusedError(f"block {block}'s attempt {attempt} records no deviation")
+    touched = row is not None and row.get("valid") is True and correction is not None
+    if row is None or not (row.get("deviation") or touched):
+        raise RefusedError(
+            f"block {block}'s attempt {attempt} records no deviation, and is not a valid attempt "
+            "an instrument defect touches"
+        )
+    if correction and any(a.get("correction") == correction for a in attempts_of(rec, block)):
+        raise RefusedError(
+            f"correction {correction} classifies an attempt of block {block} already: a further "
+            "defect is a correction of its own"
+        )
     where = Path(row.get("launch") or records_dir() / "blocks" / f"{block}-{attempt}")
+    deviation = row.get("deviation") or {}
     if (
-        row["deviation"].get("classification") is not None
+        deviation.get("classification") is not None
+        or row.get("correction")
         or (where / "classification.json").exists()
     ):
         raise RefusedError(f"block {block}'s attempt {attempt} is classified already")
-    found["causes"] = row["deviation"].get("causes", [])
+    found["causes"] = deviation.get("causes", [])
+    if touched:
+        found["on"] = "the test it names, which depends on no verdict (§11)"
     where.mkdir(parents=True, exist_ok=True)
     (where / "classification.json").write_text(json.dumps(found, indent=1, sort_keys=True) + "\n")
-    row["deviation"]["classification"] = route
+    if deviation:
+        deviation["classification"] = route
+    if correction:
+        row["correction"] = correction
     write_blocks(rec)
     return found
 
@@ -683,64 +728,42 @@ def _blob(repo: Path, rev: str, path: str) -> str | None:
         return None
 
 
-def defect_attempt(block: str) -> dict[str, Any] | None:
-    """The block's last attempt whose deviation the owner classified an instrument defect."""
-    found = None
-    for a in attempts_of(read_blocks(), block):
-        if (a.get("deviation") or {}).get("classification") == ROUTES["defect"]:
-            found = a
-    return found
-
-
 def run_pins(
     r_dir: Path, fills: dict[str, Any], block: str | None
-) -> tuple[dict[str, str], dict[str, str] | None]:
+) -> tuple[dict[str, str], dict[str, Any] | None]:
     """The commits an attempt of ``block`` runs at, and the correction that names them, if any.
 
-    Every block runs at R and R_K, as "Commits filled" records them, except a block whose deviation
-    the owner classified an instrument defect (§11): it is re-run at the corrected commit, R' and
-    R_K', which its own "Commits corrected" entry names, with that classification's path. R'
-    descends from R; R_K' is one commit above R' (held below as R_K is above R).
+    Every block runs at R and R_K, as "Commits filled" records them, except a block a correction
+    touches (§11): its attempts after the one the owner classified an instrument defect with the
+    correction's id run at the corrected commit, R' and R_K', which the correction's entry names
+    with the block's test. R' descends from R; R_K' is one commit above R' (held below as R_K is
+    above R).
 
     Raises:
-        RefusedError: a correction names a block whose attempts hold no deviation classified an
-            instrument defect, or names another classification than that one, or an R' that does
-            not descend from R; or a block's defect has no correction.
+        RefusedError: the corrections that name the block are not those its attempts are
+            classified with; the classification beside the attempt is not that correction's
+            instrument defect with the test it names for the block; or R' is R, or does not
+            descend from R.
     """
     filled = common.need_fill(fills, "commits")
     base = {"R": str(filled.get("R")), "R_K": str(filled.get("R_K"))}
     if block is None:
         return base, None
-    entries = [
-        common.correction_entry(c)
-        for c in fills.get(common.CORRECTIONS) or []
-        if isinstance(c, dict) and c.get("block") == block
-    ]
-    defect = defect_attempt(block)
-    if entries and defect is None:
-        raise RefusedError(
-            f"a correction names block {block}, whose attempts hold no deviation classified an "
-            "instrument defect (§11)"
-        )
-    if defect is None:
+    mine = attempts_of(read_blocks(), block)
+    since, entry = common.corrected_from(mine, block, fills)
+    if entry is None:
         return base, None
-    if not entries:
+    touched = mine[since - 1]
+    said = _json_or_none(Path(str(touched.get("launch") or "")) / "classification.json") or {}
+    if [said.get(k) for k in ("route", "block", "correction", "test")] != [
+        ROUTES["defect"],
+        block,
+        entry["id"],
+        entry["blocks"][block],
+    ]:
         raise RefusedError(
-            f"block {block}'s deviation is classified an instrument defect: it is re-run at the "
-            'corrected commit, which a "Commits corrected" entry of the fills names (§11)'
-        )
-    entry = entries[-1]
-    want = Path(str(defect.get("launch") or "")) / "classification.json"
-    said = _json_or_none(Path(entry["classification"]))
-    if (
-        Path(entry["classification"]).resolve() != want.resolve()
-        or not said
-        or said.get("route") != ROUTES["defect"]
-        or said.get("block") != block
-    ):
-        raise RefusedError(
-            f"the correction of block {block} names another classification than the block "
-            "record's instrument defect"
+            f"the classification next to block {block}'s attempt {touched.get('attempt')} is not "
+            f"an instrument defect of correction {entry['id']} with the test it names for the block"
         )
     if entry["R"] == base["R"]:
         raise RefusedError(f"the correction of block {block} names R itself, not a corrected R'")
@@ -766,9 +789,9 @@ def commits(
     (``fills.json``), never written into it. The README is the freeze's bytes followed by exactly
     one appended section, its readings, and is the same bytes at all three, so the readings are
     final at "Commits filled" and nothing in it moves during the run. For an attempt of a
-    block whose deviation is classified an instrument defect, R and R_K are its corrected commit's
-    (:func:`run_pins`), held by the same checks but for the trees, blobs and digests "Commits
-    filled" records for R, which the correction replaces.
+    block a correction touches, after its attempt classified an instrument defect, R and R_K are
+    the corrected commit's (:func:`run_pins`), held by the same checks but for the trees, blobs and
+    digests "Commits filled" records for R, which the correction replaces.
 
     Raises:
         RefusedError: anything differs.
@@ -1164,6 +1187,7 @@ def main(argv: list[str] | None = None) -> int:
     cl.add_argument("--attempt", type=int, required=True)
     cl.add_argument("--route", choices=sorted(ROUTES), required=True)
     cl.add_argument("--test", help="defect: the path of a tracked test that depends on no verdict")
+    cl.add_argument("--correction", help="defect: the id of the correction that names the block")
     nr = sub.add_parser("not-run")
     nr.add_argument("--block", choices=("s", "p1", "p2"), required=True)
     nr.add_argument("--cause", required=True)
@@ -1229,7 +1253,9 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0 if found["valid"] else 1
         elif args.cmd == "classify":
-            found = classify(args.block, args.attempt, ROUTES[args.route], args.test)
+            found = classify(
+                args.block, args.attempt, ROUTES[args.route], args.test, args.correction
+            )
         elif args.cmd == "not-run":
             found = not_run(args.block, args.cause)
         elif args.cmd == "stop-sessions":

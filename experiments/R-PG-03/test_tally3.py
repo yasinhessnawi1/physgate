@@ -672,8 +672,58 @@ def test_each_block_s_attempts_and_the_chosen_one_s_deviations_are_carried_besid
     gate = run_tally({**made, "records": records})["secondary"]["gate"]
     assert gate["attempts"]["x1"]["chosen"] == 2 and gate["attempts"]["x1"]["deviations"] == [r6]
     assert gate["attempts"]["x1"]["others"] == [
-        {"attempt": 1, "valid": False, "void_causes": ["usage limit"], "deviation": None}
+        {
+            "attempt": 1,
+            "valid": False,
+            "void_causes": ["usage limit"],
+            "deviation": None,
+            "correction": None,
+        }
     ]
+
+
+NOT_RUN = {"s": "x", "p1": "x", "p2": "x"}
+#: A correction that touches block x1, as "Commits corrected" adds one.
+CORRECTS_X1 = {
+    "id": "c1",
+    "R": "f" * 40,
+    "R_K": "e" * 40,
+    "blocks": {"x1": "experiments/R-PG-03/test_checks.py"},
+}
+
+
+def test_the_tally_uses_the_corrected_attempt_of_a_touched_block_and_lists_both(
+    made: dict[str, Any], tmp_path: Path
+) -> None:
+    records = tmp_path / "records"
+    first = {**made["attempts"][0], "correction": "c1"}
+    second = {**made["attempts"][0], "attempt": 2}
+    fx.write_blocks(records, [first, second, *made["attempts"][1:]], NOT_RUN)
+    gate = run_tally({**made, "records": records})["secondary"]["gate"]
+    assert gate["attempts"]["x1"]["chosen"] == 2
+    assert gate["attempts"]["x1"]["others"] == [
+        {"attempt": 1, "valid": True, "void_causes": [], "deviation": None, "correction": "c1"}
+    ]
+    assert t3.blocks_record(records, {"corrections": [CORRECTS_X1]})["chosen"]["x1"] == second
+
+
+def test_the_tally_refuses_while_a_block_a_correction_names_lacks_its_corrected_attempt(
+    made: dict[str, Any], tmp_path: Path
+) -> None:
+    records = tmp_path / "records"
+    first = {**made["attempts"][0], "correction": "c1"}
+    fx.write_blocks(records, [first, *made["attempts"][1:]], NOT_RUN)
+    with pytest.raises(t3.RefusedError, match=r"x1 has 0 valid attempt\(s\) at its corrected"):
+        t3.blocks_record(records, {"corrections": [CORRECTS_X1]})
+    # Named and never classified, the tally refuses, as the launch does.
+    named = r"named by the corrections \['c1'\], and its attempts are classified with \[\]"
+    with pytest.raises(common.RefusedError, match=named):
+        run_tally(made, fills={"corrections": [CORRECTS_X1]})
+    # Classified with a correction that no fill names.
+    second = {**made["attempts"][0], "attempt": 2}
+    fx.write_blocks(records, [first, second, *made["attempts"][1:]], NOT_RUN)
+    with pytest.raises(common.RefusedError, match=r"classified with \['c1'\]"):
+        t3.blocks_record(records, {})
 
 
 # ---- §6.4 item 10: blocks p1 and p2 against R-PG-02's published runs ----------------------------

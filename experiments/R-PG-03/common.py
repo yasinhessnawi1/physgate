@@ -293,8 +293,9 @@ def utc_now() -> str:
 #: - ``sets`` ("Set filled"): ``manifests``, corpus name to manifest sha256, for fresh-v2's seven
 #:   and fresh-v1c's two;
 #: - ``corrections`` ("Commits corrected", §11's instrument defect, after "Set filled" alone): a
-#:   list, one entry per correction commit, each ``block``, the corrected ``R`` and ``R_K`` (full
-#:   shas) and the path of that block's ``classification.json``. "Commits filled" never changes.
+#:   list, one entry per correction commit, each its ``id``, the corrected ``R`` and ``R_K`` (full
+#:   shas) and ``blocks``: every block it touches, each with the path of a test that depends on no
+#:   verdict and shows the defect in that block's own records. "Commits filled" never changes.
 FILLS_NAME = "fills.json"
 FILL_KEYS = ("commits", "sheet", "sets")
 #: Each fill's name, which the subject of the commit that adds it names.
@@ -302,6 +303,8 @@ FILL_NAMES = {"commits": "Commits filled", "sheet": "Sheet filled", "sets": "Set
 CORRECTIONS = "corrections"
 CORRECTED = "Commits corrected"
 _SHA = re.compile(r"[0-9a-f]{40}")
+#: The path of a tracked test, as a correction names one for each block it touches.
+_TEST = re.compile(r"(?:[\w.-]+/)*test_\w+\.py")
 
 
 class RefusedError(Exception):
@@ -324,25 +327,63 @@ def fills_from(text: str | None) -> dict[str, Any]:
     return data
 
 
-def correction_entry(entry: object) -> dict[str, str]:
+def correction_entry(entry: object) -> dict[str, Any]:
     """One correction's entry, held to its form.
 
     Raises:
-        RefusedError: it is not a block of the run, two full shas and a classification's path.
+        RefusedError: it is not an id, two full shas and the blocks of the run it touches, each
+            with the path of a test (``test_*.py``).
     """
+    blocks = entry.get("blocks") if isinstance(entry, dict) else None
     if (
         not isinstance(entry, dict)
-        or set(entry) != {"block", "R", "R_K", "classification"}
-        or entry["block"] not in BLOCKS
+        or set(entry) != {"id", "R", "R_K", "blocks"}
+        or not (isinstance(entry["id"], str) and re.fullmatch(r"[\w.-]{1,64}", entry["id"]))
         or not all(isinstance(entry[k], str) and _SHA.fullmatch(entry[k]) for k in ("R", "R_K"))
-        or not isinstance(entry["classification"], str)
-        or not entry["classification"]
+        or not isinstance(blocks, dict)
+        or not blocks
+        or not all(
+            b in BLOCKS and isinstance(t, str) and _TEST.fullmatch(t) for b, t in blocks.items()
+        )
     ):
         raise RefusedError(
-            "a correction entry is not a block, the corrected R and R_K (full shas) and the path "
-            "of its classification"
+            "a correction entry is not an id, the corrected R and R_K (full shas) and the blocks "
+            "it touches, each with the path of its test"
         )
-    return {k: str(v) for k, v in entry.items()}
+    return dict(entry)
+
+
+def corrected_from(
+    mine: list[dict[str, Any]], block: str, fills: dict[str, Any] | None
+) -> tuple[int, dict[str, Any] | None]:
+    """Where ``block``'s corrected attempts begin among its own, and the correction they run at.
+
+    A correction names every block it touches (§11), and the owner classifies each one's attempt
+    an instrument defect with the correction's id (``checks.py classify``), a valid attempt too.
+    The attempts after the last one so classified are the block's corrected attempts, at that
+    correction's R' and R_K'. Without the fills, the block record alone places them.
+
+    Raises:
+        RefusedError: the corrections that name the block are not those its attempts are
+            classified with.
+    """
+    marked = [i for i, a in enumerate(mine) if a.get("correction")]
+    since = marked[-1] + 1 if marked else 0
+    if fills is None:
+        return since, None
+    named = {
+        e["id"]: e
+        for e in map(correction_entry, fills.get(CORRECTIONS) or [])
+        if block in e["blocks"]
+    }
+    have = {mine[i]["correction"] for i in marked}
+    if set(named) != have:
+        raise RefusedError(
+            f"block {block} is named by the corrections {sorted(named)}, and its attempts are "
+            f"classified with {sorted(have)}: each correction that names a block has its "
+            "classification with the correction's id, and no other (§11)"
+        )
+    return since, named[mine[since - 1]["correction"]] if marked else None
 
 
 def fills_history(repo: Path, ref: str) -> list[dict[str, Any]]:
@@ -352,9 +393,9 @@ def fills_history(repo: Path, ref: str) -> list[dict[str, Any]]:
     one commit (never a merge), changes that file alone, adds exactly one fill, the next of
     "Commits filled", "Sheet filled" and "Set filled" in that order, names it in its subject, and
     changes no fill added before it. A correction (§11's instrument defect) comes after "Set
-    filled" alone: a commit of its own that adds exactly one entry to the corrections, names
-    "Commits corrected" and its block in its subject, and changes no fill and no correction before
-    it.
+    filled" alone: a commit of its own that adds exactly one entry to the corrections, with an id
+    no earlier one has, names "Commits corrected" and every block it touches in its subject, and
+    changes no fill and no correction before it.
 
     Raises:
         RefusedError: any commit breaks the rule.
@@ -390,9 +431,11 @@ def fills_history(repo: Path, ref: str) -> list[dict[str, Any]]:
             entry = correction_entry(new[-1])
             if "sets" not in before:
                 raise RefusedError(f'{short}: a correction comes only after "Set filled"')
-            named = re.search(rf"(?<![\w-]){re.escape(entry['block'])}(?![\w-])", subject)
-            if CORRECTED not in subject or not named:
-                msg = f"{short}'s subject names no {CORRECTED!r} and block {entry['block']}"
+            if entry["id"] in {c["id"] for c in old}:
+                raise RefusedError(f"{short}'s correction has an id an earlier correction has")
+            named = [re.search(rf"(?<![\w-]){b}(?![\w-])", subject) for b in entry["blocks"]]
+            if CORRECTED not in subject or not all(named):
+                msg = f"{short}'s subject names no {CORRECTED!r}, or not every block it touches"
                 raise RefusedError(msg)
             found.append({"commit": sha, "fill": CORRECTIONS, "subject": subject, **entry})
             before = after

@@ -448,8 +448,10 @@ SHEET = {"sha256": "c" * 64}
 SETS = {"manifests": {"fresh-v2-x1": "d" * 64}}
 
 
-C1 = {"block": "x1", "R": "f" * 40, "R_K": "e" * 40, "classification": "/r/blocks/x1-2/c.json"}
-C2 = {**C1, "block": "y1"}
+#: A tracked test that depends on no verdict, as a correction names one per block it touches.
+TEST = "experiments/R-PG-03/test_checks.py"
+C1: dict[str, Any] = {"id": "c1", "R": "f" * 40, "R_K": "e" * 40, "blocks": {"x1": TEST}}
+C2: dict[str, Any] = {**C1, "id": "c2", "blocks": {"y1": TEST, "z1": TEST}}
 ALL = {"commits": COMMITS, "sheet": SHEET, "sets": SETS}
 FILLED: list[tuple[str, dict[str, Any], dict[str, str] | None]] = [
     ("docs(r-pg-03): Commits filled", {"commits": COMMITS}, None),
@@ -462,7 +464,11 @@ def test_a_correction_after_set_filled_is_read(tmp_path: Path) -> None:
     steps = [
         *FILLED,
         ("docs(r-pg-03): Commits corrected, block x1", {**ALL, "corrections": [C1]}, None),
-        ("docs(r-pg-03): Commits corrected, block y1", {**ALL, "corrections": [C1, C2]}, None),
+        (
+            "docs(r-pg-03): Commits corrected, blocks y1 and z1",
+            {**ALL, "corrections": [C1, C2]},
+            None,
+        ),
     ]
     assert common.fills_on(fills_repo(tmp_path, steps), "HEAD")["corrections"] == [C1, C2]
 
@@ -506,12 +512,53 @@ def test_a_correction_after_set_filled_is_read(tmp_path: Path) -> None:
                 *FILLED,
                 ("docs: Commits corrected, block x1", {**ALL, "corrections": [C1]}, None),
                 (
-                    "docs: Commits corrected, block y1",
+                    "docs: Commits corrected, blocks y1 and z1",
                     {**ALL, "corrections": [{**C1, "R": "d" * 40}, C2]},
                     None,
                 ),
             ],
             "changes",
+        ),
+        (
+            [*FILLED, ("docs: Commits corrected, block y1", {**ALL, "corrections": [C2]}, None)],
+            "every block it touches",
+        ),
+        (
+            [
+                *FILLED,
+                ("docs: Commits corrected, block x1", {**ALL, "corrections": [C1]}, None),
+                (
+                    "docs: Commits corrected, blocks y1 and z1",
+                    {**ALL, "corrections": [C1, {**C2, "id": "c1"}]},
+                    None,
+                ),
+            ],
+            "an id an earlier correction",
+        ),
+        (
+            [
+                *FILLED,
+                (
+                    "docs: Commits corrected, block x1",
+                    {**ALL, "corrections": [{**C1, "blocks": {}}]},
+                    None,
+                ),
+            ],
+            "the blocks it touches",
+        ),
+        (
+            [
+                *FILLED,
+                (
+                    "docs: Commits corrected, block x1",
+                    {
+                        **ALL,
+                        "corrections": [{**C1, "blocks": {"x1": "experiments/R-PG-03/checks.py"}}],
+                    },
+                    None,
+                ),
+            ],
+            "the blocks it touches",
         ),
         (
             [
@@ -543,6 +590,10 @@ def test_a_correction_after_set_filled_is_read(tmp_path: Path) -> None:
         "commits-filled-changed",
         "two-corrections-at-once",
         "an-earlier-correction-changed",
+        "a-subject-naming-not-every-block",
+        "an-id-used-twice",
+        "an-entry-touching-no-block",
+        "an-entry-whose-test-is-no-test",
         "a-malformed-entry",
         "another-path-touched",
     ],
@@ -654,20 +705,41 @@ def test_a_master_readme_other_than_r_s_is_refused(r_k: Any) -> None:  # noqa: A
 # ---- §11's corrected commit -------------------------------------------------------------------
 
 
-def classified(runs: Path, route: str = "instrument defect", block: str = "x1") -> Path:
-    """Block x1's first attempt, a deviation classified on ``route``; its classification's path."""
+def touched(
+    runs: Path,
+    block: str = "x1",
+    valid: bool = False,
+    route: str = "instrument defect",
+    correction: str = "c1",
+) -> dict[str, Any]:
+    """Block ``block``'s first attempt, classified on ``route``, its classification beside it.
+
+    A deviation (``valid`` false), or a valid attempt a correction touches. An instrument defect
+    names its correction's id and the test the correction names for the block.
+    """
     launch = runs / "blocks" / f"{block}-1"
     launch.mkdir(parents=True)
-    deviation = {"causes": ["a crashed or killed process"], "classification": route}
-    row = {**att(block, False), "launch": str(launch), "void_causes": [], "deviation": deviation}
+    row: dict[str, Any] = {**att(block, valid), "launch": str(launch), "void_causes": []}
+    said: dict[str, Any] = {"block": block, "attempt": 1, "route": route}
+    if not valid:
+        row["deviation"] = {"causes": ["a crashed or killed process"], "classification": route}
+    if route == "instrument defect":
+        row["correction"] = correction
+        said.update(correction=correction, test=TEST)
+    (launch / "classification.json").write_text(json.dumps(said))
+    return row
+
+
+def classified(runs: Path, route: str = "instrument defect", block: str = "x1") -> Path:
+    """Block ``block``'s first attempt, a deviation classified on ``route``; its classification."""
+    row = touched(runs, block, route=route)
     blocks(runs, [row])
-    path = launch / "classification.json"
-    path.write_text(json.dumps({"block": block, "attempt": 1, "route": route}))
-    return path
+    return Path(row["launch"]) / "classification.json"
 
 
-def correction(r: str, r_k: str, path: Path, block: str = "x1") -> dict[str, str]:
-    return {"block": block, "R": r, "R_K": r_k, "classification": str(path)}
+def correction(r: str, r_k: str, *touches: str, cid: str = "c1") -> dict[str, Any]:
+    """A correction's entry: its id, R' and R_K', and each block it touches with its test."""
+    return {"id": cid, "R": r, "R_K": r_k, "blocks": {b: TEST for b in touches or ("x1",)}}
 
 
 def corrected_pair(r_k: Any, name: str, k_commits: int = 1) -> tuple[Path, Path, str, str, str]:  # noqa: ANN401
@@ -685,45 +757,75 @@ def test_a_block_whose_deviation_is_an_instrument_defect_runs_at_its_corrected_c
     runs_dir: Path,  # noqa: ANN401
 ) -> None:
     r, k, rs, ks, head = corrected_pair(r_k, "corrected")
-    path = classified(runs_dir)
+    classified(runs_dir)
     fills: dict[str, Any] = {
         "commits": {"R": head, "R_K": "0" * 40},
-        "corrections": [correction(rs, ks, path)],
+        "corrections": [correction(rs, ks)],
     }
     # "Commits filled"'s trees describe R: they are not held at the corrected R'.
     fills["commits"]["trees"] = {"src/physgate/gate": "0" * 40}
     found = ck.commits(r, k, fills, master_ref=rs, block="x1")
-    assert found["corrected"] == {"block": "x1", "R": rs, "R_K": ks, "classification": str(path)}
+    assert found["corrected"] == correction(rs, ks)
     # Every other block stays at R, the commit "Commits filled" records.
     with pytest.raises(ck.RefusedError, match="R is"):
         ck.commits(r, k, fills, master_ref=rs, block="y1")
 
 
-def test_a_correction_for_a_block_whose_deviation_is_no_instrument_defect_is_refused(
+def test_every_block_a_correction_names_runs_at_its_corrected_commit_a_valid_one_too(
     r_k: Any,
     runs_dir: Path,  # noqa: ANN401
 ) -> None:
-    r, k, rs, ks, head = corrected_pair(r_k, "no-defect")
-    path = classified(runs_dir, route="anything else impossible as specified")
-    fills = {"commits": {"R": head, "R_K": "0" * 40}, "corrections": [correction(rs, ks, path)]}
-    with pytest.raises(ck.RefusedError, match="no deviation classified an instrument defect"):
-        ck.commits(r, k, fills, master_ref=rs, block="x1")
+    r, k, rs, ks, head = corrected_pair(r_k, "touched")
+    rows = [touched(runs_dir, "x1", valid=True), touched(runs_dir, "y1", valid=True)]
+    blocks(runs_dir, [*rows, att("z1", True)])
+    fills = {
+        "commits": {"R": head, "R_K": "0" * 40},
+        "corrections": [correction(rs, ks, "x1", "y1")],
+    }
+    for block in ("x1", "y1"):
+        assert ck.commits(r, k, fills, master_ref=rs, block=block)["corrected"]["id"] == "c1"
+    # No other block: z1, which the correction does not name, stays at R.
+    with pytest.raises(ck.RefusedError, match="R is"):
+        ck.commits(r, k, fills, master_ref=rs, block="z1")
 
 
-def test_an_instrument_defect_without_its_corrected_commit_is_refused(
-    r_k: Any,
-    runs_dir: Path,  # noqa: ANN401
+NAMED_NOT_CLASSIFIED = (
+    r"named by the corrections \['c1'\], and its attempts are classified with \[\]"
+)
+CLASSIFIED_NOT_NAMED = (
+    r"named by the corrections \[\], and its attempts are classified with \['c1'\]"
+)
+
+
+def test_a_correction_that_names_a_block_without_its_classification_is_refused(
+    runs_dir: Path, tmp_path: Path
 ) -> None:
-    r, k, rs, ks = r_k("no-correction")
+    classified(runs_dir, route="anything else impossible as specified")
+    fills = {"commits": {"R": "a" * 40, "R_K": "b" * 40}, "corrections": [C1]}
+    with pytest.raises(common.RefusedError, match=NAMED_NOT_CLASSIFIED):
+        ck.commits(tmp_path, tmp_path, fills, master_ref="HEAD", block="x1")
+    # A valid attempt the correction names is refused alike until it is classified with it.
+    blocks(runs_dir, [att("x1", True)])
+    with pytest.raises(common.RefusedError, match=NAMED_NOT_CLASSIFIED):
+        ck.commits(tmp_path, tmp_path, fills, master_ref="HEAD", block="x1")
+
+
+def test_an_instrument_defect_whose_correction_does_not_name_the_block_is_refused(
+    runs_dir: Path, tmp_path: Path
+) -> None:
     classified(runs_dir)
-    with pytest.raises(ck.RefusedError, match="corrected commit"):
-        ck.commits(r, k, {"commits": {"R": rs, "R_K": ks}}, master_ref=rs, block="x1")
+    fills: dict[str, Any] = {"commits": {"R": "a" * 40, "R_K": "b" * 40}}
+    with pytest.raises(common.RefusedError, match=CLASSIFIED_NOT_NAMED):
+        ck.commits(tmp_path, tmp_path, fills, master_ref="HEAD", block="x1")
+    fills["corrections"] = [{**C1, "blocks": {"y1": TEST}}]
+    with pytest.raises(common.RefusedError, match=CLASSIFIED_NOT_NAMED):
+        ck.commits(tmp_path, tmp_path, fills, master_ref="HEAD", block="x1")
 
 
 def test_a_correction_that_names_r_itself_is_refused(r_k: Any, runs_dir: Path) -> None:  # noqa: ANN401
     r, k, rs, ks = r_k("r-itself")
-    path = classified(runs_dir)
-    fills = {"commits": {"R": rs, "R_K": ks}, "corrections": [correction(rs, ks, path)]}
+    classified(runs_dir)
+    fills = {"commits": {"R": rs, "R_K": ks}, "corrections": [correction(rs, ks)]}
     with pytest.raises(ck.RefusedError, match="R itself"):
         ck.commits(r, k, fills, master_ref=rs, block="x1")
 
@@ -733,8 +835,8 @@ def test_a_corrected_commit_that_does_not_descend_from_r_is_refused(
     runs_dir: Path,  # noqa: ANN401
 ) -> None:
     r, k, rs, ks = r_k("not-down")
-    path = classified(runs_dir)
-    fills = {"commits": {"R": rs, "R_K": ks}, "corrections": [correction(common.R_FLOOR, ks, path)]}
+    classified(runs_dir)
+    fills = {"commits": {"R": rs, "R_K": ks}, "corrections": [correction(common.R_FLOOR, ks)]}
     with pytest.raises(ck.RefusedError, match="descend"):
         ck.commits(r, k, fills, master_ref=rs, block="x1")
 
@@ -744,30 +846,101 @@ def test_a_corrected_r_k_more_than_one_commit_above_r_prime_is_refused(
     runs_dir: Path,  # noqa: ANN401
 ) -> None:
     r, k, rs, ks, head = corrected_pair(r_k, "corr-two", k_commits=2)
-    path = classified(runs_dir)
-    fills = {"commits": {"R": head, "R_K": "0" * 40}, "corrections": [correction(rs, ks, path)]}
+    classified(runs_dir)
+    fills = {"commits": {"R": head, "R_K": "0" * 40}, "corrections": [correction(rs, ks)]}
     with pytest.raises(ck.RefusedError, match="R_K's parent"):
         ck.commits(r, k, fills, master_ref=rs, block="x1")
 
 
-def test_a_correction_naming_another_classification_than_the_block_s_defect_is_refused(
-    r_k: Any,
-    runs_dir: Path,  # noqa: ANN401
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("correction", "c2"),
+        ("test", "experiments/R-PG-03/test_launch.py"),
+        ("route", "something else"),
+        ("block", "y1"),
+        (None, None),
+    ],
+    ids=["another-correction", "another-test", "not-a-defect", "another-block", "none-written"],
+)
+def test_a_classification_other_than_the_correction_s_for_the_block_is_refused(
+    runs_dir: Path, tmp_path: Path, key: str | None, value: str | None
 ) -> None:
-    r, k, rs, ks, head = corrected_pair(r_k, "other-cls")
     path = classified(runs_dir)
-    elsewhere = runs_dir / "elsewhere.json"
-    elsewhere.write_text(path.read_text())
-    fills = {
-        "commits": {"R": head, "R_K": "0" * 40},
-        "corrections": [correction(rs, ks, elsewhere)],
-    }
-    with pytest.raises(ck.RefusedError, match="classification"):
-        ck.commits(r, k, fills, master_ref=rs, block="x1")
-    path.write_text(json.dumps({"block": "x1", "attempt": 1, "route": "something else"}))
-    fills["corrections"] = [correction(rs, ks, path)]
-    with pytest.raises(ck.RefusedError, match="classification"):
-        ck.commits(r, k, fills, master_ref=rs, block="x1")
+    fills = {"commits": {"R": "a" * 40, "R_K": "b" * 40}, "corrections": [C1]}
+    if key is None:
+        path.unlink()
+    else:
+        path.write_text(json.dumps({**json.loads(path.read_text()), key: value}))
+    with pytest.raises(ck.RefusedError, match="classification next to block x1's attempt 1"):
+        ck.commits(tmp_path, tmp_path, fills, master_ref="HEAD", block="x1")
+
+
+def test_a_block_a_correction_touches_runs_again_until_its_corrected_attempt_is_valid(
+    runs_dir: Path,
+) -> None:
+    first = touched(runs_dir, "y1", valid=True)
+    blocks(runs_dir, [att("x1", True), first])
+    assert ck.order("y1", now=AFTER)["attempt"] == 2
+    # No other block: x1's valid attempt is no correction's.
+    with pytest.raises(ck.RefusedError, match="block x1 already has a valid attempt$"):
+        ck.order("x1", now=AFTER)
+    # A void corrected attempt is re-attempted whole, as any void is (§11).
+    void = {**att("y1", False), "attempt": 2, "void_causes": ["usage limit"]}
+    blocks(runs_dir, [att("x1", True), first, void])
+    assert ck.order("y1", now=AFTER)["attempt"] == 3
+    # Once one is valid, the block is not run again.
+    blocks(runs_dir, [att("x1", True), first, void, {**att("y1", True), "attempt": 3}])
+    with pytest.raises(ck.RefusedError, match="y1 already has a valid attempt at its corrected"):
+        ck.order("y1", now=AFTER)
+
+
+def test_the_blocks_after_a_touched_one_wait_for_its_corrected_attempt(runs_dir: Path) -> None:
+    first = touched(runs_dir, "y1", valid=True)
+    blocks(runs_dir, [att("x1", True), first])
+    with pytest.raises(ck.RefusedError, match="block y1 comes first"):
+        ck.order("z1", now=AFTER)
+    blocks(runs_dir, [att("x1", True), first, {**att("y1", True), "attempt": 2}])
+    assert ck.order("z1", now=AFTER)["attempt"] == 1
+
+
+def test_the_owner_classifies_a_valid_attempt_a_correction_touches_with_its_id(
+    runs_dir: Path,
+) -> None:
+    launch = runs_dir / "blocks" / "x1-1"
+    launch.mkdir(parents=True)
+    row = {**att("x1", True), "launch": str(launch), "void_causes": [], "deviation": None}
+    void = {**att("y1", False), "void_causes": ["usage limit"], "deviation": None}
+    blocks(runs_dir, [row, void])
+    bad: list[tuple[str, str | None, str | None, str]] = [
+        ("anything else impossible as specified", None, None, "no deviation"),
+        ("instrument defect", TEST, None, "names the correction"),
+        ("anything else impossible as specified", None, "c1", "for an instrument defect alone"),
+    ]
+    for route, test, cid, why in bad:
+        with pytest.raises(ck.RefusedError, match=why):
+            ck.classify("x1", 1, route, test, cid)
+    # A void attempt is re-attempted whole, never classified.
+    with pytest.raises(ck.RefusedError, match="no deviation"):
+        ck.classify("y1", 1, "instrument defect", TEST, "c1")
+    got = ck.classify("x1", 1, "instrument defect", TEST, "c1")
+    said = json.loads((launch / "classification.json").read_text())
+    assert (said["route"], said["correction"], said["test"]) == ("instrument defect", "c1", TEST)
+    assert said == got and ck.read_blocks()["attempts"][0]["correction"] == "c1"
+    with pytest.raises(ck.RefusedError, match="classified already"):
+        ck.classify("x1", 1, "instrument defect", TEST, "c2")
+
+
+def test_a_correction_s_id_classifies_one_attempt_of_a_block(runs_dir: Path) -> None:
+    first = touched(runs_dir, "x1")
+    launch = runs_dir / "blocks" / "x1-2"
+    launch.mkdir(parents=True)
+    pending = {"causes": ["a crashed or killed process"], "classification": None}
+    second = {**att("x1", False), "attempt": 2, "launch": str(launch), "deviation": pending}
+    blocks(runs_dir, [first, second])
+    with pytest.raises(ck.RefusedError, match="c1 classifies an attempt of block x1 already"):
+        ck.classify("x1", 2, "instrument defect", TEST, "c1")
+    assert ck.classify("x1", 2, "instrument defect", TEST, "c2")["correction"] == "c2"
 
 
 # ---- R3 ------------------------------------------------------------------------------------------
@@ -897,7 +1070,7 @@ def test_a_deviation_holds_the_block_until_the_owner_classifies_it(runs_dir: Pat
     blocks(runs_dir, [row])
     with pytest.raises(ck.RefusedError, match="classif"):
         ck.order("x1", now=AFTER)
-    test = "experiments/R-PG-03/test_checks.py"
+    test = TEST
     bad: list[tuple[str, str | None, str]] = [
         ("instrument defect", None, "test"),
         ("instrument defect", "experiments/R-PG-03/checks.py", "test"),
@@ -906,10 +1079,12 @@ def test_a_deviation_holds_the_block_until_the_owner_classifies_it(runs_dir: Pat
     ]
     for route, path, why in bad:
         with pytest.raises(ck.RefusedError, match=why):
-            ck.classify("x1", 1, route, path)
+            ck.classify("x1", 1, route, path, "c1")
+    with pytest.raises(ck.RefusedError, match="names the correction"):
+        ck.classify("x1", 1, "instrument defect", test, None)
     with pytest.raises(ck.RefusedError, match="no deviation"):
         ck.classify("x1", 2, "anything else impossible as specified", None)
-    got = ck.classify("x1", 1, "instrument defect", test)
+    got = ck.classify("x1", 1, "instrument defect", test, "c1")
     assert got["test_blob"] == git(common.REPO, "rev-parse", f"HEAD:{test}")
     assert json.loads((launch / "classification.json").read_text())["route"] == "instrument defect"
     with pytest.raises(ck.RefusedError, match="already"):

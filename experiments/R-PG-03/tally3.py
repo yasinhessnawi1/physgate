@@ -53,7 +53,9 @@ fresh-v2's).
 **What it checks first, and refuses on.** R-PG-02's tally is the frozen file (its sha256). Outside
 a test on fixtures, the reading (§7) is given and the draws are 10,000. Every block has a valid
 attempt that ended and passed its stream check, or (``s``, ``p1``, ``p2`` alone) is recorded as not
-run with its cause (R8). Each run's rows are its block's items; its seed, kind, lanes, account
+run with its cause (R8); a block a correction touches is tallied on its attempt at the corrected
+commit, which it must have, and each correction names exactly the blocks classified with its id
+(§11). Each run's rows are its block's items; its seed, kind, lanes, account
 digest and corpus manifest are its block's and arm's, and the set's manifest is "Set filled"'s;
 every review line's rubric digest is its arm's for its role (§3.1), and every packet's knowledge
 digests are the pinned trees' for its arm and role, under the review roots the block record names
@@ -694,12 +696,18 @@ def corrected_a(status: str, verdict: str, own_confirmed: bool, way: int) -> boo
 # ---------------------------------------------------------------- reading the records
 
 
-def blocks_record(records: Path) -> dict[str, Any]:
+def blocks_record(records: Path, fills: dict[str, Any] | None = None) -> dict[str, Any]:
     """The launch's record of every block attempt, held to R8: nothing tallied before the end.
 
+    A block a correction touches (§11) is tallied on its corrected attempt, the valid one after
+    its attempt classified with the correction's id; that earlier attempt is kept and listed.
+
     Raises:
-        RefusedError: a block has no valid attempt that ended and passed its stream check, and
-            is not recorded as not run; or one of the primary blocks is recorded as not run.
+        RefusedError: a block has no valid attempt that ended and passed its stream check (a
+            block a correction touches, none after the touched one), and is not recorded as not
+            run; or one of the primary blocks is recorded as not run.
+        common.RefusedError: the corrections that name a block (``fills``) are not those its
+            attempts are classified with.
     """
     data = common.read_own(records / "blocks.json")
     if data is None:
@@ -712,11 +720,12 @@ def blocks_record(records: Path) -> dict[str, Any]:
         raise RefusedError("a primary block is recorded as not run: the primary is not measured")
     chosen: dict[str, Any] = {}
     for block in common.BLOCKS:
+        mine = [a for a in rec.get("attempts", []) if a.get("block") == block]
+        since, _ = common.corrected_from(mine, block, fills)
         valid = [
             a
-            for a in rec.get("attempts", [])
-            if a.get("block") == block
-            and a.get("valid") is True
+            for a in mine[since:]
+            if a.get("valid") is True
             and a.get("ended_utc")
             and (a.get("stream_check") or {}).get("cut") == 0
         ]
@@ -725,9 +734,10 @@ def blocks_record(records: Path) -> dict[str, Any]:
                 raise RefusedError(f"block {block} is recorded both as run and as not run")
             continue
         if len(valid) != 1:
+            at = " at its corrected commit (§11)" if since else ""
             raise RefusedError(
-                f"block {block} has {len(valid)} valid attempt(s) that ended and passed the stream "
-                "check: nothing is tallied before the last block has ended (R8)"
+                f"block {block} has {len(valid)} valid attempt(s){at} that ended and passed the "
+                "stream check: nothing is tallied before the last block has ended (R8)"
             )
         chosen[block] = valid[0]
     return {"chosen": chosen, "not_run": not_run, "attempts": rec.get("attempts", [])}
@@ -1208,7 +1218,7 @@ def tally(
             "the reading (§7) is an input of the tally: without it the reading would read "
             "unchecked, which §7 defines by its three controls, never by a reading left out"
         )
-    rec = blocks_record(records)
+    rec = blocks_record(records, fills)
     cells = Cells.at(repo)
     blocks: dict[str, Block] = {}
     checks: dict[str, Any] = {}
@@ -1373,6 +1383,7 @@ def tally(
                         "valid": a.get("valid"),
                         "void_causes": a.get("void_causes") or [],
                         "deviation": a.get("deviation"),
+                        "correction": a.get("correction"),
                     }
                     for a in rec["attempts"]
                     if a.get("block") == name and a is not chosen

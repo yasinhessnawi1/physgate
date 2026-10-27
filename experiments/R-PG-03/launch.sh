@@ -41,7 +41,7 @@
 #       the first block the window's, after a passed smoke and with no ledger line after it;
 #   L2  R and R_K: the five paths, R_K's promotions line for line, the rubric and generalist_of
 #       digests, the knowledge trees, every tree, blob and digest "Commits filled" records; for a
-#       block whose deviation is classified an instrument defect, its corrected R' and R_K' (§11);
+#       block a correction touches, the correction's R' and R_K' (§11);
 #   L3  the pinned binary's digest and version;
 #   L4  the parameters (R-PG-02's but lanes) and the 3/3/2 split; the block's seeded lane plan;
 #   L5  the block's corpus: "Set filled"'s manifest, "Sheet filled"'s sheet, the converter re-run;
@@ -445,6 +445,6 @@ rp3_drop_token
 [ "$CREDENTIALS_OK" = 1 ] || refuse "a login file of the block's sessions remains, or its removal is not confirmed"
 [ "$SCAN_OK" = 1 ] || refuse "the token's scan found a hit in what the block wrote"
 [ "$LEDGER_OK" = 1 ] || refuse "the ledger line"
-[ -z "$DEVIATION" ] || refuse "DEVIATION ($DEVIATION): the attempt is not void, since §11's void list is closed. No further attempt of block $BLOCK until the owner classifies it on the logs and the ledger only: experiments/R-PG-03/checks.py classify --block $BLOCK --attempt $N, with --route defect --test <a tracked test that depends on no verdict and shows it>, or --route impossible"
+[ -z "$DEVIATION" ] || refuse "DEVIATION ($DEVIATION): the attempt is not void, since §11's void list is closed. No further attempt of block $BLOCK until the owner classifies it on the logs and the ledger only: experiments/R-PG-03/checks.py classify --block $BLOCK --attempt $N, with --route defect --test <a tracked test that depends on no verdict and shows it> --correction <the id of the correction that names the block>, or --route impossible"
 [ "$AFTER_OK" = 1 ] || refuse "the attempt is void ($VOID): it is re-attempted whole, never resumed (§11)"
 say "== done $(date -u +%Y-%m-%dT%H:%M:%SZ): block $BLOCK attempt $N is valid"
