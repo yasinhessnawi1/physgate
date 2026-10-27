@@ -40,6 +40,7 @@ from physgate.orchestrator.events import (
     Halted,
     Incident,
     IntegrationGateRan,
+    IntegrationGateSkipped,
     Merged,
     ModuleCompleted,
     ProposalsChecked,
@@ -565,3 +566,138 @@ def test_a_kill_between_the_incident_and_its_halt_resumes_to_the_halt_alone(
     events = read_events(rig.run_dir / "events.jsonl")
     assert comparable(events) == comparable(reference)
     assert len([e for e in events if isinstance(e, Incident)]) == 1
+
+
+# --- the order results are owed in, and where a retest is owed ----------------------------------
+
+
+def start_with(
+    loop: Loop,
+    plan: Sequence[PlanEntry],
+    consumers: dict[str, tuple[str, ...]],
+    pairs: tuple[ContractPair, ...],
+) -> None:
+    """Start ``plan`` with its interfaces' ``consumers`` and the ``pairs`` they give."""
+    requirement = '{"requirement": "1", "contributing": [{"module": "drive", "criterion": "1"}]}'
+    summary = DecompositionSummary(
+        session_id="decomposition",
+        model="claude-sonnet-5",
+        num_turns=1,
+        subtasks=len(plan),
+        interface_nodes=tuple(consumers),
+        spec_commit="e" * 40,
+        head_revision=journal_records_after(loop.run_dir.parent / "store", 0)[-1].rev,
+        interface_consumers=tuple(
+            InterfaceConsumers(interface=interface, consumers=modules)
+            for interface, modules in consumers.items()
+        ),
+        system_requirements=(SystemRequirement.model_validate_json(requirement),),
+        contract_pairs=pairs,
+    )
+    loop.record.start(list(plan), decomposed=summary)
+
+
+def test_a_ready_pair_behind_one_not_yet_ready_is_owed_at_its_own_merge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Sizing's module is named so that its pair with drive comes after drive's pair with fw.
+    zbudget, zclosing = "zbudget-6a7b8c", "zbudget-c-9d0e1f"
+    rig = rig_for(tmp_path)
+    graph = rig.diff
+    assert isinstance(graph, StoreGraph)
+    graph.writes[zbudget], graph.writes[zclosing] = (
+        graph.writes.pop(BUDGET),
+        graph.writes.pop(CLOSING),
+    )
+    loop = rig.open()
+    hooked(monkeypatch, loop)
+    sized = ContractPair(
+        producer=side(DRIVE, "control"),
+        consumer=side(zbudget, "sizing"),
+        interfaces=("iface.drive",),
+    )
+    plan = [
+        entry(zbudget, "sizing", "zbudget"),
+        entry(DRIVE, "control", "drive"),
+        entry(FW, "firmware", "fw"),
+        entry(zclosing, "sizing", "zbudget"),
+        entry(INTEG, "integration", "integration"),
+    ]
+    consumers = {"iface.drive": ("fw", "zbudget"), "iface.tilt": ("drive",)}
+    start_with(loop, plan, consumers, (P_FW, sized, P_BACK))
+    loop.run()
+    loop.close()
+    events = read_events(rig.run_dir / "events.jsonl")
+    drive = at(events, DiffChecked, DRIVE)
+    # Drive to fw is first in the recorded order and not ready at drive's merge; drive to zbudget
+    # is ready there, and is owed there.
+    assert (contracts(events)[0].seq, contracts(events)[0].result.pair) == (drive + 1, sized)
+
+
+#: An interface sizing produces, which drive reads.
+IFACE_BUDGET = node("iface.budget", "sizing", kind="interface", v=12)
+P_SIZED = ContractPair(
+    producer=side(BUDGET, "sizing"), consumer=side(DRIVE, "control"), interfaces=("iface.budget",)
+)
+
+
+def test_a_later_merge_in_the_producers_directory_owes_a_retest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = rig_for(tmp_path, interfaces=(IFACE_BUDGET,))
+    assert isinstance(rig.diff, StoreGraph)
+    rig.diff.writes.update(
+        {
+            BUDGET: [node("budget.supply", "sizing", "iface.budget", v=12)],
+            DRIVE: [node("drive.motor", "control", "iface.budget", v=12)],
+            FW: [node("fw.main", "firmware")],
+            CLOSING: [node("budget.supply", "sizing", "iface.budget", v=11)],
+        }
+    )
+    loop = rig.open()
+    hooked(monkeypatch, loop, declared=(BUDGET, DRIVE))
+    plan = [
+        entry(BUDGET, "sizing", "budget"),
+        entry(DRIVE, "control", "drive"),
+        entry(FW, "firmware", "fw"),
+        entry(CLOSING, "sizing", "budget"),
+        entry(INTEG, "integration", "integration"),
+    ]
+    start_with(loop, plan, {"iface.budget": ("drive",)}, (P_SIZED,))
+    loop.run()
+    loop.close()
+    events = read_events(rig.run_dir / "events.jsonl")
+    drive, closing = (at(events, DiffChecked, s) for s in (DRIVE, CLOSING))
+    # The closing pass merges in the producer's directory, and owes the pair its retest there.
+    assert [(e.seq, e.result.pair, e.first, e.result.outcome) for e in contracts(events)] == [
+        (drive + 1, P_SIZED, True, "pass"),
+        (closing + 1, P_SIZED, False, "fail"),
+    ]
+    assert [e for e in events if isinstance(e, ModuleCompleted)] == []
+
+
+# --- what replay refuses, after a halt and under off ----------------------------------------------
+
+
+def test_a_contract_result_after_the_halt_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, honest = finished(tmp_path / "honest", monkeypatch)
+    _, halted = finished(tmp_path / "halted", monkeypatch, interfaces=(IFACE_TILT,))
+    state = replay(halted)
+    assert state.halted is not None and state.owed_contract() == P_FW
+    # The pair's honest result, at the halted run's own head and revision.
+    forged = contracts(honest)[0].model_copy(
+        update={"commit": state.run_head, "revision": state.journal_head}
+    )
+    refused(halted, forged, "the run is halted")
+
+
+def test_no_integration_skip_is_taken_under_off_while_a_result_is_owed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, events = finished(tmp_path, monkeypatch, declared=(DRIVE, FW), gate_mode="off")
+    owed = events[: at(events, DiffChecked, FW) + 1]
+    skip = next(e for e in events if isinstance(e, IntegrationGateSkipped))
+    assert skip.reason == "gate_mode=off"
+    refused(owed, skip, "while a pair's contract result is owed")

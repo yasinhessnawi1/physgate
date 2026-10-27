@@ -21,6 +21,7 @@ import math
 from pathlib import Path
 from typing import Any
 
+import pint
 import pytest
 from pydantic import ValidationError
 
@@ -357,7 +358,7 @@ def test_every_contract_result_carries_the_definition_digest() -> None:
         ]
     }
     assert content["registry_files"] == {}
-    assert str(content["pint"]).startswith("pint ")
+    assert content["pint"] == f"pint {pint.__version__}"
 
 
 def test_the_digest_moves_with_the_tolerance_a_source_and_a_registry_file(
